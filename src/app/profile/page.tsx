@@ -362,6 +362,8 @@ export default function HelloProfileMaker() {
           onClick={async () => {
             try {
               const { compressToEncodedURIComponent } = await import("lz-string");
+              const { supabase } = await import("@/lib/supabase");
+              const { generateSlug } = await import("@/lib/slug");
               const payload = {
                 name: data.name,
                 greeting: data.greeting,
@@ -375,7 +377,11 @@ export default function HelloProfileMaker() {
                 })),
               };
               const encoded = compressToEncodedURIComponent(JSON.stringify(payload));
-              const shareUrl = `${location.origin}/profile?d=${encoded}`;
+              const slug = generateSlug();
+              const { error } = await supabase.from("short_urls").insert({ slug, data: encoded, template });
+              const shareUrl = error
+                ? `${location.origin}/profile?d=${encoded}`
+                : `${location.origin}/p/${slug}`;
               window.open(
                 `https://twitter.com/intent/tweet?text=${encodeURIComponent("わたしのハロプロプロフ帳できた！🎤✨\n#ハロプロプロフ帳 #ハロプロ")}&url=${encodeURIComponent(shareUrl)}`,
                 "_blank"
