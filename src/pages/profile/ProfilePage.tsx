@@ -1,21 +1,19 @@
-"use client";
-
 import { useState, useEffect } from "react";
 import { HELLO_GROUPS } from "@/data/groups";
 import { FREE_SUGGESTIONS } from "@/data/members";
 import { dc, parseRanked } from "@/lib/colorUtils";
 import type { ProfileData, OshiMember, FreeItem } from "@/types/profile";
 import type { Member } from "@/types/profile";
-import BrainPreview from "@/components/profile/BrainPreview";
-import ColorPicker from "@/components/profile/ColorPicker";
-import MemberSelector from "@/components/profile/MemberSelector";
-import TemplateA from "@/components/profile/TemplateA";
-import TemplateB from "@/components/profile/TemplateB";
-import TemplateC from "@/components/profile/TemplateC";
+import BrainPreview from "@/pages/profile/components/BrainPreview";
+import ColorPicker from "@/pages/profile/components/ColorPicker";
+import MemberSelector from "@/pages/profile/components/MemberSelector";
+import TemplateA from "@/pages/profile/components/TemplateA";
+import TemplateB from "@/pages/profile/components/TemplateB";
+import TemplateC from "@/pages/profile/components/TemplateC";
 
 const STORAGE_KEY = "hp-prof-v6";
 
-export default function HelloProfileMaker() {
+export default function ProfilePage() {
   const [step, setStep] = useState<"input" | "preview">("input");
   const [template, setTemplate] = useState<"A" | "B" | "C" | null>(null);
   const [data, setData] = useState<ProfileData>({ name: "", greeting: "", pronoun: "わたし", oshiMembers: [], groups: [], freeItems: [] });
@@ -362,7 +360,8 @@ export default function HelloProfileMaker() {
           onClick={async () => {
             try {
               const { compressToEncodedURIComponent } = await import("lz-string");
-              const { supabase } = await import("@/lib/supabase");
+              const { getSupabase } = await import("@/lib/supabase");
+              const supabase = getSupabase();
               const { generateSlug } = await import("@/lib/slug");
               const payload = {
                 name: data.name,

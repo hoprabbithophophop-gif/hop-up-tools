@@ -1,9 +1,8 @@
-"use client";
-
+import { Link } from "react-router-dom";
 import type { ProfileData } from "@/types/profile";
-import TemplateA from "@/components/profile/TemplateA";
-import TemplateB from "@/components/profile/TemplateB";
-import TemplateC from "@/components/profile/TemplateC";
+import TemplateA from "@/pages/profile/components/TemplateA";
+import TemplateB from "@/pages/profile/components/TemplateB";
+import TemplateC from "@/pages/profile/components/TemplateC";
 
 export default function ProfileView({ data, template }: { data: ProfileData; template?: string }) {
   return (
@@ -21,12 +20,12 @@ export default function ProfileView({ data, template }: { data: ProfileData; tem
         <TemplateA data={data} />
       )}
       <div style={{ textAlign: "center", marginTop: "1.5rem" }}>
-        <a
-          href="/"
+        <Link
+          to="/profile"
           style={{ fontSize: "0.875rem", color: "#E5457D", fontWeight: 700, textDecoration: "none" }}
         >
           あなたも作ってみる →
-        </a>
+        </Link>
       </div>
     </div>
   );

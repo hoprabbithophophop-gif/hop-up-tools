@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+body {
+  font-family: 'Zen Maru Gothic', 'Hiragino Kaku Gothic Pro', sans-serif;
+  color: #2a2a3e;
+}
