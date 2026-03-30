@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 
 export default function TopPage() {
   return (
-    <div style={{ maxWidth: 480, margin: "2rem auto", padding: "0 1rem", fontFamily: "'Zen Maru Gothic',sans-serif", textAlign: "center" }}>
+    <div style={{ maxWidth: 480, margin: "2rem auto", padding: "0 1rem", fontFamily: "'Inter','Noto Sans JP',sans-serif", textAlign: "center" }}>
       <div style={{ fontSize: "1.4rem", fontWeight: 800, background: "linear-gradient(135deg,#E5457D,#ba3cb8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "1.5rem" }}>
         hop-up-tools
       </div>
@@ -11,7 +11,10 @@ export default function TopPage() {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <Link to="/profile" style={{ padding: ".75rem 1.5rem", background: "#E5457D", color: "#fff", borderRadius: 12, textDecoration: "none", fontWeight: 700, fontSize: "0.875rem" }}>
-          🎤 ハロプロ プロフ帳メーカー
+          🎤 ハロプロ プロフィール帳メーカー
+        </Link>
+        <Link to="/fc-ticket" style={{ padding: ".75rem 1.5rem", background: "#ba3cb8", color: "#fff", borderRadius: 12, textDecoration: "none", fontWeight: 700, fontSize: "0.875rem" }}>
+          📅 FC締切リマインダー
         </Link>
       </div>
     </div>

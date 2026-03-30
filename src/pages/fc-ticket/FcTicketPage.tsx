@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import UpfcDummyPreview from "./UpfcDummyPreview";
 import { getSupabase } from "../../lib/supabase";
 import { generateIcs, downloadIcs, generateGoogleCalendarUrl, generateYahooCalendarUrl, type IcsEvent } from "../../lib/ics";
 import {
@@ -78,7 +79,10 @@ export default function FcTicketPage() {
   useEffect(() => { document.title = "FC 締切リマインダー | hop-up-tools"; }, []);
 
   const [tab, setTab] = useState<Tab>("input");
-  const [pasteText, setPasteText] = useState("");
+  const [pasteText, setPasteText] = useState<string>(() => {
+    try { return localStorage.getItem("fc-input-text") ?? ""; }
+    catch { return ""; }
+  });
   const [allNews, setAllNews] = useState<FcNewsRow[]>([]);
   const [allDeadlines, setAllDeadlines] = useState<Deadline[]>([]);
   const [matchResults, setMatchResults] = useState<MatchResult[]>([]);
@@ -112,6 +116,14 @@ export default function FcTicketPage() {
       setLoading(false);
     });
   }, []);
+
+  // allNews ロード完了後、保存済み入力テキストがあれば自動パース
+  useEffect(() => {
+    if (allNews.length === 0 || !pasteText.trim()) return;
+    const parsed = parseUpfcText(pasteText);
+    setMatchResults(matchApplications(parsed, allNews));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allNews]);
 
   function handleAnalyze() {
     if (!pasteText.trim()) return;
@@ -204,7 +216,10 @@ function InputScreen({
   onAnalyze: () => void;
   onCalendar: () => void;
 }) {
+  const [helpOpen, setHelpOpen] = useState(false);
+
   return (
+    <>
     <main className="flex-grow flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-12 gap-0 border border-outline-variant/20 bg-surface-container-lowest">
         {/* 左カラム（デスクトップのみ） */}
@@ -223,7 +238,7 @@ function InputScreen({
               href="https://www.upfc.jp/helloproject/"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs font-bold underline decoration-1 underline-offset-4 hover:text-tertiary transition-colors"
+              className="text-xs font-bold underline decoration-1 underline-offset-4 hover:text-primary transition-colors"
             >
               UPFC 公式サイト ↗
             </a>
@@ -238,14 +253,27 @@ function InputScreen({
           </div>
 
           <div className="relative mb-8">
-            <label className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline block mb-4">
-              Source Data
-            </label>
+            <div className="flex items-center gap-2 mb-4">
+              <label className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">
+                Source Data
+              </label>
+              <button
+                type="button"
+                onClick={() => setHelpOpen(true)}
+                className="w-5 h-5 rounded-full border border-outline text-outline text-[0.625rem] font-bold leading-none flex items-center justify-center hover:border-primary hover:text-primary transition-colors cursor-pointer"
+                aria-label="コピー範囲の説明を見る"
+              >
+                ?
+              </button>
+            </div>
             <textarea
               className="w-full h-64 bg-transparent border-b border-outline-variant/40 py-4 text-sm resize-none focus:outline-none focus:border-b-2 focus:border-primary transition-all placeholder:italic placeholder:text-outline/50"
               placeholder="UPFCのチケット申込状況をコピペしてください"
               value={pasteText}
-              onChange={(e) => setPasteText(e.target.value)}
+              onChange={(e) => {
+                setPasteText(e.target.value);
+                try { localStorage.setItem("fc-input-text", e.target.value); } catch { /* ignore */ }
+              }}
             />
             <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-2 text-outline">
@@ -286,6 +314,47 @@ function InputScreen({
         </div>
       </div>
     </main>
+
+    {/* ヘルプモーダル */}
+    {helpOpen && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+        onClick={() => setHelpOpen(false)}
+      >
+        <div
+          className="bg-surface-container-lowest w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-sm shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant/20">
+            <h2 className="text-sm font-bold uppercase tracking-widest">コピー範囲の説明</h2>
+            <button
+              type="button"
+              onClick={() => setHelpOpen(false)}
+              className="text-outline hover:text-primary transition-colors cursor-pointer"
+              aria-label="閉じる"
+            >
+              <span className="material-symbols-outlined text-xl">close</span>
+            </button>
+          </div>
+          <div className="px-6 py-6 flex flex-col gap-6">
+            <p className="text-sm leading-relaxed text-on-surface-variant">
+              Hello! Projectオフィシャルファンクラブにログイン後、マイページの「チケット申込状況」を開き、下のピンクの枠内をすべて選択してコピーしてください。
+            </p>
+            <ol className="text-xs text-on-surface-variant flex flex-col gap-1 list-decimal list-inside">
+              <li>Hello! Projectオフィシャルファンクラブにログインしてマイページを開く</li>
+              <li>「チケット申込状況」タブをクリック</li>
+              <li>公演リストの最初から最後までを選択</li>
+              <li>コピーしてテキストエリアにペースト<br /><span className="text-outline">PC: Ctrl+C / ⌘C　スマホ: 長押し→「コピー」</span></li>
+            </ol>
+            <UpfcDummyPreview />
+            <p className="text-[0.6875rem] text-outline italic">
+              ※ コピーした内容はこのブラウザ内でのみ処理されます。サーバーには送信されません。
+            </p>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -325,7 +394,7 @@ function ResultScreen({
     const dls = deadlinesFor(r.matched.map((n) => n.uid));
     return dls.some((d) => {
       const diff = (new Date(d.deadline_at).getTime() - today.getTime()) / 86400000;
-      return diff < 1;
+      return diff >= 0 && diff < 3;
     });
   }).length;
 
@@ -335,7 +404,7 @@ function ResultScreen({
         <p className="text-outline text-sm uppercase tracking-widest mb-6">
           まだ結果がありません
         </p>
-        <button onClick={onBack} className="text-[0.6875rem] font-bold uppercase tracking-widest underline hover:text-tertiary transition-colors cursor-pointer">
+        <button onClick={onBack} className="text-[0.6875rem] font-bold uppercase tracking-widest underline hover:text-primary transition-colors cursor-pointer">
           ← Input に戻る
         </button>
       </main>
@@ -383,7 +452,7 @@ function ResultScreen({
           {/* マッチしなかった公演 */}
           {unmatched.length > 0 && (
             <div className="opacity-50">
-              <div className="border-b border-outline-variant pb-2 mb-2">
+              <div className="border-b border-outline-variant/20 pb-2 mb-2">
                 <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">
                   Not Found ({unmatched.length})
                 </span>
@@ -425,15 +494,32 @@ function ResultArticle({
     <article className={`relative ${isCompleted && !hasFutureDeadlines ? "opacity-60" : ""}`}>
       <div className={`flex justify-between items-baseline border-b pb-2 ${borderClass}`}>
         <h3 className={`text-xl font-black tracking-tight ${isRejected ? "text-on-surface-variant" : ""}`}>
-          {parsed.title.length > 40 ? parsed.title.slice(0, 40) + "…" : parsed.title}
+          {parsed.title}
         </h3>
         <StatusBadge status={parsed.status} hasFuture={hasFutureDeadlines} />
       </div>
 
       {hasFutureDeadlines ? (
-        <div className="mt-6 space-y-4">
-          {deadlines.map((dl) => (
-            <DeadlineRow key={dl.id} dl={dl} />
+        <div className="mt-6 space-y-6">
+          {Object.entries(
+            deadlines.reduce<Record<string, Deadline[]>>((acc, dl) => {
+              (acc[dl.news_uid] ??= []).push(dl);
+              return acc;
+            }, {})
+          ).map(([uid, dls]) => (
+            <div key={uid}>
+              {/* 複数記事にまたがる場合のみサブヘッダーを表示 */}
+              {new Set(deadlines.map((d) => d.news_uid)).size > 1 && (
+                <p className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline mb-2 px-1">
+                  {dls[0].fc_news.title.replace(/[『』「」【】〔〕]/g, "").replace(/のお知らせ.*$/, "").replace(/^.+?(FC|先行)/, "$1")}
+                </p>
+              )}
+              <div className="space-y-4">
+                {dls.map((dl) => (
+                  <DeadlineRow key={dl.id} dl={dl} paidUp={isCompleted && dl.type === "payment"} />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       ) : (
@@ -454,9 +540,11 @@ function ResultArticle({
 function AddToCalendarButton({
   event,
   urgent = false,
+  past = false,
 }: {
   event: IcsEvent;
   urgent?: boolean;
+  past?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [dropUp, setDropUp] = useState(true);
@@ -504,7 +592,9 @@ function AddToCalendarButton({
       <button
         onClick={handleToggle}
         className={`flex items-center justify-center gap-2 px-6 py-3 text-xs font-bold uppercase tracking-widest transition-colors cursor-pointer ${
-          urgent
+          past
+            ? "bg-surface-container text-outline hover:bg-surface-container-high"
+            : urgent
             ? "bg-white text-primary hover:bg-surface-container-low"
             : "bg-primary text-on-primary-fixed hover:bg-secondary"
         }`}
@@ -513,17 +603,17 @@ function AddToCalendarButton({
         カレンダーに追加
       </button>
       {open && (
-        <div className={`absolute right-0 ${menuPos} z-20 bg-surface-container-lowest border border-outline-variant shadow-lg min-w-[11rem]`}>
+        <div className={`absolute right-0 ${menuPos} z-20 bg-surface-container-lowest border border-primary min-w-[11rem]`}>
           <button onClick={handleGoogle} className={menuItem}>
             <span className="material-symbols-outlined text-sm">open_in_new</span>
             Google カレンダー
           </button>
-          <div className="border-t border-outline-variant" />
+          <div className="border-t border-outline-variant/20" />
           <button onClick={handleYahoo} className={menuItem}>
             <span className="material-symbols-outlined text-sm">open_in_new</span>
             Yahoo! カレンダー
           </button>
-          <div className="border-t border-outline-variant" />
+          <div className="border-t border-outline-variant/20" />
           <button onClick={handleIcs} className={menuItem}>
             <span className="material-symbols-outlined text-sm">download</span>
             Apple / その他
@@ -548,11 +638,12 @@ function StatusBadge({ status, hasFuture }: { status: string; hasFuture: boolean
   return <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">{status}</span>;
 }
 
-function DeadlineRow({ dl }: { dl: Deadline }) {
+function DeadlineRow({ dl, paidUp = false }: { dl: Deadline; paidUp?: boolean }) {
   const deadline = new Date(dl.deadline_at);
   const now = new Date();
   const diffDays = (deadline.getTime() - now.getTime()) / 86400000;
-  const isUrgent = diffDays < 1;
+  const isPast = diffDays < 0 || paidUp;
+  const isUrgent = !paidUp && diffDays >= 0 && diffDays < 3;
 
   const calEvent: IcsEvent = {
     uid: dl.id + "@hop-up-tools",
@@ -568,7 +659,9 @@ function DeadlineRow({ dl }: { dl: Deadline }) {
   return (
     <div
       className={`p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-        isUrgent
+        isPast
+          ? "bg-surface-container-lowest opacity-50"
+          : isUrgent
           ? "bg-tertiary-container text-on-tertiary-container"
           : "bg-surface-container-low"
       }`}
@@ -577,7 +670,7 @@ function DeadlineRow({ dl }: { dl: Deadline }) {
         <div className="flex items-center gap-2">
           {isUrgent && (
             <span className="bg-tertiary text-on-tertiary-container text-[0.625rem] font-bold px-2 py-0.5 uppercase tracking-tighter">
-              Today
+              {diffDays < 1 ? "Today" : `${Math.ceil(diffDays)}日後`}
             </span>
           )}
           <span className={`text-[0.6875rem] font-bold uppercase tracking-widest ${isUrgent ? "opacity-80" : "text-outline"}`}>
@@ -588,7 +681,7 @@ function DeadlineRow({ dl }: { dl: Deadline }) {
           {dl.label} {dateStr} {timeStr}
         </p>
       </div>
-      <AddToCalendarButton event={calEvent} urgent={isUrgent} />
+      <AddToCalendarButton event={calEvent} urgent={isUrgent} past={isPast} />
     </div>
   );
 }
@@ -625,6 +718,8 @@ function CalendarScreen({
   const [watchlistGroups, setWatchlistGroups] = useState<string[]>([]);
   const [pendingCalendarUid, setPendingCalendarUid] = useState<string | null>(null);
   const [confirmClearAll, setConfirmClearAll] = useState(false);
+  const [tooltipUid, setTooltipUid] = useState<string | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const year = centerDate.getFullYear();
   const month = centerDate.getMonth();
@@ -644,7 +739,8 @@ function CalendarScreen({
   useEffect(() => {
     if (!stripRef.current) return;
     const containerWidth = stripRef.current.clientWidth;
-    stripRef.current.scrollLeft = STRIP_TODAY_IDX * CELL_WIDTH - containerWidth / 2 + CELL_WIDTH / 2;
+    const initialScroll = STRIP_TODAY_IDX * CELL_WIDTH - containerWidth / 2 + CELL_WIDTH / 2;
+    stripRef.current.scrollLeft = initialScroll;
   }, []);
 
   // スクロール連動: 中心付近の日付でcenterDateを更新
@@ -695,7 +791,7 @@ function CalendarScreen({
   function dotColor(dl: Deadline): string {
     const kind = deadlineKind(dl);
     if (kind === "applied") return typeColor(dl.type);
-    if (kind === "watchlist") return "#9e3a3a";
+    if (kind === "watchlist") return "#585f6c";
     return "#c6c6c6";
   }
 
@@ -712,13 +808,13 @@ function CalendarScreen({
         : watchlistSet.has(uid) ? "watchlist" : "other";
       if (dates.apply_end) {
         const applyStart = dates.apply_start ?? new Date(dates.apply_end.getTime() - 7 * 86400000);
-        periods.push({ newsUid: uid, start: applyStart, end: dates.apply_end, type: "apply", color: "#6b9ed2", kind });
+        periods.push({ newsUid: uid, start: applyStart, end: dates.apply_end, type: "apply", color: "#000000", kind });
       }
       if (dates.payment) {
-        periods.push({ newsUid: uid, start: dates.payment, end: dates.payment, type: "payment", color: "#d4863a", kind });
+        periods.push({ newsUid: uid, start: dates.payment, end: dates.payment, type: "payment", color: "#585f6c", kind });
       }
       if (dates.sale_end) {
-        periods.push({ newsUid: uid, start: dates.sale_start ?? dates.sale_end, end: dates.sale_end, type: "sale", color: "#4aaa88", kind });
+        periods.push({ newsUid: uid, start: dates.sale_start ?? dates.sale_end, end: dates.sale_end, type: "sale", color: "#777777", kind });
       }
     }
     return periods;
@@ -758,6 +854,22 @@ function CalendarScreen({
     }).length;
 
   const newsMap = new Map(allNews.map((n) => [n.uid, n]));
+
+  // Ganttツールチップ用: newsUid → 全締切種別
+  const deadlinesByNewsUid = new Map<string, Record<string, Date>>();
+  for (const dl of filteredDeadlines) {
+    if (!deadlinesByNewsUid.has(dl.news_uid)) deadlinesByNewsUid.set(dl.news_uid, {});
+    deadlinesByNewsUid.get(dl.news_uid)![dl.type] = new Date(dl.deadline_at);
+  }
+  // Gantt入金締切マーカー用: newsUid → payment Date
+  const paymentByUid = new Map(
+    ganttPeriods.filter((p) => p.type === "payment").map((p) => [p.newsUid, p.end])
+  );
+  // 入金バー開始日: 当落確認日 or なければ申込締切日
+  const resultByUid = new Map<string, Date>();
+  for (const dl of filteredDeadlines) {
+    if (dl.type === "result") resultByUid.set(dl.news_uid, new Date(dl.deadline_at));
+  }
 
   // 気になる公演候補（申込締切がある公演 or すでにwatchlist済み）
   const watchlistCandidates = allNews.filter(
@@ -806,18 +918,21 @@ function CalendarScreen({
         </div>
 
         {/* ドット凡例 */}
-        <div className="flex items-center gap-4 mb-3 text-[0.625rem] text-outline uppercase tracking-widest">
+        <div className="flex items-center gap-3 mb-3 text-[0.625rem] text-outline uppercase tracking-widest flex-wrap">
           <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-primary inline-block" />申込済み
+            <span className="w-2 h-2 bg-primary inline-block" />申込済み
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full inline-block" style={{ background: "#9e3a3a" }} />気になる
+            <span className="w-2 h-2 inline-block" style={{ background: "#585f6c" }} />気になる
           </span>
           {calFilter === "all" && (
             <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-outline-variant inline-block" />その他
+              <span className="w-2 h-2 bg-outline-variant inline-block" />その他
             </span>
           )}
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block" style={{ width: 10, height: 4, background: "#585f6c" }} />入金期間
+          </span>
         </div>
 
         {/* 統合スクロール: 日付ヘッダー + ガントバー */}
@@ -859,7 +974,7 @@ function CalendarScreen({
                     return (
                       <div key={idx} style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", width: 44 }}>
                         {isMonthStart ? (
-                          <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.1em", color: "#9e3a3a", marginBottom: 2, textTransform: "uppercase" }}>
+                          <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.1em", color: "#000000", marginBottom: 2, textTransform: "uppercase" }}>
                             {MONTH_EN[d.getMonth()].replace(".", "")}
                           </div>
                         ) : (
@@ -872,15 +987,15 @@ function CalendarScreen({
                             padding: "4px 0",
                             textAlign: "center",
                             cursor: "pointer",
-                            borderRadius: 8,
-                            background: isSelected ? "#9e3a3a" : isToday ? "rgba(158,58,58,0.12)" : "transparent",
+                            borderRadius: 0,
+                            background: isSelected ? "#000000" : isToday ? "rgba(0,0,0,0.08)" : "transparent",
                             userSelect: "none",
                           }}
                         >
-                          <div style={{ fontSize: 9, fontWeight: 700, marginBottom: 1, color: isSelected ? "rgba(255,255,255,0.75)" : dow === 0 ? "#d96b6b" : dow === 6 ? "#6b9ed2" : "#999" }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, marginBottom: 1, color: isSelected ? "rgba(255,255,255,0.75)" : dow === 0 ? "#ba1a1a" : dow === 6 ? "#585f6c" : "#999" }}>
                             {DOW_JA[dow]}
                           </div>
-                          <div style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: isSelected ? "#fff" : dow === 0 ? "#d96b6b" : dow === 6 ? "#6b9ed2" : undefined }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: isSelected ? "#fff" : dow === 0 ? "#ba1a1a" : dow === 6 ? "#585f6c" : undefined }}>
                             {d.getDate()}
                           </div>
                           <div style={{ height: 10, display: "flex", justifyContent: "center", alignItems: "center", gap: 2, marginTop: 2 }}>
@@ -906,7 +1021,7 @@ function CalendarScreen({
                     top: 0,
                     bottom: 0,
                     width: 1,
-                    background: "#9e3a3a",
+                    background: "#ba1a1a",
                     opacity: 0.35,
                     pointerEvents: "none",
                   }} />
@@ -926,31 +1041,101 @@ function CalendarScreen({
                       const left = Math.max(0, rawLeft);
                       const right = Math.min(TOTAL_DAYS * CELL_WIDTH, rawRight);
                       const width = Math.max(CELL_WIDTH / 2, right - left);
-                      const barColor = p.kind === "applied" ? "#374151" : p.kind === "watchlist" ? "#9e3a3a" : "#9ca3af";
-                      const opacity = p.kind === "other" ? 0.4 : 1;
+                      const barColor = "#000000";
+                      const opacity = p.kind === "other" ? 0.2 : p.kind === "watchlist" ? 0.7 : 1;
+                      const isTooltipOpen = tooltipUid === p.newsUid;
+
+                      // 入金バー: 当落確認日(なければ申込締切日)→入金締切日
+                      const paymentDate = paymentByUid.get(p.newsUid);
+                      const paymentBarStart = paymentDate
+                        ? (resultByUid.get(p.newsUid) ?? p.end)
+                        : null;
+                      const D_pStart = paymentBarStart
+                        ? Math.floor((paymentBarStart.getTime() - stripStart) / MS_PER_DAY)
+                        : null;
+                      const D_pEnd = paymentDate
+                        ? Math.floor((paymentDate.getTime() - stripStart) / MS_PER_DAY)
+                        : null;
+                      const pRawLeft = D_pStart !== null ? D_pStart * CELL_WIDTH : null;
+                      const pRawRight = D_pEnd !== null ? D_pEnd * CELL_WIDTH + CELL_WIDTH : null;
+                      const pLeft = pRawLeft !== null ? Math.max(0, pRawLeft) : null;
+                      const pRight = pRawRight !== null ? Math.min(TOTAL_DAYS * CELL_WIDTH, pRawRight) : null;
+                      const pWidth = pLeft !== null && pRight !== null ? Math.max(CELL_WIDTH / 2, pRight - pLeft) : null;
+                      const showPaymentBar = pLeft !== null && pWidth !== null && pRight! > 0 && pLeft < TOTAL_DAYS * CELL_WIDTH;
+
+                      const rowHeight = showPaymentBar ? 34 : 30;
+
+                      const handleBarClick = (e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        if (isTooltipOpen) {
+                          setTooltipUid(null);
+                        } else {
+                          setTooltipUid(p.newsUid);
+                          setTooltipPos({ x: e.clientX, y: e.clientY });
+                        }
+                      };
 
                       return (
-                        <div key={p.newsUid} style={{ height: 28, position: "relative" }}>
-                          <div style={{
-                            position: "absolute",
-                            left,
-                            width,
-                            top: 4,
-                            height: 20,
-                            borderRadius: 9999,
-                            background: barColor,
-                            opacity,
-                            display: "flex",
-                            alignItems: "center",
-                            paddingLeft: 8,
-                            paddingRight: 4,
-                            overflow: "hidden",
-                            boxSizing: "border-box",
-                          }}>
-                            <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.95)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }}>
-                              {title}
-                            </span>
+                        <div key={p.newsUid} style={{ height: rowHeight, position: "relative", background: isTooltipOpen ? "rgba(0,0,0,0.06)" : "transparent" }}>
+                          {/* 申込期間バー */}
+                          <div
+                            className="bar-text-wrap"
+                            style={{
+                              position: "absolute",
+                              left,
+                              width,
+                              top: 6,
+                              height: 18,
+                              borderRadius: 0,
+                              background: barColor,
+                              opacity,
+                              overflow: "hidden",
+                              boxSizing: "border-box",
+                              cursor: "pointer",
+                              "--bar-w": `${width}px`,
+                            } as React.CSSProperties}
+                            onClick={handleBarClick}
+                          >
+                            {(() => {
+                              // 日本語混じりを考慮した概算: 8px/char。収まる場合はアニメなし
+                              const approxTextW = title.length * 8 + 12;
+                              const hasOverflow = approxTextW > width;
+                              const duration = hasOverflow ? Math.max(4, (approxTextW + width) / 35) : 0;
+                              return (
+                                <span
+                                  className={hasOverflow ? "bar-text-inner" : undefined}
+                                  style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.95)", whiteSpace: "nowrap", display: "inline-block", lineHeight: "18px", verticalAlign: "top", ...(hasOverflow ? { animationDuration: `${duration}s` } : {}) }}
+                                >
+                                  <span style={{ paddingLeft: 8, paddingRight: 4 }}>{title}</span>
+                                  {hasOverflow && (
+                                    <span className="bar-marquee-dup" aria-hidden="true">
+                                      <span style={{ display: "inline-block", width }} />
+                                      <span style={{ paddingLeft: 8, paddingRight: 4 }}>{title}</span>
+                                      <span style={{ display: "inline-block", width }} />
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })()}
                           </div>
+                          {/* 入金バー（当落確認〜入金締切、4px下にずらし） */}
+                          {showPaymentBar && (
+                            <div
+                              style={{
+                                position: "absolute",
+                                left: pLeft!,
+                                width: pWidth!,
+                                top: 10,
+                                height: 18,
+                                borderRadius: 0,
+                                background: "#585f6c",
+                                opacity: opacity * 0.85,
+                                cursor: "pointer",
+                                zIndex: 1,
+                              }}
+                              onClick={handleBarClick}
+                            />
+                          )}
                         </div>
                       );
                     })
@@ -961,6 +1146,105 @@ function CalendarScreen({
           })()}
         </div>
       </section>
+
+      {/* Ganttツールチップ */}
+      {tooltipUid && (() => {
+        const news = newsMap.get(tooltipUid);
+        const dates = deadlinesByNewsUid.get(tooltipUid) ?? {};
+        const fmtDate = (d: Date) => {
+          const DOW = ["日","月","火","水","木","金","土"];
+          const h = d.getHours();
+          const m = d.getMinutes();
+          const time = (h !== 0 || m !== 0) ? ` ${h}:${String(m).padStart(2,"0")}` : "";
+          return `${d.getMonth()+1}/${d.getDate()}(${DOW[d.getDay()]})${time}`;
+        };
+        // ツールチップ位置: 右端対策・下半分は上向き
+        const tipW = 240;
+        const tipH = 200; // 最大高さ概算
+        const x = tooltipPos.x + tipW > window.innerWidth - 8
+          ? tooltipPos.x - tipW - 8
+          : tooltipPos.x + 8;
+        const y = tooltipPos.y > window.innerHeight / 2
+          ? tooltipPos.y - tipH - 8
+          : tooltipPos.y + 8;
+        return (
+          <div
+            style={{ position: "fixed", inset: 0, zIndex: 50 }}
+            onClick={() => setTooltipUid(null)}
+          >
+            <div
+              style={{
+                position: "fixed",
+                left: Math.max(8, x),
+                top: Math.max(8, y),
+                width: tipW,
+                background: "#ffffff",
+                border: "1px solid #000000",
+                borderRadius: 0,
+                boxShadow: "none",
+                padding: "12px 14px",
+                zIndex: 51,
+                fontSize: 11,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ fontWeight: 700, fontSize: 11, lineHeight: 1.4, marginBottom: 10, color: "#191c1d" }}>
+                {news?.title}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                {dates.apply_start && (
+                  <div style={{ display: "flex", justifyContent: "space-between", color: "#474747", fontSize: 10 }}>
+                    <span style={{ textTransform: "uppercase", letterSpacing: "0.05em", fontSize: "0.6875rem", fontWeight: 700, color: "#777" }}>申込開始</span>
+                    <span style={{ fontWeight: 700, color: "#191c1d" }}>{fmtDate(dates.apply_start)}</span>
+                  </div>
+                )}
+                {dates.apply_end && (
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ textTransform: "uppercase", letterSpacing: "0.05em", fontSize: "0.6875rem", fontWeight: 700, color: "#777" }}>申込締切</span>
+                    <span style={{ fontWeight: 700, color: "#ba1a1a", fontSize: 10 }}>{fmtDate(dates.apply_end)}</span>
+                  </div>
+                )}
+                {dates.payment && (
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ textTransform: "uppercase", letterSpacing: "0.05em", fontSize: "0.6875rem", fontWeight: 700, color: "#777" }}>入金締切</span>
+                    <span style={{ fontWeight: 700, color: "#585f6c", fontSize: 10 }}>{fmtDate(dates.payment)}</span>
+                  </div>
+                )}
+                {dates.result && (
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ textTransform: "uppercase", letterSpacing: "0.05em", fontSize: "0.6875rem", fontWeight: 700, color: "#777" }}>当落確認</span>
+                    <span style={{ fontWeight: 700, color: "#191c1d", fontSize: 10 }}>{fmtDate(dates.result)}</span>
+                  </div>
+                )}
+              </div>
+              {news?.detail_url && (
+                <a
+                  href={news.detail_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "block",
+                    marginTop: 10,
+                    padding: "7px 0",
+                    textAlign: "center",
+                    background: "#000000",
+                    color: "#ffffff",
+                    borderRadius: 0,
+                    fontSize: "0.6875rem",
+                    fontWeight: 700,
+                    textDecoration: "none",
+                    letterSpacing: "0.05em",
+                    textTransform: "uppercase",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  申込ページを開く →
+                </a>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 選択日の詳細 */}
       {selectedDeadlines.length > 0 && (
@@ -1022,7 +1306,7 @@ function CalendarScreen({
       {/* ─── 気になる公演 ─── */}
       <section className="mb-16">
         <header className="flex items-center gap-4 mb-6">
-          <div className="h-10 w-1" style={{ background: "#9e3a3a" }} />
+          <div className="h-10 w-1 bg-primary" />
           <div>
             <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">
               Watchlist
@@ -1036,7 +1320,7 @@ function CalendarScreen({
               </span>
               <button
                 onClick={() => setConfirmClearAll(true)}
-                className="text-[0.6875rem] text-outline hover:text-tertiary uppercase tracking-widest cursor-pointer transition-colors"
+                className="text-[0.6875rem] text-outline hover:text-primary uppercase tracking-widest cursor-pointer transition-colors"
               >
                 すべて解除
               </button>
@@ -1046,18 +1330,18 @@ function CalendarScreen({
 
         {/* すべて解除 確認パネル */}
         {confirmClearAll && (
-          <div className="mb-4 p-3 border border-error rounded-lg bg-error-container text-on-error-container text-sm flex flex-col gap-2">
+          <div className="mb-4 p-3 border border-error bg-error-container text-on-error-container text-sm flex flex-col gap-2">
             <p className="font-bold">気になるリストを全件削除しますか？</p>
             <div className="flex gap-2">
               <button
                 onClick={() => { onWatchlistChange([]); setPendingCalendarUid(null); setConfirmClearAll(false); }}
-                className="flex-1 py-2 text-xs font-bold bg-error text-on-error rounded cursor-pointer"
+                className="flex-1 py-2 text-xs font-bold bg-error text-on-error cursor-pointer"
               >
                 削除する
               </button>
               <button
                 onClick={() => setConfirmClearAll(false)}
-                className="flex-1 py-2 text-xs font-bold border border-outline-variant rounded cursor-pointer"
+                className="flex-1 py-2 text-xs font-bold border border-outline cursor-pointer"
               >
                 キャンセル
               </button>
@@ -1070,10 +1354,10 @@ function CalendarScreen({
           <div className="flex flex-wrap gap-2 mb-4">
             <button
               onClick={() => setWatchlistGroups([])}
-              className={`px-3 py-1 text-[0.625rem] font-bold uppercase tracking-widest cursor-pointer transition-colors border ${
+              className={`px-3 py-1 text-[0.625rem] font-bold uppercase tracking-widest cursor-pointer transition-colors ${
                 watchlistGroups.length === 0
-                  ? "bg-primary text-on-primary-fixed border-primary"
-                  : "bg-transparent text-outline border-outline-variant hover:border-primary hover:text-primary"
+                  ? "bg-primary text-on-primary-fixed"
+                  : "bg-surface-container-high text-outline hover:bg-surface-container-highest hover:text-primary"
               }`}
             >
               すべて
@@ -1090,12 +1374,11 @@ function CalendarScreen({
                         : [...watchlistGroups, g.key]
                     )
                   }
-                  className={`px-3 py-1 text-[0.625rem] font-bold uppercase tracking-widest cursor-pointer transition-colors border ${
+                  className={`px-3 py-1 text-[0.625rem] font-bold uppercase tracking-widest cursor-pointer transition-colors ${
                     active
-                      ? "border-transparent text-on-primary-fixed"
-                      : "bg-transparent text-outline border-outline-variant hover:border-primary hover:text-primary"
+                      ? "bg-primary text-on-primary-fixed"
+                      : "bg-surface-container-high text-outline hover:bg-surface-container-highest hover:text-primary"
                   }`}
-                  style={active ? { background: "#9e3a3a", borderColor: "#9e3a3a" } : {}}
                 >
                   {g.label}
                 </button>
@@ -1149,7 +1432,7 @@ function CalendarScreen({
                     <button
                       onClick={() => toggleWatchlist(news.uid)}
                       className="material-symbols-outlined text-xl cursor-pointer transition-colors flex-shrink-0"
-                      style={{ color: isWatched ? "#9e3a3a" : "#c6c6c6", fontVariationSettings: `'FILL' ${isWatched ? 1 : 0}, 'wght' 400, 'GRAD' 0, 'opsz' 24` }}
+                      style={{ color: isWatched ? "#000000" : "#c6c6c6", fontVariationSettings: `'FILL' ${isWatched ? 1 : 0}, 'wght' 400, 'GRAD' 0, 'opsz' 24` }}
                       title={isWatched ? "気になるから削除" : "気になるに追加"}
                     >
                       bookmark
@@ -1172,8 +1455,8 @@ function CalendarScreen({
                   </div>
                   {/* 追加直後のカレンダー登録提案 */}
                   {isPending && calEvent && (
-                    <div className="flex items-center gap-3 px-4 py-3 bg-surface-container-high border-l-2 flex-wrap" style={{ borderColor: "#9e3a3a" }}>
-                      <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "#9e3a3a" }}>calendar_add_on</span>
+                    <div className="flex items-center gap-3 px-4 py-3 bg-surface-container-high border-l-2 flex-wrap" style={{ borderColor: "#000000" }}>
+                      <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "#000000" }}>calendar_add_on</span>
                       <span className="text-xs font-bold flex-1">申込期日をカレンダーに登録しますか？</span>
                       <div className="flex gap-2 flex-wrap">
                         <button
@@ -1209,7 +1492,7 @@ function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
   const deadline = new Date(dl.deadline_at);
   const now = new Date();
   const diffDays = (deadline.getTime() - now.getTime()) / 86400000;
-  const isUrgent = diffDays < 1;
+  const isUrgent = diffDays >= 0 && diffDays < 3;
 
   const calEvent: IcsEvent = {
     uid: dl.id + "@hop-up-tools",
@@ -1292,11 +1575,12 @@ function BottomNav({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
 
 function typeColor(type: string): string {
   const map: Record<string, string> = {
-    apply_start: "#6b9ed2", // くすみブルー
-    apply_end:   "#d96b6b", // くすみレッド
-    payment:     "#d4863a", // くすみオレンジ
-    sale_start:  "#4aaa88", // くすみグリーン
-    sale_end:    "#9ca3af", // スレートグレー
+    apply_end:   "#000000", // primary — 申込締切（最重要）
+    payment:     "#585f6c", // secondary — 入金締切
+    result:      "#777777", // outline — 当落確認
+    apply_start: "#c6c6c6", // outline-variant — 申込開始（情報）
+    sale_start:  "#c6c6c6",
+    sale_end:    "#777777",
   };
-  return map[type] ?? "#9ca3af";
+  return map[type] ?? "#c6c6c6";
 }

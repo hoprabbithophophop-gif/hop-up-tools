@@ -1,6 +1,45 @@
 @import "tailwindcss";
 
 body {
-  font-family: 'Zen Maru Gothic', 'Hiragino Kaku Gothic Pro', sans-serif;
-  color: #2a2a3e;
+  font-family: 'Inter', 'Noto Sans JP', sans-serif;
+  color: #191c1d;
+}
+
+/* Gantt バーラベル: 省略バーのみ常時ループマーキー (PC/スマホ共通) */
+@keyframes bar-marquee-continuous {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.bar-marquee-dup { display: inline; }
+.bar-text-inner {
+  animation: bar-marquee-continuous linear infinite;
+}
+
+/* Stitch デザインシステム用カラートークン（fc-ticket ページで使用） */
+@theme {
+  --color-outline: #777777;
+  --color-tertiary: #7d000b;
+  --color-outline-variant: #c6c6c6;
+  --color-surface-bright: #f8f9fa;
+  --color-tertiary-container: #e41d27;
+  --color-on-tertiary-container: #ffffff;
+  --color-on-surface-variant: #474747;
+  --color-surface-container-low: #f3f4f5;
+  --color-secondary: #585f6c;
+  --color-on-primary: #dce2f7;
+  --color-on-primary-fixed: #ffffff;
+  --color-surface: #f8f9fa;
+  --color-primary: #000000;
+  --color-surface-container-highest: #e1e3e4;
+  --color-surface-dim: #d9dadb;
+  --color-on-surface: #191c1d;
+  --color-surface-container-lowest: #ffffff;
+  --color-on-background: #191c1d;
+  --color-secondary-container: #ced4e4;
+  --color-surface-container-high: #e7e8e9;
+  --color-surface-container: #edeeef;
+  --color-error: #ba1a1a;
+  --color-on-secondary: #ffffff;
+  --font-inter: Inter, sans-serif;
 }
