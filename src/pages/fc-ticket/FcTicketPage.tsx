@@ -137,6 +137,13 @@ export default function FcTicketPage() {
     <div className="bg-surface text-on-surface min-h-screen font-[Inter,sans-serif] pb-20">
       <Header tab={tab} setTab={setTab} />
 
+      {/* 注意書きバナー */}
+      <div className="w-full bg-surface-container-low border-b border-outline-variant/20 px-6 py-2 text-center text-[0.625rem] text-outline tracking-wide">
+        β版・非公式ツールです。自己責任でご利用ください。バグや不具合は
+        <a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" className="underline text-primary ml-1">@hop_rabbit</a>
+        まで。
+      </div>
+
       {loading ? (
         <div className="flex items-center justify-center h-64 text-outline text-xs uppercase tracking-widest">
           Loading...
@@ -714,6 +721,7 @@ function CalendarScreen({
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
   const [calFilter, setCalFilter] = useState<"all" | "mine">("all");
+  const [ganttGroupFilter, setGanttGroupFilter] = useState<string>("");
   const [watchlistSearch, setWatchlistSearch] = useState("");
   const [watchlistGroups, setWatchlistGroups] = useState<string[]>([]);
   const [pendingCalendarUid, setPendingCalendarUid] = useState<string | null>(null);
@@ -782,18 +790,6 @@ function CalendarScreen({
       : allDeadlines;
 
   // 締切の種別（ドット色分け用）
-  function deadlineKind(dl: Deadline): "applied" | "watchlist" | "other" {
-    if (matchedUids.has(dl.news_uid)) return "applied";
-    if (watchlistSet.has(dl.news_uid)) return "watchlist";
-    return "other";
-  }
-
-  function dotColor(dl: Deadline): string {
-    const kind = deadlineKind(dl);
-    if (kind === "applied") return typeColor(dl.type);
-    if (kind === "watchlist") return "#585f6c";
-    return "#c6c6c6";
-  }
 
   // ─── Gantt 期間構築 ───────────────────────────────────────
   const ganttPeriods: GanttPeriod[] = (() => {
@@ -830,15 +826,6 @@ function CalendarScreen({
     byDate[key].push(dl);
   }
 
-  // 全期間の日付→締切マップ（ストリップのドット用）
-  const allByDate = new Map<string, Deadline[]>();
-  for (const dl of filteredDeadlines) {
-    const d = new Date(dl.deadline_at);
-    const k = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    if (!allByDate.has(k)) allByDate.set(k, []);
-    allByDate.get(k)!.push(dl);
-  }
-  function stripDateKey(d: Date) { return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; }
 
   const selectedDeadlines = selectedDate
     ? filteredDeadlines.filter((dl) => isSameDay(new Date(dl.deadline_at), selectedDate))
@@ -900,39 +887,48 @@ function CalendarScreen({
           <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">{year}</span>
         </div>
 
-        {/* フィルタートグル */}
-        <div className="flex gap-px mb-4">
-          {(["all", "mine"] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setCalFilter(f)}
-              className={`px-4 py-2 text-[0.6875rem] font-bold uppercase tracking-widest cursor-pointer transition-colors ${
-                calFilter === f
-                  ? "bg-primary text-on-primary-fixed"
-                  : "bg-surface-container text-outline hover:bg-surface-container-high"
-              }`}
-            >
-              {f === "all" ? "すべて" : "気になる + 申込済み"}
-            </button>
-          ))}
-        </div>
-
-        {/* ドット凡例 */}
-        <div className="flex items-center gap-3 mb-3 text-[0.625rem] text-outline uppercase tracking-widest flex-wrap">
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 bg-primary inline-block" />申込済み
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 inline-block" style={{ background: "#585f6c" }} />気になる
-          </span>
-          {calFilter === "all" && (
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 bg-outline-variant inline-block" />その他
-            </span>
-          )}
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block" style={{ width: 10, height: 4, background: "#585f6c" }} />入金期間
-          </span>
+        {/* フィルター + 凡例エリア */}
+        <div className="flex flex-col gap-2 mb-4">
+          {/* 行1: すべて / 気になる+申込済み トグル + 凡例 */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex gap-px">
+              {(["all", "mine"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setCalFilter(f)}
+                  className={`px-3 py-1 text-[0.6875rem] font-bold uppercase tracking-widest cursor-pointer transition-colors ${
+                    calFilter === f
+                      ? "bg-primary text-on-primary-fixed"
+                      : "bg-surface-container text-outline hover:bg-surface-container-high"
+                  }`}
+                >
+                  {f === "all" ? "すべて" : "気になる + 申込済み"}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-3 text-[0.625rem] text-outline tracking-widest flex-wrap">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 bg-primary inline-block" />申込済み</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 inline-block" style={{ background: "#585f6c" }} />気になる</span>
+              {calFilter === "all" && <span className="flex items-center gap-1"><span className="w-2 h-2 bg-outline-variant inline-block" />その他</span>}
+              <span className="flex items-center gap-1"><span className="w-2 h-2 inline-block" style={{ background: "#585f6c", opacity: 0.4 }} />入金期間</span>
+            </div>
+          </div>
+          {/* 行2: グループフィルター */}
+          <div className="flex gap-1 flex-wrap">
+            {GROUP_KEYS.filter((g) => !["CHICA#TETSU", "雨ノ森 川海", "SeasoningS"].includes(g.key) && allNews.some((n) => titleMatchesGroup(n.title, g))).map((g) => (
+              <button
+                key={g.key}
+                onClick={() => setGanttGroupFilter(ganttGroupFilter === g.key ? "" : g.key)}
+                className={`px-2 py-0.5 text-[0.625rem] font-bold tracking-wide cursor-pointer transition-colors border ${
+                  ganttGroupFilter === g.key
+                    ? "bg-primary text-on-primary-fixed border-primary"
+                    : "bg-transparent text-outline border-outline-variant hover:border-primary hover:text-primary"
+                }`}
+              >
+                {g.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* 統合スクロール: 日付ヘッダー + ガントバー */}
@@ -954,7 +950,19 @@ function CalendarScreen({
 
             // ガントバー: apply期間のみ、今日以降に締切があるもの
             const gantRows = ganttPeriods
-              .filter((p) => p.type === "apply" && p.end.getTime() >= today.getTime() && p.start.getTime() <= stripDates[TOTAL_DAYS - 1].getTime() + MS_PER_DAY)
+              .filter((p) => {
+                if (p.type !== "apply") return false;
+                if (p.end.getTime() < today.getTime()) return false;
+                if (p.start.getTime() > stripDates[TOTAL_DAYS - 1].getTime() + MS_PER_DAY) return false;
+                if (ganttGroupFilter) {
+                  const news = allNews.find((n) => n.uid === p.newsUid);
+                  if (!news) return false;
+                  const g = GROUP_KEYS.find((k) => k.key === ganttGroupFilter);
+                  if (!g) return false;
+                  return titleMatchesGroup(news.title, g);
+                }
+                return true;
+              })
               .sort((a, b) => a.end.getTime() - b.end.getTime());
 
             // 今日ラインのx座標（padding込み）
@@ -968,8 +976,7 @@ function CalendarScreen({
                     const isToday = isSameDay(d, today);
                     const isSelected = selectedDate ? isSameDay(d, selectedDate) : false;
                     const dow = d.getDay();
-                    const dayDls = allByDate.get(stripDateKey(d)) ?? [];
-                    const isMonthStart = d.getDate() === 1;
+const isMonthStart = d.getDate() === 1;
 
                     return (
                       <div key={idx} style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", width: 44 }}>
@@ -997,11 +1004,6 @@ function CalendarScreen({
                           </div>
                           <div style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: isSelected ? "#fff" : dow === 0 ? "#ba1a1a" : dow === 6 ? "#585f6c" : undefined }}>
                             {d.getDate()}
-                          </div>
-                          <div style={{ height: 10, display: "flex", justifyContent: "center", alignItems: "center", gap: 2, marginTop: 2 }}>
-                            {dayDls.slice(0, 3).map((dl, j) => (
-                              <div key={j} style={{ width: 3, height: 3, borderRadius: "50%", flexShrink: 0, background: isSelected ? "rgba(255,255,255,0.7)" : dotColor(dl) }} />
-                            ))}
                           </div>
                         </div>
                       </div>
