@@ -133,7 +133,7 @@ export default function ProfilePage() {
     return (
       <div style={S.app}>
         <div style={S.hdr}>
-          <div style={S.ttl}>ハロプロ プロフ帳メーカー</div>
+          <div style={S.ttl}>ハロプロ プロフィール帳メーカー</div>
           <div style={S.sub}>プロフィールカードを作ってXでシェアしよう</div>
         </div>
 
@@ -382,12 +382,12 @@ export default function ProfilePage() {
                 ? `${location.origin}/profile?d=${encoded}`
                 : `${location.origin}/p/${slug}`;
               window.open(
-                `https://twitter.com/intent/tweet?text=${encodeURIComponent("わたしのハロプロプロフ帳できた！🎤✨\n#ハロプロプロフ帳 #ハロプロ")}&url=${encodeURIComponent(shareUrl)}`,
+                `https://twitter.com/intent/tweet?text=${encodeURIComponent("わたしのハロプロプロフィール帳できた！🎤✨\n#ハロプロプロフィール帳 #ハロプロ")}&url=${encodeURIComponent(shareUrl)}`,
                 "_blank"
               );
             } catch (e) {
               window.open(
-                `https://twitter.com/intent/tweet?text=${encodeURIComponent("わたしのハロプロプロフ帳できた！🎤✨\n#ハロプロプロフ帳 #ハロプロ")}`,
+                `https://twitter.com/intent/tweet?text=${encodeURIComponent("わたしのハロプロプロフィール帳できた！🎤✨\n#ハロプロプロフィール帳 #ハロプロ")}`,
                 "_blank"
               );
             }
