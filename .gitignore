@@ -34,3 +34,6 @@ yarn-error.log*
 
 # GAS clasp設定（scriptIdを公開しない）
 gas/.clasp.json
+
+# ドキュメント・指示書（ローカルのみ）
+*.md
