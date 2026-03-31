@@ -16,6 +16,17 @@ export default function TopPage() {
         <Link to="/fc-ticket" style={{ padding: ".75rem 1.5rem", background: "#ba3cb8", color: "#fff", borderRadius: 12, textDecoration: "none", fontWeight: 700, fontSize: "0.875rem" }}>
           📅 FC締切リマインダー
         </Link>
+        <Link to="/youtube" style={{ padding: ".75rem 1.5rem", background: "#ff4e4e", color: "#fff", borderRadius: 12, textDecoration: "none", fontWeight: 700, fontSize: "0.875rem" }}>
+          ▶ ハロプロ YouTube
+        </Link>
+      </div>
+      <div style={{ marginTop: "3rem", fontSize: "0.75rem", color: "#bbb", display: "flex", justifyContent: "center", gap: "1.5rem" }}>
+        <Link to="/privacy" style={{ color: "#bbb", textDecoration: "none" }}>プライバシーポリシー</Link>
+        <Link to="/terms" style={{ color: "#bbb", textDecoration: "none" }}>利用規約</Link>
+        <a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={{ color: "#bbb", textDecoration: "none" }}>お問い合わせ</a>
+      </div>
+      <div style={{ marginTop: "0.5rem", fontSize: "0.7rem", color: "#ddd" }}>
+        非公式ファンツール・株式会社アップフロントワークスとは無関係
       </div>
     </div>
   );
