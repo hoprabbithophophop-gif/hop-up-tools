@@ -165,6 +165,15 @@ function isTitleMatch(parsedTitle: string, dbTitle: string): boolean {
   // （チケット付き宿泊プラン等は別商品なので、通常のFC先行申込にマッチさせない）
   if (dbTitle.includes("チケット付き") && !parsedTitle.includes("チケット付き")) return false;
 
+  // 宿泊プラン同士: 「【チケット付き宿泊プラン】公演名」形式のパース公演名から
+  // チケット付き部分を除いたコア公演名で比較（88%閾値バイパス対策）
+  if (parsedTitle.includes("チケット付き") && dbTitle.includes("チケット付き")) {
+    const coreA = normalize(parsedTitle.replace(/【?チケット付き\S*】?\s*/g, "").trim());
+    const dbCore = normalize(stripFcSuffix(dbTitle));
+    if (coreA.length >= 4 && dbCore.includes(coreA)) return true;
+    if (coreA.length >= 4 && coreA.includes(dbCore) && dbCore.length >= coreA.length * 0.88) return true;
+  }
+
   const a = normalize(parsedTitle);
   const b = normalize(dbTitle);
 

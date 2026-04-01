@@ -1,5 +1,10 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { getSupabase } from "../../lib/supabase";
+
+interface MemberRow {
+  name: string;
+  group_name: string;
+}
 
 interface VideoRow {
   video_id: string;
@@ -65,7 +70,31 @@ const CHANNEL_FILTERS = [
   "UFfanclub",
   "UF Goods Land",
   "アプカミ",
+  "ファミ通ゲーム実況",
+  "THE FIRST TAKE",
+  "happyに過ごそうよ",
+  "ビヨーンズの伸びしろ",
+  "SATOYAMA&SATOUMI",
+  "ハロー!アニソン部",
+  "tiny tiny",
+  "こぶしファクトリー",
+  "Berryz工房",
+  "℃-ute",
+  "カントリー・ガールズ",
+  "Buono!",
+  "ハロプロちょっと面白い話",
 ];
+
+// グループ別メンバー（公式サイト表示順）
+const MEMBERS_BY_GROUP: Record<string, string[]> = {
+  "モーニング娘。": ["野中美希", "小田さくら", "牧野真莉愛", "岡村ほまれ", "山﨑愛生", "櫻井梨央", "井上春華", "弓桁朱琴"],
+  "アンジュルム":   ["伊勢鈴蘭", "為永幸音", "橋迫鈴", "川名凜", "松本わかな", "平山遊季", "下井谷幸穂", "後藤花", "長野桃羽"],
+  "Juice=Juice":    ["段原瑠々", "井上玲音", "工藤由愛", "松永里愛", "有澤一華", "入江里咲", "江端妃咲", "石山咲良", "遠藤彩加里", "川嶋美楓", "林仁愛"],
+  "つばきファクトリー": ["谷本安美", "小野瑞歩", "小野田紗栞", "秋山眞緒", "河西結心", "福田真琳", "豫風瑠乃", "石井泉羽", "村田結生", "土居楓奏", "西村乙輝"],
+  "BEYOOOOONDS":    ["西田汐里", "江口紗耶", "高瀬くるみ", "前田こころ", "岡村美波", "清野桃々姫", "平井美葉", "小林萌花", "里吉うたの"],
+  "OCHA NORMA":     ["斉藤円香", "広本瑠璃", "米村姫良々", "窪田七海", "中山夏月姫", "西﨑美空", "北原もも", "筒井澪心"],
+  "ロージークロニクル": ["橋田歩果", "吉田姫杷", "小野田華凜", "村越彩菜", "植村葉純", "松原ユリヤ", "島川波菜", "上村麗菜", "相馬優芽"],
+};
 
 const TYPE_COLOR: Record<string, string> = {
   mv:      "text-[#E5457D]",
@@ -98,14 +127,91 @@ function parseChapters(description: string): Chapter[] {
   return chapters;
 }
 
+// FilterTab: タブ行の各ラベルボタン
+function FilterTab({
+  label, active, badge, onClick,
+}: {
+  label: string; active: boolean; badge?: string; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 shrink-0 py-2 cursor-pointer transition-colors group ${
+        active ? "text-on-surface border-b-2 border-primary" : "text-outline hover:text-on-surface"
+      }`}
+    >
+      <span className="text-[0.6875rem] font-bold uppercase tracking-widest">{label}</span>
+      {badge && (
+        <span className="text-[0.6rem] font-bold text-primary bg-primary/10 px-1 leading-4 rounded-none">
+          {badge}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function FilterChip({
+  label, active, onClick, mono,
+}: {
+  label: string; active: boolean; onClick: () => void; mono?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`text-[0.6875rem] font-bold transition-colors cursor-pointer pb-0.5 ${mono ? "tabular-nums" : ""} ${
+        active ? "text-primary border-b-2 border-primary" : "text-outline hover:text-on-surface"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
 function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }) {
   const chapters = parseChapters(video.description_short);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareSeconds, setShareSeconds] = useState<number | null>(null);
+  const [timeInput, setTimeInput] = useState("");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const shareUrl = `https://www.youtube.com/watch?v=${video.video_id}${
+    shareSeconds !== null ? `&t=${shareSeconds}` : ""
+  }`;
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleTimeInput = (val: string) => {
+    setTimeInput(val);
+    // mm:ss or hh:mm:ss → 秒に変換
+    const parts = val.trim().split(":").map(Number);
+    if (parts.every(n => !isNaN(n))) {
+      if (parts.length === 2) setShareSeconds(parts[0] * 60 + parts[1]);
+      else if (parts.length === 3) setShareSeconds(parts[0] * 3600 + parts[1] * 60 + parts[2]);
+      else setShareSeconds(null);
+    } else {
+      setShareSeconds(null);
+    }
+  };
+
+  const selectChapter = (sec: number, ts: string) => {
+    setShareSeconds(sec);
+    setTimeInput(ts);
+  };
+
+  const clearTime = () => {
+    setShareSeconds(null);
+    setTimeInput("");
+  };
 
   return (
     <div
@@ -147,6 +253,67 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
             </div>
           </div>
 
+          {/* シェアパネル */}
+          {shareOpen && (
+            <div className="px-4 py-3 bg-surface-container-low border-b border-outline-variant/20 shrink-0 space-y-2.5">
+              {/* タイムスタンプ入力 */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[0.6rem] font-bold uppercase tracking-widest text-outline">Time</span>
+                <input
+                  type="text"
+                  value={timeInput}
+                  onChange={e => handleTimeInput(e.target.value)}
+                  placeholder="mm:ss"
+                  className="w-20 bg-transparent border-b border-outline-variant/40 text-xs py-0.5 focus:outline-none focus:border-primary transition-colors placeholder:text-outline/40 tabular-nums"
+                />
+                {shareSeconds !== null && (
+                  <button onClick={clearTime} className="text-[0.6rem] text-outline hover:text-primary transition-colors cursor-pointer uppercase tracking-widest">
+                    clear
+                  </button>
+                )}
+              </div>
+
+              {/* チャプター早押し */}
+              {chapters.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {chapters.map((ch, i) => (
+                    <button
+                      key={i}
+                      onClick={() => selectChapter(ch.seconds, ch.timestamp)}
+                      className={`text-[0.6rem] font-mono px-1.5 py-0.5 border transition-colors cursor-pointer ${
+                        shareSeconds === ch.seconds
+                          ? "border-primary text-primary bg-primary/5"
+                          : "border-outline-variant/40 text-outline hover:border-primary hover:text-primary"
+                      }`}
+                    >
+                      {ch.timestamp}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* URL プレビュー + アクション */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[0.6rem] text-outline/60 truncate flex-1 font-mono">{shareUrl}</span>
+                <button
+                  onClick={handleCopy}
+                  className="text-[0.6rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer shrink-0"
+                >
+                  {copied ? "Copied!" : "Copy"}
+                </button>
+                <a
+                  href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(video.title)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  className="text-[0.6rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer shrink-0"
+                >
+                  Post on X
+                </a>
+              </div>
+            </div>
+          )}
+
           {/* チャプターリスト */}
           <div className="overflow-y-auto flex-1">
             {chapters.length > 0 ? (
@@ -177,17 +344,27 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
             )}
           </div>
 
-          {/* YouTube で開く */}
-          <div className="px-4 py-3 border-t border-outline-variant/20 shrink-0">
+          {/* Watch + Share ボタン */}
+          <div className="px-4 py-3 border-t border-outline-variant/20 shrink-0 flex gap-2">
             <a
               href={`https://www.youtube.com/watch?v=${video.video_id}`}
               target="_blank"
               rel="noopener noreferrer"
               onClick={e => e.stopPropagation()}
-              className="block w-full bg-primary text-on-primary-fixed text-center text-xs font-bold uppercase tracking-[0.2em] py-3 hover:bg-secondary transition-colors cursor-pointer"
+              className="flex-1 bg-primary text-on-primary-fixed text-center text-xs font-bold uppercase tracking-[0.2em] py-3 hover:bg-secondary transition-colors cursor-pointer"
             >
               Watch on YouTube
             </a>
+            <button
+              onClick={() => setShareOpen(o => !o)}
+              className={`px-4 text-xs font-bold uppercase tracking-widest border transition-colors cursor-pointer ${
+                shareOpen
+                  ? "bg-primary text-on-primary border-primary"
+                  : "border-outline-variant text-outline hover:border-primary hover:text-primary"
+              }`}
+            >
+              Share
+            </button>
           </div>
         </div>
       </div>
@@ -209,11 +386,17 @@ export default function YouTubePage() {
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
   const [modalVideo, setModalVideo] = useState<VideoRow | null>(null);
   const [pickVideo, setPickVideo] = useState<VideoRow | null>(null);
+  const [pickHistory, setPickHistory] = useState<VideoRow[]>([]);
+  const [members, setMembers] = useState<MemberRow[]>([]);
+  const [selectedMember, setSelectedMember] = useState("");
+  const [activeTab, setActiveTab] = useState<string | null>(null);
+  const toggleTab = (key: string) => setActiveTab(prev => prev === key ? null : key);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => { document.title = "ハロプロ YouTube | hop-up-tools"; }, []);
+  useEffect(() => { document.title = "YouTube チェック | hop-up-tools"; }, []);
 
-  const fetchPickVideo = useCallback(async () => {
+  const fetchPickVideo = useCallback(async (current: VideoRow | null) => {
     const supabase = getSupabase();
     const { count } = await supabase
       .from("youtube_videos")
@@ -224,14 +407,31 @@ export default function YouTubePage() {
       .from("youtube_videos")
       .select("video_id,title,channel_name,published_at,thumbnail_url,video_type,group_tags,description_short")
       .range(randomOffset, randomOffset);
-    if (data && data.length > 0) setPickVideo(data[0] as VideoRow);
+    if (data && data.length > 0) {
+      if (current) setPickHistory(prev =>
+        prev.some(v => v.video_id === current.video_id)
+          ? prev
+          : [current, ...prev].slice(0, 3)
+      );
+      setPickVideo(data[0] as VideoRow);
+    }
   }, []);
 
-  useEffect(() => { fetchPickVideo(); }, [fetchPickVideo]);
+  useEffect(() => { fetchPickVideo(null); }, [fetchPickVideo]);
+
+  useEffect(() => {
+    getSupabase()
+      .from("hello_members")
+      .select("name,group_name")
+      .eq("active", true)
+      .order("group_name")
+      .order("name")
+      .then(({ data }) => { if (data) setMembers(data as MemberRow[]); });
+  }, []);
 
   const fetchVideos = useCallback(async (
     group: string, type: string, year: number, channel: string,
-    query: string, sort: "desc" | "asc", currentOffset: number, replace: boolean
+    query: string, member: string, sort: "desc" | "asc", currentOffset: number, replace: boolean
   ) => {
     setLoading(true);
     try {
@@ -242,13 +442,18 @@ export default function YouTubePage() {
         .order("published_at", { ascending: sort === "asc" })
         .range(currentOffset, currentOffset + PAGE_SIZE - 1);
 
-      if (group)   q = q.contains("group_tags", [group]);
-      if (type)    q = q.eq("video_type", type);
-      if (channel) q = q.eq("channel_name", channel);
+      if (group)    q = q.contains("group_tags", [group]);
+      if (type)     q = q.eq("video_type", type);
+      if (channel)  q = q.eq("channel_name", channel);
+      // チャンネル・グループ未指定時: 混在チャンネルの非ハロプロ動画を除外
+      if (!channel && !group) q = q.filter("group_tags", "neq", "{}");
       if (year) {
         q = q
           .gte("published_at", `${year}-01-01T00:00:00Z`)
           .lt("published_at",  `${year + 1}-01-01T00:00:00Z`);
+      }
+      if (member) {
+        q = q.or(`title.ilike.%${member}%,description_short.ilike.%${member}%`);
       }
       if (query) {
         const tokens = query.trim().split(/\s+/).filter(Boolean);
@@ -274,8 +479,34 @@ export default function YouTubePage() {
     setVideos([]);
     setOffset(0);
     setHasMore(true);
-    fetchVideos(selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, sortOrder, 0, true);
-  }, [selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, sortOrder, fetchVideos]);
+    fetchVideos(selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, selectedMember, sortOrder, 0, true);
+  }, [selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, selectedMember, sortOrder, fetchVideos]);
+
+  // 無限スクロール: sentinel が viewport に入ったら次のページを取得
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loading) {
+          fetchVideos(selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, selectedMember, sortOrder, offset, false);
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, loading, offset, selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, selectedMember, sortOrder, fetchVideos]);
+
+  const handleGroupChange = (g: string) => {
+    const next = selectedGroup === g ? "" : g;
+    setSelectedGroup(next);
+    // 選択グループに属さないメンバーが選ばれていたらリセット
+    if (selectedMember && next) {
+      const groupMembers = MEMBERS_BY_GROUP[next] ?? members.filter(m => m.group_name === next).map(m => m.name);
+      if (!groupMembers.includes(selectedMember)) setSelectedMember("");
+    }
+  };
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -319,99 +550,79 @@ export default function YouTubePage() {
 
       <main className="max-w-7xl mx-auto px-4 md:px-6 pt-8">
 
-        {/* フィルターバー */}
-        <div className="flex flex-col gap-4 mb-8 border-b border-outline-variant/20 pb-6">
+        {/* フィルターバー（タブ切り替え） */}
+        {(() => {
+          const memberList = selectedGroup
+            ? (MEMBERS_BY_GROUP[selectedGroup] ?? members.filter(m => m.group_name === selectedGroup).map(m => m.name))
+            : [];
 
-          {/* グループ */}
-          <div className="flex items-baseline gap-6 flex-wrap">
-            <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline shrink-0">Group</span>
-            {GROUP_FILTERS.map(g => (
-              <button
-                key={g}
-                onClick={() => setSelectedGroup(prev => prev === g ? "" : g)}
-                className={`text-xs font-bold transition-colors cursor-pointer pb-0.5 ${
-                  selectedGroup === g
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-outline hover:text-on-surface"
-                }`}
-              >
-                {g}
-              </button>
-            ))}
-          </div>
+          // タブ定義（MEMBER はタブなし・GROUP パネル内に展開）
+          const tabs = [
+            { key: "group",   label: "Group",  badge: selectedMember ? selectedMember : (selectedGroup || undefined) },
+            { key: "type",    label: "Type",   badge: selectedType ? selectedType.toUpperCase() : undefined },
+            { key: "channel", label: "Ch",     badge: selectedChannel ? "●" : undefined },
+            { key: "year",    label: "Year",   badge: selectedYear > 0 ? String(selectedYear) : undefined },
+            { key: "sort",    label: "Sort",   badge: sortOrder.toUpperCase() },
+          ];
 
-          {/* 種別 */}
-          <div className="flex items-baseline gap-6 flex-wrap">
-            <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline shrink-0">Type</span>
-            {TYPE_FILTERS.map(t => (
-              <button
-                key={t.key}
-                onClick={() => setSelectedType(t.key)}
-                className={`text-[0.6875rem] font-bold uppercase tracking-widest transition-colors cursor-pointer pb-0.5 ${
-                  selectedType === t.key
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-outline hover:text-on-surface"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
+          // 展開パネルのコンテンツ
+          const panelContent: Record<string, React.ReactNode> = {
+            group: (
+              <>
+                <div className="flex flex-wrap gap-x-4 gap-y-2 w-full">
+                  {GROUP_FILTERS.map(g => (
+                    <FilterChip key={g} label={g} active={selectedGroup === g} onClick={() => handleGroupChange(g)} />
+                  ))}
+                </div>
+                {memberList.length > 0 && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-2 w-full pt-2 mt-1 border-t border-outline-variant/20">
+                    {memberList.map(name => (
+                      <FilterChip key={name} label={name} active={selectedMember === name}
+                        onClick={() => setSelectedMember(prev => prev === name ? "" : name)} />
+                    ))}
+                  </div>
+                )}
+              </>
+            ),
+            type: TYPE_FILTERS.map(t => (
+              <FilterChip key={t.key} label={t.label} active={selectedType === t.key} onClick={() => setSelectedType(t.key)} />
+            )),
+            channel: CHANNEL_FILTERS.map(c => (
+              <FilterChip key={c} label={c} active={selectedChannel === c}
+                onClick={() => setSelectedChannel(prev => prev === c ? "" : c)} />
+            )),
+            year: YEAR_FILTERS.map(y => (
+              <FilterChip key={y} label={String(y)} active={selectedYear === y}
+                onClick={() => setSelectedYear(prev => prev === y ? 0 : y)} mono />
+            )),
+            sort: SORT_OPTIONS.map(s => (
+              <FilterChip key={s.key} label={s.label} active={sortOrder === s.key} onClick={() => setSortOrder(s.key)} />
+            )),
+          };
 
-          {/* チャンネル */}
-          <div className="flex items-baseline gap-4 flex-wrap">
-            <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline shrink-0">Ch</span>
-            {CHANNEL_FILTERS.map(c => (
-              <button
-                key={c}
-                onClick={() => setSelectedChannel(prev => prev === c ? "" : c)}
-                className={`text-[0.6875rem] font-bold transition-colors cursor-pointer pb-0.5 ${
-                  selectedChannel === c
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-outline hover:text-on-surface"
-                }`}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-
-          {/* 年 */}
-          <div className="flex items-baseline gap-4 flex-wrap">
-            <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline shrink-0">Year</span>
-            {YEAR_FILTERS.map(y => (
-              <button
-                key={y}
-                onClick={() => setSelectedYear(prev => prev === y ? 0 : y)}
-                className={`text-[0.6875rem] font-bold tabular-nums transition-colors cursor-pointer pb-0.5 ${
-                  selectedYear === y
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-outline hover:text-on-surface"
-                }`}
-              >
-                {y}
-              </button>
-            ))}
-          </div>
-
-          {/* ソート */}
-          <div className="flex items-baseline gap-6 flex-wrap">
-            <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline shrink-0">Sort</span>
-            {SORT_OPTIONS.map(s => (
-              <button
-                key={s.key}
-                onClick={() => setSortOrder(s.key)}
-                className={`text-[0.6875rem] font-bold uppercase tracking-widest transition-colors cursor-pointer pb-0.5 ${
-                  sortOrder === s.key
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-outline hover:text-on-surface"
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
+          return (
+            <div className="mb-8">
+              {/* タブ行 */}
+              <div className="flex items-center gap-5 flex-wrap border-b border-outline-variant/20 px-0">
+                {tabs.map(t => (
+                  <FilterTab
+                    key={t.key}
+                    label={t.label}
+                    active={activeTab === t.key}
+                    badge={t.badge}
+                    onClick={() => toggleTab(t.key)}
+                  />
+                ))}
+              </div>
+              {/* 展開パネル */}
+              {activeTab && panelContent[activeTab] && (
+                <div className="flex flex-wrap gap-x-4 gap-y-2 pt-3 pb-4 border-b border-outline-variant/20">
+                  {panelContent[activeTab]}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* PICK */}
         {pickVideo && (
@@ -419,15 +630,17 @@ export default function YouTubePage() {
             <div className="flex items-baseline gap-3 mb-3">
               <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">Pick</span>
               <button
-                onClick={fetchPickVideo}
+                onClick={() => fetchPickVideo(pickVideo)}
                 className="text-[0.6875rem] uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer"
               >
                 ↻ shuffle
               </button>
             </div>
+            {/* メインカード（key でアニメーション再生） */}
             <button
+              key={pickVideo.video_id}
               onClick={() => setModalVideo(pickVideo)}
-              className="w-full flex gap-4 bg-surface-container-low hover:bg-surface-container transition-colors group text-left cursor-pointer p-3"
+              className="pick-float-in w-full flex gap-4 bg-surface-container-low hover:bg-surface-container transition-colors group text-left cursor-pointer p-3"
             >
               <div className="w-40 sm:w-56 shrink-0 aspect-video overflow-hidden bg-surface-container">
                 <img
@@ -449,6 +662,21 @@ export default function YouTubePage() {
                 </div>
               </div>
             </button>
+            {/* 履歴サムネ（最大3件） */}
+            {pickHistory.length > 0 && (
+              <div className="flex gap-2 mt-2">
+                {pickHistory.map(v => (
+                  <button
+                    key={v.video_id}
+                    onClick={() => setModalVideo(v)}
+                    title={v.title}
+                    className="w-24 sm:w-32 aspect-video overflow-hidden bg-surface-container opacity-50 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
+                  >
+                    <img src={v.thumbnail_url} alt={v.title} className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -501,21 +729,19 @@ export default function YouTubePage() {
           </div>
         )}
 
-        {/* もっと見る */}
-        {hasMore && !loading && videos.length > 0 && (
-          <div className="mt-12 text-center">
-            <button
-              onClick={() => fetchVideos(selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, sortOrder, offset, false)}
-              className="bg-primary text-on-primary-fixed px-12 py-4 text-xs font-bold uppercase tracking-[0.2em] hover:bg-secondary transition-colors cursor-pointer"
-            >
-              Load More
-            </button>
-          </div>
-        )}
+        {/* 無限スクロール sentinel */}
+        <div ref={sentinelRef} className="h-1" />
 
         {loading && (
           <div className="flex items-center justify-center h-32 text-outline text-xs uppercase tracking-widest">
             Loading...
+          </div>
+        )}
+
+        {/* 終端 */}
+        {!hasMore && videos.length > 0 && !loading && (
+          <div className="flex items-center justify-center h-24 text-outline/40 text-[0.6rem] uppercase tracking-widest">
+            — end —
           </div>
         )}
 

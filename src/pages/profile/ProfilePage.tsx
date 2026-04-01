@@ -133,7 +133,7 @@ export default function ProfilePage() {
     return (
       <div style={S.app}>
         <div style={S.hdr}>
-          <div style={S.ttl}>ハロプロ プロフィール帳メーカー</div>
+          <div style={S.ttl}>プロフィール帳メーカー</div>
           <div style={S.sub}>プロフィールカードを作ってXでシェアしよう</div>
         </div>
 

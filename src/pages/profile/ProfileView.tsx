@@ -9,7 +9,7 @@ export default function ProfileView({ data, template }: { data: ProfileData; tem
     <div style={{ maxWidth: 480, margin: "2rem auto", padding: "0 1rem", fontFamily: "'Zen Maru Gothic',sans-serif" }}>
       <div style={{ textAlign: "center", marginBottom: "1rem" }}>
         <div style={{ fontSize: "1rem", fontWeight: 800, background: "linear-gradient(135deg,#E5457D,#ba3cb8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-          ハロプロ プロフィール帳メーカー
+          プロフィール帳メーカー
         </div>
       </div>
       {template === "B" ? (

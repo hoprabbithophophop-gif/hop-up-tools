@@ -55,7 +55,7 @@ export default function PrivacyPage() {
       <div style={s.updated}>最終更新日: 2026年3月30日</div>
 
       <p style={s.p}>
-        hop-up-tools（以下「本サービス」）は、hop_rabbit（以下「運営者」）が提供するハロプロファン向けWebツール集です。
+        hop-up-tools（以下「本サービス」）は、hop_rabbit（以下「運営者」）が提供するHello! Project ファン向けWebツール集です。
         本プライバシーポリシーは、本サービスにおける情報の取り扱いについて説明します。
       </p>
 

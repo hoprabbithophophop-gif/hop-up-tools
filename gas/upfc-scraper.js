@@ -11,7 +11,7 @@ const BASE_URL = 'https://www.upfc.jp/helloproject';
 const LIST_URL = BASE_URL + '/news_list.php?@rst=all';
 
 /** エントリポイント（GAS トリガーはここを指定） */
-function main() {
+function UFmain() {
   const props = PropertiesService.getScriptProperties();
   const supabaseUrl = props.getProperty('SUPABASE_URL');
   const supabaseKey = props.getProperty('SUPABASE_SERVICE_KEY');
@@ -29,7 +29,7 @@ function main() {
   for (const article of articles) {
     try {
       const deadlines = fetchDeadlines(article);
-      upsertToSupabase(supabaseUrl, supabaseKey, article, deadlines);
+      upsertNewsToSupabase(supabaseUrl, supabaseKey, article, deadlines);
       Logger.log('OK: ' + article.uid + ' (' + deadlines.length + '件の締切)');
       successCount++;
       Utilities.sleep(1200); // 1.2秒待機（レートリミット対策）
@@ -218,8 +218,9 @@ function fetchDeadlines(article) {
 
   // ── 申込期間（開始〜終了） ──
   // 例: ■申込期間： 2026 年3月26日（木）17時～4月1日（水）12時
+  // 例: ■受付期間：2026年4月1日（水）17時～4月13日（月）12時
   const applyPeriod = text.match(
-    new RegExp('■?申込期間[：:]\\s*(' + D_WITH_YEAR + ')\\s*[〜～]\\s*(' + D_WITH_YEAR + '|' + D_NO_YEAR + ')')
+    new RegExp('■?(?:申込期間|受付期間)[：:]\\s*(' + D_WITH_YEAR + ')\\s*[〜～]\\s*(' + D_WITH_YEAR + '|' + D_NO_YEAR + ')')
   );
   if (applyPeriod) {
     const startYear = extractYear(applyPeriod[1]);
@@ -258,6 +259,19 @@ function fetchDeadlines(article) {
   if (payment) {
     const dt = parseJapaneseDate(payment[1], null);
     if (dt) deadlines.push({ type: 'payment', label: '入金締切', deadline_at: dt });
+  }
+
+  // ── 支払期間（終了日を入金締切として扱う） ──
+  // 例: ■支払期間：2026年4月23日（木）12時～4月27日（月）12時
+  if (!payment) {
+    const payPeriod = text.match(
+      new RegExp('■?支払期間[：:]\\s*(' + D_WITH_YEAR + ')\\s*[〜～]\\s*(' + D_WITH_YEAR + '|' + D_NO_YEAR + ')')
+    );
+    if (payPeriod) {
+      const startYear = extractYear(payPeriod[1]);
+      const end = parseJapaneseDate(payPeriod[2], startYear);
+      if (end) deadlines.push({ type: 'payment', label: '入金締切', deadline_at: end });
+    }
   }
 
   // ── 販売期間（グッズ・配信） ──
@@ -311,7 +325,8 @@ function parseJapaneseDate(str, fallbackYear) {
 
 // ─── Supabase UPSERT ──────────────────────────────────────
 
-function upsertToSupabase(supabaseUrl, supabaseKey, article, deadlines) {
+
+function upsertNewsToSupabase(supabaseUrl, supabaseKey, article, deadlines) {
   const headers = {
     'apikey': supabaseKey,
     'Authorization': 'Bearer ' + supabaseKey,

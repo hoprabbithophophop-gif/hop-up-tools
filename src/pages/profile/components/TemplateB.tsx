@@ -104,7 +104,7 @@ export default function TemplateB({ data }: TemplateBProps) {
         )}
       </div>
       <div style={{ position: "absolute", bottom: 4, right: 8, fontSize: "0.7rem", color: "#ddd", letterSpacing: ".08em" }}>
-        ハロプロファンサイト
+        hop-up-tools
       </div>
     </div>
   );

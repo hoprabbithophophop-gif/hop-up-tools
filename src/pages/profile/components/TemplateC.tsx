@@ -123,7 +123,7 @@ export default function TemplateC({ data }: TemplateCProps) {
       )}
 
       <div style={{ position: "absolute", bottom: 4, right: 8, fontSize: "0.65rem", color: "#ddd" }}>
-        ハロプロファンサイト
+        hop-up-tools
       </div>
     </div>
   );

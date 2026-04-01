@@ -5,6 +5,15 @@ body {
   color: #191c1d;
 }
 
+/* YouTube ランダムピック フロートイン */
+@keyframes pick-float-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.pick-float-in {
+  animation: pick-float-in 0.3s ease-out both;
+}
+
 /* Gantt バーラベル: 省略バーのみ常時ループマーキー (PC/スマホ共通) */
 @keyframes bar-marquee-continuous {
   0%   { transform: translateX(0); }
