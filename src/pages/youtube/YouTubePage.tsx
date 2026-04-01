@@ -96,6 +96,12 @@ const MEMBERS_BY_GROUP: Record<string, string[]> = {
   "ロージークロニクル": ["橋田歩果", "吉田姫杷", "小野田華凜", "村越彩菜", "植村葉純", "松原ユリヤ", "島川波菜", "上村麗菜", "相馬優芽"],
 };
 
+const ALL_SUGGESTION_CANDIDATES: string[] = [
+  ...GROUP_FILTERS,
+  ...CHANNEL_FILTERS,
+  ...Object.values(MEMBERS_BY_GROUP).flat(),
+];
+
 const TYPE_COLOR: Record<string, string> = {
   mv:      "text-[#E5457D]",
   live:    "text-blue-500",
@@ -188,7 +194,7 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
   const shareTitleSuffix = shareSeconds !== null
     ? (chapterLabel ? ` - ${chapterLabel}` : "") + ` [${timeInput}]`
     : "";
-  const shareText = `${video.title}${shareTitleSuffix}\n${shareUrl}`;
+  const shareText = `${video.title}${shareTitleSuffix}\n\n${shareUrl}`;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(shareText);
@@ -307,7 +313,7 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
 
               {/* URL プレビュー + アクション */}
               <div className="flex items-start gap-2 flex-wrap">
-                <div className="flex-1 min-w-0 font-mono space-y-0.5">
+                <div className="flex-1 min-w-0 font-mono space-y-1.5">
                   <p className="text-[0.6rem] text-on-surface/80 truncate">{video.title}{shareTitleSuffix}</p>
                   <p className="text-[0.6rem] text-outline/60 truncate">{shareUrl}</p>
                 </div>
@@ -407,10 +413,23 @@ export default function YouTubePage() {
   const [selectedMember, setSelectedMember] = useState("");
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const toggleTab = (key: string) => setActiveTab(prev => prev === key ? null : key);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const searchContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { document.title = "YouTube チェック | hop-up-tools"; }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const fetchPickVideo = useCallback(async (current: VideoRow | null) => {
     const supabase = getSupabase();
@@ -529,6 +548,24 @@ export default function YouTubePage() {
     setSearchInput(val);
     if (searchTimer.current) clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => setSearchQuery(val), 500);
+    if (val.trim()) {
+      const lower = val.toLowerCase();
+      const matched = ALL_SUGGESTION_CANDIDATES
+        .filter(c => c.toLowerCase().includes(lower))
+        .slice(0, 8);
+      setSuggestions(matched);
+      setShowSuggestions(matched.length > 0);
+    } else {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  };
+
+  const selectSuggestion = (s: string) => {
+    setSearchInput(s);
+    setSearchQuery(s);
+    setSuggestions([]);
+    setShowSuggestions(false);
   };
 
   return (
@@ -545,21 +582,35 @@ export default function YouTubePage() {
           <h1 className="text-2xl font-black tracking-tighter uppercase">HELLO! VIDEOS</h1>
         </div>
         {/* 検索 */}
-        <div className="flex items-center gap-2">
+        <div ref={searchContainerRef} className="relative flex items-center gap-2">
           <input
             type="text"
             placeholder="search..."
             value={searchInput}
             onChange={handleSearchChange}
+            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
             className="w-48 md:w-64 bg-transparent border-b border-outline-variant/40 py-1 text-sm focus:outline-none focus:border-primary transition-colors placeholder:italic placeholder:text-outline/50"
           />
           {searchInput && (
             <button
-              onClick={() => { setSearchInput(""); setSearchQuery(""); }}
+              onClick={() => { setSearchInput(""); setSearchQuery(""); setSuggestions([]); setShowSuggestions(false); }}
               className="text-outline hover:text-primary text-xs uppercase tracking-widest transition-colors cursor-pointer"
             >
               clear
             </button>
+          )}
+          {showSuggestions && suggestions.length > 0 && (
+            <div className="absolute top-full right-0 mt-2 w-64 bg-surface border border-outline-variant/40 shadow-lg z-50">
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onMouseDown={() => selectSuggestion(s)}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-surface-container transition-colors cursor-pointer"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           )}
         </div>
       </header>
