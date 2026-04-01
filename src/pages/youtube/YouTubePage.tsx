@@ -172,6 +172,7 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
   const [shareOpen, setShareOpen] = useState(false);
   const [shareSeconds, setShareSeconds] = useState<number | null>(null);
   const [timeInput, setTimeInput] = useState("");
+  const [chapterLabel, setChapterLabel] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -184,14 +185,20 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
     shareSeconds !== null ? `&t=${shareSeconds}` : ""
   }`;
 
+  const shareTitleSuffix = shareSeconds !== null
+    ? (chapterLabel ? ` - ${chapterLabel}` : "") + ` [${timeInput}]`
+    : "";
+  const shareText = `${video.title}${shareTitleSuffix}\n${shareUrl}`;
+
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(shareUrl);
+    await navigator.clipboard.writeText(shareText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleTimeInput = (val: string) => {
     setTimeInput(val);
+    setChapterLabel(null);
     // mm:ss or hh:mm:ss → 秒に変換
     const parts = val.trim().split(":").map(Number);
     if (parts.every(n => !isNaN(n) && n >= 0)) {
@@ -207,14 +214,16 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
     }
   };
 
-  const selectChapter = (sec: number, ts: string) => {
+  const selectChapter = (sec: number, ts: string, label: string) => {
     setShareSeconds(sec);
     setTimeInput(ts);
+    setChapterLabel(label);
   };
 
   const clearTime = () => {
     setShareSeconds(null);
     setTimeInput("");
+    setChapterLabel(null);
   };
 
   return (
@@ -283,7 +292,7 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
                   {chapters.map((ch, i) => (
                     <button
                       key={i}
-                      onClick={() => selectChapter(ch.seconds, ch.timestamp)}
+                      onClick={() => selectChapter(ch.seconds, ch.timestamp, ch.label)}
                       className={`text-[0.6rem] font-mono px-1.5 py-0.5 border transition-colors cursor-pointer ${
                         shareSeconds === ch.seconds
                           ? "border-primary text-primary bg-primary/5"
@@ -297,8 +306,11 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
               )}
 
               {/* URL プレビュー + アクション */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[0.6rem] text-outline/60 truncate flex-1 font-mono">{shareUrl}</span>
+              <div className="flex items-start gap-2 flex-wrap">
+                <div className="flex-1 min-w-0 font-mono space-y-0.5">
+                  <p className="text-[0.6rem] text-on-surface/80 truncate">{video.title}{shareTitleSuffix}</p>
+                  <p className="text-[0.6rem] text-outline/60 truncate">{shareUrl}</p>
+                </div>
                 <button
                   onClick={handleCopy}
                   className="text-[0.6rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer shrink-0"
@@ -306,7 +318,7 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
                   {copied ? "Copied!" : "Copy"}
                 </button>
                 <a
-                  href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(video.title)}`}
+                  href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(video.title + shareTitleSuffix)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={e => e.stopPropagation()}
