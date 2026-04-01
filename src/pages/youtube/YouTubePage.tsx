@@ -194,10 +194,14 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
     setTimeInput(val);
     // mm:ss or hh:mm:ss → 秒に変換
     const parts = val.trim().split(":").map(Number);
-    if (parts.every(n => !isNaN(n))) {
-      if (parts.length === 2) setShareSeconds(parts[0] * 60 + parts[1]);
-      else if (parts.length === 3) setShareSeconds(parts[0] * 3600 + parts[1] * 60 + parts[2]);
-      else setShareSeconds(null);
+    if (parts.every(n => !isNaN(n) && n >= 0)) {
+      if (parts.length === 2 && parts[1] < 60) {
+        setShareSeconds(parts[0] * 60 + parts[1]);
+      } else if (parts.length === 3 && parts[1] < 60 && parts[2] < 60) {
+        setShareSeconds(parts[0] * 3600 + parts[1] * 60 + parts[2]);
+      } else {
+        setShareSeconds(null);
+      }
     } else {
       setShareSeconds(null);
     }
