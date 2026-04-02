@@ -69,9 +69,11 @@ const CHANNEL_FILTERS = [
   "OMAKE CHANNEL",
   "UFfanclub",
   "UF Goods Land",
+  "M-line Music",
   "アプカミ",
   "ファミ通ゲーム実況",
   "THE FIRST TAKE",
+  "ヤンマガch",
   "happyに過ごそうよ",
   "ビヨーンズの伸びしろ",
   "SATOYAMA&SATOUMI",
@@ -443,12 +445,14 @@ export default function YouTubePage() {
     const supabase = getSupabase();
     const { count } = await supabase
       .from("youtube_videos")
-      .select("*", { count: "exact", head: true });
+      .select("*", { count: "exact", head: true })
+      .eq("is_active_content", true);
     if (!count) return;
     const randomOffset = Math.floor(Math.random() * count);
     const { data } = await supabase
       .from("youtube_videos")
       .select("video_id,title,channel_name,published_at,thumbnail_url,video_type,group_tags,description_short")
+      .eq("is_active_content", true)
       .range(randomOffset, randomOffset);
     if (data && data.length > 0) {
       if (current) setPickHistory(prev =>
