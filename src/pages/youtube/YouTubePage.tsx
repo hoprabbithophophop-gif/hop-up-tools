@@ -324,7 +324,7 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
                   {copied ? "Copied!" : "Copy"}
                 </button>
                 <a
-                  href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(video.title + shareTitleSuffix)}`}
+                  href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={e => e.stopPropagation()}
