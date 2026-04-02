@@ -191,10 +191,18 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
     shareSeconds !== null ? `&t=${shareSeconds}` : ""
   }`;
 
+  const shareText = (() => {
+    if (shareSeconds === null) {
+      return `${video.title}\n\n${shareUrl}`;
+    }
+    if (chapterLabel) {
+      return `${video.title}\n${chapterLabel} [${timeInput}]\n\n${shareUrl}`;
+    }
+    return `${video.title} [${timeInput}]\n\n${shareUrl}`;
+  })();
   const shareTitleSuffix = shareSeconds !== null
     ? (chapterLabel ? ` - ${chapterLabel}` : "") + ` [${timeInput}]`
     : "";
-  const shareText = `${video.title}${shareTitleSuffix}\n\n${shareUrl}`;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(shareText);
