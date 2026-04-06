@@ -30,7 +30,7 @@ export default function UpfcDummyPreview() {
   const tabs = ["チケット申込状況", "ファンクラブショップ", "スペシャル会員"];
 
   return (
-    <div style={{ fontFamily: "sans-serif", fontSize: 13, color: "#333", background: "#f0f8fd", borderRadius: 8, overflow: "hidden", border: "1px solid #b8d9ed" }}>
+    <div data-demo-id="upfc-preview" style={{ fontFamily: "sans-serif", fontSize: 13, color: "#333", background: "#f0f8fd", borderRadius: 8, overflow: "hidden", border: "1px solid #b8d9ed" }}>
       {/* サイトヘッダー風 */}
       <div style={{ background: UPFC_BLUE, color: "#fff", padding: "8px 16px", fontSize: 11, letterSpacing: 2 }}>
         UPFC MYPAGE（イメージ）

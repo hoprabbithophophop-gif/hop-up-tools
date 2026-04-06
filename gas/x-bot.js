@@ -217,7 +217,7 @@ function buildOAuth1Header(method, url, apiKey, apiSecret, accessToken, tokenSec
 
   // HMAC-SHA1 署名
   var sigKey = encodeURIComponent(apiSecret) + '&' + encodeURIComponent(tokenSecret);
-  var sig    = Utilities.base64Encode(Utilities.computeHmacSha1Signature(sigBase, sigKey));
+  var sig    = Utilities.base64Encode(Utilities.computeHmacSignature(Utilities.MacAlgorithm.HMAC_SHA_1, sigBase, sigKey));
 
   oauthParams['oauth_signature'] = sig;
 

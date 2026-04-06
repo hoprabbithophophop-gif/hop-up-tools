@@ -91,12 +91,28 @@ export default function FcTicketPage() {
     try { return JSON.parse(localStorage.getItem("fc-watchlist") ?? "[]"); }
     catch { return []; }
   });
+  const [applied, setAppliedState] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("fc-applied") ?? "[]"); }
+    catch { return []; }
+  });
+  const [paid, setPaidState] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("fc-paid") ?? "[]"); }
+    catch { return []; }
+  });
 
   const matchedUids = new Set(matchResults.flatMap((r) => r.matched.map((m) => m.uid)));
 
   function setWatchlist(uids: string[]) {
     setWatchlistState(uids);
     localStorage.setItem("fc-watchlist", JSON.stringify(uids));
+  }
+  function setApplied(uids: string[]) {
+    setAppliedState(uids);
+    localStorage.setItem("fc-applied", JSON.stringify(uids));
+  }
+  function setPaid(uids: string[]) {
+    setPaidState(uids);
+    localStorage.setItem("fc-paid", JSON.stringify(uids));
   }
 
   // Supabase から全データを取得
@@ -171,6 +187,10 @@ export default function FcTicketPage() {
               allNews={allNews}
               watchlist={watchlist}
               onWatchlistChange={setWatchlist}
+              applied={applied}
+              onAppliedChange={setApplied}
+              paid={paid}
+              onPaidChange={setPaid}
               matchedUids={matchedUids}
             />
           )}
@@ -195,6 +215,7 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
         {(["input", "result", "calendar"] as Tab[]).map((t) => (
           <button
             key={t}
+            data-demo-id={t === 'calendar' ? 'nav-calendar' : undefined}
             onClick={() => setTab(t)}
             className={`text-[0.6875rem] font-bold uppercase tracking-widest px-2 py-1 transition-colors cursor-pointer ${
               tab === t
@@ -266,6 +287,7 @@ function InputScreen({
               </label>
               <button
                 type="button"
+                data-demo-id="help-btn"
                 onClick={() => setHelpOpen(true)}
                 className="w-5 h-5 rounded-full border border-outline text-outline text-[0.625rem] font-bold leading-none flex items-center justify-center hover:border-primary hover:text-primary transition-colors cursor-pointer"
                 aria-label="コピー範囲の説明を見る"
@@ -274,6 +296,7 @@ function InputScreen({
               </button>
             </div>
             <textarea
+              data-demo-id="upfc-textarea"
               className="w-full h-64 bg-transparent border-b border-outline-variant/40 py-4 text-sm resize-none focus:outline-none focus:border-b-2 focus:border-primary transition-all placeholder:italic placeholder:text-outline/50"
               placeholder="UPFCのチケット申込状況をコピペしてください"
               value={pasteText}
@@ -304,6 +327,7 @@ function InputScreen({
             <button
               onClick={onAnalyze}
               disabled={!pasteText.trim()}
+              data-demo-id="analyze-btn"
               className="bg-primary text-on-primary-fixed px-12 py-5 text-sm font-bold uppercase tracking-[0.2em] hover:bg-secondary transition-colors w-full sm:w-auto disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
             >
               締切を確認
@@ -317,6 +341,9 @@ function InputScreen({
                 arrow_forward
               </span>
             </button>
+            <p className="text-[0.625rem] text-outline-variant">
+              ※ チケット申込にはHello! Projectオフィシャルファンクラブへの加入が必要です
+            </p>
           </div>
         </div>
       </div>
@@ -336,6 +363,7 @@ function InputScreen({
             <h2 className="text-sm font-bold uppercase tracking-widest">コピー範囲の説明</h2>
             <button
               type="button"
+              data-demo-id="help-close-btn"
               onClick={() => setHelpOpen(false)}
               className="text-outline hover:text-primary transition-colors cursor-pointer"
               aria-label="閉じる"
@@ -522,8 +550,8 @@ function ResultArticle({
                 </p>
               )}
               <div className="space-y-4">
-                {dls.map((dl) => (
-                  <DeadlineRow key={dl.id} dl={dl} paidUp={isCompleted && dl.type === "payment"} />
+                {dls.map((dl, idx) => (
+                  <DeadlineRow key={dl.id} dl={dl} paidUp={isCompleted && dl.type === "payment"} isFirst={idx === 0} />
                 ))}
               </div>
             </div>
@@ -548,10 +576,12 @@ function AddToCalendarButton({
   event,
   urgent = false,
   past = false,
+  demoid,
 }: {
   event: IcsEvent;
   urgent?: boolean;
   past?: boolean;
+  demoid?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [dropUp, setDropUp] = useState(true);
@@ -598,6 +628,7 @@ function AddToCalendarButton({
     <div ref={ref} className="relative">
       <button
         onClick={handleToggle}
+        data-demo-id={demoid}
         className={`flex items-center justify-center gap-2 px-6 py-3 text-xs font-bold uppercase tracking-widest transition-colors cursor-pointer ${
           past
             ? "bg-surface-container text-outline hover:bg-surface-container-high"
@@ -610,8 +641,8 @@ function AddToCalendarButton({
         カレンダーに追加
       </button>
       {open && (
-        <div className={`absolute right-0 ${menuPos} z-20 bg-surface-container-lowest border border-primary min-w-[11rem]`}>
-          <button onClick={handleGoogle} className={menuItem}>
+        <div className={`absolute right-0 ${menuPos} z-20 bg-surface-container-lowest border border-primary min-w-[11rem] text-on-surface`}>
+          <button onClick={handleGoogle} data-demo-id="google-cal-btn" className={menuItem}>
             <span className="material-symbols-outlined text-sm">open_in_new</span>
             Google カレンダー
           </button>
@@ -645,7 +676,7 @@ function StatusBadge({ status, hasFuture }: { status: string; hasFuture: boolean
   return <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">{status}</span>;
 }
 
-function DeadlineRow({ dl, paidUp = false }: { dl: Deadline; paidUp?: boolean }) {
+function DeadlineRow({ dl, paidUp = false, isFirst = false }: { dl: Deadline; paidUp?: boolean; isFirst?: boolean }) {
   const deadline = new Date(dl.deadline_at);
   const now = new Date();
   const diffDays = (deadline.getTime() - now.getTime()) / 86400000;
@@ -688,7 +719,7 @@ function DeadlineRow({ dl, paidUp = false }: { dl: Deadline; paidUp?: boolean })
           {dl.label} {dateStr} {timeStr}
         </p>
       </div>
-      <AddToCalendarButton event={calEvent} urgent={isUrgent} past={isPast} />
+      <AddToCalendarButton event={calEvent} urgent={isUrgent} past={isPast} demoid={isFirst ? "add-calendar-btn" : undefined} />
     </div>
   );
 }
@@ -700,12 +731,20 @@ function CalendarScreen({
   allNews,
   watchlist,
   onWatchlistChange,
+  applied,
+  onAppliedChange,
+  paid,
+  onPaidChange,
   matchedUids,
 }: {
   allDeadlines: Deadline[];
   allNews: FcNewsRow[];
   watchlist: string[];
   onWatchlistChange: (uids: string[]) => void;
+  applied: string[];
+  onAppliedChange: (uids: string[]) => void;
+  paid: string[];
+  onPaidChange: (uids: string[]) => void;
   matchedUids: Set<string>;
 }) {
   const today = new Date();
@@ -726,8 +765,14 @@ function CalendarScreen({
   const [watchlistGroups, setWatchlistGroups] = useState<string[]>([]);
   const [pendingCalendarUid, setPendingCalendarUid] = useState<string | null>(null);
   const [confirmClearAll, setConfirmClearAll] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [tooltipUid, setTooltipUid] = useState<string | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   const year = centerDate.getFullYear();
   const month = centerDate.getMonth();
@@ -765,11 +810,35 @@ function CalendarScreen({
   }
 
   const watchlistSet = new Set(watchlist);
+  const appliedSet = new Set(applied);
+  const paidSet = new Set(paid);
+
+  function toggleApplied(uid: string) {
+    if (appliedSet.has(uid)) {
+      onAppliedChange(applied.filter((u) => u !== uid));
+      // 申込解除したら入金済みも解除
+      onPaidChange(paid.filter((u) => u !== uid));
+    } else {
+      onAppliedChange([...applied, uid]);
+      // 申込時にwatchlistにも追加
+      if (!watchlistSet.has(uid)) onWatchlistChange([...watchlist, uid]);
+    }
+  }
+
+  function togglePaid(uid: string) {
+    if (paidSet.has(uid)) {
+      onPaidChange(paid.filter((u) => u !== uid));
+    } else {
+      onPaidChange([...paid, uid]);
+    }
+  }
 
   // apply_end 締切日マップ（気になるセクション用）
   const applyEndByUid = new Map<string, Date>();
+  const paymentByUid = new Map<string, Date>();
   for (const dl of allDeadlines) {
     if (dl.type === "apply_end") applyEndByUid.set(dl.news_uid, new Date(dl.deadline_at));
+    if (dl.type === "payment") paymentByUid.set(dl.news_uid, new Date(dl.deadline_at));
   }
 
   // watchlist トグル
@@ -816,29 +885,37 @@ function CalendarScreen({
     return periods;
   })();
 
-  // 日付ごとの締切マップ（月サマリー用: 現在月のみ）
-  const byDate: Record<string, Deadline[]> = {};
-  for (const dl of filteredDeadlines) {
-    const d = new Date(dl.deadline_at);
-    if (d.getFullYear() !== year || d.getMonth() !== month) continue;
-    const key = d.getDate().toString();
-    if (!byDate[key]) byDate[key] = [];
-    byDate[key].push(dl);
-  }
 
+  // 要対応締切のみ（apply_end / payment）— result・apply_start 等は件数に含めない
+  const actionableTypes = new Set(["apply_end", "payment"]);
+  const actionableDeadlines = filteredDeadlines.filter((dl) => actionableTypes.has(dl.type));
 
   const selectedDeadlines = selectedDate
     ? filteredDeadlines.filter((dl) => isSameDay(new Date(dl.deadline_at), selectedDate))
     : [];
+  const selectedActionCount = selectedDate
+    ? actionableDeadlines.filter((dl) => isSameDay(new Date(dl.deadline_at), selectedDate)).length
+    : 0;
 
-  // 月の締切件数
-  const totalThisMonth = Object.values(byDate).reduce((s, arr) => s + arr.length, 0);
-  const urgentThisMonth = Object.values(byDate)
-    .flat()
-    .filter((dl) => {
-      const diff = (new Date(dl.deadline_at).getTime() - today.getTime()) / 86400000;
-      return diff >= 0 && diff < 3;
-    }).length;
+  // 本日の要対応締切（タイプ別）
+  const todayActionable = actionableDeadlines.filter((dl) => isSameDay(new Date(dl.deadline_at), today));
+  const todayPayment = todayActionable.filter((dl) => dl.type === "payment").length;
+  const todayApply   = todayActionable.filter((dl) => dl.type === "apply_end").length;
+  // 直近3日以内の要対応締切（Daily Summaryの大見出し用）
+  const upcomingActionable = actionableDeadlines.filter((dl) => {
+    const diff = (new Date(dl.deadline_at).getTime() - today.getTime()) / 86400000;
+    return diff >= 0 && diff < 3;
+  });
+  const upcomingPayment = upcomingActionable.filter((dl) => dl.type === "payment").length;
+  const upcomingApply   = upcomingActionable.filter((dl) => dl.type === "apply_end").length;
+  // 直近3日以内の入金締切（申込済み・未入金のみ）
+  const urgentPayment = filteredDeadlines.filter((dl) => {
+    if (dl.type !== "payment") return false;
+    if (!appliedSet.has(dl.news_uid)) return false;
+    if (paidSet.has(dl.news_uid)) return false;
+    const diff = (new Date(dl.deadline_at).getTime() - today.getTime()) / 86400000;
+    return diff >= 0 && diff < 3;
+  }).length;
 
   const newsMap = new Map(allNews.map((n) => [n.uid, n]));
 
@@ -848,10 +925,6 @@ function CalendarScreen({
     if (!deadlinesByNewsUid.has(dl.news_uid)) deadlinesByNewsUid.set(dl.news_uid, {});
     deadlinesByNewsUid.get(dl.news_uid)![dl.type] = new Date(dl.deadline_at);
   }
-  // Gantt入金締切マーカー用: newsUid → payment Date
-  const paymentByUid = new Map(
-    ganttPeriods.filter((p) => p.type === "payment").map((p) => [p.newsUid, p.end])
-  );
   // 入金バー開始日: 当落確認日 or なければ申込締切日
   const resultByUid = new Map<string, Date>();
   for (const dl of filteredDeadlines) {
@@ -874,6 +947,54 @@ function CalendarScreen({
       return g ? titleMatchesGroup(n.title, g) : false;
     })) return false;
     return true;
+  }).sort((a, b) => {
+    const now = new Date();
+    const aPayment = paymentByUid.get(a.uid);
+    const bPayment = paymentByUid.get(b.uid);
+    const aApplyEnd = applyEndByUid.get(a.uid);
+    const bApplyEnd = applyEndByUid.get(b.uid);
+    const aExpired = !!(aApplyEnd && aApplyEnd < now);
+    const bExpired = !!(bApplyEnd && bApplyEnd < now);
+
+    // 入金待ち（申込済み・未入金・入金期限あり）を最優先
+    const aUrgent = appliedSet.has(a.uid) && !paidSet.has(a.uid) && !!aPayment;
+    const bUrgent = appliedSet.has(b.uid) && !paidSet.has(b.uid) && !!bPayment;
+    if (aUrgent !== bUrgent) return aUrgent ? -1 : 1;
+    if (aUrgent && bUrgent) return aPayment!.getTime() - bPayment!.getTime();
+
+    // 終了済みは末尾
+    if (aExpired !== bExpired) return aExpired ? 1 : -1;
+
+    // 申込受付中（申込締切が未来）を入金期間中（申込締切が過去）より上
+    const aApplyFuture = !!(aApplyEnd && aApplyEnd > now);
+    const bApplyFuture = !!(bApplyEnd && bApplyEnd > now);
+    if (aApplyFuture !== bApplyFuture) return aApplyFuture ? -1 : 1;
+
+    // 申込受付中同士は申込締切が近い順
+    if (aApplyFuture && bApplyFuture) return aApplyEnd!.getTime() - bApplyEnd!.getTime();
+
+    // 入金期間中同士は入金締切が近い順
+    if (!aApplyFuture && !bApplyFuture) {
+      if (!aPayment && !bPayment) return 0;
+      if (!aPayment) return 1;
+      if (!bPayment) return -1;
+      return aPayment.getTime() - bPayment.getTime();
+    }
+
+    return 0;
+  });
+
+  // 完了・終了済み：最終締切（入金締切 or 申込締切）が過去のもの
+  const now2 = new Date();
+  const isDone = (uid: string) => {
+    const lastDeadline = paymentByUid.get(uid) ?? applyEndByUid.get(uid);
+    return !!(lastDeadline && lastDeadline < now2);
+  };
+  const activeCandidates = filteredCandidates.filter((n) => !isDone(n.uid));
+  const doneCandidates   = filteredCandidates.filter((n) =>  isDone(n.uid)).sort((a, b) => {
+    const aLast = (paymentByUid.get(a.uid) ?? applyEndByUid.get(a.uid))?.getTime() ?? 0;
+    const bLast = (paymentByUid.get(b.uid) ?? applyEndByUid.get(b.uid))?.getTime() ?? 0;
+    return bLast - aLast; // 直近に締切だったものが上
   });
 
   return (
@@ -902,7 +1023,7 @@ function CalendarScreen({
                       : "bg-surface-container text-outline hover:bg-surface-container-high"
                   }`}
                 >
-                  {f === "all" ? "すべて" : "気になる + 申込済み"}
+                  {f === "all" ? "すべて" : "自分の公演のみ"}
                 </button>
               ))}
             </div>
@@ -911,6 +1032,7 @@ function CalendarScreen({
               <span className="flex items-center gap-1"><span className="w-2 h-2 inline-block" style={{ background: "#585f6c" }} />気になる</span>
               {calFilter === "all" && <span className="flex items-center gap-1"><span className="w-2 h-2 bg-outline-variant inline-block" />その他</span>}
               <span className="flex items-center gap-1"><span className="w-2 h-2 inline-block" style={{ background: "#585f6c", opacity: 0.4 }} />入金期間</span>
+              <span className="text-outline-variant">｜ バーをタップで詳細</span>
             </div>
           </div>
           {/* 行2: グループフィルター */}
@@ -965,8 +1087,9 @@ function CalendarScreen({
               })
               .sort((a, b) => a.end.getTime() - b.end.getTime());
 
-            // 今日ラインのx座標（padding込み）
-            const todayLineX = 16 + 30 * CELL_WIDTH + CELL_WIDTH / 2;
+            // 現在時刻ラインのx座標（分単位でリアルタイム移動）
+            const nowOffsetPx = (now.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH;
+            const todayLineX = 16 + nowOffsetPx;
 
             return (
               <div style={{ width: contentWidth, padding: "4px 16px 0" }}>
@@ -1036,10 +1159,8 @@ const isMonthStart = d.getDate() === 1;
                     gantRows.map((p) => {
                       const news = newsMap.get(p.newsUid);
                       const title = news?.title ?? "";
-                      const D_start = Math.floor((p.start.getTime() - stripStart) / MS_PER_DAY);
-                      const D_end = Math.floor((p.end.getTime() - stripStart) / MS_PER_DAY);
-                      const rawLeft = D_start * CELL_WIDTH;
-                      const rawRight = D_end * CELL_WIDTH + CELL_WIDTH;
+                      const rawLeft = (p.start.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH;
+                      const rawRight = (p.end.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH;
                       const left = Math.max(0, rawLeft);
                       const right = Math.min(TOTAL_DAYS * CELL_WIDTH, rawRight);
                       const width = Math.max(CELL_WIDTH / 2, right - left);
@@ -1052,14 +1173,8 @@ const isMonthStart = d.getDate() === 1;
                       const paymentBarStart = paymentDate
                         ? (resultByUid.get(p.newsUid) ?? p.end)
                         : null;
-                      const D_pStart = paymentBarStart
-                        ? Math.floor((paymentBarStart.getTime() - stripStart) / MS_PER_DAY)
-                        : null;
-                      const D_pEnd = paymentDate
-                        ? Math.floor((paymentDate.getTime() - stripStart) / MS_PER_DAY)
-                        : null;
-                      const pRawLeft = D_pStart !== null ? D_pStart * CELL_WIDTH : null;
-                      const pRawRight = D_pEnd !== null ? D_pEnd * CELL_WIDTH + CELL_WIDTH : null;
+                      const pRawLeft = paymentBarStart !== null ? (paymentBarStart.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH : null;
+                      const pRawRight = paymentDate ? (paymentDate.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH : null;
                       const pLeft = pRawLeft !== null ? Math.max(0, pRawLeft) : null;
                       const pRight = pRawRight !== null ? Math.min(TOTAL_DAYS * CELL_WIDTH, pRawRight) : null;
                       const pWidth = pLeft !== null && pRight !== null ? Math.max(CELL_WIDTH / 2, pRight - pLeft) : null;
@@ -1270,35 +1385,52 @@ const isMonthStart = d.getDate() === 1;
         </section>
       )}
 
-      {/* Monthly Summary */}
+      {/* Daily Summary */}
       <section className="mb-12 grid grid-cols-1 md:grid-cols-2 gap-px bg-outline-variant/20">
         <div className="bg-surface py-12 pr-12">
           <h3 className="text-[0.6875rem] font-bold uppercase tracking-[0.3em] mb-4 text-outline">
-            Monthly Summary
+            Upcoming / 3 Days
           </h3>
-          <div className="flex items-baseline gap-2">
-            <span className="text-7xl font-black tracking-tighter">{totalThisMonth}</span>
+          <div className="flex items-baseline gap-3 mb-2">
+            <span className="text-7xl font-black tracking-tighter">{upcomingActionable.length}</span>
             <span className="text-sm font-bold uppercase text-outline">Deadlines</span>
+          </div>
+          <div className="flex gap-3 mt-3">
+            {upcomingPayment > 0 && (
+              <span className="text-[0.625rem] font-bold uppercase tracking-widest px-2 py-1 bg-error text-on-error">
+                入金 {upcomingPayment}件
+              </span>
+            )}
+            {upcomingApply > 0 && (
+              <span className="text-[0.625rem] font-bold uppercase tracking-widest px-2 py-1 bg-tertiary-container text-on-tertiary-container">
+                申込 {upcomingApply}件
+              </span>
+            )}
+            {upcomingActionable.length === 0 && (
+              <span className="text-[0.625rem] text-outline">直近3日間に締切なし</span>
+            )}
           </div>
         </div>
         <div className="bg-surface py-12 pl-12 flex flex-col justify-end">
           <div className="space-y-4">
             <div className="flex justify-between items-end">
-              <span className="text-[0.625rem] font-bold uppercase">直近3日以内</span>
-              <span className="text-xl font-bold">{urgentThisMonth}</span>
+              <span className="text-[0.625rem] font-bold uppercase">3日以内の未入金</span>
+              <span className="text-xl font-bold" style={{ color: urgentPayment > 0 ? "var(--color-error)" : undefined }}>
+                {urgentPayment}
+              </span>
             </div>
             <div className="w-full h-1 bg-outline-variant/20">
               <div
-                className="h-full bg-tertiary"
-                style={{ width: totalThisMonth ? `${(urgentThisMonth / totalThisMonth) * 100}%` : "0%" }}
+                className="h-full bg-error"
+                style={{ width: urgentPayment > 0 ? "100%" : "0%" }}
               />
             </div>
             <div className="flex justify-between items-end">
-              <span className="text-[0.625rem] font-bold uppercase">Total</span>
-              <span className="text-xl font-bold">{totalThisMonth}</span>
+              <span className="text-[0.625rem] font-bold uppercase">本日の締切</span>
+              <span className="text-xl font-bold">{todayActionable.length}</span>
             </div>
             <div className="w-full h-1 bg-outline-variant/20">
-              <div className="h-full bg-primary w-full" />
+              <div className="h-full bg-primary" style={{ width: todayActionable.length > 0 ? "100%" : "0%" }} />
             </div>
           </div>
         </div>
@@ -1351,6 +1483,22 @@ const isMonthStart = d.getDate() === 1;
           </div>
         )}
 
+        {/* カード状態の凡例 */}
+        <div className="flex gap-4 text-[0.625rem] text-outline mb-4 flex-wrap">
+          <span className="flex items-center gap-1.5">
+            <span className="w-1 h-4 inline-block flex-shrink-0" style={{ background: "#ba1a1a" }} />
+            入金急ぎ（3日以内）
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-0.5 h-4 inline-block flex-shrink-0 bg-black" />
+            申込済み
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-4 h-4 inline-block flex-shrink-0" style={{ background: "#e1e3e4" }} />
+            入金期間中
+          </span>
+        </div>
+
         {/* グループフィルター */}
         {availableGroups.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-4">
@@ -1369,6 +1517,7 @@ const isMonthStart = d.getDate() === 1;
               return (
                 <button
                   key={g.key}
+                  data-demo-id={g.key === 'BEYOOOOONDS' ? 'watchlist-filter-beyooooonds' : undefined}
                   onClick={() =>
                     setWatchlistGroups(
                       active
@@ -1407,19 +1556,30 @@ const isMonthStart = d.getDate() === 1;
         </div>
 
         {/* リスト */}
-        {filteredCandidates.length === 0 ? (
+        {activeCandidates.length === 0 && doneCandidates.length === 0 ? (
           <p className="text-sm text-outline py-8 text-center">
-            {watchlistSearch ? "該当なし" : "申込受付中の公演はありません"}
+            {watchlistSearch ? "該当なし" : "公演の右側にある bookmark アイコンを押して追加できます"}
           </p>
         ) : (
           <div className="flex flex-col gap-px">
-            {filteredCandidates.map((news) => {
+            {activeCandidates.map((news) => {
               const applyEnd = applyEndByUid.get(news.uid);
+              const paymentEnd = paymentByUid.get(news.uid);
               const isWatched = watchlistSet.has(news.uid);
+              const isApplied = appliedSet.has(news.uid);
+              const isPaid = paidSet.has(news.uid);
               const isPending = pendingCalendarUid === news.uid;
+              const now3 = new Date();
+              const inPaymentPeriod = !!(paymentEnd && paymentEnd > now3 && (!applyEnd || applyEnd < now3));
+              const isPaymentUrgent = isApplied && !isPaid && paymentEnd
+                && (paymentEnd.getTime() - Date.now()) / 86400000 < 3;
               const applyEndStr = applyEnd
                 ? applyEnd.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" }) +
                   " " + applyEnd.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
+                : null;
+              const paymentEndStr = paymentEnd
+                ? paymentEnd.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" }) +
+                  " " + paymentEnd.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
                 : null;
               const calEvent: IcsEvent | null = applyEnd ? {
                 uid: news.uid + "@hop-up-tools-watchlist",
@@ -1428,30 +1588,90 @@ const isMonthStart = d.getDate() === 1;
                 dtstart: new Date(applyEnd.getTime() - 3600000),
                 dtend: applyEnd,
               } : null;
+              // 色 + ボーダー幅の両方で状態を区別（色覚異常対応）
+              const cardStyle: React.CSSProperties = isPaymentUrgent
+                ? { borderLeft: "4px solid #ba1a1a", background: "#ffffff" }  // 太さ4px = 緊急
+                : isApplied
+                ? { borderLeft: "2px solid #000000", background: "#ffffff" }  // 太さ2px = 要対応
+                : inPaymentPeriod
+                ? { borderLeft: "2px solid transparent", background: "#e1e3e4" }
+                : { borderLeft: "2px solid transparent", background: "#f3f4f5" };
               return (
                 <div key={news.uid}>
-                  <div className={`flex items-center gap-4 px-4 py-4 ${isWatched ? "bg-surface-container" : "bg-surface-container-low"}`}>
+                  <div className="flex items-center gap-4 px-4 py-4" style={cardStyle}>
                     <button
                       onClick={() => toggleWatchlist(news.uid)}
                       className="material-symbols-outlined text-xl cursor-pointer transition-colors flex-shrink-0"
                       style={{ color: isWatched ? "#000000" : "#c6c6c6", fontVariationSettings: `'FILL' ${isWatched ? 1 : 0}, 'wght' 400, 'GRAD' 0, 'opsz' 24` }}
                       title={isWatched ? "気になるから削除" : "気になるに追加"}
+                      {...(!isWatched && (news.title.includes('BEYOOOOONDS') && news.title.includes('宿泊')) ? { 'data-demo-id': 'watchlist-beyo-hotel-add-btn' } : {})}
                     >
                       bookmark
                     </button>
                     <div className="flex-1 min-w-0">
-                      <a
-                        href={news.detail_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm font-bold leading-tight hover:underline block truncate"
-                      >
-                        {news.title}
-                      </a>
-                      {applyEndStr && (
+                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                        <a
+                          href={news.detail_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-bold leading-tight hover:underline block break-words"
+                        >
+                          {news.title}
+                        </a>
+                      </div>
+                      {isApplied && paymentEndStr && (
+                        <p className={`mt-0.5 font-bold ${isPaymentUrgent ? "text-xs text-error" : "text-xs text-outline"}`}
+                           style={isPaymentUrgent ? { fontSize: "0.75rem", letterSpacing: "0.02em" } : undefined}>
+                          {isPaymentUrgent ? "⚠ 入金締切 " : "入金締切 "}{paymentEndStr}
+                        </p>
+                      )}
+                      {!isApplied && inPaymentPeriod && paymentEndStr && (
+                        <p className="text-xs text-outline mt-0.5">
+                          入金締切 {paymentEndStr}（申込締切は終了）
+                        </p>
+                      )}
+                      {!isApplied && !inPaymentPeriod && applyEndStr && (
                         <p className="text-xs text-outline mt-0.5">
                           申込締切 {applyEndStr}
                         </p>
+                      )}
+                    </div>
+                    {/* 申込/入金ボタン */}
+                    <div className="flex flex-col gap-1 flex-shrink-0">
+                      {!isApplied && !inPaymentPeriod && (
+                        <button
+                          onClick={() => toggleApplied(news.uid)}
+                          className="flex items-center gap-1 text-[0.5625rem] font-bold uppercase tracking-widest px-2 py-1.5 border border-outline text-outline hover:bg-surface-container-highest cursor-pointer transition-colors whitespace-nowrap"
+                        >
+                          <span className="material-symbols-outlined text-[0.75rem] leading-none">check_small</span>
+                          申込した
+                        </button>
+                      )}
+                      {isApplied && !isPaid && (
+                        <>
+                          <button
+                            onClick={() => togglePaid(news.uid)}
+                            className="text-[0.5625rem] font-bold uppercase tracking-widest px-2 py-1.5 bg-primary text-on-primary-fixed hover:bg-secondary cursor-pointer transition-colors whitespace-nowrap"
+                          >
+                            入金した
+                          </button>
+                          <button
+                            onClick={() => toggleApplied(news.uid)}
+                            className="text-[0.5625rem] font-bold uppercase tracking-widest px-2 py-1.5 border border-error text-error hover:bg-error-container cursor-pointer transition-colors whitespace-nowrap"
+                            title="申込済みを取り消す"
+                          >
+                            申込取消
+                          </button>
+                        </>
+                      )}
+                      {isPaid && (
+                        <button
+                          onClick={() => togglePaid(news.uid)}
+                          className="text-[0.5625rem] font-bold uppercase tracking-widest px-2 py-1.5 border border-outline text-outline hover:bg-surface-container-highest cursor-pointer transition-colors whitespace-nowrap"
+                          title="入金済みを取り消す"
+                        >
+                          取り消す
+                        </button>
                       )}
                     </div>
                   </div>
@@ -1462,6 +1682,7 @@ const isMonthStart = d.getDate() === 1;
                       <span className="text-xs font-bold flex-1">申込期日をカレンダーに登録しますか？</span>
                       <div className="flex gap-2 flex-wrap">
                         <button
+                          data-demo-id="watchlist-google-cal-btn"
                           onClick={() => { window.open(generateGoogleCalendarUrl(calEvent), "_blank", "noopener"); setPendingCalendarUid(null); }}
                           className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest bg-primary text-on-primary-fixed hover:bg-secondary cursor-pointer transition-colors"
                         >Google</button>
@@ -1483,6 +1704,56 @@ const isMonthStart = d.getDate() === 1;
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* 完了・終了済みセクション */}
+        {doneCandidates.length > 0 && (
+          <div className="mt-4">
+            <button
+              onClick={() => setShowCompleted((v) => !v)}
+              className="flex items-center gap-2 text-[0.625rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer transition-colors py-2"
+            >
+              <span className="material-symbols-outlined text-sm">
+                {showCompleted ? "expand_less" : "expand_more"}
+              </span>
+              完了・終了済み {doneCandidates.length}件
+            </button>
+            {showCompleted && (
+              <div className="flex flex-col gap-px opacity-50">
+                {doneCandidates.map((news) => {
+                  const applyEnd  = applyEndByUid.get(news.uid);
+                  const paymentEnd = paymentByUid.get(news.uid);
+                  const isPaid    = paidSet.has(news.uid);
+                  const lastDeadline = paymentEnd ?? applyEnd;
+                  const lastLabel    = paymentEnd ? "入金締切" : "申込締切";
+                  const lastDateStr  = lastDeadline
+                    ? lastDeadline.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" }) +
+                      " " + lastDeadline.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
+                    : null;
+                  return (
+                    <div key={news.uid} className="flex items-center gap-4 px-4 py-3 bg-surface-container-low">
+                      <div className="flex-1 min-w-0">
+                        <a
+                          href={news.detail_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-bold leading-tight hover:underline block break-words"
+                        >
+                          {news.title}
+                        </a>
+                        {lastDateStr && (
+                          <p className="text-xs text-outline mt-0.5">{lastLabel} {lastDateStr}</p>
+                        )}
+                      </div>
+                      {isPaid && (
+                        <span className="flex-shrink-0 text-[0.5625rem] font-bold uppercase tracking-widest px-1.5 py-0.5 bg-primary text-on-primary-fixed">入金済</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </section>

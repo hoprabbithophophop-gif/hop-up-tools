@@ -6,10 +6,12 @@ import FcTicketPage from "./pages/fc-ticket/FcTicketPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import TermsPage from "./pages/TermsPage";
 import YouTubePage from "./pages/youtube/YouTubePage";
+import TeloppOverlay from "./components/TeloppOverlay";
 
 export default function App() {
   return (
     <BrowserRouter>
+      <TeloppOverlay />
       <Routes>
         <Route path="/" element={<TopPage />} />
         <Route path="/profile" element={<ProfilePage />} />

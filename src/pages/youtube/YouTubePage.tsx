@@ -137,13 +137,14 @@ function parseChapters(description: string): Chapter[] {
 
 // FilterTab: タブ行の各ラベルボタン
 function FilterTab({
-  label, active, badge, onClick,
+  label, active, badge, onClick, demoid,
 }: {
-  label: string; active: boolean; badge?: string; onClick: () => void;
+  label: string; active: boolean; badge?: string; onClick: () => void; demoid?: string;
 }) {
   return (
     <button
       onClick={onClick}
+      data-demo-id={demoid}
       className={`flex items-center gap-1.5 shrink-0 py-2 cursor-pointer transition-colors group ${
         active ? "text-on-surface border-b-2 border-primary" : "text-outline hover:text-on-surface"
       }`}
@@ -159,13 +160,14 @@ function FilterTab({
 }
 
 function FilterChip({
-  label, active, onClick, mono,
+  label, active, onClick, mono, demoid,
 }: {
-  label: string; active: boolean; onClick: () => void; mono?: boolean;
+  label: string; active: boolean; onClick: () => void; mono?: boolean; demoid?: string;
 }) {
   return (
     <button
       onClick={onClick}
+      data-demo-id={demoid}
       className={`text-[0.6875rem] font-bold transition-colors cursor-pointer pb-0.5 ${mono ? "tabular-nums" : ""} ${
         active ? "text-primary border-b-2 border-primary" : "text-outline hover:text-on-surface"
       }`}
@@ -309,6 +311,7 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
                     <button
                       key={i}
                       onClick={() => selectChapter(ch.seconds, ch.timestamp, ch.label)}
+                      {...(ch.label.includes('歌詞発表会') ? { 'data-demo-id': 'chapter-gyoshi-btn' } : {})}
                       className={`text-[0.6rem] font-mono px-1.5 py-0.5 border transition-colors cursor-pointer ${
                         shareSeconds === ch.seconds
                           ? "border-primary text-primary bg-primary/5"
@@ -329,6 +332,7 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
                 </div>
                 <button
                   onClick={handleCopy}
+                  data-demo-id="share-copy-btn"
                   className="text-[0.6rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer shrink-0"
                 >
                   {copied ? "Copied!" : "Copy"}
@@ -357,6 +361,7 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={e => e.stopPropagation()}
+                      {...(ch.label.includes('歌詞発表会') ? { 'data-demo-id': 'chapter-gyoshi' } : {})}
                       className="flex items-baseline gap-3 px-4 py-2.5 hover:bg-surface-container-low transition-colors group cursor-pointer"
                     >
                       <span className="text-[0.65rem] font-mono text-primary shrink-0 tabular-nums">
@@ -389,6 +394,7 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
             </a>
             <button
               onClick={() => setShareOpen(o => !o)}
+              data-demo-id="share-btn"
               className={`px-4 text-xs font-bold uppercase tracking-widest border transition-colors cursor-pointer ${
                 shareOpen
                   ? "bg-primary text-on-primary border-primary"
@@ -597,6 +603,7 @@ export default function YouTubePage() {
         <div ref={searchContainerRef} className="relative flex items-center gap-2">
           <input
             type="text"
+            data-demo-id="search-input"
             placeholder="search..."
             value={searchInput}
             onChange={handleSearchChange}
@@ -650,7 +657,8 @@ export default function YouTubePage() {
               <>
                 <div className="flex flex-wrap gap-x-4 gap-y-2 w-full">
                   {GROUP_FILTERS.map(g => (
-                    <FilterChip key={g} label={g} active={selectedGroup === g} onClick={() => handleGroupChange(g)} />
+                    <FilterChip key={g} label={g} active={selectedGroup === g} onClick={() => handleGroupChange(g)}
+                      demoid={g === "BEYOOOOONDS" ? "filter-chip-beyooooonds" : undefined} />
                   ))}
                 </div>
                 {memberList.length > 0 && (
@@ -664,7 +672,8 @@ export default function YouTubePage() {
               </>
             ),
             type: TYPE_FILTERS.map(t => (
-              <FilterChip key={t.key} label={t.label} active={selectedType === t.key} onClick={() => setSelectedType(t.key)} />
+              <FilterChip key={t.key} label={t.label} active={selectedType === t.key} onClick={() => setSelectedType(t.key)}
+                demoid={t.key === "mv" ? "filter-chip-mv" : undefined} />
             )),
             channel: CHANNEL_FILTERS.map(c => (
               <FilterChip key={c} label={c} active={selectedChannel === c}
@@ -690,6 +699,7 @@ export default function YouTubePage() {
                     active={activeTab === t.key}
                     badge={t.badge}
                     onClick={() => toggleTab(t.key)}
+                    demoid={`filter-tab-${t.key}`}
                   />
                 ))}
               </div>
@@ -719,6 +729,7 @@ export default function YouTubePage() {
             <button
               key={pickVideo.video_id}
               onClick={() => setModalVideo(pickVideo)}
+              data-demo-id="pick-card"
               className="pick-float-in w-full flex gap-4 bg-surface-container-low hover:bg-surface-container transition-colors group text-left cursor-pointer p-3"
             >
               <div className="w-40 sm:w-56 shrink-0 aspect-video overflow-hidden bg-surface-container">
@@ -777,10 +788,11 @@ export default function YouTubePage() {
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-px bg-outline-variant/20">
-            {videos.map(v => (
+            {videos.map((v, idx) => (
               <button
                 key={v.video_id}
                 onClick={() => setModalVideo(v)}
+                {...(idx === 0 ? { 'data-demo-id': 'result-card' } : {})}
                 className="bg-surface group block text-left hover:bg-surface-container-low transition-colors w-full cursor-pointer"
               >
                 <div className="aspect-video overflow-hidden bg-surface-container">
