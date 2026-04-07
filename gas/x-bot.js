@@ -10,6 +10,8 @@
  * SUPABASE_SERVICE_KEY  : Supabase service_role キー
  * EMAIL_NOTIFY          : "true" にするとツイートせずメールで文面を送る（試用期間用）
  * NOTIFY_EMAIL          : 送信先メールアドレス（省略時はスクリプトオーナーのGmailに送る）
+ * SHEET_MODE            : "true" にするとツイートせずスプレッドシートに書き出す（Claude in Chrome連携用）
+ * SHEET_ID              : 書き出し先スプレッドシートのID
  * X_DRY_RUN             : "true" にするとログ出力のみ（投稿・メール送信ともしない）
  *
  * 【トリガー設定】
@@ -25,16 +27,58 @@ function flushEmailNotify() {
   if (_emailQueue.length === 0) return;
   var to = PropertiesService.getScriptProperties().getProperty('NOTIFY_EMAIL')
     || Session.getEffectiveUser().getEmail();
-  var body = _emailQueue.map(function(item, i) {
+  var body = _emailQueue.map(function (item, i) {
     return '【' + (i + 1) + '】 ' + item.label + '\n\n' + item.text;
   }).join('\n\n' + '─'.repeat(30) + '\n\n');
   MailApp.sendEmail({
-    to:      to,
+    to: to,
     subject: '[hop-up-tools] ツイート予定 ' + _emailQueue.length + '件 (' + new Date().toLocaleDateString('ja-JP') + ')',
-    body:    body,
+    body: body,
   });
   Logger.log('[X EMAIL] メール送信: ' + _emailQueue.length + '件 → ' + to);
   _emailQueue = [];
+}
+
+// ===== スプシ書き出しキュー（SHEET_MODE=true のとき使用）=====
+// Claude in Chrome が読み取って X に投稿する用
+var _sheetQueue = [];
+
+function flushSheetQueue() {
+  if (_sheetQueue.length === 0) return;
+  var props = PropertiesService.getScriptProperties();
+  var sheetId = props.getProperty('SHEET_ID');
+  if (!sheetId) {
+    Logger.log('[X SHEET] SHEET_ID 未設定');
+    return;
+  }
+  var ss = SpreadsheetApp.openById(sheetId);
+  var sheet = ss.getSheetByName('X投稿キュー') || ss.insertSheet('X投稿キュー');
+
+  // ヘッダーがなければ作成
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['ツイート本文', 'ステータス', '書き出し日時']);
+    sheet.getRange(1, 1, 1, 3).setFontWeight('bold');
+  }
+
+  // 既存の「未投稿」行をクリア（前日分の残り等）
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    var statuses = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+    for (var i = statuses.length - 1; i >= 0; i--) {
+      if (statuses[i][0] === '未投稿') {
+        sheet.deleteRow(i + 2);
+      }
+    }
+  }
+
+  // 新しいツイート文面を書き込み
+  var now = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+  _sheetQueue.forEach(function (item) {
+    sheet.appendRow([item.text, '未投稿', now]);
+  });
+
+  Logger.log('[X SHEET] スプシ書き出し: ' + _sheetQueue.length + '件');
+  _sheetQueue = [];
 }
 
 
@@ -47,7 +91,7 @@ function hasBeenTweeted(uid) {
 }
 
 function markAsTweeted(uid) {
-  var props   = PropertiesService.getScriptProperties();
+  var props = PropertiesService.getScriptProperties();
   var tweeted = JSON.parse(props.getProperty('X_TWEETED_UIDS') || '[]');
   tweeted.push(uid);
   if (tweeted.length > 500) tweeted = tweeted.slice(-500); // 上限500件
@@ -69,20 +113,20 @@ function XBmain() {
   // 今日 JST の 00:00〜翌 00:00
   var now = new Date();
   var jstOffset = 9 * 60 * 60 * 1000;
-  var todayJst    = new Date(Math.floor((now.getTime() + jstOffset) / 86400000) * 86400000 - jstOffset);
+  var todayJst = new Date(Math.floor((now.getTime() + jstOffset) / 86400000) * 86400000 - jstOffset);
   var tomorrowJst = new Date(todayJst.getTime() + 86400000);
-  var todayIso    = todayJst.toISOString();
+  var todayIso = todayJst.toISOString();
   var tomorrowIso = tomorrowJst.toISOString();
 
   // ── 3日以内の申込締切・入金締切 ──
   var in3daysJst = new Date(todayJst.getTime() + 3 * 86400000);
   var dlRes = UrlFetchApp.fetch(
     supabaseUrl + '/rest/v1/fc_deadlines'
-      + '?select=type,label,deadline_at,fc_news(uid,title,detail_url)'
-      + '&type=in.(apply_end,payment)'
-      + '&deadline_at=gte.' + todayIso
-      + '&deadline_at=lt.'  + in3daysJst.toISOString()
-      + '&order=deadline_at.asc',
+    + '?select=type,label,deadline_at,fc_news(uid,title,detail_url)'
+    + '&type=in.(apply_end,payment)'
+    + '&deadline_at=gte.' + todayIso
+    + '&deadline_at=lt.' + in3daysJst.toISOString()
+    + '&order=deadline_at.asc',
     { headers: headers, muteHttpExceptions: true }
   );
   if (dlRes.getResponseCode() !== 200) {
@@ -94,20 +138,25 @@ function XBmain() {
   if (deadlines.length === 0) {
     Logger.log('[X] 3日以内の締切なし');
   }
-  deadlines.forEach(function(d) {
-    var uid       = d.fc_news ? d.fc_news.uid        : d.type + '_' + d.deadline_at;
-    var newsTitle = d.fc_news ? d.fc_news.title      : '（タイトル不明）';
+  deadlines.forEach(function (d) {
+    var uid = d.fc_news ? d.fc_news.uid : d.type + '_' + d.deadline_at;
+    var newsTitle = d.fc_news ? d.fc_news.title : '（タイトル不明）';
     var detailUrl = d.fc_news ? d.fc_news.detail_url : '';
     // あと何日か計算
-    var dlDate    = new Date(d.deadline_at);
-    var daysLeft  = Math.ceil((dlDate.getTime() - todayJst.getTime()) / 86400000);
-    var daysLabel = daysLeft === 0 ? '本日' : 'あと' + daysLeft + '日';
+    var dlDate = new Date(d.deadline_at);
+    // 時刻差ではなく JST 日付ベースで比較（ceil だと本日正午締切が「あと1日」になるバグを防ぐ）
+    var dlDateJst = new Date(dlDate.getTime() + jstOffset);
+    var dlDayStart = new Date(Date.UTC(dlDateJst.getUTCFullYear(), dlDateJst.getUTCMonth(), dlDateJst.getUTCDate()));
+    var daysLeft = Math.round((dlDayStart.getTime() - todayJst.getTime()) / 86400000);
+    // 本日締切は時刻まで表示して「安心して見逃す」を防ぐ
+    var timeStr = formatJstTime(d.deadline_at);
+    var daysLabel = daysLeft === 0 ? '本日 ' + timeStr + 'まで' : 'あと' + daysLeft + '日';
     var text = '⏰ ' + d.label + '【' + daysLabel + '】\n\n'
       + newsTitle + '\n'
       + d.label + '：' + formatJstDate(d.deadline_at) + ' ' + formatJstTime(d.deadline_at) + '\n\n'
       + (detailUrl ? '詳細 → ' + detailUrl + '\n' : '')
       + (d.type === 'apply_end' ? '#ハロプロ申込締切のお知らせ' : '#ハロプロ入金期限のお知らせ');
-    var tweetKey = uid + '_' + d.type;
+    var tweetKey = uid + '_' + d.type + '_d' + daysLeft; // 日数ごとに別キーにして毎日通知できるようにする
     if (hasBeenTweeted(tweetKey)) {
       Logger.log('[X] スキップ（通知済み）: ' + newsTitle);
       return;
@@ -122,12 +171,24 @@ function XBmain() {
     Utilities.sleep(2000);
   });
 
+  // 締切ツイートの最後にツール紹介を1回投稿
+  if (deadlines.length > 0) {
+    Utilities.sleep(2000);
+    try {
+      postTweet('締切管理ツールとして使えます🐰\nhttps://x.com/hop_rabbit_hop/status/2041114959590101294?s=20');
+      Logger.log('[X] ツール紹介ツイート成功');
+    } catch (e) {
+      Logger.log('[X] ツール紹介ツイート失敗: ' + e.message);
+    }
+  }
+
   flushEmailNotify();
+  flushSheetQueue();
 }
 
 // ===== JST 日付フォーマット（"4/5(土)" 形式）=====
 function formatJstDate(isoString) {
-  var d   = new Date(isoString);
+  var d = new Date(isoString);
   var jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
   var days = ['日', '月', '火', '水', '木', '金', '土'];
   return (jst.getUTCMonth() + 1) + '/' + jst.getUTCDate() + '(' + days[jst.getUTCDay()] + ')';
@@ -135,7 +196,7 @@ function formatJstDate(isoString) {
 
 // ===== JST 時刻フォーマット（"23:59" 形式）=====
 function formatJstTime(isoString) {
-  var d   = new Date(isoString);
+  var d = new Date(isoString);
   var jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
   return String(jst.getUTCHours()).padStart(2, '0')
     + ':' + String(jst.getUTCMinutes()).padStart(2, '0');
@@ -143,7 +204,7 @@ function formatJstTime(isoString) {
 
 // ===== X API v2 ツイート投稿（OAuth 1.0a）=====
 function postTweet(text) {
-  var props       = PropertiesService.getScriptProperties();
+  var props = PropertiesService.getScriptProperties();
 
   // X_DRY_RUN=true のときは投稿せずログに出すだけ
   if (props.getProperty('X_DRY_RUN') === 'true') {
@@ -158,8 +219,15 @@ function postTweet(text) {
     return;
   }
 
-  var apiKey      = props.getProperty('X_API_KEY');
-  var apiSecret   = props.getProperty('X_API_SECRET');
+  // SHEET_MODE=true のときはスプシキューに積んで後でまとめて書き出し
+  if (props.getProperty('SHEET_MODE') === 'true') {
+    _sheetQueue.push({ text: text });
+    Logger.log('[X SHEET] キュー追加: ' + text.split('\n')[0]);
+    return;
+  }
+
+  var apiKey = props.getProperty('X_API_KEY');
+  var apiSecret = props.getProperty('X_API_SECRET');
   var accessToken = props.getProperty('X_ACCESS_TOKEN');
   var tokenSecret = props.getProperty('X_ACCESS_TOKEN_SECRET');
 
@@ -167,18 +235,18 @@ function postTweet(text) {
     throw new Error('X API プロパティ未設定 (X_API_KEY / X_API_SECRET / X_ACCESS_TOKEN / X_ACCESS_TOKEN_SECRET)');
   }
 
-  var url    = 'https://api.x.com/2/tweets';
+  var url = 'https://api.x.com/2/tweets';
   var method = 'POST';
-  var body   = JSON.stringify({ text: text });
-  var auth   = buildOAuth1Header(method, url, apiKey, apiSecret, accessToken, tokenSecret);
+  var body = JSON.stringify({ text: text });
+  var auth = buildOAuth1Header(method, url, apiKey, apiSecret, accessToken, tokenSecret);
 
   var res = UrlFetchApp.fetch(url, {
-    method:  method,
+    method: method,
     headers: {
       'Authorization': auth,
-      'Content-Type':  'application/json',
+      'Content-Type': 'application/json',
     },
-    payload:           body,
+    payload: body,
     muteHttpExceptions: true,
   });
 
@@ -197,16 +265,16 @@ function buildOAuth1Header(method, url, apiKey, apiSecret, accessToken, tokenSec
   var timestamp = Math.floor(Date.now() / 1000).toString();
 
   var oauthParams = {
-    oauth_consumer_key:     apiKey,
-    oauth_nonce:            nonce,
+    oauth_consumer_key: apiKey,
+    oauth_nonce: nonce,
     oauth_signature_method: 'HMAC-SHA1',
-    oauth_timestamp:        timestamp,
-    oauth_token:            accessToken,
-    oauth_version:          '1.0',
+    oauth_timestamp: timestamp,
+    oauth_token: accessToken,
+    oauth_version: '1.0',
   };
 
   // ソート済みパラメータ文字列
-  var paramString = Object.keys(oauthParams).sort().map(function(k) {
+  var paramString = Object.keys(oauthParams).sort().map(function (k) {
     return encodeURIComponent(k) + '=' + encodeURIComponent(oauthParams[k]);
   }).join('&');
 
@@ -217,11 +285,11 @@ function buildOAuth1Header(method, url, apiKey, apiSecret, accessToken, tokenSec
 
   // HMAC-SHA1 署名
   var sigKey = encodeURIComponent(apiSecret) + '&' + encodeURIComponent(tokenSecret);
-  var sig    = Utilities.base64Encode(Utilities.computeHmacSignature(Utilities.MacAlgorithm.HMAC_SHA_1, sigBase, sigKey));
+  var sig = Utilities.base64Encode(Utilities.computeHmacSignature(Utilities.MacAlgorithm.HMAC_SHA_1, sigBase, sigKey));
 
   oauthParams['oauth_signature'] = sig;
 
-  return 'OAuth ' + Object.keys(oauthParams).sort().map(function(k) {
+  return 'OAuth ' + Object.keys(oauthParams).sort().map(function (k) {
     return encodeURIComponent(k) + '="' + encodeURIComponent(oauthParams[k]) + '"';
   }).join(', ');
 }
