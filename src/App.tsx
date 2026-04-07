@@ -7,20 +7,25 @@ import PrivacyPage from "./pages/PrivacyPage";
 import TermsPage from "./pages/TermsPage";
 import YouTubePage from "./pages/youtube/YouTubePage";
 import TeloppOverlay from "./components/TeloppOverlay";
+import ErrorBoundary from "./components/ErrorBoundary";
+import NotFoundPage from "./pages/NotFoundPage";
 
 export default function App() {
   return (
     <BrowserRouter>
       <TeloppOverlay />
-      <Routes>
-        <Route path="/" element={<TopPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/p/:slug" element={<SlugPage />} />
-        <Route path="/fc-ticket" element={<FcTicketPage />} />
-        <Route path="/youtube" element={<YouTubePage />} />
-        <Route path="/privacy" element={<PrivacyPage />} />
-        <Route path="/terms" element={<TermsPage />} />
-      </Routes>
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/" element={<TopPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/p/:slug" element={<SlugPage />} />
+          <Route path="/fc-ticket" element={<FcTicketPage />} />
+          <Route path="/youtube" element={<YouTubePage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

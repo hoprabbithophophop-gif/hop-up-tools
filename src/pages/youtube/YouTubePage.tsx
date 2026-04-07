@@ -413,6 +413,7 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
 export default function YouTubePage() {
   const [videos, setVideos] = useState<VideoRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [offset, setOffset] = useState(0);
   const [selectedGroup, setSelectedGroup] = useState("");
@@ -523,6 +524,7 @@ export default function YouTubePage() {
       setOffset(currentOffset + rows.length);
     } catch (e) {
       console.error(e);
+      setFetchError(true);
     } finally {
       setLoading(false);
     }
@@ -532,6 +534,7 @@ export default function YouTubePage() {
     setVideos([]);
     setOffset(0);
     setHasMore(true);
+    setFetchError(false);
     fetchVideos(selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, selectedMember, sortOrder, 0, true);
   }, [selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, selectedMember, sortOrder, fetchVideos]);
 
@@ -782,7 +785,17 @@ export default function YouTubePage() {
         )}
 
         {/* グリッド */}
-        {videos.length === 0 && !loading ? (
+        {fetchError ? (
+          <div className="flex flex-col items-center justify-center h-64 gap-4">
+            <p className="text-sm text-on-surface">データ取得に失敗しました</p>
+            <button
+              onClick={() => { setFetchError(false); fetchVideos(selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, selectedMember, sortOrder, 0, true); }}
+              className="text-xs uppercase tracking-widest text-primary border border-primary px-6 py-2 hover:bg-primary hover:text-on-primary transition-colors cursor-pointer"
+            >
+              再読み込み
+            </button>
+          </div>
+        ) : videos.length === 0 && !loading ? (
           <div className="flex items-center justify-center h-64 text-outline text-xs uppercase tracking-widest">
             No videos found.
           </div>
