@@ -52,6 +52,8 @@ var CHANNELS = [
   { key: 'famitsu_game',     channelId: '', name: 'ファミ通ゲーム実況',  handle: '@famitsugamelive' },
   { key: 'first_take',       channelId: '', name: 'THE FIRST TAKE',      handle: '@The_FirstTake' },
   { key: 'yanmaga',          channelId: '', name: 'ヤンマガch',           handle: '@ヤンマガch' },
+  { key: 'douhaji',          channelId: '', name: '動画はじめてみました', handle: '@douhaji' },
+  { key: 'mementomori',      channelId: '', name: 'メメントモリ公式',     handle: '@mementomori_boi' },
 
   // ハロプロ関連公式チャンネル（グループ専用・ユニット・ムーブメント）
   { key: 'hapisugo',         channelId: '', name: 'happyに過ごそうよ',   handle: '@hapisugo' },

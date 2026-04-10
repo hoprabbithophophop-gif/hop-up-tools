@@ -1,5 +1,8 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { getSupabase } from "../../lib/supabase";
+import { ChapterPlaylistProvider, useChapterPlaylistContext } from "../../features/videos/context/ChapterPlaylistContext";
+import { PlaylistPanel } from "../../features/videos/components/PlaylistPanel";
+import { VideoSearchResults } from "../../features/videos/components/VideoSearchResults";
 
 interface MemberRow {
   name: string;
@@ -74,6 +77,8 @@ const CHANNEL_FILTERS = [
   "ファミ通ゲーム実況",
   "THE FIRST TAKE",
   "ヤンマガch",
+  "動画はじめてみました",
+  "メメントモリ公式",
   "happyに過ごそうよ",
   "ビヨーンズの伸びしろ",
   "SATOYAMA&SATOUMI",
@@ -177,7 +182,17 @@ function FilterChip({
   );
 }
 
-function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }) {
+function VideoModal({
+  video,
+  onClose,
+  onAddToQueue,
+  onAddAllToQueue,
+}: {
+  video: VideoRow;
+  onClose: () => void;
+  onAddToQueue: (video: VideoRow, chapters: Chapter[], index: number) => void;
+  onAddAllToQueue: (video: VideoRow, chapters: Chapter[]) => void;
+}) {
   const chapters = parseChapters(video.description_short);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareSeconds, setShareSeconds] = useState<number | null>(null);
@@ -355,14 +370,14 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
             {chapters.length > 0 ? (
               <ul className="divide-y divide-outline-variant/10">
                 {chapters.map((ch, i) => (
-                  <li key={i}>
+                  <li key={i} className="flex items-center group hover:bg-surface-container-low transition-colors">
                     <a
                       href={`https://www.youtube.com/watch?v=${video.video_id}&t=${ch.seconds}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={e => e.stopPropagation()}
                       {...(ch.label.includes('歌詞発表会') ? { 'data-demo-id': 'chapter-gyoshi' } : {})}
-                      className="flex items-baseline gap-3 px-4 py-2.5 hover:bg-surface-container-low transition-colors group cursor-pointer"
+                      className="flex items-baseline gap-3 px-4 py-2.5 flex-1 cursor-pointer"
                     >
                       <span className="text-[0.65rem] font-mono text-primary shrink-0 tabular-nums">
                         {ch.timestamp}
@@ -371,6 +386,13 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
                         {ch.label}
                       </span>
                     </a>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onAddToQueue(video, chapters, i); }}
+                      className="shrink-0 pr-4 text-[0.6rem] font-bold text-outline hover:text-primary transition-colors cursor-pointer opacity-0 group-hover:opacity-100 uppercase tracking-widest"
+                      title="キューに追加"
+                    >
+                      +キュー
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -381,21 +403,29 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
             )}
           </div>
 
-          {/* Watch + Share ボタン */}
-          <div className="px-4 py-3 border-t border-outline-variant/20 shrink-0 flex gap-2">
+          {/* Watch + Share + キュー追加ボタン */}
+          <div className="px-4 py-3 border-t border-outline-variant/20 shrink-0 flex gap-2 flex-wrap">
             <a
               href={`https://www.youtube.com/watch?v=${video.video_id}`}
               target="_blank"
               rel="noopener noreferrer"
               onClick={e => e.stopPropagation()}
-              className="flex-1 bg-primary text-on-primary-fixed text-center text-xs font-bold uppercase tracking-[0.2em] py-3 hover:bg-secondary transition-colors cursor-pointer"
+              className="flex-1 bg-primary text-on-primary-fixed text-center text-xs font-bold uppercase tracking-[0.2em] py-3 hover:bg-secondary transition-colors cursor-pointer min-w-0"
             >
               Watch on YouTube
             </a>
+            {chapters.length > 0 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onAddAllToQueue(video, chapters); }}
+                className="px-3 text-xs font-bold uppercase tracking-widest border border-outline-variant text-outline hover:border-primary hover:text-primary transition-colors cursor-pointer shrink-0"
+              >
+                ▶ すべてキューに追加
+              </button>
+            )}
             <button
               onClick={() => setShareOpen(o => !o)}
               data-demo-id="share-btn"
-              className={`px-4 text-xs font-bold uppercase tracking-widest border transition-colors cursor-pointer ${
+              className={`px-4 text-xs font-bold uppercase tracking-widest border transition-colors cursor-pointer shrink-0 ${
                 shareOpen
                   ? "bg-primary text-on-primary border-primary"
                   : "border-outline-variant text-outline hover:border-primary hover:text-primary"
@@ -411,6 +441,20 @@ function VideoModal({ video, onClose }: { video: VideoRow; onClose: () => void }
 }
 
 export default function YouTubePage() {
+  return (
+    <ChapterPlaylistProvider>
+      <YouTubePageInner />
+    </ChapterPlaylistProvider>
+  );
+}
+
+export function YouTubePageInner({
+  pickupMode = false,
+  restoredTitle,
+}: {
+  pickupMode?: boolean;
+  restoredTitle?: string;
+} = {}) {
   const [videos, setVideos] = useState<VideoRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(false);
@@ -435,8 +479,14 @@ export default function YouTubePage() {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const searchContainerRef = useRef<HTMLDivElement | null>(null);
+  // loading 状態を ref でも保持（IntersectionObserver の古いクロージャからの重複フェッチを防ぐ）
+  const isFetchingRef = useRef(false);
 
-  useEffect(() => { document.title = "YouTube チェック | hop-up-tools"; }, []);
+  useEffect(() => {
+    document.title = pickupMode
+      ? "チャプター再生 | hop-up-tools"
+      : "YouTube チェック | hop-up-tools";
+  }, [pickupMode]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -487,6 +537,9 @@ export default function YouTubePage() {
     group: string, type: string, year: number, channel: string,
     query: string, member: string, sort: "desc" | "asc", currentOffset: number, replace: boolean
   ) => {
+    // append (replace=false) が loading 中に呼ばれた場合はスキップ（センチネル二重発火対策）
+    if (!replace && isFetchingRef.current) return;
+    isFetchingRef.current = true;
     setLoading(true);
     try {
       const supabase = getSupabase();
@@ -526,6 +579,7 @@ export default function YouTubePage() {
       console.error(e);
       setFetchError(true);
     } finally {
+      isFetchingRef.current = false;
       setLoading(false);
     }
   }, []);
@@ -539,12 +593,15 @@ export default function YouTubePage() {
   }, [selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, selectedMember, sortOrder, fetchVideos]);
 
   // 無限スクロール: sentinel が viewport に入ったら次のページを取得
+  // ※ loading を deps に含めると loading 変化のたびに observer が再生成され
+  //    sentinel 再検知 → 連鎖フェッチ → h-32 スピナー出入りでスクロールバー振動する
+  //    isFetchingRef で重複フェッチを防ぐため loading を deps から除外
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loading) {
+        if (entries[0].isIntersecting && hasMore && !isFetchingRef.current) {
           fetchVideos(selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, selectedMember, sortOrder, offset, false);
         }
       },
@@ -552,7 +609,8 @@ export default function YouTubePage() {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasMore, loading, offset, selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, selectedMember, sortOrder, fetchVideos]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, offset, selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, selectedMember, sortOrder, fetchVideos]);
 
   const handleGroupChange = (g: string) => {
     const next = selectedGroup === g ? "" : g;
@@ -589,40 +647,70 @@ export default function YouTubePage() {
     setShowSuggestions(false);
   };
 
+  const { addToQueue, addAllToQueue } = useChapterPlaylistContext();
+
   return (
-    <div className="bg-surface text-on-surface min-h-screen pb-24">
+    <div className="bg-surface text-on-surface min-h-screen pb-36">
 
       {modalVideo && (
-        <VideoModal video={modalVideo} onClose={() => setModalVideo(null)} />
+        <VideoModal
+          video={modalVideo}
+          onClose={() => setModalVideo(null)}
+          onAddToQueue={addToQueue}
+          onAddAllToQueue={addAllToQueue}
+        />
       )}
 
       {/* ヘッダー */}
-      <header className="sticky top-0 z-40 bg-surface border-b border-outline-variant/20 px-6 py-4 flex items-center justify-between">
+      <header className="sticky top-0 z-40 bg-surface border-b border-outline-variant/20 px-6 py-4">
         <div className="flex items-center gap-4">
-          <a href="/" className="text-outline hover:text-primary transition-colors text-sm">←</a>
-          <h1 className="text-2xl font-black tracking-tighter uppercase">HELLO! VIDEOS</h1>
-        </div>
-        {/* 検索 */}
-        <div ref={searchContainerRef} className="relative flex items-center gap-2">
-          <input
-            type="text"
-            data-demo-id="search-input"
-            placeholder="search..."
-            value={searchInput}
-            onChange={handleSearchChange}
-            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-            className="w-48 md:w-64 bg-transparent border-b border-outline-variant/40 py-1 text-sm focus:outline-none focus:border-primary transition-colors placeholder:italic placeholder:text-outline/50"
-          />
-          {searchInput && (
-            <button
-              onClick={() => { setSearchInput(""); setSearchQuery(""); setSuggestions([]); setShowSuggestions(false); }}
-              className="text-outline hover:text-primary text-xs uppercase tracking-widest transition-colors cursor-pointer"
-            >
-              clear
-            </button>
+          {pickupMode ? (
+            <a href="/youtube" className="text-[0.65rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors shrink-0">
+              ← HELLO! VIDEOS に戻る
+            </a>
+          ) : (
+            <a href="/" className="text-outline hover:text-primary transition-colors text-sm">←</a>
           )}
+          <h1 className="text-2xl font-black tracking-tighter uppercase">
+            {pickupMode ? 'CHAPTER PICKUP' : 'HELLO! VIDEOS'}
+          </h1>
+        </div>
+      </header>
+      {/* 復元プレイリストのタイトルバナー */}
+      {pickupMode && restoredTitle && (
+        <div className="bg-primary/5 border-b border-primary/20 px-6 py-2">
+          <p className="text-[0.65rem] text-primary">
+            共有プレイリスト: 「{restoredTitle}」
+          </p>
+        </div>
+      )}
+
+      <main className="max-w-7xl mx-auto px-4 md:px-6 pt-6">
+
+        {/* 検索バー（全幅） */}
+        <div ref={searchContainerRef} className="relative mb-6">
+          <div className="flex items-center border-b-2 border-outline-variant/40 focus-within:border-primary transition-colors">
+            <span className="text-outline pl-1 pr-2 text-sm select-none">🔍</span>
+            <input
+              type="text"
+              data-demo-id="search-input"
+              placeholder="チャプターを検索..."
+              value={searchInput}
+              onChange={handleSearchChange}
+              onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+              className="flex-1 bg-transparent py-2 text-sm focus:outline-none placeholder:text-outline/50"
+            />
+            {searchInput && (
+              <button
+                onClick={() => { setSearchInput(""); setSearchQuery(""); setSuggestions([]); setShowSuggestions(false); }}
+                className="text-outline hover:text-primary text-xs uppercase tracking-widest transition-colors cursor-pointer px-3 shrink-0"
+              >
+                CLEAR
+              </button>
+            )}
+          </div>
           {showSuggestions && suggestions.length > 0 && (
-            <div className="absolute top-full right-0 mt-2 w-64 bg-surface border border-outline-variant/40 shadow-lg z-50">
+            <div className="absolute top-full left-0 right-0 mt-1 bg-surface border border-outline-variant/40 shadow-lg z-50">
               {suggestions.map((s, i) => (
                 <button
                   key={i}
@@ -635,9 +723,6 @@ export default function YouTubePage() {
             </div>
           )}
         </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 md:px-6 pt-8">
 
         {/* フィルターバー（タブ切り替え） */}
         {(() => {
@@ -705,6 +790,15 @@ export default function YouTubePage() {
                     demoid={`filter-tab-${t.key}`}
                   />
                 ))}
+                {/* シェアモード時: チャプター再生モードへの導線 */}
+                {!pickupMode && (
+                  <a
+                    href="/youtube/pickup"
+                    className="ml-auto text-[0.6rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors shrink-0"
+                  >
+                    🎵 チャプター再生 →
+                  </a>
+                )}
               </div>
               {/* 展開パネル */}
               {activeTab && panelContent[activeTab] && (
@@ -716,8 +810,8 @@ export default function YouTubePage() {
           );
         })()}
 
-        {/* PICK */}
-        {pickVideo && (
+        {/* PICK（pickupモードおよび検索中は非表示） */}
+        {pickVideo && !searchQuery && !pickupMode && (
           <div className="mb-8">
             <div className="flex items-baseline gap-3 mb-3">
               <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">Pick</span>
@@ -773,83 +867,111 @@ export default function YouTubePage() {
           </div>
         )}
 
-        {/* 件数表示 */}
-        {!loading && (
-          <p className="text-[0.6875rem] uppercase tracking-widest text-outline mb-6">
-            {videos.length} videos{hasMore ? "+" : ""}
-            {selectedGroup   && <span className="ml-3">{selectedGroup}</span>}
-            {selectedChannel && <span className="ml-3">{selectedChannel}</span>}
-            {selectedYear    && <span className="ml-3">{selectedYear}</span>}
-            {searchQuery     && <span className="ml-3">"{searchQuery}"</span>}
-          </p>
-        )}
-
-        {/* グリッド */}
-        {fetchError ? (
-          <div className="flex flex-col items-center justify-center h-64 gap-4">
-            <p className="text-sm text-on-surface">データ取得に失敗しました</p>
-            <button
-              onClick={() => { setFetchError(false); fetchVideos(selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, selectedMember, sortOrder, 0, true); }}
-              className="text-xs uppercase tracking-widest text-primary border border-primary px-6 py-2 hover:bg-primary hover:text-on-primary transition-colors cursor-pointer"
-            >
-              再読み込み
-            </button>
-          </div>
-        ) : videos.length === 0 && !loading ? (
-          <div className="flex items-center justify-center h-64 text-outline text-xs uppercase tracking-widest">
-            No videos found.
+        {/* 検索モード: 検索結果 / pickup未検索: 案内テキスト / 通常モード: 動画グリッド */}
+        {searchQuery ? (
+          /* 検索モード */
+          <>
+            {loading && videos.length === 0 ? (
+              <div className="flex items-center justify-center h-32 text-outline text-xs uppercase tracking-widest">
+                Loading...
+              </div>
+            ) : (
+              <VideoSearchResults
+                query={searchQuery}
+                videos={videos}
+                parseChapters={parseChapters}
+              />
+            )}
+          </>
+        ) : pickupMode ? (
+          /* pickupモード・未検索: 案内テキスト */
+          <div className="flex flex-col items-center justify-center h-64 gap-3 text-outline/60 select-none">
+            <span className="text-4xl">🎵</span>
+            <p className="text-sm">チャプターを検索して</p>
+            <p className="text-sm">お気に入りの再生リストを作ろう</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-px bg-outline-variant/20">
-            {videos.map((v, idx) => (
-              <button
-                key={v.video_id}
-                onClick={() => setModalVideo(v)}
-                {...(idx === 0 ? { 'data-demo-id': 'result-card' } : {})}
-                className="bg-surface group block text-left hover:bg-surface-container-low transition-colors w-full cursor-pointer"
-              >
-                <div className="aspect-video overflow-hidden bg-surface-container">
-                  <img
-                    src={v.thumbnail_url}
-                    alt={v.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    loading="lazy"
-                  />
-                </div>
-                <div className="p-2.5">
-                  <p className="text-[0.7rem] font-medium leading-snug line-clamp-2 mb-1.5 group-hover:text-primary transition-colors">
-                    {v.title}
-                  </p>
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-[0.6rem] text-outline truncate">{v.channel_name}</span>
-                    <span className={`text-[0.6rem] font-bold uppercase shrink-0 ${TYPE_COLOR[v.video_type] ?? "text-outline"}`}>
-                      {v.video_type}
-                    </span>
-                  </div>
-                  <p className="text-[0.6rem] text-outline/60 mt-0.5">{formatDate(v.published_at)}</p>
-                </div>
-              </button>
-            ))}
-          </div>
+          /* 通常モード */
+          <>
+            {/* 件数表示 */}
+            {!loading && (
+              <p className="text-[0.6875rem] uppercase tracking-widest text-outline mb-6">
+                {videos.length} videos{hasMore ? "+" : ""}
+                {selectedGroup   && <span className="ml-3">{selectedGroup}</span>}
+                {selectedChannel && <span className="ml-3">{selectedChannel}</span>}
+                {selectedYear    && <span className="ml-3">{selectedYear}</span>}
+              </p>
+            )}
+
+            {fetchError ? (
+              <div className="flex flex-col items-center justify-center h-64 gap-4">
+                <p className="text-sm text-on-surface">データ取得に失敗しました</p>
+                <button
+                  onClick={() => { setFetchError(false); fetchVideos(selectedGroup, selectedType, selectedYear, selectedChannel, searchQuery, selectedMember, sortOrder, 0, true); }}
+                  className="text-xs uppercase tracking-widest text-primary border border-primary px-6 py-2 hover:bg-primary hover:text-on-primary transition-colors cursor-pointer"
+                >
+                  再読み込み
+                </button>
+              </div>
+            ) : videos.length === 0 && !loading ? (
+              <div className="flex items-center justify-center h-64 text-outline text-xs uppercase tracking-widest">
+                No videos found.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-px bg-outline-variant/20">
+                {videos.map((v, idx) => (
+                  <button
+                    key={v.video_id}
+                    onClick={() => setModalVideo(v)}
+                    {...(idx === 0 ? { 'data-demo-id': 'result-card' } : {})}
+                    className="bg-surface group block text-left hover:bg-surface-container-low transition-colors w-full cursor-pointer"
+                  >
+                    <div className="aspect-video overflow-hidden bg-surface-container">
+                      <img
+                        src={v.thumbnail_url}
+                        alt={v.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        loading="lazy"
+                      />
+                    </div>
+                    <div className="p-2.5">
+                      <p className="text-[0.7rem] font-medium leading-snug line-clamp-2 mb-1.5 group-hover:text-primary transition-colors">
+                        {v.title}
+                      </p>
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[0.6rem] text-outline truncate">{v.channel_name}</span>
+                        <span className={`text-[0.6rem] font-bold uppercase shrink-0 ${TYPE_COLOR[v.video_type] ?? "text-outline"}`}>
+                          {v.video_type}
+                        </span>
+                      </div>
+                      <p className="text-[0.6rem] text-outline/60 mt-0.5">{formatDate(v.published_at)}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         {/* 無限スクロール sentinel */}
         <div ref={sentinelRef} className="h-1" />
 
-        {loading && (
+        {/* 初回ロード時のみ h-32 スピナー表示（無限スクロール中は高さ変動しないよう非表示） */}
+        {!searchQuery && loading && videos.length === 0 && (
           <div className="flex items-center justify-center h-32 text-outline text-xs uppercase tracking-widest">
             Loading...
           </div>
         )}
 
-        {/* 終端 */}
-        {!hasMore && videos.length > 0 && !loading && (
+        {/* 終端（通常モードのみ） */}
+        {!searchQuery && !hasMore && videos.length > 0 && !loading && (
           <div className="flex items-center justify-center h-24 text-outline/40 text-[0.6rem] uppercase tracking-widest">
             — end —
           </div>
         )}
 
       </main>
+      <PlaylistPanel />
     </div>
   );
 }

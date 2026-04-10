@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+html {
+  /* スクロールバーの出現/消失によるレイアウトシフトを防ぐ */
+  scrollbar-gutter: stable;
+}
+
 body {
   font-family: 'Inter', 'Noto Sans JP', sans-serif;
   color: #191c1d;
