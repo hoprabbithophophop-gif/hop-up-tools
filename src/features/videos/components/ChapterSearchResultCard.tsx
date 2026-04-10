@@ -39,15 +39,16 @@ export function ChapterSearchResultCard({ id, item, selectionNumber, onToggle }:
       </div>
 
       {/* サムネイル */}
-      <div className="w-16 aspect-video shrink-0 overflow-hidden bg-surface-container">
+      <div className="w-[120px] h-[68px] shrink-0 overflow-hidden bg-surface-container">
         <img
           src={item.thumbnailUrl}
           alt={item.videoTitle}
           className="w-full h-full object-cover"
           loading="lazy"
           decoding="async"
-          width={64}
-          height={36}
+          width={120}
+          height={68}
+          style={{ aspectRatio: '16/9' }}
         />
       </div>
 

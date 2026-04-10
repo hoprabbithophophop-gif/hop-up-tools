@@ -186,7 +186,6 @@ export function VideoSearchResults({ query, videos, parseChapters }: Props) {
           onPlay={() => startInSelectionOrder()}
           onShuffle={() => startShuffled()}
           onClear={selection.clearSelection}
-          abovePanel={isPlaylistOpen}
         />
       )}
     </div>
@@ -198,34 +197,32 @@ function SelectionFloatingBar({
   onPlay,
   onShuffle,
   onClear,
-  abovePanel = false,
 }: {
   count: number;
   onPlay: () => void;
   onShuffle: () => void;
   onClear: () => void;
-  /** PlaylistPanel が表示中のとき true にすると、その上に浮かせる */
-  abovePanel?: boolean;
 }) {
   return (
-    <div className={`fixed ${abovePanel ? 'bottom-[52px]' : 'bottom-0'} left-0 right-0 z-50 flex items-center gap-2 px-4 py-3 bg-surface border-t border-outline-variant/20 shadow-lg`}>
+    <div className="fixed bottom-0 left-0 right-0 z-50 h-14 flex items-center gap-3 px-4 bg-primary text-on-primary slide-up-in">
       <button
         onClick={onPlay}
-        className="flex-1 bg-primary text-on-primary-fixed text-sm font-bold uppercase tracking-[0.15em] py-3 hover:bg-secondary transition-colors cursor-pointer"
+        className="text-sm font-bold cursor-pointer hover:opacity-80 transition-opacity shrink-0"
       >
         ▶ {count}件を再生
       </button>
       <button
         onClick={onShuffle}
-        className="px-4 py-3 text-xs font-bold uppercase tracking-widest border border-outline-variant text-outline hover:border-primary hover:text-primary transition-colors cursor-pointer shrink-0"
+        className="text-sm cursor-pointer hover:opacity-80 transition-opacity shrink-0"
       >
         🔀 シャッフル
       </button>
+      <div className="flex-1" />
       <button
         onClick={onClear}
-        className="px-3 py-3 text-xs font-bold uppercase tracking-widest border border-outline-variant text-outline hover:border-primary hover:text-primary transition-colors cursor-pointer shrink-0"
+        className="text-sm cursor-pointer hover:opacity-80 transition-opacity shrink-0"
       >
-        ✕
+        ✕ クリア
       </button>
     </div>
   );

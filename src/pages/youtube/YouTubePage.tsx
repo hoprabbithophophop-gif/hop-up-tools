@@ -83,12 +83,12 @@ function ChapterPickupContent() {
     setPageState('pickup');
   }, []);
 
-  if (restoreStatus === 'loading') return <LoadingScreen />;
-  if (restoreStatus === 'expired') return <ExpiredView />;
-
   const handleBackToPlay = useCallback(() => {
     setPageState('play');
   }, []);
+
+  if (restoreStatus === 'loading') return <LoadingScreen />;
+  if (restoreStatus === 'expired') return <ExpiredView />;
 
   return (
     <>

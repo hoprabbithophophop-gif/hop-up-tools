@@ -60,7 +60,7 @@ export function SharePlaylistDialog({ queue, onClose }: Props) {
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
       onClick={handleBackdrop}
     >
-      <div className="bg-surface border border-outline-variant/40 w-full max-w-sm mx-4 shadow-2xl">
+      <div className="bg-surface-container-highest w-[90vw] md:w-[420px] shadow-2xl">
         {/* ヘッダー */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-outline-variant/20">
           <p className="text-sm font-bold">プレイリストを共有</p>

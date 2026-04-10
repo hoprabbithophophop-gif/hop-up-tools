@@ -40,9 +40,9 @@ export function PlaylistPanel() {
   return createPortal(
     <div className="fixed bottom-0 left-0 right-0 z-40 bg-surface border-t border-outline-variant/20 shadow-lg [transition:none]">
       {/* 展開コンテンツ: ChapterPlayer は常にDOMに保持（IFrame維持のため）、collapsed時は hidden */}
-      <div className={`flex flex-col md:flex-row overflow-hidden border-b border-outline-variant/20 [transition:none] ${expanded ? 'max-h-[60vh] md:max-h-80' : 'hidden'}`}>
+      <div className={`flex flex-col md:flex-row overflow-hidden border-b border-outline-variant/20 [transition:none] ${expanded ? 'max-h-[70vh] md:max-h-[50vh]' : 'hidden'}`}>
         {/* プレイヤー: always rendered */}
-        <div className="md:w-96 shrink-0">
+        <div className="md:w-[65%] shrink-0">
           <ChapterPlayer />
         </div>
         {/* キュー一覧: expanded のみ */}
@@ -59,7 +59,7 @@ export function PlaylistPanel() {
       </div>
 
       {/* コントロールバー */}
-      <div className="flex items-center gap-2 px-3 py-2">
+      <div className="flex items-center gap-2 px-3 h-16">
         {/* 展開トグル */}
         <button
           onClick={() => setExpanded(e => !e)}
