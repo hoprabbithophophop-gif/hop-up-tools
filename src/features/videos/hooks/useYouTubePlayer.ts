@@ -16,6 +16,7 @@ interface UseYouTubePlayerReturn {
   playChapter: (videoId: string, startSeconds: number, endSeconds: number) => void;
   pause: () => void;
   resume: () => void;
+  getCurrentTime: () => number;
 }
 
 interface PendingChapter {
@@ -230,9 +231,17 @@ export function useYouTubePlayer({
     playerRef.current?.playVideo();
   }, []);
 
+  const getCurrentTime = useCallback(() => {
+    try {
+      return playerRef.current?.getCurrentTime() ?? 0;
+    } catch {
+      return 0;
+    }
+  }, []);
+
   useEffect(() => {
     return () => stopPolling();
   }, [stopPolling]);
 
-  return { isReady, playChapter, pause, resume };
+  return { isReady, playChapter, pause, resume, getCurrentTime };
 }

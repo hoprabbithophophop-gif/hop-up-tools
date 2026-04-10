@@ -42,4 +42,5 @@ export type PlaylistAction =
   | { type: 'TOGGLE_REPEAT' }
   | { type: 'CLEAR' }
   | { type: 'SET_PLAYING'; isPlaying: boolean }
-  | { type: 'REORDER'; fromIndex: number; toIndex: number };
+  | { type: 'REORDER'; fromIndex: number; toIndex: number }
+  | { type: 'TRIM_ITEM'; id: string; startSeconds: number; endSeconds: number };

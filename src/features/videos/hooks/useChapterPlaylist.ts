@@ -157,6 +157,16 @@ function playlistReducer(
       }
       return { ...state, queue: newQueue, currentIndex: newCurrentIndex };
     }
+    case 'TRIM_ITEM': {
+      return {
+        ...state,
+        queue: state.queue.map(item =>
+          item.id === action.id
+            ? { ...item, startSeconds: action.startSeconds, endSeconds: action.endSeconds }
+            : item
+        ),
+      };
+    }
     default:
       return state;
   }
@@ -175,6 +185,7 @@ export interface UseChapterPlaylistReturn {
   toggleRepeat: () => void;
   clearQueue: () => void;
   setPlaying: (isPlaying: boolean) => void;
+  trimItem: (id: string, startSeconds: number, endSeconds: number) => void;
 }
 
 export function useChapterPlaylist(): UseChapterPlaylistReturn {
@@ -226,6 +237,10 @@ export function useChapterPlaylist(): UseChapterPlaylistReturn {
     dispatch({ type: 'SET_PLAYING', isPlaying });
   }, []);
 
+  const trimItem = useCallback((id: string, startSeconds: number, endSeconds: number) => {
+    dispatch({ type: 'TRIM_ITEM', id, startSeconds, endSeconds });
+  }, []);
+
   return {
     state,
     addToQueue,
@@ -239,5 +254,6 @@ export function useChapterPlaylist(): UseChapterPlaylistReturn {
     toggleRepeat,
     clearQueue,
     setPlaying,
+    trimItem,
   };
 }

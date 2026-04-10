@@ -9,6 +9,7 @@ interface ChapterPlaylistContextValue extends UseChapterPlaylistReturn {
   playerReady: boolean;
   pause: () => void;
   resume: () => void;
+  getCurrentTime: () => number;
   selection: UseChapterSelectionReturn;
   /** 選択した順番でキューを構築して再生開始 */
   startInSelectionOrder: () => void;
@@ -37,7 +38,7 @@ export function ChapterPlaylistProvider({
     playNext();
   };
 
-  const { isReady, playChapter, pause, resume } = useYouTubePlayer({
+  const { isReady, playChapter, pause, resume, getCurrentTime } = useYouTubePlayer({
     onChapterEnd: handleChapterEnd,
     onError: handleError,
     // キューにアイテムが入ったタイミングで #chapter-player div が DOM に存在する
@@ -115,10 +116,11 @@ export function ChapterPlaylistProvider({
     playerReady: isReady,
     pause: handlePause,
     resume: handleResume,
+    getCurrentTime,
     selection,
     startInSelectionOrder,
     startShuffled,
-  }), [playlist, handleClearQueue, isReady, handlePause, handleResume, selection, startInSelectionOrder, startShuffled]);
+  }), [playlist, handleClearQueue, isReady, handlePause, handleResume, getCurrentTime, selection, startInSelectionOrder, startShuffled]);
 
   return (
     <ChapterPlaylistContext.Provider value={contextValue}>
