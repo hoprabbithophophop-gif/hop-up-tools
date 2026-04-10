@@ -5,6 +5,7 @@ import { ChapterCard } from './ChapterCard';
 import { SearchBar } from './SearchBar';
 import { FilterPanel } from './FilterPanel';
 import { FloatingBar } from './FloatingBar';
+import { VideoChapterSheet } from './VideoChapterSheet';
 import { makeChapterId, makeVideoId, buildFullVideoQueueItem } from '../../videos/utils/playlist-utils';
 import type { ChapterQueueItem } from '../../videos/types/playlist';
 import type { FilterState } from './FilterPanel';
@@ -75,6 +76,9 @@ interface Props {
 
 export function PickupView({ onPlay, onShuffle }: Props) {
   const { selection } = useChapterPlaylistContext();
+
+  // ザッピング: クリックした動画のシートを管理
+  const [sheetVideo, setSheetVideo] = useState<VideoRow | null>(null);
 
   // --- フィルター状態 ---
   const [filter, setFilter] = useState<FilterState>({
@@ -240,17 +244,8 @@ export function PickupView({ onPlay, onShuffle }: Props) {
     return results;
   }, [searchQuery, videos]);
 
-  // --- VIDEO カード一覧（検索なし） ---
-  const videoCards = useMemo<SearchResultItem[]>(() => {
-    if (searchQuery.trim()) return [];
-    return videos.map(v => ({
-      id: makeVideoId(v.video_id),
-      item: buildFullVideoQueueItem(v),
-    }));
-  }, [searchQuery, videos]);
-
-  const displayItems = searchQuery.trim() ? searchResults : videoCards;
-  const resultCount = displayItems.length;
+  const isSearchMode = searchQuery.trim().length > 0;
+  const resultCount = isSearchMode ? searchResults.length : videos.length;
 
   const handlePlay = useCallback(() => {
     const items = selection.getSelectedItemsInOrder();
@@ -333,10 +328,10 @@ export function PickupView({ onPlay, onShuffle }: Props) {
           </div>
         )}
 
-        {/* 動画/チャプターリスト */}
-        {!fetchError && (
+        {/* 検索モード: チャプター/動画リスト */}
+        {!fetchError && isSearchMode && (
           <div className="divide-y divide-outline-variant/10 border-t border-outline-variant/10">
-            {displayItems.map(({ id, item }) => (
+            {searchResults.map(({ id, item }) => (
               <ChapterCard
                 key={id}
                 item={item}
@@ -347,13 +342,46 @@ export function PickupView({ onPlay, onShuffle }: Props) {
           </div>
         )}
 
+        {/* ザッピングモード: サムネイルグリッド */}
+        {!fetchError && !isSearchMode && videos.length > 0 && (
+          <div className="grid grid-cols-2 gap-px bg-outline-variant/10 border-t border-outline-variant/10">
+            {videos.map(v => (
+              <button
+                key={v.video_id}
+                onClick={() => setSheetVideo(v)}
+                className="flex flex-col bg-surface hover:bg-surface-container-low transition-colors cursor-pointer text-left"
+              >
+                <div className="relative w-full overflow-hidden bg-surface-container">
+                  <img
+                    src={v.thumbnail_url}
+                    alt={v.title}
+                    className="w-full object-cover"
+                    style={{ aspectRatio: '16/9' }}
+                    loading="lazy"
+                    decoding="async"
+                  />
+                  <span className="absolute top-1 left-1 text-[7px] font-bold uppercase text-white bg-black/70 px-1 py-0.5 leading-none">
+                    {v.video_type?.toUpperCase() || 'VIDEO'}
+                  </span>
+                </div>
+                <div className="px-2 py-2 flex-1">
+                  <p className="text-[0.6875rem] font-bold leading-snug line-clamp-2 text-on-surface">
+                    {v.title}
+                  </p>
+                  <p className="text-[0.6rem] text-outline mt-0.5 truncate">{v.channel_name}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* 空状態 */}
-        {!loading && !fetchError && resultCount === 0 && !searchQuery.trim() && (
+        {!loading && !fetchError && resultCount === 0 && !isSearchMode && (
           <div className="flex flex-col items-center justify-center h-40 gap-2 text-outline">
             <p className="text-xs uppercase tracking-widest">動画が見つかりませんでした</p>
           </div>
         )}
-        {!loading && !fetchError && resultCount === 0 && searchQuery.trim() && (
+        {!loading && !fetchError && resultCount === 0 && isSearchMode && (
           <div className="flex flex-col items-center justify-center h-40 gap-2 text-outline">
             <p className="text-xs uppercase tracking-widest">
               「{searchQuery}」に一致する動画・チャプターがありません
@@ -379,6 +407,24 @@ export function PickupView({ onPlay, onShuffle }: Props) {
         onShuffle={handleShuffle}
         onClear={selection.clearSelection}
       />
+
+      {/* ザッピングシート（動画チャプター一覧） */}
+      {sheetVideo && (
+        <VideoChapterSheet
+          video={sheetVideo}
+          onClose={() => setSheetVideo(null)}
+          mode={{
+            kind: 'selection',
+            getSelectionNumber: id => selection.getSelectionNumber(id),
+            onToggle: (id, item) => selection.toggleSelection(id, item),
+            onSelectAll: items => items.forEach(item => {
+              if (selection.getSelectionNumber(item.id) === 0) {
+                selection.toggleSelection(item.id, item);
+              }
+            }),
+          }}
+        />
+      )}
     </div>
   );
 }

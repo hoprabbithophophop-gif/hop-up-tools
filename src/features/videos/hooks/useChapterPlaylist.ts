@@ -174,6 +174,7 @@ function playlistReducer(
 
 export interface UseChapterPlaylistReturn {
   state: ChapterPlaylistState;
+  addItem: (item: ChapterQueueItem) => void;
   addToQueue: (video: VideoRow, chapters: Chapter[], chapterIndex: number) => void;
   addAllToQueue: (video: VideoRow, chapters: Chapter[]) => void;
   startPlaylist: (items: ChapterQueueItem[]) => void;
@@ -190,6 +191,10 @@ export interface UseChapterPlaylistReturn {
 
 export function useChapterPlaylist(): UseChapterPlaylistReturn {
   const [state, dispatch] = useReducer(playlistReducer, initialState);
+
+  const addItem = useCallback((item: ChapterQueueItem) => {
+    dispatch({ type: 'ADD_ITEM', item });
+  }, []);
 
   const addToQueue = useCallback((video: VideoRow, chapters: Chapter[], chapterIndex: number) => {
     const item = buildSingleChapterQueueItem(video, chapters, chapterIndex);
@@ -243,6 +248,7 @@ export function useChapterPlaylist(): UseChapterPlaylistReturn {
 
   return {
     state,
+    addItem,
     addToQueue,
     addAllToQueue,
     startPlaylist,
