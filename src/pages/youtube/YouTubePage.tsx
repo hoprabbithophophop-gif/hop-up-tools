@@ -86,11 +86,19 @@ function ChapterPickupContent() {
   if (restoreStatus === 'loading') return <LoadingScreen />;
   if (restoreStatus === 'expired') return <ExpiredView />;
 
+  const handleBackToPlay = useCallback(() => {
+    setPageState('play');
+  }, []);
+
   return (
     <>
       {/* PickupView: play state のとき CSS hidden（アンマウントしない） */}
       <div className={pageState === 'play' ? 'hidden' : ''}>
-        <PickupView onPlay={handlePlay} onShuffle={handleShuffle} />
+        <PickupView
+          onPlay={handlePlay}
+          onShuffle={handleShuffle}
+          onBackToPlay={hasQueue ? handleBackToPlay : undefined}
+        />
       </div>
 
       {/* PlayView: キューが存在するときのみ DOM に保持（プレイヤー永続のため） */}

@@ -5,12 +5,15 @@ function IconBtn({
   icon,
   onClick,
   active,
+  toggle,
   label,
   size = 24,
 }: {
   icon: string;
   onClick: () => void;
   active?: boolean;
+  /** true のとき ON/OFF の視覚的トグルとして扱う（inactive = グレー） */
+  toggle?: boolean;
   label: string;
   size?: number;
 }) {
@@ -19,7 +22,13 @@ function IconBtn({
       onClick={onClick}
       aria-label={label}
       className={`w-11 h-11 flex items-center justify-center transition-colors cursor-pointer ${
-        active ? 'text-primary' : 'text-on-surface hover:text-primary'
+        toggle
+          ? active
+            ? 'text-on-surface'
+            : 'text-outline hover:text-on-surface'
+          : active
+          ? 'text-primary'
+          : 'text-on-surface hover:text-primary'
       }`}
     >
       <span className="material-symbols-outlined leading-none" style={{ fontSize: `${size}px` }}>
@@ -59,6 +68,7 @@ export function PlayControls() {
         icon="repeat"
         onClick={toggleRepeat}
         active={repeatMode === 'all'}
+        toggle
         label="リピート"
         size={22}
       />
@@ -87,6 +97,7 @@ export function PlayControls() {
         icon="shuffle"
         onClick={toggleShuffle}
         active={isShuffled}
+        toggle
         label="シャッフル"
         size={22}
       />
