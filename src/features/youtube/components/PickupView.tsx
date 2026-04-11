@@ -50,6 +50,18 @@ const ALL_SUGGESTION_CANDIDATES = [
   ...Object.values(MEMBERS_BY_GROUP).flat(),
 ];
 
+const TYPE_COLOR: Record<string, string> = {
+  mv:      'text-[#E5457D]',
+  live:    'text-blue-500',
+  variety: 'text-amber-500',
+  other:   'text-outline',
+};
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function parseChapters(description: string): Chapter[] {
   if (!description) return [];
   const re = /^(\d{1,2}):(\d{2})(?::(\d{2}))?[～〜\s\-]+(.+)$/gm;
@@ -84,6 +96,37 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
 
   // ザッピング: クリックした動画のシートを管理
   const [sheetVideo, setSheetVideo] = useState<VideoRow | null>(null);
+
+  // --- PICK（ランダム動画） ---
+  const [pickVideo, setPickVideo] = useState<VideoRow | null>(null);
+  const [pickHistory, setPickHistory] = useState<VideoRow[]>([]);
+
+  const fetchPickVideo = useCallback(async (current: VideoRow | null) => {
+    const supabase = getSupabase();
+    const { count } = await supabase
+      .from('youtube_videos')
+      .select('*', { count: 'exact', head: true })
+      .eq('is_active_content', true);
+    if (!count) return;
+    const randomOffset = Math.floor(Math.random() * count);
+    const { data } = await supabase
+      .from('youtube_videos')
+      .select('video_id,title,channel_name,published_at,thumbnail_url,video_type,group_tags,description_short')
+      .eq('is_active_content', true)
+      .range(randomOffset, randomOffset);
+    if (data && data.length > 0) {
+      if (current) {
+        setPickHistory(prev =>
+          prev.some(v => v.video_id === current.video_id)
+            ? prev
+            : [current, ...prev].slice(0, 3)
+        );
+      }
+      setPickVideo(data[0] as VideoRow);
+    }
+  }, []);
+
+  useEffect(() => { fetchPickVideo(null); }, [fetchPickVideo]);
 
   // --- フィルター状態 ---
   const [filter, setFilter] = useState<FilterState>({
@@ -268,20 +311,9 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
     <div className="bg-surface text-on-surface min-h-screen pb-20">
       {/* ヘッダー */}
       <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20 px-4 py-3">
-        <div className="flex items-center gap-3">
-          <a
-            href="/"
-            className="text-[0.6875rem] text-outline hover:text-primary transition-colors shrink-0"
-          >
-            ← ホーム
-          </a>
-          <h1 className="text-xl font-black tracking-tighter uppercase">
-            CHAPTER PICKUP
-          </h1>
-          <p className="text-[0.625rem] text-outline hidden sm:block">
-            公式動画からセトリを組もう
-          </p>
-        </div>
+        <h1 className="text-xl font-black tracking-tighter uppercase">
+          CHAPTER PICKUP
+        </h1>
       </header>
 
       <main className="max-w-3xl mx-auto px-4 pt-4">
@@ -303,6 +335,60 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
             membersByGroup={MEMBERS_BY_GROUP}
           />
         </div>
+
+        {/* PICK（検索中は非表示） */}
+        {pickVideo && !isSearchMode && (
+          <div className="mb-6">
+            <div className="flex items-baseline gap-3 mb-2">
+              <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">Pick</span>
+              <button
+                onClick={() => fetchPickVideo(pickVideo)}
+                className="text-[0.6875rem] uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer"
+              >
+                ↻ shuffle
+              </button>
+            </div>
+            <button
+              key={pickVideo.video_id}
+              onClick={() => setSheetVideo(pickVideo)}
+              className="pick-float-in w-full flex gap-3 bg-surface-container-low hover:bg-surface-container transition-colors group text-left cursor-pointer p-3"
+            >
+              <div className="w-36 sm:w-48 shrink-0 aspect-video overflow-hidden bg-surface-container">
+                <img
+                  src={pickVideo.thumbnail_url}
+                  alt={pickVideo.title}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+              </div>
+              <div className="flex flex-col justify-center gap-1 min-w-0">
+                <p className="text-sm font-bold leading-snug group-hover:text-primary transition-colors line-clamp-2">
+                  {pickVideo.title}
+                </p>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.65rem] text-outline">
+                  <span>{pickVideo.channel_name}</span>
+                  <span className={`font-bold uppercase ${TYPE_COLOR[pickVideo.video_type] ?? 'text-outline'}`}>
+                    {pickVideo.video_type}
+                  </span>
+                  <span>{formatDate(pickVideo.published_at)}</span>
+                </div>
+              </div>
+            </button>
+            {pickHistory.length > 0 && (
+              <div className="flex gap-2 mt-2">
+                {pickHistory.map(v => (
+                  <button
+                    key={v.video_id}
+                    onClick={() => setSheetVideo(v)}
+                    title={v.title}
+                    className="w-24 sm:w-32 aspect-video overflow-hidden bg-surface-container opacity-50 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
+                  >
+                    <img src={v.thumbnail_url} alt={v.title} className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 選択中バナー */}
         {selection.selectionCount > 0 && (
