@@ -72,7 +72,11 @@ export function TrimPanel() {
             <input
               type="text"
               value={inVal}
-              onChange={e => setInVal(e.target.value)}
+              onChange={e => {
+                const v = e.target.value;
+                setInVal(v);
+                if (parseTime(v) !== null) applyTrim(v, outVal);
+              }}
               onBlur={() => applyTrim(inVal, outVal)}
               placeholder="mm:ss"
               className="w-20 bg-transparent border-b border-outline-variant/40 text-sm py-0.5 focus:outline-none focus:border-primary transition-colors tabular-nums font-mono"
@@ -101,7 +105,11 @@ export function TrimPanel() {
             <input
               type="text"
               value={outVal}
-              onChange={e => setOutVal(e.target.value)}
+              onChange={e => {
+                const v = e.target.value;
+                setOutVal(v);
+                if (parseTime(v) !== null) applyTrim(inVal, v);
+              }}
               onBlur={() => applyTrim(inVal, outVal)}
               placeholder="mm:ss"
               className="w-20 bg-transparent border-b border-outline-variant/40 text-sm py-0.5 focus:outline-none focus:border-primary transition-colors tabular-nums font-mono"
