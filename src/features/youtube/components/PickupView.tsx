@@ -310,7 +310,8 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
   return (
     <div className="bg-surface text-on-surface min-h-screen pb-20">
       {/* ヘッダー */}
-      <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20 px-4 py-3">
+      <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20 px-4 py-3 flex items-center gap-3">
+        <a href="/" className="material-symbols-outlined text-primary">arrow_back</a>
         <h1 className="text-xl font-black tracking-tighter uppercase">
           CHAPTER PICKUP
         </h1>
