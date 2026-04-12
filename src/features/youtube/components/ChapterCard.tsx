@@ -6,9 +6,11 @@ interface Props {
   item: ChapterQueueItem;
   selectionNumber: number; // 0=未選択, 1以上=選択番号
   onToggle: () => void;
+  /** 指定時: カード本体クリック = onCardClick、+ボタンクリック = onToggle に分離 */
+  onCardClick?: () => void;
 }
 
-export function ChapterCard({ item, selectionNumber, onToggle }: Props) {
+export function ChapterCard({ item, selectionNumber, onToggle, onCardClick }: Props) {
   const isSelected = selectionNumber > 0;
   const isFullVideo = item.isFullVideo;
 
@@ -27,12 +29,14 @@ export function ChapterCard({ item, selectionNumber, onToggle }: Props) {
       }`
     : '全編再生';
 
+  const handleCardClick = onCardClick ?? onToggle;
+
   return (
     <div
-      onClick={onToggle}
+      onClick={handleCardClick}
       role="button"
       tabIndex={0}
-      onKeyDown={e => e.key === 'Enter' && onToggle()}
+      onKeyDown={e => e.key === 'Enter' && handleCardClick()}
       className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
         isSelected ? 'bg-black/5' : 'hover:bg-surface-container-low'
       }`}
@@ -82,7 +86,10 @@ export function ChapterCard({ item, selectionNumber, onToggle }: Props) {
       </div>
 
       {/* 選択ボタン（タッチターゲット最小44px） */}
-      <div className="shrink-0 w-11 h-11 flex items-center justify-center">
+      <div
+        className="shrink-0 w-11 h-11 flex items-center justify-center"
+        onClick={onCardClick ? e => { e.stopPropagation(); onToggle(); } : undefined}
+      >
         {isSelected ? (
           <span className="w-6 h-6 bg-black text-white flex items-center justify-center text-[0.625rem] font-bold leading-none">
             {selectionNumber}

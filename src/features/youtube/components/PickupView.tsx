@@ -423,14 +423,18 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
         {/* 検索モード: チャプター/動画リスト */}
         {!fetchError && isSearchMode && (
           <div className="divide-y divide-outline-variant/10 border-t border-outline-variant/10">
-            {searchResults.map(({ id, item }) => (
-              <ChapterCard
-                key={id}
-                item={item}
-                selectionNumber={selection.getSelectionNumber(id)}
-                onToggle={() => selection.toggleSelection(id, item)}
-              />
-            ))}
+            {searchResults.map(({ id, item }) => {
+              const parentVideo = videos.find(v => v.video_id === item.videoId) ?? null;
+              return (
+                <ChapterCard
+                  key={id}
+                  item={item}
+                  selectionNumber={selection.getSelectionNumber(id)}
+                  onToggle={() => selection.toggleSelection(id, item)}
+                  onCardClick={parentVideo ? () => setSheetVideo(parentVideo) : undefined}
+                />
+              );
+            })}
           </div>
         )}
 
