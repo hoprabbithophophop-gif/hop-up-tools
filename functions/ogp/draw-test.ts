@@ -1,16 +1,14 @@
 /**
  * 一時テスト: /ogp/draw-test
- * cf.image.draw + SVG overlay の動作確認専用（Supabase 不要）
+ * Phase 3 山札PNG overlay の動作確認（Supabase 不要）
  * 確認後に削除する。
  */
 export async function onRequest(context: { request: Request }): Promise<Response> {
   const url = new URL(context.request.url);
+  const thumbUrl = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg';
+  const cardPngUrl = `${url.origin}/overlay-card.png`;
 
-  const thumbUrl = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg'; // test.ts と同じ既知の動画ID
-  // Step 2: PNG draw overlay のテスト（SVG は 9412 エラーで使えないため）
-  // 1×1 半透明 PNG を 1200×630 にリピートして dark overlay を確認
-  const pngOverlayUrl = `${url.origin}/overlay-dark.png`;
-
+  // 3枚重ね（チャプター数 4 以上のケース）
   // @ts-ignore
   const res = await fetch(thumbUrl, {
     cf: {
@@ -20,7 +18,11 @@ export async function onRequest(context: { request: Request }): Promise<Response
         fit: 'cover',
         format: 'jpeg',
         quality: 85,
-        draw: [{ url: pngOverlayUrl, repeat: true, opacity: 0.7 }],
+        draw: [
+          { url: cardPngUrl, right: -18, bottom: -18 }, // 最奥
+          { url: cardPngUrl, right: -12, bottom: -12 }, // 中間
+          { url: cardPngUrl, right:  -6, bottom:  -6 }, // 手前
+        ],
       },
     } as unknown,
   });
@@ -29,7 +31,6 @@ export async function onRequest(context: { request: Request }): Promise<Response
     headers: {
       'Content-Type': res.headers.get('Content-Type') ?? 'image/jpeg',
       'Cache-Control': 'no-store',
-      'X-Cf-Resized': res.headers.get('cf-resized') ?? 'none',
     },
   });
 }
