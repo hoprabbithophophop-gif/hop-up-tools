@@ -44,7 +44,7 @@ export function ShareModal({ queue, onClose }: Props) {
   };
 
   const handleTweet = () => {
-    const text = `${resolvedTitle}\n${shareUrl}\n#SHIOOOOORI #hopuptools`;
+    const text = `${resolvedTitle}\n${shareUrl}`;
     window.open(
       `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
       '_blank'

@@ -14,7 +14,7 @@ interface PlaylistShareRow {
 }
 
 export interface OgpData {
-  /** og:title 用（"... | CHAPTER PICKUP" 付き） */
+  /** og:title 用（プレイリストタイトルそのまま） */
   ogTitle: string;
   /** og:description 用（"1曲目 他N件"） */
   ogDescription: string;
@@ -22,8 +22,6 @@ export interface OgpData {
   thumbnailUrl: string;
   /** 1曲目の YouTube video ID */
   videoId: string;
-  /** テキストオーバーレイ用クリーンタイトル（suffix なし） */
-  displayTitle: string;
 }
 
 /**
@@ -62,8 +60,7 @@ export async function fetchOgpData(
   const first = share.items[0];
   const count = share.items.length;
 
-  const displayTitle = share.title || first.chapterTitle;
-  const ogTitle = `${displayTitle} | CHAPTER PICKUP`;
+  const ogTitle = share.title || first.chapterTitle;
 
   const ogDescription =
     count === 1
@@ -77,7 +74,6 @@ export async function fetchOgpData(
     ogDescription,
     thumbnailUrl,
     videoId: first.videoId,
-    displayTitle,
   };
 }
 
