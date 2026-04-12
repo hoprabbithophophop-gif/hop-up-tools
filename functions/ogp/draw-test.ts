@@ -12,6 +12,7 @@ export async function onRequest(context: { request: Request }): Promise<Response
     `?title=${encodeURIComponent('TRIMテスト共有（修正後）')}` +
     `&desc=${encodeURIComponent('ハロ！ステ#537 他2チャプター')}`;
 
+  // Step 1: draw なしでリサイズのみ（SVG draw 問題を切り分け）
   // @ts-ignore
   const res = await fetch(thumbUrl, {
     cf: {
@@ -21,7 +22,7 @@ export async function onRequest(context: { request: Request }): Promise<Response
         fit: 'cover',
         format: 'jpeg',
         quality: 85,
-        draw: [{ url: textSvgUrl }],
+        // draw: [{ url: textSvgUrl }],  // ← SVG draw が 9412 エラーになるため一時無効
       },
     } as unknown,
   });
