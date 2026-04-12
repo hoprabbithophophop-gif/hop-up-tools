@@ -19,15 +19,17 @@ export function TrimPanel() {
 
   const [inVal, setInVal] = useState('');
   const [outVal, setOutVal] = useState('');
+  const [inOutError, setInOutError] = useState(false);
 
   // 再生アイテムが変わったら IN/OUT をリセット
   useEffect(() => {
-    if (!current) { setInVal(''); setOutVal(''); return; }
+    if (!current) { setInVal(''); setOutVal(''); setInOutError(false); return; }
     setInVal(formatSeconds(current.startSeconds));
     const end = current.endSeconds;
     setOutVal(
       isFinite(end) && end !== Number.MAX_SAFE_INTEGER ? formatSeconds(end) : ''
     );
+    setInOutError(false);
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const applyTrim = (nextIn: string, nextOut: string) => {
@@ -35,6 +37,12 @@ export function TrimPanel() {
     const start = parseTime(nextIn) ?? current.startSeconds;
     const end = parseTime(nextOut);
     const endSec = end !== null ? end : current.endSeconds;
+    // IN >= OUT の場合は警告表示し、trim は適用しない
+    if (end !== null && start >= endSec) {
+      setInOutError(true);
+      return;
+    }
+    setInOutError(false);
     trimItem(current.id, start, endSec);
   };
 
@@ -129,9 +137,15 @@ export function TrimPanel() {
           </div>
         </div>
       </div>
-      <p className="text-[0.55rem] text-outline/60 mt-2">
-        ◉ ボタンで現在の再生位置をセット
-      </p>
+      {inOutError ? (
+        <p className="text-[0.55rem] text-error mt-2">
+          IN点はOUT点より前に設定してください
+        </p>
+      ) : (
+        <p className="text-[0.55rem] text-outline/60 mt-2">
+          ◉ ボタンで現在の再生位置をセット
+        </p>
+      )}
     </div>
   );
 }
