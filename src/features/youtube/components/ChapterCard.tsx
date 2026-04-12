@@ -25,7 +25,7 @@ export function ChapterCard({ item, selectionNumber, onToggle }: Props) {
           ? ` — ${formatSeconds(item.endSeconds)}`
           : ''
       }`
-    : '動画全体';
+    : '全編再生';
 
   return (
     <div

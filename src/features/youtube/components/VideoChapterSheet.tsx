@@ -143,12 +143,12 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
 
         {/* チャプターリスト */}
         <div className="overflow-y-auto flex-1">
-          {/* 動画全体 */}
+          {/* 全編再生 */}
           <ChapterRow
             id={fullVideoItem.id}
             label={fullVideoItem.chapterLabel}
             timestamp=""
-            timeRange="動画全体"
+            timeRange="全編再生"
             mode={mode}
             item={fullVideoItem}
             isFullVideo

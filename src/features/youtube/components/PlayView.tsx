@@ -66,7 +66,7 @@ export function PlayView({ onBack }: Props) {
 
   const timeRange = current
     ? isFullVideo
-      ? '動画全体'
+      ? '全編再生'
       : `${formatSeconds(current.startSeconds)}${
           isFinite(current.endSeconds) && current.endSeconds !== Number.MAX_SAFE_INTEGER
             ? ` — ${formatSeconds(current.endSeconds)}`
@@ -194,7 +194,7 @@ export function PlayView({ onBack }: Props) {
               <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>
                 playlist_add
               </span>
-              この動画のチャプターを追加
+              チャプター一覧を開く
             </button>
           </div>
         )}
