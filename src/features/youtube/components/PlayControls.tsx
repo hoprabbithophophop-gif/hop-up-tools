@@ -75,7 +75,7 @@ export function PlayControls() {
       <IconBtn
         icon="skip_previous"
         onClick={playPrev}
-        label="前のチャプター"
+        label="前のキュー項目"
         size={28}
       />
       <button
@@ -90,7 +90,7 @@ export function PlayControls() {
       <IconBtn
         icon="skip_next"
         onClick={playNext}
-        label="次のチャプター"
+        label="次のキュー項目"
         size={28}
       />
       <IconBtn
