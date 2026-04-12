@@ -34,7 +34,7 @@ function ChapterPickupContent() {
   const hasQueue = state.queue.length > 0;
 
   useEffect(() => {
-    document.title = 'CHAPTER PICKUP | hop-up-tools';
+    document.title = 'HELLO! VIDEO | hop-up-tools';
   }, []);
 
   // ?p= から共有プレイリスト復元

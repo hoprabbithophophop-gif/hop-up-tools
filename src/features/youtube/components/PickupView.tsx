@@ -313,7 +313,7 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
       <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20 px-4 py-3 flex items-center gap-3">
         <a href="/" className="material-symbols-outlined text-primary">arrow_back</a>
         <h1 className="text-xl font-black tracking-tighter uppercase">
-          CHAPTER PICKUP
+          HELLO! VIDEO
         </h1>
       </header>
 

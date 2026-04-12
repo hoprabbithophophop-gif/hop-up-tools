@@ -13,7 +13,7 @@ const TOOLS: { to: string; num: string; section: string; title: string; desc: st
     to:      "/youtube",
     num:     "02",
     section: "YOUTUBE",
-    title:   "YouTube チェック",
+    title:   "HELLO! VIDEO",
     desc:    "公式 MV・ライブ・バラエティを検索",
   },
   {
