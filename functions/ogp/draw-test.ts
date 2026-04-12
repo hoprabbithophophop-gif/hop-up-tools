@@ -7,12 +7,10 @@ export async function onRequest(context: { request: Request }): Promise<Response
   const url = new URL(context.request.url);
 
   const thumbUrl = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg'; // test.ts と同じ既知の動画ID
-  const textSvgUrl =
-    `${url.origin}/ogp/text-svg` +
-    `?title=${encodeURIComponent('TRIMテスト共有（修正後）')}` +
-    `&desc=${encodeURIComponent('ハロ！ステ#537 他2チャプター')}`;
+  // Step 2: PNG draw overlay のテスト（SVG は 9412 エラーで使えないため）
+  // 1×1 半透明 PNG を 1200×630 にリピートして dark overlay を確認
+  const pngOverlayUrl = `${url.origin}/overlay-dark.png`;
 
-  // Step 1: draw なしでリサイズのみ（SVG draw 問題を切り分け）
   // @ts-ignore
   const res = await fetch(thumbUrl, {
     cf: {
@@ -22,7 +20,7 @@ export async function onRequest(context: { request: Request }): Promise<Response
         fit: 'cover',
         format: 'jpeg',
         quality: 85,
-        draw: [{ url: textSvgUrl }],
+        draw: [{ url: pngOverlayUrl, repeat: true, opacity: 0.7 }],
       },
     } as unknown,
   });
