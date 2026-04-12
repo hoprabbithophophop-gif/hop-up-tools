@@ -6,13 +6,10 @@
  *
  * クエリパラメータ:
  *   p - プレイリスト共有 ID（8文字 nanoid）
- *   n - チャプター数（山札枚数決定用、省略時は 1 扱い）
  *
- * 処理フロー（Phase 2）:
+ * 処理フロー:
  *   1. Supabase からプレイリスト情報を取得
- *   2. 1曲目の YouTube サムネを 1200×630 にセンタークロップ（cf.image）
- *   3. 山札矩形 PNG を奥から順に draw で重ねる（Phase 3: チャプター数に応じて 0〜3 枚）
- *   4. 合成済み JPEG を返す
+ *   2. 1曲目の YouTube サムネを 1200×630 にセンタークロップ（cf.image）して返す
  *
  * フォールバック:
  *   - プレイリスト不在: YouTube デフォルトサムネへ 302
@@ -29,17 +26,6 @@ interface Env {
 
 /** YouTube が確実に持つデフォルトサムネ */
 const FALLBACK = 'https://i.ytimg.com/vi/default/hqdefault.jpg';
-
-/**
- * チャプター数から山札の奥に重ねる矩形枚数を決める。
- * 1 → 0枚, 2 → 1枚, 3 → 2枚, 4以上 → 3枚
- */
-function stackCount(n: number): number {
-  if (n <= 1) return 0;
-  if (n === 2) return 1;
-  if (n === 3) return 2;
-  return 3;
-}
 
 export async function onRequest(context: {
   request: Request;
@@ -62,24 +48,6 @@ export async function onRequest(context: {
 
   if (!ogp) return Response.redirect(FALLBACK, 302);
 
-  // チャプター数は og description の "他N件" から取れないので
-  // 別途 n= クエリで受け取る（og:image URL に付与するのは fetchOgpData の呼び出し元）
-  const n = parseInt(url.searchParams.get('n') ?? '1', 10) || 1;
-  const stacks = stackCount(n);
-
-  // 山札矩形の draw エントリ（Phase 3）
-  // 静的 PNG overlay-card.png: 1200×630 の白枠矩形（public/ に配置）
-  const cardPngUrl = `${url.origin}/overlay-card.png`;
-  const drawEntries = [];
-  for (let i = stacks; i >= 1; i--) {
-    // 奥ほど右下にずらす（i が大きいほど奥 = より大きくずれる）
-    drawEntries.push({
-      url: cardPngUrl,
-      right: -(i * 6),  // 右方向にはみ出す
-      bottom: -(i * 6), // 下方向にはみ出す
-    });
-  }
-
   // @ts-ignore – cf は CF Workers グローバル
   const imageRes = await fetch(ogp.thumbnailUrl, {
     cf: {
@@ -89,7 +57,6 @@ export async function onRequest(context: {
         fit: 'cover',
         format: 'jpeg',
         quality: 85,
-        ...(drawEntries.length > 0 ? { draw: drawEntries } : {}),
       },
     } as unknown,
   });
