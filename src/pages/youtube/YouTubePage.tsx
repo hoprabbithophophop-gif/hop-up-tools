@@ -37,13 +37,6 @@ function ChapterPickupContent() {
     document.title = 'CHAPTER PICKUP | hop-up-tools';
   }, []);
 
-  // キューがクリアされたら pickup に戻る
-  useEffect(() => {
-    if (!hasQueue && pageState === 'play') {
-      setPageState('pickup');
-    }
-  }, [hasQueue, pageState]);
-
   // ?p= から共有プレイリスト復元
   useEffect(() => {
     if (!playlistId) {
@@ -101,13 +94,10 @@ function ChapterPickupContent() {
         />
       </div>
 
-      {/* PlayView: キューが存在するときのみ DOM に保持（プレイヤー永続のため） */}
-      {/* pickup state のとき CSS hidden（アンマウントしない → IFrame維持） */}
-      {hasQueue && (
-        <div className={pageState === 'pickup' ? 'hidden' : ''}>
-          <PlayView onBack={handleBack} />
-        </div>
-      )}
+      {/* PlayView: 常時 DOM 保持（IFrame維持のため）、pickup state のとき CSS hidden */}
+      <div className={pageState === 'pickup' ? 'hidden' : ''}>
+        <PlayView onBack={handleBack} />
+      </div>
     </>
   );
 }

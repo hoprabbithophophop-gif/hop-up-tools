@@ -101,6 +101,17 @@ export function PlayView({ onBack }: Props) {
 
       {/* スクロール領域 */}
       <div className="flex-1 overflow-y-auto">
+        {/* 空キュー時の案内 */}
+        {queue.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-64 gap-3 text-outline px-4 text-center">
+            <span className="material-symbols-outlined text-4xl">queue_music</span>
+            <p className="text-xs uppercase tracking-widest">キューが空です</p>
+            <p className="text-[0.625rem] text-outline/60">
+              ピックアップ画面でチャプターや動画を選んで追加してください
+            </p>
+          </div>
+        )}
+
         {/* YouTube プレイヤー */}
         <Player />
 
