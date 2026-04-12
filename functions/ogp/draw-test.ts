@@ -6,7 +6,7 @@
 export async function onRequest(context: { request: Request }): Promise<Response> {
   const url = new URL(context.request.url);
 
-  const thumbUrl = 'https://i.ytimg.com/vi/193Jw28XT20/hqdefault.jpg';
+  const thumbUrl = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg'; // test.ts と同じ既知の動画ID
   const textSvgUrl =
     `${url.origin}/ogp/text-svg` +
     `?title=${encodeURIComponent('TRIMテスト共有（修正後）')}` +
