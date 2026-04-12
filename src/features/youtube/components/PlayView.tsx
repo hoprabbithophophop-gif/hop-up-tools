@@ -75,9 +75,9 @@ export function PlayView({ onBack }: Props) {
     : '';
 
   return (
-    <div className="bg-surface text-on-surface min-h-screen flex flex-col">
+    <div className="bg-surface text-on-surface h-screen flex flex-col">
       {/* ヘッダー */}
-      <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20 px-4 h-12 flex items-center justify-between shrink-0">
+      <header className="shrink-0 bg-surface border-b border-outline-variant/20 px-4 h-12 flex items-center justify-between">
         <button
           onClick={onBack}
           className="flex items-center gap-1 text-[0.6875rem] text-outline hover:text-primary transition-colors cursor-pointer"
@@ -99,6 +99,7 @@ export function PlayView({ onBack }: Props) {
         </button>
       </header>
 
+      {/* スクロール領域 */}
       <div className="flex-1 overflow-y-auto">
         {/* YouTube プレイヤー */}
         <Player />
@@ -138,49 +139,39 @@ export function PlayView({ onBack }: Props) {
           </div>
         )}
 
-        {/* 再生コントロール */}
-        <div className="py-3 border-b border-outline-variant/20">
-          <PlayControls />
-        </div>
-
-        {/* TRIM ↔ QUEUE 排他トグル */}
-        <div className="border-b border-outline-variant/20">
-          {/* トグルヘッダー行 */}
-          <div className="flex items-center justify-between px-4 h-10">
+        {/* TRIM ↔ QUEUE タブ */}
+        <div>
+          {/* タブヘッダー */}
+          <div className="flex border-b border-outline-variant/20">
             <button
-              onClick={() => setTrimOpen(v => !v)}
-              className="flex items-center gap-1 text-[0.6875rem] font-bold uppercase tracking-widest text-outline hover:text-on-surface transition-colors cursor-pointer"
+              onClick={() => setTrimOpen(true)}
+              className={`flex-1 h-10 text-[0.6875rem] font-bold uppercase tracking-widest transition-colors cursor-pointer border-b-2 ${
+                trimOpen
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-outline hover:text-on-surface'
+              }`}
             >
-              <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>
-                {trimOpen ? 'expand_less' : 'expand_more'}
-              </span>
               TRIM
             </button>
-
-            {/* QUEUE セクションヘッダー（TRIM閉時に表示） */}
-            {!trimOpen && (
-              <div className="flex items-center gap-2">
-                <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-on-surface">
-                  QUEUE ({queue.length})
-                </span>
-              </div>
-            )}
+            <button
+              onClick={() => setTrimOpen(false)}
+              className={`flex-1 h-10 text-[0.6875rem] font-bold uppercase tracking-widest transition-colors cursor-pointer border-b-2 ${
+                !trimOpen
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-outline hover:text-on-surface'
+              }`}
+            >
+              QUEUE ({queue.length})
+            </button>
           </div>
 
-          {/* TRIMパネル（展開時） */}
-          {trimOpen && (
-            <div className="border-t border-outline-variant/10">
-              <TrimPanel />
-            </div>
+          {/* タブコンテンツ */}
+          {trimOpen ? (
+            <TrimPanel />
+          ) : (
+            <QueueList />
           )}
         </div>
-
-        {/* QUEUE リスト（TRIM閉時に表示） */}
-        {!trimOpen && (
-          <div>
-            <QueueList />
-          </div>
-        )}
 
         {/* この動画のチャプターを追加 */}
         {currentVideoMeta && (
@@ -196,7 +187,11 @@ export function PlayView({ onBack }: Props) {
             </button>
           </div>
         )}
+      </div>
 
+      {/* 再生コントロール（常時表示） */}
+      <div className="shrink-0 py-3 border-t border-outline-variant/20 bg-surface">
+        <PlayControls />
       </div>
 
       {/* シェアモーダル */}
