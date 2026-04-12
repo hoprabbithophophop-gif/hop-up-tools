@@ -22,7 +22,7 @@ export async function onRequest(context: { request: Request }): Promise<Response
         fit: 'cover',
         format: 'jpeg',
         quality: 85,
-        // draw: [{ url: textSvgUrl }],  // ← SVG draw が 9412 エラーになるため一時無効
+        draw: [{ url: textSvgUrl }],
       },
     } as unknown,
   });
