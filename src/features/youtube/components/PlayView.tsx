@@ -197,18 +197,6 @@ export function PlayView({ onBack }: Props) {
           </div>
         )}
 
-        {/* ピックアップに戻るボタン */}
-        <div className="px-4 py-4 border-t border-outline-variant/20">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-2 text-[0.6875rem] text-outline hover:text-primary transition-colors cursor-pointer"
-          >
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>
-              arrow_back
-            </span>
-            ピックアップに戻る
-          </button>
-        </div>
       </div>
 
       {/* シェアモーダル */}
