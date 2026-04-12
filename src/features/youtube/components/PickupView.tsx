@@ -307,9 +307,9 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
     onShuffle(items);
   }, [selection, onShuffle]);
 
+  // isolate: スクロール時の表示崩れ対策として追加。実機では再現しないことが判明したが、
+  // stacking context を明示する保険として残置（副作用なし）。
   return (
-    {/* isolate: スクロール時の表示崩れ対策として追加。実機では再現しないことが判明したが、
-        stacking context を明示する保険として残置（副作用なし）。 */}
     <div className="bg-surface text-on-surface min-h-screen pb-20 isolate">
       {/* ヘッダー */}
       <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20 px-4 py-3 flex items-center gap-3">
