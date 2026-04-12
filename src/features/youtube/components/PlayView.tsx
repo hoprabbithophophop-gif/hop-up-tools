@@ -62,7 +62,7 @@ export function PlayView({ onBack }: Props) {
   const current = currentIndex !== null ? queue[currentIndex] : null;
 
   const isFullVideo = current?.isFullVideo ?? false;
-  const tag = isFullVideo ? 'FULL' : 'CLIP';
+  const tag = isFullVideo ? 'フル再生' : 'CLIP';
 
   const timeRange = current
     ? isFullVideo
