@@ -10,8 +10,8 @@ import { fetchOgpData, buildMetaTags } from '../_shared/ogp';
 
 interface Env {
   ASSETS: { fetch(req: Request): Promise<Response> };
-  SUPABASE_URL?: string;
-  SUPABASE_ANON_KEY?: string;
+  VITE_SUPABASE_URL?: string;
+  VITE_SUPABASE_ANON_KEY?: string;
 }
 
 export async function onRequest(context: {
@@ -26,12 +26,12 @@ export async function onRequest(context: {
     new Request(new URL('/index.html', url.origin).toString())
   );
 
-  if (!playlistId || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
+  if (!playlistId || !env.VITE_SUPABASE_URL || !env.VITE_SUPABASE_ANON_KEY) {
     return indexRes;
   }
 
   try {
-    const ogp = await fetchOgpData(playlistId, env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
+    const ogp = await fetchOgpData(playlistId, env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY);
     if (!ogp) return indexRes;
 
     // Phase 2: 合成カード画像を og:image に使用

@@ -23,8 +23,8 @@
 import { fetchOgpData } from '../_shared/ogp';
 
 interface Env {
-  SUPABASE_URL?: string;
-  SUPABASE_ANON_KEY?: string;
+  VITE_SUPABASE_URL?: string;
+  VITE_SUPABASE_ANON_KEY?: string;
 }
 
 /** YouTube が確実に持つデフォルトサムネ（プレイリスト不在時のフォールバック） */
@@ -38,13 +38,13 @@ export async function onRequest(context: {
   const url = new URL(request.url);
   const playlistId = url.searchParams.get('p');
 
-  if (!playlistId || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
+  if (!playlistId || !env.VITE_SUPABASE_URL || !env.VITE_SUPABASE_ANON_KEY) {
     return Response.redirect(FALLBACK_THUMB, 302);
   }
 
   let ogp;
   try {
-    ogp = await fetchOgpData(playlistId, env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
+    ogp = await fetchOgpData(playlistId, env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY);
   } catch {
     return Response.redirect(FALLBACK_THUMB, 302);
   }
