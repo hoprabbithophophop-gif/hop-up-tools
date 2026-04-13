@@ -417,8 +417,17 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
 
         {/* エラー */}
         {fetchError && (
-          <div className="flex items-center justify-center h-32">
+          <div className="flex flex-col items-center justify-center h-32 gap-3">
             <p className="text-xs text-outline">読み込みエラー。再度お試しください。</p>
+            <button
+              onClick={() => {
+                setFetchError(false);
+                fetchVideos(filter, searchQuery, 0, true);
+              }}
+              className="text-[0.6875rem] font-bold uppercase tracking-widest text-primary hover:opacity-70 transition-opacity cursor-pointer border border-primary px-3 py-1.5"
+            >
+              再試行
+            </button>
           </div>
         )}
 

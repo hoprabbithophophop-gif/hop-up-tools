@@ -98,7 +98,8 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
         aria-hidden="true"
       />
 
-      {/* シートパネル */}
+      {/* シートパネル（デスクトップは最大幅制限+センタリング） */}
+      <div className="w-full max-w-lg mx-auto">
       <div className="relative bg-surface rounded-t-2xl max-h-[85vh] flex flex-col shadow-2xl">
         {/* ハンドルバー */}
         <div className="flex justify-center pt-2 pb-1 shrink-0">
@@ -181,6 +182,7 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
           <div className="h-6" />
         </div>
       </div>
+      </div>
     </div>
   );
 }
@@ -211,9 +213,7 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo }
       >
         <div className="flex-1 min-w-0">
           <p className="text-[0.8125rem] font-bold leading-snug truncate">{label}</p>
-          {!isFullVideo && (
-            <p className="text-[0.625rem] font-mono text-outline/70 mt-0.5">{timeRange}</p>
-          )}
+          <p className="text-[0.625rem] font-mono text-outline/70 mt-0.5">{timeRange}</p>
         </div>
         {!isFullVideo && timestamp && (
           <span className="text-[0.625rem] font-mono text-outline shrink-0">{timestamp}</span>
@@ -239,9 +239,7 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo }
     <div className="flex items-center gap-3 px-4 py-2.5 border-b border-outline-variant/10">
       <div className="flex-1 min-w-0">
         <p className="text-[0.8125rem] font-bold leading-snug truncate">{label}</p>
-        {!isFullVideo && (
-          <p className="text-[0.625rem] font-mono text-outline/70 mt-0.5">{timeRange}</p>
-        )}
+        <p className="text-[0.625rem] font-mono text-outline/70 mt-0.5">{timeRange}</p>
       </div>
       {!isFullVideo && timestamp && (
         <span className="text-[0.625rem] font-mono text-outline shrink-0">{timestamp}</span>
