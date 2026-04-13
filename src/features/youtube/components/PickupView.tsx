@@ -91,6 +91,9 @@ interface Props {
 export function PickupView({ onPlay, onBackToPlay }: Props) {
   const { selection, state } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
+  const nowPlayingLabel = state.currentIndex !== null
+    ? state.queue[state.currentIndex]?.chapterLabel
+    : null;
 
   // ザッピング: クリックした動画のシートを管理
   const [sheetVideo, setSheetVideo] = useState<VideoRow | null>(null);
@@ -491,6 +494,29 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
         {/* 無限スクロール センチネル */}
         <div ref={sentinelRef} className="h-1" />
       </main>
+
+      {/* NOW PLAYING バナー（キューが存在するとき・FloatingBar がある場合は1段上げる） */}
+      {hasQueue && onBackToPlay && (
+        <div className={`fixed left-0 right-0 z-40 ${selection.selectionCount > 0 ? 'bottom-14' : 'bottom-0'}`}>
+          <button
+            onClick={onBackToPlay}
+            className="w-full h-12 flex items-center gap-3 px-4 bg-black text-white transition-opacity hover:opacity-90 cursor-pointer border-t border-white/10"
+          >
+            <span className="material-symbols-outlined leading-none shrink-0" style={{ fontSize: '18px' }}>
+              {state.isPlaying ? 'pause' : 'play_arrow'}
+            </span>
+            <div className="flex-1 min-w-0 text-left">
+              <p className="text-[0.6rem] uppercase tracking-widest text-white/60">NOW PLAYING</p>
+              {nowPlayingLabel && (
+                <p className="text-[0.75rem] font-bold truncate leading-tight">{nowPlayingLabel}</p>
+              )}
+            </div>
+            <span className="material-symbols-outlined leading-none shrink-0 text-white/60" style={{ fontSize: '20px' }}>
+              expand_less
+            </span>
+          </button>
+        </div>
+      )}
 
       {/* フローティングバー */}
       <FloatingBar
