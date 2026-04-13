@@ -312,17 +312,6 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
         <h1 className="text-xl font-black tracking-tighter uppercase">
           HELLO! VIDEO
         </h1>
-        {hasQueue && onBackToPlay && (
-          <button
-            onClick={onBackToPlay}
-            className="ml-auto flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 text-primary text-[0.6rem] font-bold uppercase tracking-widest cursor-pointer hover:bg-primary/20 transition-colors"
-          >
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: '14px' }}>
-              {state.isPlaying ? 'pause' : 'play_arrow'}
-            </span>
-            再生中
-          </button>
-        )}
       </header>
 
       <main className="max-w-3xl mx-auto px-4 pt-4">
