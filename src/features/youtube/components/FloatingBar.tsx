@@ -3,11 +3,10 @@ import React from 'react';
 interface Props {
   count: number;
   onPlay: () => void;
-  onShuffle: () => void;
   onClear: () => void;
 }
 
-export function FloatingBar({ count, onPlay, onShuffle, onClear }: Props) {
+export function FloatingBar({ count, onPlay, onClear }: Props) {
   if (count === 0) return null;
 
   return (
@@ -32,17 +31,6 @@ export function FloatingBar({ count, onPlay, onShuffle, onClear }: Props) {
           play_arrow
         </span>
         {count}件をプレイ
-      </button>
-
-      {/* シャッフル */}
-      <button
-        onClick={onShuffle}
-        className="shrink-0 w-11 h-full flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer"
-        aria-label="シャッフル再生"
-      >
-        <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>
-          shuffle
-        </span>
       </button>
     </div>
   );

@@ -81,18 +81,16 @@ function parseChapters(description: string): Chapter[] {
   return chapters;
 }
 
+const LONG_PRESS_DELAY = 400;
+
 interface Props {
   onPlay: (items: ChapterQueueItem[]) => void;
-  onShuffle: (items: ChapterQueueItem[]) => void;
   onBackToPlay?: () => void;
 }
 
-export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
+export function PickupView({ onPlay, onBackToPlay }: Props) {
   const { selection, state } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
-  const nowPlayingLabel = state.currentIndex !== null
-    ? state.queue[state.currentIndex]?.chapterLabel
-    : null;
 
   // ザッピング: クリックした動画のシートを管理
   const [sheetVideo, setSheetVideo] = useState<VideoRow | null>(null);
@@ -301,12 +299,6 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
     onPlay(items);
   }, [selection, onPlay]);
 
-  const handleShuffle = useCallback(() => {
-    const items = selection.getSelectedItemsInOrder();
-    if (items.length === 0) return;
-    onShuffle(items);
-  }, [selection, onShuffle]);
-
   // isolate: スクロール時の表示崩れ対策として追加。実機では再現しないことが判明したが、
   // stacking context を明示する保険として残置（副作用なし）。
   return (
@@ -317,6 +309,17 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
         <h1 className="text-xl font-black tracking-tighter uppercase">
           HELLO! VIDEO
         </h1>
+        {hasQueue && onBackToPlay && (
+          <button
+            onClick={onBackToPlay}
+            className="ml-auto flex items-center gap-1.5 px-2.5 py-1 bg-primary/10 text-primary text-[0.6rem] font-bold uppercase tracking-widest cursor-pointer hover:bg-primary/20 transition-colors"
+          >
+            <span className="material-symbols-outlined leading-none" style={{ fontSize: '14px' }}>
+              {state.isPlaying ? 'pause' : 'play_arrow'}
+            </span>
+            再生中
+          </button>
+        )}
       </header>
 
       <main className="max-w-3xl mx-auto px-4 pt-4">
@@ -442,6 +445,7 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
                   item={item}
                   selectionNumber={selection.getSelectionNumber(id)}
                   onToggle={() => selection.toggleSelection(id, item)}
+                  onPlay={() => onPlay([item])}
                   onCardClick={parentVideo ? () => setSheetVideo(parentVideo) : undefined}
                 />
               );
@@ -453,31 +457,12 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
         {!fetchError && !isSearchMode && videos.length > 0 && (
           <div className="grid grid-cols-2 gap-px bg-outline-variant/10 border-t border-outline-variant/10">
             {videos.map(v => (
-              <button
+              <ZappingCard
                 key={v.video_id}
-                onClick={() => setSheetVideo(v)}
-                className="flex flex-col bg-surface hover:bg-surface-container-low transition-colors cursor-pointer text-left"
-              >
-                <div className="relative w-full overflow-hidden bg-surface-container">
-                  <img
-                    src={v.thumbnail_url}
-                    alt={v.title}
-                    className="w-full object-cover"
-                    style={{ aspectRatio: '16/9' }}
-                    loading="lazy"
-                    decoding="async"
-                  />
-                  <span className="absolute top-1 left-1 text-[7px] font-bold uppercase text-white bg-black/70 px-1 py-0.5 leading-none">
-                    {v.video_type?.toUpperCase() || 'VIDEO'}
-                  </span>
-                </div>
-                <div className="px-2 py-2 flex-1">
-                  <p className="text-[0.6875rem] font-bold leading-snug line-clamp-2 text-on-surface">
-                    {v.title}
-                  </p>
-                  <p className="text-[0.6rem] text-outline mt-0.5 truncate">{v.channel_name}</p>
-                </div>
-              </button>
+                video={v}
+                onShortTap={() => onPlay([buildFullVideoQueueItem(v)])}
+                onLongPress={() => setSheetVideo(v)}
+              />
             ))}
           </div>
         )}
@@ -507,34 +492,10 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
         <div ref={sentinelRef} className="h-1" />
       </main>
 
-      {/* NOW PLAYING バナー（キューが存在するとき） */}
-      {hasQueue && onBackToPlay && (
-        <div className={`fixed left-0 right-0 z-40 ${selection.selectionCount > 0 ? 'bottom-14' : 'bottom-0'}`}>
-          <button
-            onClick={onBackToPlay}
-            className="w-full h-12 flex items-center gap-3 px-4 bg-black text-white transition-opacity hover:opacity-90 cursor-pointer border-t border-white/10"
-          >
-            <span className="material-symbols-outlined leading-none shrink-0" style={{ fontSize: '18px' }}>
-              {state.isPlaying ? 'pause' : 'play_arrow'}
-            </span>
-            <div className="flex-1 min-w-0 text-left">
-              <p className="text-[0.6rem] uppercase tracking-widest text-white/60">NOW PLAYING</p>
-              {nowPlayingLabel && (
-                <p className="text-[0.75rem] font-bold truncate leading-tight">{nowPlayingLabel}</p>
-              )}
-            </div>
-            <span className="material-symbols-outlined leading-none shrink-0 text-white/60" style={{ fontSize: '20px' }}>
-              expand_less
-            </span>
-          </button>
-        </div>
-      )}
-
       {/* フローティングバー */}
       <FloatingBar
         count={selection.selectionCount}
         onPlay={handlePlay}
-        onShuffle={handleShuffle}
         onClear={selection.clearSelection}
       />
 
@@ -556,5 +517,66 @@ export function PickupView({ onPlay, onShuffle, onBackToPlay }: Props) {
         />
       )}
     </div>
+  );
+}
+
+interface ZappingCardProps {
+  video: VideoRow;
+  onShortTap: () => void;
+  onLongPress: () => void;
+}
+
+function ZappingCard({ video, onShortTap, onLongPress }: ZappingCardProps) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longFiredRef = useRef(false);
+
+  const handlePointerDown = () => {
+    longFiredRef.current = false;
+    timerRef.current = setTimeout(() => {
+      longFiredRef.current = true;
+      onLongPress();
+    }, LONG_PRESS_DELAY);
+  };
+
+  const handlePointerUp = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (!longFiredRef.current) {
+      onShortTap();
+    }
+    longFiredRef.current = false;
+  };
+
+  const handlePointerCancel = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    longFiredRef.current = false;
+  };
+
+  return (
+    <button
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      className="flex flex-col bg-surface hover:bg-surface-container-low transition-colors cursor-pointer text-left"
+    >
+      <div className="relative w-full overflow-hidden bg-surface-container">
+        <img
+          src={video.thumbnail_url}
+          alt={video.title}
+          className="w-full object-cover"
+          style={{ aspectRatio: '16/9' }}
+          loading="lazy"
+          decoding="async"
+        />
+        <span className="absolute top-1 left-1 text-[7px] font-bold uppercase text-white bg-black/70 px-1 py-0.5 leading-none">
+          {video.video_type?.toUpperCase() || 'VIDEO'}
+        </span>
+      </div>
+      <div className="px-2 py-2 flex-1">
+        <p className="text-[0.6875rem] font-bold leading-snug line-clamp-2 text-on-surface">
+          {video.title}
+        </p>
+        <p className="text-[0.6rem] text-outline mt-0.5 truncate">{video.channel_name}</p>
+      </div>
+    </button>
   );
 }

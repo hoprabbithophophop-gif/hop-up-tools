@@ -6,7 +6,6 @@ import { PickupView } from '../../features/youtube/components/PickupView';
 import { PlayView } from '../../features/youtube/components/PlayView';
 import { ExpiredView } from '../../features/youtube/components/ExpiredView';
 import { getPlaylistShare, fromShareItem } from '../../features/videos/hooks/usePlaylistShare';
-import { shuffleArray } from '../../features/videos/utils/playlist-utils';
 import type { ChapterQueueItem } from '../../features/videos/types/playlist';
 
 type PageState = 'pickup' | 'play';
@@ -67,11 +66,6 @@ function ChapterPickupContent() {
     setPageState('play');
   }, [startPlaylist]);
 
-  const handleShuffle = useCallback((items: ChapterQueueItem[]) => {
-    startPlaylist(shuffleArray(items));
-    setPageState('play');
-  }, [startPlaylist]);
-
   const handleBack = useCallback(() => {
     setPageState('pickup');
   }, []);
@@ -89,7 +83,6 @@ function ChapterPickupContent() {
       <div className={pageState === 'play' ? 'hidden' : ''}>
         <PickupView
           onPlay={handlePlay}
-          onShuffle={handleShuffle}
           onBackToPlay={hasQueue ? handleBackToPlay : undefined}
         />
       </div>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import type { ChapterQueueItem } from '../../videos/types/playlist';
 import { formatSeconds } from '../../videos/utils/playlist-utils';
 
@@ -6,11 +6,15 @@ interface Props {
   item: ChapterQueueItem;
   selectionNumber: number; // 0=未選択, 1以上=選択番号
   onToggle: () => void;
-  /** 指定時: カード本体クリック = onCardClick、+ボタンクリック = onToggle に分離 */
+  /** 指定時: 短タップ = onPlay、長押し = onCardClick に分離 */
+  onPlay?: () => void;
+  /** onPlay なし時: カード本体クリック = onCardClick、+ボタン = onToggle に分離 */
   onCardClick?: () => void;
 }
 
-export function ChapterCard({ item, selectionNumber, onToggle, onCardClick }: Props) {
+const LONG_PRESS_DELAY = 400;
+
+export function ChapterCard({ item, selectionNumber, onToggle, onPlay, onCardClick }: Props) {
   const isSelected = selectionNumber > 0;
   const isFullVideo = item.isFullVideo;
 
@@ -29,14 +33,51 @@ export function ChapterCard({ item, selectionNumber, onToggle, onCardClick }: Pr
       }`
     : '全編再生';
 
-  const handleCardClick = onCardClick ?? onToggle;
+  // long press ロジック（onPlay がある場合のみ）
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longFiredRef = useRef(false);
+
+  const handlePointerDown = onPlay
+    ? () => {
+        longFiredRef.current = false;
+        timerRef.current = setTimeout(() => {
+          longFiredRef.current = true;
+          // 長押し → シート表示（従来の onCardClick 動作）
+          (onCardClick ?? onToggle)();
+        }, LONG_PRESS_DELAY);
+      }
+    : undefined;
+
+  const handlePointerUp = onPlay
+    ? () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        if (!longFiredRef.current) {
+          // 短タップ → 即再生
+          onPlay();
+        }
+        longFiredRef.current = false;
+      }
+    : undefined;
+
+  const handlePointerCancel = onPlay
+    ? () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        longFiredRef.current = false;
+      }
+    : undefined;
+
+  // onPlay なし時の従来クリック
+  const handleCardClick = onPlay ? undefined : (onCardClick ?? onToggle);
 
   return (
     <div
       onClick={handleCardClick}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
       role="button"
       tabIndex={0}
-      onKeyDown={e => e.key === 'Enter' && handleCardClick()}
+      onKeyDown={e => e.key === 'Enter' && (onPlay ?? onCardClick ?? onToggle)()}
       className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
         isSelected ? 'bg-black/5' : 'hover:bg-surface-container-low'
       }`}
@@ -89,6 +130,9 @@ export function ChapterCard({ item, selectionNumber, onToggle, onCardClick }: Pr
       <div
         className="shrink-0 w-11 h-11 flex items-center justify-center"
         onClick={onCardClick ? e => { e.stopPropagation(); onToggle(); } : undefined}
+        onPointerDown={e => e.stopPropagation()}
+        onPointerUp={e => { e.stopPropagation(); onToggle(); }}
+        onPointerCancel={e => e.stopPropagation()}
       >
         {isSelected ? (
           <span className="w-6 h-6 bg-black text-white flex items-center justify-center text-[0.625rem] font-bold leading-none">
