@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ChapterPlaylistProvider } from '../../features/videos/context/ChapterPlaylistContext';
 import { useChapterPlaylistContext } from '../../features/videos/context/ChapterPlaylistContext';
@@ -34,6 +34,9 @@ function ChapterPickupContent() {
   const hasQueue = state.queue.length > 0;
   const currentItem = state.currentIndex !== null ? state.queue[state.currentIndex] ?? null : null;
 
+  // 一覧 → 再生遷移時のスクロール位置を保存し、戻ったときに復元する
+  const pickupScrollRef = useRef(0);
+
   // FloatingBar（h-14）が表示中はミニプレーヤーを1段上げる
   const miniBottom = selection.selectionCount > 0 ? 'bottom-14' : 'bottom-0';
 
@@ -67,6 +70,7 @@ function ChapterPickupContent() {
   }, [playlistId]);
 
   const handlePlay = useCallback((items: ChapterQueueItem[]) => {
+    pickupScrollRef.current = window.scrollY;
     startPlaylist(items);
     setPageState('play');
   }, [startPlaylist]);
@@ -74,6 +78,14 @@ function ChapterPickupContent() {
   const handleBack = useCallback(() => {
     setPageState('pickup');
   }, []);
+
+  // pickup に戻ったらスクロール位置を復元（2フレーム待って PickupView が表示されてから）
+  useEffect(() => {
+    if (pageState === 'pickup') {
+      const y = pickupScrollRef.current;
+      requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
+    }
+  }, [pageState]);
 
   if (restoreStatus === 'loading') return <LoadingScreen />;
   if (restoreStatus === 'expired') return <ExpiredView />;

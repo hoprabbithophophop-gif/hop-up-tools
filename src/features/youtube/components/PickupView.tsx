@@ -7,6 +7,7 @@ import { FilterPanel } from './FilterPanel';
 import { FloatingBar } from './FloatingBar';
 import { VideoChapterSheet } from './VideoChapterSheet';
 import { makeChapterId, makeVideoId, buildFullVideoQueueItem } from '../../videos/utils/playlist-utils';
+import { readPlayHistory, historyItemToQueueItem, type PlayHistoryItem } from '../../videos/hooks/usePlayHistory';
 import type { ChapterQueueItem } from '../../videos/types/playlist';
 import type { FilterState } from './FilterPanel';
 
@@ -94,6 +95,15 @@ export function PickupView({ onPlay }: Props) {
   // ザッピング: クリックした動画のシートを管理
   const [sheetVideo, setSheetVideo] = useState<VideoRow | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+
+  // --- 再生履歴（localStorage） ---
+  const [playHistory, setPlayHistory] = useState<PlayHistoryItem[]>(() => readPlayHistory());
+
+  useEffect(() => {
+    const handler = () => setPlayHistory(readPlayHistory());
+    window.addEventListener('play-history-updated', handler);
+    return () => window.removeEventListener('play-history-updated', handler);
+  }, []);
 
   // --- PICK（ランダム動画） ---
   const [pickVideo, setPickVideo] = useState<VideoRow | null>(null);
@@ -380,6 +390,36 @@ export function PickupView({ onPlay }: Props) {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* 再生履歴（検索中は非表示） */}
+        {playHistory.length > 0 && !isSearchMode && (
+          <div className="mb-6">
+            <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">Recent</span>
+            <div className="flex gap-2 mt-2">
+              {playHistory.map(h => (
+                <button
+                  key={`${h.videoId}-${h.startSeconds}`}
+                  onClick={() => handleShortTap([historyItemToQueueItem(h)])}
+                  className="flex-1 min-w-0 text-left cursor-pointer group"
+                >
+                  <div className="aspect-video bg-surface-container overflow-hidden mb-1">
+                    <img
+                      src={h.thumbnailUrl}
+                      alt={h.chapterLabel}
+                      className="w-full h-full object-cover group-hover:opacity-80 transition-opacity"
+                    />
+                  </div>
+                  <p className="text-[0.6rem] text-on-surface font-medium truncate leading-tight">
+                    {h.chapterLabel}
+                  </p>
+                  <p className="text-[0.55rem] text-outline truncate">
+                    {h.channelName}
+                  </p>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

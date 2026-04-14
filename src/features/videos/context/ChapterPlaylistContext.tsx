@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useCallback, useMe
 import { useChapterPlaylist, type UseChapterPlaylistReturn } from '../hooks/useChapterPlaylist';
 import { useYouTubePlayer } from '../hooks/useYouTubePlayer';
 import { useChapterSelection, type UseChapterSelectionReturn } from '../hooks/useChapterSelection';
+import { saveToPlayHistory } from '../hooks/usePlayHistory';
 import type { ChapterQueueItem } from '../types/playlist';
 import { shuffleArray, type SearchResultItem } from '../utils/playlist-utils';
 
@@ -87,6 +88,7 @@ export function ChapterPlaylistProvider({
       const item = queue[currentIndex];
       if (item) {
         playChapter(item.videoId, item.startSeconds, item.endSeconds);
+        saveToPlayHistory(item);
       }
     }
   }, [state, isReady, playChapter]);
