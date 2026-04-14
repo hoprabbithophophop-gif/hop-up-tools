@@ -358,37 +358,47 @@ export function PickupView({ onPlay }: Props) {
 
         {/* PICK（ランダム3枚・検索中は非表示） */}
         {pickVideos.length > 0 && !isSearchMode && (
-          <div className="mb-4">
-            <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline block mb-2">Pick</span>
-            <div className="flex gap-2">
-              {pickVideos.map(v => (
-                <PickThumbCard
-                  key={v.video_id}
-                  thumbnail={v.thumbnail_url}
-                  label={v.title}
-                  sub={v.channel_name}
-                  onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
-                  onLongPress={() => setSheetVideo(v)}
-                />
-              ))}
+          <div className="flex items-start gap-2 mb-4">
+            <span className="shrink-0 text-[0.6875rem] font-bold uppercase tracking-widest text-outline mt-1">Pick</span>
+            <div className="grid grid-cols-3 gap-2 flex-1 min-w-0">
+              {Array.from({ length: 3 }, (_, i) => {
+                const v = pickVideos[i];
+                return v ? (
+                  <PickThumbCard
+                    key={v.video_id}
+                    thumbnail={v.thumbnail_url}
+                    label={v.title}
+                    sub={v.channel_name}
+                    onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
+                    onLongPress={() => setSheetVideo(v)}
+                  />
+                ) : (
+                  <PickThumbPlaceholder key={i} />
+                );
+              })}
             </div>
           </div>
         )}
 
         {/* RECENT（履歴3枚・検索中は非表示） */}
         {playHistory.length > 0 && !isSearchMode && (
-          <div className="mb-4">
-            <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline block mb-2">Recent</span>
-            <div className="flex gap-2">
-              {playHistory.map(h => (
-                <PickThumbCard
-                  key={`${h.videoId}-${h.startSeconds}`}
-                  thumbnail={h.thumbnailUrl}
-                  label={h.chapterLabel}
-                  sub={h.channelName}
-                  onShortTap={() => handleShortTap([historyItemToQueueItem(h)])}
-                />
-              ))}
+          <div className="flex items-start gap-2 mb-4">
+            <span className="shrink-0 text-[0.6875rem] font-bold uppercase tracking-widest text-outline mt-1">Recent</span>
+            <div className="grid grid-cols-3 gap-2 flex-1 min-w-0">
+              {Array.from({ length: 3 }, (_, i) => {
+                const h = playHistory[i];
+                return h ? (
+                  <PickThumbCard
+                    key={`${h.videoId}-${h.startSeconds}`}
+                    thumbnail={h.thumbnailUrl}
+                    label={h.chapterLabel}
+                    sub={h.channelName}
+                    onShortTap={() => handleShortTap([historyItemToQueueItem(h)])}
+                  />
+                ) : (
+                  <PickThumbPlaceholder key={i} />
+                );
+              })}
             </div>
           </div>
         )}
@@ -613,7 +623,7 @@ function PickThumbCard({ thumbnail, label, sub, onShortTap, onLongPress }: PickT
 
   return (
     <button
-      className="flex-1 min-w-0 text-left cursor-pointer group"
+      className="w-full min-w-0 text-left cursor-pointer group"
       onPointerDown={onLongPress ? onPointerDown : undefined}
       onPointerUp={onLongPress ? onPointerUp : undefined}
       onPointerCancel={onLongPress ? onPointerCancel : undefined}
@@ -629,6 +639,16 @@ function PickThumbCard({ thumbnail, label, sub, onShortTap, onLongPress }: PickT
       <p className="text-[0.6rem] font-medium truncate leading-tight">{label}</p>
       <p className="text-[0.55rem] text-outline truncate">{sub}</p>
     </button>
+  );
+}
+
+function PickThumbPlaceholder() {
+  return (
+    <div>
+      <div className="aspect-video border border-dashed border-outline-variant/25 bg-surface-container/20" />
+      <p className="text-[0.6rem] leading-tight mt-1 invisible">-</p>
+      <p className="text-[0.55rem] invisible">-</p>
+    </div>
   );
 }
 
