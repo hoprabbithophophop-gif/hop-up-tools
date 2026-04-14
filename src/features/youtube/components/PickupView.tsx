@@ -89,7 +89,7 @@ interface Props {
 }
 
 export function PickupView({ onPlay, onBackToPlay }: Props) {
-  const { selection, state } = useChapterPlaylistContext();
+  const { selection, state, playChapter } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
   const nowPlayingLabel = state.currentIndex !== null
     ? state.queue[state.currentIndex]?.chapterLabel
@@ -303,6 +303,16 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
     onPlay(items);
   }, [selection, onPlay]);
 
+  // 短タップ再生: ユーザージェスチャーの中で playChapter を直接呼ぶことで
+  // モバイルの autoplay ポリシー（初回再生ブロック）を回避する
+  const handleShortTap = useCallback((items: ChapterQueueItem[]) => {
+    const first = items[0];
+    if (first) {
+      playChapter(first.videoId, first.startSeconds, first.endSeconds);
+    }
+    onPlay(items);
+  }, [playChapter, onPlay]);
+
   // isolate: スクロール時の表示崩れ対策として追加。実機では再現しないことが判明したが、
   // stacking context を明示する保険として残置（副作用なし）。
   return (
@@ -357,7 +367,7 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
             <PickCard
               key={pickVideo.video_id}
               video={pickVideo}
-              onShortTap={() => onPlay([buildFullVideoQueueItem(pickVideo)])}
+              onShortTap={() => handleShortTap([buildFullVideoQueueItem(pickVideo)])}
               onLongPress={() => setSheetVideo(pickVideo)}
             />
             {pickHistory.length > 0 && (
@@ -426,7 +436,7 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
                   item={item}
                   selectionNumber={selection.getSelectionNumber(id)}
                   onToggle={() => selection.toggleSelection(id, item)}
-                  onPlay={() => onPlay([item])}
+                  onPlay={() => handleShortTap([item])}
                   onCardClick={parentVideo ? () => setSheetVideo(parentVideo) : undefined}
                 />
               );
@@ -441,7 +451,7 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
               <ZappingCard
                 key={v.video_id}
                 video={v}
-                onShortTap={() => onPlay([buildFullVideoQueueItem(v)])}
+                onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
                 onLongPress={() => setSheetVideo(v)}
               />
             ))}

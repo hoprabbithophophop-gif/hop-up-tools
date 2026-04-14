@@ -10,6 +10,8 @@ interface ChapterPlaylistContextValue extends UseChapterPlaylistReturn {
   pause: () => void;
   resume: () => void;
   getCurrentTime: () => number;
+  /** タップハンドラー内から直接呼ぶことでモバイルautoplay制限を回避する */
+  playChapter: (videoId: string, startSeconds: number, endSeconds: number) => void;
   selection: UseChapterSelectionReturn;
   /** 選択した順番でキューを構築して再生開始 */
   startInSelectionOrder: () => void;
@@ -41,8 +43,9 @@ export function ChapterPlaylistProvider({
   const { isReady, playChapter, pause, resume, getCurrentTime } = useYouTubePlayer({
     onChapterEnd: handleChapterEnd,
     onError: handleError,
-    // キューにアイテムが入ったタイミングで #chapter-player div が DOM に存在する
-    enabled: state.queue.length > 0,
+    // 常時初期化: ページ読み込み時にプレイヤーを準備しておくことで、
+    // 初回タップ時のユーザージェスチャー内から直接 playChapter を呼べるようにする
+    enabled: true,
   });
 
   // 共有URLから復元されたキューを初期ロード
@@ -124,10 +127,11 @@ export function ChapterPlaylistProvider({
     pause: handlePause,
     resume: handleResume,
     getCurrentTime,
+    playChapter,
     selection,
     startInSelectionOrder,
     startShuffled,
-  }), [playlist, handleClearQueue, isReady, handlePause, handleResume, getCurrentTime, selection, startInSelectionOrder, startShuffled]);
+  }), [playlist, handleClearQueue, isReady, handlePause, handleResume, getCurrentTime, playChapter, selection, startInSelectionOrder, startShuffled]);
 
   return (
     <ChapterPlaylistContext.Provider value={contextValue}>
