@@ -3,7 +3,6 @@ import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistC
 import { formatSeconds } from '../../videos/utils/playlist-utils';
 import { getSupabase } from '../../../lib/supabase';
 import { VideoChapterSheet } from './VideoChapterSheet';
-import { Player } from './Player';
 import { PlayControls } from './PlayControls';
 import { TrimPanel } from './TrimPanel';
 import { QueueList } from './QueueList';
@@ -112,8 +111,8 @@ export function PlayView({ onBack }: Props) {
           </div>
         )}
 
-        {/* YouTube プレイヤー */}
-        <Player />
+        {/* YouTube プレイヤー: 実体は YouTubePage レベルで fixed 配置 */}
+        <div className="w-full aspect-video bg-black shrink-0" />
 
         {/* 再生中情報 */}
         {current ? (

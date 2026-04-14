@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-// 底部バーのクリップ領域（NOW PLAYINGバナー h-12=48px、FloatingBar h-14=56px を含む高さ60px）
-const BOTTOM = { x: 0, y: 784, width: 390, height: 60 };
+// 底部バーのクリップ領域（ミニプレーヤー h-[72px]、FloatingBar h-14=56px を含む高さ80px）
+const BOTTOM = { x: 0, y: 764, width: 390, height: 80 };
 // ヘッダーのクリップ領域（sticky header）
 const HEADER = { x: 0, y: 0, width: 390, height: 60 };
 
@@ -33,16 +33,16 @@ test.describe('HELLO! VIDEO — ビジュアルリグレッション', () => {
 
     // 明示的アサート: 意図しない要素が存在しない
     // ※ h1-bottom.png は動的カードコンテンツが含まれ不安定なため省略（toBeAttached で代替）
-    await expect(page.getByTestId('now-playing-banner')).not.toBeAttached();
+    await expect(page.getByTestId('mini-player')).not.toBeAttached();
     await expect(page.getByTestId('floating-bar')).not.toBeAttached();
   });
 
   // ---------------------------------------------------------------
   // H2: 再生 → 一覧に戻る
-  //   ・NOW PLAYINGバナーが底部に1本だけ表示される
-  //   ・ヘッダーに「再生中」チップ等が増えていない
+  //   ・ミニプレーヤーが底部に表示される
+  //   ・ヘッダーに余計な要素が増えていない
   // ---------------------------------------------------------------
-  test('H2: 再生後に一覧に戻る — NOW PLAYINGバナー1本のみ', async ({ page }) => {
+  test('H2: 再生後に一覧に戻る — ミニプレーヤー表示', async ({ page }) => {
     // ザッピンググリッドの最初の動画をタップ（短タップ = 即再生）
     // data-testid がある新コード / CSS fallback で旧コードにも対応
     const zappingCard = page.getByTestId('zapping-card')
@@ -64,7 +64,7 @@ test.describe('HELLO! VIDEO — ビジュアルリグレッション', () => {
     await expect(page).toHaveScreenshot('h2-bottom.png', { clip: BOTTOM });
 
     // 明示的アサート
-    await expect(page.getByTestId('now-playing-banner')).toBeVisible();
+    await expect(page.getByTestId('mini-player')).toBeVisible();
     await expect(page.getByTestId('floating-bar')).not.toBeAttached();
   });
 
@@ -96,7 +96,7 @@ test.describe('HELLO! VIDEO — ビジュアルリグレッション', () => {
 
   // ---------------------------------------------------------------
   // H4: 再生中に選択 → 2本バーが重ならない
-  //   ・NOW PLAYINGバナーが bottom-14 に上がる
+  //   ・ミニプレーヤーが bottom-14 に上がる
   //   ・FloatingBar が bottom-0 にある
   //   ・2本が視覚的に重なっていない
   // ---------------------------------------------------------------
@@ -119,12 +119,12 @@ test.describe('HELLO! VIDEO — ビジュアルリグレッション', () => {
     await page.waitForTimeout(300);
 
     // 底部スクリーンショット（2本バー、重なりなし）
-    // BOTTOM より上まで広く撮る（バナーが bottom-14 = 56px上にいるため）
-    const BOTTOM_WIDE = { x: 0, y: 728, width: 390, height: 116 };
+    // ミニプレーヤー 72px + FloatingBar 56px = 128px をカバー
+    const BOTTOM_WIDE = { x: 0, y: 716, width: 390, height: 128 };
     await expect(page).toHaveScreenshot('h4-bottom-two-bars.png', { clip: BOTTOM_WIDE });
 
     // 明示的アサート
-    await expect(page.getByTestId('now-playing-banner')).toBeVisible();
+    await expect(page.getByTestId('mini-player')).toBeVisible();
     await expect(page.getByTestId('floating-bar')).toBeVisible();
   });
 });

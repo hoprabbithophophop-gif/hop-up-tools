@@ -85,15 +85,11 @@ const LONG_PRESS_DELAY = 400;
 
 interface Props {
   onPlay: (items: ChapterQueueItem[]) => void;
-  onBackToPlay?: () => void;
 }
 
-export function PickupView({ onPlay, onBackToPlay }: Props) {
+export function PickupView({ onPlay }: Props) {
   const { selection, state, playChapter } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
-  const nowPlayingLabel = state.currentIndex !== null
-    ? state.queue[state.currentIndex]?.chapterLabel
-    : null;
 
   // ザッピング: クリックした動画のシートを管理
   const [sheetVideo, setSheetVideo] = useState<VideoRow | null>(null);
@@ -316,7 +312,7 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
   // isolate: スクロール時の表示崩れ対策として追加。実機では再現しないことが判明したが、
   // stacking context を明示する保険として残置（副作用なし）。
   return (
-    <div className="bg-surface text-on-surface min-h-screen pb-20 isolate">
+    <div className={`bg-surface text-on-surface min-h-screen ${hasQueue ? 'pb-[144px]' : 'pb-20'} isolate`}>
       {/* ヘッダー */}
       <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20 px-4 py-3 flex items-center gap-3">
         <a href="/" className="material-symbols-outlined text-primary">arrow_back</a>
@@ -483,28 +479,6 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
         <div ref={sentinelRef} className="h-1" />
       </main>
 
-      {/* NOW PLAYING バナー（キューが存在するとき・FloatingBar がある場合は1段上げる） */}
-      {hasQueue && onBackToPlay && (
-        <div data-testid="now-playing-banner" className={`fixed left-0 right-0 z-40 ${selection.selectionCount > 0 ? 'bottom-14' : 'bottom-0'}`}>
-          <button
-            onClick={onBackToPlay}
-            className="w-full h-12 flex items-center gap-3 px-4 bg-black text-white transition-opacity hover:opacity-90 cursor-pointer border-t border-white/10"
-          >
-            <span className="material-symbols-outlined leading-none shrink-0" style={{ fontSize: '18px' }}>
-              {state.isPlaying ? 'pause' : 'play_arrow'}
-            </span>
-            <div className="flex-1 min-w-0 text-left">
-              <p className="text-[0.6rem] uppercase tracking-widest text-white/60">NOW PLAYING</p>
-              {nowPlayingLabel && (
-                <p className="text-[0.75rem] font-bold truncate leading-tight">{nowPlayingLabel}</p>
-              )}
-            </div>
-            <span className="material-symbols-outlined leading-none shrink-0 text-white/60" style={{ fontSize: '20px' }}>
-              expand_less
-            </span>
-          </button>
-        </div>
-      )}
 
       {/* フローティングバー */}
       <FloatingBar

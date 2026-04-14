@@ -5,7 +5,7 @@ export function Player() {
   const { playerReady } = useChapterPlaylistContext();
 
   return (
-    <div className="w-full aspect-video bg-black relative">
+    <div className="relative w-full h-full bg-black">
       <div id="chapter-player" className="w-full h-full" />
       {!playerReady && (
         <div className="absolute inset-0 flex items-center justify-center bg-black pointer-events-none">
