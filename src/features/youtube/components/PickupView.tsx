@@ -361,7 +361,7 @@ export function PickupView({ onPlay }: Props) {
         {/* PICK（検索中は非表示） */}
         {pickVideo && !isSearchMode && (
           <div className="mb-6">
-            <div className="flex items-baseline gap-3 mb-2">
+            <div className="flex items-center gap-3 mb-2">
               <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">Pick</span>
               <button
                 onClick={() => fetchPickVideo(pickVideo)}
@@ -369,6 +369,21 @@ export function PickupView({ onPlay }: Props) {
               >
                 ↻ shuffle
               </button>
+              {/* 再生履歴チップ（最大3件、極小サムネ） */}
+              {playHistory.length > 0 && (
+                <div className="flex items-center gap-1 ml-auto">
+                  {playHistory.map(h => (
+                    <button
+                      key={`${h.videoId}-${h.startSeconds}`}
+                      onClick={() => handleShortTap([historyItemToQueueItem(h)])}
+                      title={h.chapterLabel}
+                      className="w-8 aspect-video overflow-hidden opacity-50 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
+                    >
+                      <img src={h.thumbnailUrl} alt={h.chapterLabel} className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <PickCard
               key={pickVideo.video_id}
@@ -390,36 +405,6 @@ export function PickupView({ onPlay }: Props) {
                 ))}
               </div>
             )}
-          </div>
-        )}
-
-        {/* 再生履歴（検索中は非表示） */}
-        {playHistory.length > 0 && !isSearchMode && (
-          <div className="mb-6">
-            <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">Recent</span>
-            <div className="flex gap-2 mt-2">
-              {playHistory.map(h => (
-                <button
-                  key={`${h.videoId}-${h.startSeconds}`}
-                  onClick={() => handleShortTap([historyItemToQueueItem(h)])}
-                  className="flex-1 min-w-0 text-left cursor-pointer group"
-                >
-                  <div className="aspect-video bg-surface-container overflow-hidden mb-1">
-                    <img
-                      src={h.thumbnailUrl}
-                      alt={h.chapterLabel}
-                      className="w-full h-full object-cover group-hover:opacity-80 transition-opacity"
-                    />
-                  </div>
-                  <p className="text-[0.6rem] text-on-surface font-medium truncate leading-tight">
-                    {h.chapterLabel}
-                  </p>
-                  <p className="text-[0.55rem] text-outline truncate">
-                    {h.channelName}
-                  </p>
-                </button>
-              ))}
-            </div>
           </div>
         )}
 
