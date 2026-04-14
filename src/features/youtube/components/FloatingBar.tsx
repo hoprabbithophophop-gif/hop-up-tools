@@ -10,7 +10,7 @@ export function FloatingBar({ count, onPlay, onClear }: Props) {
   if (count === 0) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 h-14 flex items-center px-4 bg-black text-white slide-up-in">
+    <div data-testid="floating-bar" className="fixed bottom-0 left-0 right-0 z-50 h-14 flex items-center px-4 bg-black text-white slide-up-in">
       {/* クリア */}
       <button
         onClick={onClear}

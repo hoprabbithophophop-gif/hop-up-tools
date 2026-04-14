@@ -486,7 +486,7 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
 
       {/* NOW PLAYING バナー（キューが存在するとき・FloatingBar がある場合は1段上げる） */}
       {hasQueue && onBackToPlay && (
-        <div className={`fixed left-0 right-0 z-40 ${selection.selectionCount > 0 ? 'bottom-14' : 'bottom-0'}`}>
+        <div data-testid="now-playing-banner" className={`fixed left-0 right-0 z-40 ${selection.selectionCount > 0 ? 'bottom-14' : 'bottom-0'}`}>
           <button
             onClick={onBackToPlay}
             className="w-full h-12 flex items-center gap-3 px-4 bg-black text-white transition-opacity hover:opacity-90 cursor-pointer border-t border-white/10"
@@ -568,6 +568,7 @@ function ZappingCard({ video, onShortTap, onLongPress }: ZappingCardProps) {
 
   return (
     <button
+      data-testid="zapping-card"
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}

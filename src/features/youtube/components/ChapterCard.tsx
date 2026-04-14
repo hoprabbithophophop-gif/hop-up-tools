@@ -128,6 +128,7 @@ export function ChapterCard({ item, selectionNumber, onToggle, onPlay, onCardCli
 
       {/* 選択ボタン（タッチターゲット最小44px） */}
       <div
+        data-testid="chapter-card-add"
         className="shrink-0 w-11 h-11 flex items-center justify-center"
         onClick={onCardClick ? e => { e.stopPropagation(); onToggle(); } : undefined}
         onPointerDown={e => e.stopPropagation()}
