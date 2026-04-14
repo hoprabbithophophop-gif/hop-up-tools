@@ -105,36 +105,34 @@ export function PickupView({ onPlay }: Props) {
     return () => window.removeEventListener('play-history-updated', handler);
   }, []);
 
-  // --- PICK（ランダム動画） ---
-  const [pickVideo, setPickVideo] = useState<VideoRow | null>(null);
-  const [pickHistory, setPickHistory] = useState<VideoRow[]>([]);
+  // --- PICK（ランダム動画 3本） ---
+  const [pickVideos, setPickVideos] = useState<VideoRow[]>([]);
 
-  const fetchPickVideo = useCallback(async (current: VideoRow | null) => {
+  const fetchPickVideos = useCallback(async () => {
     const supabase = getSupabase();
     const { count } = await supabase
       .from('youtube_videos')
       .select('*', { count: 'exact', head: true })
       .eq('is_active_content', true);
     if (!count) return;
-    const randomOffset = Math.floor(Math.random() * count);
-    const { data } = await supabase
-      .from('youtube_videos')
-      .select('video_id,title,channel_name,published_at,thumbnail_url,video_type,group_tags,description_short')
-      .eq('is_active_content', true)
-      .range(randomOffset, randomOffset);
-    if (data && data.length > 0) {
-      if (current) {
-        setPickHistory(prev =>
-          prev.some(v => v.video_id === current.video_id)
-            ? prev
-            : [current, ...prev].slice(0, 3)
-        );
-      }
-      setPickVideo(data[0] as VideoRow);
+    // 重複しない3つのランダムオフセットを生成
+    const offsets = new Set<number>();
+    while (offsets.size < Math.min(3, count)) {
+      offsets.add(Math.floor(Math.random() * count));
     }
+    const results: VideoRow[] = [];
+    for (const offset of offsets) {
+      const { data } = await supabase
+        .from('youtube_videos')
+        .select('video_id,title,channel_name,published_at,thumbnail_url,video_type,group_tags,description_short')
+        .eq('is_active_content', true)
+        .range(offset, offset);
+      if (data?.[0]) results.push(data[0] as VideoRow);
+    }
+    setPickVideos(results);
   }, []);
 
-  useEffect(() => { fetchPickVideo(null); }, [fetchPickVideo]);
+  useEffect(() => { fetchPickVideos(); }, [fetchPickVideos]);
 
   // --- フィルター状態 ---
   const [filter, setFilter] = useState<FilterState>({
@@ -358,53 +356,40 @@ export function PickupView({ onPlay }: Props) {
           />
         </div>
 
-        {/* PICK（検索中は非表示） */}
-        {pickVideo && !isSearchMode && (
-          <div className="mb-6">
-            <div className="flex items-center gap-3 mb-2">
-              <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">Pick</span>
-              <button
-                onClick={() => fetchPickVideo(pickVideo)}
-                className="text-[0.6875rem] uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer"
-              >
-                ↻ shuffle
-              </button>
-              {/* 再生履歴チップ（最大3件、極小サムネ） */}
-              {playHistory.length > 0 && (
-                <div className="flex items-center gap-1 ml-auto">
-                  {playHistory.map(h => (
-                    <button
-                      key={`${h.videoId}-${h.startSeconds}`}
-                      onClick={() => handleShortTap([historyItemToQueueItem(h)])}
-                      title={h.chapterLabel}
-                      className="w-10 aspect-video overflow-hidden opacity-60 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
-                    >
-                      <img src={h.thumbnailUrl} alt={h.chapterLabel} className="w-full h-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-              )}
+        {/* PICK（ランダム3枚・検索中は非表示） */}
+        {pickVideos.length > 0 && !isSearchMode && (
+          <div className="mb-4">
+            <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline block mb-2">Pick</span>
+            <div className="flex gap-2">
+              {pickVideos.map(v => (
+                <PickThumbCard
+                  key={v.video_id}
+                  thumbnail={v.thumbnail_url}
+                  label={v.title}
+                  sub={v.channel_name}
+                  onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
+                  onLongPress={() => setSheetVideo(v)}
+                />
+              ))}
             </div>
-            <PickCard
-              key={pickVideo.video_id}
-              video={pickVideo}
-              onShortTap={() => handleShortTap([buildFullVideoQueueItem(pickVideo)])}
-              onLongPress={() => setSheetVideo(pickVideo)}
-            />
-            {pickHistory.length > 0 && (
-              <div className="flex gap-2 mt-2">
-                {pickHistory.map(v => (
-                  <button
-                    key={v.video_id}
-                    onClick={() => setSheetVideo(v)}
-                    title={v.title}
-                    className="w-24 sm:w-32 aspect-video overflow-hidden bg-surface-container opacity-50 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
-                  >
-                    <img src={v.thumbnail_url} alt={v.title} className="w-full h-full object-cover" />
-                  </button>
-                ))}
-              </div>
-            )}
+          </div>
+        )}
+
+        {/* RECENT（履歴3枚・検索中は非表示） */}
+        {playHistory.length > 0 && !isSearchMode && (
+          <div className="mb-4">
+            <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline block mb-2">Recent</span>
+            <div className="flex gap-2">
+              {playHistory.map(h => (
+                <PickThumbCard
+                  key={`${h.videoId}-${h.startSeconds}`}
+                  thumbnail={h.thumbnailUrl}
+                  label={h.chapterLabel}
+                  sub={h.channelName}
+                  onShortTap={() => handleShortTap([historyItemToQueueItem(h)])}
+                />
+              ))}
+            </div>
           </div>
         )}
 
@@ -592,6 +577,58 @@ export function PickupView({ onPlay }: Props) {
         />
       )}
     </div>
+  );
+}
+
+// ─── PickThumbCard（PICK / RECENT 共通サムネカード） ─────────────────────────
+
+interface PickThumbCardProps {
+  thumbnail: string;
+  label: string;
+  sub: string;
+  onShortTap: () => void;
+  onLongPress?: () => void;
+}
+
+function PickThumbCard({ thumbnail, label, sub, onShortTap, onLongPress }: PickThumbCardProps) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firedRef = useRef(false);
+
+  const onPointerDown = () => {
+    firedRef.current = false;
+    timerRef.current = setTimeout(() => {
+      firedRef.current = true;
+      onLongPress?.();
+    }, LONG_PRESS_DELAY);
+  };
+  const onPointerUp = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (!firedRef.current) onShortTap();
+    firedRef.current = false;
+  };
+  const onPointerCancel = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    firedRef.current = false;
+  };
+
+  return (
+    <button
+      className="flex-1 min-w-0 text-left cursor-pointer group"
+      onPointerDown={onLongPress ? onPointerDown : undefined}
+      onPointerUp={onLongPress ? onPointerUp : undefined}
+      onPointerCancel={onLongPress ? onPointerCancel : undefined}
+      onClick={onLongPress ? undefined : onShortTap}
+    >
+      <div className="aspect-video overflow-hidden mb-1 bg-surface-container">
+        <img
+          src={thumbnail}
+          alt={label}
+          className="w-full h-full object-cover group-hover:opacity-80 transition-opacity"
+        />
+      </div>
+      <p className="text-[0.6rem] font-medium truncate leading-tight">{label}</p>
+      <p className="text-[0.55rem] text-outline truncate">{sub}</p>
+    </button>
   );
 }
 
