@@ -58,22 +58,29 @@ export function ChapterPlaylistProvider({
   const prevIndexRef = useRef<number | null>(null);
   const prevQueueLengthRef = useRef<number>(0);
   const prevIsReadyRef = useRef<boolean>(false);
+  const prevVideoIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const { currentIndex, queue, isPlaying } = state;
+
+    const currentItem = currentIndex !== null ? queue[currentIndex] ?? null : null;
+    const currentVideoId = currentItem?.videoId ?? null;
 
     const indexChanged = currentIndex !== prevIndexRef.current;
     const wasEmpty = prevQueueLengthRef.current === 0 && queue.length > 0;
     // isReady が false→true に変わった瞬間（プレイヤー初期化完了）
     const justBecameReady = isReady && !prevIsReadyRef.current;
+    // START_PLAYLIST で同じ index(0→0) のまま別動画に差し替えられたケース
+    const videoIdChanged = currentVideoId !== prevVideoIdRef.current;
 
     prevIndexRef.current = currentIndex;
     prevQueueLengthRef.current = queue.length;
     prevIsReadyRef.current = isReady;
+    prevVideoIdRef.current = currentVideoId;
 
     if (!isReady) return;
 
-    if (currentIndex !== null && (indexChanged || wasEmpty || justBecameReady) && isPlaying) {
+    if (currentIndex !== null && (indexChanged || wasEmpty || justBecameReady || videoIdChanged) && isPlaying) {
       const item = queue[currentIndex];
       if (item) {
         playChapter(item.videoId, item.startSeconds, item.endSeconds);

@@ -88,7 +88,7 @@ function ChapterPickupContent() {
       </div>
 
       {/* PlayView: 常時 DOM 保持（IFrame維持のため）、pickup state のとき CSS hidden */}
-      <div className={pageState === 'pickup' ? 'hidden' : ''}>
+      <div data-testid="play-view" className={pageState === 'pickup' ? 'hidden' : ''}>
         <PlayView onBack={handleBack} />
       </div>
     </>

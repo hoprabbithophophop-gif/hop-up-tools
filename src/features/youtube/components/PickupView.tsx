@@ -97,6 +97,7 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
 
   // ザッピング: クリックした動画のシートを管理
   const [sheetVideo, setSheetVideo] = useState<VideoRow | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // --- PICK（ランダム動画） ---
   const [pickVideo, setPickVideo] = useState<VideoRow | null>(null);
@@ -309,9 +310,16 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
       {/* ヘッダー */}
       <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20 px-4 py-3 flex items-center gap-3">
         <a href="/" className="material-symbols-outlined text-primary">arrow_back</a>
-        <h1 className="text-xl font-black tracking-tighter uppercase">
+        <h1 className="text-xl font-black tracking-tighter uppercase flex-1">
           HELLO! VIDEO
         </h1>
+        <button
+          onClick={() => setHelpOpen(true)}
+          className="w-8 h-8 flex items-center justify-center text-outline hover:text-primary transition-colors cursor-pointer"
+          aria-label="使い方"
+        >
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>help_outline</span>
+        </button>
       </header>
 
       <main className="max-w-3xl mx-auto px-4 pt-4">
@@ -346,31 +354,12 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
                 ↻ shuffle
               </button>
             </div>
-            <button
+            <PickCard
               key={pickVideo.video_id}
-              onClick={() => setSheetVideo(pickVideo)}
-              className="pick-float-in w-full flex gap-3 bg-surface-container-low hover:bg-surface-container transition-colors group text-left cursor-pointer p-3"
-            >
-              <div className="w-36 sm:w-48 shrink-0 aspect-video overflow-hidden bg-surface-container">
-                <img
-                  src={pickVideo.thumbnail_url}
-                  alt={pickVideo.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                />
-              </div>
-              <div className="flex flex-col justify-center gap-1 min-w-0">
-                <p className="text-sm font-bold leading-snug group-hover:text-primary transition-colors line-clamp-2">
-                  {pickVideo.title}
-                </p>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.65rem] text-outline">
-                  <span>{pickVideo.channel_name}</span>
-                  <span className={`font-bold uppercase ${TYPE_COLOR[pickVideo.video_type] ?? 'text-outline'}`}>
-                    {pickVideo.video_type}
-                  </span>
-                  <span>{formatDate(pickVideo.published_at)}</span>
-                </div>
-              </div>
-            </button>
+              video={pickVideo}
+              onShortTap={() => onPlay([buildFullVideoQueueItem(pickVideo)])}
+              onLongPress={() => setSheetVideo(pickVideo)}
+            />
             {pickHistory.length > 0 && (
               <div className="flex gap-2 mt-2">
                 {pickHistory.map(v => (
@@ -514,6 +503,68 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
         onClear={selection.clearSelection}
       />
 
+      {/* ヘルプモーダル */}
+      {helpOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          onClick={() => setHelpOpen(false)}
+        >
+          <div
+            className="bg-surface-container-lowest w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-sm shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant/20">
+              <h2 className="text-sm font-bold uppercase tracking-widest">使い方</h2>
+              <button
+                onClick={() => setHelpOpen(false)}
+                className="text-outline hover:text-primary transition-colors cursor-pointer"
+                aria-label="閉じる"
+              >
+                <span className="material-symbols-outlined text-xl">close</span>
+              </button>
+            </div>
+
+            <div className="px-6 py-6 flex flex-col gap-6 text-[0.8125rem] text-on-surface-variant">
+              {/* ザッピンググリッド */}
+              <section>
+                <p className="text-[0.6rem] font-bold uppercase tracking-widest text-outline mb-3">動画一覧（グリッド）</p>
+                <ul className="flex flex-col gap-2">
+                  <li className="flex items-start gap-3">
+                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 mt-0.5 leading-snug">短タップ</span>
+                    <span>全編再生をすぐスタート</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-outline bg-surface-container px-1.5 py-0.5 mt-0.5 leading-snug">長押し</span>
+                    <span>チャプター選択シートを開く</span>
+                  </li>
+                </ul>
+              </section>
+
+              <div className="border-t border-outline-variant/20" />
+
+              {/* 検索モード */}
+              <section>
+                <p className="text-[0.6rem] font-bold uppercase tracking-widest text-outline mb-3">検索結果（チャプター一覧）</p>
+                <ul className="flex flex-col gap-2">
+                  <li className="flex items-start gap-3">
+                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 mt-0.5 leading-snug">短タップ</span>
+                    <span>そのチャプターをすぐ再生</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-outline bg-surface-container px-1.5 py-0.5 mt-0.5 leading-snug">長押し</span>
+                    <span>親動画のチャプターシートを開く</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-outline bg-surface-container px-1.5 py-0.5 mt-0.5 leading-snug">＋ ボタン</span>
+                    <span>キューに追加してまとめて再生</span>
+                  </li>
+                </ul>
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ザッピングシート（動画チャプター一覧） */}
       {sheetVideo && (
         <VideoChapterSheet
@@ -534,6 +585,68 @@ export function PickupView({ onPlay, onBackToPlay }: Props) {
     </div>
   );
 }
+
+// ─── Pick カード（横並びレイアウト、短タップ=即再生 / 長押し=シート） ──────────
+
+interface PickCardProps {
+  video: VideoRow;
+  onShortTap: () => void;
+  onLongPress: () => void;
+}
+
+function PickCard({ video, onShortTap, onLongPress }: PickCardProps) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longFiredRef = useRef(false);
+
+  const handlePointerDown = () => {
+    longFiredRef.current = false;
+    timerRef.current = setTimeout(() => {
+      longFiredRef.current = true;
+      onLongPress();
+    }, LONG_PRESS_DELAY);
+  };
+
+  const handlePointerUp = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (!longFiredRef.current) onShortTap();
+    longFiredRef.current = false;
+  };
+
+  const handlePointerCancel = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    longFiredRef.current = false;
+  };
+
+  return (
+    <button
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      className="pick-float-in w-full flex gap-3 bg-surface-container-low hover:bg-surface-container transition-colors group text-left cursor-pointer p-3"
+    >
+      <div className="w-36 sm:w-48 shrink-0 aspect-video overflow-hidden bg-surface-container">
+        <img
+          src={video.thumbnail_url}
+          alt={video.title}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+        />
+      </div>
+      <div className="flex flex-col justify-center gap-1 min-w-0">
+        <p className="text-sm font-bold leading-snug group-hover:text-primary transition-colors line-clamp-2">
+          {video.title}
+        </p>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.65rem] text-outline">
+          <span>{video.channel_name}</span>
+          <span className={`font-bold uppercase ${TYPE_COLOR[video.video_type] ?? 'text-outline'}`}>
+            {video.video_type}
+          </span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// ─── Zapping カード（2カラムグリッド用、短タップ=即再生 / 長押し=シート） ──────
 
 interface ZappingCardProps {
   video: VideoRow;
