@@ -377,7 +377,7 @@ export function PickupView({ onPlay }: Props) {
                       key={`${h.videoId}-${h.startSeconds}`}
                       onClick={() => handleShortTap([historyItemToQueueItem(h)])}
                       title={h.chapterLabel}
-                      className="w-8 aspect-video overflow-hidden opacity-50 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
+                      className="w-10 aspect-video overflow-hidden opacity-60 hover:opacity-100 transition-opacity cursor-pointer shrink-0"
                     >
                       <img src={h.thumbnailUrl} alt={h.chapterLabel} className="w-full h-full object-cover" />
                     </button>
