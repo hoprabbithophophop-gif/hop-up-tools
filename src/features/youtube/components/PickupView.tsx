@@ -603,28 +603,48 @@ interface PickThumbCardProps {
 function PickThumbCard({ thumbnail, label, sub, onShortTap, onLongPress }: PickThumbCardProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firedRef = useRef(false);
+  const movedRef = useRef(false);
+  const startXRef = useRef(0);
+  const startYRef = useRef(0);
 
-  const onPointerDown = () => {
+  const onPointerDown = (e: React.PointerEvent) => {
     firedRef.current = false;
+    movedRef.current = false;
+    startXRef.current = e.clientX;
+    startYRef.current = e.clientY;
     timerRef.current = setTimeout(() => {
-      firedRef.current = true;
-      onLongPress?.();
+      if (!movedRef.current) {
+        firedRef.current = true;
+        onLongPress?.();
+      }
     }, LONG_PRESS_DELAY);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (movedRef.current) return;
+    const dx = Math.abs(e.clientX - startXRef.current);
+    const dy = Math.abs(e.clientY - startYRef.current);
+    if (dx > 8 || dy > 8) {
+      movedRef.current = true;
+      if (timerRef.current) clearTimeout(timerRef.current);
+    }
   };
   const onPointerUp = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (!firedRef.current) onShortTap();
+    if (!firedRef.current && !movedRef.current) onShortTap();
     firedRef.current = false;
+    movedRef.current = false;
   };
   const onPointerCancel = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     firedRef.current = false;
+    movedRef.current = false;
   };
 
   return (
     <button
       className="w-full min-w-0 text-left cursor-pointer group"
       onPointerDown={onLongPress ? onPointerDown : undefined}
+      onPointerMove={onLongPress ? onPointerMove : undefined}
       onPointerUp={onLongPress ? onPointerUp : undefined}
       onPointerCancel={onLongPress ? onPointerCancel : undefined}
       onClick={onLongPress ? undefined : onShortTap}
@@ -663,29 +683,50 @@ interface PickCardProps {
 function PickCard({ video, onShortTap, onLongPress }: PickCardProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longFiredRef = useRef(false);
+  const movedRef = useRef(false);
+  const startXRef = useRef(0);
+  const startYRef = useRef(0);
 
-  const handlePointerDown = () => {
+  const handlePointerDown = (e: React.PointerEvent) => {
     longFiredRef.current = false;
+    movedRef.current = false;
+    startXRef.current = e.clientX;
+    startYRef.current = e.clientY;
     timerRef.current = setTimeout(() => {
-      longFiredRef.current = true;
-      onLongPress();
+      if (!movedRef.current) {
+        longFiredRef.current = true;
+        onLongPress();
+      }
     }, LONG_PRESS_DELAY);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (movedRef.current) return;
+    const dx = Math.abs(e.clientX - startXRef.current);
+    const dy = Math.abs(e.clientY - startYRef.current);
+    if (dx > 8 || dy > 8) {
+      movedRef.current = true;
+      if (timerRef.current) clearTimeout(timerRef.current);
+    }
   };
 
   const handlePointerUp = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (!longFiredRef.current) onShortTap();
+    if (!longFiredRef.current && !movedRef.current) onShortTap();
     longFiredRef.current = false;
+    movedRef.current = false;
   };
 
   const handlePointerCancel = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     longFiredRef.current = false;
+    movedRef.current = false;
   };
 
   return (
     <button
       onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
       className="pick-float-in w-full flex gap-3 bg-surface-container-low hover:bg-surface-container transition-colors group text-left cursor-pointer p-3"
@@ -723,32 +764,51 @@ interface ZappingCardProps {
 function ZappingCard({ video, onShortTap, onLongPress }: ZappingCardProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longFiredRef = useRef(false);
+  const movedRef = useRef(false);
+  const startXRef = useRef(0);
+  const startYRef = useRef(0);
 
-  const handlePointerDown = () => {
+  const handlePointerDown = (e: React.PointerEvent) => {
     longFiredRef.current = false;
+    movedRef.current = false;
+    startXRef.current = e.clientX;
+    startYRef.current = e.clientY;
     timerRef.current = setTimeout(() => {
-      longFiredRef.current = true;
-      onLongPress();
+      if (!movedRef.current) {
+        longFiredRef.current = true;
+        onLongPress();
+      }
     }, LONG_PRESS_DELAY);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (movedRef.current) return;
+    const dx = Math.abs(e.clientX - startXRef.current);
+    const dy = Math.abs(e.clientY - startYRef.current);
+    if (dx > 8 || dy > 8) {
+      movedRef.current = true;
+      if (timerRef.current) clearTimeout(timerRef.current);
+    }
   };
 
   const handlePointerUp = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (!longFiredRef.current) {
-      onShortTap();
-    }
+    if (!longFiredRef.current && !movedRef.current) onShortTap();
     longFiredRef.current = false;
+    movedRef.current = false;
   };
 
   const handlePointerCancel = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     longFiredRef.current = false;
+    movedRef.current = false;
   };
 
   return (
     <button
       data-testid="zapping-card"
       onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
       className="flex flex-col bg-surface hover:bg-surface-container-low transition-colors cursor-pointer text-left"

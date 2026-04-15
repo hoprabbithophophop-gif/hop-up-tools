@@ -36,26 +36,45 @@ export function ChapterCard({ item, selectionNumber, onToggle, onPlay, onCardCli
   // long press ロジック（onPlay がある場合のみ）
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longFiredRef = useRef(false);
+  const movedRef = useRef(false);
+  const startXRef = useRef(0);
+  const startYRef = useRef(0);
 
   const handlePointerDown = onPlay
-    ? () => {
+    ? (e: React.PointerEvent) => {
         longFiredRef.current = false;
+        movedRef.current = false;
+        startXRef.current = e.clientX;
+        startYRef.current = e.clientY;
         timerRef.current = setTimeout(() => {
-          longFiredRef.current = true;
-          // 長押し → シート表示（従来の onCardClick 動作）
-          (onCardClick ?? onToggle)();
+          if (!movedRef.current) {
+            longFiredRef.current = true;
+            (onCardClick ?? onToggle)();
+          }
         }, LONG_PRESS_DELAY);
+      }
+    : undefined;
+
+  const handlePointerMove = onPlay
+    ? (e: React.PointerEvent) => {
+        if (movedRef.current) return;
+        const dx = Math.abs(e.clientX - startXRef.current);
+        const dy = Math.abs(e.clientY - startYRef.current);
+        if (dx > 8 || dy > 8) {
+          movedRef.current = true;
+          if (timerRef.current) clearTimeout(timerRef.current);
+        }
       }
     : undefined;
 
   const handlePointerUp = onPlay
     ? () => {
         if (timerRef.current) clearTimeout(timerRef.current);
-        if (!longFiredRef.current) {
-          // 短タップ → 即再生
+        if (!longFiredRef.current && !movedRef.current) {
           onPlay();
         }
         longFiredRef.current = false;
+        movedRef.current = false;
       }
     : undefined;
 
@@ -63,6 +82,7 @@ export function ChapterCard({ item, selectionNumber, onToggle, onPlay, onCardCli
     ? () => {
         if (timerRef.current) clearTimeout(timerRef.current);
         longFiredRef.current = false;
+        movedRef.current = false;
       }
     : undefined;
 
@@ -73,6 +93,7 @@ export function ChapterCard({ item, selectionNumber, onToggle, onPlay, onCardCli
     <div
       onClick={handleCardClick}
       onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
       role="button"
