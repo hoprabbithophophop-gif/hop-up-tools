@@ -96,12 +96,14 @@ export function ChapterCard({ item, selectionNumber, onToggle, onPlay, onCardCli
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
+      onContextMenu={onPlay ? e => e.preventDefault() : undefined}
       role="button"
       tabIndex={0}
       onKeyDown={e => e.key === 'Enter' && (onPlay ?? onCardClick ?? onToggle)()}
       className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
         isSelected ? 'bg-black/5' : 'hover:bg-surface-container-low'
       }`}
+      style={onPlay ? ({ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties) : undefined}
     >
       {/* サムネイル */}
       <div

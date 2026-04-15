@@ -643,10 +643,12 @@ function PickThumbCard({ thumbnail, label, sub, onShortTap, onLongPress }: PickT
   return (
     <button
       className="w-full min-w-0 text-left cursor-pointer group"
+      style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
       onPointerDown={onLongPress ? onPointerDown : undefined}
       onPointerMove={onLongPress ? onPointerMove : undefined}
       onPointerUp={onLongPress ? onPointerUp : undefined}
       onPointerCancel={onLongPress ? onPointerCancel : undefined}
+      onContextMenu={onLongPress ? e => e.preventDefault() : undefined}
       onClick={onLongPress ? undefined : onShortTap}
     >
       <div className="aspect-video overflow-hidden mb-1 bg-surface-container">
@@ -729,7 +731,9 @@ function PickCard({ video, onShortTap, onLongPress }: PickCardProps) {
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
+      onContextMenu={e => e.preventDefault()}
       className="pick-float-in w-full flex gap-3 bg-surface-container-low hover:bg-surface-container transition-colors group text-left cursor-pointer p-3"
+      style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
     >
       <div className="w-36 sm:w-48 shrink-0 aspect-video overflow-hidden bg-surface-container">
         <img
@@ -811,7 +815,9 @@ function ZappingCard({ video, onShortTap, onLongPress }: ZappingCardProps) {
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
+      onContextMenu={e => e.preventDefault()}
       className="flex flex-col bg-surface hover:bg-surface-container-low transition-colors cursor-pointer text-left"
+      style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
     >
       <div className="relative w-full overflow-hidden bg-surface-container">
         <img

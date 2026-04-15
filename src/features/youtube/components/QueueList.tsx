@@ -50,8 +50,9 @@ function QueueItem({ item, idx, isPlaying, onJump, onRemove }: QueueItemProps) {
   const handleTouchEnd = () => {
     if (isScrollRef.current) return;
     if (swipeX < -SWIPE_THRESHOLD) {
+      // 件数を即時反映するためcontextは即削除、視覚アニメだけ残す
+      onRemove();
       setRemoving(true);
-      setTimeout(() => onRemove(), 220);
     } else {
       setSwipeX(0);
     }

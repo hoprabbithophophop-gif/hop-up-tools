@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistContext';
 import { formatSeconds } from '../../videos/utils/playlist-utils';
 import { getSupabase } from '../../../lib/supabase';
@@ -25,18 +25,6 @@ export function PlayView({ onBack }: Props) {
   const { queue, currentIndex } = state;
 
   const [trimOpen, setTrimOpen] = useState(false);
-
-  // ヘッダーを下スワイプ → ミニプレーヤーに戻る
-  const swipeTouchStartY = useRef<number | null>(null);
-  const handleHeaderTouchStart = (e: React.TouchEvent) => {
-    swipeTouchStartY.current = e.touches[0].clientY;
-  };
-  const handleHeaderTouchEnd = (e: React.TouchEvent) => {
-    if (swipeTouchStartY.current === null) return;
-    const dy = e.changedTouches[0].clientY - swipeTouchStartY.current;
-    if (dy > 60) onBack();
-    swipeTouchStartY.current = null;
-  };
   const [shareOpen, setShareOpen] = useState(false);
   const [chapterSheetOpen, setChapterSheetOpen] = useState(false);
   const [currentVideoMeta, setCurrentVideoMeta] = useState<VideoMeta | null>(null);
@@ -88,11 +76,7 @@ export function PlayView({ onBack }: Props) {
   return (
     <div className="bg-surface text-on-surface h-screen flex flex-col">
       {/* ヘッダー */}
-      <header
-        className="shrink-0 bg-surface border-b border-outline-variant/20 px-4 h-12 flex items-center justify-between"
-        onTouchStart={handleHeaderTouchStart}
-        onTouchEnd={handleHeaderTouchEnd}
-      >
+      <header className="shrink-0 bg-surface border-b border-outline-variant/20 px-4 h-12 flex items-center justify-between">
         <button
           onClick={onBack}
           className="flex items-center gap-1 text-[0.6875rem] text-outline hover:text-primary transition-colors cursor-pointer"
