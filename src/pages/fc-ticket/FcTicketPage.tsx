@@ -939,9 +939,11 @@ function CalendarScreen({
     if (!deadlinesByNewsUid.has(dl.news_uid)) deadlinesByNewsUid.set(dl.news_uid, {});
     deadlinesByNewsUid.get(dl.news_uid)![dl.type] = new Date(dl.deadline_at);
   }
-  // 入金バー開始日: 当落確認日 or なければ申込締切日
+  // 入金バー開始日: payment_start → result → 申込締切日 の優先順
+  const paymentStartByUid = new Map<string, Date>();
   const resultByUid = new Map<string, Date>();
   for (const dl of filteredDeadlines) {
+    if (dl.type === "payment_start") paymentStartByUid.set(dl.news_uid, new Date(dl.deadline_at));
     if (dl.type === "result") resultByUid.set(dl.news_uid, new Date(dl.deadline_at));
   }
 
@@ -1045,7 +1047,21 @@ function CalendarScreen({
               <span className="flex items-center gap-1"><span className="w-2 h-2 bg-primary inline-block" />申込済み</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 inline-block" style={{ background: "#585f6c" }} />気になる</span>
               {calFilter === "all" && <span className="flex items-center gap-1"><span className="w-2 h-2 bg-outline-variant inline-block" />その他</span>}
-              <span className="flex items-center gap-1"><span className="w-2 h-2 inline-block" style={{ background: "#585f6c", opacity: 0.4 }} />入金期間</span>
+              <span className="text-outline-variant">｜</span>
+              <span className="flex items-center gap-1">
+                <span className="w-5 h-2 inline-block bg-primary" />
+                <span className="text-[0.6875rem] font-bold uppercase tracking-widest">申込期間</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-5 h-2 inline-block" style={{ background: "repeating-linear-gradient(-45deg, #585f6c 0px, #585f6c 1px, transparent 1px, transparent 5px)" }} />
+                <span className="text-[0.6875rem] font-bold uppercase tracking-widest">入金期間</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-0.5 h-3 bg-secondary relative">
+                  <span className="absolute -top-0.5 -left-0.5 w-2 h-2 bg-secondary inline-block" style={{ transform: "rotate(45deg)" }} />
+                </span>
+                <span className="text-[0.6875rem] font-bold uppercase tracking-widest ml-1.5">当落発表</span>
+              </span>
               <span className="text-outline-variant">｜ バーをタップで詳細</span>
             </div>
           </div>
@@ -1182,10 +1198,10 @@ const isMonthStart = d.getDate() === 1;
                       const opacity = p.kind === "other" ? 0.2 : p.kind === "watchlist" ? 0.7 : 1;
                       const isTooltipOpen = tooltipUid === p.newsUid;
 
-                      // 入金バー: 当落確認日(なければ申込締切日)→入金締切日
+                      // 入金バー: payment_start → result → 申込締切日 の優先順で開始日を決定
                       const paymentDate = paymentByUid.get(p.newsUid);
                       const paymentBarStart = paymentDate
-                        ? (resultByUid.get(p.newsUid) ?? p.end)
+                        ? (paymentStartByUid.get(p.newsUid) ?? resultByUid.get(p.newsUid) ?? p.end)
                         : null;
                       const pRawLeft = paymentBarStart !== null ? (paymentBarStart.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH : null;
                       const pRawRight = paymentDate ? (paymentDate.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH : null;
@@ -1193,6 +1209,12 @@ const isMonthStart = d.getDate() === 1;
                       const pRight = pRawRight !== null ? Math.min(TOTAL_DAYS * CELL_WIDTH, pRawRight) : null;
                       const pWidth = pLeft !== null && pRight !== null ? Math.max(CELL_WIDTH / 2, pRight - pLeft) : null;
                       const showPaymentBar = pLeft !== null && pWidth !== null && pRight! > 0 && pLeft < TOTAL_DAYS * CELL_WIDTH;
+
+                      // 当落発表マーカー
+                      const resultDate = resultByUid.get(p.newsUid);
+                      const resultRawX = resultDate ? (resultDate.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH : null;
+                      const resultX = resultRawX !== null ? resultRawX : null;
+                      const showResultMarker = resultX !== null && resultX >= 0 && resultX <= TOTAL_DAYS * CELL_WIDTH;
 
                       const rowHeight = showPaymentBar ? 34 : 30;
 
@@ -1210,7 +1232,7 @@ const isMonthStart = d.getDate() === 1;
                         <div key={p.newsUid} style={{ height: rowHeight, position: "relative", background: isTooltipOpen ? "rgba(0,0,0,0.06)" : "transparent" }}>
                           {/* 申込期間バー */}
                           <div
-                            className="bar-text-wrap"
+                            className="bar-text-wrap gantt-bar-apply"
                             style={{
                               position: "absolute",
                               left,
@@ -1249,9 +1271,10 @@ const isMonthStart = d.getDate() === 1;
                               );
                             })()}
                           </div>
-                          {/* 入金バー（当落確認〜入金締切、4px下にずらし） */}
+                          {/* 入金バー（斜線パターン、payment_start or 当落確認〜入金締切） */}
                           {showPaymentBar && (
                             <div
+                              className="gantt-bar-payment"
                               style={{
                                 position: "absolute",
                                 left: pLeft!,
@@ -1259,13 +1282,41 @@ const isMonthStart = d.getDate() === 1;
                                 top: 10,
                                 height: 18,
                                 borderRadius: 0,
-                                background: "#585f6c",
-                                opacity: opacity * 0.85,
+                                background: "repeating-linear-gradient(-45deg, #585f6c 0px, #585f6c 1px, transparent 1px, transparent 5px)",
+                                opacity: Math.max(0.5, opacity * 0.8),
                                 cursor: "pointer",
                                 zIndex: 1,
                               }}
                               onClick={handleBarClick}
                             />
+                          )}
+                          {/* 当落発表マーカー（縦線 + ひし形） */}
+                          {showResultMarker && (
+                            <div
+                              style={{
+                                position: "absolute",
+                                left: resultX! - 1,
+                                top: 2,
+                                width: 2,
+                                height: rowHeight - 4,
+                                background: "#585f6c",
+                                opacity: opacity * 0.8,
+                                zIndex: 2,
+                                cursor: "pointer",
+                              }}
+                              onClick={handleBarClick}
+                            >
+                              {/* ひし形マーカー */}
+                              <div style={{
+                                position: "absolute",
+                                top: -3,
+                                left: -3,
+                                width: 8,
+                                height: 8,
+                                background: "#585f6c",
+                                transform: "rotate(45deg)",
+                              }} />
+                            </div>
                           )}
                         </div>
                       );

@@ -121,7 +121,7 @@ export function FilterPanel({ state, onChange, membersByGroup }: Props) {
     {
       key: 'sort',
       label: 'SORT',
-      badge: state.sort.toUpperCase(),
+      badge: state.sort === 'desc' ? '↓' : '↑',
     },
   ];
 

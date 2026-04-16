@@ -345,25 +345,6 @@ export function PickupView({ onPlay }: Props) {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 pt-4">
-        {/* 検索バー */}
-        <div className="mb-4">
-          <SearchBar
-            value={searchInput}
-            onChange={handleSearchChange}
-            suggestions={suggestions}
-            onSelectSuggestion={handleSelectSuggestion}
-          />
-        </div>
-
-        {/* フィルター */}
-        <div className="mb-4">
-          <FilterPanel
-            state={filter}
-            onChange={handleFilterChange}
-            membersByGroup={MEMBERS_BY_GROUP}
-          />
-        </div>
-
         {/* PICK + RECENT ストーリーズバー（検索中は非表示） */}
         {(pickVideos.length > 0 || playHistory.length > 0) && !isSearchMode && (
           <div
@@ -402,6 +383,25 @@ export function PickupView({ onPlay }: Props) {
             )}
           </div>
         )}
+
+        {/* 検索バー */}
+        <div className="mb-4">
+          <SearchBar
+            value={searchInput}
+            onChange={handleSearchChange}
+            suggestions={suggestions}
+            onSelectSuggestion={handleSelectSuggestion}
+          />
+        </div>
+
+        {/* フィルター */}
+        <div className="mb-4">
+          <FilterPanel
+            state={filter}
+            onChange={handleFilterChange}
+            membersByGroup={MEMBERS_BY_GROUP}
+          />
+        </div>
 
         {/* 選択中バナー */}
         {selection.selectionCount > 0 && (
