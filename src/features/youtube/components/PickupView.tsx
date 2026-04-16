@@ -201,13 +201,13 @@ export function PickupView({ onPlay }: Props) {
       let q = supabase
         .from('youtube_videos')
         .select('video_id,title,channel_name,published_at,thumbnail_url,video_type,group_tags,description_short')
+        .eq('is_active_content', true)
         .order('published_at', { ascending: f.sort === 'asc' })
         .range(currentOffset, currentOffset + PAGE_SIZE - 1);
 
       if (f.group)   q = q.contains('group_tags', [f.group]);
       if (f.type)    q = q.eq('video_type', f.type);
       if (f.channel) q = q.eq('channel_name', f.channel);
-      if (!f.channel && !f.group) q = q.filter('group_tags', 'neq', '{}');
       if (f.year > 0) {
         q = q
           .gte('published_at', `${f.year}-01-01T00:00:00Z`)
