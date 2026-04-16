@@ -95,6 +95,7 @@ export function PickupView({ onPlay }: Props) {
   // ザッピング: クリックした動画のシートを管理
   const [sheetVideo, setSheetVideo] = useState<VideoRow | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [activePickTab, setActivePickTab] = useState<'pick' | 'recent'>('pick');
 
   // ページTOPへ戻るボタン
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -345,42 +346,74 @@ export function PickupView({ onPlay }: Props) {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 pt-4">
-        {/* PICK + RECENT ストーリーズバー（検索中は非表示） */}
+        {/* PICK / RECENT フォルダータブ（検索中は非表示） */}
         {(pickVideos.length > 0 || playHistory.length > 0) && !isSearchMode && (
-          <div
-            className="-mx-4 px-4 mb-4 flex gap-3 overflow-x-auto py-1"
-            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}
-          >
-            {pickVideos.length > 0 && (
-              <>
-                <span className="shrink-0 self-center text-[0.5rem] font-bold uppercase tracking-widest text-outline">Pick</span>
-                {pickVideos.map(v => (
-                  <StoryThumb
-                    key={v.video_id}
-                    thumbnail={v.thumbnail_url}
-                    label={v.title}
-                    onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
-                    onLongPress={() => setSheetVideo(v)}
-                  />
-                ))}
-              </>
-            )}
-            {pickVideos.length > 0 && playHistory.length > 0 && (
-              <div className="shrink-0 w-px bg-outline-variant/30 self-stretch my-1" />
-            )}
-            {playHistory.length > 0 && (
-              <>
-                <span className="shrink-0 self-center text-[0.5rem] font-bold uppercase tracking-widest text-outline">Recent</span>
-                {playHistory.map(h => (
-                  <StoryThumb
-                    key={`${h.videoId}-${h.startSeconds}`}
-                    thumbnail={h.thumbnailUrl}
-                    label={h.chapterLabel}
-                    onShortTap={() => handleShortTap([historyItemToQueueItem(h)])}
-                  />
-                ))}
-              </>
-            )}
+          <div className="mb-4">
+            {/* タブ行 */}
+            <div className="flex items-end">
+              {pickVideos.length > 0 && (
+                <button
+                  onClick={() => setActivePickTab('pick')}
+                  className={`px-4 h-8 text-[0.6rem] font-bold uppercase tracking-widest border border-b-0 transition-colors cursor-pointer relative z-10 -mb-px ${
+                    activePickTab === 'pick'
+                      ? 'border-outline-variant/40 bg-surface-container text-on-surface'
+                      : 'border-transparent text-outline hover:text-on-surface'
+                  }`}
+                >
+                  Pick
+                </button>
+              )}
+              {playHistory.length > 0 && (
+                <button
+                  onClick={() => setActivePickTab('recent')}
+                  className={`px-4 h-8 text-[0.6rem] font-bold uppercase tracking-widest border border-b-0 transition-colors cursor-pointer relative z-10 -mb-px ${
+                    activePickTab === 'recent'
+                      ? 'border-outline-variant/40 bg-surface-container text-on-surface'
+                      : 'border-transparent text-outline hover:text-on-surface'
+                  }`}
+                >
+                  Recent
+                </button>
+              )}
+              <div className="flex-1 border-b border-outline-variant/40" />
+            </div>
+
+            {/* コンテンツエリア */}
+            <div className="border border-outline-variant/40 bg-surface-container p-3">
+              <div className="grid grid-cols-3 gap-2">
+                {activePickTab === 'pick' && (
+                  <>
+                    {pickVideos.map(v => (
+                      <PickFolderCard
+                        key={v.video_id}
+                        thumbnail={v.thumbnail_url}
+                        label={v.title}
+                        onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
+                        onLongPress={() => setSheetVideo(v)}
+                      />
+                    ))}
+                    {Array.from({ length: Math.max(0, 3 - pickVideos.length) }, (_, i) => (
+                      <div key={i} className="aspect-video bg-surface-container-high border border-dashed border-outline-variant/20" />
+                    ))}
+                  </>
+                )}
+                {activePickTab === 'recent' && (
+                  <>
+                    {playHistory.slice(0, 3).map(h => (
+                      <PickFolderCard
+                        key={`${h.videoId}-${h.startSeconds}`}
+                        thumbnail={h.thumbnailUrl}
+                        label={h.chapterLabel}
+                        onShortTap={() => handleShortTap([historyItemToQueueItem(h)])}
+                      />
+                    ))}
+                    {Array.from({ length: Math.max(0, 3 - Math.min(playHistory.length, 3)) }, (_, i) => (
+                      <div key={i} className="aspect-video bg-surface-container-high border border-dashed border-outline-variant/20" />
+                    ))}
+                  </>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -605,16 +638,16 @@ export function PickupView({ onPlay }: Props) {
   );
 }
 
-// ─── StoryThumb（PICK / RECENT ストーリーズ風サムネ） ─────────────────────────
+// ─── PickFolderCard（PICK / RECENT フォルダータブ内サムネ） ─────────────────────
 
-interface StoryThumbProps {
+interface PickFolderCardProps {
   thumbnail: string;
   label: string;
   onShortTap: () => void;
   onLongPress?: () => void;
 }
 
-function StoryThumb({ thumbnail, label, onShortTap, onLongPress }: StoryThumbProps) {
+function PickFolderCard({ thumbnail, label, onShortTap, onLongPress }: PickFolderCardProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firedRef = useRef(false);
   const movedRef = useRef(false);
@@ -656,8 +689,8 @@ function StoryThumb({ thumbnail, label, onShortTap, onLongPress }: StoryThumbPro
 
   return (
     <button
-      className="shrink-0 flex flex-col items-center gap-1 cursor-pointer"
-      style={{ width: '56px', userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
+      className="flex flex-col text-left cursor-pointer group w-full"
+      style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
       onPointerDown={onLongPress ? onPointerDown : undefined}
       onPointerMove={onLongPress ? onPointerMove : undefined}
       onPointerUp={onLongPress ? onPointerUp : undefined}
@@ -665,16 +698,16 @@ function StoryThumb({ thumbnail, label, onShortTap, onLongPress }: StoryThumbPro
       onContextMenu={e => e.preventDefault()}
       onClick={onLongPress ? undefined : onShortTap}
     >
-      <div className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-primary/40 hover:ring-primary/80 transition-all">
+      <div className="w-full aspect-video overflow-hidden bg-surface-container-high">
         <img
           src={thumbnail}
           alt={label}
-          className="w-full h-full object-cover"
+          className="w-full h-full object-cover group-hover:opacity-80 transition-opacity"
           draggable={false}
           style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
         />
       </div>
-      <p className="text-[0.5rem] text-center leading-tight line-clamp-2 w-full">{label}</p>
+      <p className="text-[0.55rem] leading-tight truncate mt-0.5 w-full text-on-surface/80">{label}</p>
     </button>
   );
 }
