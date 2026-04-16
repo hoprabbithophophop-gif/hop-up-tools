@@ -30,6 +30,21 @@ body {
   animation: bar-marquee-continuous linear infinite;
 }
 
+/* Gantt バー: 左から伸びる出現アニメーション */
+@keyframes bar-expand {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+.gantt-bar-apply {
+  transform-origin: left center;
+  animation: bar-expand 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.gantt-bar-payment {
+  transform-origin: left center;
+  animation: bar-expand 0.4s cubic-bezier(0.4, 0, 0.2, 1) 0.15s both;
+}
+
+
 /* Stitch デザインシステム用カラートークン（fc-ticket ページで使用） */
 @theme {
   --color-outline: #777777;

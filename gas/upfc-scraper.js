@@ -213,8 +213,8 @@ function fetchDeadlines(article) {
 
   // ── 日付パターン（年あり・なし両対応、時刻任意） ──
   // UPFC は「2026 年3月26日（木）17時」のように年と「年」の間にスペースが入ることがある
-  const D_WITH_YEAR = '\\d{4}\\s*年\\d{1,2}月\\d{1,2}日[（(][月火水木金土日][）)](?:\\d{1,2}時(?:\\d{1,2}分)?)?';
-  const D_NO_YEAR   = '\\d{1,2}月\\d{1,2}日[（(][月火水木金土日][）)](?:\\d{1,2}時(?:\\d{1,2}分)?)?';
+  const D_WITH_YEAR = '\\d{4}\\s*年\\d{1,2}月\\d{1,2}日[（(][月火水木金土日][祝]?[）)](?:\\d{1,2}時(?:\\d{1,2}分)?)?';
+  const D_NO_YEAR   = '\\d{1,2}月\\d{1,2}日[（(][月火水木金土日][祝]?[）)](?:\\d{1,2}時(?:\\d{1,2}分)?)?';
 
   // ── 申込期間（開始〜終了） ──
   // 例: ■申込期間： 2026 年3月26日（木）17時～4月1日（水）12時
@@ -261,7 +261,7 @@ function fetchDeadlines(article) {
     if (dt) deadlines.push({ type: 'payment', label: '入金締切', deadline_at: dt });
   }
 
-  // ── 支払期間（終了日を入金締切として扱う） ──
+  // ── 支払期間（開始日を payment_start、終了日を payment として保存） ──
   // 例: ■支払期間：2026年4月23日（木）12時～4月27日（月）12時
   if (!payment) {
     const payPeriod = text.match(
@@ -269,7 +269,9 @@ function fetchDeadlines(article) {
     );
     if (payPeriod) {
       const startYear = extractYear(payPeriod[1]);
+      const start = parseJapaneseDate(payPeriod[1], null);
       const end = parseJapaneseDate(payPeriod[2], startYear);
+      if (start) deadlines.push({ type: 'payment_start', label: '入金開始', deadline_at: start });
       if (end) deadlines.push({ type: 'payment', label: '入金締切', deadline_at: end });
     }
   }
