@@ -1053,7 +1053,7 @@ function CalendarScreen({
                 <span className="text-[0.6875rem] font-bold uppercase tracking-widest">申込期間</span>
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-5 h-2 inline-block" style={{ background: "repeating-linear-gradient(-45deg, #585f6c 0px, #585f6c 2px, transparent 2px, transparent 8px)" }} />
+                <span className="w-5 h-2 inline-block" style={{ background: "repeating-linear-gradient(-45deg, #585f6c 0px, #585f6c 1px, transparent 1px, transparent 5px)" }} />
                 <span className="text-[0.6875rem] font-bold uppercase tracking-widest">入金期間</span>
               </span>
               <span className="flex items-center gap-1">
@@ -1282,8 +1282,8 @@ const isMonthStart = d.getDate() === 1;
                                 top: 10,
                                 height: 18,
                                 borderRadius: 0,
-                                background: "repeating-linear-gradient(-45deg, #585f6c 0px, #585f6c 2px, transparent 2px, transparent 8px)",
-                                opacity: opacity * 0.6,
+                                background: "repeating-linear-gradient(-45deg, #585f6c 0px, #585f6c 1px, transparent 1px, transparent 5px)",
+                                opacity: Math.max(0.5, opacity * 0.8),
                                 cursor: "pointer",
                                 zIndex: 1,
                               }}
