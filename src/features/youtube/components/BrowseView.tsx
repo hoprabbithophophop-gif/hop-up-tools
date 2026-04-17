@@ -168,7 +168,7 @@ export function BrowseView({ onPlay }: Props) {
   }, [selection, onPlay]);
 
   return (
-    <div className={`bg-surface text-on-surface min-h-screen ${hasQueue ? 'pb-[210px]' : 'pb-32'} isolate`}>
+    <div className={`bg-surface text-on-surface min-h-screen ${hasQueue ? 'pb-[210px]' : 'pb-32'}`}>
       {/* ヘッダー */}
       <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20">
         <div className="px-4 py-3 flex items-center gap-3">

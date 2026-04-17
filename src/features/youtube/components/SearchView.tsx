@@ -1,14 +1,12 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { getSupabase } from '../../../lib/supabase';
 import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistContext';
-import { ChapterCard } from './ChapterCard';
 import { SearchBar } from './SearchBar';
 import { FilterPanel } from './FilterPanel';
 import { FloatingBar } from './FloatingBar';
 import { VideoChapterSheet } from './VideoChapterSheet';
 import { ZappingCard } from './ZappingCard';
 import type { VideoRow } from './ZappingCard';
-import { makeChapterId, makeVideoId, buildFullVideoQueueItem } from '../../videos/utils/playlist-utils';
 import type { ChapterQueueItem } from '../../videos/types/playlist';
 import type { FilterState } from './FilterPanel';
 
@@ -30,43 +28,13 @@ const ALL_SUGGESTION_CANDIDATES = [
   ...Object.values(MEMBERS_BY_GROUP).flat(),
 ];
 
-interface Chapter {
-  seconds: number;
-  label: string;
-  timestamp: string;
-}
-
-function parseChapters(description: string): Chapter[] {
-  if (!description) return [];
-  const re = /^(\d{1,2}):(\d{2})(?::(\d{2}))?[～〜\s\-]+(.+)$/gm;
-  const chapters: Chapter[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(description)) !== null) {
-    const hasHours = m[3] !== undefined;
-    const h = hasHours ? parseInt(m[1], 10) : 0;
-    const min = hasHours ? parseInt(m[2], 10) : parseInt(m[1], 10);
-    const sec = hasHours ? parseInt(m[3], 10) : parseInt(m[2], 10);
-    chapters.push({
-      seconds: h * 3600 + min * 60 + sec,
-      label: m[4].trim(),
-      timestamp: hasHours ? `${m[1]}:${m[2]}:${m[3]}` : `${m[1]}:${m[2]}`,
-    });
-  }
-  return chapters;
-}
-
-interface SearchResultItem {
-  id: string;
-  item: ChapterQueueItem;
-}
-
 interface Props {
   onPlay: (items: ChapterQueueItem[]) => void;
   onBack: () => void;
 }
 
 export function SearchView({ onPlay, onBack }: Props) {
-  const { selection, state, playChapter } = useChapterPlaylistContext();
+  const { selection, state } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
 
   const [sheetVideo, setSheetVideo] = useState<VideoRow | null>(null);
@@ -186,52 +154,7 @@ export function SearchView({ onPlay, onBack }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, offset, filter, searchQuery, fetchVideos]);
 
-  // 検索結果（クライアントサイドでチャプター展開）
-  const searchResults = useMemo<SearchResultItem[]>(() => {
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return [];
-    const results: SearchResultItem[] = [];
-    const seenVideoIds = new Set<string>();
-
-    for (const video of videos) {
-      if (video.title.toLowerCase().includes(q) && !seenVideoIds.has(video.video_id)) {
-        seenVideoIds.add(video.video_id);
-        const id = makeVideoId(video.video_id);
-        results.push({ id, item: buildFullVideoQueueItem(video) });
-      }
-      const chapters = parseChapters(video.description_short);
-      for (let i = 0; i < chapters.length; i++) {
-        const ch = chapters[i];
-        if (!ch.label.toLowerCase().includes(q)) continue;
-        const endSeconds =
-          i + 1 < chapters.length ? chapters[i + 1].seconds : Number.MAX_SAFE_INTEGER;
-        const id = makeChapterId(video.video_id, ch.seconds);
-        const item: ChapterQueueItem = {
-          id,
-          videoId: video.video_id,
-          videoTitle: video.title,
-          channelName: video.channel_name,
-          thumbnailUrl: video.thumbnail_url,
-          chapterLabel: ch.label,
-          chapterTimestamp: ch.timestamp,
-          startSeconds: ch.seconds,
-          endSeconds,
-          isFullVideo: false,
-        };
-        results.push({ id, item });
-      }
-    }
-    return results;
-  }, [searchQuery, videos]);
-
   const isSearchMode = searchQuery.trim().length > 0;
-  const resultCount = isSearchMode ? searchResults.length : videos.length;
-
-  const handleShortTap = useCallback((items: ChapterQueueItem[]) => {
-    const first = items[0];
-    if (first) playChapter(first.videoId, first.startSeconds, first.endSeconds);
-    onPlay(items);
-  }, [playChapter, onPlay]);
 
   const handlePlay = useCallback(() => {
     const items = selection.getSelectedItemsInOrder();
@@ -239,7 +162,7 @@ export function SearchView({ onPlay, onBack }: Props) {
   }, [selection, onPlay]);
 
   return (
-    <div className={`bg-surface text-on-surface min-h-screen ${hasQueue ? 'pb-[210px]' : 'pb-32'} isolate`}>
+    <div className={`bg-surface text-on-surface min-h-screen ${hasQueue ? 'pb-[210px]' : 'pb-32'}`}>
       {/* ヘッダー */}
       <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20 px-4 py-3 flex items-center gap-3">
         <button
@@ -288,9 +211,9 @@ export function SearchView({ onPlay, onBack }: Props) {
         )}
 
         {/* 結果数 */}
-        {!loading && !fetchError && resultCount > 0 && (
+        {!loading && !fetchError && videos.length > 0 && (
           <p className="text-[0.6rem] text-outline uppercase tracking-widest mb-2">
-            {isSearchMode ? `検索結果 ${resultCount}件` : `${resultCount}件`}
+            {isSearchMode ? `検索結果 ${videos.length}件` : `${videos.length}件`}
           </p>
         )}
 
@@ -307,33 +230,14 @@ export function SearchView({ onPlay, onBack }: Props) {
           </div>
         )}
 
-        {/* 検索モード: ChapterCardリスト */}
-        {!fetchError && isSearchMode && (
-          <div className="divide-y divide-outline-variant/10 border-t border-outline-variant/10">
-            {searchResults.map(({ id, item }) => {
-              const parentVideo = videos.find(v => v.video_id === item.videoId) ?? null;
-              return (
-                <ChapterCard
-                  key={id}
-                  item={item}
-                  selectionNumber={selection.getSelectionNumber(id)}
-                  onToggle={() => selection.toggleSelection(id, item)}
-                  onPlay={() => handleShortTap([item])}
-                  onCardClick={parentVideo ? () => setSheetVideo(parentVideo) : undefined}
-                />
-              );
-            })}
-          </div>
-        )}
-
-        {/* フィルターのみモード: ZappingCardグリッド */}
-        {!fetchError && !isSearchMode && videos.length > 0 && (
+        {/* 検索/フィルター結果: 動画グリッド（タップでチャプターシート） */}
+        {!fetchError && videos.length > 0 && (
           <div className="grid grid-cols-2 gap-px bg-outline-variant/10 border-t border-outline-variant/10">
             {videos.map(v => (
               <ZappingCard
                 key={v.video_id}
                 video={v}
-                onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
+                onShortTap={() => setSheetVideo(v)}
                 onLongPress={() => setSheetVideo(v)}
               />
             ))}
@@ -341,15 +245,10 @@ export function SearchView({ onPlay, onBack }: Props) {
         )}
 
         {/* 空状態 */}
-        {!loading && !fetchError && resultCount === 0 && !isSearchMode && (
-          <div className="flex flex-col items-center justify-center h-40 gap-2 text-outline">
-            <p className="text-xs uppercase tracking-widest">動画が見つかりませんでした</p>
-          </div>
-        )}
-        {!loading && !fetchError && resultCount === 0 && isSearchMode && (
+        {!loading && !fetchError && videos.length === 0 && (
           <div className="flex flex-col items-center justify-center h-40 gap-2 text-outline">
             <p className="text-xs uppercase tracking-widest">
-              「{searchQuery}」に一致する動画・チャプターがありません
+              {isSearchMode ? `「${searchQuery}」に一致する動画がありません` : '動画が見つかりませんでした'}
             </p>
           </div>
         )}
