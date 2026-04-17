@@ -52,6 +52,8 @@ const CHANNEL_FILTERS = [
   'THE FIRST TAKE',
   'ヤンマガch',
   'ハロプロちょっと面白い話',
+  '動画はじめました',
+  'メメントモリ公式',
 ];
 
 const CURRENT_YEAR = new Date().getFullYear();

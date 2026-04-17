@@ -2,15 +2,21 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ChapterPlaylistProvider } from '../../features/videos/context/ChapterPlaylistContext';
 import { useChapterPlaylistContext } from '../../features/videos/context/ChapterPlaylistContext';
-import { PickupView } from '../../features/youtube/components/PickupView';
+import { BrowseView } from '../../features/youtube/components/BrowseView';
+import { SearchView } from '../../features/youtube/components/SearchView';
 import { PlayView } from '../../features/youtube/components/PlayView';
 import { Player } from '../../features/youtube/components/Player';
 import { ExpiredView } from '../../features/youtube/components/ExpiredView';
 import { getPlaylistShare, fromShareItem } from '../../features/videos/hooks/usePlaylistShare';
 import type { ChapterQueueItem } from '../../features/videos/types/playlist';
 
-type PageState = 'pickup' | 'play';
+type PageState = 'browse' | 'search' | 'play';
 type RestoreStatus = 'idle' | 'loading' | 'done' | 'expired';
+
+export interface SharedPlaylist {
+  title: string;
+  items: ChapterQueueItem[];
+}
 
 function LoadingScreen() {
   return (
@@ -20,25 +26,31 @@ function LoadingScreen() {
   );
 }
 
-/** ChapterPlaylistProvider 内側のコンテンツ */
 function ChapterPickupContent() {
   const [searchParams] = useSearchParams();
   const playlistId = searchParams.get('p');
 
-  const [pageState, setPageState] = useState<PageState>('pickup');
+  const [pageState, setPageState] = useState<PageState>('browse');
   const [restoreStatus, setRestoreStatus] = useState<RestoreStatus>(
     playlistId ? 'loading' : 'idle'
   );
+  const [sharedPlaylist, setSharedPlaylist] = useState<SharedPlaylist | null>(null);
+  // SearchViewは初回遷移時に初めてマウントする（初期ロードを避けるため）
+  const [searchMounted, setSearchMounted] = useState(false);
 
   const { state, startPlaylist, selection, pause, resume } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
   const currentItem = state.currentIndex !== null ? state.queue[state.currentIndex] ?? null : null;
 
-  // 一覧 → 再生遷移時のスクロール位置を保存し、戻ったときに復元する
-  const pickupScrollRef = useRef(0);
+  // play遷移元の画面を記憶してonBack時に戻れるようにする
+  const prevStateRef = useRef<'browse' | 'search'>('browse');
+  // browse / search それぞれのスクロール位置
+  const browseScrollRef = useRef(0);
+  const searchScrollRef = useRef(0);
 
-  // FloatingBar（h-14）が表示中はミニプレーヤーを1段上げる
-  const miniBottom = selection.selectionCount > 0 ? 'bottom-14' : 'bottom-0';
+  // ボトムナビ(h-12=48px)が常時あるため、その分上にずらす
+  // FloatingBar(h-14=56px)が出ているときはさらに上: 48+56=104px
+  const miniBottom = selection.selectionCount > 0 ? 'bottom-[104px]' : 'bottom-12';
 
   useEffect(() => {
     document.title = 'HELLO! VIDEO | hop-up-tools';
@@ -60,6 +72,7 @@ function ChapterPickupContent() {
         return;
       }
       const items = share.items.map(fromShareItem);
+      setSharedPlaylist({ title: share.title, items });
       startPlaylist(items);
       setRestoreStatus('done');
       setPageState('play');
@@ -69,31 +82,45 @@ function ChapterPickupContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playlistId]);
 
-  const handlePlay = useCallback((items: ChapterQueueItem[]) => {
-    pickupScrollRef.current = window.scrollY;
-    startPlaylist(items);
-    setPageState('play');
-  }, [startPlaylist]);
-
-  const handleBack = useCallback(() => {
-    setPageState('pickup');
-  }, []);
-
-  // pickup に戻ったらスクロール位置を復元（2フレーム待って PickupView が表示されてから）
+  // スクロール位置復元
   useEffect(() => {
-    if (pageState === 'pickup') {
-      const y = pickupScrollRef.current;
+    if (pageState === 'browse') {
+      const y = browseScrollRef.current;
+      requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
+    } else if (pageState === 'search') {
+      const y = searchScrollRef.current;
       requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
     }
   }, [pageState]);
 
+  const handlePlay = useCallback((items: ChapterQueueItem[]) => {
+    if (pageState === 'browse') browseScrollRef.current = window.scrollY;
+    if (pageState === 'search') searchScrollRef.current = window.scrollY;
+    prevStateRef.current = pageState as 'browse' | 'search';
+    startPlaylist(items);
+    setPageState('play');
+  }, [pageState, startPlaylist]);
+
+  const handleBack = useCallback(() => {
+    setPageState(prevStateRef.current);
+  }, []);
+
+  const handleGoToSearch = useCallback(() => {
+    browseScrollRef.current = window.scrollY;
+    setSearchMounted(true);
+    setPageState('search');
+  }, []);
+
+  const handleGoToBrowse = useCallback(() => {
+    searchScrollRef.current = window.scrollY;
+    setPageState('browse');
+  }, []);
+
   if (restoreStatus === 'loading') return <LoadingScreen />;
   if (restoreStatus === 'expired') return <ExpiredView />;
 
-  // Player の表示位置:
-  //   play mode    → PlayView のプレーヤーエリアに重なる固定配置（top-12 = PlayView header h-12 分）
-  //   pickup + queue → ミニプレーヤー（左端 128px × 72px）
-  //   pickup + no queue → 非表示
+  const isNotPlay = pageState !== 'play';
+
   const playerWrapClass =
     pageState === 'play'
       ? 'fixed top-12 left-0 right-0 aspect-video z-20'
@@ -103,13 +130,13 @@ function ChapterPickupContent() {
 
   return (
     <>
-      {/* YouTube Player — DOM 上は常に1つ、位置だけ切り替え */}
+      {/* YouTube Player — 常時マウント、位置のみ切替 */}
       <div className={playerWrapClass}>
         <Player />
       </div>
 
-      {/* ミニプレーヤー情報バー（動画の右隣、pickup + queue 時のみ） */}
-      {pageState === 'pickup' && hasQueue && (
+      {/* ミニプレーヤー情報バー（browse/search + queue 時） */}
+      {isNotPlay && hasQueue && (
         <div
           data-testid="mini-player"
           className={`fixed ${miniBottom} left-32 right-0 h-[72px] z-40 bg-black flex items-center px-3 gap-2 cursor-pointer border-l border-white/10`}
@@ -146,15 +173,60 @@ function ChapterPickupContent() {
         </div>
       )}
 
-      {/* PickupView: play state のとき CSS hidden（アンマウントしない） */}
-      <div className={pageState === 'play' ? 'hidden' : ''}>
-        <PickupView onPlay={handlePlay} />
+      {/* BrowseView */}
+      <div className={pageState === 'browse' ? '' : 'hidden'}>
+        <BrowseView onPlay={handlePlay} />
       </div>
 
-      {/* PlayView: 常時 DOM 保持（IFrame維持のため）、pickup state のとき CSS hidden */}
-      <div data-testid="play-view" className={pageState === 'pickup' ? 'hidden' : ''}>
-        <PlayView onBack={handleBack} />
+      {/* SearchView: 初回遷移後にマウント */}
+      {searchMounted && (
+        <div className={pageState === 'search' ? '' : 'hidden'}>
+          <SearchView onPlay={handlePlay} onBack={handleGoToBrowse} />
+        </div>
+      )}
+
+      {/* PlayView: 常時 DOM 保持（IFrame維持のため） */}
+      <div data-testid="play-view" className={pageState === 'play' ? '' : 'hidden'}>
+        <PlayView onBack={handleBack} sharedPlaylist={sharedPlaylist} />
       </div>
+
+      {/* ボトムナビ（常時表示） */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 h-12 bg-surface border-t border-outline-variant/20 flex">
+        <button
+          onClick={handleGoToBrowse}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors ${
+            pageState === 'browse' ? 'text-primary' : 'text-outline hover:text-on-surface'
+          }`}
+        >
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>home</span>
+          <span className="text-[0.5rem] font-bold uppercase tracking-widest">Browse</span>
+        </button>
+        <button
+          onClick={handleGoToSearch}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors ${
+            pageState === 'search' ? 'text-primary' : 'text-outline hover:text-on-surface'
+          }`}
+        >
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>search</span>
+          <span className="text-[0.5rem] font-bold uppercase tracking-widest">Search</span>
+        </button>
+        <button
+          onClick={() => setPageState('play')}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors relative ${
+            pageState === 'play' ? 'text-primary' : 'text-outline hover:text-on-surface'
+          }`}
+        >
+          <span className="relative inline-block">
+            <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>queue_music</span>
+            {hasQueue && pageState !== 'play' && (
+              <span className="absolute -top-1 -right-2 min-w-[14px] h-[14px] bg-primary text-white text-[8px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+                {state.queue.length}
+              </span>
+            )}
+          </span>
+          <span className="text-[0.5rem] font-bold uppercase tracking-widest">Playlist</span>
+        </button>
+      </nav>
     </>
   );
 }
