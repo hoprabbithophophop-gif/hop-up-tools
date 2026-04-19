@@ -34,8 +34,7 @@ const TYPE_FILTERS = [
 ];
 
 const CHANNEL_FILTERS = [
-  'ハロ！ステ',
-  'アップフロントチャンネル',
+  // グループ公式
   'モーニング娘。',
   'アンジュルム',
   'Juice=Juice',
@@ -44,14 +43,18 @@ const CHANNEL_FILTERS = [
   'OCHA NORMA',
   'ロージークロニクル',
   'ハロプロ研修生',
+  // UF内製
+  'ハロ！ステ',
+  'アップフロントチャンネル',
   'OMAKE CHANNEL',
   'UFfanclub',
   'UF Goods Land',
   'M-line Music',
   'アプカミ',
+  'ハロプロちょっと面白い話',
+  // UF以外
   'THE FIRST TAKE',
   'ヤンマガch',
-  'ハロプロちょっと面白い話',
   '動画はじめました',
   'メメントモリ公式',
 ];

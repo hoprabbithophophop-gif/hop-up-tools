@@ -38,7 +38,7 @@ function ChapterPickupContent() {
   // SearchViewは初回遷移時に初めてマウントする（初期ロードを避けるため）
   const [searchMounted, setSearchMounted] = useState(false);
 
-  const { state, startPlaylist, selection, pause, resume } = useChapterPlaylistContext();
+  const { state, startPlaylist, pause, resume } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
   const currentItem = state.currentIndex !== null ? state.queue[state.currentIndex] ?? null : null;
 
@@ -48,9 +48,8 @@ function ChapterPickupContent() {
   const browseScrollRef = useRef(0);
   const searchScrollRef = useRef(0);
 
-  // ボトムナビ(h-12=48px)が常時あるため、その分上にずらす
-  // FloatingBar(h-14=56px)が出ているときはさらに上: 48+56=104px
-  const miniBottom = selection.selectionCount > 0 ? 'bottom-[104px]' : 'bottom-12';
+  // ボトムナビ(h-12=48px)分上にずらす（FloatingBar廃止により常時この値）
+  const miniBottom = 'bottom-12';
 
   useEffect(() => {
     document.title = 'HELLO! VIDEO | hop-up-tools';
@@ -100,10 +99,6 @@ function ChapterPickupContent() {
     startPlaylist(items);
     setPageState('play');
   }, [pageState, startPlaylist]);
-
-  const handleBack = useCallback(() => {
-    setPageState(prevStateRef.current);
-  }, []);
 
   const handleGoToSearch = useCallback(() => {
     browseScrollRef.current = window.scrollY;
@@ -181,13 +176,13 @@ function ChapterPickupContent() {
       {/* SearchView: 初回遷移後にマウント */}
       {searchMounted && (
         <div className={pageState === 'search' ? '' : 'hidden'}>
-          <SearchView onPlay={handlePlay} onBack={handleGoToBrowse} />
+          <SearchView onBack={handleGoToBrowse} />
         </div>
       )}
 
       {/* PlayView: 常時 DOM 保持（IFrame維持のため） */}
       <div data-testid="play-view" className={pageState === 'play' ? '' : 'hidden'}>
-        <PlayView onBack={handleBack} sharedPlaylist={sharedPlaylist} />
+        <PlayView sharedPlaylist={sharedPlaylist} />
       </div>
 
       {/* ボトムナビ（常時表示） */}
@@ -211,7 +206,10 @@ function ChapterPickupContent() {
           <span className="text-[0.5rem] font-bold uppercase tracking-widest">Search</span>
         </button>
         <button
-          onClick={() => setPageState('play')}
+          onClick={() => {
+            prevStateRef.current = pageState !== 'play' ? pageState : prevStateRef.current;
+            setPageState('play');
+          }}
           className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors relative ${
             pageState === 'play' ? 'text-primary' : 'text-outline hover:text-on-surface'
           }`}

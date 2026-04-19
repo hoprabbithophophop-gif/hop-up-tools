@@ -18,11 +18,10 @@ interface VideoMeta {
 }
 
 interface Props {
-  onBack: () => void;
   sharedPlaylist?: SharedPlaylist | null;
 }
 
-export function PlayView({ onBack, sharedPlaylist }: Props) {
+export function PlayView({ sharedPlaylist }: Props) {
   const { state, addItem, startPlaylist } = useChapterPlaylistContext();
   const { queue, currentIndex } = state;
 
@@ -77,41 +76,6 @@ export function PlayView({ onBack, sharedPlaylist }: Props) {
 
   return (
     <div className="bg-surface text-on-surface flex flex-col" style={{ height: 'calc(100vh - 3rem)' }}>
-      {/* ヘッダー */}
-      <header className="shrink-0 bg-surface border-b border-outline-variant/20 px-4 h-12 flex items-center justify-between">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1 text-[0.6875rem] text-outline hover:text-primary transition-colors cursor-pointer"
-        >
-          <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>
-            expand_more
-          </span>
-          <span className="font-bold uppercase tracking-widest">NOW PLAYING</span>
-        </button>
-        <div className="flex items-center">
-          {sharedPlaylist && (
-            <button
-              onClick={() => startPlaylist(sharedPlaylist.items)}
-              className="w-10 h-10 flex items-center justify-center text-outline hover:text-primary transition-colors cursor-pointer"
-              aria-label="元のリストに戻す"
-              title="元のリストに戻す"
-            >
-              <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>restart_alt</span>
-            </button>
-          )}
-          <button
-            onClick={() => setShareOpen(true)}
-            className="w-10 h-10 flex items-center justify-center text-outline hover:text-primary transition-colors cursor-pointer"
-            aria-label="シェア"
-            disabled={queue.length === 0}
-          >
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>
-              share
-            </span>
-          </button>
-        </div>
-      </header>
-
       {/* 共有プレイリストバナー */}
       {sharedPlaylist && (
         <div className="shrink-0 bg-surface-container-low border-b border-outline-variant/20 px-4 py-2 flex items-center justify-between gap-3">
@@ -121,14 +85,23 @@ export function PlayView({ onBack, sharedPlaylist }: Props) {
               共有リスト: <span className="text-on-surface font-bold">{sharedPlaylist.title || '（タイトルなし）'}</span>
             </p>
           </div>
-          <a
-            href="/youtube"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 text-[0.6rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer whitespace-nowrap"
-          >
-            自分でも作る →
-          </a>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => startPlaylist(sharedPlaylist.items)}
+              className="text-[0.6rem] text-outline hover:text-primary transition-colors cursor-pointer"
+              aria-label="元のリストに戻す"
+            >
+              <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>restart_alt</span>
+            </button>
+            <a
+              href="/youtube"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[0.6rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer whitespace-nowrap"
+            >
+              自分でも作る →
+            </a>
+          </div>
         </div>
       )}
 
@@ -213,7 +186,7 @@ export function PlayView({ onBack, sharedPlaylist }: Props) {
           {trimOpen ? (
             <TrimPanel />
           ) : (
-            <QueueList />
+            <QueueList onShare={() => setShareOpen(true)} />
           )}
         </div>
 

@@ -3,11 +3,9 @@ import { getSupabase } from '../../../lib/supabase';
 import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistContext';
 import { SearchBar } from './SearchBar';
 import { FilterPanel } from './FilterPanel';
-import { FloatingBar } from './FloatingBar';
 import { VideoChapterSheet } from './VideoChapterSheet';
 import { ZappingCard } from './ZappingCard';
 import type { VideoRow } from './ZappingCard';
-import type { ChapterQueueItem } from '../../videos/types/playlist';
 import type { FilterState } from './FilterPanel';
 
 const PAGE_SIZE = 24;
@@ -29,12 +27,11 @@ const ALL_SUGGESTION_CANDIDATES = [
 ];
 
 interface Props {
-  onPlay: (items: ChapterQueueItem[]) => void;
   onBack: () => void;
 }
 
-export function SearchView({ onPlay, onBack }: Props) {
-  const { selection, state } = useChapterPlaylistContext();
+export function SearchView({ onBack }: Props) {
+  const { state, addItem } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
 
   const [sheetVideo, setSheetVideo] = useState<VideoRow | null>(null);
@@ -156,13 +153,8 @@ export function SearchView({ onPlay, onBack }: Props) {
 
   const isSearchMode = searchQuery.trim().length > 0;
 
-  const handlePlay = useCallback(() => {
-    const items = selection.getSelectedItemsInOrder();
-    if (items.length > 0) onPlay(items);
-  }, [selection, onPlay]);
-
   return (
-    <div className={`bg-surface text-on-surface min-h-screen ${hasQueue ? 'pb-[210px]' : 'pb-32'}`}>
+    <div className={`bg-surface text-on-surface min-h-screen ${hasQueue ? 'pb-[140px]' : 'pb-20'}`}>
       {/* ヘッダー */}
       <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20 px-4 py-3 flex items-center gap-3">
         <button
@@ -194,21 +186,6 @@ export function SearchView({ onPlay, onBack }: Props) {
             membersByGroup={MEMBERS_BY_GROUP}
           />
         </div>
-
-        {/* 選択中バナー */}
-        {selection.selectionCount > 0 && (
-          <div className="flex items-center gap-4 mb-3">
-            <p className="text-[0.6875rem] font-bold uppercase tracking-widest">
-              {selection.selectionCount}件選択中
-            </p>
-            <button
-              onClick={selection.clearSelection}
-              className="text-[0.625rem] uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer"
-            >
-              全解除
-            </button>
-          </div>
-        )}
 
         {/* 結果数 */}
         {!loading && !fetchError && videos.length > 0 && (
@@ -263,26 +240,15 @@ export function SearchView({ onPlay, onBack }: Props) {
         <div ref={sentinelRef} className="h-1" />
       </main>
 
-      {/* フローティングバー */}
-      <FloatingBar
-        count={selection.selectionCount}
-        onPlay={handlePlay}
-        onClear={selection.clearSelection}
-        bottomClass="bottom-12"
-      />
-
-      {/* チャプターシート */}
+      {/* チャプターシート（addモード: 選択即キュー追加） */}
       {sheetVideo && (
         <VideoChapterSheet
           video={sheetVideo}
           onClose={() => setSheetVideo(null)}
           mode={{
-            kind: 'selection',
-            getSelectionNumber: id => selection.getSelectionNumber(id),
-            onToggle: (id, item) => selection.toggleSelection(id, item),
-            onSelectAll: items => items.forEach(item => {
-              if (selection.getSelectionNumber(item.id) === 0) selection.toggleSelection(item.id, item);
-            }),
+            kind: 'add',
+            onAdd: item => addItem(item),
+            isInQueue: id => state.queue.some(q => q.id === id),
           }}
         />
       )}

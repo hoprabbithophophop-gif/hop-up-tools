@@ -130,7 +130,11 @@ function QueueItem({ item, idx, isPlaying, onJump, onRemove }: QueueItemProps) {
   );
 }
 
-export function QueueList() {
+interface QueueListProps {
+  onShare?: () => void;
+}
+
+export function QueueList({ onShare }: QueueListProps) {
   const { state, jumpTo, removeFromQueue } = useChapterPlaylistContext();
   const { queue, currentIndex } = state;
 
@@ -143,17 +147,33 @@ export function QueueList() {
   }
 
   return (
-    <div className="overflow-y-auto max-h-64">
-      {queue.map((item, idx) => (
-        <QueueItem
-          key={item.id}
-          item={item}
-          idx={idx}
-          isPlaying={idx === currentIndex}
-          onJump={() => jumpTo(idx)}
-          onRemove={() => removeFromQueue(item.id)}
-        />
-      ))}
+    <div>
+      {/* シェア・件数バー */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-outline-variant/10">
+        <p className="text-[0.6rem] text-outline uppercase tracking-widest">{queue.length}件</p>
+        {onShare && (
+          <button
+            onClick={onShare}
+            className="flex items-center gap-1 text-[0.6rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer"
+            aria-label="シェア"
+          >
+            <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>share</span>
+            Share
+          </button>
+        )}
+      </div>
+      <div className="overflow-y-auto max-h-64">
+        {queue.map((item, idx) => (
+          <QueueItem
+            key={item.id}
+            item={item}
+            idx={idx}
+            isPlaying={idx === currentIndex}
+            onJump={() => jumpTo(idx)}
+            onRemove={() => removeFromQueue(item.id)}
+          />
+        ))}
+      </div>
     </div>
   );
 }

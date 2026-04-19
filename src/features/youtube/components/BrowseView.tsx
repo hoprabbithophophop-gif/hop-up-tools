@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { getSupabase } from '../../../lib/supabase';
 import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistContext';
-import { FloatingBar } from './FloatingBar';
 import { VideoChapterSheet } from './VideoChapterSheet';
 import { ZappingCard } from './ZappingCard';
 import type { VideoRow } from './ZappingCard';
@@ -28,7 +27,7 @@ interface Props {
 }
 
 export function BrowseView({ onPlay }: Props) {
-  const { selection, state, playChapter } = useChapterPlaylistContext();
+  const { state, playChapter, addItem } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
 
   const [browseGroup, setBrowseGroup] = useState('');
@@ -156,19 +155,15 @@ export function BrowseView({ onPlay }: Props) {
     if (data) setSheetVideo(data as VideoRow);
   }, [videos]);
 
+  // 短タップ: ユーザージェスチャー内で即再生 + PlayView遷移
   const handleShortTap = useCallback((items: ChapterQueueItem[]) => {
     const first = items[0];
     if (first) playChapter(first.videoId, first.startSeconds, first.endSeconds);
     onPlay(items);
   }, [playChapter, onPlay]);
 
-  const handlePlay = useCallback(() => {
-    const items = selection.getSelectedItemsInOrder();
-    if (items.length > 0) onPlay(items);
-  }, [selection, onPlay]);
-
   return (
-    <div className={`bg-surface text-on-surface min-h-screen ${hasQueue ? 'pb-[210px]' : 'pb-32'}`}>
+    <div className={`bg-surface text-on-surface min-h-screen ${hasQueue ? 'pb-[140px]' : 'pb-20'}`}>
       {/* ヘッダー */}
       <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20">
         <div className="px-4 py-3 flex items-center gap-3">
@@ -315,21 +310,13 @@ export function BrowseView({ onPlay }: Props) {
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           className={`fixed right-4 z-30 w-10 h-10 bg-surface-container border border-outline-variant/30 flex items-center justify-center text-outline hover:text-primary shadow-md transition-colors cursor-pointer ${
-            hasQueue && selection.selectionCount > 0 ? 'bottom-[200px]' : hasQueue ? 'bottom-[140px]' : 'bottom-[64px]'
+            hasQueue ? 'bottom-[140px]' : 'bottom-[64px]'
           }`}
           aria-label="ページ上部に戻る"
         >
           <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>keyboard_arrow_up</span>
         </button>
       )}
-
-      {/* フローティングバー */}
-      <FloatingBar
-        count={selection.selectionCount}
-        onPlay={handlePlay}
-        onClear={selection.clearSelection}
-        bottomClass="bottom-12"
-      />
 
       {/* ヘルプモーダル */}
       {helpOpen && (
@@ -357,25 +344,21 @@ export function BrowseView({ onPlay }: Props) {
                   </li>
                   <li className="flex items-start gap-3">
                     <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-outline bg-surface-container px-1.5 py-0.5 mt-0.5 leading-snug">長押し</span>
-                    <span>チャプター選択シートを開く</span>
+                    <span>チャプター一覧を開く。選んだチャプターはそのままキューに追加される</span>
                   </li>
                 </ul>
               </section>
               <div className="border-t border-outline-variant/20" />
               <section>
-                <p className="text-[0.6rem] font-bold uppercase tracking-widest text-outline mb-3">検索モード（右上の虫眼鏡アイコン）</p>
+                <p className="text-[0.6rem] font-bold uppercase tracking-widest text-outline mb-3">チャプタータイトルをタップ</p>
                 <ul className="flex flex-col gap-2">
                   <li className="flex items-start gap-3">
-                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 mt-0.5 leading-snug">短タップ</span>
-                    <span>そのチャプターをすぐ再生</span>
+                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 mt-0.5 leading-snug">タイトル</span>
+                    <span>ミニプレーヤーでシーンをプレビュー再生</span>
                   </li>
                   <li className="flex items-start gap-3">
-                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-outline bg-surface-container px-1.5 py-0.5 mt-0.5 leading-snug">長押し</span>
-                    <span>親動画のチャプターシートを開く</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-outline bg-surface-container px-1.5 py-0.5 mt-0.5 leading-snug">＋ ボタン</span>
-                    <span>キューに追加してまとめて再生</span>
+                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-outline bg-surface-container px-1.5 py-0.5 mt-0.5 leading-snug">それ以外</span>
+                    <span>キューに追加。PLAYLISTタブで確認・再生</span>
                   </li>
                 </ul>
               </section>
@@ -384,18 +367,15 @@ export function BrowseView({ onPlay }: Props) {
         </div>
       )}
 
-      {/* チャプターシート */}
+      {/* チャプターシート（addモード: 選択即キュー追加） */}
       {sheetVideo && (
         <VideoChapterSheet
           video={sheetVideo}
           onClose={() => setSheetVideo(null)}
           mode={{
-            kind: 'selection',
-            getSelectionNumber: id => selection.getSelectionNumber(id),
-            onToggle: (id, item) => selection.toggleSelection(id, item),
-            onSelectAll: items => items.forEach(item => {
-              if (selection.getSelectionNumber(item.id) === 0) selection.toggleSelection(item.id, item);
-            }),
+            kind: 'add',
+            onAdd: item => addItem(item),
+            isInQueue: id => state.queue.some(q => q.id === id),
           }}
         />
       )}

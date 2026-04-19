@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import { makeChapterId, buildChapterQueueItems, buildFullVideoQueueItem, formatSeconds } from '../../videos/utils/playlist-utils';
 import type { ChapterQueueItem } from '../../videos/types/playlist';
 
@@ -58,6 +58,13 @@ interface Props {
   mode: SheetMode;
 }
 
+function buildPreviewSrc(item: ChapterQueueItem): string {
+  const start = Math.floor(item.startSeconds);
+  const hasEnd = isFinite(item.endSeconds) && item.endSeconds !== Number.MAX_SAFE_INTEGER;
+  const end = hasEnd ? `&end=${Math.floor(item.endSeconds)}` : '';
+  return `https://www.youtube.com/embed/${item.videoId}?start=${start}&autoplay=1&rel=0&controls=1${end}`;
+}
+
 export function VideoChapterSheet({ video, onClose, mode }: Props) {
   const chapters = useMemo(() => parseChapters(video.description_short), [video.description_short]);
 
@@ -75,6 +82,8 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
     channel_name: video.channel_name,
     thumbnail_url: video.thumbnail_url,
   }), [video]);
+
+  const [previewItem, setPreviewItem] = useState<ChapterQueueItem | null>(null);
 
   // Esc でも閉じる
   useEffect(() => {
@@ -142,6 +151,50 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
           </div>
         )}
 
+        {/* ミニプレビュー（吹き出し） */}
+        {previewItem && (
+          <div className="shrink-0 px-4 pt-3 border-b border-outline-variant/20 bg-surface">
+            <div className="bg-black rounded overflow-hidden shadow-xl">
+              {/* ヘッダー */}
+              <div className="flex items-center gap-2 px-3 py-1.5">
+                <span className="material-symbols-outlined leading-none text-white/50 shrink-0" style={{ fontSize: '14px' }}>
+                  play_circle
+                </span>
+                <p className="flex-1 min-w-0 text-white text-[0.625rem] font-bold truncate">
+                  {previewItem.chapterLabel}
+                </p>
+                <button
+                  onClick={() => setPreviewItem(null)}
+                  className="shrink-0 text-white/50 hover:text-white transition-colors cursor-pointer"
+                  aria-label="プレビューを閉じる"
+                >
+                  <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>close</span>
+                </button>
+              </div>
+              {/* YouTube iframe */}
+              <div className="w-full aspect-video">
+                <iframe
+                  key={previewItem.id}
+                  src={buildPreviewSrc(previewItem)}
+                  className="w-full h-full"
+                  allow="autoplay; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                  title={previewItem.chapterLabel}
+                />
+              </div>
+            </div>
+            {/* 吹き出し矢印（下向き → リストを指す） */}
+            <div className="flex justify-center mt-0 pb-0">
+              <div style={{
+                width: 0, height: 0,
+                borderLeft: '9px solid transparent',
+                borderRight: '9px solid transparent',
+                borderTop: '8px solid black',
+              }} />
+            </div>
+          </div>
+        )}
+
         {/* チャプターリスト */}
         <div className="overflow-y-auto flex-1">
           {/* 全編再生 */}
@@ -153,6 +206,8 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
             mode={mode}
             item={fullVideoItem}
             isFullVideo
+            onPreview={() => setPreviewItem(fullVideoItem)}
+            isPreviewActive={previewItem?.id === fullVideoItem.id}
           />
 
           {chapterItems.length === 0 && (
@@ -175,6 +230,8 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
               mode={mode}
               item={item}
               isFullVideo={false}
+              onPreview={() => setPreviewItem(item)}
+              isPreviewActive={previewItem?.id === item.id}
             />
           ))}
 
@@ -195,9 +252,11 @@ interface ChapterRowProps {
   mode: SheetMode;
   item: ChapterQueueItem;
   isFullVideo: boolean;
+  onPreview: () => void;
+  isPreviewActive: boolean;
 }
 
-function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo }: ChapterRowProps) {
+function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, onPreview, isPreviewActive }: ChapterRowProps) {
   if (mode.kind === 'selection') {
     const num = mode.getSelectionNumber(id);
     const isSelected = num > 0;
@@ -211,8 +270,16 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo }
           isSelected ? 'bg-black/5' : 'hover:bg-surface-container-low'
         }`}
       >
-        <div className="flex-1 min-w-0">
-          <p className="text-[0.8125rem] font-bold leading-snug truncate">{label}</p>
+        {/* タイトルエリア（タップでプレビュー、選択は伝播しない） */}
+        <div
+          className="flex-1 min-w-0"
+          onClick={e => { e.stopPropagation(); onPreview(); }}
+        >
+          <p className={`text-[0.8125rem] font-bold leading-snug truncate transition-colors ${
+            isPreviewActive ? 'text-primary' : ''
+          }`}>
+            {label}
+          </p>
           <p className="text-[0.625rem] font-mono text-outline/70 mt-0.5">{timeRange}</p>
         </div>
         {!isFullVideo && timestamp && (
@@ -233,29 +300,38 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo }
     );
   }
 
-  // add モード
+  // add モード：行全体タップ = キューに追加、タイトル部分タップ = プレビュー
   const inQueue = mode.isInQueue(id);
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 border-b border-outline-variant/10">
-      <div className="flex-1 min-w-0">
-        <p className="text-[0.8125rem] font-bold leading-snug truncate">{label}</p>
+    <div
+      className={`flex items-center gap-3 px-4 py-2.5 border-b border-outline-variant/10 transition-colors ${
+        inQueue ? 'bg-black/5' : 'hover:bg-surface-container-low cursor-pointer'
+      }`}
+      onClick={() => !inQueue && mode.onAdd(item)}
+    >
+      {/* タイトルエリア（タップでプレビュー・選択は伝播しない） */}
+      <div
+        className="flex-1 min-w-0"
+        onClick={e => { e.stopPropagation(); onPreview(); }}
+      >
+        <p className={`text-[0.8125rem] font-bold leading-snug truncate transition-colors ${
+          isPreviewActive ? 'text-primary' : ''
+        }`}>
+          {label}
+        </p>
         <p className="text-[0.625rem] font-mono text-outline/70 mt-0.5">{timeRange}</p>
       </div>
       {!isFullVideo && timestamp && (
         <span className="text-[0.625rem] font-mono text-outline shrink-0">{timestamp}</span>
       )}
-      <button
-        onClick={() => !inQueue && mode.onAdd(item)}
-        disabled={inQueue}
-        className={`shrink-0 w-9 h-9 flex items-center justify-center transition-colors cursor-pointer ${
-          inQueue ? 'text-primary' : 'text-outline hover:text-on-surface'
-        }`}
-        aria-label={inQueue ? 'キュー追加済み' : 'キューに追加'}
-      >
+      {/* キュー状態インジケーター（視覚のみ） */}
+      <div className={`shrink-0 w-9 h-9 flex items-center justify-center ${
+        inQueue ? 'text-primary' : 'text-outline'
+      }`}>
         <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>
           {inQueue ? 'check' : 'queue_music'}
         </span>
-      </button>
+      </div>
     </div>
   );
 }
