@@ -48,8 +48,8 @@ function ChapterPickupContent() {
   const browseScrollRef = useRef(0);
   const searchScrollRef = useRef(0);
 
-  // ボトムナビ(h-12=48px)分上にずらす（FloatingBar廃止により常時この値）
-  const miniBottom = 'bottom-12';
+  // フッター(20px) + タブバー(48px) = 68px。ミニバーはタブバーの上
+  const miniBottom = 'bottom-[68px]';
 
   useEffect(() => {
     document.title = 'HELLO! VIDEO | hop-up-tools';
@@ -118,91 +118,97 @@ function ChapterPickupContent() {
 
   const playerWrapClass =
     pageState === 'play'
-      ? 'fixed top-12 left-0 right-0 aspect-video z-20'
+      ? 'fixed top-[60px] left-0 right-0 z-20'
       : hasQueue
       ? `fixed ${miniBottom} left-0 w-32 h-[72px] z-40`
       : 'hidden';
 
+  const playerStyle = pageState === 'play' ? { height: '28vh' } : undefined;
+
   return (
-    <>
+    <div className="yt-page bg-white text-black" style={{ fontFamily: "'Inter', 'Noto Sans JP', sans-serif" }}>
       {/* YouTube Player — 常時マウント、位置のみ切替 */}
-      <div className={playerWrapClass}>
+      <div className={playerWrapClass} style={playerStyle}>
         <Player />
       </div>
 
-      {/* ミニプレーヤー情報バー（browse/search + queue 時） */}
+      {/* NOW PLAYING ミニバー（browse/search + queue 時） */}
       {isNotPlay && hasQueue && (
         <div
           data-testid="mini-player"
-          className={`fixed ${miniBottom} left-32 right-0 h-[72px] z-40 bg-black flex items-center px-3 gap-2 cursor-pointer border-l border-white/10`}
+          className={`fixed ${miniBottom} left-32 right-0 h-[72px] z-40 bg-black flex items-center px-3 gap-2 cursor-pointer`}
           onClick={() => setPageState('play')}
         >
           <div className="flex-1 min-w-0">
-            <p className="text-[0.6rem] uppercase tracking-widest text-white/50 leading-none mb-1">
+            <p className="text-[0.7rem] font-thin uppercase tracking-widest text-white/50 leading-none mb-1">
               NOW PLAYING
             </p>
-            <p className="text-white text-[0.75rem] font-bold truncate leading-tight">
+            <p className="text-white text-[0.7rem] font-thin truncate leading-tight">
               {currentItem?.chapterLabel ?? ''}
             </p>
-            {currentItem?.channelName && (
-              <p className="text-white/50 text-[0.625rem] truncate mt-0.5">
-                {currentItem.channelName}
-              </p>
-            )}
           </div>
           <button
             onClick={e => {
               e.stopPropagation();
               state.isPlaying ? pause() : resume();
             }}
-            className="shrink-0 w-9 h-9 flex items-center justify-center text-white hover:text-white/70 transition-colors cursor-pointer"
+            className="shrink-0 w-9 h-9 flex items-center justify-center text-white cursor-pointer"
             aria-label={state.isPlaying ? '一時停止' : '再生'}
           >
             <span className="material-symbols-outlined leading-none" style={{ fontSize: '24px' }}>
               {state.isPlaying ? 'pause' : 'play_arrow'}
             </span>
           </button>
-          <span className="material-symbols-outlined leading-none text-white/40 shrink-0" style={{ fontSize: '18px' }}>
-            expand_less
-          </span>
+        </div>
+      )}
+
+      {/* ミニプレーヤー サムネイル（browse/search + queue 時） */}
+      {isNotPlay && hasQueue && currentItem && (
+        <div
+          className={`fixed ${miniBottom} left-0 w-32 h-[72px] z-40 cursor-pointer`}
+          onClick={() => setPageState('play')}
+        >
+          <img
+            src={`https://i.ytimg.com/vi/${currentItem.videoId}/mqdefault.jpg`}
+            alt=""
+            className="w-full h-full object-cover"
+          />
         </div>
       )}
 
       {/* BrowseView */}
-      <div className={pageState === 'browse' ? '' : 'hidden'}>
+      <div className={pageState === 'browse' ? 'pb-[68px]' : 'hidden'}>
         <BrowseView onPlay={handlePlay} />
       </div>
 
       {/* SearchView: 初回遷移後にマウント */}
       {searchMounted && (
-        <div className={pageState === 'search' ? '' : 'hidden'}>
+        <div className={pageState === 'search' ? 'pb-[68px]' : 'hidden'}>
           <SearchView onBack={handleGoToBrowse} />
         </div>
       )}
 
       {/* PlayView: 常時 DOM 保持（IFrame維持のため） */}
-      <div data-testid="play-view" className={pageState === 'play' ? '' : 'hidden'}>
+      <div data-testid="play-view" className={pageState === 'play' ? 'pb-[68px]' : 'hidden'}>
         <PlayView sharedPlaylist={sharedPlaylist} />
       </div>
 
-      {/* ボトムナビ（常時表示） */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 h-12 bg-surface border-t border-outline-variant/20 flex">
+      {/* タブバー */}
+      <nav className="fixed bottom-[20px] left-0 right-0 z-50 h-12 bg-white flex">
         <button
           onClick={handleGoToBrowse}
-          className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors ${
-            pageState === 'browse' ? 'text-primary' : 'text-outline hover:text-on-surface'
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+            pageState === 'browse' ? 'text-black' : 'text-black/30'
           }`}
         >
-          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>home</span>
           <span className="text-[0.5rem] font-bold uppercase tracking-widest">Browse</span>
         </button>
         <button
           onClick={handleGoToSearch}
-          className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors ${
-            pageState === 'search' ? 'text-primary' : 'text-outline hover:text-on-surface'
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+            pageState === 'search' ? 'text-black' : 'text-black/30'
           }`}
         >
-          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>search</span>
           <span className="text-[0.5rem] font-bold uppercase tracking-widest">Search</span>
         </button>
         <button
@@ -210,22 +216,28 @@ function ChapterPickupContent() {
             prevStateRef.current = pageState !== 'play' ? pageState : prevStateRef.current;
             setPageState('play');
           }}
-          className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors relative ${
-            pageState === 'play' ? 'text-primary' : 'text-outline hover:text-on-surface'
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer relative ${
+            pageState === 'play' ? 'text-black' : 'text-black/30'
           }`}
         >
           <span className="relative inline-block">
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>queue_music</span>
+            <span className="text-[0.5rem] font-bold uppercase tracking-widest">Playlist</span>
             {hasQueue && pageState !== 'play' && (
-              <span className="absolute -top-1 -right-2 min-w-[14px] h-[14px] bg-primary text-white text-[8px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+              <span className="absolute -top-1 -right-3 min-w-[14px] h-[14px] bg-black text-white text-[8px] font-bold flex items-center justify-center px-0.5 leading-none">
                 {state.queue.length}
               </span>
             )}
           </span>
-          <span className="text-[0.5rem] font-bold uppercase tracking-widest">Playlist</span>
         </button>
       </nav>
-    </>
+
+      {/* フッター */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 h-[20px] bg-black flex items-center justify-center">
+        <span className="text-white text-[0.6rem] font-thin tracking-wide">
+          ▶ YouTube · Unofficial Fan Tool · hop-up-tools.pages.dev
+        </span>
+      </div>
+    </div>
   );
 }
 

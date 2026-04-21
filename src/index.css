@@ -7,7 +7,20 @@ html {
 
 body {
   font-family: 'Inter', 'Noto Sans JP', sans-serif;
-  color: #191c1d;
+  color: #000000;
+}
+
+/* /youtube デザイントークン */
+.yt-page {
+  --yt-font: 'Inter', 'Noto Sans JP', sans-serif;
+  --yt-color-bg: #ffffff;
+  --yt-color-fg: #000000;
+  --yt-color-muted: #f0f0f0;
+  --yt-space-unit: 0.2rem;
+  --yt-gap-text: 0.2rem;
+  --yt-gap-item: 0.8rem;
+  --yt-gap-section: 2.4rem;
+  --yt-radius: 0;
 }
 
 /* フローティングバー スライドイン */

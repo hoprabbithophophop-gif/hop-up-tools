@@ -84,6 +84,8 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
   }), [video]);
 
   const [previewItem, setPreviewItem] = useState<ChapterQueueItem | null>(null);
+  const [descOpen, setDescOpen] = useState(false);
+  const hasDescription = Boolean(video.description_short?.trim());
 
   // Esc でも閉じる
   useEffect(() => {
@@ -107,71 +109,83 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
         aria-hidden="true"
       />
 
-      {/* シートパネル（デスクトップは最大幅制限+センタリング） */}
+      {/* シートパネル */}
       <div className="w-full max-w-lg mx-auto">
-      <div className="relative bg-surface rounded-t-2xl max-h-[85vh] flex flex-col shadow-2xl">
-        {/* ハンドルバー */}
-        <div className="flex justify-center pt-2 pb-1 shrink-0">
-          <div className="w-10 h-1 rounded-full bg-outline-variant/40" />
-        </div>
-
+      <div className="relative bg-white max-h-[70vh] flex flex-col">
         {/* 動画情報ヘッダー */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-outline-variant/20 shrink-0">
-          <img
-            src={video.thumbnail_url}
-            alt={video.title}
-            className="w-16 shrink-0 object-cover"
-            style={{ height: '36px', aspectRatio: '16/9' }}
-          />
-          <div className="flex-1 min-w-0">
-            <p className="text-[0.75rem] font-bold leading-snug line-clamp-2">{video.title}</p>
-            <p className="text-[0.625rem] text-outline mt-0.5">{video.channel_name}</p>
+        <div className="shrink-0">
+          <div className="flex items-center gap-3 px-4 py-3">
+            <img
+              src={`https://i.ytimg.com/vi/${video.video_id}/mqdefault.jpg`}
+              alt={video.title}
+              className="w-16 shrink-0 object-cover"
+              style={{ height: '36px', aspectRatio: '16/9' }}
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-[0.8rem] font-bold leading-snug line-clamp-2">{video.title}</p>
+              <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{video.channel_name}</p>
+            </div>
+            {hasDescription && (
+              <button
+                onClick={() => setDescOpen(v => !v)}
+                className="w-8 h-8 flex items-center justify-center cursor-pointer shrink-0 text-black/30"
+                aria-label={descOpen ? '概要を閉じる' : '概要を見る'}
+              >
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>
+                  {descOpen ? 'expand_less' : 'subject'}
+                </span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center text-black/30 cursor-pointer shrink-0"
+              aria-label="閉じる"
+            >
+              <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px' }}>close</span>
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="w-10 h-10 flex items-center justify-center text-outline hover:text-on-surface transition-colors cursor-pointer shrink-0"
-            aria-label="閉じる"
-          >
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px' }}>close</span>
-          </button>
+
+          {/* 概要欄（展開時） */}
+          {descOpen && (
+            <div className="px-4 py-3 max-h-48 overflow-y-auto bg-black/5">
+              <p className="text-[0.7rem] font-thin text-black/60 whitespace-pre-wrap leading-relaxed">
+                {video.description_short}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* アクションバー（選択モード時：全選択ボタン） */}
         {mode.kind === 'selection' && chapterItems.length > 0 && (
-          <div className="px-4 py-2 border-b border-outline-variant/10 shrink-0 flex items-center justify-between">
-            <p className="text-[0.6rem] text-outline uppercase tracking-widest">
-              {chapters.length}チャプター
+          <div className="px-4 py-2 shrink-0 flex items-center justify-between">
+            <p className="text-[0.7rem] font-thin text-black/40 uppercase tracking-widest">
+              {chapters.length} chapters
             </p>
             <button
               onClick={() => mode.onSelectAll(chapterItems)}
-              className="text-[0.6875rem] font-bold uppercase tracking-widest text-primary hover:opacity-70 transition-opacity cursor-pointer"
+              className="text-[0.8rem] font-bold uppercase cursor-pointer"
             >
               全て選択
             </button>
           </div>
         )}
 
-        {/* ミニプレビュー（吹き出し） */}
+        {/* ミニプレビュー */}
         {previewItem && (
-          <div className="shrink-0 px-4 pt-3 border-b border-outline-variant/20 bg-surface">
-            <div className="bg-black rounded overflow-hidden shadow-xl">
-              {/* ヘッダー */}
+          <div className="shrink-0 px-4 pt-3 pb-2 bg-white">
+            <div className="bg-black overflow-hidden">
               <div className="flex items-center gap-2 px-3 py-1.5">
-                <span className="material-symbols-outlined leading-none text-white/50 shrink-0" style={{ fontSize: '14px' }}>
-                  play_circle
-                </span>
-                <p className="flex-1 min-w-0 text-white text-[0.625rem] font-bold truncate">
+                <p className="flex-1 min-w-0 text-white text-[0.7rem] font-thin truncate">
                   {previewItem.chapterLabel}
                 </p>
                 <button
                   onClick={() => setPreviewItem(null)}
-                  className="shrink-0 text-white/50 hover:text-white transition-colors cursor-pointer"
+                  className="shrink-0 text-white/50 cursor-pointer"
                   aria-label="プレビューを閉じる"
                 >
                   <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>close</span>
                 </button>
               </div>
-              {/* YouTube iframe */}
               <div className="w-full aspect-video">
                 <iframe
                   key={previewItem.id}
@@ -183,15 +197,6 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
                 />
               </div>
             </div>
-            {/* 吹き出し矢印（下向き → リストを指す） */}
-            <div className="flex justify-center mt-0 pb-0">
-              <div style={{
-                width: 0, height: 0,
-                borderLeft: '9px solid transparent',
-                borderRight: '9px solid transparent',
-                borderTop: '8px solid black',
-              }} />
-            </div>
           </div>
         )}
 
@@ -200,9 +205,9 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
           {/* 全編再生 */}
           <ChapterRow
             id={fullVideoItem.id}
-            label={fullVideoItem.chapterLabel}
+            label="全編再生"
             timestamp=""
-            timeRange="全編再生"
+            timeRange=""
             mode={mode}
             item={fullVideoItem}
             isFullVideo
@@ -211,7 +216,7 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
           />
 
           {chapterItems.length === 0 && (
-            <p className="px-4 py-4 text-[0.6875rem] text-outline">
+            <p className="px-4 py-4 text-[0.7rem] font-thin text-black/40">
               チャプター情報がありません
             </p>
           )}
@@ -235,7 +240,18 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
             />
           ))}
 
-          {/* 下部余白 */}
+          {/* すべてをキューに追加 */}
+          {mode.kind === 'add' && chapterItems.length > 0 && (
+            <div className="px-4 py-4">
+              <button
+                onClick={() => chapterItems.forEach(ci => { if (!mode.isInQueue(ci.id)) mode.onAdd(ci); })}
+                className="w-full py-3 bg-black text-white text-[0.8rem] font-bold uppercase cursor-pointer"
+              >
+                すべてをキューに追加
+              </button>
+            </div>
+          )}
+
           <div className="h-6" />
         </div>
       </div>
@@ -266,32 +282,29 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, 
         role="button"
         tabIndex={0}
         onKeyDown={e => e.key === 'Enter' && mode.onToggle(id, item)}
-        className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors border-b border-outline-variant/10 ${
-          isSelected ? 'bg-black/5' : 'hover:bg-surface-container-low'
+        className={`flex items-center gap-3 px-4 py-[0.8rem] cursor-pointer ${
+          isSelected ? 'bg-[#F0F0F0]' : ''
         }`}
       >
-        {/* タイトルエリア（タップでプレビュー、選択は伝播しない） */}
         <div
           className="flex-1 min-w-0"
           onClick={e => { e.stopPropagation(); onPreview(); }}
         >
-          <p className={`text-[0.8125rem] font-bold leading-snug truncate transition-colors ${
-            isPreviewActive ? 'text-primary' : ''
-          }`}>
+          <p className={`text-[0.8rem] font-bold leading-snug truncate ${isPreviewActive ? 'text-black' : ''}`}>
             {label}
           </p>
-          <p className="text-[0.625rem] font-mono text-outline/70 mt-0.5">{timeRange}</p>
+          {timeRange && <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{timeRange}</p>}
         </div>
         {!isFullVideo && timestamp && (
-          <span className="text-[0.625rem] font-mono text-outline shrink-0">{timestamp}</span>
+          <span className="text-[0.7rem] font-thin text-black/40 shrink-0">{timestamp}</span>
         )}
         <div className="shrink-0 w-9 h-9 flex items-center justify-center">
           {isSelected ? (
-            <span className="w-6 h-6 bg-black text-white flex items-center justify-center text-[0.625rem] font-bold leading-none">
+            <span className="w-6 h-6 bg-black text-white flex items-center justify-center text-[0.7rem] font-bold leading-none">
               {num}
             </span>
           ) : (
-            <span className="w-6 h-6 border border-outline/40 flex items-center justify-center text-outline">
+            <span className="w-6 h-6 bg-black/10 flex items-center justify-center text-black/40">
               <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>add</span>
             </span>
           )}
@@ -300,37 +313,32 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, 
     );
   }
 
-  // add モード：行全体タップ = キューに追加、タイトル部分タップ = プレビュー
   const inQueue = mode.isInQueue(id);
   return (
     <div
-      className={`flex items-center gap-3 px-4 py-2.5 border-b border-outline-variant/10 transition-colors ${
-        inQueue ? 'bg-black/5' : 'hover:bg-surface-container-low cursor-pointer'
+      className={`flex items-center gap-3 px-4 py-[0.8rem] ${
+        inQueue ? 'bg-[#F0F0F0]' : 'cursor-pointer'
       }`}
       onClick={() => !inQueue && mode.onAdd(item)}
     >
-      {/* タイトルエリア（タップでプレビュー・選択は伝播しない） */}
       <div
         className="flex-1 min-w-0"
         onClick={e => { e.stopPropagation(); onPreview(); }}
       >
-        <p className={`text-[0.8125rem] font-bold leading-snug truncate transition-colors ${
-          isPreviewActive ? 'text-primary' : ''
-        }`}>
+        <p className={`text-[0.8rem] font-bold leading-snug truncate ${isPreviewActive ? 'text-black' : ''}`}>
           {label}
         </p>
-        <p className="text-[0.625rem] font-mono text-outline/70 mt-0.5">{timeRange}</p>
+        {timeRange && <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{timeRange}</p>}
       </div>
       {!isFullVideo && timestamp && (
-        <span className="text-[0.625rem] font-mono text-outline shrink-0">{timestamp}</span>
+        <span className="text-[0.7rem] font-thin text-black/40 shrink-0">{timestamp}</span>
       )}
-      {/* キュー状態インジケーター（視覚のみ） */}
-      <div className={`shrink-0 w-9 h-9 flex items-center justify-center ${
-        inQueue ? 'text-primary' : 'text-outline'
-      }`}>
-        <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>
-          {inQueue ? 'check' : 'queue_music'}
-        </span>
+      <div className="shrink-0 w-9 h-9 flex items-center justify-center text-black/30">
+        {inQueue ? (
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>check</span>
+        ) : (
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>queue_music</span>
+        )}
       </div>
     </div>
   );

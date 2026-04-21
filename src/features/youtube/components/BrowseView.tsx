@@ -163,209 +163,94 @@ export function BrowseView({ onPlay }: Props) {
   }, [playChapter, onPlay]);
 
   return (
-    <div className={`bg-surface text-on-surface min-h-screen ${hasQueue ? 'pb-[140px]' : 'pb-20'}`}>
-      {/* ヘッダー */}
-      <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20">
-        <div className="px-4 py-3 flex items-center gap-3">
-          <a href="/" className="material-symbols-outlined text-primary leading-none">arrow_back</a>
-          <h1 className="text-xl font-black tracking-tighter uppercase flex-1">HELLO! VIDEO</h1>
-          <button
-            onClick={() => setHelpOpen(true)}
-            className="w-8 h-8 flex items-center justify-center text-outline hover:text-primary transition-colors cursor-pointer"
-            aria-label="使い方"
-          >
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>help_outline</span>
-          </button>
-        </div>
-        {/* GROUPチップ（横スクロール） */}
-        <div className="px-4 pb-2 flex gap-3 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-          <GroupChip label="ALL" active={!browseGroup} onClick={() => setBrowseGroup('')} />
-          {GROUP_CHIPS.map(g => (
-            <GroupChip
-              key={g}
-              label={g}
-              active={browseGroup === g}
-              onClick={() => setBrowseGroup(prev => prev === g ? '' : g)}
-            />
-          ))}
-        </div>
-      </header>
+    <div className="bg-white text-black min-h-screen">
+      <main className="max-w-3xl mx-auto px-4 pt-6">
+        {/* 画面見出し */}
+        <h1 className="text-[1.4rem] font-bold uppercase mb-[2.4rem]">BROWSE</h1>
 
-      <main className="max-w-3xl mx-auto px-4 pt-4">
-        {/* PICK / RECENT フォルダータブ */}
-        {(pickVideos.length > 0 || playHistory.length > 0) && (
-          <div className="mb-4">
-            <div className="flex items-end">
-              {pickVideos.length > 0 && (
-                <button
-                  onClick={() => setActivePickTab('pick')}
-                  className={`px-4 h-8 text-[0.6rem] font-bold uppercase tracking-widest border border-b-0 transition-colors cursor-pointer relative z-10 -mb-px ${
-                    activePickTab === 'pick'
-                      ? 'border-outline-variant/40 bg-surface-container text-on-surface'
-                      : 'border-transparent text-outline hover:text-on-surface'
-                  }`}
-                >
-                  Pick
-                </button>
-              )}
-              {playHistory.length > 0 && (
-                <button
-                  onClick={() => setActivePickTab('recent')}
-                  className={`px-4 h-8 text-[0.6rem] font-bold uppercase tracking-widest border border-b-0 transition-colors cursor-pointer relative z-10 -mb-px ${
-                    activePickTab === 'recent'
-                      ? 'border-outline-variant/40 bg-surface-container text-on-surface'
-                      : 'border-transparent text-outline hover:text-on-surface'
-                  }`}
-                >
-                  Recent
-                </button>
-              )}
-              <div className="flex-1 border-b border-outline-variant/40" />
+        {/* PICK セクション */}
+        {pickVideos.length > 0 && (
+          <section className="mb-[2.4rem]">
+            <div className="flex items-center gap-3 mb-[0.8rem]">
+              <h2 className="text-[1rem] font-bold uppercase">PICK</h2>
+              <button
+                onClick={() => fetchPickVideos(browseGroup)}
+                className="text-[0.7rem] font-thin text-black/50 cursor-pointer"
+              >
+                shuffle
+              </button>
             </div>
-            <div className="border border-outline-variant/40 bg-surface-container p-3">
-              <div className="grid grid-cols-3 gap-2">
-                {activePickTab === 'pick' && (
-                  <>
-                    {pickVideos.map(v => (
-                      <PickFolderCard
-                        key={v.video_id}
-                        thumbnail={v.thumbnail_url}
-                        label={v.title}
-                        onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
-                        onLongPress={() => setSheetVideo(v)}
-                      />
-                    ))}
-                    {Array.from({ length: Math.max(0, 3 - pickVideos.length) }, (_, i) => (
-                      <div key={i} className="aspect-video bg-surface-container-high border border-dashed border-outline-variant/20" />
-                    ))}
-                  </>
-                )}
-                {activePickTab === 'recent' && (
-                  <>
-                    {playHistory.slice(0, 3).map(h => (
-                      <PickFolderCard
-                        key={`${h.videoId}-${h.startSeconds}`}
-                        thumbnail={h.thumbnailUrl}
-                        label={h.chapterLabel}
-                        onShortTap={() => handleShortTap([historyItemToQueueItem(h)])}
-                        onLongPress={() => handleRecentLongPress(h.videoId)}
-                      />
-                    ))}
-                    {Array.from({ length: Math.max(0, 3 - Math.min(playHistory.length, 3)) }, (_, i) => (
-                      <div key={i} className="aspect-video bg-surface-container-high border border-dashed border-outline-variant/20" />
-                    ))}
-                  </>
-                )}
-              </div>
+            <div className="flex gap-[0.8rem] overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+              {pickVideos.map(v => (
+                <div
+                  key={v.video_id}
+                  className="shrink-0 w-[80vw] max-w-[400px] cursor-pointer"
+                  style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
+                >
+                  <PickCard
+                    video={v}
+                    onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
+                    onLongPress={() => setSheetVideo(v)}
+                  />
+                </div>
+              ))}
             </div>
-          </div>
+          </section>
         )}
+
+        {/* Group Filter */}
+        <section className="mb-[2.4rem]">
+          <div className="flex gap-4 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+            <GroupChip label="ALL" active={!browseGroup} onClick={() => setBrowseGroup('')} />
+            {GROUP_CHIPS.map(g => (
+              <GroupChip
+                key={g}
+                label={g}
+                active={browseGroup === g}
+                onClick={() => setBrowseGroup(prev => prev === g ? '' : g)}
+              />
+            ))}
+          </div>
+        </section>
 
         {/* エラー */}
         {fetchError && (
           <div className="flex flex-col items-center justify-center h-32 gap-3">
-            <p className="text-xs text-outline">読み込みエラー。再度お試しください。</p>
+            <p className="text-[0.7rem] font-thin text-black/50">読み込みエラー。再度お試しください。</p>
             <button
               onClick={() => { setFetchError(false); fetchVideos(browseGroup, 0, true); }}
-              className="text-[0.6875rem] font-bold uppercase tracking-widest text-primary hover:opacity-70 transition-opacity cursor-pointer border border-primary px-3 py-1.5"
+              className="text-[0.8rem] font-bold uppercase text-black cursor-pointer px-4 py-2 bg-black text-white"
             >
               再試行
             </button>
           </div>
         )}
 
-        {/* ザッピンググリッド */}
+        {/* 非均質グリッド */}
         {!fetchError && videos.length > 0 && (
-          <div className="grid grid-cols-2 gap-px bg-outline-variant/10 border-t border-outline-variant/10">
-            {videos.map(v => (
-              <ZappingCard
-                key={v.video_id}
-                video={v}
-                onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
-                onLongPress={() => setSheetVideo(v)}
-              />
-            ))}
-          </div>
+          <NonUniformGrid
+            videos={videos}
+            onShortTap={v => handleShortTap([buildFullVideoQueueItem(v)])}
+            onLongPress={v => setSheetVideo(v)}
+          />
         )}
 
         {/* 空状態 */}
         {!loading && !fetchError && videos.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-40 gap-2 text-outline">
-            <p className="text-xs uppercase tracking-widest">動画が見つかりませんでした</p>
+          <div className="flex items-center justify-center h-40">
+            <p className="text-[0.7rem] font-thin text-black/50 uppercase tracking-widest">動画が見つかりませんでした</p>
           </div>
         )}
 
         {/* ローディング */}
         {loading && (
           <div className="flex items-center justify-center h-16">
-            <p className="text-[0.6rem] text-outline uppercase tracking-widest">読み込み中...</p>
+            <p className="text-[0.7rem] font-thin text-black/50 uppercase tracking-widest">読み込み中...</p>
           </div>
         )}
 
         <div ref={sentinelRef} className="h-1" />
       </main>
-
-      {/* ページTOPへ戻るボタン */}
-      {showScrollTop && (
-        <button
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className={`fixed right-4 z-30 w-10 h-10 bg-surface-container border border-outline-variant/30 flex items-center justify-center text-outline hover:text-primary shadow-md transition-colors cursor-pointer ${
-            hasQueue ? 'bottom-[140px]' : 'bottom-[64px]'
-          }`}
-          aria-label="ページ上部に戻る"
-        >
-          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>keyboard_arrow_up</span>
-        </button>
-      )}
-
-      {/* ヘルプモーダル */}
-      {helpOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
-          onClick={() => setHelpOpen(false)}
-        >
-          <div
-            className="bg-surface-container-lowest w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-sm shadow-xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant/20">
-              <h2 className="text-sm font-bold uppercase tracking-widest">使い方</h2>
-              <button onClick={() => setHelpOpen(false)} className="text-outline hover:text-primary transition-colors cursor-pointer" aria-label="閉じる">
-                <span className="material-symbols-outlined text-xl">close</span>
-              </button>
-            </div>
-            <div className="px-6 py-6 flex flex-col gap-6 text-[0.8125rem] text-on-surface-variant">
-              <section>
-                <p className="text-[0.6rem] font-bold uppercase tracking-widest text-outline mb-3">動画一覧（グリッド）</p>
-                <ul className="flex flex-col gap-2">
-                  <li className="flex items-start gap-3">
-                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 mt-0.5 leading-snug">短タップ</span>
-                    <span>全編再生をすぐスタート</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-outline bg-surface-container px-1.5 py-0.5 mt-0.5 leading-snug">長押し</span>
-                    <span>チャプター一覧を開く。選んだチャプターはそのままキューに追加される</span>
-                  </li>
-                </ul>
-              </section>
-              <div className="border-t border-outline-variant/20" />
-              <section>
-                <p className="text-[0.6rem] font-bold uppercase tracking-widest text-outline mb-3">チャプタータイトルをタップ</p>
-                <ul className="flex flex-col gap-2">
-                  <li className="flex items-start gap-3">
-                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 mt-0.5 leading-snug">タイトル</span>
-                    <span>ミニプレーヤーでシーンをプレビュー再生</span>
-                  </li>
-                  <li className="flex items-start gap-3">
-                    <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-wider text-outline bg-surface-container px-1.5 py-0.5 mt-0.5 leading-snug">それ以外</span>
-                    <span>キューに追加。PLAYLISTタブで確認・再生</span>
-                  </li>
-                </ul>
-              </section>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* チャプターシート（addモード: 選択即キュー追加） */}
       {sheetVideo && (
@@ -389,8 +274,8 @@ function GroupChip({ label, active, onClick }: { label: string; active: boolean;
   return (
     <button
       onClick={onClick}
-      className={`shrink-0 text-[0.6rem] font-bold pb-0.5 transition-colors cursor-pointer whitespace-nowrap ${
-        active ? 'text-primary border-b-2 border-primary' : 'text-outline hover:text-on-surface'
+      className={`shrink-0 text-[0.7rem] whitespace-nowrap cursor-pointer px-2 py-1 ${
+        active ? 'bg-black text-white font-bold' : 'text-black/40 font-normal'
       }`}
     >
       {label}
@@ -398,16 +283,11 @@ function GroupChip({ label, active, onClick }: { label: string; active: boolean;
   );
 }
 
-// ─── PickFolderCard ───────────────────────────────────────────────────────────
+// ─── PickCard（大カード、PICKセクション用）───────────────────────────────────
 
-interface PickFolderCardProps {
-  thumbnail: string;
-  label: string;
-  onShortTap: () => void;
-  onLongPress?: () => void;
-}
+const LONG_PRESS_MS = 400;
 
-function PickFolderCard({ thumbnail, label, onShortTap, onLongPress }: PickFolderCardProps) {
+function PickCard({ video, onShortTap, onLongPress }: { video: VideoRow; onShortTap: () => void; onLongPress: () => void }) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firedRef = useRef(false);
   const movedRef = useRef(false);
@@ -420,17 +300,12 @@ function PickFolderCard({ thumbnail, label, onShortTap, onLongPress }: PickFolde
     startXRef.current = e.clientX;
     startYRef.current = e.clientY;
     timerRef.current = setTimeout(() => {
-      if (!movedRef.current) {
-        firedRef.current = true;
-        onLongPress?.();
-      }
-    }, LONG_PRESS_DELAY);
+      if (!movedRef.current) { firedRef.current = true; onLongPress(); }
+    }, LONG_PRESS_MS);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (movedRef.current) return;
-    const dx = Math.abs(e.clientX - startXRef.current);
-    const dy = Math.abs(e.clientY - startYRef.current);
-    if (dx > 8 || dy > 8) {
+    if (Math.abs(e.clientX - startXRef.current) > 8 || Math.abs(e.clientY - startYRef.current) > 8) {
       movedRef.current = true;
       if (timerRef.current) clearTimeout(timerRef.current);
     }
@@ -448,26 +323,156 @@ function PickFolderCard({ thumbnail, label, onShortTap, onLongPress }: PickFolde
   };
 
   return (
-    <button
-      className="flex flex-col text-left cursor-pointer group w-full"
-      style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
-      onPointerDown={onLongPress ? onPointerDown : undefined}
-      onPointerMove={onLongPress ? onPointerMove : undefined}
-      onPointerUp={onLongPress ? onPointerUp : undefined}
-      onPointerCancel={onLongPress ? onPointerCancel : undefined}
+    <div
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
       onContextMenu={e => e.preventDefault()}
-      onClick={onLongPress ? undefined : onShortTap}
     >
-      <div className="w-full aspect-video overflow-hidden bg-surface-container-high">
+      <div className="relative w-full overflow-hidden bg-black/5">
         <img
-          src={thumbnail}
-          alt={label}
-          className="w-full h-full object-cover group-hover:opacity-80 transition-opacity"
+          src={`https://i.ytimg.com/vi/${video.video_id}/mqdefault.jpg`}
+          alt={video.title}
+          className="w-full object-cover"
+          style={{ aspectRatio: '16/9' }}
+          loading="lazy"
           draggable={false}
-          style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
         />
+        <span className="absolute top-0 left-0 text-[0.6rem] font-bold uppercase text-white bg-black px-1.5 py-0.5 leading-tight">
+          {video.video_type?.toUpperCase() || 'VIDEO'}
+        </span>
       </div>
-      <p className="text-[0.55rem] leading-tight truncate mt-0.5 w-full text-on-surface/80">{label}</p>
-    </button>
+      <div className="mt-[0.2rem]">
+        <p className="text-[0.8rem] font-bold leading-snug line-clamp-2">{video.title}</p>
+        <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{video.channel_name}</p>
+      </div>
+    </div>
   );
+}
+
+// ─── VideoCard（グリッド用：大/小）──────────────────────────────────────────
+
+function VideoCard({ video, size, onShortTap, onLongPress }: {
+  video: VideoRow;
+  size: 'large' | 'small';
+  onShortTap: () => void;
+  onLongPress: () => void;
+}) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firedRef = useRef(false);
+  const movedRef = useRef(false);
+  const startXRef = useRef(0);
+  const startYRef = useRef(0);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    firedRef.current = false;
+    movedRef.current = false;
+    startXRef.current = e.clientX;
+    startYRef.current = e.clientY;
+    timerRef.current = setTimeout(() => {
+      if (!movedRef.current) { firedRef.current = true; onLongPress(); }
+    }, LONG_PRESS_MS);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (movedRef.current) return;
+    if (Math.abs(e.clientX - startXRef.current) > 8 || Math.abs(e.clientY - startYRef.current) > 8) {
+      movedRef.current = true;
+      if (timerRef.current) clearTimeout(timerRef.current);
+    }
+  };
+  const onPointerUp = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (!firedRef.current && !movedRef.current) onShortTap();
+    firedRef.current = false;
+    movedRef.current = false;
+  };
+  const onPointerCancel = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    firedRef.current = false;
+    movedRef.current = false;
+  };
+
+  return (
+    <div
+      className="cursor-pointer"
+      style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onContextMenu={e => e.preventDefault()}
+    >
+      <div className="relative w-full overflow-hidden bg-black/5">
+        <img
+          src={`https://i.ytimg.com/vi/${video.video_id}/mqdefault.jpg`}
+          alt={video.title}
+          className="w-full object-cover"
+          style={{ aspectRatio: '16/9' }}
+          loading="lazy"
+          decoding="async"
+        />
+        <span className="absolute top-0 left-0 text-[0.6rem] font-bold uppercase text-white bg-black px-1.5 py-0.5 leading-tight">
+          {video.video_type?.toUpperCase() || 'VIDEO'}
+        </span>
+      </div>
+      <div className="mt-[0.2rem]">
+        <p className={`font-bold leading-snug ${size === 'large' ? 'text-[0.8rem] line-clamp-2' : 'text-[0.8rem] truncate'}`}>
+          {video.title}
+        </p>
+        <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{video.channel_name}</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── NonUniformGrid ──────────────────────────────────────────────────────────
+
+function isLargeCard(video: VideoRow): boolean {
+  const t = (video.video_type || '').toUpperCase();
+  return t === 'LIVE';
+}
+
+function NonUniformGrid({ videos, onShortTap, onLongPress }: {
+  videos: VideoRow[];
+  onShortTap: (v: VideoRow) => void;
+  onLongPress: (v: VideoRow) => void;
+}) {
+  const rows: React.ReactNode[] = [];
+  let i = 0;
+  let rowIdx = 0;
+
+  while (i < videos.length) {
+    const v = videos[i];
+    if (isLargeCard(v)) {
+      rows.push(
+        <div key={`row-${rowIdx}`} className="mb-[0.8rem]">
+          <VideoCard video={v} size="large" onShortTap={() => onShortTap(v)} onLongPress={() => onLongPress(v)} />
+        </div>
+      );
+      i++;
+    } else {
+      const pair = videos.slice(i, i + 2).filter(vv => !isLargeCard(vv));
+      if (pair.length === 2) {
+        rows.push(
+          <div key={`row-${rowIdx}`} className="grid grid-cols-2 gap-[0.8rem] mb-[0.8rem]">
+            {pair.map(vv => (
+              <VideoCard key={vv.video_id} video={vv} size="small" onShortTap={() => onShortTap(vv)} onLongPress={() => onLongPress(vv)} />
+            ))}
+          </div>
+        );
+        i += 2;
+      } else {
+        rows.push(
+          <div key={`row-${rowIdx}`} className="mb-[0.8rem]">
+            <VideoCard video={pair[0]} size="large" onShortTap={() => onShortTap(pair[0])} onLongPress={() => onLongPress(pair[0])} />
+          </div>
+        );
+        i++;
+      }
+    }
+    rowIdx++;
+  }
+
+  return <div>{rows}</div>;
 }

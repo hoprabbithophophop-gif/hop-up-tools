@@ -75,140 +75,107 @@ export function PlayView({ sharedPlaylist }: Props) {
     : '';
 
   return (
-    <div className="bg-surface text-on-surface flex flex-col" style={{ height: 'calc(100vh - 3rem)' }}>
+    <div className="bg-white text-black flex flex-col" style={{ height: 'calc(100vh - 68px)' }}>
       {/* 共有プレイリストバナー */}
       {sharedPlaylist && (
-        <div className="shrink-0 bg-surface-container-low border-b border-outline-variant/20 px-4 py-2 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="material-symbols-outlined leading-none text-primary shrink-0" style={{ fontSize: '14px' }}>share</span>
-            <p className="text-[0.625rem] text-outline truncate">
-              共有リスト: <span className="text-on-surface font-bold">{sharedPlaylist.title || '（タイトルなし）'}</span>
-            </p>
-          </div>
+        <div className="shrink-0 bg-black/5 px-4 py-2 flex items-center justify-between gap-3">
+          <p className="text-[0.7rem] font-thin text-black/50 truncate">
+            共有: <span className="text-black font-bold">{sharedPlaylist.title || '（タイトルなし）'}</span>
+          </p>
           <div className="flex items-center gap-3 shrink-0">
             <button
               onClick={() => startPlaylist(sharedPlaylist.items)}
-              className="text-[0.6rem] text-outline hover:text-primary transition-colors cursor-pointer"
+              className="text-[0.7rem] text-black/40 cursor-pointer"
               aria-label="元のリストに戻す"
             >
               <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>restart_alt</span>
             </button>
-            <a
-              href="/youtube"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[0.6rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer whitespace-nowrap"
-            >
-              自分でも作る →
-            </a>
           </div>
         </div>
       )}
 
       {/* スクロール領域 */}
       <div className="flex-1 overflow-y-auto">
+        {/* 画面見出し */}
+        <div className="px-4 pt-6 pb-2">
+          <h1 className="text-[1.4rem] font-bold uppercase">PLAYLIST</h1>
+        </div>
+
+        {/* YouTube プレイヤー: 実体は YouTubePage レベルで fixed 配置。高さ30%以下 */}
+        <div className="w-full bg-black shrink-0" style={{ height: '28vh' }} />
+
         {/* 空キュー時の案内 */}
         {queue.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-64 gap-3 text-outline px-4 text-center">
-            <span className="material-symbols-outlined text-4xl">queue_music</span>
-            <p className="text-xs uppercase tracking-widest">キューが空です</p>
-            <p className="text-[0.625rem] text-outline/60">
-              ピックアップ画面でチャプターや動画を選んで追加してください
+          <div className="flex flex-col items-center justify-center h-48 gap-3 px-4 text-center">
+            <p className="text-[0.7rem] font-thin text-black/40 uppercase tracking-widest">キューが空です</p>
+            <p className="text-[0.7rem] font-thin text-black/30">
+              BROWSE画面で動画を長押ししてチャプターを追加してください
             </p>
           </div>
         )}
 
-        {/* YouTube プレイヤー: 実体は YouTubePage レベルで fixed 配置 */}
-        <div className="w-full aspect-video bg-black shrink-0" />
-
-        {/* 再生中情報 */}
-        {current ? (
-          <div className="px-4 py-3 border-b border-outline-variant/20">
-            <div className="flex items-start gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-[0.5rem] font-bold uppercase px-1 py-0.5 bg-black text-white leading-none">
-                    {tag}
-                  </span>
-                  {currentIndex !== null && (
-                    <span className="text-[0.6rem] text-outline font-mono">
-                      {String(currentIndex + 1).padStart(2, '0')} / {queue.length}
-                    </span>
-                  )}
-                </div>
-                <p className="text-[0.9rem] font-bold leading-snug truncate">
-                  {current.chapterLabel}
-                </p>
-                {!isFullVideo && (
-                  <p className="text-[0.625rem] text-outline truncate mt-0.5">
-                    {current.videoTitle}
-                  </p>
-                )}
-                <p className="text-[0.625rem] font-mono text-outline/70 mt-0.5">
-                  {timeRange}
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="px-4 py-4 border-b border-outline-variant/20 text-[0.625rem] text-outline uppercase tracking-widest">
-            再生待機中
-          </div>
-        )}
-
-        {/* TRIM ↔ QUEUE タブ */}
-        <div>
-          {/* タブヘッダー */}
-          <div className="flex border-b border-outline-variant/20">
-            <button
-              onClick={() => setTrimOpen(true)}
-              className={`flex-1 h-10 text-[0.6875rem] font-bold uppercase tracking-widest transition-colors cursor-pointer border-b-2 ${
-                trimOpen
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-outline hover:text-on-surface'
-              }`}
-            >
-              TRIM
-            </button>
-            <button
-              onClick={() => setTrimOpen(false)}
-              className={`flex-1 h-10 text-[0.6875rem] font-bold uppercase tracking-widest transition-colors cursor-pointer border-b-2 ${
-                !trimOpen
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-outline hover:text-on-surface'
-              }`}
-            >
-              QUEUE ({queue.length})
-            </button>
-          </div>
-
-          {/* タブコンテンツ */}
-          {trimOpen ? (
-            <TrimPanel />
-          ) : (
-            <QueueList onShare={() => setShareOpen(true)} />
-          )}
+        {/* 再生コントロール */}
+        <div className="py-3">
+          <PlayControls />
         </div>
 
-        {/* この動画のチャプターを追加 */}
-        {currentVideoMeta && (
-          <div className="border-t border-outline-variant/20 px-4 py-3">
-            <button
-              onClick={() => setChapterSheetOpen(true)}
-              className="flex items-center gap-2 w-full text-left text-[0.6875rem] font-bold uppercase tracking-widest text-outline hover:text-on-surface transition-colors cursor-pointer"
-            >
-              <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>
-                playlist_add
-              </span>
-              チャプター一覧を開く
-            </button>
-          </div>
-        )}
-      </div>
+        {/* CUE セクション */}
+        {queue.length > 0 && (
+          <section className="px-4 mt-[2.4rem]">
+            <h2 className="text-[1rem] font-bold uppercase mb-[0.8rem]">CUE</h2>
 
-      {/* 再生コントロール（常時表示） */}
-      <div className="shrink-0 py-3 border-t border-outline-variant/20 bg-surface">
-        <PlayControls />
+            {/* キュー一覧 */}
+            <div className="flex flex-col gap-[0.8rem]">
+              {queue.map((item, idx) => {
+                const isCurrent = idx === currentIndex;
+                const itemTimeRange = item.isFullVideo
+                  ? '全編再生'
+                  : `${formatSeconds(item.startSeconds)}${
+                      isFinite(item.endSeconds) && item.endSeconds !== Number.MAX_SAFE_INTEGER
+                        ? ` — ${formatSeconds(item.endSeconds)}`
+                        : ''
+                    }`;
+                return (
+                  <div
+                    key={item.id}
+                    className={`flex items-start gap-3 py-2 px-2 ${isCurrent ? 'bg-[#F0F0F0]' : ''}`}
+                  >
+                    <span className="text-[0.7rem] font-normal text-black/40 mt-0.5 w-5 shrink-0 text-right">
+                      {idx + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[0.8rem] font-bold leading-snug truncate">{item.chapterLabel}</p>
+                      <p className="text-[0.7rem] font-thin text-black/40 truncate mt-[0.2rem]">{item.videoTitle}</p>
+                      <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{itemTimeRange}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* 共有ボタン */}
+            <div className="mt-[2.4rem] mb-8">
+              <button
+                onClick={() => setShareOpen(true)}
+                className="text-[0.8rem] font-bold uppercase cursor-pointer px-4 py-2 bg-black text-white"
+              >
+                共有
+              </button>
+            </div>
+
+            {/* この動画のチャプターを追加 */}
+            {currentVideoMeta && (
+              <div className="mb-8">
+                <button
+                  onClick={() => setChapterSheetOpen(true)}
+                  className="text-[0.7rem] font-thin text-black/50 cursor-pointer"
+                >
+                  + この動画のチャプターを追加
+                </button>
+              </div>
+            )}
+          </section>
+        )}
       </div>
 
       {/* シェアモーダル */}

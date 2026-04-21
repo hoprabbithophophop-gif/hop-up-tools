@@ -4,7 +4,6 @@ import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistC
 import { SearchBar } from './SearchBar';
 import { FilterPanel } from './FilterPanel';
 import { VideoChapterSheet } from './VideoChapterSheet';
-import { ZappingCard } from './ZappingCard';
 import type { VideoRow } from './ZappingCard';
 import type { FilterState } from './FilterPanel';
 
@@ -154,22 +153,13 @@ export function SearchView({ onBack }: Props) {
   const isSearchMode = searchQuery.trim().length > 0;
 
   return (
-    <div className={`bg-surface text-on-surface min-h-screen ${hasQueue ? 'pb-[140px]' : 'pb-20'}`}>
-      {/* ヘッダー */}
-      <header className="sticky top-0 z-30 bg-surface border-b border-outline-variant/20 px-4 py-3 flex items-center gap-3">
-        <button
-          onClick={onBack}
-          className="w-8 h-8 flex items-center justify-center text-outline hover:text-primary transition-colors cursor-pointer"
-          aria-label="ブラウズに戻る"
-        >
-          <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px' }}>arrow_back</span>
-        </button>
-        <h1 className="text-xl font-black tracking-tighter uppercase flex-1">SEARCH</h1>
-      </header>
+    <div className="bg-white text-black min-h-screen">
+      <main className="max-w-3xl mx-auto px-4 pt-6">
+        {/* 画面見出し */}
+        <h1 className="text-[1.4rem] font-bold uppercase mb-[2.4rem]">SEARCH</h1>
 
-      <main className="max-w-3xl mx-auto px-4 pt-4">
         {/* 検索バー */}
-        <div className="mb-4">
+        <div className="mb-[0.8rem]">
           <SearchBar
             value={searchInput}
             onChange={handleSearchChange}
@@ -179,7 +169,7 @@ export function SearchView({ onBack }: Props) {
         </div>
 
         {/* フィルター */}
-        <div className="mb-4">
+        <div className="mb-[2.4rem]">
           <FilterPanel
             state={filter}
             onChange={handleFilterChange}
@@ -189,42 +179,36 @@ export function SearchView({ onBack }: Props) {
 
         {/* 結果数 */}
         {!loading && !fetchError && videos.length > 0 && (
-          <p className="text-[0.6rem] text-outline uppercase tracking-widest mb-2">
-            {isSearchMode ? `検索結果 ${videos.length}件` : `${videos.length}件`}
+          <p className="text-[0.7rem] font-thin text-black/40 uppercase tracking-widest mb-[0.8rem]">
+            {isSearchMode ? `${videos.length} results` : `${videos.length} videos`}
           </p>
         )}
 
         {/* エラー */}
         {fetchError && (
           <div className="flex flex-col items-center justify-center h-32 gap-3">
-            <p className="text-xs text-outline">読み込みエラー。再度お試しください。</p>
+            <p className="text-[0.7rem] font-thin text-black/50">読み込みエラー。再度お試しください。</p>
             <button
               onClick={() => { setFetchError(false); fetchVideos(filter, searchQuery, 0, true); }}
-              className="text-[0.6875rem] font-bold uppercase tracking-widest text-primary hover:opacity-70 transition-opacity cursor-pointer border border-primary px-3 py-1.5"
+              className="text-[0.8rem] font-bold uppercase cursor-pointer px-4 py-2 bg-black text-white"
             >
               再試行
             </button>
           </div>
         )}
 
-        {/* 検索/フィルター結果: 動画グリッド（タップでチャプターシート） */}
+        {/* 検索結果グリッド（BROWSE画面と同じカードコンポーネント使用） */}
         {!fetchError && videos.length > 0 && (
-          <div className="grid grid-cols-2 gap-px bg-outline-variant/10 border-t border-outline-variant/10">
-            {videos.map(v => (
-              <ZappingCard
-                key={v.video_id}
-                video={v}
-                onShortTap={() => setSheetVideo(v)}
-                onLongPress={() => setSheetVideo(v)}
-              />
-            ))}
-          </div>
+          <SearchResultGrid
+            videos={videos}
+            onTap={v => setSheetVideo(v)}
+          />
         )}
 
         {/* 空状態 */}
         {!loading && !fetchError && videos.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-40 gap-2 text-outline">
-            <p className="text-xs uppercase tracking-widest">
+          <div className="flex items-center justify-center h-40">
+            <p className="text-[0.7rem] font-thin text-black/50 uppercase tracking-widest">
               {isSearchMode ? `「${searchQuery}」に一致する動画がありません` : '動画が見つかりませんでした'}
             </p>
           </div>
@@ -233,7 +217,7 @@ export function SearchView({ onBack }: Props) {
         {/* ローディング */}
         {loading && (
           <div className="flex items-center justify-center h-16">
-            <p className="text-[0.6rem] text-outline uppercase tracking-widest">読み込み中...</p>
+            <p className="text-[0.7rem] font-thin text-black/50 uppercase tracking-widest">読み込み中...</p>
           </div>
         )}
 
@@ -254,4 +238,120 @@ export function SearchView({ onBack }: Props) {
       )}
     </div>
   );
+}
+
+// ─── SearchResultGrid ────────────────────────────────────────────────────────
+
+const LONG_PRESS_MS = 400;
+
+function SearchResultCard({ video, size, onTap }: { video: VideoRow; size: 'large' | 'small'; onTap: () => void }) {
+  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firedRef = React.useRef(false);
+  const movedRef = React.useRef(false);
+  const startXRef = React.useRef(0);
+  const startYRef = React.useRef(0);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    firedRef.current = false;
+    movedRef.current = false;
+    startXRef.current = e.clientX;
+    startYRef.current = e.clientY;
+    timerRef.current = setTimeout(() => {
+      if (!movedRef.current) { firedRef.current = true; onTap(); }
+    }, LONG_PRESS_MS);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (movedRef.current) return;
+    if (Math.abs(e.clientX - startXRef.current) > 8 || Math.abs(e.clientY - startYRef.current) > 8) {
+      movedRef.current = true;
+      if (timerRef.current) clearTimeout(timerRef.current);
+    }
+  };
+  const onPointerUp = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (!firedRef.current && !movedRef.current) onTap();
+    firedRef.current = false;
+    movedRef.current = false;
+  };
+  const onPointerCancel = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    firedRef.current = false;
+    movedRef.current = false;
+  };
+
+  return (
+    <div
+      className="cursor-pointer"
+      style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onContextMenu={e => e.preventDefault()}
+    >
+      <div className="relative w-full overflow-hidden bg-black/5">
+        <img
+          src={`https://i.ytimg.com/vi/${video.video_id}/mqdefault.jpg`}
+          alt={video.title}
+          className="w-full object-cover"
+          style={{ aspectRatio: '16/9' }}
+          loading="lazy"
+          decoding="async"
+        />
+        <span className="absolute top-0 left-0 text-[0.6rem] font-bold uppercase text-white bg-black px-1.5 py-0.5 leading-tight">
+          {video.video_type?.toUpperCase() || 'VIDEO'}
+        </span>
+      </div>
+      <div className="mt-[0.2rem]">
+        <p className={`font-bold leading-snug ${size === 'large' ? 'text-[0.8rem] line-clamp-2' : 'text-[0.8rem] truncate'}`}>
+          {video.title}
+        </p>
+        <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{video.channel_name}</p>
+      </div>
+    </div>
+  );
+}
+
+function isLargeSearchCard(video: VideoRow): boolean {
+  return (video.video_type || '').toUpperCase() === 'LIVE';
+}
+
+function SearchResultGrid({ videos, onTap }: { videos: VideoRow[]; onTap: (v: VideoRow) => void }) {
+  const rows: React.ReactNode[] = [];
+  let i = 0;
+  let rowIdx = 0;
+
+  while (i < videos.length) {
+    const v = videos[i];
+    if (isLargeSearchCard(v)) {
+      rows.push(
+        <div key={`row-${rowIdx}`} className="mb-[0.8rem]">
+          <SearchResultCard video={v} size="large" onTap={() => onTap(v)} />
+        </div>
+      );
+      i++;
+    } else {
+      const pair = videos.slice(i, i + 2).filter(vv => !isLargeSearchCard(vv));
+      if (pair.length === 2) {
+        rows.push(
+          <div key={`row-${rowIdx}`} className="grid grid-cols-2 gap-[0.8rem] mb-[0.8rem]">
+            {pair.map(vv => (
+              <SearchResultCard key={vv.video_id} video={vv} size="small" onTap={() => onTap(vv)} />
+            ))}
+          </div>
+        );
+        i += 2;
+      } else {
+        rows.push(
+          <div key={`row-${rowIdx}`} className="mb-[0.8rem]">
+            <SearchResultCard video={pair[0]} size="large" onTap={() => onTap(pair[0])} />
+          </div>
+        );
+        i++;
+      }
+    }
+    rowIdx++;
+  }
+
+  return <div>{rows}</div>;
 }
