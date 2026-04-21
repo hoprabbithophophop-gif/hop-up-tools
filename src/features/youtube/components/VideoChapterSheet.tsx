@@ -18,7 +18,7 @@ interface Chapter {
 
 function parseChapters(description: string): Chapter[] {
   if (!description) return [];
-  const re = /^(\d{1,2}):(\d{2})(?::(\d{2}))?[～〜\s\-]+(.+)$/gm;
+  const re = new RegExp('^(\\d{1,2}):(\\d{2})(?::(\\d{2}))?[\\u200B]*[～〜\\s\\-]+(.+)$', 'gm');
   const chapters: Chapter[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(description)) !== null) {

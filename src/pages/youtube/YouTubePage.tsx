@@ -201,6 +201,7 @@ function ChapterPickupContent() {
             pageState === 'browse' ? 'text-black' : 'text-black/30'
           }`}
         >
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>home</span>
           <span className="text-[0.5rem] font-bold uppercase tracking-widest">Browse</span>
         </button>
         <button
@@ -209,6 +210,7 @@ function ChapterPickupContent() {
             pageState === 'search' ? 'text-black' : 'text-black/30'
           }`}
         >
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>search</span>
           <span className="text-[0.5rem] font-bold uppercase tracking-widest">Search</span>
         </button>
         <button
@@ -221,13 +223,14 @@ function ChapterPickupContent() {
           }`}
         >
           <span className="relative inline-block">
-            <span className="text-[0.5rem] font-bold uppercase tracking-widest">Playlist</span>
+            <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>queue_music</span>
             {hasQueue && pageState !== 'play' && (
-              <span className="absolute -top-1 -right-3 min-w-[14px] h-[14px] bg-black text-white text-[8px] font-bold flex items-center justify-center px-0.5 leading-none">
+              <span className="absolute -top-1 -right-2 min-w-[14px] h-[14px] bg-black text-white text-[8px] font-bold flex items-center justify-center px-0.5 leading-none">
                 {state.queue.length}
               </span>
             )}
           </span>
+          <span className="text-[0.5rem] font-bold uppercase tracking-widest">Playlist</span>
         </button>
       </nav>
 

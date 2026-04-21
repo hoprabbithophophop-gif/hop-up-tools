@@ -166,22 +166,52 @@ export function BrowseView({ onPlay }: Props) {
     <div className="bg-white text-black min-h-screen">
       <main className="max-w-3xl mx-auto px-4 pt-6">
         {/* 画面見出し */}
-        <h1 className="text-[1.4rem] font-bold uppercase mb-[2.4rem]">BROWSE</h1>
+        <div className="flex items-center justify-between mb-[2.4rem]">
+          <h1 className="text-[1.4rem] font-bold uppercase">BROWSE</h1>
+          <button
+            onClick={() => setHelpOpen(true)}
+            className="w-8 h-8 flex items-center justify-center text-black/30 cursor-pointer"
+            aria-label="使い方"
+          >
+            <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>help_outline</span>
+          </button>
+        </div>
 
-        {/* PICK セクション */}
-        {pickVideos.length > 0 && (
+        {/* PICK / RECENT タブ */}
+        {(pickVideos.length > 0 || playHistory.length > 0) && (
           <section className="mb-[2.4rem]">
-            <div className="flex items-center gap-3 mb-[0.8rem]">
-              <h2 className="text-[1rem] font-bold uppercase">PICK</h2>
-              <button
-                onClick={() => fetchPickVideos(browseGroup)}
-                className="text-[0.7rem] font-thin text-black/50 cursor-pointer"
-              >
-                shuffle
-              </button>
+            <div className="flex items-center gap-4 mb-[0.8rem]">
+              {pickVideos.length > 0 && (
+                <button
+                  onClick={() => setActivePickTab('pick')}
+                  className={`text-[1rem] uppercase cursor-pointer ${
+                    activePickTab === 'pick' ? 'font-bold text-black' : 'font-normal text-black/30'
+                  }`}
+                >
+                  PICK
+                </button>
+              )}
+              {playHistory.length > 0 && (
+                <button
+                  onClick={() => setActivePickTab('recent')}
+                  className={`text-[1rem] uppercase cursor-pointer ${
+                    activePickTab === 'recent' ? 'font-bold text-black' : 'font-normal text-black/30'
+                  }`}
+                >
+                  RECENT
+                </button>
+              )}
+              {activePickTab === 'pick' && (
+                <button
+                  onClick={() => fetchPickVideos(browseGroup)}
+                  className="text-[0.7rem] font-thin text-black/40 cursor-pointer"
+                >
+                  shuffle
+                </button>
+              )}
             </div>
             <div className="flex gap-[0.8rem] overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-              {pickVideos.map(v => (
+              {activePickTab === 'pick' && pickVideos.map(v => (
                 <div
                   key={v.video_id}
                   className="shrink-0 w-[80vw] max-w-[400px] cursor-pointer"
@@ -191,6 +221,28 @@ export function BrowseView({ onPlay }: Props) {
                     video={v}
                     onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
                     onLongPress={() => setSheetVideo(v)}
+                  />
+                </div>
+              ))}
+              {activePickTab === 'recent' && playHistory.slice(0, 6).map(h => (
+                <div
+                  key={`${h.videoId}-${h.startSeconds}`}
+                  className="shrink-0 w-[80vw] max-w-[400px] cursor-pointer"
+                  style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
+                >
+                  <PickCard
+                    video={{
+                      video_id: h.videoId,
+                      title: h.chapterLabel,
+                      channel_name: h.channelName || '',
+                      published_at: '',
+                      thumbnail_url: h.thumbnailUrl,
+                      video_type: '',
+                      group_tags: [],
+                      description_short: '',
+                    }}
+                    onShortTap={() => handleShortTap([historyItemToQueueItem(h)])}
+                    onLongPress={() => handleRecentLongPress(h.videoId)}
                   />
                 </div>
               ))}
@@ -219,20 +271,25 @@ export function BrowseView({ onPlay }: Props) {
             <p className="text-[0.7rem] font-thin text-black/50">読み込みエラー。再度お試しください。</p>
             <button
               onClick={() => { setFetchError(false); fetchVideos(browseGroup, 0, true); }}
-              className="text-[0.8rem] font-bold uppercase text-black cursor-pointer px-4 py-2 bg-black text-white"
+              className="text-[0.8rem] font-bold uppercase cursor-pointer px-4 py-2 bg-black text-white"
             >
               再試行
             </button>
           </div>
         )}
 
-        {/* 非均質グリッド */}
+        {/* 2カラム均一グリッド */}
         {!fetchError && videos.length > 0 && (
-          <NonUniformGrid
-            videos={videos}
-            onShortTap={v => handleShortTap([buildFullVideoQueueItem(v)])}
-            onLongPress={v => setSheetVideo(v)}
-          />
+          <div className="grid grid-cols-2 gap-[0.8rem]">
+            {videos.map(v => (
+              <VideoCard
+                key={v.video_id}
+                video={v}
+                onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
+                onLongPress={() => setSheetVideo(v)}
+              />
+            ))}
+          </div>
         )}
 
         {/* 空状態 */}
@@ -251,6 +308,65 @@ export function BrowseView({ onPlay }: Props) {
 
         <div ref={sentinelRef} className="h-1" />
       </main>
+
+      {/* ページTOPへ戻るボタン */}
+      {showScrollTop && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="fixed right-4 bottom-[80px] z-30 w-10 h-10 bg-white flex items-center justify-center text-black/30 cursor-pointer"
+          aria-label="ページ上部に戻る"
+        >
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>keyboard_arrow_up</span>
+        </button>
+      )}
+
+      {/* ヘルプモーダル */}
+      {helpOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          onClick={() => setHelpOpen(false)}
+        >
+          <div
+            className="bg-white w-full max-w-lg max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4">
+              <h2 className="text-[1rem] font-bold uppercase">使い方</h2>
+              <button onClick={() => setHelpOpen(false)} className="text-black/30 cursor-pointer" aria-label="閉じる">
+                <span className="material-symbols-outlined text-xl">close</span>
+              </button>
+            </div>
+            <div className="px-6 py-6 flex flex-col gap-6 text-[0.8rem]">
+              <section>
+                <p className="text-[0.7rem] font-bold uppercase tracking-widest text-black/40 mb-3">動画一覧（グリッド）</p>
+                <ul className="flex flex-col gap-2">
+                  <li className="flex items-start gap-3">
+                    <span className="shrink-0 text-[0.7rem] font-bold uppercase bg-black text-white px-1.5 py-0.5 mt-0.5 leading-snug">短タップ</span>
+                    <span>全編再生をすぐスタート</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="shrink-0 text-[0.7rem] font-bold uppercase bg-black/10 text-black/60 px-1.5 py-0.5 mt-0.5 leading-snug">長押し</span>
+                    <span>チャプター一覧を開く。選んだチャプターはそのままキューに追加される</span>
+                  </li>
+                </ul>
+              </section>
+              <section>
+                <p className="text-[0.7rem] font-bold uppercase tracking-widest text-black/40 mb-3">チャプタータイトルをタップ</p>
+                <ul className="flex flex-col gap-2">
+                  <li className="flex items-start gap-3">
+                    <span className="shrink-0 text-[0.7rem] font-bold uppercase bg-black text-white px-1.5 py-0.5 mt-0.5 leading-snug">タイトル</span>
+                    <span>ミニプレーヤーでシーンをプレビュー再生</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="shrink-0 text-[0.7rem] font-bold uppercase bg-black/10 text-black/60 px-1.5 py-0.5 mt-0.5 leading-snug">それ以外</span>
+                    <span>キューに追加。PLAYLISTタブで確認・再生</span>
+                  </li>
+                </ul>
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* チャプターシート（addモード: 選択即キュー追加） */}
       {sheetVideo && (
@@ -351,11 +467,10 @@ function PickCard({ video, onShortTap, onLongPress }: { video: VideoRow; onShort
   );
 }
 
-// ─── VideoCard（グリッド用：大/小）──────────────────────────────────────────
+// ─── VideoCard（グリッド用）──────────────────────────────────────────────────
 
-function VideoCard({ video, size, onShortTap, onLongPress }: {
+function VideoCard({ video, onShortTap, onLongPress }: {
   video: VideoRow;
-  size: 'large' | 'small';
   onShortTap: () => void;
   onLongPress: () => void;
 }) {
@@ -417,7 +532,7 @@ function VideoCard({ video, size, onShortTap, onLongPress }: {
         </span>
       </div>
       <div className="mt-[0.2rem]">
-        <p className={`font-bold leading-snug ${size === 'large' ? 'text-[0.8rem] line-clamp-2' : 'text-[0.8rem] truncate'}`}>
+        <p className="text-[0.8rem] font-bold leading-snug line-clamp-2">
           {video.title}
         </p>
         <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{video.channel_name}</p>
@@ -426,53 +541,3 @@ function VideoCard({ video, size, onShortTap, onLongPress }: {
   );
 }
 
-// ─── NonUniformGrid ──────────────────────────────────────────────────────────
-
-function isLargeCard(video: VideoRow): boolean {
-  const t = (video.video_type || '').toUpperCase();
-  return t === 'LIVE';
-}
-
-function NonUniformGrid({ videos, onShortTap, onLongPress }: {
-  videos: VideoRow[];
-  onShortTap: (v: VideoRow) => void;
-  onLongPress: (v: VideoRow) => void;
-}) {
-  const rows: React.ReactNode[] = [];
-  let i = 0;
-  let rowIdx = 0;
-
-  while (i < videos.length) {
-    const v = videos[i];
-    if (isLargeCard(v)) {
-      rows.push(
-        <div key={`row-${rowIdx}`} className="mb-[0.8rem]">
-          <VideoCard video={v} size="large" onShortTap={() => onShortTap(v)} onLongPress={() => onLongPress(v)} />
-        </div>
-      );
-      i++;
-    } else {
-      const pair = videos.slice(i, i + 2).filter(vv => !isLargeCard(vv));
-      if (pair.length === 2) {
-        rows.push(
-          <div key={`row-${rowIdx}`} className="grid grid-cols-2 gap-[0.8rem] mb-[0.8rem]">
-            {pair.map(vv => (
-              <VideoCard key={vv.video_id} video={vv} size="small" onShortTap={() => onShortTap(vv)} onLongPress={() => onLongPress(vv)} />
-            ))}
-          </div>
-        );
-        i += 2;
-      } else {
-        rows.push(
-          <div key={`row-${rowIdx}`} className="mb-[0.8rem]">
-            <VideoCard video={pair[0]} size="large" onShortTap={() => onShortTap(pair[0])} onLongPress={() => onLongPress(pair[0])} />
-          </div>
-        );
-        i++;
-      }
-    }
-    rowIdx++;
-  }
-
-  return <div>{rows}</div>;
-}

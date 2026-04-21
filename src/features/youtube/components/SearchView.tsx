@@ -197,12 +197,17 @@ export function SearchView({ onBack }: Props) {
           </div>
         )}
 
-        {/* 検索結果グリッド（BROWSE画面と同じカードコンポーネント使用） */}
+        {/* 2カラム均一グリッド */}
         {!fetchError && videos.length > 0 && (
-          <SearchResultGrid
-            videos={videos}
-            onTap={v => setSheetVideo(v)}
-          />
+          <div className="grid grid-cols-2 gap-[0.8rem]">
+            {videos.map(v => (
+              <SearchResultCard
+                key={v.video_id}
+                video={v}
+                onTap={() => setSheetVideo(v)}
+              />
+            ))}
+          </div>
         )}
 
         {/* 空状態 */}
@@ -244,7 +249,7 @@ export function SearchView({ onBack }: Props) {
 
 const LONG_PRESS_MS = 400;
 
-function SearchResultCard({ video, size, onTap }: { video: VideoRow; size: 'large' | 'small'; onTap: () => void }) {
+function SearchResultCard({ video, onTap }: { video: VideoRow; onTap: () => void }) {
   const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const firedRef = React.useRef(false);
   const movedRef = React.useRef(false);
@@ -303,7 +308,7 @@ function SearchResultCard({ video, size, onTap }: { video: VideoRow; size: 'larg
         </span>
       </div>
       <div className="mt-[0.2rem]">
-        <p className={`font-bold leading-snug ${size === 'large' ? 'text-[0.8rem] line-clamp-2' : 'text-[0.8rem] truncate'}`}>
+        <p className="text-[0.8rem] font-bold leading-snug line-clamp-2">
           {video.title}
         </p>
         <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{video.channel_name}</p>
@@ -312,46 +317,3 @@ function SearchResultCard({ video, size, onTap }: { video: VideoRow; size: 'larg
   );
 }
 
-function isLargeSearchCard(video: VideoRow): boolean {
-  return (video.video_type || '').toUpperCase() === 'LIVE';
-}
-
-function SearchResultGrid({ videos, onTap }: { videos: VideoRow[]; onTap: (v: VideoRow) => void }) {
-  const rows: React.ReactNode[] = [];
-  let i = 0;
-  let rowIdx = 0;
-
-  while (i < videos.length) {
-    const v = videos[i];
-    if (isLargeSearchCard(v)) {
-      rows.push(
-        <div key={`row-${rowIdx}`} className="mb-[0.8rem]">
-          <SearchResultCard video={v} size="large" onTap={() => onTap(v)} />
-        </div>
-      );
-      i++;
-    } else {
-      const pair = videos.slice(i, i + 2).filter(vv => !isLargeSearchCard(vv));
-      if (pair.length === 2) {
-        rows.push(
-          <div key={`row-${rowIdx}`} className="grid grid-cols-2 gap-[0.8rem] mb-[0.8rem]">
-            {pair.map(vv => (
-              <SearchResultCard key={vv.video_id} video={vv} size="small" onTap={() => onTap(vv)} />
-            ))}
-          </div>
-        );
-        i += 2;
-      } else {
-        rows.push(
-          <div key={`row-${rowIdx}`} className="mb-[0.8rem]">
-            <SearchResultCard video={pair[0]} size="large" onTap={() => onTap(pair[0])} />
-          </div>
-        );
-        i++;
-      }
-    }
-    rowIdx++;
-  }
-
-  return <div>{rows}</div>;
-}
