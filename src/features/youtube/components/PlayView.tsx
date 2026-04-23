@@ -96,11 +96,6 @@ export function PlayView({ sharedPlaylist }: Props) {
 
       {/* スクロール領域 */}
       <div className="flex-1 overflow-y-auto">
-        {/* 画面見出し */}
-        <div className="px-4 pt-6 pb-2">
-          <h1 className="text-[1.4rem] font-bold uppercase">PLAYLIST</h1>
-        </div>
-
         {/* YouTube プレイヤー: 実体は YouTubePage レベルで fixed 配置。高さ30%以下 */}
         <div className="w-full bg-black shrink-0" style={{ height: '28vh' }} />
 
@@ -109,7 +104,7 @@ export function PlayView({ sharedPlaylist }: Props) {
           <div className="flex flex-col items-center justify-center h-48 gap-3 px-4 text-center">
             <p className="text-[0.7rem] font-thin text-black/40 uppercase tracking-widest">キューが空です</p>
             <p className="text-[0.7rem] font-thin text-black/30">
-              BROWSE画面で動画を長押ししてチャプターを追加してください
+              HOME画面で動画を長押ししてチャプターを追加してください
             </p>
           </div>
         )}

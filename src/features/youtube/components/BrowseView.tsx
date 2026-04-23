@@ -4,6 +4,9 @@ import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistC
 import { VideoChapterSheet } from './VideoChapterSheet';
 import { ZappingCard } from './ZappingCard';
 import type { VideoRow } from './ZappingCard';
+import { SearchBar } from './SearchBar';
+import { FilterPanel } from './FilterPanel';
+import type { FilterState } from './FilterPanel';
 import { buildFullVideoQueueItem } from '../../videos/utils/playlist-utils';
 import { readPlayHistory, historyItemToQueueItem, type PlayHistoryItem } from '../../videos/hooks/usePlayHistory';
 import type { ChapterQueueItem } from '../../videos/types/playlist';
@@ -22,6 +25,22 @@ const GROUP_CHIPS = [
   'ハロプロ研修生',
 ];
 
+const MEMBERS_BY_GROUP: Record<string, string[]> = {
+  'モーニング娘。': ['野中美希', '小田さくら', '牧野真莉愛', '岡村ほまれ', '山﨑愛生', '櫻井梨央', '井上春華', '弓桁朱琴'],
+  'アンジュルム':   ['伊勢鈴蘭', '為永幸音', '橋迫鈴', '川名凜', '松本わかな', '平山遊季', '下井谷幸穂', '後藤花', '長野桃羽'],
+  'Juice=Juice':    ['段原瑠々', '井上玲音', '工藤由愛', '松永里愛', '有澤一華', '入江里咲', '江端妃咲', '石山咲良', '遠藤彩加里', '川嶋美楓', '林仁愛'],
+  'つばきファクトリー': ['谷本安美', '小野瑞歩', '小野田紗栞', '秋山眞緒', '河西結心', '福田真琳', '豫風瑠乃', '石井泉羽', '村田結生', '土居楓奏', '西村乙輝'],
+  'BEYOOOOONDS':    ['西田汐里', '江口紗耶', '高瀬くるみ', '前田こころ', '岡村美波', '清野桃々姫', '平井美葉', '小林萌花', '里吉うたの'],
+  'OCHA NORMA':     ['斉藤円香', '広本瑠璃', '米村姫良々', '窪田七海', '中山夏月姫', '西﨑美空', '北原もも', '筒井澪心'],
+  'ロージークロニクル': ['橋田歩果', '吉田姫杷', '小野田華凜', '村越彩菜', '植村葉純', '松原ユリヤ', '島川波菜', '上村麗菜', '相馬優芽'],
+};
+
+const GROUP_NAMES = Object.keys(MEMBERS_BY_GROUP);
+const ALL_SUGGESTION_CANDIDATES = [
+  ...GROUP_NAMES,
+  ...Object.values(MEMBERS_BY_GROUP).flat(),
+];
+
 interface Props {
   onPlay: (items: ChapterQueueItem[]) => void;
 }
@@ -35,6 +54,51 @@ export function BrowseView({ onPlay }: Props) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [activePickTab, setActivePickTab] = useState<'pick' | 'recent'>('pick');
   const [showScrollTop, setShowScrollTop] = useState(false);
+
+  // ── 検索 ──
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const browseScrollBeforeSearch = useRef(0);
+
+  const [filter, setFilter] = useState<FilterState>({
+    group: '', member: '', type: '', channel: '', year: 0, sort: 'desc',
+  });
+  const handleFilterChange = useCallback((next: Partial<FilterState>) => {
+    setFilter(prev => ({ ...prev, ...next }));
+  }, []);
+
+  const handleSearchChange = useCallback((val: string) => {
+    setSearchInput(val);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => setSearchQuery(val), 400);
+    if (val.trim()) {
+      const lower = val.toLowerCase();
+      setSuggestions(
+        ALL_SUGGESTION_CANDIDATES.filter(c => c.toLowerCase().includes(lower)).slice(0, 8)
+      );
+    } else {
+      setSuggestions([]);
+    }
+  }, []);
+
+  const handleSelectSuggestion = useCallback((s: string) => {
+    setSearchInput(s);
+    setSearchQuery(s);
+    setSuggestions([]);
+  }, []);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchInput('');
+    setSearchQuery('');
+    setSuggestions([]);
+    setFilter({ group: '', member: '', type: '', channel: '', year: 0, sort: 'desc' });
+    requestAnimationFrame(() => window.scrollTo(0, browseScrollBeforeSearch.current));
+  }, []);
+
+  const isSearchActive = searchQuery.trim().length > 0 ||
+    filter.group || filter.member || filter.type || filter.channel || filter.year > 0;
 
   // 再生履歴（localStorage）
   const [playHistory, setPlayHistory] = useState<PlayHistoryItem[]>(() => readPlayHistory());
@@ -81,7 +145,7 @@ export function BrowseView({ onPlay }: Props) {
   }, []);
   useEffect(() => { fetchPickVideos(browseGroup); }, [fetchPickVideos, browseGroup]);
 
-  // ザッピンググリッド
+  // ── ブラウズ用グリッド ──
   const [videos, setVideos] = useState<VideoRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(false);
@@ -118,15 +182,82 @@ export function BrowseView({ onPlay }: Props) {
   }, []);
 
   useEffect(() => {
+    if (isSearchActive) return;
     setVideos([]);
     setOffset(0);
     setHasMore(true);
     setFetchError(false);
     fetchVideos(browseGroup, 0, true);
-  }, [browseGroup, fetchVideos]);
+  }, [browseGroup, fetchVideos, isSearchActive]);
 
-  // 無限スクロール
+  // ── 検索用グリッド ──
+  const [searchVideos, setSearchVideos] = useState<VideoRow[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
+  const [searchHasMore, setSearchHasMore] = useState(true);
+  const [searchOffset, setSearchOffset] = useState(0);
+  const isSearchFetchingRef = useRef(false);
+  const searchSentinelRef = useRef<HTMLDivElement | null>(null);
+
+  const fetchSearchVideos = useCallback(async (
+    f: FilterState, query: string, currentOffset: number, replace: boolean
+  ) => {
+    if (!replace && isSearchFetchingRef.current) return;
+    isSearchFetchingRef.current = true;
+    setSearchLoading(true);
+    try {
+      const supabase = getSupabase();
+      let q = supabase
+        .from('youtube_videos')
+        .select('video_id,title,channel_name,published_at,thumbnail_url,video_type,group_tags,description_short')
+        .eq('is_active_content', true)
+        .order('published_at', { ascending: f.sort === 'asc' })
+        .range(currentOffset, currentOffset + PAGE_SIZE - 1);
+
+      if (f.group)   q = q.contains('group_tags', [f.group]);
+      if (f.type)    q = q.eq('video_type', f.type);
+      if (f.channel) q = q.eq('channel_name', f.channel);
+      if (f.year > 0) {
+        q = q
+          .gte('published_at', `${f.year}-01-01T00:00:00Z`)
+          .lt('published_at',  `${f.year + 1}-01-01T00:00:00Z`);
+      }
+      if (f.member) {
+        q = q.or(`title.ilike.%${f.member}%,description_short.ilike.%${f.member}%`);
+      }
+      if (query) {
+        const tokens = query.trim().split(/\s+/).filter(Boolean);
+        for (const token of tokens) {
+          q = q.or(`title.ilike.%${token}%,description_short.ilike.%${token}%`);
+        }
+      }
+
+      const { data, error } = await q;
+      if (error) throw error;
+      const rows = (data ?? []) as VideoRow[];
+      setSearchVideos(prev => replace ? rows : [...prev, ...rows]);
+      setSearchHasMore(rows.length === PAGE_SIZE);
+      setSearchOffset(currentOffset + rows.length);
+    } catch {
+      setSearchError(true);
+    } finally {
+      isSearchFetchingRef.current = false;
+      setSearchLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
+    if (!isSearchActive) return;
+    setSearchVideos([]);
+    setSearchOffset(0);
+    setSearchHasMore(true);
+    setSearchError(false);
+    fetchSearchVideos(filter, searchQuery, 0, true);
+  }, [filter, searchQuery, isSearchActive, fetchSearchVideos]);
+
+  // ブラウズ無限スクロール
+  useEffect(() => {
+    if (isSearchActive) return;
     const el = sentinelRef.current;
     if (!el) return;
     const observer = new IntersectionObserver(
@@ -140,9 +271,36 @@ export function BrowseView({ onPlay }: Props) {
     observer.observe(el);
     return () => observer.disconnect();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasMore, offset, browseGroup, fetchVideos]);
+  }, [hasMore, offset, browseGroup, fetchVideos, isSearchActive]);
 
-  // RECENT長押し: キャッシュ優先、なければSupabase取得
+  // 検索無限スクロール
+  useEffect(() => {
+    if (!isSearchActive) return;
+    const el = searchSentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting && searchHasMore && !isSearchFetchingRef.current) {
+          fetchSearchVideos(filter, searchQuery, searchOffset, false);
+        }
+      },
+      { rootMargin: '200px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchHasMore, searchOffset, filter, searchQuery, fetchSearchVideos, isSearchActive]);
+
+  // 検索モードに入ったらスクロール位置を保存
+  useEffect(() => {
+    if (isSearchActive) {
+      browseScrollBeforeSearch.current = window.scrollY;
+      window.scrollTo(0, 0);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSearchActive]);
+
+  // RECENT長押し
   const handleRecentLongPress = useCallback(async (videoId: string) => {
     const cached = videos.find(v => v.video_id === videoId);
     if (cached) { setSheetVideo(cached); return; }
@@ -155,7 +313,6 @@ export function BrowseView({ onPlay }: Props) {
     if (data) setSheetVideo(data as VideoRow);
   }, [videos]);
 
-  // 短タップ: ユーザージェスチャー内で即再生 + PlayView遷移
   const handleShortTap = useCallback((items: ChapterQueueItem[]) => {
     const first = items[0];
     if (first) playChapter(first.videoId, first.startSeconds, first.endSeconds);
@@ -165,148 +322,227 @@ export function BrowseView({ onPlay }: Props) {
   return (
     <div className="bg-white text-black min-h-screen">
       <main className="max-w-3xl mx-auto px-4 pt-6">
-        {/* 画面見出し */}
-        <div className="flex items-center justify-between mb-[2.4rem]">
-          <h1 className="text-[1.4rem] font-bold uppercase">BROWSE</h1>
+        {/* 検索バー + ヘルプ */}
+        <div className="flex items-start gap-2 mb-[0.8rem]">
+          <div className="flex-1">
+            <SearchBar
+              value={searchInput}
+              onChange={handleSearchChange}
+              suggestions={suggestions}
+              onSelectSuggestion={handleSelectSuggestion}
+            />
+          </div>
           <button
             onClick={() => setHelpOpen(true)}
-            className="w-8 h-8 flex items-center justify-center text-black/30 cursor-pointer"
+            className="shrink-0 w-10 h-10 flex items-center justify-center text-black/30 cursor-pointer mt-0.5"
             aria-label="使い方"
           >
             <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>help_outline</span>
           </button>
         </div>
 
-        {/* PICK / RECENT タブ */}
-        {(pickVideos.length > 0 || playHistory.length > 0) && (
-          <section className="mb-[2.4rem]">
-            <div className="flex items-center gap-4 mb-[0.8rem]">
-              {pickVideos.length > 0 && (
-                <button
-                  onClick={() => setActivePickTab('pick')}
-                  className={`text-[1rem] uppercase cursor-pointer ${
-                    activePickTab === 'pick' ? 'font-bold text-black' : 'font-normal text-black/30'
-                  }`}
-                >
-                  PICK
-                </button>
-              )}
-              {playHistory.length > 0 && (
-                <button
-                  onClick={() => setActivePickTab('recent')}
-                  className={`text-[1rem] uppercase cursor-pointer ${
-                    activePickTab === 'recent' ? 'font-bold text-black' : 'font-normal text-black/30'
-                  }`}
-                >
-                  RECENT
-                </button>
-              )}
-              {activePickTab === 'pick' && (
-                <button
-                  onClick={() => fetchPickVideos(browseGroup)}
-                  className="text-[0.7rem] font-thin text-black/40 cursor-pointer"
-                >
-                  shuffle
-                </button>
-              )}
+        {/* フィルター */}
+        <div className="mb-[2.4rem]">
+          <FilterPanel
+            state={filter}
+            onChange={handleFilterChange}
+            membersByGroup={MEMBERS_BY_GROUP}
+          />
+        </div>
+
+        {/* ── 検索モード ── */}
+        {isSearchActive && (
+          <>
+            <div className="flex items-center justify-between mb-[0.8rem]">
+              <p className="text-[0.7rem] font-thin text-black/40 uppercase tracking-widest">
+                {searchVideos.length} results
+              </p>
+              <button
+                onClick={handleClearSearch}
+                className="text-[0.7rem] font-bold text-black/40 cursor-pointer uppercase tracking-widest"
+              >
+                ✕ クリア
+              </button>
             </div>
-            <div className="flex gap-[0.8rem] overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-              {activePickTab === 'pick' && pickVideos.map(v => (
-                <div
-                  key={v.video_id}
-                  className="shrink-0 w-[80vw] max-w-[400px] cursor-pointer"
-                  style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
+
+            {searchError && (
+              <div className="flex flex-col items-center justify-center h-32 gap-3">
+                <p className="text-[0.7rem] font-thin text-black/50">読み込みエラー。再度お試しください。</p>
+                <button
+                  onClick={() => { setSearchError(false); fetchSearchVideos(filter, searchQuery, 0, true); }}
+                  className="text-[0.8rem] font-bold uppercase cursor-pointer px-4 py-2 bg-black text-white"
                 >
-                  <PickCard
+                  再試行
+                </button>
+              </div>
+            )}
+
+            {!searchError && searchVideos.length > 0 && (
+              <div className="grid grid-cols-2 gap-[0.8rem]">
+                {searchVideos.map(v => (
+                  <VideoCard
+                    key={v.video_id}
                     video={v}
                     onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
                     onLongPress={() => setSheetVideo(v)}
                   />
+                ))}
+              </div>
+            )}
+
+            {!searchLoading && !searchError && searchVideos.length === 0 && (
+              <div className="flex items-center justify-center h-40">
+                <p className="text-[0.7rem] font-thin text-black/50 uppercase tracking-widest">
+                  一致する動画がありません
+                </p>
+              </div>
+            )}
+
+            {searchLoading && (
+              <div className="flex items-center justify-center h-16">
+                <p className="text-[0.7rem] font-thin text-black/50 uppercase tracking-widest">読み込み中...</p>
+              </div>
+            )}
+
+            <div ref={searchSentinelRef} className="h-1" />
+          </>
+        )}
+
+        {/* ── ブラウズモード ── */}
+        {!isSearchActive && (
+          <>
+            {/* PICK / RECENT タブ */}
+            {(pickVideos.length > 0 || playHistory.length > 0) && (
+              <section className="mb-[2.4rem]">
+                <div className="flex items-center gap-4 mb-[0.8rem]">
+                  {pickVideos.length > 0 && (
+                    <button
+                      onClick={() => setActivePickTab('pick')}
+                      className={`text-[1rem] uppercase cursor-pointer ${
+                        activePickTab === 'pick' ? 'font-bold text-black' : 'font-normal text-black/30'
+                      }`}
+                    >
+                      PICK
+                    </button>
+                  )}
+                  {playHistory.length > 0 && (
+                    <button
+                      onClick={() => setActivePickTab('recent')}
+                      className={`text-[1rem] uppercase cursor-pointer ${
+                        activePickTab === 'recent' ? 'font-bold text-black' : 'font-normal text-black/30'
+                      }`}
+                    >
+                      RECENT
+                    </button>
+                  )}
+                  {activePickTab === 'pick' && (
+                    <button
+                      onClick={() => fetchPickVideos(browseGroup)}
+                      className="text-[0.7rem] font-thin text-black/40 cursor-pointer"
+                    >
+                      shuffle
+                    </button>
+                  )}
                 </div>
-              ))}
-              {activePickTab === 'recent' && playHistory.slice(0, 6).map(h => (
-                <div
-                  key={`${h.videoId}-${h.startSeconds}`}
-                  className="shrink-0 w-[80vw] max-w-[400px] cursor-pointer"
-                  style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
-                >
-                  <PickCard
-                    video={{
-                      video_id: h.videoId,
-                      title: h.chapterLabel,
-                      channel_name: h.channelName || '',
-                      published_at: '',
-                      thumbnail_url: h.thumbnailUrl,
-                      video_type: '',
-                      group_tags: [],
-                      description_short: '',
-                    }}
-                    onShortTap={() => handleShortTap([historyItemToQueueItem(h)])}
-                    onLongPress={() => handleRecentLongPress(h.videoId)}
+                <div className="flex gap-[0.8rem] overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+                  {activePickTab === 'pick' && pickVideos.map(v => (
+                    <div
+                      key={v.video_id}
+                      className="shrink-0 w-[80vw] max-w-[400px] cursor-pointer"
+                      style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
+                    >
+                      <PickCard
+                        video={v}
+                        onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
+                        onLongPress={() => setSheetVideo(v)}
+                      />
+                    </div>
+                  ))}
+                  {activePickTab === 'recent' && playHistory.slice(0, 6).map(h => (
+                    <div
+                      key={`${h.videoId}-${h.startSeconds}`}
+                      className="shrink-0 w-[80vw] max-w-[400px] cursor-pointer"
+                      style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
+                    >
+                      <PickCard
+                        video={{
+                          video_id: h.videoId,
+                          title: h.chapterLabel,
+                          channel_name: h.channelName || '',
+                          published_at: '',
+                          thumbnail_url: h.thumbnailUrl,
+                          video_type: '',
+                          group_tags: [],
+                          description_short: '',
+                        }}
+                        onShortTap={() => handleShortTap([historyItemToQueueItem(h)])}
+                        onLongPress={() => handleRecentLongPress(h.videoId)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Group Filter */}
+            <section className="mb-[2.4rem]">
+              <div className="flex gap-4 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+                <GroupChip label="ALL" active={!browseGroup} onClick={() => setBrowseGroup('')} />
+                {GROUP_CHIPS.map(g => (
+                  <GroupChip
+                    key={g}
+                    label={g}
+                    active={browseGroup === g}
+                    onClick={() => setBrowseGroup(prev => prev === g ? '' : g)}
                   />
-                </div>
-              ))}
-            </div>
-          </section>
+                ))}
+              </div>
+            </section>
+
+            {/* エラー */}
+            {fetchError && (
+              <div className="flex flex-col items-center justify-center h-32 gap-3">
+                <p className="text-[0.7rem] font-thin text-black/50">読み込みエラー。再度お試しください。</p>
+                <button
+                  onClick={() => { setFetchError(false); fetchVideos(browseGroup, 0, true); }}
+                  className="text-[0.8rem] font-bold uppercase cursor-pointer px-4 py-2 bg-black text-white"
+                >
+                  再試行
+                </button>
+              </div>
+            )}
+
+            {/* 2カラム均一グリッド */}
+            {!fetchError && videos.length > 0 && (
+              <div className="grid grid-cols-2 gap-[0.8rem]">
+                {videos.map(v => (
+                  <VideoCard
+                    key={v.video_id}
+                    video={v}
+                    onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
+                    onLongPress={() => setSheetVideo(v)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* 空状態 */}
+            {!loading && !fetchError && videos.length === 0 && (
+              <div className="flex items-center justify-center h-40">
+                <p className="text-[0.7rem] font-thin text-black/50 uppercase tracking-widest">動画が見つかりませんでした</p>
+              </div>
+            )}
+
+            {/* ローディング */}
+            {loading && (
+              <div className="flex items-center justify-center h-16">
+                <p className="text-[0.7rem] font-thin text-black/50 uppercase tracking-widest">読み込み中...</p>
+              </div>
+            )}
+
+            <div ref={sentinelRef} className="h-1" />
+          </>
         )}
-
-        {/* Group Filter */}
-        <section className="mb-[2.4rem]">
-          <div className="flex gap-4 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-            <GroupChip label="ALL" active={!browseGroup} onClick={() => setBrowseGroup('')} />
-            {GROUP_CHIPS.map(g => (
-              <GroupChip
-                key={g}
-                label={g}
-                active={browseGroup === g}
-                onClick={() => setBrowseGroup(prev => prev === g ? '' : g)}
-              />
-            ))}
-          </div>
-        </section>
-
-        {/* エラー */}
-        {fetchError && (
-          <div className="flex flex-col items-center justify-center h-32 gap-3">
-            <p className="text-[0.7rem] font-thin text-black/50">読み込みエラー。再度お試しください。</p>
-            <button
-              onClick={() => { setFetchError(false); fetchVideos(browseGroup, 0, true); }}
-              className="text-[0.8rem] font-bold uppercase cursor-pointer px-4 py-2 bg-black text-white"
-            >
-              再試行
-            </button>
-          </div>
-        )}
-
-        {/* 2カラム均一グリッド */}
-        {!fetchError && videos.length > 0 && (
-          <div className="grid grid-cols-2 gap-[0.8rem]">
-            {videos.map(v => (
-              <VideoCard
-                key={v.video_id}
-                video={v}
-                onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
-                onLongPress={() => setSheetVideo(v)}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* 空状態 */}
-        {!loading && !fetchError && videos.length === 0 && (
-          <div className="flex items-center justify-center h-40">
-            <p className="text-[0.7rem] font-thin text-black/50 uppercase tracking-widest">動画が見つかりませんでした</p>
-          </div>
-        )}
-
-        {/* ローディング */}
-        {loading && (
-          <div className="flex items-center justify-center h-16">
-            <p className="text-[0.7rem] font-thin text-black/50 uppercase tracking-widest">読み込み中...</p>
-          </div>
-        )}
-
-        <div ref={sentinelRef} className="h-1" />
       </main>
 
       {/* ページTOPへ戻るボタン */}
@@ -368,7 +604,7 @@ export function BrowseView({ onPlay }: Props) {
         </div>
       )}
 
-      {/* チャプターシート（addモード: 選択即キュー追加） */}
+      {/* チャプターシート */}
       {sheetVideo && (
         <VideoChapterSheet
           video={sheetVideo}
@@ -488,7 +724,7 @@ function VideoCard({ video, onShortTap, onLongPress }: {
     startYRef.current = e.clientY;
     timerRef.current = setTimeout(() => {
       if (!movedRef.current) { firedRef.current = true; onLongPress(); }
-    }, LONG_PRESS_MS);
+    }, LONG_PRESS_DELAY);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (movedRef.current) return;
@@ -541,4 +777,3 @@ function VideoCard({ video, onShortTap, onLongPress }: {
     </div>
   );
 }
-

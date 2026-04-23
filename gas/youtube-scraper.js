@@ -205,7 +205,7 @@ function getUpcomingVideoIds(apiKey, videoIds) {
     var url = 'https://www.googleapis.com/youtube/v3/videos'
       + '?key=' + apiKey
       + '&id=' + chunk.join(',')
-      + '&part=snippet&maxResults=50';
+      + '&part=snippet&maxResults=50&fields=items(id,snippet/liveBroadcastContent)';
     var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
     if (res.getResponseCode() !== 200) continue;
     var json = JSON.parse(res.getContentText());
@@ -491,42 +491,90 @@ function backfillActiveContent() {
   Logger.log('backfillActiveContent 完了');
 }
 
-// ===== 削除/非公開動画の自動検出 =====
-// is_active_content=true の動画を YouTube API で一括確認。
-// APIレスポンスに含まれない（削除済み）または privacyStatus が public 以外の動画を
-// is_active_content=false / group_tags=[] に更新する。
-// 週1回トリガー推奨。
+// ===== 削除/非公開動画の検出（直近6ヶ月） =====
+// 週1トリガー。直近6ヶ月の動画だけチェック（~700件）。1回で完走する。
 function checkVideoAvailability() {
   var props = PropertiesService.getScriptProperties();
   var apiKey = props.getProperty('YOUTUBE_API_KEY');
   var supabaseUrl = props.getProperty('SUPABASE_URL');
   var supabaseKey = props.getProperty('SUPABASE_SERVICE_KEY');
 
-  // is_active_content=true の video_id を全件取得
-  var allIds = [];
-  var offset = 0;
-  while (true) {
-    var res = UrlFetchApp.fetch(
-      supabaseUrl + '/rest/v1/youtube_videos'
-        + '?select=video_id&is_active_content=eq.true&order=video_id&limit=1000&offset=' + offset,
-      { headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey }, muteHttpExceptions: true }
-    );
-    var rows = JSON.parse(res.getContentText());
-    rows.forEach(function(r) { allIds.push(r.video_id); });
-    if (rows.length < 1000) break;
-    offset += 1000;
-    Utilities.sleep(1000);
-  }
-  Logger.log('checkVideoAvailability: 対象 ' + allIds.length + '件');
+  var sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+  var since = sixMonthsAgo.toISOString();
 
-  // 50件ずつ YouTube API でステータス確認（snippet も取得して配信予定を検出）
+  var query = supabaseUrl + '/rest/v1/youtube_videos'
+    + '?select=video_id&is_active_content=eq.true'
+    + '&published_at=gte.' + encodeURIComponent(since)
+    + '&order=video_id&limit=2000';
+  var res = UrlFetchApp.fetch(query, {
+    headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey },
+    muteHttpExceptions: true,
+  });
+  var allIds = JSON.parse(res.getContentText()).map(function(r) { return r.video_id; });
+
+  if (allIds.length === 0) {
+    Logger.log('checkVideoAvailability: 対象なし');
+    return;
+  }
+  Logger.log('checkVideoAvailability: 直近6ヶ月 ' + allIds.length + '件チェック');
+
+  var deleteIds = checkStatusBatch_(apiKey, allIds);
+  deleteBatch_(supabaseUrl, supabaseKey, deleteIds);
+
+  Logger.log('checkVideoAvailability 完了 (' + deleteIds.length + '件削除)');
+}
+
+// ===== 削除/非公開動画の検出（全件巡回） =====
+// 日次トリガー。500件ずつチェックポイント巡回。約15日で全件1周。
+// YouTube Data API利用規約の30日更新要件を満たす。
+function checkVideoAvailabilityFull() {
+  var props = PropertiesService.getScriptProperties();
+  var apiKey = props.getProperty('YOUTUBE_API_KEY');
+  var supabaseUrl = props.getProperty('SUPABASE_URL');
+  var supabaseKey = props.getProperty('SUPABASE_SERVICE_KEY');
+
+  var PER_RUN = 500;
+  var lastId = props.getProperty('CHECK_AVAIL_LAST_ID') || '';
+
+  var query = supabaseUrl + '/rest/v1/youtube_videos'
+    + '?select=video_id&is_active_content=eq.true&order=video_id&limit=' + PER_RUN;
+  if (lastId) query += '&video_id=gt.' + lastId;
+  var res = UrlFetchApp.fetch(query, {
+    headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey },
+    muteHttpExceptions: true,
+  });
+  var rows = JSON.parse(res.getContentText());
+  var allIds = rows.map(function(r) { return r.video_id; });
+
+  if (allIds.length === 0) {
+    props.deleteProperty('CHECK_AVAIL_LAST_ID');
+    Logger.log('checkVideoAvailabilityFull: 全件巡回完了 → リセット');
+    return;
+  }
+  Logger.log('checkVideoAvailabilityFull: ' + allIds.length + '件処理' + (lastId ? ' (続き)' : ' (新規巡回開始)'));
+
+  var deleteIds = checkStatusBatch_(apiKey, allIds);
+  deleteBatch_(supabaseUrl, supabaseKey, deleteIds);
+
+  if (rows.length < PER_RUN) {
+    props.deleteProperty('CHECK_AVAIL_LAST_ID');
+    Logger.log('checkVideoAvailabilityFull: 全件巡回完了 → リセット (' + deleteIds.length + '件削除)');
+  } else {
+    props.setProperty('CHECK_AVAIL_LAST_ID', allIds[allIds.length - 1]);
+    Logger.log('checkVideoAvailabilityFull: 次回続行 (' + deleteIds.length + '件削除)');
+  }
+}
+
+// ===== YouTube APIでステータス一括確認（内部共通） =====
+function checkStatusBatch_(apiKey, videoIds) {
   var deleteIds = [];
-  var upcomingIds = [];
-  for (var i = 0; i < allIds.length; i += 50) {
-    var batch = allIds.slice(i, i + 50);
+  for (var i = 0; i < videoIds.length; i += 50) {
+    var batch = videoIds.slice(i, i + 50);
     var ytRes = UrlFetchApp.fetch(
       'https://www.googleapis.com/youtube/v3/videos'
-        + '?key=' + apiKey + '&id=' + batch.join(',') + '&part=snippet,status&maxResults=50',
+        + '?key=' + apiKey + '&id=' + batch.join(',')
+        + '&part=status&maxResults=50&fields=items(id,status/privacyStatus)',
       { muteHttpExceptions: true }
     );
     var ytJson = JSON.parse(ytRes.getContentText());
@@ -537,68 +585,31 @@ function checkVideoAvailability() {
       if (!itemMap[id]) {
         deleteIds.push(id);
         Logger.log('削除済み: ' + id);
-      } else {
-        var item = itemMap[id];
-        if (item.status && item.status.privacyStatus !== 'public') {
-          deleteIds.push(id);
-          Logger.log('非公開/限定: ' + id + ' (' + item.status.privacyStatus + ')');
-        } else if (item.snippet && item.snippet.liveBroadcastContent === 'upcoming') {
-          upcomingIds.push(id);
-          Logger.log('配信予定: ' + id);
-        }
+      } else if (itemMap[id].status && itemMap[id].status.privacyStatus !== 'public') {
+        deleteIds.push(id);
+        Logger.log('非公開/限定: ' + id + ' (' + itemMap[id].status.privacyStatus + ')');
       }
     });
-    Utilities.sleep(1000);
+    Utilities.sleep(3000);
   }
+  return deleteIds;
+}
 
-  // 削除済み・非公開動画はDBから行ごと削除（YouTube API規約準拠）
-  if (deleteIds.length > 0) {
-    Logger.log('checkVideoAvailability: ' + deleteIds.length + '件を削除');
-    var chunkSize = 100;
-    for (var k = 0; k < deleteIds.length; k += chunkSize) {
-      var chunk = deleteIds.slice(k, k + chunkSize);
-      UrlFetchApp.fetch(
-        supabaseUrl + '/rest/v1/youtube_videos?video_id=in.(' + chunk.join(',') + ')',
-        {
-          method: 'delete',
-          headers: {
-            'apikey': supabaseKey,
-            'Authorization': 'Bearer ' + supabaseKey,
-            'Prefer': 'return=minimal',
-          },
-          muteHttpExceptions: true,
-        }
-      );
-    }
+// ===== Supabaseから動画を一括削除（内部共通） =====
+function deleteBatch_(supabaseUrl, supabaseKey, deleteIds) {
+  if (deleteIds.length === 0) return;
+  Logger.log(deleteIds.length + '件を削除');
+  for (var k = 0; k < deleteIds.length; k += 100) {
+    var chunk = deleteIds.slice(k, k + 100);
+    UrlFetchApp.fetch(
+      supabaseUrl + '/rest/v1/youtube_videos?video_id=in.(' + chunk.join(',') + ')',
+      {
+        method: 'delete',
+        headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey, 'Prefer': 'return=minimal' },
+        muteHttpExceptions: true,
+      }
+    );
   }
-
-  // 配信予定の動画は非表示にする（削除はしない。配信後に復活させるため）
-  if (upcomingIds.length > 0) {
-    Logger.log('checkVideoAvailability: ' + upcomingIds.length + '件を配信予定として非表示');
-    var chunkSize2 = 100;
-    for (var m = 0; m < upcomingIds.length; m += chunkSize2) {
-      var chunk2 = upcomingIds.slice(m, m + chunkSize2);
-      UrlFetchApp.fetch(
-        supabaseUrl + '/rest/v1/youtube_videos?video_id=in.(' + chunk2.join(',') + ')',
-        {
-          method: 'patch',
-          headers: {
-            'apikey': supabaseKey,
-            'Authorization': 'Bearer ' + supabaseKey,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=minimal',
-          },
-          payload: JSON.stringify({ is_active_content: false }),
-          muteHttpExceptions: true,
-        }
-      );
-    }
-  }
-
-  if (deleteIds.length === 0 && upcomingIds.length === 0) {
-    Logger.log('checkVideoAvailability: 対象なし');
-  }
-  Logger.log('checkVideoAvailability 完了');
 }
 
 // ===== 配信予定→配信済みになった動画の復活 =====
@@ -629,7 +640,8 @@ function reactivateFormerUpcoming(apiKey, supabaseUrl, supabaseKey) {
     var batch = inactiveIds.slice(i, i + 50);
     var ytRes = UrlFetchApp.fetch(
       'https://www.googleapis.com/youtube/v3/videos'
-        + '?key=' + apiKey + '&id=' + batch.join(',') + '&part=snippet,status&maxResults=50',
+        + '?key=' + apiKey + '&id=' + batch.join(',')
+        + '&part=snippet,status&maxResults=50&fields=items(id,status/privacyStatus,snippet/liveBroadcastContent)',
       { muteHttpExceptions: true }
     );
     if (ytRes.getResponseCode() !== 200) continue;

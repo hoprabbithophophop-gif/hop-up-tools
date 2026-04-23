@@ -3,14 +3,13 @@ import { useSearchParams } from 'react-router-dom';
 import { ChapterPlaylistProvider } from '../../features/videos/context/ChapterPlaylistContext';
 import { useChapterPlaylistContext } from '../../features/videos/context/ChapterPlaylistContext';
 import { BrowseView } from '../../features/youtube/components/BrowseView';
-import { SearchView } from '../../features/youtube/components/SearchView';
 import { PlayView } from '../../features/youtube/components/PlayView';
 import { Player } from '../../features/youtube/components/Player';
 import { ExpiredView } from '../../features/youtube/components/ExpiredView';
 import { getPlaylistShare, fromShareItem } from '../../features/videos/hooks/usePlaylistShare';
 import type { ChapterQueueItem } from '../../features/videos/types/playlist';
 
-type PageState = 'browse' | 'search' | 'play';
+type PageState = 'home' | 'play';
 type RestoreStatus = 'idle' | 'loading' | 'done' | 'expired';
 
 export interface SharedPlaylist {
@@ -30,32 +29,24 @@ function ChapterPickupContent() {
   const [searchParams] = useSearchParams();
   const playlistId = searchParams.get('p');
 
-  const [pageState, setPageState] = useState<PageState>('browse');
+  const [pageState, setPageState] = useState<PageState>('home');
   const [restoreStatus, setRestoreStatus] = useState<RestoreStatus>(
     playlistId ? 'loading' : 'idle'
   );
   const [sharedPlaylist, setSharedPlaylist] = useState<SharedPlaylist | null>(null);
-  // SearchViewは初回遷移時に初めてマウントする（初期ロードを避けるため）
-  const [searchMounted, setSearchMounted] = useState(false);
 
   const { state, startPlaylist, pause, resume } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
   const currentItem = state.currentIndex !== null ? state.queue[state.currentIndex] ?? null : null;
 
-  // play遷移元の画面を記憶してonBack時に戻れるようにする
-  const prevStateRef = useRef<'browse' | 'search'>('browse');
-  // browse / search それぞれのスクロール位置
-  const browseScrollRef = useRef(0);
-  const searchScrollRef = useRef(0);
+  const homeScrollRef = useRef(0);
 
-  // フッター(20px) + タブバー(48px) = 68px。ミニバーはタブバーの上
   const miniBottom = 'bottom-[68px]';
 
   useEffect(() => {
     document.title = 'HELLO! VIDEO | hop-up-tools';
   }, []);
 
-  // ?p= から共有プレイリスト復元
   useEffect(() => {
     if (!playlistId) {
       setRestoreStatus('idle');
@@ -81,34 +72,21 @@ function ChapterPickupContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playlistId]);
 
-  // スクロール位置復元
   useEffect(() => {
-    if (pageState === 'browse') {
-      const y = browseScrollRef.current;
-      requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
-    } else if (pageState === 'search') {
-      const y = searchScrollRef.current;
+    if (pageState === 'home') {
+      const y = homeScrollRef.current;
       requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
     }
   }, [pageState]);
 
   const handlePlay = useCallback((items: ChapterQueueItem[]) => {
-    if (pageState === 'browse') browseScrollRef.current = window.scrollY;
-    if (pageState === 'search') searchScrollRef.current = window.scrollY;
-    prevStateRef.current = pageState as 'browse' | 'search';
+    if (pageState === 'home') homeScrollRef.current = window.scrollY;
     startPlaylist(items);
     setPageState('play');
   }, [pageState, startPlaylist]);
 
-  const handleGoToSearch = useCallback(() => {
-    browseScrollRef.current = window.scrollY;
-    setSearchMounted(true);
-    setPageState('search');
-  }, []);
-
-  const handleGoToBrowse = useCallback(() => {
-    searchScrollRef.current = window.scrollY;
-    setPageState('browse');
+  const handleGoToHome = useCallback(() => {
+    setPageState('home');
   }, []);
 
   if (restoreStatus === 'loading') return <LoadingScreen />;
@@ -127,12 +105,18 @@ function ChapterPickupContent() {
 
   return (
     <div className="yt-page bg-white text-black" style={{ fontFamily: "'Inter', 'Noto Sans JP', sans-serif" }}>
-      {/* YouTube Player — 常時マウント、位置のみ切替 */}
+      {/* 固定ヘッダー */}
+      <header className="fixed top-0 left-0 right-0 z-50 flex items-center gap-4 px-6 py-4 bg-white border-b border-outline-variant/20">
+        <a href="/" className="material-symbols-outlined text-black leading-none" style={{ fontSize: '20px' }}>arrow_back</a>
+        <h1 className="text-xl font-black tracking-tighter uppercase">HELLO! VIDEO</h1>
+      </header>
+
+      {/* YouTube Player */}
       <div className={playerWrapClass} style={playerStyle}>
         <Player />
       </div>
 
-      {/* NOW PLAYING ミニバー（browse/search + queue 時） */}
+      {/* NOW PLAYING ミニバー */}
       {isNotPlay && hasQueue && (
         <div
           data-testid="mini-player"
@@ -162,7 +146,7 @@ function ChapterPickupContent() {
         </div>
       )}
 
-      {/* ミニプレーヤー サムネイル（browse/search + queue 時） */}
+      {/* ミニプレーヤー サムネイル */}
       {isNotPlay && hasQueue && currentItem && (
         <div
           className={`fixed ${miniBottom} left-0 w-32 h-[72px] z-40 cursor-pointer`}
@@ -176,48 +160,29 @@ function ChapterPickupContent() {
         </div>
       )}
 
-      {/* BrowseView */}
-      <div className={pageState === 'browse' ? 'pb-[68px]' : 'hidden'}>
+      {/* Home (Browse + Search 統合) */}
+      <div className={pageState === 'home' ? 'pt-[60px] pb-[68px]' : 'hidden'}>
         <BrowseView onPlay={handlePlay} />
       </div>
 
-      {/* SearchView: 初回遷移後にマウント */}
-      {searchMounted && (
-        <div className={pageState === 'search' ? 'pb-[68px]' : 'hidden'}>
-          <SearchView onBack={handleGoToBrowse} />
-        </div>
-      )}
-
-      {/* PlayView: 常時 DOM 保持（IFrame維持のため） */}
-      <div data-testid="play-view" className={pageState === 'play' ? 'pb-[68px]' : 'hidden'}>
+      {/* PlayView */}
+      <div data-testid="play-view" className={pageState === 'play' ? 'pt-[60px] pb-[68px]' : 'hidden'}>
         <PlayView sharedPlaylist={sharedPlaylist} />
       </div>
 
-      {/* タブバー */}
+      {/* タブバー: Home / Playlist */}
       <nav className="fixed bottom-[20px] left-0 right-0 z-50 h-12 bg-white flex">
         <button
-          onClick={handleGoToBrowse}
+          onClick={handleGoToHome}
           className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-            pageState === 'browse' ? 'text-black' : 'text-black/30'
+            pageState === 'home' ? 'text-black' : 'text-black/30'
           }`}
         >
           <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>home</span>
-          <span className="text-[0.5rem] font-bold uppercase tracking-widest">Browse</span>
+          <span className="text-[0.5rem] font-bold uppercase tracking-widest">Home</span>
         </button>
         <button
-          onClick={handleGoToSearch}
-          className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
-            pageState === 'search' ? 'text-black' : 'text-black/30'
-          }`}
-        >
-          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>search</span>
-          <span className="text-[0.5rem] font-bold uppercase tracking-widest">Search</span>
-        </button>
-        <button
-          onClick={() => {
-            prevStateRef.current = pageState !== 'play' ? pageState : prevStateRef.current;
-            setPageState('play');
-          }}
+          onClick={() => setPageState('play')}
           className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer relative ${
             pageState === 'play' ? 'text-black' : 'text-black/30'
           }`}
