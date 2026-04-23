@@ -29,6 +29,9 @@ yarn-error.log*
 .claude/
 .playwright-mcp/
 
+# Playwright テスト出力
+test-results/
+
 # スクリーンショット
 *.png
 

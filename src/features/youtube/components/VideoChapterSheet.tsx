@@ -47,6 +47,7 @@ interface SelectionMode {
 interface AddMode {
   kind: 'add';
   onAdd: (item: ChapterQueueItem) => void;
+  onRemove: (id: string) => void;
   isInQueue: (id: string) => boolean;
 }
 
@@ -260,6 +261,12 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
   );
 }
 
+function copyChapterLink(videoId: string, startSeconds: number) {
+  const t = Math.floor(startSeconds);
+  const url = `https://youtu.be/${videoId}?t=${t}`;
+  navigator.clipboard.writeText(url);
+}
+
 interface ChapterRowProps {
   id: string;
   label: string;
@@ -296,7 +303,14 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, 
           {timeRange && <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{timeRange}</p>}
         </div>
         {!isFullVideo && timestamp && (
-          <span className="text-[0.7rem] font-thin text-black/40 shrink-0">{timestamp}</span>
+          <button
+            onClick={e => { e.stopPropagation(); copyChapterLink(item.videoId, item.startSeconds); }}
+            className="text-[0.7rem] font-thin text-black/40 shrink-0 cursor-pointer"
+            aria-label="開始時間リンクをコピー"
+            title="YouTubeリンクをコピー"
+          >
+            {timestamp}
+          </button>
         )}
         <div className="shrink-0 w-9 h-9 flex items-center justify-center">
           {isSelected ? (
@@ -316,10 +330,10 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, 
   const inQueue = mode.isInQueue(id);
   return (
     <div
-      className={`flex items-center gap-3 px-4 py-[0.8rem] ${
-        inQueue ? 'bg-[#F0F0F0]' : 'cursor-pointer'
+      className={`flex items-center gap-3 px-4 py-[0.8rem] cursor-pointer ${
+        inQueue ? 'bg-[#F0F0F0]' : ''
       }`}
-      onClick={() => !inQueue && mode.onAdd(item)}
+      onClick={() => inQueue ? mode.onRemove(id) : mode.onAdd(item)}
     >
       <div
         className="flex-1 min-w-0"
@@ -331,7 +345,14 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, 
         {timeRange && <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{timeRange}</p>}
       </div>
       {!isFullVideo && timestamp && (
-        <span className="text-[0.7rem] font-thin text-black/40 shrink-0">{timestamp}</span>
+        <button
+          onClick={e => { e.stopPropagation(); copyChapterLink(item.videoId, item.startSeconds); }}
+          className="text-[0.7rem] font-thin text-black/40 shrink-0 cursor-pointer"
+          aria-label="開始時間リンクをコピー"
+          title="YouTubeリンクをコピー"
+        >
+          {timestamp}
+        </button>
       )}
       <div className="shrink-0 w-9 h-9 flex items-center justify-center text-black/30">
         {inQueue ? (

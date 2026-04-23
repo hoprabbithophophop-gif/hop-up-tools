@@ -22,7 +22,7 @@ interface Props {
 }
 
 export function PlayView({ sharedPlaylist }: Props) {
-  const { state, addItem, startPlaylist } = useChapterPlaylistContext();
+  const { state, addItem, removeFromQueue, startPlaylist } = useChapterPlaylistContext();
   const { queue, currentIndex } = state;
 
   const [trimOpen, setTrimOpen] = useState(false);
@@ -148,6 +148,13 @@ export function PlayView({ sharedPlaylist }: Props) {
                       <p className="text-[0.7rem] font-thin text-black/40 truncate mt-[0.2rem]">{item.videoTitle}</p>
                       <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{itemTimeRange}</p>
                     </div>
+                    <button
+                      onClick={() => removeFromQueue(item.id)}
+                      className="shrink-0 w-8 h-8 flex items-center justify-center text-black/30 cursor-pointer mt-0.5"
+                      aria-label="キューから削除"
+                    >
+                      <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>close</span>
+                    </button>
                   </div>
                 );
               })}
@@ -191,6 +198,7 @@ export function PlayView({ sharedPlaylist }: Props) {
           mode={{
             kind: 'add',
             onAdd: item => addItem(item),
+            onRemove: id => removeFromQueue(id),
             isInQueue: id => queue.some(q => q.id === id),
           }}
         />

@@ -27,7 +27,7 @@ interface Props {
 }
 
 export function BrowseView({ onPlay }: Props) {
-  const { state, playChapter, addItem } = useChapterPlaylistContext();
+  const { state, playChapter, addItem, removeFromQueue } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
 
   const [browseGroup, setBrowseGroup] = useState('');
@@ -376,6 +376,7 @@ export function BrowseView({ onPlay }: Props) {
           mode={{
             kind: 'add',
             onAdd: item => addItem(item),
+            onRemove: id => removeFromQueue(id),
             isInQueue: id => state.queue.some(q => q.id === id),
           }}
         />

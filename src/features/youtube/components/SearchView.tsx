@@ -30,7 +30,7 @@ interface Props {
 }
 
 export function SearchView({ onBack }: Props) {
-  const { state, addItem } = useChapterPlaylistContext();
+  const { state, addItem, removeFromQueue } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
 
   const [sheetVideo, setSheetVideo] = useState<VideoRow | null>(null);
@@ -237,6 +237,7 @@ export function SearchView({ onBack }: Props) {
           mode={{
             kind: 'add',
             onAdd: item => addItem(item),
+            onRemove: id => removeFromQueue(id),
             isInQueue: id => state.queue.some(q => q.id === id),
           }}
         />

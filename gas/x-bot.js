@@ -15,8 +15,14 @@
  * X_DRY_RUN             : "true" にするとログ出力のみ（投稿・メール送信ともしない）
  *
  * 【トリガー設定】
- * XBmain               : 毎朝9:00 JST に実行（時間主導型トリガー）
- *                         → 今日の新着チケット情報＋本日の申込・入金締切を通知
+ * XBmain               : 毎日 0〜1時 JST に実行（時間主導型トリガー）
+ *                         → 3日以内の申込締切・入金期限・当落発表を通知
+ *
+ * 【通知ルール（バランス案）】
+ *   申込締切（apply_end）: 3日前・1日前・当日
+ *   入金期限（payment）  : 1日前・当日
+ *   当落発表（result）   : 当日のみ
+ *   当日通知は「あとN時間」表記（24時間未満を時間単位で表示）
  */
 
 // ===== メール通知キュー（EMAIL_NOTIFY=true のとき使用）=====
@@ -44,8 +50,9 @@ function flushEmailNotify() {
 var _sheetQueue = [];
 
 function flushSheetQueue() {
-  if (_sheetQueue.length === 0) return;
   var props = PropertiesService.getScriptProperties();
+  // SHEET_MODE でなければ何もしない
+  if (props.getProperty('SHEET_MODE') !== 'true') return;
   var sheetId = props.getProperty('SHEET_ID');
   if (!sheetId) {
     Logger.log('[X SHEET] SHEET_ID 未設定');
@@ -54,30 +61,42 @@ function flushSheetQueue() {
   var ss = SpreadsheetApp.openById(sheetId);
   var sheet = ss.getSheetByName('X投稿キュー') || ss.insertSheet('X投稿キュー');
 
-  // ヘッダーがなければ作成
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(['ツイート本文', 'ステータス', '書き出し日時']);
-    sheet.getRange(1, 1, 1, 3).setFontWeight('bold');
-  }
+  // GAS実行時のJST日付（=予約投稿日）。GASが午前0〜1時に動く想定なので「今日」になる
+  var nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  var scheduledDate = nowJst.getUTCFullYear() + '-'
+    + String(nowJst.getUTCMonth() + 1).padStart(2, '0') + '-'
+    + String(nowJst.getUTCDate()).padStart(2, '0');
+  var nowStr = scheduledDate + ' '
+    + String(nowJst.getUTCHours()).padStart(2, '0') + ':'
+    + String(nowJst.getUTCMinutes()).padStart(2, '0');
 
-  // 既存の「未投稿」行をクリア（前日分の残り等）
-  var lastRow = sheet.getLastRow();
-  if (lastRow > 1) {
-    var statuses = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
-    for (var i = statuses.length - 1; i >= 0; i--) {
-      if (statuses[i][0] === '未投稿') {
-        sheet.deleteRow(i + 2);
-      }
+  // ヘッダー処理（新規作成 / 旧3列構成 / 既に4列の3パターン対応）
+  if (sheet.getLastRow() === 0) {
+    // 新規：4列で作成
+    sheet.appendRow(['ツイート本文', 'ステータス', '予約投稿日', '書き出し日時']);
+    sheet.getRange(1, 1, 1, 4).setFontWeight('bold');
+  } else {
+    // 既存シート：旧3列構成なら自動で4列化
+    var headerRow = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (headerRow[2] === '書き出し日時') {
+      sheet.insertColumnBefore(3);
+      sheet.getRange(1, 3).setValue('予約投稿日').setFontWeight('bold');
+      Logger.log('[X SHEET] ヘッダーを3列→4列にマイグレーション完了');
     }
   }
 
-  // 新しいツイート文面を書き込み
-  var now = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+  // 既存データ行を全削除（ヘッダーのみ残す）
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    sheet.deleteRows(2, lastRow - 1);
+  }
+
+  // 新しいツイート文面を書き込み（C列に予約投稿日を明示）
   _sheetQueue.forEach(function (item) {
-    sheet.appendRow([item.text, '未投稿', now]);
+    sheet.appendRow([item.text, '未投稿', scheduledDate, nowStr]);
   });
 
-  Logger.log('[X SHEET] スプシ書き出し: ' + _sheetQueue.length + '件');
+  Logger.log('[X SHEET] スプシ書き出し: ' + _sheetQueue.length + '件 (予約投稿日: ' + scheduledDate + ')');
   _sheetQueue = [];
 }
 
@@ -98,6 +117,31 @@ function markAsTweeted(uid) {
   props.setProperty('X_TWEETED_UIDS', JSON.stringify(tweeted));
 }
 
+// ===== 通知対象判定（バランス案）=====
+// 申込締切: 3日前・1日前・当日 / 入金: 1日前・当日 / 当落: 当日のみ
+function shouldNotify(type, daysLeft) {
+  if (type === 'apply_end') return [0, 1, 3].indexOf(daysLeft) !== -1;
+  if (type === 'payment') return [0, 1].indexOf(daysLeft) !== -1;
+  if (type === 'result') return daysLeft === 0;
+  return false;
+}
+
+// ===== 種類別絵文字 =====
+function emojiFor(type) {
+  if (type === 'apply_end') return '📝';
+  if (type === 'payment') return '💰';
+  if (type === 'result') return '🎯';
+  return '⏰';
+}
+
+// ===== ハッシュタグ選択 =====
+function hashtagFor(type) {
+  if (type === 'apply_end') return '#ハロプロ申込締切のお知らせ';
+  if (type === 'payment') return '#ハロプロ入金期限のお知らせ';
+  if (type === 'result') return '#ハロプロ当落発表のお知らせ';
+  return '';
+}
+
 // ===== 日次通知（毎朝トリガー）=====
 function XBmain() {
   var props = PropertiesService.getScriptProperties();
@@ -114,18 +158,15 @@ function XBmain() {
   var now = new Date();
   var jstOffset = 9 * 60 * 60 * 1000;
   var todayJst = new Date(Math.floor((now.getTime() + jstOffset) / 86400000) * 86400000 - jstOffset);
-  var tomorrowJst = new Date(todayJst.getTime() + 86400000);
-  var todayIso = todayJst.toISOString();
-  var tomorrowIso = tomorrowJst.toISOString();
 
-  // ── 3日以内の申込締切・入金締切 ──
-  var in3daysJst = new Date(todayJst.getTime() + 3 * 86400000);
+  // ── 3日以内の申込締切・入金期限・当落発表 ──
+  var in4daysJst = new Date(todayJst.getTime() + 4 * 86400000); // 3日前まで拾うため余裕をみて4日
   var dlRes = UrlFetchApp.fetch(
     supabaseUrl + '/rest/v1/fc_deadlines'
     + '?select=type,label,deadline_at,fc_news(uid,title,detail_url)'
-    + '&type=in.(apply_end,payment)'
-    + '&deadline_at=gte.' + todayIso
-    + '&deadline_at=lt.' + in3daysJst.toISOString()
+    + '&type=in.(apply_end,payment,result)'
+    + '&deadline_at=gte.' + todayJst.toISOString()
+    + '&deadline_at=lt.' + in4daysJst.toISOString()
     + '&order=deadline_at.asc',
     { headers: headers, muteHttpExceptions: true }
   );
@@ -136,34 +177,69 @@ function XBmain() {
   }
   var deadlines = JSON.parse(dlRes.getContentText());
   if (deadlines.length === 0) {
-    Logger.log('[X] 3日以内の締切なし');
+    Logger.log('[X] 対象期間内の締切なし');
   }
+
+  var notifiedCount = 0;
+
   deadlines.forEach(function (d) {
     var uid = d.fc_news ? d.fc_news.uid : d.type + '_' + d.deadline_at;
     var newsTitle = d.fc_news ? d.fc_news.title : '（タイトル不明）';
     var detailUrl = d.fc_news ? d.fc_news.detail_url : '';
-    // あと何日か計算
+
+    // あと何日か（JST日付ベースで計算）
     var dlDate = new Date(d.deadline_at);
-    // 時刻差ではなく JST 日付ベースで比較（ceil だと本日正午締切が「あと1日」になるバグを防ぐ）
     var dlDateJst = new Date(dlDate.getTime() + jstOffset);
     var dlDayStart = new Date(Date.UTC(dlDateJst.getUTCFullYear(), dlDateJst.getUTCMonth(), dlDateJst.getUTCDate()));
     var daysLeft = Math.round((dlDayStart.getTime() - todayJst.getTime()) / 86400000);
-    // 本日締切は時刻まで表示して「安心して見逃す」を防ぐ
-    var timeStr = formatJstTime(d.deadline_at);
-    var daysLabel = daysLeft === 0 ? '本日 ' + timeStr + 'まで' : 'あと' + daysLeft + '日';
-    var text = '⏰ ' + d.label + '【' + daysLabel + '】\n\n'
+
+    // バランス案の通知対象外はスキップ
+    if (!shouldNotify(d.type, daysLeft)) {
+      Logger.log('[X] 対象外スキップ: ' + newsTitle + ' (' + d.type + ', あと' + daysLeft + '日)');
+      return;
+    }
+
+    // 日数/時間ラベル
+    // 当日：「あとN時間」のみ
+    // 1日前：「あと1日（あとN時間）」併記
+    // 2日以上前：「あとN日」のみ
+    var daysLabel;
+    if (daysLeft <= 1) {
+      // 朝7時（投稿時刻）基準で残り時間を切り上げ（GAS実行は0〜1時だが投稿は7時）
+      var postTimeJst = new Date(todayJst.getTime() + 7 * 60 * 60 * 1000);
+      var hoursLeft = Math.ceil((dlDate.getTime() - postTimeJst.getTime()) / (60 * 60 * 1000));
+      if (hoursLeft <= 0) {
+        // 万一締切過ぎてたらスキップ（セーフティ）
+        Logger.log('[X] 締切超過スキップ: ' + newsTitle);
+        return;
+      }
+      if (daysLeft === 0) {
+        daysLabel = 'あと' + hoursLeft + '時間';
+      } else {
+        // daysLeft === 1：併記
+        daysLabel = 'あと1日（あと' + hoursLeft + '時間）';
+      }
+    } else {
+      daysLabel = 'あと' + daysLeft + '日';
+    }
+
+    var text = emojiFor(d.type) + ' ' + d.label + '【' + daysLabel + '】\n\n'
       + newsTitle + '\n'
       + d.label + '：' + formatJstDate(d.deadline_at) + ' ' + formatJstTime(d.deadline_at) + '\n\n'
       + (detailUrl ? '詳細 → ' + detailUrl + '\n' : '')
-      + (d.type === 'apply_end' ? '#ハロプロ申込締切のお知らせ' : '#ハロプロ入金期限のお知らせ');
-    var tweetKey = uid + '_' + d.type + '_d' + daysLeft; // 日数ごとに別キーにして毎日通知できるようにする
+      + hashtagFor(d.type);
+
+    // 通知キー：日数ごとに別にして、同じ締切を3日前/1日前/当日で別カウント
+    var tweetKey = uid + '_' + d.type + '_d' + daysLeft;
     if (hasBeenTweeted(tweetKey)) {
       Logger.log('[X] スキップ（通知済み）: ' + newsTitle);
       return;
     }
+
     try {
       postTweet(text);
       markAsTweeted(tweetKey);
+      notifiedCount++;
       Logger.log('[X] ツイート成功: ' + newsTitle + ' (' + daysLabel + ')');
     } catch (e) {
       Logger.log('[X] ツイート失敗: ' + e.message);
@@ -171,8 +247,8 @@ function XBmain() {
     Utilities.sleep(2000);
   });
 
-  // 締切ツイートの最後にツール紹介を1回投稿
-  if (deadlines.length > 0) {
+  // 締切ツイートがあった場合のみツール紹介を1回投稿
+  if (notifiedCount > 0) {
     Utilities.sleep(2000);
     try {
       postTweet('締切管理ツールとして使えます🐰\nhttps://x.com/hop_rabbit_hop/status/2041114959590101294?s=20');

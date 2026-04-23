@@ -52,7 +52,7 @@ export default function PrivacyPage() {
     <div style={s.wrap}>
       <Link to="/" style={s.back}>← ホームに戻る</Link>
       <div style={s.header}>プライバシーポリシー</div>
-      <div style={s.updated}>最終更新日: 2026年3月30日</div>
+      <div style={s.updated}>最終更新日: 2026年4月23日</div>
 
       <p style={s.p}>
         hop-up-tools（以下「本サービス」）は、hop_rabbit（以下「運営者」）が提供するHello! Project ファン向けWebツール集です。
@@ -80,14 +80,32 @@ export default function PrivacyPage() {
         ブラウザの設定からいつでも削除できます。
       </p>
 
-      <h2 style={s.h2}>3. アクセス解析</h2>
+      <h2 style={s.h2}>3. YouTube API サービスの利用</h2>
+      <p style={s.p}>
+        本サービスの「HELLO! VIDEOS」機能は、YouTube API サービスを利用して動画情報を取得・表示しています。
+        YouTube API サービスの利用により、以下の規約が適用されます。
+      </p>
+      <ul style={s.ul}>
+        <li><a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>YouTube 利用規約</a></li>
+        <li><a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>Google プライバシーポリシー</a></li>
+      </ul>
+      <p style={s.p}>
+        本サービスは YouTube から取得した動画情報（タイトル、サムネイル画像URL等）をデータベースに保存しています。
+        動画が YouTube から削除・非公開になった場合、保存していたデータも削除されます。
+      </p>
+      <p style={s.p}>
+        また、直近の再生履歴（最大3件）がお使いのブラウザの localStorage に一時的に保存されます。
+        これはサーバーには送信されず、ブラウザの設定からいつでも削除できます。
+      </p>
+
+      <h2 style={s.h2}>4. アクセス解析</h2>
       <p style={s.p}>
         本サービスはCloudflare Pages上で動作しており、Cloudflareが匿名のアクセスログ（IPアドレス・ブラウザ情報等）を収集する場合があります。
         これらはCloudflareのプライバシーポリシーに従って処理されます。
         運営者がユーザーを個人として特定することはありません。
       </p>
 
-      <h2 style={s.h2}>4. 広告（Google AdSense）</h2>
+      <h2 style={s.h2}>5. 広告（Google AdSense）</h2>
       <p style={s.p}>
         本サービスでは、Google LLC が提供する広告配信サービス「Google AdSense」を使用しています（または使用を予定しています）。
         Google AdSenseは、ユーザーの興味・関心に基づく広告を表示するためにCookieを使用する場合があります。
@@ -97,20 +115,20 @@ export default function PrivacyPage() {
         <li>広告Cookieの詳細は<a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>Googleのポリシーと規約</a>をご確認ください。</li>
       </ul>
 
-      <h2 style={s.h2}>5. 第三者サービスへのリンク</h2>
+      <h2 style={s.h2}>6. 第三者サービスへのリンク</h2>
       <p style={s.p}>
         本サービスはUPFC（ユナイテッドプロモーション）、e-LineUP!Mallなど外部サービスへのリンクを含みます。
         これら外部サービスのプライバシーポリシーについては、各サービスの規定をご確認ください。
         運営者はリンク先サービスの内容・取り扱いに責任を負いません。
       </p>
 
-      <h2 style={s.h2}>6. プライバシーポリシーの変更</h2>
+      <h2 style={s.h2}>7. プライバシーポリシーの変更</h2>
       <p style={s.p}>
         本ポリシーは必要に応じて変更することがあります。重要な変更がある場合は本ページに掲載します。
         最終更新日を必ずご確認ください。
       </p>
 
-      <h2 style={s.h2}>7. お問い合わせ</h2>
+      <h2 style={s.h2}>8. お問い合わせ</h2>
       <p style={s.p}>
         本ポリシーに関するお問い合わせは、X（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>@hop_rabbit_hop</a> までDMにてご連絡ください。
       </p>

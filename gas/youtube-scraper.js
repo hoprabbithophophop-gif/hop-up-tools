@@ -11,20 +11,9 @@
  * YOUTUBE_API_KEY  : YouTube Data API v3 のAPIキー
  * SUPABASE_URL     : Supabase プロジェクトURL
  * SUPABASE_SERVICE_KEY : Supabase service_role キー
+ *
+ * グループ定義・タグ判定ロジックは hello-groups.js を参照。
  */
-
-// ===== メンバー同期対象グループページ =====
-var GROUP_PAGES = [
-  { group: 'モーニング娘。',    url: 'https://www.helloproject.com/morningmusume/' },
-  { group: 'アンジュルム',      url: 'https://www.helloproject.com/angerme/' },
-  { group: 'Juice=Juice',       url: 'https://www.helloproject.com/juicejuice/' },
-  { group: 'つばきファクトリー', url: 'https://www.helloproject.com/tsubakifactory/' },
-  { group: 'BEYOOOOONDS',       url: 'https://www.helloproject.com/beyooooonds/' },
-  { group: 'OCHA NORMA',        url: 'https://www.helloproject.com/ochanorma/' },
-  { group: 'ロージークロニクル', url: 'https://www.helloproject.com/rosychronicle/' },
-  { group: 'ハロプロ研修生',    url: 'https://www.helloproject.com/helloprokenshusei/' },
-  { group: 'ハロプロ研修生',    url: 'https://www.helloproject.com/helloprokenshuseihokkaido/' },
-];
 
 // ===== チャンネル定義 =====
 // channelId が空の場合は resolveChannelIds() で自動取得
@@ -71,90 +60,8 @@ var CHANNELS = [
   { key: 'kimitsuta',        channelId: '', name: 'ハロプロちょっと面白い話', handle: '@kimitsuta' },
 ];
 
-// ===== 現役グループ（シャッフル対象判定用） =====
-// GROUP_PAGES と同期させること（活動終了グループは含めない）
-var ACTIVE_GROUPS = [
-  'モーニング娘。', 'アンジュルム', 'Juice=Juice', 'つばきファクトリー',
-  'BEYOOOOONDS', 'OCHA NORMA', 'ロージークロニクル', 'ハロプロ研修生',
-];
-
-// ===== チャンネル → グループ 直接マッピング =====
-// グループ専用チャンネルはタグを決め打ち（説明欄の誤マッチを防ぐ）
-var CHANNEL_GROUP_MAP = {
-  'UCoKXb95K5h3sME3c9OCBaeA': ['モーニング娘。'],
-  'UCXTsCXNGHmePgo3a47hnsAA': ['つばきファクトリー'],
-  'UCaAqTsMF-VcHxaLpjDGOtcg': ['ロージークロニクル'],
-  'UCDwcZ85zjLKD-3-jqlv1wQQ': ['アンジュルム'],
-  'UC6FadPgGviUcq6VQ0CEJqdQ': ['Juice=Juice'],
-  'UCE5GP4BHm2EJx4xyxBVSLlg': ['BEYOOOOONDS'],
-  'UCEbxO0RPlOQIVWrDaeepvuA': ['OCHA NORMA'],
-  'UCrFu9o-a6yWxsWP0AtDVycw': ['ハロプロ研修生'],
-  'UCfbSi3j0UCiS3YX-jrEg7_Q': ['つばきファクトリー'],  // happyに過ごそうよ
-  'UCBWz3v7TuibgAIZXWf8pPhQ': ['BEYOOOOONDS'],          // ビヨーンズの伸びしろ
-  'UCt3f_Tu1lNua1xLQZu2Td-w': ['こぶしファクトリー'],  // こぶしファクトリー
-  'UCWBTV02MVmyLqNPWRGDrl6A': ['Berryz工房'],           // Berryz工房
-  'UCcS2E_TVMSwbN4Q5eH7F_oA': ['℃-ute'],               // ℃-ute
-  'UCoxHJjctNXq1UgGk1vx3LUw': ['カントリー・ガールズ'], // カントリー・ガールズ
-  'UCQuNrURlzPsbJZD17icx7Gw': ['Buono!'],               // Buono!
-  // ↓ 複数グループ混在チャンネル → タイトルキーワード判定
-  // UCnoYhOtV0IXZ6lv2R-ZnB_Q: ハロ！ステ
-  // UCjXGuJZhvCwBSl7dwUJDJdg: アップフロントチャンネル
-  // UCFBY6EJFIwCQCl-DiYYNKlg: OMAKE CHANNEL
-  // UC3oHasOAxRUwX0HpEhnWsQg: UFfanclub
-  // UCNnIuuP67kGgWngvaPzSdOQ: UF Goods Land
-};
-
-// ===== グループタグ判定キーワード =====
-// 専用チャンネル: タイトルのみ（CHANNEL_GROUP_MAP で決め打ち）
-// 混在・外部チャンネル: タイトル＋概要欄の両方をチェック
-// ※メンバー名は卒業・加入で変わるので定期的に要確認
-// ※メンバー名は helloproject.com/artist/ 各グループページから取得（2026年4月時点）
-var GROUP_KEYWORDS = {
-  'モーニング娘。': [
-    'モーニング娘', 'Morning Musume', 'モー娘',
-    '野中美希', '小田さくら', '牧野真莉愛', '岡村ほまれ', '山﨑愛生',
-    '櫻井梨央', '井上春華', '弓桁朱琴',
-  ],
-  'アンジュルム': [
-    'アンジュルム', 'ANGERME',
-    '伊勢鈴蘭', '為永幸音', '橋迫鈴', '川名凜', '松本わかな',
-    '平山遊季', '下井谷幸穂', '後藤花', '長野桃羽',
-  ],
-  'Juice=Juice': [
-    'Juice=Juice', 'J=J',
-    '段原瑠々', '井上玲音', '工藤由愛', '松永里愛', '有澤一華',
-    '入江里咲', '江端妃咲', '石山咲良', '遠藤彩加里', '川嶋美楓', '林仁愛',
-  ],
-  'つばきファクトリー': [
-    'つばきファクトリー', 'Tsubaki Factory',
-    '谷本安美', '小野瑞歩', '小野田紗栞', '秋山眞緒', '河西結心',
-    '福田真琳', '豫風瑠乃', '石井泉羽', '村田結生', '土居楓奏', '西村乙輝',
-  ],
-  'BEYOOOOONDS': [
-    'BEYOOOOONDS',
-    '西田汐里', '江口紗耶', '高瀬くるみ', '前田こころ', '岡村美波',
-    '清野桃々姫', '平井美葉', '小林萌花', '里吉うたの',
-  ],
-  'OCHA NORMA': [
-    'OCHA NORMA',
-    '斉藤円香', '広本瑠璃', '米村姫良々', '窪田七海', '中山夏月姫',
-    '西﨑美空', '北原もも', '筒井澪心',
-  ],
-  'ロージークロニクル': [
-    'ロージークロニクル', 'Rosy Chronicle',
-    '橋田歩果', '吉田姫杷', '小野田華凜', '村越彩菜', '植村葉純',
-    '松原ユリヤ', '島川波菜', '上村麗菜', '相馬優芽',
-  ],
-  'ハロプロ研修生': ['ハロプロ研修生', '研修生'],
-
-  // 活動終了グループ（ハロステ等の過去動画タグ付け用）
-  'こぶしファクトリー': ['こぶしファクトリー', 'Kobushi Factory'],
-  'Berryz工房':        ['Berryz工房', 'Berryz Kobo'],
-  '℃-ute':            ['℃-ute', 'C-ute'],
-  'カントリー・ガールズ': ['カントリー・ガールズ', 'Country Girls'],
-  'スマイレージ':       ['スマイレージ', 'S/mileage'],
-  'Buono!':            ['Buono!', 'ボーノ'],
-};
+// GROUP_PAGES / ACTIVE_GROUPS / CHANNEL_GROUP_MAP / GROUP_KEYWORDS は
+// hello-groups.js で定義（GAS は同一スコープで実行されるため参照可）
 
 // ===== 動画種別判定キーワード =====
 var VIDEO_TYPE_KEYWORDS = {
@@ -197,6 +104,9 @@ function YTmain() {
 
     Utilities.sleep(500); // API quota 対策
   });
+
+  // 配信予定→配信済みになった動画を復活
+  reactivateFormerUpcoming(apiKey, supabaseUrl, supabaseKey);
 }
 
 // ===== 動画取得（差分のみ） =====
@@ -258,7 +168,7 @@ function fetchNewVideos(apiKey, channelId, channelName, supabaseUrl, supabaseKey
         title:             title,
         published_at:      publishedAt,
         thumbnail_url:     thumbnail,
-        is_active_content: isActiveContent(groupTags, channelId, title, description),
+        is_active_content: isActiveContent(groupTags),
         description_short: description,
         group_tags:        groupTags,
         video_type:        detectVideoType(title),
@@ -268,7 +178,45 @@ function fetchNewVideos(apiKey, channelId, channelName, supabaseUrl, supabaseKey
     nextPageToken = json.nextPageToken;
   } while (nextPageToken && !done);
 
+  // 配信予定（upcoming）の動画を非表示にする
+  if (videos.length > 0) {
+    var videoIds = videos.map(function(v) { return v.video_id; });
+    var upcomingIds = getUpcomingVideoIds(apiKey, videoIds);
+    if (upcomingIds.length > 0) {
+      videos.forEach(function(v) {
+        if (upcomingIds.indexOf(v.video_id) !== -1) {
+          v.is_active_content = false;
+          Logger.log('[UPCOMING] ' + v.title);
+        }
+      });
+    }
+  }
+
   return videos;
+}
+
+// ===== 配信予定（upcoming）動画の判定 =====
+// videos.list で liveBroadcastContent を確認し、upcoming な動画IDを返す
+function getUpcomingVideoIds(apiKey, videoIds) {
+  var upcomingIds = [];
+  var chunkSize = 50;
+  for (var i = 0; i < videoIds.length; i += chunkSize) {
+    var chunk = videoIds.slice(i, i + chunkSize);
+    var url = 'https://www.googleapis.com/youtube/v3/videos'
+      + '?key=' + apiKey
+      + '&id=' + chunk.join(',')
+      + '&part=snippet&maxResults=50';
+    var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) continue;
+    var json = JSON.parse(res.getContentText());
+    (json.items || []).forEach(function(item) {
+      if (item.snippet && item.snippet.liveBroadcastContent === 'upcoming') {
+        upcomingIds.push(item.id);
+      }
+    });
+    Utilities.sleep(1000);
+  }
+  return upcomingIds;
 }
 
 // ===== Supabaseから各チャンネルの最新公開日を取得 =====
@@ -314,27 +262,7 @@ function upsertToSupabase(supabaseUrl, supabaseKey, videos) {
   }
 }
 
-// ===== グループタグ判定 =====
-// 専用チャンネル → CHANNEL_GROUP_MAP で決め打ち
-// 混在・外部チャンネル → タイトル＋概要欄の両方でキーワード判定
-function detectGroups(channelId, title, description) {
-  if (CHANNEL_GROUP_MAP[channelId]) {
-    return CHANNEL_GROUP_MAP[channelId];
-  }
-
-  var text = title + ' ' + (description || '');
-  var tags = [];
-  Object.keys(GROUP_KEYWORDS).forEach(function(group) {
-    var keywords = GROUP_KEYWORDS[group];
-    for (var i = 0; i < keywords.length; i++) {
-      if (text.indexOf(keywords[i]) !== -1) {
-        tags.push(group);
-        break;
-      }
-    }
-  });
-  return tags;
-}
+// detectGroups() は hello-groups.js で定義
 
 // ===== 【既存データ修正用・初回のみ】全動画のグループタグを再計算して更新 =====
 // 戦略:
@@ -358,7 +286,7 @@ function retagVideos() {
         'Content-Type': 'application/json',
         'Prefer': 'return=minimal',
       },
-      payload: JSON.stringify({ group_tags: tags }),
+      payload: JSON.stringify({ group_tags: tags, is_active_content: isActiveContent(tags) }),
       muteHttpExceptions: true,
     });
     Logger.log('channel ' + channelId + ' → ' + JSON.stringify(tags) + ' (' + res.getResponseCode() + ')');
@@ -375,13 +303,13 @@ function retagVideos() {
   mixedIds.forEach(function(channelId) {
     if (!channelId) return;
 
-    // 全動画を取得（video_id + title のみ）
+    // 全動画を取得（description_short も含める: detectGroups の URL打ち切りロジックに必要）
     var allRows = [];
     var offset = 0;
     while (true) {
       var url = supabaseUrl + '/rest/v1/youtube_videos'
         + '?channel_id=eq.' + channelId
-        + '&select=video_id,title'
+        + '&select=video_id,title,description_short'
         + '&limit=1000&offset=' + offset;
       var res = UrlFetchApp.fetch(url, {
         headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey },
@@ -396,7 +324,7 @@ function retagVideos() {
     // group_tags でグルーピング
     var tagGroups = {}; // JSON.stringify(tags) → [video_id, ...]
     allRows.forEach(function(row) {
-      var tags = detectGroups(channelId, row.title);
+      var tags = detectGroups(channelId, row.title, row.description_short);
       var key = JSON.stringify(tags);
       if (!tagGroups[key]) tagGroups[key] = [];
       tagGroups[key].push(row.video_id);
@@ -420,7 +348,7 @@ function retagVideos() {
             'Content-Type': 'application/json',
             'Prefer': 'return=minimal',
           },
-          payload: JSON.stringify({ group_tags: tags }),
+          payload: JSON.stringify({ group_tags: tags, is_active_content: isActiveContent(tags) }),
           muteHttpExceptions: true,
         });
       }
@@ -499,19 +427,7 @@ function updateDescriptions() {
   Logger.log('updateDescriptions 完了');
 }
 
-// ===== 現役メンバー関連コンテンツ判定 =====
-// group_tags に現役グループが1つ以上含まれていれば true
-// 専用チャンネルかつ現役グループなら、タイトル判定なしで true（グループ単位で信頼）
-function isActiveContent(groupTags, channelId, title, description) {
-  // group_tags ベースの判定
-  for (var i = 0; i < groupTags.length; i++) {
-    if (ACTIVE_GROUPS.indexOf(groupTags[i]) !== -1) return true;
-  }
-
-  // 専用チャンネルだがCHANNEL_GROUP_MAPの値が活動終了グループのみの場合はfalse
-  // （上記ループで現役タグがなければここに来る → false で確定）
-  return false;
-}
+// isActiveContent() は hello-groups.js で定義
 
 // ===== 【既存データ修正用】is_active_content を全動画に一括設定 =====
 // 初回または ACTIVE_GROUPS を変更したときに実行
@@ -575,6 +491,185 @@ function backfillActiveContent() {
   Logger.log('backfillActiveContent 完了');
 }
 
+// ===== 削除/非公開動画の自動検出 =====
+// is_active_content=true の動画を YouTube API で一括確認。
+// APIレスポンスに含まれない（削除済み）または privacyStatus が public 以外の動画を
+// is_active_content=false / group_tags=[] に更新する。
+// 週1回トリガー推奨。
+function checkVideoAvailability() {
+  var props = PropertiesService.getScriptProperties();
+  var apiKey = props.getProperty('YOUTUBE_API_KEY');
+  var supabaseUrl = props.getProperty('SUPABASE_URL');
+  var supabaseKey = props.getProperty('SUPABASE_SERVICE_KEY');
+
+  // is_active_content=true の video_id を全件取得
+  var allIds = [];
+  var offset = 0;
+  while (true) {
+    var res = UrlFetchApp.fetch(
+      supabaseUrl + '/rest/v1/youtube_videos'
+        + '?select=video_id&is_active_content=eq.true&order=video_id&limit=1000&offset=' + offset,
+      { headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey }, muteHttpExceptions: true }
+    );
+    var rows = JSON.parse(res.getContentText());
+    rows.forEach(function(r) { allIds.push(r.video_id); });
+    if (rows.length < 1000) break;
+    offset += 1000;
+    Utilities.sleep(1000);
+  }
+  Logger.log('checkVideoAvailability: 対象 ' + allIds.length + '件');
+
+  // 50件ずつ YouTube API でステータス確認（snippet も取得して配信予定を検出）
+  var deleteIds = [];
+  var upcomingIds = [];
+  for (var i = 0; i < allIds.length; i += 50) {
+    var batch = allIds.slice(i, i + 50);
+    var ytRes = UrlFetchApp.fetch(
+      'https://www.googleapis.com/youtube/v3/videos'
+        + '?key=' + apiKey + '&id=' + batch.join(',') + '&part=snippet,status&maxResults=50',
+      { muteHttpExceptions: true }
+    );
+    var ytJson = JSON.parse(ytRes.getContentText());
+    var itemMap = {};
+    (ytJson.items || []).forEach(function(item) { itemMap[item.id] = item; });
+
+    batch.forEach(function(id) {
+      if (!itemMap[id]) {
+        deleteIds.push(id);
+        Logger.log('削除済み: ' + id);
+      } else {
+        var item = itemMap[id];
+        if (item.status && item.status.privacyStatus !== 'public') {
+          deleteIds.push(id);
+          Logger.log('非公開/限定: ' + id + ' (' + item.status.privacyStatus + ')');
+        } else if (item.snippet && item.snippet.liveBroadcastContent === 'upcoming') {
+          upcomingIds.push(id);
+          Logger.log('配信予定: ' + id);
+        }
+      }
+    });
+    Utilities.sleep(1000);
+  }
+
+  // 削除済み・非公開動画はDBから行ごと削除（YouTube API規約準拠）
+  if (deleteIds.length > 0) {
+    Logger.log('checkVideoAvailability: ' + deleteIds.length + '件を削除');
+    var chunkSize = 100;
+    for (var k = 0; k < deleteIds.length; k += chunkSize) {
+      var chunk = deleteIds.slice(k, k + chunkSize);
+      UrlFetchApp.fetch(
+        supabaseUrl + '/rest/v1/youtube_videos?video_id=in.(' + chunk.join(',') + ')',
+        {
+          method: 'delete',
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': 'Bearer ' + supabaseKey,
+            'Prefer': 'return=minimal',
+          },
+          muteHttpExceptions: true,
+        }
+      );
+    }
+  }
+
+  // 配信予定の動画は非表示にする（削除はしない。配信後に復活させるため）
+  if (upcomingIds.length > 0) {
+    Logger.log('checkVideoAvailability: ' + upcomingIds.length + '件を配信予定として非表示');
+    var chunkSize2 = 100;
+    for (var m = 0; m < upcomingIds.length; m += chunkSize2) {
+      var chunk2 = upcomingIds.slice(m, m + chunkSize2);
+      UrlFetchApp.fetch(
+        supabaseUrl + '/rest/v1/youtube_videos?video_id=in.(' + chunk2.join(',') + ')',
+        {
+          method: 'patch',
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': 'Bearer ' + supabaseKey,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal',
+          },
+          payload: JSON.stringify({ is_active_content: false }),
+          muteHttpExceptions: true,
+        }
+      );
+    }
+  }
+
+  if (deleteIds.length === 0 && upcomingIds.length === 0) {
+    Logger.log('checkVideoAvailability: 対象なし');
+  }
+  Logger.log('checkVideoAvailability 完了');
+}
+
+// ===== 配信予定→配信済みになった動画の復活 =====
+// is_active_content=false かつ group_tags が空でない動画を対象に、
+// YouTube API で公開済み＆配信予定でないことを確認したら is_active_content=true に戻す
+function reactivateFormerUpcoming(apiKey, supabaseUrl, supabaseKey) {
+  var inactiveIds = [];
+  var offset = 0;
+  while (true) {
+    var res = UrlFetchApp.fetch(
+      supabaseUrl + '/rest/v1/youtube_videos'
+        + '?select=video_id'
+        + '&is_active_content=eq.false'
+        + '&group_tags=neq.{}'
+        + '&order=video_id&limit=1000&offset=' + offset,
+      { headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey }, muteHttpExceptions: true }
+    );
+    var rows = JSON.parse(res.getContentText());
+    rows.forEach(function(r) { inactiveIds.push(r.video_id); });
+    if (rows.length < 1000) break;
+    offset += 1000;
+  }
+  if (inactiveIds.length === 0) return;
+  Logger.log('reactivateFormerUpcoming: 候補 ' + inactiveIds.length + '件');
+
+  var reactivateIds = [];
+  for (var i = 0; i < inactiveIds.length; i += 50) {
+    var batch = inactiveIds.slice(i, i + 50);
+    var ytRes = UrlFetchApp.fetch(
+      'https://www.googleapis.com/youtube/v3/videos'
+        + '?key=' + apiKey + '&id=' + batch.join(',') + '&part=snippet,status&maxResults=50',
+      { muteHttpExceptions: true }
+    );
+    if (ytRes.getResponseCode() !== 200) continue;
+    var ytJson = JSON.parse(ytRes.getContentText());
+    (ytJson.items || []).forEach(function(item) {
+      var isPublic = item.status && item.status.privacyStatus === 'public';
+      var notUpcoming = item.snippet && item.snippet.liveBroadcastContent !== 'upcoming';
+      if (isPublic && notUpcoming) {
+        reactivateIds.push(item.id);
+      }
+    });
+    Utilities.sleep(1000);
+  }
+
+  if (reactivateIds.length === 0) {
+    Logger.log('reactivateFormerUpcoming: 復活対象なし');
+    return;
+  }
+  Logger.log('reactivateFormerUpcoming: ' + reactivateIds.length + '件を復活');
+
+  var chunkSize = 100;
+  for (var j = 0; j < reactivateIds.length; j += chunkSize) {
+    var chunk = reactivateIds.slice(j, j + chunkSize);
+    UrlFetchApp.fetch(
+      supabaseUrl + '/rest/v1/youtube_videos?video_id=in.(' + chunk.join(',') + ')',
+      {
+        method: 'patch',
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': 'Bearer ' + supabaseKey,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal',
+        },
+        payload: JSON.stringify({ is_active_content: true }),
+        muteHttpExceptions: true,
+      }
+    );
+  }
+}
+
 // ===== 動画種別判定 =====
 function detectVideoType(title) {
   var types = Object.keys(VIDEO_TYPE_KEYWORDS);
@@ -625,7 +720,7 @@ function resolveChannelIds() {
       Logger.log('[ERROR] ' + channel.name + ': ' + e.message);
     }
 
-    Utilities.sleep(200);
+    Utilities.sleep(1000);
   });
 
   Logger.log('完了。スクリプトプロパティを確認してください。');

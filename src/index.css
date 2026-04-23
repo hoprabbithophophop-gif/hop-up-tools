@@ -1,13 +1,79 @@
 @import "tailwindcss";
 
+:root {
+  /* --- Typography scale (Inter single-family) --- */
+  --display-lg:   3.5rem;
+  --display-md:   3rem;
+  --headline-lg:  2rem;
+  --headline-md:  1.5rem;
+  --headline-sm:  1.25rem;
+  --title:        1rem;
+  --body-lg:      1rem;
+  --body-md:      0.875rem;
+  --body-sm:      0.75rem;
+  --caption:      0.6875rem;
+  --micro:        0.625rem;
+  --nano:         0.5625rem;
+
+  /* Weights */
+  --w-regular:  400;
+  --w-medium:   500;
+  --w-bold:     700;
+  --w-extrabold:800;
+  --w-black:    900;
+
+  /* Line heights */
+  --lh-tight:   1;
+  --lh-snug:    1.2;
+  --lh-normal:  1.4;
+  --lh-relaxed: 1.7;
+
+  /* Letter spacing */
+  --ls-tighter:   -0.04em;
+  --ls-tight:     -0.02em;
+  --ls-normal:    0;
+  --ls-wide:       0.05em;
+  --ls-widest:     0.1em;
+  --ls-ultrawide:  0.2em;
+
+  /* --- Spacing (strict 0.2rem grid) --- */
+  --sp-1:  0.2rem;
+  --sp-2:  0.4rem;
+  --sp-3:  0.6rem;
+  --sp-4:  0.8rem;
+  --sp-5:  1rem;
+  --sp-6:  1.2rem;
+  --sp-7:  1.4rem;
+  --sp-8:  1.6rem;
+  --sp-10: 2rem;
+  --sp-12: 2.4rem;
+  --sp-16: 3.2rem;
+  --sp-20: 4rem;
+
+  /* --- Radii (always 0) --- */
+  --radius: 0;
+
+  /* --- Shadows (functional only) --- */
+  --shadow-overlay: 0 4px 24px rgba(0,0,0,.12);
+  --shadow-sticky:  0 1px 0 rgba(0,0,0,.04);
+
+  /* --- Motion --- */
+  --dur-fast:   0.12s;
+  --dur-base:   0.2s;
+  --dur-slow:   0.4s;
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 html {
-  /* スクロールバーの出現/消失によるレイアウトシフトを防ぐ */
   scrollbar-gutter: stable;
 }
 
 body {
   font-family: 'Inter', 'Noto Sans JP', sans-serif;
-  color: #000000;
+  color: var(--color-on-surface, #191c1d);
+  background: var(--color-surface, #f8f9fa);
+  font-size: var(--body-md);
+  line-height: var(--lh-normal);
 }
 
 /* /youtube デザイントークン */

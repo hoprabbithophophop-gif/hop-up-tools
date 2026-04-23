@@ -78,7 +78,7 @@ const TYPE_LABEL_EN: Record<string, string> = {
 export default function FcTicketPage() {
   useEffect(() => { document.title = "FC 締切リマインダー | hop-up-tools"; }, []);
 
-  const [tab, setTab] = useState<Tab>("input");
+  const [tab, setTab] = useState<Tab>("calendar");
   const [pasteText, setPasteText] = useState<string>(() => {
     try { return localStorage.getItem("fc-input-text") ?? ""; }
     catch { return ""; }
@@ -1049,11 +1049,18 @@ function CalendarScreen({
               {calFilter === "all" && <span className="flex items-center gap-1"><span className="w-2 h-2 bg-outline-variant inline-block" />その他</span>}
               <span className="text-outline-variant">｜</span>
               <span className="flex items-center gap-1">
-                <span className="w-5 h-2 inline-block bg-primary" />
+                <span className="w-5 h-2 inline-block bg-primary" style={{ opacity: 0.5 }} />
                 <span className="text-[0.6875rem] font-bold uppercase tracking-widest">申込期間</span>
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-5 h-2 inline-block" style={{ background: "repeating-linear-gradient(-45deg, #585f6c 0px, #585f6c 1px, transparent 1px, transparent 5px)" }} />
+                <span className="w-5 h-2 inline-block overflow-hidden" style={{ backgroundColor: "#f8f9fa" }}>
+                  <svg width="20" height="8" style={{ display: "block" }}>
+                    {Array.from({ length: 5 }, (_, i) => {
+                      const x = -8 + i * 8;
+                      return <line key={i} x1={x} y1={8} x2={x + 8} y2={0} stroke="#585f6c" strokeWidth="1.5" />;
+                    })}
+                  </svg>
+                </span>
                 <span className="text-[0.6875rem] font-bold uppercase tracking-widest">入金期間</span>
               </span>
               <span className="flex items-center gap-1">
@@ -1194,8 +1201,7 @@ const isMonthStart = d.getDate() === 1;
                       const left = Math.max(0, rawLeft);
                       const right = Math.min(TOTAL_DAYS * CELL_WIDTH, rawRight);
                       const width = Math.max(CELL_WIDTH / 2, right - left);
-                      const barColor = "#000000";
-                      const opacity = p.kind === "other" ? 0.2 : p.kind === "watchlist" ? 0.7 : 1;
+                      const barColor = "#585f6c";
                       const isTooltipOpen = tooltipUid === p.newsUid;
 
                       // 入金バー: payment_start → result → 申込締切日 の優先順で開始日を決定
@@ -1241,7 +1247,6 @@ const isMonthStart = d.getDate() === 1;
                               height: 18,
                               borderRadius: 0,
                               background: barColor,
-                              opacity,
                               overflow: "hidden",
                               boxSizing: "border-box",
                               cursor: "pointer",
@@ -1281,14 +1286,20 @@ const isMonthStart = d.getDate() === 1;
                                 width: pWidth!,
                                 top: 10,
                                 height: 18,
-                                borderRadius: 0,
-                                background: "repeating-linear-gradient(-45deg, #585f6c 0px, #585f6c 1px, transparent 1px, transparent 5px)",
-                                opacity: Math.max(0.5, opacity * 0.8),
+                                backgroundColor: "#f8f9fa",
+                                overflow: "hidden",
                                 cursor: "pointer",
                                 zIndex: 1,
                               }}
                               onClick={handleBarClick}
-                            />
+                            >
+                              <svg width={pWidth!} height={18} style={{ display: "block" }}>
+                                {Array.from({ length: Math.ceil((pWidth! + 18) / 8) + 1 }, (_, i) => {
+                                  const x = -18 + i * 8;
+                                  return <line key={i} x1={x} y1={18} x2={x + 18} y2={0} stroke="#585f6c" strokeWidth="1.5" />;
+                                })}
+                              </svg>
+                            </div>
                           )}
                           {/* 当落発表マーカー（縦線 + ひし形） */}
                           {showResultMarker && (
@@ -1300,7 +1311,6 @@ const isMonthStart = d.getDate() === 1;
                                 width: 2,
                                 height: rowHeight - 4,
                                 background: "#585f6c",
-                                opacity: opacity * 0.8,
                                 zIndex: 2,
                                 cursor: "pointer",
                               }}
