@@ -452,8 +452,8 @@ export function OgpEditor({ title, queue, onDone, onCancel }: OgpEditorProps) {
 
       <div className="flex flex-col md:flex-row flex-1 min-h-0 gap-0">
         {/* キャンバスエリア */}
-        <div className="flex-1 p-2 md:p-4 flex items-start justify-center overflow-auto">
-          <div ref={wrapRef} className="w-full max-w-[720px] bg-white relative overflow-hidden">
+        <div className="shrink-0 md:flex-1 p-2 md:p-4 flex items-start justify-center overflow-auto" style={{ minHeight: '45vh' }}>
+          <div ref={wrapRef} className="w-full max-w-[720px] bg-white relative overflow-hidden" style={{ aspectRatio: '1200/630' }}>
             {loading && (
               <div className="absolute inset-0 flex items-center justify-center bg-surface-bright z-10">
                 <p className="text-xs text-outline uppercase tracking-widest">読み込み中...</p>
@@ -464,7 +464,7 @@ export function OgpEditor({ title, queue, onDone, onCancel }: OgpEditorProps) {
         </div>
 
         {/* パネルエリア */}
-        <div className="flex flex-col md:w-96 shrink-0 bg-surface-container-low border-t md:border-t-0 md:border-l border-outline-variant/20 overflow-hidden">
+        <div className="flex flex-col flex-1 md:flex-none md:w-96 min-h-0 bg-surface-container-low border-t md:border-t-0 md:border-l border-outline-variant/20 overflow-hidden">
           {/* 選択状態 */}
           <div className={`px-3 py-2 text-[0.6875rem] shrink-0 ${selectedActive ? 'bg-primary text-on-primary-fixed' : 'bg-surface-container text-outline'}`}>
             {selectedInfo}

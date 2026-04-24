@@ -612,8 +612,11 @@ export function BrowseView({ onPlay }: Props) {
           mode={{
             kind: 'add',
             onAdd: item => addItem(item),
-            onRemove: id => removeFromQueue(id),
-            isInQueue: id => state.queue.some(q => q.id === id),
+            onRemove: id => {
+              const match = state.queue.find(q => q.id.startsWith(id));
+              if (match) removeFromQueue(match.id);
+            },
+            isInQueue: id => state.queue.some(q => q.id.startsWith(id)),
           }}
         />
       )}

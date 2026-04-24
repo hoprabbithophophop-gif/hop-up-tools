@@ -138,11 +138,11 @@ export function ChapterCard({ item, selectionNumber, onToggle, onPlay, onCardCli
 
       {/* テキスト */}
       <div className="flex-1 min-w-0">
-        <p className="text-[0.8125rem] font-bold leading-snug truncate text-on-surface">
+        <p className="text-[0.8125rem] font-bold leading-snug text-on-surface">
           {item.chapterLabel}
         </p>
         {!isFullVideo && (
-          <p className="text-[0.625rem] text-outline truncate mt-0.5">
+          <p className="text-[0.625rem] text-outline mt-0.5">
             {item.videoTitle}
           </p>
         )}

@@ -7,6 +7,7 @@ const END_THRESHOLD_SECONDS = 0.5;
 interface UseYouTubePlayerOptions {
   onChapterEnd: () => void;
   onError?: (errorCode: number) => void;
+  onPlayStateChange?: (isPlaying: boolean) => void;
   /** true になったときにプレイヤーを初期化する。false の間は初期化しない */
   enabled?: boolean;
 }
@@ -50,6 +51,7 @@ function loadYouTubeAPI(): Promise<void> {
 export function useYouTubePlayer({
   onChapterEnd,
   onError,
+  onPlayStateChange,
   enabled = true,
 }: UseYouTubePlayerOptions): UseYouTubePlayerReturn {
   const [isReady, setIsReady] = useState(false);
@@ -57,6 +59,7 @@ export function useYouTubePlayer({
   const endSecondsRef = useRef<number>(Number.MAX_SAFE_INTEGER);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onChapterEndRef = useRef(onChapterEnd);
+  const onPlayStateChangeRef = useRef(onPlayStateChange);
   const chapterEndFiredRef = useRef(false);
   // isReady 前に playChapter が呼ばれた場合に保持する
   const pendingChapterRef = useRef<PendingChapter | null>(null);
@@ -65,6 +68,10 @@ export function useYouTubePlayer({
   useEffect(() => {
     onChapterEndRef.current = onChapterEnd;
   }, [onChapterEnd]);
+
+  useEffect(() => {
+    onPlayStateChangeRef.current = onPlayStateChange;
+  }, [onPlayStateChange]);
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current !== null) {
@@ -94,6 +101,8 @@ export function useYouTubePlayer({
     }, POLLING_MS);
   }, [stopPolling]);
 
+  const currentVideoIdRef = useRef<string | null>(null);
+
   const doLoadVideo = useCallback((
     player: YT.Player,
     videoId: string,
@@ -103,17 +112,30 @@ export function useYouTubePlayer({
     endSecondsRef.current = endSeconds;
     chapterEndFiredRef.current = false;
     stopPolling();
+
+    const sameVideo = currentVideoIdRef.current === videoId;
+    currentVideoIdRef.current = videoId;
+
+    if (sameVideo) {
+      player.seekTo(startSeconds, true);
+      player.playVideo();
+      startPolling();
+      return;
+    }
+
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+
     const params: { videoId: string; startSeconds: number; endSeconds?: number } = {
       videoId,
       startSeconds,
     };
-    // Infinity や MAX_SAFE_INTEGER は endSeconds を渡さない
     if (isFinite(endSeconds) && endSeconds !== Number.MAX_SAFE_INTEGER) {
       params.endSeconds = endSeconds;
     }
-    console.log('[YTPlayer] loadVideoById called:', videoId, startSeconds, endSeconds);
     player.loadVideoById(params);
-  }, [stopPolling]);
+  }, [stopPolling, startPolling]);
 
   useEffect(() => {
     // enabled が false の間はプレイヤーを初期化しない
@@ -177,7 +199,11 @@ export function useYouTubePlayer({
             const state = event.data;
             if (state === YT.PlayerState.PLAYING) {
               startPolling();
-            } else if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.BUFFERING) {
+              onPlayStateChangeRef.current?.(true);
+            } else if (state === YT.PlayerState.PAUSED) {
+              stopPolling();
+              onPlayStateChangeRef.current?.(false);
+            } else if (state === YT.PlayerState.BUFFERING) {
               stopPolling();
             } else if (state === YT.PlayerState.ENDED) {
               stopPolling();

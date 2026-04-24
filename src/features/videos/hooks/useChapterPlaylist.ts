@@ -34,15 +34,11 @@ function playlistReducer(
 ): ChapterPlaylistState {
   switch (action.type) {
     case 'ADD_ITEM': {
-      if (state.queue.some(i => i.id === action.item.id)) return state;
       return { ...state, queue: [...state.queue, action.item] };
     }
     case 'ADD_ITEMS': {
-      const newItems = action.items.filter(
-        item => !state.queue.some(existing => existing.id === item.id)
-      );
-      if (newItems.length === 0) return state;
-      return { ...state, queue: [...state.queue, ...newItems] };
+      if (action.items.length === 0) return state;
+      return { ...state, queue: [...state.queue, ...action.items] };
     }
     case 'START_PLAYLIST': {
       if (action.items.length === 0) return state;
@@ -56,7 +52,8 @@ function playlistReducer(
     case 'REMOVE_ITEM': {
       const idx = state.queue.findIndex(i => i.id === action.id);
       if (idx === -1) return state;
-      const newQueue = state.queue.filter(i => i.id !== action.id);
+      const newQueue = [...state.queue];
+      newQueue.splice(idx, 1);
       let newCurrentIndex = state.currentIndex;
       if (newCurrentIndex !== null) {
         if (idx === newCurrentIndex) {
@@ -193,16 +190,21 @@ export function useChapterPlaylist(): UseChapterPlaylistReturn {
   const [state, dispatch] = useReducer(playlistReducer, initialState);
 
   const addItem = useCallback((item: ChapterQueueItem) => {
-    dispatch({ type: 'ADD_ITEM', item });
+    const uid = `${item.id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    dispatch({ type: 'ADD_ITEM', item: { ...item, id: uid } });
   }, []);
 
   const addToQueue = useCallback((video: VideoRow, chapters: Chapter[], chapterIndex: number) => {
     const item = buildSingleChapterQueueItem(video, chapters, chapterIndex);
-    dispatch({ type: 'ADD_ITEM', item });
+    const uid = `${item.id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    dispatch({ type: 'ADD_ITEM', item: { ...item, id: uid } });
   }, []);
 
   const addAllToQueue = useCallback((video: VideoRow, chapters: Chapter[]) => {
-    const items = buildChapterQueueItems(video, chapters);
+    const items = buildChapterQueueItems(video, chapters).map(item => ({
+      ...item,
+      id: `${item.id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    }));
     dispatch({ type: 'ADD_ITEMS', items });
   }, []);
 

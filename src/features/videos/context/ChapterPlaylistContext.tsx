@@ -41,11 +41,14 @@ export function ChapterPlaylistProvider({
     playNext();
   };
 
+  const handlePlayStateChange = useCallback((isPlaying: boolean) => {
+    setPlaying(isPlaying);
+  }, [setPlaying]);
+
   const { isReady, playChapter, pause, resume, getCurrentTime } = useYouTubePlayer({
     onChapterEnd: handleChapterEnd,
     onError: handleError,
-    // 常時初期化: ページ読み込み時にプレイヤーを準備しておくことで、
-    // 初回タップ時のユーザージェスチャー内から直接 playChapter を呼べるようにする
+    onPlayStateChange: handlePlayStateChange,
     enabled: true,
   });
 

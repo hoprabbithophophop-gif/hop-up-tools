@@ -95,11 +95,11 @@ function QueueItem({ item, idx, isPlaying, onJump, onRemove }: QueueItemProps) {
 
         {/* タイトル */}
         <div className="flex-1 min-w-0">
-          <p className={`text-[0.75rem] font-bold truncate leading-snug ${isPlaying ? 'text-white' : ''}`}>
+          <p className={`text-[0.75rem] font-bold leading-snug ${isPlaying ? 'text-white' : ''}`}>
             {item.chapterLabel}
           </p>
           {!item.isFullVideo && (
-            <p className={`text-[0.6rem] truncate ${isPlaying ? 'text-white/60' : 'text-outline'}`}>
+            <p className={`text-[0.6rem] ${isPlaying ? 'text-white/60' : 'text-outline'}`}>
               {item.videoTitle}
             </p>
           )}

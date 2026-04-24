@@ -8,6 +8,7 @@ interface VideoForSheet {
   channel_name: string;
   thumbnail_url: string;
   description_short: string;
+  published_at?: string;
 }
 
 interface Chapter {
@@ -149,6 +150,11 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
           {/* 概要欄（展開時） */}
           {descOpen && (
             <div className="px-4 py-3 max-h-48 overflow-y-auto bg-black/5">
+              {video.published_at && (
+                <p className="text-[0.65rem] font-thin text-black/40 mb-2">
+                  {new Date(video.published_at).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' })}
+                </p>
+              )}
               <p className="text-[0.7rem] font-thin text-black/60 whitespace-pre-wrap leading-relaxed">
                 {video.description_short}
               </p>
@@ -297,7 +303,7 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, 
           className="flex-1 min-w-0"
           onClick={e => { e.stopPropagation(); onPreview(); }}
         >
-          <p className={`text-[0.8rem] font-bold leading-snug truncate ${isPreviewActive ? 'text-black' : ''}`}>
+          <p className={`text-[0.8rem] font-bold leading-snug ${isPreviewActive ? 'text-black' : ''}`}>
             {label}
           </p>
           {timeRange && <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{timeRange}</p>}
@@ -339,7 +345,7 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, 
         className="flex-1 min-w-0"
         onClick={e => { e.stopPropagation(); onPreview(); }}
       >
-        <p className={`text-[0.8rem] font-bold leading-snug truncate ${isPreviewActive ? 'text-black' : ''}`}>
+        <p className={`text-[0.8rem] font-bold leading-snug ${isPreviewActive ? 'text-black' : ''}`}>
           {label}
         </p>
         {timeRange && <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{timeRange}</p>}
