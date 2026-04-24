@@ -1,4 +1,4 @@
-import { useReducer, useCallback } from 'react';
+import { useReducer, useCallback, useEffect } from 'react';
 import type { ChapterQueueItem, ChapterPlaylistState, PlaylistAction } from '../types/playlist';
 import {
   buildChapterQueueItems,
@@ -17,6 +17,29 @@ interface Chapter {
   seconds: number;
   label: string;
   timestamp: string;
+}
+
+const QUEUE_STORAGE_KEY = 'hop-yt-queue';
+
+function loadSavedQueue(): ChapterQueueItem[] {
+  try {
+    const raw = localStorage.getItem(QUEUE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveQueue(queue: ChapterQueueItem[]) {
+  try {
+    if (queue.length === 0) {
+      localStorage.removeItem(QUEUE_STORAGE_KEY);
+    } else {
+      localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
+    }
+  } catch {}
 }
 
 const initialState: ChapterPlaylistState = {
@@ -154,6 +177,12 @@ function playlistReducer(
       }
       return { ...state, queue: newQueue, currentIndex: newCurrentIndex };
     }
+    case 'INSERT_NEXT': {
+      const insertAt = state.currentIndex !== null ? state.currentIndex + 1 : 0;
+      const newQueue = [...state.queue];
+      newQueue.splice(insertAt, 0, action.item);
+      return { ...state, queue: newQueue };
+    }
     case 'TRIM_ITEM': {
       return {
         ...state,
@@ -172,6 +201,7 @@ function playlistReducer(
 export interface UseChapterPlaylistReturn {
   state: ChapterPlaylistState;
   addItem: (item: ChapterQueueItem) => void;
+  insertNext: (item: ChapterQueueItem) => void;
   addToQueue: (video: VideoRow, chapters: Chapter[], chapterIndex: number) => void;
   addAllToQueue: (video: VideoRow, chapters: Chapter[]) => void;
   startPlaylist: (items: ChapterQueueItem[]) => void;
@@ -183,15 +213,28 @@ export interface UseChapterPlaylistReturn {
   toggleRepeat: () => void;
   clearQueue: () => void;
   setPlaying: (isPlaying: boolean) => void;
+  reorder: (fromIndex: number, toIndex: number) => void;
   trimItem: (id: string, startSeconds: number, endSeconds: number) => void;
 }
 
 export function useChapterPlaylist(): UseChapterPlaylistReturn {
-  const [state, dispatch] = useReducer(playlistReducer, initialState);
+  const [state, dispatch] = useReducer(playlistReducer, null, (): ChapterPlaylistState => ({
+    ...initialState,
+    queue: loadSavedQueue(),
+  }));
+
+  useEffect(() => {
+    saveQueue(state.queue);
+  }, [state.queue]);
 
   const addItem = useCallback((item: ChapterQueueItem) => {
     const uid = `${item.id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     dispatch({ type: 'ADD_ITEM', item: { ...item, id: uid } });
+  }, []);
+
+  const insertNext = useCallback((item: ChapterQueueItem) => {
+    const uid = `${item.id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    dispatch({ type: 'INSERT_NEXT', item: { ...item, id: uid } });
   }, []);
 
   const addToQueue = useCallback((video: VideoRow, chapters: Chapter[], chapterIndex: number) => {
@@ -244,6 +287,10 @@ export function useChapterPlaylist(): UseChapterPlaylistReturn {
     dispatch({ type: 'SET_PLAYING', isPlaying });
   }, []);
 
+  const reorder = useCallback((fromIndex: number, toIndex: number) => {
+    dispatch({ type: 'REORDER', fromIndex, toIndex });
+  }, []);
+
   const trimItem = useCallback((id: string, startSeconds: number, endSeconds: number) => {
     dispatch({ type: 'TRIM_ITEM', id, startSeconds, endSeconds });
   }, []);
@@ -251,6 +298,7 @@ export function useChapterPlaylist(): UseChapterPlaylistReturn {
   return {
     state,
     addItem,
+    insertNext,
     addToQueue,
     addAllToQueue,
     startPlaylist,
@@ -262,6 +310,7 @@ export function useChapterPlaylist(): UseChapterPlaylistReturn {
     toggleRepeat,
     clearQueue,
     setPlaying,
+    reorder,
     trimItem,
   };
 }

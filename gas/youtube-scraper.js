@@ -623,7 +623,7 @@ function reactivateFormerUpcoming(apiKey, supabaseUrl, supabaseKey) {
       supabaseUrl + '/rest/v1/youtube_videos'
         + '?select=video_id'
         + '&is_active_content=eq.false'
-        + '&group_tags=neq.{}'
+        + '&group_tags=neq.%7B%7D'
         + '&order=video_id&limit=1000&offset=' + offset,
       { headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey }, muteHttpExceptions: true }
     );

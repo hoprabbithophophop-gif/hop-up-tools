@@ -43,4 +43,5 @@ export type PlaylistAction =
   | { type: 'CLEAR' }
   | { type: 'SET_PLAYING'; isPlaying: boolean }
   | { type: 'REORDER'; fromIndex: number; toIndex: number }
-  | { type: 'TRIM_ITEM'; id: string; startSeconds: number; endSeconds: number };
+  | { type: 'TRIM_ITEM'; id: string; startSeconds: number; endSeconds: number }
+  | { type: 'INSERT_NEXT'; item: ChapterQueueItem };

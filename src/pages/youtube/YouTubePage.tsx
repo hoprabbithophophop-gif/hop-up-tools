@@ -167,7 +167,7 @@ function ChapterPickupContent() {
 
       {/* PlayView */}
       <div data-testid="play-view" className={pageState === 'play' ? 'pt-[60px] pb-[68px]' : 'hidden'}>
-        <PlayView sharedPlaylist={sharedPlaylist} />
+        <PlayView sharedPlaylist={sharedPlaylist} onGoHome={handleGoToHome} />
       </div>
 
       {/* タブバー: Home / Playlist */}
@@ -189,9 +189,12 @@ function ChapterPickupContent() {
         >
           <span className="relative inline-block">
             <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>queue_music</span>
-            {hasQueue && pageState !== 'play' && (
-              <span className="absolute -top-1 -right-2 min-w-[14px] h-[14px] bg-black text-white text-[8px] font-bold flex items-center justify-center px-0.5 leading-none">
-                {state.queue.length}
+            {hasQueue && (
+              <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-[3px] bg-black/10 overflow-hidden">
+                <span
+                  className="block h-full bg-black transition-all duration-300"
+                  style={{ width: `${Math.min(state.queue.length / 10, 1) * 100}%` }}
+                />
               </span>
             )}
           </span>
