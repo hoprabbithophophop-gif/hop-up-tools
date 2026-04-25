@@ -7,6 +7,7 @@ export interface FilterState {
   channel: string;
   year: number;
   sort: 'desc' | 'asc';
+  isShort: 'all' | 'short' | 'regular';
 }
 
 interface Props {
@@ -30,6 +31,10 @@ const TYPE_FILTERS = [
   { key: 'mv',      label: 'MV' },
   { key: 'live',    label: 'LIVE' },
   { key: 'variety', label: 'VARIETY' },
+  { key: 'cover',   label: 'COVER' },
+  { key: 'dance',   label: 'DANCE' },
+  { key: 'behind',  label: 'BEHIND' },
+  { key: 'talk',    label: 'TALK' },
   { key: 'other',   label: 'OTHER' },
 ];
 
@@ -39,7 +44,9 @@ const CHANNEL_FILTERS = [
   'アンジュルム',
   'Juice=Juice',
   'つばきファクトリー',
+  'happyに過ごそうよ',
   'BEYOOOOONDS',
+  'ビヨーンズの伸びしろ',
   'OCHA NORMA',
   'ロージークロニクル',
   'ハロプロ研修生',
@@ -100,7 +107,7 @@ export function FilterPanel({ state, onChange, membersByGroup }: Props) {
 
   // アクティブフィルター数（ALL判定用）
   const hasFilter =
-    state.group || state.member || state.type || state.channel || state.year > 0;
+    state.group || state.member || state.type || state.channel || state.year > 0 || state.isShort !== 'all';
 
   const tabs: { key: TabKey; label: string; badge?: string }[] = [
     {
@@ -166,16 +173,23 @@ export function FilterPanel({ state, onChange, membersByGroup }: Props) {
       </>
     ),
     type: (
-      <div className="flex flex-wrap gap-x-4 gap-y-2">
-        {TYPE_FILTERS.map(t => (
-          <Chip
-            key={t.key}
-            label={t.label}
-            active={state.type === t.key}
-            onClick={() => onChange({ type: state.type === t.key ? '' : t.key })}
-          />
-        ))}
-      </div>
+      <>
+        <div className="flex flex-wrap gap-x-4 gap-y-2">
+          {TYPE_FILTERS.map(t => (
+            <Chip
+              key={t.key}
+              label={t.label}
+              active={state.type === t.key}
+              onClick={() => onChange({ type: state.type === t.key ? '' : t.key })}
+            />
+          ))}
+        </div>
+        <div className="flex gap-x-4 pt-2 mt-2 border-t border-outline-variant/20">
+          <Chip label="すべて" active={state.isShort === 'all'} onClick={() => onChange({ isShort: 'all' })} />
+          <Chip label="通常" active={state.isShort === 'regular'} onClick={() => onChange({ isShort: 'regular' })} />
+          <Chip label="ショート" active={state.isShort === 'short'} onClick={() => onChange({ isShort: 'short' })} />
+        </div>
+      </>
     ),
     channel: (
       <div className="flex flex-wrap gap-x-4 gap-y-2">
@@ -225,7 +239,7 @@ export function FilterPanel({ state, onChange, membersByGroup }: Props) {
         {/* ALL リセット */}
         <button
           onClick={() =>
-            onChange({ group: '', member: '', type: '', channel: '', year: 0 })
+            onChange({ group: '', member: '', type: '', channel: '', year: 0, isShort: 'all' })
           }
           className={`text-[0.6875rem] font-bold uppercase tracking-widest shrink-0 py-2 px-2 cursor-pointer transition-colors ${
             !hasFilter

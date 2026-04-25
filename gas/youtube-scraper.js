@@ -65,9 +65,13 @@ var CHANNELS = [
 
 // ===== 動画種別判定キーワード =====
 var VIDEO_TYPE_KEYWORDS = {
+  'variety': ['ハロ！ステ', 'ハロ!ステ', 'アプカミ', 'M-line Music', 'OMAKE', 'おまけ', 'MUSIC+', 'ダンスレッスン', 'レッスン'],
+  'behind':  ['メイキング', 'Making', '密着', 'オフショット', '裏側', 'Behind'],
+  'cover':   ['COVERS', 'カバー', '歌ってみた', 'カバーでしょ'],
+  'dance':   ['Dance Shot', 'Dance Practice', 'Dance Ver', '踊ってみた', '振付動画'],
   'mv':      ['MV', 'Music Video', 'ミュージックビデオ', 'Promotion Edit', 'Promotion Video'],
   'live':    ['LIVE', 'ライブ', 'コンサート', 'Concert', 'CONCERT', 'ツアー'],
-  'variety': ['ハロ！ステ', 'ハロ!ステ', 'レッスン', 'ダンスレッスン', '密着', 'アプカミ', 'おまけ', 'OMAKE', 'M-line Music'],
+  'talk':    ['トーク', '対談', 'インタビュー', 'Q&A', '質問コーナー', 'フリートーク'],
 };
 
 // ===== メイン処理 =====
@@ -172,6 +176,7 @@ function fetchNewVideos(apiKey, channelId, channelName, supabaseUrl, supabaseKey
         description_short: description,
         group_tags:        groupTags,
         video_type:        detectVideoType(title),
+        is_short:          /#shorts/i.test(title) ? true : null,
       });
     });
 
@@ -694,6 +699,112 @@ function detectVideoType(title) {
     }
   }
   return 'other';
+}
+
+// ===== 【一回限り】ショート動画の一括判定 =====
+// 2020年以降の is_short=NULL の動画を対象に、YouTube API の player パートで
+// 縦長（embedHeight > embedWidth）ならショートと判定する。
+// 500件ずつチェックポイント巡回。中断再開可能。
+function backfillShorts() {
+  var props = PropertiesService.getScriptProperties();
+  var apiKey = props.getProperty('YOUTUBE_API_KEY');
+  var supabaseUrl = props.getProperty('SUPABASE_URL');
+  var supabaseKey = props.getProperty('SUPABASE_SERVICE_KEY');
+
+  var PER_RUN = 500;
+  var lastId = props.getProperty('SHORTS_BACKFILL_LAST_ID') || '';
+
+  var query = supabaseUrl + '/rest/v1/youtube_videos'
+    + '?select=video_id'
+    + '&is_short=is.null'
+    + '&published_at=gte.2020-01-01T00:00:00Z'
+    + '&order=video_id&limit=' + PER_RUN;
+  if (lastId) query += '&video_id=gt.' + lastId;
+
+  var res = UrlFetchApp.fetch(query, {
+    headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey },
+    muteHttpExceptions: true,
+  });
+  var rows = JSON.parse(res.getContentText());
+  var allIds = rows.map(function(r) { return r.video_id; });
+
+  if (allIds.length === 0) {
+    props.deleteProperty('SHORTS_BACKFILL_LAST_ID');
+    Logger.log('backfillShorts: 対象なし（完了）');
+    return;
+  }
+  Logger.log('backfillShorts: ' + allIds.length + '件処理' + (lastId ? ' (続き)' : ' (開始)'));
+
+  var shortIds = [];
+  var regularIds = [];
+
+  for (var i = 0; i < allIds.length; i += 50) {
+    var batch = allIds.slice(i, i + 50);
+    var ytRes = UrlFetchApp.fetch(
+      'https://www.googleapis.com/youtube/v3/videos'
+        + '?key=' + apiKey + '&id=' + batch.join(',')
+        + '&part=player&maxResults=50&fields=items(id,player/embedWidth,player/embedHeight)',
+      { muteHttpExceptions: true }
+    );
+    var ytJson = JSON.parse(ytRes.getContentText());
+    var itemMap = {};
+    (ytJson.items || []).forEach(function(item) { itemMap[item.id] = item; });
+
+    batch.forEach(function(id) {
+      var item = itemMap[id];
+      if (!item || !item.player) {
+        regularIds.push(id);
+        return;
+      }
+      var w = parseInt(item.player.embedWidth || '0', 10);
+      var h = parseInt(item.player.embedHeight || '0', 10);
+      if (h > w && w > 0) {
+        shortIds.push(id);
+      } else {
+        regularIds.push(id);
+      }
+    });
+    Utilities.sleep(1000);
+  }
+
+  if (shortIds.length > 0) {
+    for (var j = 0; j < shortIds.length; j += 100) {
+      var chunk = shortIds.slice(j, j + 100);
+      UrlFetchApp.fetch(
+        supabaseUrl + '/rest/v1/youtube_videos?video_id=in.(' + chunk.join(',') + ')',
+        {
+          method: 'patch',
+          headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+          payload: JSON.stringify({ is_short: true }),
+          muteHttpExceptions: true,
+        }
+      );
+    }
+  }
+  if (regularIds.length > 0) {
+    for (var k = 0; k < regularIds.length; k += 100) {
+      var chunk2 = regularIds.slice(k, k + 100);
+      UrlFetchApp.fetch(
+        supabaseUrl + '/rest/v1/youtube_videos?video_id=in.(' + chunk2.join(',') + ')',
+        {
+          method: 'patch',
+          headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+          payload: JSON.stringify({ is_short: false }),
+          muteHttpExceptions: true,
+        }
+      );
+    }
+  }
+
+  Logger.log('backfillShorts: short=' + shortIds.length + ' regular=' + regularIds.length);
+
+  if (rows.length < PER_RUN) {
+    props.deleteProperty('SHORTS_BACKFILL_LAST_ID');
+    Logger.log('backfillShorts: 全件完了');
+  } else {
+    props.setProperty('SHORTS_BACKFILL_LAST_ID', allIds[allIds.length - 1]);
+    Logger.log('backfillShorts: 次回続行');
+  }
 }
 
 // ===== 【初回のみ実行】チャンネルID一括解決 =====

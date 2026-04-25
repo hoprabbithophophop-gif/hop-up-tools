@@ -82,7 +82,7 @@ export function BrowseView({ onPlay }: Props) {
   const browseScrollBeforeSearch = useRef(0);
 
   const [filter, setFilter] = useState<FilterState>({
-    group: '', member: '', type: '', channel: '', year: 0, sort: 'desc',
+    group: '', member: '', type: '', channel: '', year: 0, sort: 'desc', isShort: 'all' as const,
   });
   const handleFilterChange = useCallback((next: Partial<FilterState>) => {
     setFilter(prev => ({ ...prev, ...next }));
@@ -112,12 +112,12 @@ export function BrowseView({ onPlay }: Props) {
     setSearchInput('');
     setSearchQuery('');
     setSuggestions([]);
-    setFilter({ group: '', member: '', type: '', channel: '', year: 0, sort: 'desc' });
+    setFilter({ group: '', member: '', type: '', channel: '', year: 0, sort: 'desc', isShort: 'all' });
     requestAnimationFrame(() => window.scrollTo(0, browseScrollBeforeSearch.current));
   }, []);
 
   const isSearchActive = searchQuery.trim().length > 0 ||
-    filter.group || filter.member || filter.type || filter.channel || filter.year > 0;
+    filter.group || filter.member || filter.type || filter.channel || filter.year > 0 || filter.isShort !== 'all';
 
   // 再生履歴（localStorage）
   const [playHistory, setPlayHistory] = useState<PlayHistoryItem[]>(() => readPlayHistory());
@@ -236,6 +236,8 @@ export function BrowseView({ onPlay }: Props) {
       if (f.group)   q = q.contains('group_tags', [f.group]);
       if (f.type)    q = q.eq('video_type', f.type);
       if (f.channel) q = q.eq('channel_name', f.channel);
+      if (f.isShort === 'short')   q = q.eq('is_short', true);
+      if (f.isShort === 'regular') q = q.or('is_short.eq.false,is_short.is.null');
       if (f.year > 0) {
         q = q
           .gte('published_at', `${f.year}-01-01T00:00:00Z`)

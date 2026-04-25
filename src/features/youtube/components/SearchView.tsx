@@ -37,7 +37,7 @@ export function SearchView({ onBack }: Props) {
 
   // フィルター
   const [filter, setFilter] = useState<FilterState>({
-    group: '', member: '', type: '', channel: '', year: 0, sort: 'desc',
+    group: '', member: '', type: '', channel: '', year: 0, sort: 'desc', isShort: 'all' as const,
   });
   const handleFilterChange = useCallback((next: Partial<FilterState>) => {
     setFilter(prev => ({ ...prev, ...next }));
