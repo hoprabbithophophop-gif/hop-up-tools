@@ -98,10 +98,10 @@ function ChapterPickupContent() {
     pageState === 'play'
       ? 'fixed top-[60px] left-0 right-0 z-20'
       : hasQueue
-      ? `fixed ${miniBottom} left-0 w-32 h-[72px] z-40`
+      ? 'fixed -left-[250px] top-0 w-[200px] h-[200px]'
       : 'hidden';
 
-  const playerStyle = pageState === 'play' ? { height: '28vh' } : undefined;
+  const playerStyle = pageState === 'play' ? { height: '28vh', minHeight: '200px' } : undefined;
 
   return (
     <div className="yt-page bg-white text-black" style={{ fontFamily: "'Inter', 'Noto Sans JP', sans-serif" }}>
@@ -120,10 +120,17 @@ function ChapterPickupContent() {
       {isNotPlay && hasQueue && (
         <div
           data-testid="mini-player"
-          className={`fixed ${miniBottom} left-32 right-0 h-[72px] z-40 bg-black flex items-center px-3 gap-2 cursor-pointer`}
+          className={`fixed ${miniBottom} left-0 right-0 h-[72px] z-40 bg-black flex items-center cursor-pointer`}
           onClick={() => setPageState('play')}
         >
-          <div className="flex-1 min-w-0">
+          {currentItem && (
+            <img
+              src={`https://i.ytimg.com/vi/${currentItem.videoId}/mqdefault.jpg`}
+              alt=""
+              className="h-full w-auto shrink-0 object-cover"
+            />
+          )}
+          <div className="flex-1 min-w-0 px-3">
             <p className="text-[0.7rem] font-thin uppercase tracking-widest text-white/50 leading-none mb-1">
               NOW PLAYING
             </p>
@@ -136,27 +143,13 @@ function ChapterPickupContent() {
               e.stopPropagation();
               state.isPlaying ? pause() : resume();
             }}
-            className="shrink-0 w-9 h-9 flex items-center justify-center text-white cursor-pointer"
+            className="shrink-0 w-9 h-9 flex items-center justify-center text-white cursor-pointer mr-2"
             aria-label={state.isPlaying ? '一時停止' : '再生'}
           >
             <span className="material-symbols-outlined leading-none" style={{ fontSize: '24px' }}>
               {state.isPlaying ? 'pause' : 'play_arrow'}
             </span>
           </button>
-        </div>
-      )}
-
-      {/* ミニプレーヤー サムネイル */}
-      {isNotPlay && hasQueue && currentItem && (
-        <div
-          className={`fixed ${miniBottom} left-0 w-32 h-[72px] z-40 cursor-pointer`}
-          onClick={() => setPageState('play')}
-        >
-          <img
-            src={`https://i.ytimg.com/vi/${currentItem.videoId}/mqdefault.jpg`}
-            alt=""
-            className="w-full h-full object-cover"
-          />
         </div>
       )}
 
