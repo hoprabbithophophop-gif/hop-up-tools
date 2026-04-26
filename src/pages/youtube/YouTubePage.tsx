@@ -183,7 +183,7 @@ function ChapterPickupContent() {
           <span className="relative inline-block">
             <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>queue_music</span>
             {hasQueue && (
-              <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-5 h-[3px] bg-black/10 overflow-hidden">
+              <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-20 h-[6px] bg-black/10 overflow-hidden">
                 <span
                   className="block h-full bg-black transition-all duration-300"
                   style={{ width: `${Math.min(state.queue.length / 10, 1) * 100}%` }}
