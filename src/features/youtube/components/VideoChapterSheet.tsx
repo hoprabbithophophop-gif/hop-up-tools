@@ -219,7 +219,7 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
             mode={mode}
             item={fullVideoItem}
             isFullVideo
-            onPreview={() => setPreviewItem(fullVideoItem)}
+            onPreview={() => setPreviewItem(prev => prev?.id === fullVideoItem.id ? null : fullVideoItem)}
             isPreviewActive={previewItem?.id === fullVideoItem.id}
           />
 
@@ -243,7 +243,7 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
               mode={mode}
               item={item}
               isFullVideo={false}
-              onPreview={() => setPreviewItem(item)}
+              onPreview={() => setPreviewItem(prev => prev?.id === item.id ? null : item)}
               isPreviewActive={previewItem?.id === item.id}
             />
           ))}
