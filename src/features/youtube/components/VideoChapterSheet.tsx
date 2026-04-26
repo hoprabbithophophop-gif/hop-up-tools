@@ -361,16 +361,6 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, 
           {timestamp}
         </button>
       )}
-      {!inQueue && mode.onInsertNext && (
-        <button
-          onClick={e => { e.stopPropagation(); mode.onInsertNext!(item); }}
-          className="shrink-0 w-9 h-9 flex items-center justify-center text-black/30 cursor-pointer"
-          aria-label="次に再生"
-          title="次に再生"
-        >
-          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>playlist_play</span>
-        </button>
-      )}
       <div className="shrink-0 w-9 h-9 flex items-center justify-center text-black/30">
         {inQueue ? (
           <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>check</span>
