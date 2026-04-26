@@ -8,8 +8,8 @@ function buildChapterUrl(videoId: string, startSeconds: number): string {
 
 interface ShareTarget {
   label: string;
-  url: string;
-  timestamp: string;
+  videoId: string;
+  startSeconds: number;
 }
 
 interface VideoForSheet {
@@ -108,32 +108,31 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
     setTimeout(() => setToast(''), 2000);
   }, []);
 
-  const handleShare = useCallback(async (label: string, videoId: string, startSeconds: number, timestamp: string) => {
-    const url = buildChapterUrl(videoId, startSeconds);
-    const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    if (isMobile && navigator.share) {
-      try {
-        await navigator.share({ title: label, url });
-        return;
-      } catch { /* ユーザーがキャンセル */ }
-    }
-    setShareTarget({ label, url, timestamp });
+  const handleShare = useCallback((label: string, videoId: string, startSeconds: number) => {
+    setShareTarget({ label, videoId, startSeconds });
   }, []);
 
+  const getShareUrl = useCallback(() => {
+    if (!shareTarget) return '';
+    return buildChapterUrl(shareTarget.videoId, shareTarget.startSeconds);
+  }, [shareTarget]);
+
   const handleCopyShareUrl = useCallback(async () => {
-    if (!shareTarget) return;
-    await navigator.clipboard.writeText(shareTarget.url);
+    const url = getShareUrl();
+    if (!url) return;
+    await navigator.clipboard.writeText(url);
     setShareTarget(null);
     showToast('URLをコピーしました');
-  }, [shareTarget, showToast]);
+  }, [getShareUrl, showToast]);
 
   const handleShareToX = useCallback(() => {
     if (!shareTarget) return;
+    const url = getShareUrl();
     const text = encodeURIComponent(shareTarget.label);
-    const encodedUrl = encodeURIComponent(shareTarget.url);
+    const encodedUrl = encodeURIComponent(url);
     window.open(`https://x.com/intent/tweet?text=${text}&url=${encodedUrl}`, '_blank', 'noopener');
     setShareTarget(null);
-  }, [shareTarget]);
+  }, [shareTarget, getShareUrl]);
 
   // Esc でも閉じる
   useEffect(() => {
@@ -265,6 +264,7 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
             isFullVideo
             onPreview={() => setPreviewItem(prev => prev?.id === fullVideoItem.id ? null : fullVideoItem)}
             isPreviewActive={previewItem?.id === fullVideoItem.id}
+            onShare={() => handleShare(video.title, video.video_id, 0)}
           />
 
           {chapterItems.length === 0 && (
@@ -288,7 +288,7 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
               isFullVideo={false}
               onPreview={() => setPreviewItem(prev => prev?.id === item.id ? null : item)}
               isPreviewActive={previewItem?.id === item.id}
-              onShare={() => handleShare(item.chapterLabel, item.videoId, item.startSeconds, item.chapterTimestamp)}
+              onShare={() => handleShare(item.chapterLabel, item.videoId, item.startSeconds)}
             />
           ))}
 
@@ -309,46 +309,27 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
       </div>
       </div>
 
-      {/* シェアモーダル（デスクトップ用） */}
+      {/* シェアモーダル */}
       {shareTarget && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShareTarget(null)} />
-          <div className="relative bg-white w-[320px] p-5">
-            <p className="text-[0.8rem] font-bold leading-snug mb-1 line-clamp-2">{shareTarget.label}</p>
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-[0.75rem] font-bold text-black/60 bg-black/5 px-2 py-0.5">{shareTarget.timestamp}</span>
-              <p className="text-[0.65rem] font-thin text-black/40 truncate">{shareTarget.url}</p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={handleCopyShareUrl}
-                className="w-full py-2.5 bg-black text-white text-[0.75rem] font-bold cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>content_copy</span>
-                URLをコピー
-              </button>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleShareToX}
-                  className="flex-1 py-2.5 bg-black/10 text-black text-[0.75rem] font-bold cursor-pointer"
-                >
-                  𝕏
-                </button>
-                <button
-                  onClick={() => {
-                    if (!shareTarget) return;
-                    const text = encodeURIComponent(shareTarget.label + '\n' + shareTarget.url);
-                    window.open(`https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(shareTarget.url)}&text=${text}`, '_blank', 'noopener');
-                    setShareTarget(null);
-                  }}
-                  className="flex-1 py-2.5 bg-black/10 text-black text-[0.75rem] font-bold cursor-pointer"
-                >
-                  LINE
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ShareChapterModal
+          target={shareTarget}
+          onUpdateSeconds={s => setShareTarget(prev => prev ? { ...prev, startSeconds: s } : null)}
+          onCopy={handleCopyShareUrl}
+          onShareToX={handleShareToX}
+          onShareOther={async () => {
+            const url = getShareUrl();
+            if (!url) return;
+            try {
+              await navigator.share({ title: shareTarget.label, url });
+            } catch { /* キャンセル */ }
+          }}
+          onOpenYouTube={() => {
+            const url = getShareUrl();
+            if (url) window.open(url, '_blank', 'noopener');
+          }}
+          onClose={() => setShareTarget(null)}
+          getShareUrl={getShareUrl}
+        />
       )}
 
       {/* トースト */}
@@ -357,6 +338,112 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
           {toast}
         </div>
       )}
+    </div>
+  );
+}
+
+function secondsToTimestamp(s: number): string {
+  const total = Math.floor(s);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+function timestampToSeconds(ts: string): number | null {
+  const parts = ts.split(':').map(Number);
+  if (parts.some(isNaN)) return null;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return null;
+}
+
+interface ShareChapterModalProps {
+  target: ShareTarget;
+  onUpdateSeconds: (s: number) => void;
+  onCopy: () => void;
+  onShareToX: () => void;
+  onShareOther: () => void;
+  onOpenYouTube: () => void;
+  onClose: () => void;
+  getShareUrl: () => string;
+}
+
+function ShareChapterModal({ target, onUpdateSeconds, onCopy, onShareToX, onShareOther, onOpenYouTube, onClose, getShareUrl }: ShareChapterModalProps) {
+  const [tsInput, setTsInput] = useState(() => secondsToTimestamp(target.startSeconds));
+  const [tsError, setTsError] = useState(false);
+
+  const handleTsChange = (val: string) => {
+    setTsInput(val);
+    const secs = timestampToSeconds(val);
+    if (secs !== null && secs >= 0) {
+      setTsError(false);
+      onUpdateSeconds(secs);
+    } else {
+      setTsError(true);
+    }
+  };
+
+  const url = getShareUrl();
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white w-[320px] p-5">
+        <p className="text-[0.8rem] font-bold leading-snug mb-3 line-clamp-2">{target.label}</p>
+
+        <div className="mb-3">
+          <label className="text-[0.6rem] font-bold uppercase tracking-widest text-black/40 block mb-1">
+            開始タイムスタンプ
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={tsInput}
+              onChange={e => handleTsChange(e.target.value)}
+              className={`w-20 text-[0.8rem] font-bold text-center py-1 border ${
+                tsError ? 'border-red-400 text-red-500' : 'border-black/20'
+              } bg-black/5 focus:outline-none focus:border-black`}
+              placeholder="0:00"
+            />
+            <p className="text-[0.6rem] font-thin text-black/40 truncate flex-1">{url}</p>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={onCopy}
+            className="w-full py-2.5 bg-black text-white text-[0.75rem] font-bold cursor-pointer flex items-center justify-center gap-1.5"
+          >
+            <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>content_copy</span>
+            URLをコピー
+          </button>
+          <button
+            onClick={onOpenYouTube}
+            className="w-full py-2.5 bg-black text-white text-[0.75rem] font-bold cursor-pointer flex items-center justify-center gap-1.5"
+          >
+            <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>play_arrow</span>
+            YouTubeで開く
+          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={onShareToX}
+              className="flex-1 py-2.5 bg-black/10 text-black text-[0.75rem] font-bold cursor-pointer"
+            >
+              𝕏
+            </button>
+            {typeof navigator !== 'undefined' && !!navigator.share && (
+              <button
+                onClick={onShareOther}
+                className="flex-1 py-2.5 bg-black/10 text-black text-[0.75rem] font-bold cursor-pointer"
+              >
+                その他...
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -408,15 +495,6 @@ function ChapterRow({ id, label, timeRange, mode, item, isFullVideo, onPreview, 
           </p>
           {timeRange && <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{timeRange}</p>}
         </div>
-        {!isFullVideo && onShare && (
-          <button
-            onClick={e => { e.stopPropagation(); onShare(); }}
-            className="shrink-0 w-8 h-8 flex items-center justify-center text-black/30 cursor-pointer"
-            aria-label="このチャプターを共有"
-          >
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>share</span>
-          </button>
-        )}
         <div className="shrink-0 w-9 h-9 flex items-center justify-center">
           {isSelected ? (
             <span className="w-6 h-6 bg-black text-white flex items-center justify-center text-[0.7rem] font-bold leading-none">
@@ -428,6 +506,15 @@ function ChapterRow({ id, label, timeRange, mode, item, isFullVideo, onPreview, 
             </span>
           )}
         </div>
+        {onShare && (
+          <button
+            onClick={e => { e.stopPropagation(); onShare(); }}
+            className="shrink-0 w-8 h-8 flex items-center justify-center text-black/30 cursor-pointer"
+            aria-label="共有"
+          >
+            <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>share</span>
+          </button>
+        )}
       </div>
     );
   }
@@ -453,15 +540,6 @@ function ChapterRow({ id, label, timeRange, mode, item, isFullVideo, onPreview, 
         </p>
         {timeRange && <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{timeRange}</p>}
       </div>
-      {!isFullVideo && onShare && (
-        <button
-          onClick={e => { e.stopPropagation(); onShare(); }}
-          className="shrink-0 w-8 h-8 flex items-center justify-center text-black/30 cursor-pointer"
-          aria-label="このチャプターを共有"
-        >
-          <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>share</span>
-        </button>
-      )}
       <div className="shrink-0 w-9 h-9 flex items-center justify-center text-black/30">
         {inQueue ? (
           <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>check</span>
@@ -469,6 +547,15 @@ function ChapterRow({ id, label, timeRange, mode, item, isFullVideo, onPreview, 
           <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>queue_music</span>
         )}
       </div>
+      {onShare && (
+        <button
+          onClick={e => { e.stopPropagation(); onShare(); }}
+          className="shrink-0 w-8 h-8 flex items-center justify-center text-black/30 cursor-pointer"
+          aria-label="共有"
+        >
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>share</span>
+        </button>
+      )}
     </div>
   );
 }
