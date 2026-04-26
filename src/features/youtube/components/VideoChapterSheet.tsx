@@ -1,6 +1,16 @@
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useMemo, useEffect, useState, useCallback } from 'react';
 import { makeChapterId, buildChapterQueueItems, buildFullVideoQueueItem, formatSeconds } from '../../videos/utils/playlist-utils';
 import type { ChapterQueueItem } from '../../videos/types/playlist';
+
+function buildChapterUrl(videoId: string, startSeconds: number): string {
+  return `https://youtu.be/${videoId}?t=${Math.floor(startSeconds)}`;
+}
+
+interface ShareTarget {
+  label: string;
+  url: string;
+  timestamp: string;
+}
 
 interface VideoForSheet {
   video_id: string;
@@ -89,6 +99,41 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
   const [previewItem, setPreviewItem] = useState<ChapterQueueItem | null>(null);
   const [descOpen, setDescOpen] = useState(false);
   const hasDescription = Boolean(video.description_short?.trim());
+
+  const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
+  const [toast, setToast] = useState('');
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(''), 2000);
+  }, []);
+
+  const handleShare = useCallback(async (label: string, videoId: string, startSeconds: number, timestamp: string) => {
+    const url = buildChapterUrl(videoId, startSeconds);
+    const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (isMobile && navigator.share) {
+      try {
+        await navigator.share({ title: label, url });
+        return;
+      } catch { /* ユーザーがキャンセル */ }
+    }
+    setShareTarget({ label, url, timestamp });
+  }, []);
+
+  const handleCopyShareUrl = useCallback(async () => {
+    if (!shareTarget) return;
+    await navigator.clipboard.writeText(shareTarget.url);
+    setShareTarget(null);
+    showToast('URLをコピーしました');
+  }, [shareTarget, showToast]);
+
+  const handleShareToX = useCallback(() => {
+    if (!shareTarget) return;
+    const text = encodeURIComponent(shareTarget.label);
+    const encodedUrl = encodeURIComponent(shareTarget.url);
+    window.open(`https://x.com/intent/tweet?text=${text}&url=${encodedUrl}`, '_blank', 'noopener');
+    setShareTarget(null);
+  }, [shareTarget]);
 
   // Esc でも閉じる
   useEffect(() => {
@@ -214,7 +259,6 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
           <ChapterRow
             id={fullVideoItem.id}
             label="全編再生"
-            timestamp=""
             timeRange=""
             mode={mode}
             item={fullVideoItem}
@@ -234,7 +278,6 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
               key={item.id}
               id={item.id}
               label={item.chapterLabel}
-              timestamp={item.chapterTimestamp}
               timeRange={`${formatSeconds(item.startSeconds)}${
                 isFinite(item.endSeconds) && item.endSeconds !== Number.MAX_SAFE_INTEGER
                   ? ` — ${formatSeconds(item.endSeconds)}`
@@ -245,6 +288,7 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
               isFullVideo={false}
               onPreview={() => setPreviewItem(prev => prev?.id === item.id ? null : item)}
               isPreviewActive={previewItem?.id === item.id}
+              onShare={() => handleShare(item.chapterLabel, item.videoId, item.startSeconds, item.chapterTimestamp)}
             />
           ))}
 
@@ -264,35 +308,78 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
         </div>
       </div>
       </div>
+
+      {/* シェアモーダル（デスクトップ用） */}
+      {shareTarget && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShareTarget(null)} />
+          <div className="relative bg-white w-[320px] p-5">
+            <p className="text-[0.8rem] font-bold leading-snug mb-1 line-clamp-2">{shareTarget.label}</p>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-[0.75rem] font-bold text-black/60 bg-black/5 px-2 py-0.5">{shareTarget.timestamp}</span>
+              <p className="text-[0.65rem] font-thin text-black/40 truncate">{shareTarget.url}</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={handleCopyShareUrl}
+                className="w-full py-2.5 bg-black text-white text-[0.75rem] font-bold cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>content_copy</span>
+                URLをコピー
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleShareToX}
+                  className="flex-1 py-2.5 bg-black/10 text-black text-[0.75rem] font-bold cursor-pointer"
+                >
+                  𝕏
+                </button>
+                <button
+                  onClick={() => {
+                    if (!shareTarget) return;
+                    const text = encodeURIComponent(shareTarget.label + '\n' + shareTarget.url);
+                    window.open(`https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(shareTarget.url)}&text=${text}`, '_blank', 'noopener');
+                    setShareTarget(null);
+                  }}
+                  className="flex-1 py-2.5 bg-black/10 text-black text-[0.75rem] font-bold cursor-pointer"
+                >
+                  LINE
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* トースト */}
+      {toast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[80] bg-black text-white text-[0.75rem] font-thin px-4 py-2">
+          {toast}
+        </div>
+      )}
     </div>
   );
-}
-
-function copyChapterLink(videoId: string, startSeconds: number) {
-  const t = Math.floor(startSeconds);
-  const url = `https://youtu.be/${videoId}?t=${t}`;
-  navigator.clipboard.writeText(url);
 }
 
 interface ChapterRowProps {
   id: string;
   label: string;
-  timestamp: string;
   timeRange: string;
   mode: SheetMode;
   item: ChapterQueueItem;
   isFullVideo: boolean;
   onPreview: () => void;
   isPreviewActive: boolean;
+  onShare?: () => void;
 }
 
-function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, onPreview, isPreviewActive }: ChapterRowProps) {
+function ChapterRow({ id, label, timeRange, mode, item, isFullVideo, onPreview, isPreviewActive, onShare }: ChapterRowProps) {
   const [pressed, setPressed] = useState(false);
   const pressStyle: React.CSSProperties = {
-    transform: pressed ? 'scale(0.96)' : 'scale(1)',
+    transform: pressed ? 'scale(0.97)' : 'scale(1)',
     transition: pressed
-      ? 'transform 100ms cubic-bezier(0.2, 0, 0, 1)'
-      : 'transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+      ? 'transform 80ms ease-out'
+      : 'transform 150ms ease-out',
   };
 
   if (mode.kind === 'selection') {
@@ -321,14 +408,13 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, 
           </p>
           {timeRange && <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{timeRange}</p>}
         </div>
-        {!isFullVideo && timestamp && (
+        {!isFullVideo && onShare && (
           <button
-            onClick={e => { e.stopPropagation(); copyChapterLink(item.videoId, item.startSeconds); }}
-            className="text-[0.7rem] font-thin text-black/40 shrink-0 cursor-pointer"
-            aria-label="開始時間リンクをコピー"
-            title="YouTubeリンクをコピー"
+            onClick={e => { e.stopPropagation(); onShare(); }}
+            className="shrink-0 w-8 h-8 flex items-center justify-center text-black/30 cursor-pointer"
+            aria-label="このチャプターを共有"
           >
-            {timestamp}
+            <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>share</span>
           </button>
         )}
         <div className="shrink-0 w-9 h-9 flex items-center justify-center">
@@ -367,14 +453,13 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, 
         </p>
         {timeRange && <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{timeRange}</p>}
       </div>
-      {!isFullVideo && timestamp && (
+      {!isFullVideo && onShare && (
         <button
-          onClick={e => { e.stopPropagation(); copyChapterLink(item.videoId, item.startSeconds); }}
-          className="text-[0.7rem] font-thin text-black/40 shrink-0 cursor-pointer"
-          aria-label="開始時間リンクをコピー"
-          title="YouTubeリンクをコピー"
+          onClick={e => { e.stopPropagation(); onShare(); }}
+          className="shrink-0 w-8 h-8 flex items-center justify-center text-black/30 cursor-pointer"
+          aria-label="このチャプターを共有"
         >
-          {timestamp}
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>share</span>
         </button>
       )}
       <div className="shrink-0 w-9 h-9 flex items-center justify-center text-black/30">
