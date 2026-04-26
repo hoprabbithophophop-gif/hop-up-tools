@@ -256,14 +256,31 @@ function SearchResultCard({ video, onTap }: { video: VideoRow; onTap: () => void
   const movedRef = React.useRef(false);
   const startXRef = React.useRef(0);
   const startYRef = React.useRef(0);
+  const cardRef = React.useRef<HTMLDivElement>(null);
+
+  const resetScale = () => {
+    if (cardRef.current) {
+      cardRef.current.style.transition = 'transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1)';
+      cardRef.current.style.transform = 'scale(1)';
+    }
+  };
 
   const onPointerDown = (e: React.PointerEvent) => {
     firedRef.current = false;
     movedRef.current = false;
     startXRef.current = e.clientX;
     startYRef.current = e.clientY;
+    if (cardRef.current) {
+      cardRef.current.style.transition = `transform ${LONG_PRESS_MS}ms cubic-bezier(0.2, 0, 0, 1)`;
+      cardRef.current.style.transform = 'scale(0.92)';
+    }
     timerRef.current = setTimeout(() => {
-      if (!movedRef.current) { firedRef.current = true; onTap(); }
+      if (!movedRef.current) {
+        firedRef.current = true;
+        navigator.vibrate?.(10);
+        resetScale();
+        onTap();
+      }
     }, LONG_PRESS_MS);
   };
   const onPointerMove = (e: React.PointerEvent) => {
@@ -271,22 +288,26 @@ function SearchResultCard({ video, onTap }: { video: VideoRow; onTap: () => void
     if (Math.abs(e.clientX - startXRef.current) > 8 || Math.abs(e.clientY - startYRef.current) > 8) {
       movedRef.current = true;
       if (timerRef.current) clearTimeout(timerRef.current);
+      resetScale();
     }
   };
   const onPointerUp = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
+    resetScale();
     if (!firedRef.current && !movedRef.current) onTap();
     firedRef.current = false;
     movedRef.current = false;
   };
   const onPointerCancel = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
+    resetScale();
     firedRef.current = false;
     movedRef.current = false;
   };
 
   return (
     <div
+      ref={cardRef}
       className="cursor-pointer"
       style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
       onPointerDown={onPointerDown}

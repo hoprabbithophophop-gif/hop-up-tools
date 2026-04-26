@@ -287,6 +287,14 @@ interface ChapterRowProps {
 }
 
 function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, onPreview, isPreviewActive }: ChapterRowProps) {
+  const [pressed, setPressed] = useState(false);
+  const pressStyle: React.CSSProperties = {
+    transform: pressed ? 'scale(0.96)' : 'scale(1)',
+    transition: pressed
+      ? 'transform 100ms cubic-bezier(0.2, 0, 0, 1)'
+      : 'transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+  };
+
   if (mode.kind === 'selection') {
     const num = mode.getSelectionNumber(id);
     const isSelected = num > 0;
@@ -296,9 +304,13 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, 
         role="button"
         tabIndex={0}
         onKeyDown={e => e.key === 'Enter' && mode.onToggle(id, item)}
+        onPointerDown={() => setPressed(true)}
+        onPointerUp={() => setPressed(false)}
+        onPointerLeave={() => setPressed(false)}
         className={`flex items-center gap-3 px-4 py-[0.8rem] cursor-pointer ${
           isSelected ? 'bg-[#F0F0F0]' : ''
         }`}
+        style={pressStyle}
       >
         <div
           className="flex-1 min-w-0"
@@ -341,6 +353,10 @@ function ChapterRow({ id, label, timestamp, timeRange, mode, item, isFullVideo, 
         inQueue ? 'bg-[#F0F0F0]' : ''
       }`}
       onClick={() => inQueue ? mode.onRemove(id) : mode.onAdd(item)}
+      onPointerDown={() => setPressed(true)}
+      onPointerUp={() => setPressed(false)}
+      onPointerLeave={() => setPressed(false)}
+      style={pressStyle}
     >
       <div
         className="flex-1 min-w-0"

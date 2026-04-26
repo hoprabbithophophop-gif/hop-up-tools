@@ -14,15 +14,6 @@ import type { ChapterQueueItem } from '../../videos/types/playlist';
 const PAGE_SIZE = 24;
 const LONG_PRESS_DELAY = 400;
 
-const CARD_ANIMATION_CSS = `
-@keyframes card-bounce {
-  0% { transform: scale(0.97); }
-  50% { transform: scale(1.02); }
-  100% { transform: scale(1); }
-}
-.card-bounce { animation: card-bounce 0.3s ease-out; }
-.card-swell { transform: scale(1.02); transition: transform 0.3s ease-out; }
-`;
 
 const GROUP_CHIPS = [
   'モーニング娘。',
@@ -65,14 +56,6 @@ export function BrowseView({ onPlay }: Props) {
   const [activePickTab, setActivePickTab] = useState<'pick' | 'recent'>('pick');
   const [showScrollTop, setShowScrollTop] = useState(false);
 
-  useEffect(() => {
-    const id = 'card-animation-styles';
-    if (document.getElementById(id)) return;
-    const style = document.createElement('style');
-    style.id = id;
-    style.textContent = CARD_ANIMATION_CSS;
-    document.head.appendChild(style);
-  }, []);
 
   // ── 検索 ──
   const [searchInput, setSearchInput] = useState('');
@@ -669,50 +652,63 @@ function PickCard({ video, onShortTap, onLongPress }: { video: VideoRow; onShort
   const movedRef = useRef(false);
   const startXRef = useRef(0);
   const startYRef = useRef(0);
-  const [pressed, setPressed] = useState(false);
-  const [bouncing, setBouncing] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  const resetScale = () => {
+    if (cardRef.current) {
+      cardRef.current.style.transition = 'transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1)';
+      cardRef.current.style.transform = 'scale(1)';
+    }
+  };
 
   const onPointerDown = (e: React.PointerEvent) => {
     firedRef.current = false;
     movedRef.current = false;
     startXRef.current = e.clientX;
     startYRef.current = e.clientY;
-    setPressed(true);
+    if (cardRef.current) {
+      cardRef.current.style.transition = `transform ${LONG_PRESS_DELAY}ms cubic-bezier(0.2, 0, 0, 1)`;
+      cardRef.current.style.transform = 'scale(0.92)';
+    }
     timerRef.current = setTimeout(() => {
-      if (!movedRef.current) { firedRef.current = true; setPressed(false); onLongPress(); }
+      if (!movedRef.current) {
+        firedRef.current = true;
+        navigator.vibrate?.(10);
+        resetScale();
+        onLongPress();
+      }
     }, LONG_PRESS_DELAY);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (movedRef.current) return;
     if (Math.abs(e.clientX - startXRef.current) > 8 || Math.abs(e.clientY - startYRef.current) > 8) {
       movedRef.current = true;
-      setPressed(false);
       if (timerRef.current) clearTimeout(timerRef.current);
+      resetScale();
     }
   };
   const onPointerUp = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    setPressed(false);
-    if (!firedRef.current && !movedRef.current) { setBouncing(true); onShortTap(); }
+    resetScale();
+    if (!firedRef.current && !movedRef.current) onShortTap();
     firedRef.current = false;
     movedRef.current = false;
   };
   const onPointerCancel = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    setPressed(false);
+    resetScale();
     firedRef.current = false;
     movedRef.current = false;
   };
 
   return (
     <div
-      className={bouncing ? 'card-bounce' : pressed ? 'card-swell' : ''}
+      ref={cardRef}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
       onContextMenu={e => e.preventDefault()}
-      onAnimationEnd={() => setBouncing(false)}
     >
       <div className="relative w-full overflow-hidden bg-black/5">
         <img
@@ -747,51 +743,65 @@ function VideoCard({ video, onShortTap, onLongPress }: {
   const movedRef = useRef(false);
   const startXRef = useRef(0);
   const startYRef = useRef(0);
-  const [pressed, setPressed] = useState(false);
-  const [bouncing, setBouncing] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  const resetScale = () => {
+    if (cardRef.current) {
+      cardRef.current.style.transition = 'transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1)';
+      cardRef.current.style.transform = 'scale(1)';
+    }
+  };
 
   const onPointerDown = (e: React.PointerEvent) => {
     firedRef.current = false;
     movedRef.current = false;
     startXRef.current = e.clientX;
     startYRef.current = e.clientY;
-    setPressed(true);
+    if (cardRef.current) {
+      cardRef.current.style.transition = `transform ${LONG_PRESS_DELAY}ms cubic-bezier(0.2, 0, 0, 1)`;
+      cardRef.current.style.transform = 'scale(0.92)';
+    }
     timerRef.current = setTimeout(() => {
-      if (!movedRef.current) { firedRef.current = true; setPressed(false); onLongPress(); }
+      if (!movedRef.current) {
+        firedRef.current = true;
+        navigator.vibrate?.(10);
+        resetScale();
+        onLongPress();
+      }
     }, LONG_PRESS_DELAY);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (movedRef.current) return;
     if (Math.abs(e.clientX - startXRef.current) > 8 || Math.abs(e.clientY - startYRef.current) > 8) {
       movedRef.current = true;
-      setPressed(false);
       if (timerRef.current) clearTimeout(timerRef.current);
+      resetScale();
     }
   };
   const onPointerUp = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    setPressed(false);
-    if (!firedRef.current && !movedRef.current) { setBouncing(true); onShortTap(); }
+    resetScale();
+    if (!firedRef.current && !movedRef.current) onShortTap();
     firedRef.current = false;
     movedRef.current = false;
   };
   const onPointerCancel = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    setPressed(false);
+    resetScale();
     firedRef.current = false;
     movedRef.current = false;
   };
 
   return (
     <div
-      className={`cursor-pointer ${bouncing ? 'card-bounce' : pressed ? 'card-swell' : ''}`}
+      ref={cardRef}
+      className="cursor-pointer"
       style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
       onContextMenu={e => e.preventDefault()}
-      onAnimationEnd={() => setBouncing(false)}
     >
       <div className="relative w-full overflow-hidden bg-black/5">
         <img
