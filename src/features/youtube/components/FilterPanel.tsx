@@ -72,7 +72,7 @@ const YEAR_FILTERS: number[] = Array.from(
   (_, i) => CURRENT_YEAR - i
 );
 
-type TabKey = 'group' | 'type' | 'channel' | 'year' | 'sort';
+type TabKey = 'group' | 'type' | 'channel' | 'year';
 
 function Chip({
   label,
@@ -129,11 +129,6 @@ export function FilterPanel({ state, onChange, membersByGroup }: Props) {
       key: 'year',
       label: 'YEAR',
       badge: state.year > 0 ? String(state.year) : undefined,
-    },
-    {
-      key: 'sort',
-      label: 'SORT',
-      badge: state.sort === 'desc' ? '↓' : '↑',
     },
   ];
 
@@ -216,40 +211,12 @@ export function FilterPanel({ state, onChange, membersByGroup }: Props) {
         ))}
       </div>
     ),
-    sort: (
-      <div className="flex gap-4">
-        <Chip
-          label="NEW"
-          active={state.sort === 'desc'}
-          onClick={() => onChange({ sort: 'desc' })}
-        />
-        <Chip
-          label="OLD"
-          active={state.sort === 'asc'}
-          onClick={() => onChange({ sort: 'asc' })}
-        />
-      </div>
-    ),
   };
 
   return (
     <div>
       {/* タブ行 */}
       <div className="flex items-center gap-1 flex-wrap border-b border-outline-variant/20">
-        {/* ALL リセット */}
-        <button
-          onClick={() =>
-            onChange({ group: '', member: '', type: '', channel: '', year: 0, isShort: 'all' })
-          }
-          className={`text-[0.6875rem] font-bold uppercase tracking-widest shrink-0 py-2 px-2 cursor-pointer transition-colors ${
-            !hasFilter
-              ? 'text-on-surface border-b-2 border-primary'
-              : 'text-outline hover:text-on-surface'
-          }`}
-        >
-          ALL
-        </button>
-
         {tabs.map(t => (
           <button
             key={t.key}
@@ -270,6 +237,19 @@ export function FilterPanel({ state, onChange, membersByGroup }: Props) {
             )}
           </button>
         ))}
+
+        {/* リセット（フィルターが1つでもONの時だけ表示） */}
+        {hasFilter && (
+          <button
+            onClick={() =>
+              onChange({ group: '', member: '', type: '', channel: '', year: 0, isShort: 'all' })
+            }
+            className="shrink-0 py-2 px-2 cursor-pointer text-outline hover:text-on-surface transition-colors ml-auto"
+            aria-label="フィルターをリセット"
+          >
+            <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>close</span>
+          </button>
+        )}
       </div>
 
       {/* ドロップダウンパネル */}

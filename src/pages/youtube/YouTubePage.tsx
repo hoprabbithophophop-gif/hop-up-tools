@@ -34,6 +34,8 @@ function ChapterPickupContent() {
     playlistId ? 'loading' : 'idle'
   );
   const [sharedPlaylist, setSharedPlaylist] = useState<SharedPlaylist | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
   const { state, startPlaylist, pause, resume } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
@@ -108,7 +110,27 @@ function ChapterPickupContent() {
       {/* 固定ヘッダー */}
       <header className="fixed top-0 left-0 right-0 z-50 flex items-center gap-4 px-6 py-4 bg-white border-b border-outline-variant/20">
         <a href="/" className="material-symbols-outlined text-black leading-none" style={{ fontSize: '20px' }}>arrow_back</a>
-        <h1 className="text-xl font-black tracking-tighter uppercase">HELLO! VIDEO</h1>
+        <h1 className="text-xl font-black tracking-tighter uppercase flex-1">HELLO! VIDEO</h1>
+        {pageState === 'home' && (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setSearchOpen(prev => !prev)}
+              className={`w-9 h-9 flex items-center justify-center cursor-pointer ${searchOpen ? 'text-black' : 'text-black/40'}`}
+              aria-label="検索"
+            >
+              <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>search</span>
+            </button>
+            <button
+              onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+              className="w-9 h-9 flex items-center justify-center text-black/40 cursor-pointer"
+              aria-label={sortOrder === 'desc' ? '古い順に切替' : '新しい順に切替'}
+            >
+              <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>
+                {sortOrder === 'desc' ? 'arrow_downward' : 'arrow_upward'}
+              </span>
+            </button>
+          </div>
+        )}
       </header>
 
       {/* YouTube Player */}
@@ -155,7 +177,7 @@ function ChapterPickupContent() {
 
       {/* Home (Browse + Search 統合) */}
       <div className={pageState === 'home' ? 'pt-[60px] pb-[68px]' : 'hidden'}>
-        <BrowseView onPlay={handlePlay} />
+        <BrowseView onPlay={handlePlay} searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} sortOrder={sortOrder} />
       </div>
 
       {/* PlayView */}
