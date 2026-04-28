@@ -6,6 +6,7 @@ interface Props {
   suggestions?: string[];
   onSelectSuggestion?: (suggestion: string) => void;
   placeholder?: string;
+  onFocusChange?: (focused: boolean) => void;
 }
 
 export function SearchBar({
@@ -14,15 +15,20 @@ export function SearchBar({
   suggestions = [],
   onSelectSuggestion,
   placeholder = '曲名・メンバー名で検索',
+  onFocusChange,
 }: Props) {
   const [focused, setFocused] = useState(false);
+  const setFocusedAndNotify = (v: boolean) => {
+    setFocused(v);
+    onFocusChange?.(v);
+  };
   const containerRef = useRef<HTMLDivElement>(null);
   const showSuggestions = focused && suggestions.length > 0;
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setFocused(false);
+        setFocusedAndNotify(false);
       }
     };
     document.addEventListener('mousedown', handleClick);
@@ -43,12 +49,13 @@ export function SearchBar({
           placeholder={placeholder}
           value={value}
           onChange={e => onChange(e.target.value)}
-          onFocus={() => setFocused(true)}
+          onFocus={() => setFocusedAndNotify(true)}
+          onBlur={() => setFocusedAndNotify(false)}
           className="flex-1 bg-transparent py-2.5 text-sm focus:outline-none placeholder:text-outline/50"
         />
         {value && (
           <button
-            onClick={() => { onChange(''); setFocused(false); }}
+            onClick={() => { onChange(''); setFocusedAndNotify(false); }}
             className="shrink-0 px-3 h-10 flex items-center text-outline hover:text-on-surface transition-colors cursor-pointer"
           >
             <span
@@ -67,7 +74,7 @@ export function SearchBar({
               key={i}
               onMouseDown={() => {
                 onSelectSuggestion?.(s);
-                setFocused(false);
+                setFocusedAndNotify(false);
               }}
               className="w-full text-left px-3 py-2 text-sm hover:bg-surface-container transition-colors cursor-pointer"
             >

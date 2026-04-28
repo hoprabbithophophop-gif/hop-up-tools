@@ -14,6 +14,7 @@ interface Props {
   state: FilterState;
   onChange: (next: Partial<FilterState>) => void;
   membersByGroup: Record<string, string[]>;
+  onTabOpenChange?: (open: boolean) => void;
 }
 
 const GROUP_FILTERS = [
@@ -97,9 +98,13 @@ function Chip({
   );
 }
 
-export function FilterPanel({ state, onChange, membersByGroup }: Props) {
+export function FilterPanel({ state, onChange, membersByGroup, onTabOpenChange }: Props) {
   const [activeTab, setActiveTab] = useState<TabKey | null>(null);
-  const toggleTab = (key: TabKey) => setActiveTab(prev => (prev === key ? null : key));
+  const toggleTab = (key: TabKey) => {
+    const next = activeTab === key ? null : key;
+    setActiveTab(next);
+    onTabOpenChange?.(next !== null);
+  };
 
   const memberList = state.group
     ? (membersByGroup[state.group] ?? [])
@@ -244,12 +249,13 @@ export function FilterPanel({ state, onChange, membersByGroup }: Props) {
             onClick={() =>
               onChange({ group: '', member: '', type: '', channel: '', year: 0, isShort: 'all' })
             }
-            className="shrink-0 py-2 px-2 cursor-pointer text-outline hover:text-on-surface transition-colors ml-auto"
+            className="shrink-0 py-2 px-2 cursor-pointer text-outline hover:text-on-surface transition-colors"
             aria-label="フィルターをリセット"
           >
             <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>close</span>
           </button>
         )}
+
       </div>
 
       {/* ドロップダウンパネル */}
