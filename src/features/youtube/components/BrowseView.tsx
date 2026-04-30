@@ -9,6 +9,7 @@ import { FilterPanel } from './FilterPanel';
 import type { FilterState } from './FilterPanel';
 import { buildFullVideoQueueItem } from '../../videos/utils/playlist-utils';
 import { readPlayHistory, historyItemToQueueItem, type PlayHistoryItem } from '../../videos/hooks/usePlayHistory';
+import { ShareModal } from './ShareModal';
 import type { ChapterQueueItem } from '../../videos/types/playlist';
 
 const PAGE_SIZE = 24;
@@ -39,6 +40,7 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
   const hasQueue = state.queue.length > 0;
 
   const [sheetVideo, setSheetVideo] = useState<VideoRow | null>(null);
+  const [shareQueue, setShareQueue] = useState<ChapterQueueItem[] | null>(null);
   const [panelTab, setPanelTab] = useState<'discover' | 'history'>('discover');
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
@@ -394,6 +396,8 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
                             video={v}
                             onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
                             onChapters={() => setSheetVideo(v)}
+                            onShare={() => setShareQueue([buildFullVideoQueueItem(v)])}
+                            onAdd={() => addItem(buildFullVideoQueueItem(v))}
                           />
                         ))}
                       </div>
@@ -423,6 +427,8 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
                         }}
                         onShortTap={() => handleShortTap([historyItemToQueueItem(h)])}
                         onChapters={() => handleRecentLongPress(h.videoId)}
+                        onShare={() => setShareQueue([historyItemToQueueItem(h)])}
+                        onAdd={() => addItem(historyItemToQueueItem(h))}
                       />
                     ))}
                   </div>
@@ -453,6 +459,8 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
                     video={v}
                     onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
                     onChapters={() => setSheetVideo(v)}
+                    onShare={() => setShareQueue([buildFullVideoQueueItem(v)])}
+                    onAdd={() => addItem(buildFullVideoQueueItem(v))}
                   />
                 ))}
               </div>
@@ -503,6 +511,8 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
                     video={v}
                     onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
                     onChapters={() => setSheetVideo(v)}
+                    onShare={() => setShareQueue([buildFullVideoQueueItem(v)])}
+                    onAdd={() => addItem(buildFullVideoQueueItem(v))}
                   />
                 ))}
               </div>
@@ -529,7 +539,7 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
       {showScrollTop && (
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="fixed right-4 bottom-[80px] z-30 w-10 h-10 bg-white flex items-center justify-center text-black/30 cursor-pointer"
+          className="fixed right-4 bottom-[80px] z-30 w-10 h-10 bg-white shadow-md flex items-center justify-center text-black/30 cursor-pointer"
           aria-label="ページ上部に戻る"
         >
           <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>keyboard_arrow_up</span>
@@ -553,6 +563,11 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
           }}
         />
       )}
+
+      {/* シェアモーダル */}
+      {shareQueue && (
+        <ShareModal queue={shareQueue} onClose={() => setShareQueue(null)} />
+      )}
     </div>
   );
 }
@@ -567,10 +582,12 @@ function countChapters(desc: string): number {
   return matches ? matches.length : 0;
 }
 
-function VideoCard({ video, onShortTap, onChapters }: {
+function VideoCard({ video, onShortTap, onChapters, onShare, onAdd }: {
   video: VideoRow;
   onShortTap: () => void;
   onChapters: () => void;
+  onShare: () => void;
+  onAdd: () => void;
 }) {
   const chapterCount = countChapters(video.description_short || '');
 
@@ -597,19 +614,34 @@ function VideoCard({ video, onShortTap, onChapters }: {
               {video.video_type.toUpperCase()}
             </span>
           )}
-          <p className="text-[0.75rem] font-bold leading-snug line-clamp-2 flex-1">
+          <p className="text-[0.75rem] font-bold leading-snug flex-1">
             {video.title}
           </p>
         </div>
         <div className="flex items-center mt-0.5">
           <p className="text-[0.65rem] font-thin text-black/40 flex-1 truncate">{video.channel_name}</p>
-          {chapterCount > 0 && (
+          <button
+            onClick={e => { e.stopPropagation(); onShare(); }}
+            className="shrink-0 w-6 h-6 flex items-center justify-center text-black/30 cursor-pointer"
+            aria-label="共有"
+          >
+            <span className="material-symbols-outlined leading-none" style={{ fontSize: '14px' }}>share</span>
+          </button>
+          {chapterCount > 0 ? (
             <p
               onClick={e => { e.stopPropagation(); onChapters(); }}
-              className="shrink-0 text-[0.6rem] font-thin text-black/50 cursor-pointer underline"
+              className="shrink-0 text-[0.75rem] font-thin text-black/50 cursor-pointer underline"
             >
               {chapterCount} chapters
             </p>
+          ) : (
+            <button
+              onClick={e => { e.stopPropagation(); onAdd(); }}
+              className="shrink-0 w-6 h-6 flex items-center justify-center text-black/30 cursor-pointer"
+              aria-label="キューに追加"
+            >
+              <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>add</span>
+            </button>
           )}
         </div>
       </div>
