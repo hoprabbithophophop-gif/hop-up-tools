@@ -458,7 +458,7 @@ export function BrowseView({ searchOpen, onSearchClose }: Props) {
             )}
 
             {!searchError && searchVideos.length > 0 && (
-              <div className="grid grid-cols-2 gap-[0.8rem]">
+              <div className="grid gap-[0.8rem]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
                 {searchVideos.map(v => (
                   <VideoCard
                     key={v.video_id}
@@ -507,7 +507,7 @@ export function BrowseView({ searchOpen, onSearchClose }: Props) {
             )}
 
             {!fetchError && videos.length > 0 && (
-              <div className="grid grid-cols-2 gap-[0.8rem]">
+              <div className="grid gap-[0.8rem]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
                 {videos.map(v => (
                   <VideoCard
                     key={v.video_id}

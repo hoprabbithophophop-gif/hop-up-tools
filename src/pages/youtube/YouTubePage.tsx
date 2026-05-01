@@ -36,6 +36,9 @@ function ChapterPickupContent() {
   const [sharedPlaylist, setSharedPlaylist] = useState<SharedPlaylist | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(
+    () => window.matchMedia('(orientation: landscape)').matches
+  );
 
   const { state, startPlaylist, pause, resume, playNext, playPrev } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
@@ -49,18 +52,32 @@ function ChapterPickupContent() {
   }, []);
 
   useEffect(() => {
+    const mql = window.matchMedia('(orientation: landscape)');
+    const handler = (e: MediaQueryListEvent) => setIsLandscape(e.matches);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, []);
+
+  const canNativeFullscreen = typeof document.documentElement.requestFullscreen === 'function';
+
+  useEffect(() => {
+    if (!canNativeFullscreen) return;
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener('fullscreenchange', handler);
     return () => document.removeEventListener('fullscreenchange', handler);
-  }, []);
+  }, [canNativeFullscreen]);
 
   const toggleFullscreen = useCallback(() => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
+    if (canNativeFullscreen) {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      } else {
+        fullscreenRef.current?.requestFullscreen().catch(() => {});
+      }
     } else {
-      fullscreenRef.current?.requestFullscreen().catch(() => {});
+      setIsFullscreen(prev => !prev);
     }
-  }, []);
+  }, [canNativeFullscreen]);
 
   useEffect(() => {
     if (!playlistId) {
@@ -103,26 +120,33 @@ function ChapterPickupContent() {
 
   const isNotPlay = pageState !== 'play';
   const isPlayerActive = state.currentIndex !== null;
-  const showPlayerAtTop = isNotPlay && isPlayerActive;
+  const landscapeSplit = isLandscape && isPlayerActive && isNotPlay && !isFullscreen;
+  const showPlayerAtTop = isNotPlay && isPlayerActive && !landscapeSplit;
 
-  const playerWrapClass =
-    pageState === 'play' || isPlayerActive
-      ? 'fixed top-[60px] left-0 right-0 z-20 flex flex-col'
-      : 'hidden';
+  const playerWrapClass = isFullscreen
+    ? 'fixed inset-0 z-[100] flex flex-col bg-black'
+    : landscapeSplit
+      ? 'fixed top-[60px] left-0 bottom-[68px] z-20 flex flex-col'
+      : pageState === 'play' || isPlayerActive
+        ? 'fixed top-[60px] left-0 right-0 z-20 flex flex-col'
+        : 'hidden';
 
   const infoStripH = showPlayerAtTop && !isFullscreen ? 36 : 0;
 
-  const playerStyle: React.CSSProperties | undefined =
-    pageState === 'play'
-      ? { height: '28vh', minHeight: '200px' }
-      : isPlayerActive
-      ? { height: `${200 + infoStripH}px` }
-      : undefined;
+  const playerStyle: React.CSSProperties | undefined = isFullscreen
+    ? { height: '100vh' }
+    : landscapeSplit
+      ? { width: '45vw' }
+      : pageState === 'play'
+        ? { height: '28vh', minHeight: '200px' }
+        : isPlayerActive
+        ? { height: `${200 + infoStripH}px` }
+        : undefined;
 
   return (
     <div className="yt-page bg-white text-black" style={{ fontFamily: "'Inter', 'Noto Sans JP', sans-serif" }}>
       {/* 固定ヘッダー */}
-      <header className="fixed top-0 left-0 right-0 z-50 flex items-center gap-4 px-6 py-4 bg-white border-b border-outline-variant/20">
+      <header className={`fixed top-0 left-0 right-0 z-50 flex items-center gap-4 px-6 py-4 bg-white border-b border-outline-variant/20${isFullscreen ? ' hidden' : ''}`}>
         <a href="/" className="material-symbols-outlined text-black leading-none" style={{ fontSize: '20px' }}>arrow_back</a>
         <h1 className="text-xl font-black tracking-tighter uppercase flex-1">HELLO! VIDEO</h1>
         {pageState === 'home' && (
@@ -196,7 +220,10 @@ function ChapterPickupContent() {
       </div>
 
       {/* Home (Browse + Search 統合) */}
-      <div className={pageState === 'home' ? `${isPlayerActive ? 'pt-[296px]' : 'pt-[60px]'} pb-[68px]` : 'hidden'}>
+      <div
+        className={pageState === 'home' ? `${showPlayerAtTop ? 'pt-[296px]' : 'pt-[60px]'} pb-[68px]` : 'hidden'}
+        style={landscapeSplit ? { marginLeft: '45vw' } : undefined}
+      >
         <BrowseView searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} />
       </div>
 
@@ -206,7 +233,7 @@ function ChapterPickupContent() {
       </div>
 
       {/* タブバー */}
-      <nav className="fixed bottom-[20px] left-0 right-0 z-50 h-12 bg-white flex">
+      <nav className={`fixed bottom-[20px] left-0 right-0 z-50 h-12 bg-white flex${isFullscreen ? ' hidden' : ''}`}>
         <button
           onClick={handleGoToHome}
           className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
@@ -238,7 +265,7 @@ function ChapterPickupContent() {
       </nav>
 
       {/* フッター */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 h-[20px] bg-black flex items-center justify-center">
+      <div className={`fixed bottom-0 left-0 right-0 z-50 h-[20px] bg-black flex items-center justify-center${isFullscreen ? ' hidden' : ''}`}>
         <span className="text-white text-[0.6rem] font-thin tracking-wide">
           ▶ YouTube · Unofficial Fan Tool · hop-up-tools.pages.dev
         </span>
