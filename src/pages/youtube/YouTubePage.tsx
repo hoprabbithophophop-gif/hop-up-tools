@@ -146,11 +146,9 @@ function ChapterPickupContent() {
   return (
     <div className="yt-page bg-white text-black" style={{ fontFamily: "'Inter', 'Noto Sans JP', sans-serif" }}>
       {/* 固定ヘッダー */}
-      <header className={`fixed top-0 left-0 right-0 z-50 flex items-center gap-4 px-6 py-4 bg-white border-b border-outline-variant/20${isFullscreen ? ' hidden' : ''}`}>
+      <header className={`fixed top-0 left-0 right-0 z-50 h-[60px] flex items-center gap-4 px-6 bg-white border-b border-outline-variant/20${isFullscreen ? ' hidden' : ''}`}>
         <a href="/" className="material-symbols-outlined text-black leading-none" style={{ fontSize: '20px' }}>arrow_back</a>
-        <h1 className="text-xl font-black tracking-tighter uppercase flex-1">HELLO! VIDEO
-          <span className="text-[0.5rem] font-normal text-black/30 ml-2">ci:{state.currentIndex ?? 'null'} q:{state.queue.length} lsc:{landscapeSplit ? 1 : 0}</span>
-        </h1>
+        <h1 className="text-xl font-black tracking-tighter uppercase flex-1">HELLO! VIDEO</h1>
         {pageState === 'home' && (
           <button
             onClick={() => setSearchOpen(prev => !prev)}
