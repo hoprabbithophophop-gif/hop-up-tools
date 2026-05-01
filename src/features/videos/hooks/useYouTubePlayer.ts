@@ -123,10 +123,6 @@ export function useYouTubePlayer({
       return;
     }
 
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
-
     const params: { videoId: string; startSeconds: number; endSeconds?: number } = {
       videoId,
       startSeconds,

@@ -149,7 +149,7 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col justify-end">
+    <div className="fixed inset-0 z-[60] flex flex-col">
       {/* オーバーレイ */}
       <div
         className="absolute inset-0 bg-black/60"
@@ -157,39 +157,36 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
         aria-hidden="true"
       />
 
+      {/* ヘッダー分のスペーサー */}
+      <div className="shrink-0 h-[60px]" />
+
       {/* シートパネル */}
-      <div className="w-full max-w-lg mx-auto">
-      <div className="relative bg-white max-h-[70vh] flex flex-col">
+      <div className="w-full max-w-lg mx-auto flex-1 min-h-0">
+      <div className="relative bg-white max-h-full flex flex-col">
         {/* 動画情報ヘッダー */}
         <div className="shrink-0">
-          <div className="flex items-center gap-3 px-4 py-3">
-            <img
-              src={`https://i.ytimg.com/vi/${video.video_id}/mqdefault.jpg`}
-              alt={video.title}
-              className="w-16 shrink-0 object-cover"
-              style={{ height: '36px', aspectRatio: '16/9' }}
-            />
+          <div className="flex items-start gap-2 px-4 py-2.5">
             <div className="flex-1 min-w-0">
-              <p className="text-[0.8rem] font-bold leading-snug line-clamp-2">{video.title}</p>
-              <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{video.channel_name}</p>
+              <p className={`text-[0.75rem] font-bold leading-snug ${descOpen ? '' : 'truncate'}`}>{video.title}</p>
+              <p className="text-[0.6rem] font-thin text-black/40">{video.channel_name}</p>
             </div>
             {hasDescription && (
               <button
                 onClick={() => setDescOpen(v => !v)}
-                className="w-8 h-8 flex items-center justify-center cursor-pointer shrink-0 text-black/30"
+                className="w-7 h-7 flex items-center justify-center cursor-pointer shrink-0 text-black/30"
                 aria-label={descOpen ? '概要を閉じる' : '概要を見る'}
               >
-                <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>
                   {descOpen ? 'expand_less' : 'subject'}
                 </span>
               </button>
             )}
             <button
               onClick={onClose}
-              className="w-8 h-8 flex items-center justify-center text-black/30 cursor-pointer shrink-0"
+              className="w-7 h-7 flex items-center justify-center text-black/30 cursor-pointer shrink-0"
               aria-label="閉じる"
             >
-              <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px' }}>close</span>
+              <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>close</span>
             </button>
           </div>
 
@@ -293,17 +290,34 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
             />
           ))}
 
-          {/* すべてをキューに追加 */}
-          {mode.kind === 'add' && chapterItems.length > 0 && (
-            <div className="px-4 py-4">
-              <button
-                onClick={() => chapterItems.forEach(ci => { if (!mode.isInQueue(ci.id)) mode.onAdd(ci); })}
-                className="w-full py-3 bg-black text-white text-[0.8rem] font-bold uppercase cursor-pointer"
-              >
-                すべてをキューに追加
-              </button>
-            </div>
-          )}
+          {/* すべてをキューに追加 / 削除 */}
+          {mode.kind === 'add' && chapterItems.length > 0 && (() => {
+            const inQueueCount = chapterItems.filter(ci => mode.isInQueue(ci.id)).length;
+            const allInQueue = inQueueCount === chapterItems.length;
+            const remaining = chapterItems.length - inQueueCount;
+            return (
+              <div className="px-4 py-4">
+                <button
+                  onClick={() => {
+                    if (allInQueue) {
+                      chapterItems.forEach(ci => mode.onRemove(ci.id));
+                    } else {
+                      chapterItems.forEach(ci => { if (!mode.isInQueue(ci.id)) mode.onAdd(ci); });
+                    }
+                  }}
+                  className={`w-full py-3 text-[0.8rem] font-bold cursor-pointer ${
+                    allInQueue ? 'bg-black/10 text-black' : 'bg-black text-white'
+                  }`}
+                >
+                  {allInQueue
+                    ? 'すべてをキューから削除'
+                    : inQueueCount === 0
+                      ? 'すべてをキューに追加'
+                      : `残り ${remaining} 件を追加`}
+                </button>
+              </div>
+            );
+          })()}
 
           <div className="h-6" />
         </div>
@@ -545,7 +559,7 @@ function ChapterRow({ id, label, timeRange, mode, item, isFullVideo, onPreview, 
         {inQueue ? (
           <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>check</span>
         ) : (
-          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>queue_music</span>
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>add</span>
         )}
       </div>
       {onShare && (

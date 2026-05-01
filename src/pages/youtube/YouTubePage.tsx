@@ -35,17 +35,31 @@ function ChapterPickupContent() {
   );
   const [sharedPlaylist, setSharedPlaylist] = useState<SharedPlaylist | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
-  const { state, startPlaylist, pause, resume } = useChapterPlaylistContext();
+  const { state, startPlaylist, pause, resume, playNext, playPrev } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
   const currentItem = state.currentIndex !== null ? state.queue[state.currentIndex] ?? null : null;
 
   const homeScrollRef = useRef(0);
-
-  const miniBottom = 'bottom-[68px]';
+  const fullscreenRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     document.title = 'HELLO! VIDEO | hop-up-tools';
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      fullscreenRef.current?.requestFullscreen().catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
@@ -80,12 +94,6 @@ function ChapterPickupContent() {
     }
   }, [pageState]);
 
-  const handlePlay = useCallback((items: ChapterQueueItem[]) => {
-    if (pageState === 'home') homeScrollRef.current = window.scrollY;
-    startPlaylist(items);
-    setPageState('play');
-  }, [pageState, startPlaylist]);
-
   const handleGoToHome = useCallback(() => {
     setPageState('home');
   }, []);
@@ -94,15 +102,21 @@ function ChapterPickupContent() {
   if (restoreStatus === 'expired') return <ExpiredView />;
 
   const isNotPlay = pageState !== 'play';
+  const showPlayerAtTop = isNotPlay && hasQueue;
 
   const playerWrapClass =
-    pageState === 'play'
-      ? 'fixed top-[60px] left-0 right-0 z-20'
-      : hasQueue
-      ? 'fixed -left-[250px] top-0 w-[200px] h-[200px]'
+    pageState === 'play' || hasQueue
+      ? 'fixed top-[60px] left-0 right-0 z-20 flex flex-col'
       : 'hidden';
 
-  const playerStyle = pageState === 'play' ? { height: '28vh', minHeight: '200px' } : undefined;
+  const infoStripH = showPlayerAtTop && !isFullscreen ? 36 : 0;
+
+  const playerStyle: React.CSSProperties | undefined =
+    pageState === 'play'
+      ? { height: '28vh', minHeight: '200px' }
+      : hasQueue
+      ? { height: `${200 + infoStripH}px` }
+      : undefined;
 
   return (
     <div className="yt-page bg-white text-black" style={{ fontFamily: "'Inter', 'Noto Sans JP', sans-serif" }}>
@@ -122,58 +136,75 @@ function ChapterPickupContent() {
       </header>
 
       {/* YouTube Player */}
-      <div className={playerWrapClass} style={playerStyle}>
-        <Player />
-      </div>
-
-      {/* NOW PLAYING ミニバー */}
-      {isNotPlay && hasQueue && (
-        <div
-          data-testid="mini-player"
-          className={`fixed ${miniBottom} left-0 right-0 h-[72px] z-40 bg-black flex items-center cursor-pointer`}
-          onClick={() => setPageState('play')}
-        >
-          {currentItem && (
-            <img
-              src={`https://i.ytimg.com/vi/${currentItem.videoId}/mqdefault.jpg`}
-              alt=""
-              className="h-full w-auto shrink-0 object-cover"
-            />
-          )}
-          <div className="flex-1 min-w-0 px-3">
-            <p className="text-[0.7rem] font-thin uppercase tracking-widest text-white/50 leading-none mb-1">
-              NOW PLAYING
-            </p>
-            <p className="text-white text-[0.7rem] font-thin truncate leading-tight">
+      <div ref={fullscreenRef} className={playerWrapClass} style={playerStyle}>
+        <div className="flex-1 min-h-0">
+          <Player />
+        </div>
+        {showPlayerAtTop && !isFullscreen && (
+          <div
+            className="h-9 bg-black flex items-center shrink-0 cursor-pointer border-t border-white/10"
+            onClick={() => setPageState('play')}
+          >
+            <div className="flex-1 min-w-0 px-3">
+              <p className="text-white text-[0.65rem] font-thin truncate">
+                {currentItem?.chapterLabel ?? ''}
+              </p>
+            </div>
+            <button
+              onClick={e => {
+                e.stopPropagation();
+                state.isPlaying ? pause() : resume();
+              }}
+              className="shrink-0 w-8 h-8 flex items-center justify-center text-white/70 cursor-pointer mr-1"
+              aria-label={state.isPlaying ? '一時停止' : '再生'}
+            >
+              <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>
+                {state.isPlaying ? 'pause' : 'play_arrow'}
+              </span>
+            </button>
+          </div>
+        )}
+        {isFullscreen && (
+          <div className="h-12 bg-black flex items-center px-4 shrink-0 border-t border-white/10">
+            <button
+              onClick={playPrev}
+              className="shrink-0 w-10 h-10 flex items-center justify-center text-white/70 cursor-pointer"
+              aria-label="前のチャプター"
+            >
+              <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px' }}>skip_previous</span>
+            </button>
+            <p className="flex-1 text-white text-[0.75rem] font-thin truncate text-center px-3">
               {currentItem?.chapterLabel ?? ''}
             </p>
+            <button
+              onClick={playNext}
+              className="shrink-0 w-10 h-10 flex items-center justify-center text-white/70 cursor-pointer"
+              aria-label="次のチャプター"
+            >
+              <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px' }}>skip_next</span>
+            </button>
+            <button
+              onClick={toggleFullscreen}
+              className="shrink-0 w-10 h-10 flex items-center justify-center text-white/70 cursor-pointer"
+              aria-label="全画面を終了"
+            >
+              <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px' }}>fullscreen_exit</span>
+            </button>
           </div>
-          <button
-            onClick={e => {
-              e.stopPropagation();
-              state.isPlaying ? pause() : resume();
-            }}
-            className="shrink-0 w-9 h-9 flex items-center justify-center text-white cursor-pointer mr-2"
-            aria-label={state.isPlaying ? '一時停止' : '再生'}
-          >
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: '24px' }}>
-              {state.isPlaying ? 'pause' : 'play_arrow'}
-            </span>
-          </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Home (Browse + Search 統合) */}
-      <div className={pageState === 'home' ? 'pt-[60px] pb-[68px]' : 'hidden'}>
-        <BrowseView onPlay={handlePlay} searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} />
+      <div className={pageState === 'home' ? `${hasQueue ? 'pt-[296px]' : 'pt-[60px]'} pb-[68px]` : 'hidden'}>
+        <BrowseView searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} />
       </div>
 
       {/* PlayView */}
       <div data-testid="play-view" className={pageState === 'play' ? 'pt-[60px] pb-[68px]' : 'hidden'}>
-        <PlayView sharedPlaylist={sharedPlaylist} onGoHome={handleGoToHome} />
+        <PlayView sharedPlaylist={sharedPlaylist} onGoHome={handleGoToHome} onToggleFullscreen={toggleFullscreen} />
       </div>
 
-      {/* タブバー: Home / Playlist */}
+      {/* タブバー */}
       <nav className="fixed bottom-[20px] left-0 right-0 z-50 h-12 bg-white flex">
         <button
           onClick={handleGoToHome}

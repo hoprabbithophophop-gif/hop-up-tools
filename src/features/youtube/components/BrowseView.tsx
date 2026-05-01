@@ -7,9 +7,7 @@ import type { VideoRow } from './ZappingCard';
 import { SearchBar } from './SearchBar';
 import { FilterPanel } from './FilterPanel';
 import type { FilterState } from './FilterPanel';
-import { buildFullVideoQueueItem } from '../../videos/utils/playlist-utils';
-import { readPlayHistory, historyItemToQueueItem, type PlayHistoryItem } from '../../videos/hooks/usePlayHistory';
-import type { ChapterQueueItem } from '../../videos/types/playlist';
+import { readPlayHistory, type PlayHistoryItem } from '../../videos/hooks/usePlayHistory';
 
 const PAGE_SIZE = 24;
 const MEMBERS_BY_GROUP: Record<string, string[]> = {
@@ -29,20 +27,18 @@ const ALL_SUGGESTION_CANDIDATES = [
 ];
 
 interface Props {
-  onPlay: (items: ChapterQueueItem[]) => void;
   searchOpen: boolean;
   onSearchClose: () => void;
 }
 
-export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
-  const { state, playChapter, addItem, insertNext, removeFromQueue } = useChapterPlaylistContext();
+export function BrowseView({ searchOpen, onSearchClose }: Props) {
+  const { state, addItem, insertNext, removeFromQueue } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
 
   const [sheetVideo, setSheetVideo] = useState<VideoRow | null>(null);
   const [panelTab, setPanelTab] = useState<'discover' | 'history'>('discover');
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
-  const [filterTabOpen, setFilterTabOpen] = useState(false);
 
 
   // ── 検索 ──
@@ -315,12 +311,6 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
     if (data) setSheetVideo(data as VideoRow);
   }, [videos]);
 
-  const handleShortTap = useCallback((items: ChapterQueueItem[]) => {
-    const first = items[0];
-    if (first) playChapter(first.videoId, first.startSeconds, first.endSeconds);
-    onPlay(items);
-  }, [playChapter, onPlay]);
-
   return (
     <div className="bg-white text-black min-h-screen">
       {/* ── 🔍オーバーレイ ── */}
@@ -347,12 +337,11 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
                 state={filter}
                 onChange={handleFilterChange}
                 membersByGroup={MEMBERS_BY_GROUP}
-                onTabOpenChange={setFilterTabOpen}
               />
             </div>
 
             {/* DISCOVER | HISTORY */}
-            {!isSearchActive && !searchFocused && !filterTabOpen && (
+            {!isSearchActive && !searchFocused && (
               <div>
                 <div className="flex items-center gap-1 mb-3">
                   <button
@@ -392,7 +381,6 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
                           <VideoCard
                             key={v.video_id}
                             video={v}
-                            onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
                             onChapters={() => setSheetVideo(v)}
                           />
                         ))}
@@ -421,7 +409,6 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
                           group_tags: [],
                           description_short: '',
                         }}
-                        onShortTap={() => handleShortTap([historyItemToQueueItem(h)])}
                         onChapters={() => handleRecentLongPress(h.videoId)}
                       />
                     ))}
@@ -433,6 +420,31 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
             {/* ── 検索結果 ── */}
             {isSearchActive && (
           <>
+            {/* フィルターサマリー */}
+            <div className="flex flex-wrap items-center gap-1.5 mb-3">
+              {searchQuery && (
+                <FilterChip label={`「${searchQuery}」`} onRemove={() => { setSearchInput(''); setSearchQuery(''); }} />
+              )}
+              {filter.group && (
+                <FilterChip label={filter.group} onRemove={() => handleFilterChange({ group: '', member: '' })} />
+              )}
+              {filter.member && (
+                <FilterChip label={filter.member} onRemove={() => handleFilterChange({ member: '' })} />
+              )}
+              {filter.type && (
+                <FilterChip label={filter.type.toUpperCase()} onRemove={() => handleFilterChange({ type: '' })} />
+              )}
+              {filter.isShort !== 'all' && (
+                <FilterChip label={filter.isShort === 'short' ? 'ショート' : '通常'} onRemove={() => handleFilterChange({ isShort: 'all' })} />
+              )}
+              {filter.channel && (
+                <FilterChip label={filter.channel} onRemove={() => handleFilterChange({ channel: '' })} />
+              )}
+              {filter.year > 0 && (
+                <FilterChip label={String(filter.year)} onRemove={() => handleFilterChange({ year: 0 })} />
+              )}
+            </div>
+
             {searchError && (
               <div className="flex flex-col items-center justify-center h-32 gap-3">
                 <p className="text-[0.7rem] font-thin text-black/50">読み込みエラー。再度お試しください。</p>
@@ -451,7 +463,6 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
                   <VideoCard
                     key={v.video_id}
                     video={v}
-                    onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
                     onChapters={() => setSheetVideo(v)}
                   />
                 ))}
@@ -501,7 +512,6 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
                   <VideoCard
                     key={v.video_id}
                     video={v}
-                    onShortTap={() => handleShortTap([buildFullVideoQueueItem(v)])}
                     onChapters={() => setSheetVideo(v)}
                   />
                 ))}
@@ -558,6 +568,20 @@ export function BrowseView({ onPlay, searchOpen, onSearchClose }: Props) {
   );
 }
 
+// ─── FilterChip ──────────────────────────────────────────────────────────────
+
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <button
+      onClick={onRemove}
+      className="flex items-center gap-1 text-[0.7rem] font-bold bg-black/5 px-2 py-1 cursor-pointer hover:bg-black/10 transition-colors"
+    >
+      {label}
+      <span className="material-symbols-outlined leading-none" style={{ fontSize: '14px' }}>close</span>
+    </button>
+  );
+}
+
 // ─── VideoCard（グリッド用）──────────────────────────────────────────────────
 
 const CHAPTER_LINE_RE = /^\d{1,2}:\d{2}/gm;
@@ -568,9 +592,8 @@ function countChapters(desc: string): number {
   return matches ? matches.length : 0;
 }
 
-function VideoCard({ video, onShortTap, onChapters }: {
+function VideoCard({ video, onChapters }: {
   video: VideoRow;
-  onShortTap: () => void;
   onChapters: () => void;
 }) {
   const chapterCount = countChapters(video.description_short || '');
@@ -580,7 +603,7 @@ function VideoCard({ video, onShortTap, onChapters }: {
     <div
       className="cursor-pointer"
       style={{ userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}
-      onClick={onShortTap}
+      onClick={onChapters}
     >
       <div className="w-full overflow-hidden bg-black/5">
         <img
@@ -592,27 +615,13 @@ function VideoCard({ video, onShortTap, onChapters }: {
           decoding="async"
         />
       </div>
-      <div className="mt-1.5">
-        <div className="flex items-start gap-1.5">
-          {video.video_type && (
-            <span className="shrink-0 mt-0.5 text-[0.55rem] font-bold uppercase text-black/50 bg-black/5 px-1 py-0.5 leading-tight">
-              {video.video_type.toUpperCase()}
-            </span>
-          )}
-          <p className="text-[0.75rem] font-bold leading-snug flex-1">
-            {video.title}
-          </p>
-        </div>
-        <div className="flex items-center mt-0.5">
-          <p className="text-[0.65rem] font-thin text-black/40 flex-1 truncate">{video.channel_name}</p>
-          <p
-            onClick={e => { e.stopPropagation(); onChapters(); }}
-            className="shrink-0 text-[0.75rem] font-thin text-black/50 cursor-pointer underline"
-          >
-            {displayCount} {displayCount === 1 ? 'chapter' : 'chapters'}
-          </p>
-        </div>
-      </div>
+      <p className={`text-[0.75rem] mt-0.5 ${displayCount > 1 ? 'font-bold text-black' : 'font-normal text-black/30'}`}>
+        {displayCount} {displayCount === 1 ? 'chapter' : 'chapters'}
+      </p>
+      <p className="text-[0.75rem] leading-snug line-clamp-2 mt-1">
+        {video.title}
+      </p>
+      <p className="text-[0.6rem] font-thin text-black/30 truncate mt-0.5">{video.channel_name}</p>
     </div>
   );
 }

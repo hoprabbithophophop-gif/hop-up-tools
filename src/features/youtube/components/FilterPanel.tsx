@@ -114,27 +114,18 @@ export function FilterPanel({ state, onChange, membersByGroup, onTabOpenChange }
   const hasFilter =
     state.group || state.member || state.type || state.channel || state.year > 0 || state.isShort !== 'all';
 
-  const tabs: { key: TabKey; label: string; badge?: string }[] = [
-    {
-      key: 'group',
-      label: 'GROUP',
-      badge: state.member || state.group || undefined,
-    },
-    {
-      key: 'type',
-      label: 'TYPE',
-      badge: state.type ? state.type.toUpperCase() : undefined,
-    },
-    {
-      key: 'channel',
-      label: 'CH',
-      badge: state.channel ? '●' : undefined,
-    },
-    {
-      key: 'year',
-      label: 'YEAR',
-      badge: state.year > 0 ? String(state.year) : undefined,
-    },
+  const hasSelection: Record<TabKey, boolean> = {
+    group: !!(state.group || state.member),
+    type: !!(state.type || state.isShort !== 'all'),
+    channel: !!state.channel,
+    year: state.year > 0,
+  };
+
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: 'group', label: 'GROUP' },
+    { key: 'type', label: 'TYPE' },
+    { key: 'channel', label: 'CHANNEL' },
+    { key: 'year', label: 'YEAR' },
   ];
 
   const panelContent: Record<TabKey, React.ReactNode> = {
@@ -226,20 +217,17 @@ export function FilterPanel({ state, onChange, membersByGroup, onTabOpenChange }
           <button
             key={t.key}
             onClick={() => toggleTab(t.key)}
-            className={`flex items-center gap-1.5 shrink-0 py-2 px-2 cursor-pointer transition-colors group ${
-              activeTab === t.key
+            className={`flex items-center shrink-0 py-2 px-2 cursor-pointer transition-colors ${
+              hasSelection[t.key]
                 ? 'text-on-surface border-b-2 border-primary'
+                : activeTab === t.key
+                ? 'text-on-surface'
                 : 'text-outline hover:text-on-surface'
             }`}
           >
             <span className="text-[0.6875rem] font-bold uppercase tracking-widest">
               {t.label}
             </span>
-            {t.badge && (
-              <span className="text-[0.6rem] font-bold text-primary bg-primary/10 px-1 leading-4">
-                {t.badge}
-              </span>
-            )}
           </button>
         ))}
 
