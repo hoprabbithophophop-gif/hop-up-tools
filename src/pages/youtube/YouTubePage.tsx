@@ -102,10 +102,11 @@ function ChapterPickupContent() {
   if (restoreStatus === 'expired') return <ExpiredView />;
 
   const isNotPlay = pageState !== 'play';
-  const showPlayerAtTop = isNotPlay && hasQueue;
+  const isPlayerActive = state.currentIndex !== null;
+  const showPlayerAtTop = isNotPlay && isPlayerActive;
 
   const playerWrapClass =
-    pageState === 'play' || hasQueue
+    pageState === 'play' || isPlayerActive
       ? 'fixed top-[60px] left-0 right-0 z-20 flex flex-col'
       : 'hidden';
 
@@ -114,7 +115,7 @@ function ChapterPickupContent() {
   const playerStyle: React.CSSProperties | undefined =
     pageState === 'play'
       ? { height: '28vh', minHeight: '200px' }
-      : hasQueue
+      : isPlayerActive
       ? { height: `${200 + infoStripH}px` }
       : undefined;
 
@@ -195,7 +196,7 @@ function ChapterPickupContent() {
       </div>
 
       {/* Home (Browse + Search 統合) */}
-      <div className={pageState === 'home' ? `${hasQueue ? 'pt-[296px]' : 'pt-[60px]'} pb-[68px]` : 'hidden'}>
+      <div className={pageState === 'home' ? `${isPlayerActive ? 'pt-[296px]' : 'pt-[60px]'} pb-[68px]` : 'hidden'}>
         <BrowseView searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} />
       </div>
 
