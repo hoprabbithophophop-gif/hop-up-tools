@@ -22,7 +22,7 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen }: Props
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
   return (
-    <div className="bg-white text-black flex flex-col" style={{ height: 'calc(100vh - 68px)' }}>
+    <div className="bg-white text-black flex flex-col" style={{ height: 'calc(100svh - 68px)' }}>
       {/* 共有プレイリストバナー */}
       {sharedPlaylist && (
         <div className="shrink-0 bg-black/5 px-4 py-2 flex items-center justify-between gap-3">
@@ -43,7 +43,7 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen }: Props
 
       {/* スクロール領域 */}
       <div className="flex-1 overflow-y-auto">
-        <div className="w-full bg-black shrink-0" style={{ height: '28vh', minHeight: '200px' }} />
+        <div className="w-full bg-black shrink-0" style={{ height: '200px' }} />
 
         {queue.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3 px-4 text-center">
