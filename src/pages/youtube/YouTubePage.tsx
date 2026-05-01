@@ -134,7 +134,7 @@ function ChapterPickupContent() {
   const infoStripH = showPlayerAtTop && !isFullscreen ? 36 : 0;
 
   const playerStyle: React.CSSProperties | undefined = isFullscreen
-    ? { height: '100vh' }
+    ? { height: '100dvh' }
     : landscapeSplit
       ? { width: '45vw' }
       : pageState === 'play'
