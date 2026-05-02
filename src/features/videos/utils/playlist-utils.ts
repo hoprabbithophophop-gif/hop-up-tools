@@ -78,7 +78,7 @@ export function buildFullVideoQueueItem(video: VideoRow): ChapterQueueItem {
     chapterLabel: video.title,
     chapterTimestamp: '',
     startSeconds: 0,
-    endSeconds: Infinity,
+    endSeconds: Number.MAX_SAFE_INTEGER,
     isFullVideo: true,
   };
 }

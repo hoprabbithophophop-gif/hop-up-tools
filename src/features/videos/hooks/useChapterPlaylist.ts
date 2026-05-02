@@ -26,7 +26,14 @@ function loadSavedQueue(): ChapterQueueItem[] {
     const raw = localStorage.getItem(QUEUE_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item: ChapterQueueItem) => ({
+      ...item,
+      endSeconds:
+        item.endSeconds == null || item.endSeconds <= 0
+          ? Number.MAX_SAFE_INTEGER
+          : item.endSeconds,
+    }));
   } catch {
     return [];
   }

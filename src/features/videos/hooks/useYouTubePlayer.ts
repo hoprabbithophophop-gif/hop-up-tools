@@ -86,8 +86,8 @@ export function useYouTubePlayer({
       const player = playerRef.current;
       if (!player) return;
       const end = endSecondsRef.current;
-      // Infinity or MAX_SAFE_INTEGER の場合はポーリング不要
-      if (!isFinite(end) || end === Number.MAX_SAFE_INTEGER) return;
+      // Infinity / MAX_SAFE_INTEGER / 無効値の場合はポーリング不要
+      if (!isFinite(end) || end === Number.MAX_SAFE_INTEGER || end <= 0) return;
       try {
         const current = player.getCurrentTime();
         if (!chapterEndFiredRef.current && current >= end - END_THRESHOLD_SECONDS) {
@@ -127,7 +127,7 @@ export function useYouTubePlayer({
       videoId,
       startSeconds,
     };
-    if (isFinite(endSeconds) && endSeconds !== Number.MAX_SAFE_INTEGER) {
+    if (isFinite(endSeconds) && endSeconds !== Number.MAX_SAFE_INTEGER && endSeconds > 0) {
       params.endSeconds = endSeconds;
     }
     player.loadVideoById(params);

@@ -46,7 +46,7 @@ export function fromShareItem(item: PlaylistShareItem): ChapterQueueItem {
     chapterLabel: item.chapterTitle,
     chapterTimestamp: '',
     startSeconds: item.startSeconds,
-    endSeconds: item.endSeconds === null ? Infinity : item.endSeconds,
+    endSeconds: item.endSeconds === null ? Number.MAX_SAFE_INTEGER : item.endSeconds,
     isFullVideo: item.isFullVideo,
   };
 }
