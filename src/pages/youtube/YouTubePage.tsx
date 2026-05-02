@@ -152,7 +152,11 @@ function ChapterPickupContent() {
         {pageState === 'home' && (
           <button
             onClick={() => setSearchOpen(prev => !prev)}
-            className={`w-9 h-9 flex items-center justify-center cursor-pointer ${searchOpen ? 'text-black' : 'text-black/40'}`}
+            className={`w-9 h-9 flex items-center justify-center cursor-pointer ${
+              searchOpen
+                ? 'text-black border border-b-0 border-black/20'
+                : 'text-black/40'
+            }`}
             aria-label="検索"
           >
             <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>search</span>

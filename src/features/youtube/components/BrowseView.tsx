@@ -317,7 +317,7 @@ export function BrowseView({ searchOpen, onSearchClose }: Props) {
       {searchOpen && (
         <div
           className="fixed top-[60px] left-0 right-0 z-40 bg-white overflow-y-auto"
-          style={{ overscrollBehavior: 'contain', bottom: hasQueue ? '140px' : '68px' } as React.CSSProperties}
+          style={{ overscrollBehavior: 'contain', bottom: '68px' } as React.CSSProperties}
         >
           <div className="max-w-3xl mx-auto px-4 pt-4 pb-4">
             {/* 検索バー */}
