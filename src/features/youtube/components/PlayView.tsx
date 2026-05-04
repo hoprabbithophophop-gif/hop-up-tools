@@ -10,9 +10,10 @@ interface Props {
   sharedPlaylist?: SharedPlaylist | null;
   onGoHome?: () => void;
   onToggleFullscreen?: () => void;
+  isLandscapePlay?: boolean;
 }
 
-export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen }: Props) {
+export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLandscapePlay }: Props) {
   const { state, removeFromQueue, clearQueue, startPlaylist, jumpTo } = useChapterPlaylistContext();
   const { queue, currentIndex } = state;
   const currentItem = currentIndex !== null ? queue[currentIndex] ?? null : null;
@@ -43,7 +44,9 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen }: Props
 
       {/* スクロール領域 */}
       <div className="flex-1 overflow-y-auto">
-        <div className="w-full bg-black shrink-0" style={{ height: '200px' }} />
+        {!isLandscapePlay && (
+          <div className="w-full bg-black shrink-0" style={{ height: '200px' }} />
+        )}
 
         {queue.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3 px-4 text-center">
@@ -110,13 +113,8 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen }: Props
                     const isCurrent = idx === currentIndex;
                     const prevItem = idx > 0 ? queue[idx - 1] : null;
                     const sameVideoAsPrev = prevItem?.videoId === item.videoId;
-                    const itemTimeRange = item.isFullVideo
-                      ? '全編'
-                      : `${formatSeconds(item.startSeconds)}${
-                          isFinite(item.endSeconds) && item.endSeconds !== Number.MAX_SAFE_INTEGER
-                            ? `–${formatSeconds(item.endSeconds)}`
-                            : ''
-                        }`;
+                    const endKnown = isFinite(item.endSeconds) && item.endSeconds !== Number.MAX_SAFE_INTEGER;
+                    const itemTimeRange = `${formatSeconds(item.startSeconds)}–${endKnown ? formatSeconds(item.endSeconds) : '*:**'}`;
                     return (
                       <div
                         key={item.id}

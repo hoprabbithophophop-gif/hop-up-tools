@@ -11,6 +11,7 @@ interface VideoRow {
   title: string;
   channel_name: string;
   thumbnail_url: string;
+  duration_seconds?: number | null;
 }
 
 interface Chapter {
@@ -212,6 +213,7 @@ export interface UseChapterPlaylistReturn {
   addToQueue: (video: VideoRow, chapters: Chapter[], chapterIndex: number) => void;
   addAllToQueue: (video: VideoRow, chapters: Chapter[]) => void;
   startPlaylist: (items: ChapterQueueItem[]) => void;
+  appendItems: (items: ChapterQueueItem[]) => void;
   removeFromQueue: (id: string) => void;
   jumpTo: (index: number) => void;
   playNext: () => void;
@@ -262,6 +264,14 @@ export function useChapterPlaylist(): UseChapterPlaylistReturn {
     dispatch({ type: 'START_PLAYLIST', items });
   }, []);
 
+  const appendItems = useCallback((items: ChapterQueueItem[]) => {
+    const withUids = items.map(item => ({
+      ...item,
+      id: `${item.id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    }));
+    dispatch({ type: 'ADD_ITEMS', items: withUids });
+  }, []);
+
   const removeFromQueue = useCallback((id: string) => {
     dispatch({ type: 'REMOVE_ITEM', id });
   }, []);
@@ -309,6 +319,7 @@ export function useChapterPlaylist(): UseChapterPlaylistReturn {
     addToQueue,
     addAllToQueue,
     startPlaylist,
+    appendItems,
     removeFromQueue,
     jumpTo,
     playNext,

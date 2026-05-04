@@ -88,7 +88,7 @@ export function SearchView({ onBack }: Props) {
       const supabase = getSupabase();
       let q = supabase
         .from('youtube_videos')
-        .select('video_id,title,channel_name,published_at,thumbnail_url,video_type,group_tags,description_short')
+        .select('video_id,title,channel_name,published_at,thumbnail_url,video_type,group_tags,description_short,duration_seconds')
         .eq('is_active_content', true)
         .order('published_at', { ascending: f.sort === 'asc' })
         .range(currentOffset, currentOffset + PAGE_SIZE - 1);

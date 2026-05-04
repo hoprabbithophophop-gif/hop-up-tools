@@ -15,7 +15,7 @@
  *
  * 【削除済み関数（必要になったらgit履歴から復元）】
  * retagVideos, updateDescriptions, backfillActiveContent,
- * backfillShorts(v1), resolveChannelIds, showChannelIds,
+ * backfillShorts(v1), backfillShortsV2, resolveChannelIds, showChannelIds,
  * syncMembers, parseMemberNames
  */
 
@@ -79,6 +79,10 @@ var VIDEO_TYPE_KEYWORDS = {
 
 // ===== メイン処理 =====
 function YTmain() {
+  var hourJST = (new Date().getUTCHours() + 9) % 24;
+  var activeHours = [10, 12, 15, 17, 18, 19, 20, 21, 22];
+  if (activeHours.indexOf(hourJST) === -1) return;
+
   var props = PropertiesService.getScriptProperties();
   var apiKey = props.getProperty('YOUTUBE_API_KEY');
   var supabaseUrl = props.getProperty('SUPABASE_URL');
@@ -195,6 +199,16 @@ function fetchNewVideos(apiKey, channelId, channelName, supabaseUrl, supabaseKey
     Utilities.sleep(500);
   });
 
+  // 再生時間を取得
+  if (videos.length > 0) {
+    var durationMap = fetchDurations(apiKey, videos.map(function(v) { return v.video_id; }));
+    videos.forEach(function(v) {
+      if (durationMap[v.video_id] != null) {
+        v.duration_seconds = durationMap[v.video_id];
+      }
+    });
+  }
+
   // 配信予定（upcoming）の動画を非表示にする
   if (videos.length > 0) {
     var videoIds = videos.map(function(v) { return v.video_id; });
@@ -233,6 +247,90 @@ function getUpcomingVideoIds(apiKey, videoIds) {
     Utilities.sleep(1000);
   }
   return upcomingIds;
+}
+
+// ===== 再生時間の取得 =====
+function parseISO8601Duration(iso) {
+  var m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return null;
+  return (parseInt(m[1] || 0) * 3600) + (parseInt(m[2] || 0) * 60) + parseInt(m[3] || 0);
+}
+
+function fetchDurations(apiKey, videoIds) {
+  var map = {};
+  var chunkSize = 50;
+  for (var i = 0; i < videoIds.length; i += chunkSize) {
+    var chunk = videoIds.slice(i, i + chunkSize);
+    var url = 'https://www.googleapis.com/youtube/v3/videos'
+      + '?key=' + apiKey
+      + '&id=' + chunk.join(',')
+      + '&part=contentDetails&fields=items(id,contentDetails/duration)';
+    var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) continue;
+    var json = JSON.parse(res.getContentText());
+    (json.items || []).forEach(function(item) {
+      var seconds = parseISO8601Duration(item.contentDetails.duration);
+      if (seconds != null) map[item.id] = seconds;
+    });
+    Utilities.sleep(500);
+  }
+  return map;
+}
+
+// ===== 既存動画のduration一括取得（手動実行用） =====
+function backfillDuration() {
+  var props = PropertiesService.getScriptProperties();
+  var apiKey = props.getProperty('YOUTUBE_API_KEY');
+  var supabaseUrl = props.getProperty('SUPABASE_URL');
+  var supabaseKey = props.getProperty('SUPABASE_SERVICE_KEY');
+
+  var offset = parseInt(props.getProperty('BACKFILL_DURATION_OFFSET') || '0');
+  var batchSize = 500;
+
+  var fetchUrl = supabaseUrl + '/rest/v1/youtube_videos'
+    + '?duration_seconds=is.null&select=video_id&limit=' + batchSize + '&offset=' + offset;
+  var res = UrlFetchApp.fetch(fetchUrl, {
+    headers: { apikey: supabaseKey, Authorization: 'Bearer ' + supabaseKey }
+  });
+  var rows = JSON.parse(res.getContentText());
+  if (rows.length === 0) {
+    Logger.log('[BACKFILL] 完了（全件処理済み）');
+    props.deleteProperty('BACKFILL_DURATION_OFFSET');
+    return;
+  }
+
+  var videoIds = rows.map(function(r) { return r.video_id; });
+  var durationMap = fetchDurations(apiKey, videoIds);
+
+  var updates = [];
+  Object.keys(durationMap).forEach(function(videoId) {
+    updates.push({ video_id: videoId, duration_seconds: durationMap[videoId] });
+  });
+
+  if (updates.length > 0) {
+    var chunkSize = 50;
+    for (var i = 0; i < updates.length; i += chunkSize) {
+      var chunk = updates.slice(i, i + chunkSize);
+      var requests = chunk.map(function(u) {
+        return {
+          url: supabaseUrl + '/rest/v1/youtube_videos?video_id=eq.' + u.video_id,
+          method: 'patch',
+          headers: {
+            apikey: supabaseKey,
+            Authorization: 'Bearer ' + supabaseKey,
+            'Content-Type': 'application/json',
+          },
+          payload: JSON.stringify({ duration_seconds: u.duration_seconds }),
+          muteHttpExceptions: true,
+        };
+      });
+      UrlFetchApp.fetchAll(requests);
+      if (i + chunkSize < updates.length) Utilities.sleep(1000);
+    }
+  }
+
+  Logger.log('[BACKFILL] ' + updates.length + '/' + rows.length + '件更新 (offset=' + offset + ')');
+  props.setProperty('BACKFILL_DURATION_OFFSET', String(offset + batchSize));
 }
 
 // ===== Supabaseから各チャンネルの最新公開日を取得 =====
@@ -478,96 +576,4 @@ function detectVideoType(title) {
     }
   }
   return 'other';
-}
-
-// ===== ショート動画の一括再判定 =====
-// m.youtube.com/shorts/{id} にアクセスし、200ならショートと判定。
-// API クォータを消費しない。150件ずつチェックポイント巡回。中断再開可能。
-function backfillShortsV2() {
-  var props = PropertiesService.getScriptProperties();
-  var supabaseUrl = props.getProperty('SUPABASE_URL');
-  var supabaseKey = props.getProperty('SUPABASE_SERVICE_KEY');
-
-  var PER_RUN = 150;
-  var lastId = props.getProperty('SHORTS_V2_LAST_ID') || '';
-
-  var query = supabaseUrl + '/rest/v1/youtube_videos'
-    + '?select=video_id'
-    + '&published_at=gte.2020-01-01T00:00:00Z'
-    + '&order=video_id&limit=' + PER_RUN;
-  if (lastId) query += '&video_id=gt.' + lastId;
-
-  var res = UrlFetchApp.fetch(query, {
-    headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey },
-    muteHttpExceptions: true,
-  });
-  var rows = JSON.parse(res.getContentText());
-  var allIds = rows.map(function(r) { return r.video_id; });
-
-  if (allIds.length === 0) {
-    props.deleteProperty('SHORTS_V2_LAST_ID');
-    Logger.log('backfillShortsV2: 対象なし（完了）');
-    return;
-  }
-  Logger.log('backfillShortsV2: ' + allIds.length + '件処理 (開始)');
-
-  var shortIds = [];
-  var regularIds = [];
-
-  for (var i = 0; i < allIds.length; i++) {
-    var id = allIds[i];
-    try {
-      var ytRes = UrlFetchApp.fetch('https://m.youtube.com/shorts/' + id, {
-        muteHttpExceptions: true,
-        followRedirects: false,
-      });
-      if (ytRes.getResponseCode() === 200) {
-        shortIds.push(id);
-      } else {
-        regularIds.push(id);
-      }
-    } catch (e) {
-      regularIds.push(id);
-    }
-    Utilities.sleep(1500);
-  }
-
-  if (shortIds.length > 0) {
-    for (var j = 0; j < shortIds.length; j += 100) {
-      var chunk = shortIds.slice(j, j + 100);
-      UrlFetchApp.fetch(
-        supabaseUrl + '/rest/v1/youtube_videos?video_id=in.(' + chunk.join(',') + ')',
-        {
-          method: 'patch',
-          headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-          payload: JSON.stringify({ is_short: true }),
-          muteHttpExceptions: true,
-        }
-      );
-    }
-  }
-  if (regularIds.length > 0) {
-    for (var k = 0; k < regularIds.length; k += 100) {
-      var chunk2 = regularIds.slice(k, k + 100);
-      UrlFetchApp.fetch(
-        supabaseUrl + '/rest/v1/youtube_videos?video_id=in.(' + chunk2.join(',') + ')',
-        {
-          method: 'patch',
-          headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-          payload: JSON.stringify({ is_short: false }),
-          muteHttpExceptions: true,
-        }
-      );
-    }
-  }
-
-  Logger.log('backfillShortsV2: short=' + shortIds.length + ' regular=' + regularIds.length);
-
-  if (rows.length < PER_RUN) {
-    props.deleteProperty('SHORTS_V2_LAST_ID');
-    Logger.log('backfillShortsV2: 全件完了');
-  } else {
-    props.setProperty('SHORTS_V2_LAST_ID', allIds[allIds.length - 1]);
-    Logger.log('backfillShortsV2: 次回続行');
-  }
 }

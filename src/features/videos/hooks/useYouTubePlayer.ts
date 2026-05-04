@@ -156,8 +156,14 @@ export function useYouTubePlayer({
 
       if (!mounted) return;
 
-      // Step 2: DOM要素の存在確認
-      const element = document.getElementById(PLAYER_CONTAINER_ID);
+      // Step 2: DOM要素の出現を待機（LoadingScreen中はPlayerが未描画の場合がある）
+      let element: HTMLElement | null = null;
+      for (let i = 0; i < 25; i++) {
+        element = document.getElementById(PLAYER_CONTAINER_ID);
+        if (element || !mounted) break;
+        await new Promise(r => setTimeout(r, 200));
+      }
+      if (!mounted) return;
       if (!element) {
         console.error(`[YTPlayer] Element #${PLAYER_CONTAINER_ID} not found in DOM`);
         return;

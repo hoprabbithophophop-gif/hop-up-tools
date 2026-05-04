@@ -5,6 +5,7 @@ interface VideoRow {
   title: string;
   channel_name: string;
   thumbnail_url: string;
+  duration_seconds?: number | null;
 }
 
 interface Chapter {
@@ -78,7 +79,9 @@ export function buildFullVideoQueueItem(video: VideoRow): ChapterQueueItem {
     chapterLabel: video.title,
     chapterTimestamp: '',
     startSeconds: 0,
-    endSeconds: Number.MAX_SAFE_INTEGER,
+    endSeconds: video.duration_seconds && video.duration_seconds > 0
+      ? video.duration_seconds
+      : Number.MAX_SAFE_INTEGER,
     isFullVideo: true,
   };
 }

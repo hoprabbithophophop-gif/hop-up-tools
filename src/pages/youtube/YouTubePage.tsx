@@ -41,9 +41,11 @@ function ChapterPickupContent() {
     () => window.matchMedia('(orientation: landscape)').matches
   );
 
-  const { state, startPlaylist, pause, resume, playNext, playPrev } = useChapterPlaylistContext();
+  const { state, startPlaylist, appendItems, pause, resume, playNext, playPrev } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
   const currentItem = state.currentIndex !== null ? state.queue[state.currentIndex] ?? null : null;
+
+  const [pendingSharedItems, setPendingSharedItems] = useState<ChapterQueueItem[] | null>(null);
 
   const homeScrollRef = useRef(0);
   const fullscreenRef = useRef<HTMLDivElement>(null);
@@ -96,9 +98,15 @@ function ChapterPickupContent() {
       }
       const items = share.items.map(fromShareItem);
       setSharedPlaylist({ title: share.title, items });
-      startPlaylist(items);
-      setRestoreStatus('done');
-      setPageState('play');
+
+      if (state.queue.length > 0) {
+        setPendingSharedItems(items);
+        setRestoreStatus('done');
+      } else {
+        startPlaylist(items);
+        setRestoreStatus('done');
+        setPageState('play');
+      }
     });
 
     return () => { cancelled = true; };
@@ -116,38 +124,77 @@ function ChapterPickupContent() {
     setPageState('home');
   }, []);
 
-  if (restoreStatus === 'loading') return <LoadingScreen />;
-  if (restoreStatus === 'expired') return <ExpiredView />;
+  const handleSharedReplace = useCallback(() => {
+    if (pendingSharedItems) {
+      startPlaylist(pendingSharedItems);
+      setPendingSharedItems(null);
+      setPageState('play');
+    }
+  }, [pendingSharedItems, startPlaylist]);
+
+  const handleSharedAppend = useCallback(() => {
+    if (pendingSharedItems) {
+      appendItems(pendingSharedItems);
+      setPendingSharedItems(null);
+      setPageState('play');
+    }
+  }, [pendingSharedItems, appendItems]);
+
+  const handleSharedCancel = useCallback(() => {
+    setPendingSharedItems(null);
+  }, []);
+
+  const isLoading = restoreStatus === 'loading';
+  const isExpired = restoreStatus === 'expired';
 
   const isNotPlay = pageState !== 'play';
   const isPlayerActive = state.currentIndex !== null;
   const landscapeSplit = isLandscape && isPlayerActive && isNotPlay && !isFullscreen;
   const showPlayerAtTop = isNotPlay && isPlayerActive && !landscapeSplit;
+  const isPlayLandscape = isLandscape && pageState === 'play' && !isFullscreen;
 
   const playerWrapClass = isFullscreen
     ? 'fixed inset-0 z-[100] flex flex-col bg-black'
+    : isPlayLandscape
+      ? 'fixed top-0 left-0 bottom-[68px] z-20 flex flex-col'
+    : pageState === 'play'
+      ? 'fixed top-0 left-0 right-0 z-20 flex flex-col'
     : landscapeSplit
       ? 'fixed top-[60px] left-0 bottom-[68px] z-20 flex flex-col'
-      : pageState === 'play' || isPlayerActive
-        ? 'fixed top-[60px] left-0 right-0 z-20 flex flex-col'
-        : 'hidden';
+    : isPlayerActive
+      ? 'fixed top-[60px] left-0 right-0 z-20 flex flex-col'
+      : 'hidden';
 
   const infoStripH = showPlayerAtTop && !isFullscreen ? 36 : 0;
 
   const playerStyle: React.CSSProperties | undefined = isFullscreen
     ? { height: '100dvh' }
+    : isPlayLandscape
+      ? { width: '45vw' }
+    : pageState === 'play'
+      ? { height: '200px' }
     : landscapeSplit
       ? { width: '45vw' }
-      : pageState === 'play'
-        ? { height: '200px' }
-        : isPlayerActive
-        ? { height: `${200 + infoStripH}px` }
-        : undefined;
+    : isPlayerActive
+      ? { height: `${200 + infoStripH}px` }
+      : undefined;
 
   return (
     <div className="yt-page bg-white text-black" style={{ fontFamily: "'Inter', 'Noto Sans JP', sans-serif" }}>
+      {/* Loading / Expired オーバーレイ（Player DOMを残すためreturnではなくオーバーレイ） */}
+      {isLoading && (
+        <div className="fixed inset-0 z-[200] bg-white flex items-center justify-center">
+          <p className="text-xs text-outline uppercase tracking-widest">読み込み中...</p>
+        </div>
+      )}
+      {isExpired && (
+        <div className="fixed inset-0 z-[200]">
+          <ExpiredView />
+        </div>
+      )}
+
       {/* 固定ヘッダー */}
-      <header className={`fixed top-0 left-0 right-0 z-50 h-[60px] flex items-center gap-4 px-6 bg-white border-b border-outline-variant/20${isFullscreen ? ' hidden' : ''}`}>
+      <header className={`fixed top-0 left-0 right-0 z-50 h-[60px] flex items-center gap-4 px-6 bg-white border-b border-outline-variant/20${isFullscreen || pageState === 'play' || isLoading || isExpired ? ' hidden' : ''}`}>
         <a href="/" className="material-symbols-outlined text-black leading-none" style={{ fontSize: '20px' }}>arrow_back</a>
         <h1 className="text-xl font-black tracking-tighter uppercase flex-1">HELLO! VIDEO</h1>
         {pageState === 'home' && (
@@ -255,9 +302,45 @@ function ChapterPickupContent() {
       </div>
 
       {/* PlayView */}
-      <div data-testid="play-view" className={pageState === 'play' ? 'pt-[60px] pb-[68px]' : 'hidden'}>
-        <PlayView sharedPlaylist={sharedPlaylist} onGoHome={handleGoToHome} onToggleFullscreen={toggleFullscreen} />
+      <div
+        data-testid="play-view"
+        className={pageState === 'play' ? 'pb-[68px]' : 'hidden'}
+        style={isPlayLandscape ? { marginLeft: '45vw' } : undefined}
+      >
+        <PlayView sharedPlaylist={sharedPlaylist} onGoHome={handleGoToHome} onToggleFullscreen={toggleFullscreen} isLandscapePlay={isPlayLandscape} />
       </div>
+
+      {/* 共有プレイリスト確認ダイアログ */}
+      {pendingSharedItems && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60">
+          <div className="bg-white w-full max-w-xs mx-4 p-5">
+            <p className="text-sm font-bold mb-1">共有プレイリストを受信しました</p>
+            <p className="text-[0.65rem] text-black/50 mb-4">
+              現在のキューに{state.queue.length}曲あります。どうしますか？
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={handleSharedReplace}
+                className="w-full py-2.5 text-xs font-bold uppercase tracking-widest bg-black text-white cursor-pointer"
+              >
+                置き換えて再生
+              </button>
+              <button
+                onClick={handleSharedAppend}
+                className="w-full py-2.5 text-xs font-bold uppercase tracking-widest border border-black/20 text-black cursor-pointer"
+              >
+                あとで聴く（末尾に追加）
+              </button>
+              <button
+                onClick={handleSharedCancel}
+                className="w-full py-1.5 text-[0.6rem] font-bold uppercase tracking-widest text-black/40 cursor-pointer"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* タブバー */}
       <nav className={`fixed bottom-[20px] left-0 right-0 z-50 h-12 bg-white flex${isFullscreen ? ' hidden' : ''}`}>
