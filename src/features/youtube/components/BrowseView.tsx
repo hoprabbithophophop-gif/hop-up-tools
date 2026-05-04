@@ -30,9 +30,10 @@ interface Props {
   searchOpen: boolean;
   onSearchClose: () => void;
   formatFilter: 'all' | 'regular' | 'short';
+  showPlayerAtTop: boolean;
 }
 
-export function BrowseView({ searchOpen, onSearchClose, formatFilter }: Props) {
+export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayerAtTop }: Props) {
   const { state, addItem, insertNext, removeFromQueue } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
 
@@ -83,7 +84,7 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter }: Props) {
   }, [onSearchClose]);
 
   const isSearchActive = searchQuery.trim().length > 0 ||
-    filter.group || filter.member || filter.type || filter.channel || filter.year > 0 || filter.isShort !== 'all';
+    filter.group || filter.member || filter.type || filter.channel || filter.year > 0;
 
   // 再生履歴（localStorage）
   const [playHistory, setPlayHistory] = useState<PlayHistoryItem[]>(() => readPlayHistory());
@@ -216,8 +217,8 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter }: Props) {
       if (f.group)   q = q.contains('group_tags', [f.group]);
       if (f.type)    q = q.eq('video_type', f.type);
       if (f.channel) q = q.eq('channel_name', f.channel);
-      if (f.isShort === 'short')   q = q.eq('is_short', true);
-      if (f.isShort === 'regular') q = q.or('is_short.eq.false,is_short.is.null');
+      if (formatFilter === 'short')   q = q.eq('is_short', true);
+      if (formatFilter === 'regular') q = q.or('is_short.eq.false,is_short.is.null');
       if (f.year > 0) {
         q = q
           .gte('published_at', `${f.year}-01-01T00:00:00Z`)
@@ -319,8 +320,8 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter }: Props) {
       {/* ── 🔍オーバーレイ ── */}
       {searchOpen && (
         <div
-          className="fixed top-[60px] left-0 right-0 z-40 bg-white overflow-y-auto"
-          style={{ overscrollBehavior: 'contain', bottom: '68px' } as React.CSSProperties}
+          className="fixed left-0 right-0 z-40 bg-white overflow-y-auto"
+          style={{ overscrollBehavior: 'contain', top: showPlayerAtTop ? '296px' : '60px', bottom: '68px' } as React.CSSProperties}
         >
           <div className="max-w-3xl mx-auto px-4 pt-4 pb-4">
             {/* 検索バー */}
@@ -436,9 +437,6 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter }: Props) {
               )}
               {filter.type && (
                 <FilterChip label={filter.type.toUpperCase()} onRemove={() => handleFilterChange({ type: '' })} />
-              )}
-              {filter.isShort !== 'all' && (
-                <FilterChip label={filter.isShort === 'short' ? 'ショート' : '通常'} onRemove={() => handleFilterChange({ isShort: 'all' })} />
               )}
               {filter.channel && (
                 <FilterChip label={filter.channel} onRemove={() => handleFilterChange({ channel: '' })} />

@@ -112,11 +112,11 @@ export function FilterPanel({ state, onChange, membersByGroup, onTabOpenChange }
 
   // アクティブフィルター数（ALL判定用）
   const hasFilter =
-    state.group || state.member || state.type || state.channel || state.year > 0 || state.isShort !== 'all';
+    state.group || state.member || state.type || state.channel || state.year > 0;
 
   const hasSelection: Record<TabKey, boolean> = {
     group: !!(state.group || state.member),
-    type: !!(state.type || state.isShort !== 'all'),
+    type: !!state.type,
     channel: !!state.channel,
     year: state.year > 0,
   };
@@ -164,23 +164,16 @@ export function FilterPanel({ state, onChange, membersByGroup, onTabOpenChange }
       </>
     ),
     type: (
-      <>
-        <div className="flex flex-wrap gap-x-4 gap-y-2">
-          {TYPE_FILTERS.map(t => (
-            <Chip
-              key={t.key}
-              label={t.label}
-              active={state.type === t.key}
-              onClick={() => onChange({ type: state.type === t.key ? '' : t.key })}
-            />
-          ))}
-        </div>
-        <div className="flex gap-x-4 pt-2 mt-2 border-t border-outline-variant/20">
-          <Chip label="すべて" active={state.isShort === 'all'} onClick={() => onChange({ isShort: 'all' })} />
-          <Chip label="通常" active={state.isShort === 'regular'} onClick={() => onChange({ isShort: 'regular' })} />
-          <Chip label="ショート" active={state.isShort === 'short'} onClick={() => onChange({ isShort: 'short' })} />
-        </div>
-      </>
+      <div className="flex flex-wrap gap-x-4 gap-y-2">
+        {TYPE_FILTERS.map(t => (
+          <Chip
+            key={t.key}
+            label={t.label}
+            active={state.type === t.key}
+            onClick={() => onChange({ type: state.type === t.key ? '' : t.key })}
+          />
+        ))}
+      </div>
     ),
     channel: (
       <div className="flex flex-wrap gap-x-4 gap-y-2">

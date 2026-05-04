@@ -160,23 +160,23 @@ function ChapterPickupContent() {
               aria-label={formatFilter === 'all' ? 'すべての動画' : formatFilter === 'regular' ? '通常動画のみ' : 'ショートのみ'}
             >
               {formatFilter === 'all' && (
-                <span className="relative" style={{ width: '20px', height: '20px' }}>
-                  <span className="absolute border-[1.5px] border-current rounded-[1px]" style={{ width: '18px', height: '10px', bottom: 0, left: 0 }} />
-                  <span className="absolute border-[1.5px] border-current rounded-[1px]" style={{ width: '10px', height: '18px', bottom: 0, left: 0 }} />
-                </span>
+                <>
+                  <span className="material-symbols-outlined leading-none absolute inset-0 flex items-center justify-center" style={{ fontSize: '22px', transform: 'translate(-5px, 9px)' }}>crop_16_9</span>
+                  <span className="material-symbols-outlined leading-none absolute inset-0 flex items-center justify-center" style={{ fontSize: '22px', transform: 'translate(9px, 6px)' }}>crop_9_16</span>
+                </>
               )}
               {formatFilter === 'regular' && (
-                <span className="border-[1.5px] border-current rounded-[1px]" style={{ width: '18px', height: '10px' }} />
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px' }}>crop_16_9</span>
               )}
               {formatFilter === 'short' && (
-                <span className="border-[1.5px] border-current rounded-[1px]" style={{ width: '10px', height: '18px' }} />
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px' }}>crop_9_16</span>
               )}
             </button>
             <button
               onClick={() => setSearchOpen(prev => !prev)}
               className={`w-9 h-9 flex items-center justify-center cursor-pointer ${
                 searchOpen
-                  ? 'text-black border border-b-0 border-black/20'
+                  ? 'text-black border-[2.4px] border-b-0 border-black/20'
                   : 'text-black/40'
               }`}
               aria-label="検索"
@@ -251,7 +251,7 @@ function ChapterPickupContent() {
         className={pageState === 'home' ? `${showPlayerAtTop ? 'pt-[296px]' : 'pt-[60px]'} pb-[68px]` : 'hidden'}
         style={landscapeSplit ? { marginLeft: '45vw' } : undefined}
       >
-        <BrowseView searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} formatFilter={formatFilter} />
+        <BrowseView searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} formatFilter={formatFilter} showPlayerAtTop={showPlayerAtTop} />
       </div>
 
       {/* PlayView */}
