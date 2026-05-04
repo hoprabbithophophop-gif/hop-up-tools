@@ -161,15 +161,15 @@ function ChapterPickupContent() {
             >
               {formatFilter === 'all' && (
                 <>
-                  <span className="material-symbols-outlined leading-none absolute" style={{ fontSize: '18px', top: '7px', left: '7px' }}>crop_landscape</span>
-                  <span className="material-symbols-outlined leading-none absolute" style={{ fontSize: '18px', bottom: '7px', right: '7px' }}>crop_portrait</span>
+                  <span className="material-symbols-outlined leading-none absolute" style={{ fontSize: '20px', bottom: '6px', left: '6px' }}>crop_16_9</span>
+                  <span className="material-symbols-outlined leading-none absolute" style={{ fontSize: '20px', bottom: '6px', left: '6px', transform: 'rotate(90deg)', transformOrigin: 'bottom left' }}>crop_16_9</span>
                 </>
               )}
               {formatFilter === 'regular' && (
-                <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>crop_landscape</span>
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px' }}>crop_16_9</span>
               )}
               {formatFilter === 'short' && (
-                <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>crop_portrait</span>
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px', transform: 'rotate(90deg)' }}>crop_16_9</span>
               )}
             </button>
             <button
