@@ -29,9 +29,10 @@ const ALL_SUGGESTION_CANDIDATES = [
 interface Props {
   searchOpen: boolean;
   onSearchClose: () => void;
+  formatFilter: 'all' | 'regular' | 'short';
 }
 
-export function BrowseView({ searchOpen, onSearchClose }: Props) {
+export function BrowseView({ searchOpen, onSearchClose, formatFilter }: Props) {
   const { state, addItem, insertNext, removeFromQueue } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
 
@@ -150,7 +151,7 @@ export function BrowseView({ searchOpen, onSearchClose }: Props) {
   const isFetchingRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  const fetchVideos = useCallback(async (group: string, currentOffset: number, replace: boolean, sort: 'desc' | 'asc') => {
+  const fetchVideos = useCallback(async (group: string, currentOffset: number, replace: boolean, sort: 'desc' | 'asc', isShort: 'all' | 'regular' | 'short') => {
     if (!replace && isFetchingRef.current) return;
     isFetchingRef.current = true;
     setLoading(true);
@@ -163,6 +164,8 @@ export function BrowseView({ searchOpen, onSearchClose }: Props) {
         .order('published_at', { ascending: sort === 'asc' })
         .range(currentOffset, currentOffset + PAGE_SIZE - 1);
       if (group) q = q.contains('group_tags', [group]);
+      if (isShort === 'short') q = q.eq('is_short', true);
+      if (isShort === 'regular') q = q.or('is_short.eq.false,is_short.is.null');
       const { data, error } = await q;
       if (error) throw error;
       const rows = (data ?? []) as VideoRow[];
@@ -183,8 +186,8 @@ export function BrowseView({ searchOpen, onSearchClose }: Props) {
     setOffset(0);
     setHasMore(true);
     setFetchError(false);
-    fetchVideos('', 0, true, 'desc');
-  }, ['', fetchVideos, isSearchActive, 'desc']);
+    fetchVideos('', 0, true, 'desc', formatFilter);
+  }, ['', fetchVideos, isSearchActive, 'desc', formatFilter]);
 
   // ── 検索用グリッド ──
   const [searchVideos, setSearchVideos] = useState<VideoRow[]>([]);
@@ -261,7 +264,7 @@ export function BrowseView({ searchOpen, onSearchClose }: Props) {
     const observer = new IntersectionObserver(
       entries => {
         if (entries[0].isIntersecting && hasMore && !isFetchingRef.current) {
-          fetchVideos('', offset, false, 'desc');
+          fetchVideos('', offset, false, 'desc', formatFilter);
         }
       },
       { rootMargin: '200px' }
@@ -498,7 +501,7 @@ export function BrowseView({ searchOpen, onSearchClose }: Props) {
               <div className="flex flex-col items-center justify-center h-32 gap-3">
                 <p className="text-[0.7rem] font-thin text-black/50">読み込みエラー。再度お試しください。</p>
                 <button
-                  onClick={() => { setFetchError(false); fetchVideos('', 0, true, 'desc'); }}
+                  onClick={() => { setFetchError(false); fetchVideos('', 0, true, 'desc', formatFilter); }}
                   className="text-[0.8rem] font-bold uppercase cursor-pointer px-4 py-2 bg-black text-white"
                 >
                   再試行

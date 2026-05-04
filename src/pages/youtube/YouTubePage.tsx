@@ -35,6 +35,7 @@ function ChapterPickupContent() {
   );
   const [sharedPlaylist, setSharedPlaylist] = useState<SharedPlaylist | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [formatFilter, setFormatFilter] = useState<'all' | 'regular' | 'short'>('all');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLandscape, setIsLandscape] = useState(
     () => window.matchMedia('(orientation: landscape)').matches
@@ -150,17 +151,39 @@ function ChapterPickupContent() {
         <a href="/" className="material-symbols-outlined text-black leading-none" style={{ fontSize: '20px' }}>arrow_back</a>
         <h1 className="text-xl font-black tracking-tighter uppercase flex-1">HELLO! VIDEO</h1>
         {pageState === 'home' && (
-          <button
-            onClick={() => setSearchOpen(prev => !prev)}
-            className={`w-9 h-9 flex items-center justify-center cursor-pointer ${
-              searchOpen
-                ? 'text-black border border-b-0 border-black/20'
-                : 'text-black/40'
-            }`}
-            aria-label="検索"
-          >
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>search</span>
-          </button>
+          <>
+            <button
+              onClick={() => setFormatFilter(prev => prev === 'all' ? 'regular' : prev === 'regular' ? 'short' : 'all')}
+              className={`w-9 h-9 flex items-center justify-center cursor-pointer relative ${
+                formatFilter === 'all' ? 'text-black/30' : 'text-black'
+              }`}
+              aria-label={formatFilter === 'all' ? 'すべての動画' : formatFilter === 'regular' ? '通常動画のみ' : 'ショートのみ'}
+            >
+              {formatFilter === 'all' && (
+                <>
+                  <span className="material-symbols-outlined leading-none absolute" style={{ fontSize: '18px', top: '7px', left: '7px' }}>crop_landscape</span>
+                  <span className="material-symbols-outlined leading-none absolute" style={{ fontSize: '18px', bottom: '7px', right: '7px' }}>crop_portrait</span>
+                </>
+              )}
+              {formatFilter === 'regular' && (
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>crop_landscape</span>
+              )}
+              {formatFilter === 'short' && (
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>crop_portrait</span>
+              )}
+            </button>
+            <button
+              onClick={() => setSearchOpen(prev => !prev)}
+              className={`w-9 h-9 flex items-center justify-center cursor-pointer ${
+                searchOpen
+                  ? 'text-black border border-b-0 border-black/20'
+                  : 'text-black/40'
+              }`}
+              aria-label="検索"
+            >
+              <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>search</span>
+            </button>
+          </>
         )}
       </header>
 
@@ -228,7 +251,7 @@ function ChapterPickupContent() {
         className={pageState === 'home' ? `${showPlayerAtTop ? 'pt-[296px]' : 'pt-[60px]'} pb-[68px]` : 'hidden'}
         style={landscapeSplit ? { marginLeft: '45vw' } : undefined}
       >
-        <BrowseView searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} />
+        <BrowseView searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} formatFilter={formatFilter} />
       </div>
 
       {/* PlayView */}
