@@ -172,7 +172,7 @@ function ChapterPickupContent() {
     : isPlayLandscape
       ? { width: '45vw' }
     : pageState === 'play'
-      ? { height: '200px' }
+      ? { height: state.currentIndex !== null ? '200px' : '0px', transition: 'height 300ms ease-in-out', overflow: 'hidden' }
     : landscapeSplit
       ? { width: '45vw' }
     : isPlayerActive

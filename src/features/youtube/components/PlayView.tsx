@@ -45,7 +45,10 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
       {/* スクロール領域 */}
       <div className="flex-1 overflow-y-auto">
         {!isLandscapePlay && (
-          <div className="w-full bg-black shrink-0" style={{ height: '200px' }} />
+          <div
+            className="w-full bg-black shrink-0 transition-[height] duration-300 ease-in-out overflow-hidden"
+            style={{ height: currentIndex !== null ? '200px' : '0px' }}
+          />
         )}
 
         {queue.length === 0 ? (
@@ -67,30 +70,37 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
           <>
             {/* ── コントロール ── */}
             <section className="mt-3">
-              <p className="text-[0.7rem] font-bold uppercase tracking-widest text-black/40 px-4 mb-1">コントロール</p>
-              {currentItem && (
-                <p className="text-[0.8rem] font-bold px-4 mb-2 truncate">{currentItem.chapterLabel}</p>
-              )}
-              <PlayControls />
-              <div className="px-4 mt-3 flex items-center gap-4">
-                <button
-                  onClick={() => setTrimOpen(v => !v)}
-                  className="flex items-center gap-1 text-[0.7rem] font-bold text-black/40 uppercase tracking-widest cursor-pointer"
-                >
-                  調整
-                  <span className="material-symbols-outlined leading-none" style={{ fontSize: '14px' }}>
-                    {trimOpen ? 'expand_less' : 'expand_more'}
-                  </span>
-                </button>
-                {onToggleFullscreen && (
+              {currentItem && (() => {
+                const endKnown = isFinite(currentItem.endSeconds) && currentItem.endSeconds !== Number.MAX_SAFE_INTEGER;
+                return (
+                  <div className="px-4 mb-2">
+                    <p className="text-[0.95rem] font-bold leading-snug line-clamp-2">{currentItem.chapterLabel}</p>
+                    <p className="text-[0.65rem] font-thin text-black/40 mt-0.5 tabular-nums">
+                      {formatSeconds(currentItem.startSeconds)} – {endKnown ? formatSeconds(currentItem.endSeconds) : '--:--'}
+                    </p>
+                  </div>
+                );
+              })()}
+              <div className="flex items-center justify-center px-4">
+                <PlayControls />
+                <div className="flex items-center gap-1 ml-auto">
                   <button
-                    onClick={onToggleFullscreen}
-                    className="flex items-center gap-1 text-[0.7rem] font-bold text-black/40 uppercase tracking-widest cursor-pointer"
+                    onClick={() => setTrimOpen(v => !v)}
+                    className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
+                    aria-label="調整"
                   >
-                    <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>fullscreen</span>
-                    全画面
+                    <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>tune</span>
                   </button>
-                )}
+                  {onToggleFullscreen && (
+                    <button
+                      onClick={onToggleFullscreen}
+                      className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
+                      aria-label="全画面"
+                    >
+                      <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>fullscreen</span>
+                    </button>
+                  )}
+                </div>
               </div>
               {trimOpen && <TrimPanel />}
             </section>
@@ -113,8 +123,6 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
                     const isCurrent = idx === currentIndex;
                     const prevItem = idx > 0 ? queue[idx - 1] : null;
                     const sameVideoAsPrev = prevItem?.videoId === item.videoId;
-                    const endKnown = isFinite(item.endSeconds) && item.endSeconds !== Number.MAX_SAFE_INTEGER;
-                    const itemTimeRange = `${formatSeconds(item.startSeconds)}–${endKnown ? formatSeconds(item.endSeconds) : '*:**'}`;
                     return (
                       <div
                         key={item.id}
@@ -131,14 +139,9 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
                           {idx + 1}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-baseline justify-between gap-2">
-                            <p className={`leading-snug line-clamp-2 ${
-                              isCurrent ? 'text-[0.8rem] font-bold' : 'text-[0.75rem] font-normal text-black/60'
-                            }`}>{item.chapterLabel}</p>
-                            <span className={`font-thin shrink-0 tabular-nums ${
-                              isCurrent ? 'text-[0.65rem] text-black/30' : 'text-[0.6rem] text-black/20'
-                            }`}>{itemTimeRange}</span>
-                          </div>
+                          <p className={`leading-snug line-clamp-2 ${
+                            isCurrent ? 'text-[0.8rem] font-bold' : 'text-[0.75rem] font-normal text-black/60'
+                          }`}>{item.chapterLabel}</p>
                           {!sameVideoAsPrev && (
                             <p className={`font-thin mt-0.5 truncate ${
                               isCurrent ? 'text-[0.65rem] text-black/30' : 'text-[0.6rem] text-black/20'
