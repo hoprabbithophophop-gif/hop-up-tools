@@ -68,42 +68,44 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
           </div>
         ) : (
           <>
-            {/* ── コントロール ── */}
-            <section className="mt-3">
-              {currentItem && (() => {
-                const endKnown = isFinite(currentItem.endSeconds) && currentItem.endSeconds !== Number.MAX_SAFE_INTEGER;
-                return (
-                  <div className="px-4 mb-2">
-                    <p className="text-[0.95rem] font-bold leading-snug line-clamp-2">{currentItem.chapterLabel}</p>
-                    <p className="text-[0.65rem] font-thin text-black/40 mt-0.5 tabular-nums">
-                      {formatSeconds(currentItem.startSeconds)} – {endKnown ? formatSeconds(currentItem.endSeconds) : '--:--'}
-                    </p>
-                  </div>
-                );
-              })()}
-              <div className="flex items-center justify-center px-4">
-                <PlayControls />
-                <div className="flex items-center gap-1 ml-auto">
-                  <button
-                    onClick={() => setTrimOpen(v => !v)}
-                    className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
-                    aria-label="調整"
-                  >
-                    <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>tune</span>
-                  </button>
-                  {onToggleFullscreen && (
+            {/* ── コントロール（再生中のみ表示） ── */}
+            {currentItem && (
+              <section className="mt-3">
+                {(() => {
+                  const endKnown = isFinite(currentItem.endSeconds) && currentItem.endSeconds !== Number.MAX_SAFE_INTEGER;
+                  return (
+                    <div className="px-4 mb-2">
+                      <p className="text-[0.95rem] font-bold leading-snug line-clamp-2">{currentItem.chapterLabel}</p>
+                      <p className="text-[0.65rem] font-thin text-black/40 mt-0.5 tabular-nums">
+                        {formatSeconds(currentItem.startSeconds)} – {endKnown ? formatSeconds(currentItem.endSeconds) : '--:--'}
+                      </p>
+                    </div>
+                  );
+                })()}
+                <div className="flex items-center justify-center px-4">
+                  <PlayControls />
+                  <div className="flex items-center gap-1 ml-auto">
                     <button
-                      onClick={onToggleFullscreen}
+                      onClick={() => setTrimOpen(v => !v)}
                       className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
-                      aria-label="全画面"
+                      aria-label="調整"
                     >
-                      <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>fullscreen</span>
+                      <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>tune</span>
                     </button>
-                  )}
+                    {onToggleFullscreen && (
+                      <button
+                        onClick={onToggleFullscreen}
+                        className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
+                        aria-label="全画面"
+                      >
+                        <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>fullscreen</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-              {trimOpen && <TrimPanel />}
-            </section>
+                {trimOpen && <TrimPanel />}
+              </section>
+            )}
 
             {/* ── リスト ── */}
             <section className="mt-[2.4rem]">

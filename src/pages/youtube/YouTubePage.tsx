@@ -343,7 +343,7 @@ function ChapterPickupContent() {
       )}
 
       {/* タブバー */}
-      <nav className={`fixed bottom-[20px] left-0 right-0 z-50 h-12 bg-white flex${isFullscreen ? ' hidden' : ''}`}>
+      <nav className={`fixed bottom-[20px] left-0 right-0 z-50 h-12 bg-white flex${isFullscreen || !hasQueue ? ' hidden' : ''}`}>
         <button
           onClick={handleGoToHome}
           className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
