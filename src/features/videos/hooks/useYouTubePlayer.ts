@@ -14,6 +14,7 @@ interface UseYouTubePlayerOptions {
 
 interface UseYouTubePlayerReturn {
   isReady: boolean;
+  isTransitioning: boolean;
   playChapter: (videoId: string, startSeconds: number, endSeconds: number) => void;
   pause: () => void;
   resume: () => void;
@@ -55,6 +56,7 @@ export function useYouTubePlayer({
   enabled = true,
 }: UseYouTubePlayerOptions): UseYouTubePlayerReturn {
   const [isReady, setIsReady] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const playerRef = useRef<YT.Player | null>(null);
   const endSecondsRef = useRef<number>(Number.MAX_SAFE_INTEGER);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -123,6 +125,7 @@ export function useYouTubePlayer({
       return;
     }
 
+    setIsTransitioning(true);
     const params: { videoId: string; startSeconds: number; endSeconds?: number } = {
       videoId,
       startSeconds,
@@ -200,6 +203,7 @@ export function useYouTubePlayer({
             if (!mounted) return;
             const state = event.data;
             if (state === YT.PlayerState.PLAYING) {
+              setIsTransitioning(false);
               startPolling();
               onPlayStateChangeRef.current?.(true);
             } else if (state === YT.PlayerState.PAUSED) {
@@ -271,5 +275,5 @@ export function useYouTubePlayer({
     return () => stopPolling();
   }, [stopPolling]);
 
-  return { isReady, playChapter, pause, resume, getCurrentTime };
+  return { isReady, isTransitioning, playChapter, pause, resume, getCurrentTime };
 }

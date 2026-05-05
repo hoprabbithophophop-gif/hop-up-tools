@@ -2,7 +2,7 @@ import React from 'react';
 import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistContext';
 
 export function Player() {
-  const { playerReady } = useChapterPlaylistContext();
+  const { playerReady, isTransitioning } = useChapterPlaylistContext();
 
   return (
     <div className="relative w-full h-full bg-black">
@@ -14,6 +14,10 @@ export function Player() {
           </span>
         </div>
       )}
+      <div
+        className="absolute inset-0 bg-black pointer-events-none transition-opacity duration-300"
+        style={{ opacity: isTransitioning ? 1 : 0 }}
+      />
     </div>
   );
 }

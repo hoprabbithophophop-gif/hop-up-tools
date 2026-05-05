@@ -8,6 +8,7 @@ import { shuffleArray, type SearchResultItem } from '../utils/playlist-utils';
 
 interface ChapterPlaylistContextValue extends UseChapterPlaylistReturn {
   playerReady: boolean;
+  isTransitioning: boolean;
   pause: () => void;
   resume: () => void;
   getCurrentTime: () => number;
@@ -45,7 +46,7 @@ export function ChapterPlaylistProvider({
     setPlaying(isPlaying);
   }, [setPlaying]);
 
-  const { isReady, playChapter, pause, resume, getCurrentTime } = useYouTubePlayer({
+  const { isReady, isTransitioning, playChapter, pause, resume, getCurrentTime } = useYouTubePlayer({
     onChapterEnd: handleChapterEnd,
     onError: handleError,
     onPlayStateChange: handlePlayStateChange,
@@ -129,6 +130,7 @@ export function ChapterPlaylistProvider({
     ...playlist,
     clearQueue: handleClearQueue,
     playerReady: isReady,
+    isTransitioning,
     pause: handlePause,
     resume: handleResume,
     getCurrentTime,
@@ -136,7 +138,7 @@ export function ChapterPlaylistProvider({
     selection,
     startInSelectionOrder,
     startShuffled,
-  }), [playlist, handleClearQueue, isReady, handlePause, handleResume, getCurrentTime, playChapter, selection, startInSelectionOrder, startShuffled]);
+  }), [playlist, handleClearQueue, isReady, isTransitioning, handlePause, handleResume, getCurrentTime, playChapter, selection, startInSelectionOrder, startShuffled]);
 
   return (
     <ChapterPlaylistContext.Provider value={contextValue}>
