@@ -76,27 +76,24 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
                   return (
                     <div className="px-4 mb-2">
                       <p className="text-[0.95rem] font-bold leading-snug line-clamp-2">{currentItem.chapterLabel}</p>
-                      <p className="text-[0.65rem] font-thin text-black/40 mt-0.5 tabular-nums">
-                        {formatSeconds(currentItem.startSeconds)} – {endKnown ? formatSeconds(currentItem.endSeconds) : '--:--'}
-                      </p>
+                      <button
+                        onClick={() => setTrimOpen(v => !v)}
+                        className="flex items-center gap-1 mt-0.5 cursor-pointer group"
+                      >
+                        <span className="text-[0.65rem] font-thin text-black/40 tabular-nums">
+                          {formatSeconds(currentItem.startSeconds)} – {endKnown ? formatSeconds(currentItem.endSeconds) : '--:--'}
+                        </span>
+                        <span className="material-symbols-outlined leading-none text-black/20 group-hover:text-black/50 transition-colors" style={{ fontSize: '14px' }}>tune</span>
+                      </button>
                     </div>
                   );
                 })()}
-                <div className="flex items-center px-4">
-                  <button
-                    onClick={() => setTrimOpen(v => !v)}
-                    className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
-                    aria-label="調整"
-                  >
-                    <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>tune</span>
-                  </button>
-                  <div className="flex-1 flex justify-center">
-                    <PlayControls />
-                  </div>
+                <div className="flex items-center justify-center px-4">
+                  <PlayControls />
                   {onToggleFullscreen && (
                     <button
                       onClick={onToggleFullscreen}
-                      className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
+                      className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors ml-auto"
                       aria-label="全画面"
                     >
                       <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>fullscreen</span>
@@ -109,21 +106,10 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
 
             {/* ── リスト ── */}
             <section className="mt-4">
-              <div className="flex items-center justify-end px-4 mb-2">
-                <button
-                  onClick={() => setShareOpen(true)}
-                  className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
-                  aria-label="共有"
-                >
-                  <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>share</span>
-                </button>
-              </div>
               <div className="px-4">
                 <div className="flex flex-col">
                   {queue.map((item, idx) => {
                     const isCurrent = idx === currentIndex;
-                    const prevItem = idx > 0 ? queue[idx - 1] : null;
-                    const sameVideoAsPrev = prevItem?.videoId === item.videoId;
                     return (
                       <div
                         key={item.id}
@@ -135,14 +121,9 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
                         }`}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className={`leading-snug line-clamp-2 ${
+                          <p className={`leading-snug line-clamp-1 ${
                             isCurrent ? 'text-[0.8rem] font-bold' : 'text-[0.75rem] font-normal text-black/60'
                           }`}>{item.chapterLabel}</p>
-                          {!sameVideoAsPrev && (
-                            <p className={`font-thin mt-0.5 truncate ${
-                              isCurrent ? 'text-[0.65rem] text-black/30' : 'text-[0.6rem] text-black/20'
-                            }`}>{item.videoTitle}</p>
-                          )}
                         </div>
                         <button
                           onClick={e => { e.stopPropagation(); removeFromQueue(item.id); }}
@@ -158,7 +139,13 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
                   })}
                 </div>
 
-                <div className="mt-6 mb-20 flex justify-center">
+                <div className="mt-6 mb-20 flex justify-center gap-8">
+                  <button
+                    onClick={() => setShareOpen(true)}
+                    className="text-[0.7rem] font-thin text-black/30 cursor-pointer"
+                  >
+                    共有
+                  </button>
                   <button
                     onClick={() => setClearConfirmOpen(true)}
                     className="text-[0.7rem] font-thin text-black/30 cursor-pointer"
