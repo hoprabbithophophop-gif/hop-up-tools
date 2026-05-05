@@ -246,7 +246,7 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayer
       isSearchFetchingRef.current = false;
       setSearchLoading(false);
     }
-  }, []);
+  }, [formatFilter]);
 
   useEffect(() => {
     if (!isSearchActive) return;

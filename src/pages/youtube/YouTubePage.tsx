@@ -103,7 +103,7 @@ function ChapterPickupContent() {
         setPendingSharedItems(items);
         setRestoreStatus('done');
       } else {
-        startPlaylist(items);
+        appendItems(items);
         setRestoreStatus('done');
         setPageState('play');
       }
@@ -142,6 +142,7 @@ function ChapterPickupContent() {
 
   const handleSharedCancel = useCallback(() => {
     setPendingSharedItems(null);
+    setSharedPlaylist(null);
   }, []);
 
   const isLoading = restoreStatus === 'loading';
@@ -295,7 +296,7 @@ function ChapterPickupContent() {
 
       {/* Home (Browse + Search 統合) */}
       <div
-        className={pageState === 'home' ? `${showPlayerAtTop ? 'pt-[296px]' : 'pt-[60px]'} pb-[68px]` : 'hidden'}
+        className={pageState === 'home' ? `${showPlayerAtTop ? 'pt-[296px]' : 'pt-[60px]'}${hasQueue ? ' pb-[68px]' : ''}` : 'hidden'}
         style={landscapeSplit ? { marginLeft: '45vw' } : undefined}
       >
         <BrowseView searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} formatFilter={formatFilter} showPlayerAtTop={showPlayerAtTop} />
@@ -304,7 +305,7 @@ function ChapterPickupContent() {
       {/* PlayView */}
       <div
         data-testid="play-view"
-        className={pageState === 'play' ? 'pb-[68px]' : 'hidden'}
+        className={pageState === 'play' ? `${hasQueue ? 'pb-[68px]' : ''}` : 'hidden'}
         style={isPlayLandscape ? { marginLeft: '45vw' } : undefined}
       >
         <PlayView sharedPlaylist={sharedPlaylist} onGoHome={handleGoToHome} onToggleFullscreen={toggleFullscreen} isLandscapePlay={isPlayLandscape} />
@@ -375,7 +376,7 @@ function ChapterPickupContent() {
       </nav>
 
       {/* フッター */}
-      <div className={`fixed bottom-0 left-0 right-0 z-50 h-[20px] bg-black flex items-center justify-center${isFullscreen ? ' hidden' : ''}`}>
+      <div className={`fixed bottom-0 left-0 right-0 z-50 h-[20px] bg-black flex items-center justify-center${isFullscreen || !hasQueue ? ' hidden' : ''}`}>
         <span className="text-white text-[0.6rem] font-thin tracking-wide">
           ▶ YouTube · Unofficial Fan Tool · hop-up-tools.pages.dev
         </span>

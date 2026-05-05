@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistContext';
-import { formatSeconds } from '../../videos/utils/playlist-utils';
+import { formatSeconds, shuffleArray } from '../../videos/utils/playlist-utils';
 import { PlayControls } from './PlayControls';
 import { TrimPanel } from './TrimPanel';
 import { ShareModal } from './ShareModal';
@@ -14,7 +14,7 @@ interface Props {
 }
 
 export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLandscapePlay }: Props) {
-  const { state, removeFromQueue, clearQueue, startPlaylist, jumpTo, toggleShuffle } = useChapterPlaylistContext();
+  const { state, removeFromQueue, clearQueue, startPlaylist, jumpTo, playChapter } = useChapterPlaylistContext();
   const { queue, currentIndex } = state;
   const currentItem = currentIndex !== null ? queue[currentIndex] ?? null : null;
 
@@ -23,22 +23,13 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
   return (
-    <div className="bg-white text-black flex flex-col" style={{ height: 'calc(100svh - 68px)' }}>
+    <div className="bg-white text-black flex flex-col" style={{ height: queue.length > 0 ? 'calc(100svh - 68px)' : '100svh' }}>
       {/* 共有プレイリストバナー */}
       {sharedPlaylist && (
-        <div className="shrink-0 bg-black/5 px-4 py-2 flex items-center justify-between gap-3">
+        <div className="shrink-0 bg-black/5 px-4 py-2">
           <p className="text-[0.7rem] font-thin text-black/50 truncate">
             共有: <span className="text-black font-bold">{sharedPlaylist.title || '（タイトルなし）'}</span>
           </p>
-          <div className="flex items-center gap-3 shrink-0">
-            <button
-              onClick={() => startPlaylist(sharedPlaylist.items)}
-              className="text-[0.7rem] text-black/40 cursor-pointer"
-              aria-label="元のリストに戻す"
-            >
-              <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>restart_alt</span>
-            </button>
-          </div>
         </div>
       )}
 
@@ -88,16 +79,21 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
                     </div>
                   );
                 })()}
-                <div className="flex items-center justify-center px-4">
-                  <PlayControls />
-                  {onToggleFullscreen && (
+                <div className="flex items-center px-4">
+                  <div className="w-9 h-9 shrink-0" />
+                  <div className="flex-1 flex justify-center">
+                    <PlayControls />
+                  </div>
+                  {onToggleFullscreen ? (
                     <button
                       onClick={onToggleFullscreen}
-                      className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors ml-auto"
+                      className="w-9 h-9 shrink-0 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
                       aria-label="全画面"
                     >
                       <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>fullscreen</span>
                     </button>
+                  ) : (
+                    <div className="w-9 h-9 shrink-0" />
                   )}
                 </div>
                 {trimOpen && <TrimPanel />}
@@ -110,14 +106,24 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
               {!currentItem && (
                 <div className="flex items-center justify-center gap-4 px-4 mb-4">
                   <button
-                    onClick={() => jumpTo(0)}
+                    onClick={() => {
+                      const item = queue[0];
+                      if (item) {
+                        jumpTo(0);
+                        playChapter(item.videoId, item.startSeconds, item.endSeconds);
+                      }
+                    }}
                     className="flex items-center gap-1.5 px-5 py-2.5 bg-black text-white text-[0.8rem] font-bold cursor-pointer"
                   >
                     <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>play_arrow</span>
                     すべて再生
                   </button>
                   <button
-                    onClick={() => { toggleShuffle(); jumpTo(0); }}
+                    onClick={() => {
+                      const shuffled = shuffleArray([...queue]);
+                      startPlaylist(shuffled);
+                      playChapter(shuffled[0].videoId, shuffled[0].startSeconds, shuffled[0].endSeconds);
+                    }}
                     className="flex items-center gap-1.5 px-5 py-2.5 border border-black/20 text-black text-[0.8rem] font-bold cursor-pointer"
                   >
                     <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>shuffle</span>
