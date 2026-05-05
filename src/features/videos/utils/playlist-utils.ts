@@ -40,7 +40,7 @@ export function buildChapterQueueItems(
     startSeconds: ch.seconds,
     endSeconds: i + 1 < chapters.length
       ? chapters[i + 1].seconds
-      : Number.MAX_SAFE_INTEGER,
+      : (video.duration_seconds && video.duration_seconds > 0 ? video.duration_seconds : Number.MAX_SAFE_INTEGER),
     isFullVideo: false,
   }));
 }
@@ -63,7 +63,7 @@ export function buildSingleChapterQueueItem(
     startSeconds: ch.seconds,
     endSeconds: index + 1 < chapters.length
       ? chapters[index + 1].seconds
-      : Number.MAX_SAFE_INTEGER,
+      : (video.duration_seconds && video.duration_seconds > 0 ? video.duration_seconds : Number.MAX_SAFE_INTEGER),
     isFullVideo: false,
   };
 }
