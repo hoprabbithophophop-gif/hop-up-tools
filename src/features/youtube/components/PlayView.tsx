@@ -82,41 +82,40 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
                     </div>
                   );
                 })()}
-                <div className="flex items-center justify-center px-4">
-                  <PlayControls />
-                  <div className="flex items-center gap-1 ml-auto">
-                    <button
-                      onClick={() => setTrimOpen(v => !v)}
-                      className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
-                      aria-label="調整"
-                    >
-                      <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>tune</span>
-                    </button>
-                    {onToggleFullscreen && (
-                      <button
-                        onClick={onToggleFullscreen}
-                        className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
-                        aria-label="全画面"
-                      >
-                        <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>fullscreen</span>
-                      </button>
-                    )}
+                <div className="flex items-center px-4">
+                  <button
+                    onClick={() => setTrimOpen(v => !v)}
+                    className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
+                    aria-label="調整"
+                  >
+                    <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>tune</span>
+                  </button>
+                  <div className="flex-1 flex justify-center">
+                    <PlayControls />
                   </div>
+                  {onToggleFullscreen && (
+                    <button
+                      onClick={onToggleFullscreen}
+                      className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
+                      aria-label="全画面"
+                    >
+                      <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>fullscreen</span>
+                    </button>
+                  )}
                 </div>
                 {trimOpen && <TrimPanel />}
               </section>
             )}
 
             {/* ── リスト ── */}
-            <section className="mt-[2.4rem]">
-              <div className="flex items-center justify-between px-4 mb-[0.8rem]">
-                <p className="text-[0.7rem] font-bold uppercase tracking-widest text-black/40">リスト</p>
+            <section className="mt-4">
+              <div className="flex items-center justify-end px-4 mb-2">
                 <button
                   onClick={() => setShareOpen(true)}
-                  className="flex items-center gap-1 text-[0.7rem] font-bold text-black/40 cursor-pointer"
+                  className="w-9 h-9 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
+                  aria-label="共有"
                 >
-                  <span className="material-symbols-outlined leading-none" style={{ fontSize: '16px' }}>share</span>
-                  共有
+                  <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>share</span>
                 </button>
               </div>
               <div className="px-4">
@@ -131,15 +130,10 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
                         onClick={() => jumpTo(idx)}
                         className={`flex items-center gap-3 cursor-pointer transition-colors ${
                           isCurrent
-                            ? 'py-2.5 px-2'
-                            : 'py-1.5 px-2 hover:bg-black/[0.03] active:bg-black/[0.06]'
+                            ? 'py-2.5 px-2 border-l-2 border-black'
+                            : 'py-1.5 px-2 border-l-2 border-transparent hover:bg-black/[0.03] active:bg-black/[0.06]'
                         }`}
                       >
-                        <span className={`font-normal w-5 shrink-0 text-right tabular-nums ${
-                          isCurrent ? 'text-[0.7rem] text-black' : 'text-[0.65rem] text-black/30'
-                        }`}>
-                          {idx + 1}
-                        </span>
                         <div className="flex-1 min-w-0">
                           <p className={`leading-snug line-clamp-2 ${
                             isCurrent ? 'text-[0.8rem] font-bold' : 'text-[0.75rem] font-normal text-black/60'
