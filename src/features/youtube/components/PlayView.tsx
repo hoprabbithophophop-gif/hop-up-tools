@@ -14,7 +14,7 @@ interface Props {
 }
 
 export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLandscapePlay }: Props) {
-  const { state, removeFromQueue, clearQueue, startPlaylist, jumpTo } = useChapterPlaylistContext();
+  const { state, removeFromQueue, clearQueue, startPlaylist, jumpTo, toggleShuffle } = useChapterPlaylistContext();
   const { queue, currentIndex } = state;
   const currentItem = currentIndex !== null ? queue[currentIndex] ?? null : null;
 
@@ -106,10 +106,30 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
 
             {/* ── リスト ── */}
             <section className="mt-4">
+              {/* 未再生時: 再生開始ボタン */}
+              {!currentItem && (
+                <div className="flex items-center justify-center gap-4 px-4 mb-4">
+                  <button
+                    onClick={() => jumpTo(0)}
+                    className="flex items-center gap-1.5 px-5 py-2.5 bg-black text-white text-[0.8rem] font-bold cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>play_arrow</span>
+                    すべて再生
+                  </button>
+                  <button
+                    onClick={() => { toggleShuffle(); jumpTo(0); }}
+                    className="flex items-center gap-1.5 px-5 py-2.5 border border-black/20 text-black text-[0.8rem] font-bold cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>shuffle</span>
+                    シャッフル
+                  </button>
+                </div>
+              )}
               <div className="px-4">
                 <div className="flex flex-col">
                   {queue.map((item, idx) => {
                     const isCurrent = idx === currentIndex;
+                    const isFirst = !currentItem && idx === 0;
                     return (
                       <div
                         key={item.id}
@@ -117,12 +137,16 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
                         className={`flex items-center gap-3 cursor-pointer transition-colors ${
                           isCurrent
                             ? 'py-2.5 px-2 border-l-2 border-black'
-                            : 'py-1.5 px-2 border-l-2 border-transparent hover:bg-black/[0.03] active:bg-black/[0.06]'
+                            : isFirst
+                              ? 'py-1.5 px-2 border-l-2 border-black/20 bg-black/[0.02]'
+                              : 'py-1.5 px-2 border-l-2 border-transparent hover:bg-black/[0.03] active:bg-black/[0.06]'
                         }`}
                       >
                         <div className="flex-1 min-w-0">
                           <p className={`leading-snug line-clamp-1 ${
-                            isCurrent ? 'text-[0.8rem] font-bold' : 'text-[0.75rem] font-normal text-black/60'
+                            isCurrent ? 'text-[0.8rem] font-bold'
+                              : isFirst ? 'text-[0.75rem] font-bold text-black/80'
+                              : 'text-[0.75rem] font-normal text-black/60'
                           }`}>{item.chapterLabel}</p>
                         </div>
                         <button
