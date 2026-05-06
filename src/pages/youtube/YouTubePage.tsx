@@ -41,7 +41,7 @@ function ChapterPickupContent() {
     () => window.matchMedia('(orientation: landscape)').matches
   );
 
-  const { state, startPlaylist, appendItems, pause, resume, playNext, playPrev } = useChapterPlaylistContext();
+  const { state, startPlaylist, appendItems, playNext, playPrev } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
   const currentItem = state.currentIndex !== null ? state.queue[state.currentIndex] ?? null : null;
 
@@ -162,23 +162,24 @@ function ChapterPickupContent() {
       ? 'fixed top-0 left-0 right-0 z-20 flex flex-col'
     : landscapeSplit
       ? 'fixed top-[60px] left-0 bottom-[68px] z-20 flex flex-col'
-    : isPlayerActive
-      ? 'fixed top-[60px] left-0 right-0 z-20 flex flex-col'
-      : 'hidden';
+      : 'fixed top-0 left-0 right-0 z-20 flex flex-col';
 
-  const infoStripH = showPlayerAtTop && !isFullscreen ? 36 : 0;
+  // ホーム再生中はプレイヤー直下に「黒バー36px(チャプター名) + 白ストリップ36px(操作)」=72px
+  const infoStripH = showPlayerAtTop && !isFullscreen ? 72 : 0;
 
   const playerStyle: React.CSSProperties | undefined = isFullscreen
     ? { height: '100dvh' }
     : isPlayLandscape
       ? { width: '45vw' }
     : pageState === 'play'
-      ? { height: state.currentIndex !== null ? '200px' : '0px', transition: 'height 300ms ease-in-out', overflow: 'hidden' }
+      ? { height: state.currentIndex !== null ? 'calc(100vw * 9 / 16)' : '0px', transition: 'height 300ms ease-in-out', overflow: 'hidden' }
     : landscapeSplit
       ? { width: '45vw' }
-    : isPlayerActive
-      ? { height: `${200 + infoStripH}px` }
-      : undefined;
+      : {
+          height: showPlayerAtTop ? `calc(100vw * 9 / 16 + ${infoStripH}px)` : '0px',
+          transition: 'height 300ms ease-in-out',
+          overflow: 'hidden',
+        };
 
   return (
     <div className="yt-page bg-white text-black" style={{ fontFamily: "'Inter', 'Noto Sans JP', sans-serif" }}>
@@ -195,7 +196,7 @@ function ChapterPickupContent() {
       )}
 
       {/* 固定ヘッダー */}
-      <header className={`fixed top-0 left-0 right-0 z-50 h-[60px] flex items-center gap-4 px-6 bg-white border-b border-outline-variant/20${isFullscreen || pageState === 'play' || isLoading || isExpired ? ' hidden' : ''}`}>
+      <header className={`fixed top-0 left-0 right-0 z-50 h-[60px] flex items-center gap-4 px-6 bg-white border-b border-outline-variant/20 transition-opacity duration-300 ${isFullscreen || pageState === 'play' || showPlayerAtTop || isLoading || isExpired ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
         <a href="/" className="material-symbols-outlined text-black leading-none" style={{ fontSize: '20px' }}>arrow_back</a>
         <h1 className="text-xl font-black tracking-tighter uppercase flex-1">HELLO! VIDEO</h1>
         {pageState === 'home' && (
@@ -241,28 +242,54 @@ function ChapterPickupContent() {
           <Player />
         </div>
         {showPlayerAtTop && !isFullscreen && (
-          <div
-            className="h-9 bg-black flex items-center shrink-0 cursor-pointer border-t border-white/10"
-            onClick={() => setPageState('play')}
-          >
-            <div className="flex-1 min-w-0 px-3">
-              <p className="text-white text-[0.65rem] font-thin truncate">
-                {currentItem?.chapterLabel ?? ''}
-              </p>
-            </div>
-            <button
-              onClick={e => {
-                e.stopPropagation();
-                state.isPlaying ? pause() : resume();
-              }}
-              className="shrink-0 w-8 h-8 flex items-center justify-center text-white/70 cursor-pointer mr-1"
-              aria-label={state.isPlaying ? '一時停止' : '再生'}
+          <>
+            {/* 黒バー: チャプター名のみ。タップでPLAYLIST画面へ */}
+            <div
+              className="h-9 bg-black flex items-center shrink-0 cursor-pointer border-t border-white/10"
+              onClick={() => setPageState('play')}
             >
-              <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>
-                {state.isPlaying ? 'pause' : 'play_arrow'}
-              </span>
-            </button>
-          </div>
+              <div className="flex-1 min-w-0 px-3">
+                <p className="text-white text-[0.65rem] font-thin truncate">
+                  {currentItem?.chapterLabel ?? ''}
+                </p>
+              </div>
+            </div>
+            {/* 白ストリップ: 一覧操作（フィルター + 検索） */}
+            <div className="h-9 bg-white border-b border-outline-variant/20 flex items-center px-4 shrink-0">
+              <button
+                onClick={() => setFormatFilter(prev => prev === 'all' ? 'regular' : prev === 'regular' ? 'short' : 'all')}
+                className={`w-9 h-9 flex items-center justify-center cursor-pointer relative ${
+                  formatFilter === 'all' ? 'text-black/30' : 'text-black'
+                }`}
+                aria-label={formatFilter === 'all' ? 'すべての動画' : formatFilter === 'regular' ? '通常動画のみ' : 'ショートのみ'}
+              >
+                {formatFilter === 'all' && (
+                  <>
+                    <span className="material-symbols-outlined leading-none absolute inset-0 flex items-center justify-center" style={{ fontSize: '22px', transform: 'translate(-5px, 9px)' }}>crop_16_9</span>
+                    <span className="material-symbols-outlined leading-none absolute inset-0 flex items-center justify-center" style={{ fontSize: '22px', transform: 'translate(9px, 6px)' }}>crop_9_16</span>
+                  </>
+                )}
+                {formatFilter === 'regular' && (
+                  <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px' }}>crop_16_9</span>
+                )}
+                {formatFilter === 'short' && (
+                  <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px' }}>crop_9_16</span>
+                )}
+              </button>
+              <div className="flex-1" />
+              <button
+                onClick={() => setSearchOpen(prev => !prev)}
+                className={`w-9 h-9 flex items-center justify-center cursor-pointer ${
+                  searchOpen
+                    ? 'text-black border-[2.4px] border-b-0 border-black/20'
+                    : 'text-black/40'
+                }`}
+                aria-label="検索"
+              >
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>search</span>
+              </button>
+            </div>
+          </>
         )}
         {isFullscreen && (
           <div className="h-12 bg-black flex items-center px-4 shrink-0 border-t border-white/10">
@@ -296,8 +323,16 @@ function ChapterPickupContent() {
 
       {/* Home (Browse + Search 統合) */}
       <div
-        className={pageState === 'home' ? `${showPlayerAtTop ? 'pt-[296px]' : 'pt-[60px]'}${hasQueue ? ' pb-[68px]' : ''}` : 'hidden'}
-        style={landscapeSplit ? { marginLeft: '45vw' } : undefined}
+        className={pageState === 'home' ? (hasQueue ? 'pb-[68px]' : '') : 'hidden'}
+        style={
+          pageState === 'home'
+            ? {
+                paddingTop: showPlayerAtTop ? 'calc(100vw * 9 / 16 + 72px)' : '60px',
+                transition: 'padding-top 300ms ease-in-out',
+                ...(landscapeSplit ? { marginLeft: '45vw' } : {}),
+              }
+            : undefined
+        }
       >
         <BrowseView searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} formatFilter={formatFilter} showPlayerAtTop={showPlayerAtTop} />
       </div>

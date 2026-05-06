@@ -38,7 +38,7 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
         {!isLandscapePlay && (
           <div
             className="w-full bg-black shrink-0 transition-[height] duration-300 ease-in-out overflow-hidden"
-            style={{ height: currentIndex !== null ? '200px' : '0px' }}
+            style={{ height: currentIndex !== null ? 'calc(100vw * 9 / 16)' : '0px' }}
           />
         )}
 

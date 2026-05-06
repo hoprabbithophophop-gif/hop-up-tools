@@ -321,7 +321,7 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayer
       {searchOpen && (
         <div
           className="fixed left-0 right-0 z-40 bg-white overflow-y-auto"
-          style={{ overscrollBehavior: 'contain', top: showPlayerAtTop ? '296px' : '60px', bottom: '68px' } as React.CSSProperties}
+          style={{ overscrollBehavior: 'contain', top: showPlayerAtTop ? 'calc(100vw * 9 / 16 + 72px)' : '60px', bottom: '68px' } as React.CSSProperties}
         >
           <div className="max-w-3xl mx-auto px-4 pt-4 pb-4">
             {/* 検索バー */}
