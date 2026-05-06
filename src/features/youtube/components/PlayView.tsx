@@ -18,13 +18,16 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
   const { queue, currentIndex } = state;
   const currentItem = currentIndex !== null ? queue[currentIndex] ?? null : null;
 
-  const [trimOpen, setTrimOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
+  const endKnown = currentItem
+    ? isFinite(currentItem.endSeconds) && currentItem.endSeconds !== Number.MAX_SAFE_INTEGER
+    : false;
+
   return (
     <div className="bg-white text-black flex flex-col" style={{ height: queue.length > 0 ? 'calc(100svh - 68px)' : '100svh' }}>
-      {/* 共有プレイリストバナー */}
+      {/* ── 固定領域（プレイヤー位置確保 + 再生中セクション） ── */}
       {sharedPlaylist && (
         <div className="shrink-0 bg-black/5 px-4 py-2">
           <p className="text-[0.7rem] font-thin text-black/50 truncate">
@@ -33,15 +36,44 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
         </div>
       )}
 
-      {/* スクロール領域 */}
-      <div className="flex-1 overflow-y-auto">
-        {!isLandscapePlay && (
-          <div
-            className="w-full bg-black shrink-0 transition-[height] duration-300 ease-in-out overflow-hidden"
-            style={{ height: currentIndex !== null ? 'calc(100vw * 9 / 16)' : '0px' }}
-          />
-        )}
+      {!isLandscapePlay && (
+        <div
+          className="w-full bg-black shrink-0 overflow-hidden"
+          style={{ height: currentIndex !== null ? 'calc(100vw * 9 / 16)' : '0px' }}
+        />
+      )}
 
+      {currentItem && (
+        <section className="shrink-0 mt-3">
+          <div className="px-4 mb-2">
+            <p className="text-[0.95rem] font-bold leading-snug line-clamp-2">{currentItem.chapterLabel}</p>
+            <span className="block text-[0.65rem] font-thin text-black/40 tabular-nums mt-0.5">
+              {formatSeconds(currentItem.startSeconds, 1)} – {endKnown ? formatSeconds(currentItem.endSeconds, 1) : '--:--'}
+            </span>
+          </div>
+          <div className="flex items-center px-4">
+            <div className="w-9 h-9 shrink-0" />
+            <div className="flex-1 flex justify-center">
+              <PlayControls />
+            </div>
+            {onToggleFullscreen ? (
+              <button
+                onClick={onToggleFullscreen}
+                className="w-9 h-9 shrink-0 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
+                aria-label="全画面"
+              >
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>fullscreen</span>
+              </button>
+            ) : (
+              <div className="w-9 h-9 shrink-0" />
+            )}
+          </div>
+          <TrimPanel />
+        </section>
+      )}
+
+      {/* ── スクロール領域（リスト + フッター操作） ── */}
+      <div className="flex-1 overflow-y-auto">
         {queue.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3 px-4 text-center">
             <p className="text-[0.7rem] font-thin text-black/40 uppercase tracking-widest">キューが空です</p>
@@ -58,134 +90,90 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
             )}
           </div>
         ) : (
-          <>
-            {/* ── コントロール（再生中のみ表示） ── */}
-            {currentItem && (
-              <section className="mt-3">
-                {(() => {
-                  const endKnown = isFinite(currentItem.endSeconds) && currentItem.endSeconds !== Number.MAX_SAFE_INTEGER;
+          <section className="mt-4">
+            {/* 未再生時: 再生開始ボタン */}
+            {!currentItem && (
+              <div className="flex items-center justify-center gap-4 px-4 mb-4">
+                <button
+                  onClick={() => {
+                    const item = queue[0];
+                    if (item) {
+                      jumpTo(0);
+                      playChapter(item.videoId, item.startSeconds, item.endSeconds);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-5 py-2.5 bg-black text-white text-[0.8rem] font-bold cursor-pointer"
+                >
+                  <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>play_arrow</span>
+                  すべて再生
+                </button>
+                <button
+                  onClick={() => {
+                    const shuffled = shuffleArray([...queue]);
+                    startPlaylist(shuffled);
+                    playChapter(shuffled[0].videoId, shuffled[0].startSeconds, shuffled[0].endSeconds);
+                  }}
+                  className="flex items-center gap-1.5 px-5 py-2.5 border border-black/20 text-black text-[0.8rem] font-bold cursor-pointer"
+                >
+                  <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>shuffle</span>
+                  シャッフル
+                </button>
+              </div>
+            )}
+            <div className="px-4">
+              <div className="flex flex-col">
+                {queue.map((item, idx) => {
+                  const isCurrent = idx === currentIndex;
+                  const isFirst = !currentItem && idx === 0;
                   return (
-                    <div className="px-4 mb-2">
-                      <p className="text-[0.95rem] font-bold leading-snug line-clamp-2">{currentItem.chapterLabel}</p>
+                    <div
+                      key={item.id}
+                      onClick={() => jumpTo(idx)}
+                      className={`flex items-center gap-3 cursor-pointer transition-colors ${
+                        isCurrent
+                          ? 'py-2.5 px-2 border-l-2 border-black'
+                          : isFirst
+                            ? 'py-1.5 px-2 border-l-2 border-black/20 bg-black/[0.02]'
+                            : 'py-1.5 px-2 border-l-2 border-transparent hover:bg-black/[0.03] active:bg-black/[0.06]'
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className={`leading-snug line-clamp-1 ${
+                          isCurrent ? 'text-[0.8rem] font-bold'
+                            : isFirst ? 'text-[0.75rem] font-bold text-black/80'
+                            : 'text-[0.75rem] font-normal text-black/60'
+                        }`}>{item.chapterLabel}</p>
+                      </div>
                       <button
-                        onClick={() => setTrimOpen(v => !v)}
-                        className="flex items-center gap-1 mt-0.5 cursor-pointer group"
+                        onClick={e => { e.stopPropagation(); removeFromQueue(item.id); }}
+                        className={`shrink-0 flex items-center justify-center cursor-pointer transition-colors ${
+                          isCurrent ? 'w-7 h-7 text-black/20 hover:text-black/50' : 'w-6 h-6 text-black/15 hover:text-black/40'
+                        }`}
+                        aria-label="キューから削除"
                       >
-                        <span className="text-[0.65rem] font-thin text-black/40 tabular-nums">
-                          {formatSeconds(currentItem.startSeconds)} – {endKnown ? formatSeconds(currentItem.endSeconds) : '--:--'}
-                        </span>
-                        <span className="material-symbols-outlined leading-none text-black/20 group-hover:text-black/50 transition-colors" style={{ fontSize: '14px' }}>tune</span>
+                        <span className="material-symbols-outlined leading-none" style={{ fontSize: isCurrent ? 16 : 14 }}>close</span>
                       </button>
                     </div>
                   );
-                })()}
-                <div className="flex items-center px-4">
-                  <div className="w-9 h-9 shrink-0" />
-                  <div className="flex-1 flex justify-center">
-                    <PlayControls />
-                  </div>
-                  {onToggleFullscreen ? (
-                    <button
-                      onClick={onToggleFullscreen}
-                      className="w-9 h-9 shrink-0 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
-                      aria-label="全画面"
-                    >
-                      <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>fullscreen</span>
-                    </button>
-                  ) : (
-                    <div className="w-9 h-9 shrink-0" />
-                  )}
-                </div>
-                {trimOpen && <TrimPanel />}
-              </section>
-            )}
-
-            {/* ── リスト ── */}
-            <section className="mt-4">
-              {/* 未再生時: 再生開始ボタン */}
-              {!currentItem && (
-                <div className="flex items-center justify-center gap-4 px-4 mb-4">
-                  <button
-                    onClick={() => {
-                      const item = queue[0];
-                      if (item) {
-                        jumpTo(0);
-                        playChapter(item.videoId, item.startSeconds, item.endSeconds);
-                      }
-                    }}
-                    className="flex items-center gap-1.5 px-5 py-2.5 bg-black text-white text-[0.8rem] font-bold cursor-pointer"
-                  >
-                    <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>play_arrow</span>
-                    すべて再生
-                  </button>
-                  <button
-                    onClick={() => {
-                      const shuffled = shuffleArray([...queue]);
-                      startPlaylist(shuffled);
-                      playChapter(shuffled[0].videoId, shuffled[0].startSeconds, shuffled[0].endSeconds);
-                    }}
-                    className="flex items-center gap-1.5 px-5 py-2.5 border border-black/20 text-black text-[0.8rem] font-bold cursor-pointer"
-                  >
-                    <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>shuffle</span>
-                    シャッフル
-                  </button>
-                </div>
-              )}
-              <div className="px-4">
-                <div className="flex flex-col">
-                  {queue.map((item, idx) => {
-                    const isCurrent = idx === currentIndex;
-                    const isFirst = !currentItem && idx === 0;
-                    return (
-                      <div
-                        key={item.id}
-                        onClick={() => jumpTo(idx)}
-                        className={`flex items-center gap-3 cursor-pointer transition-colors ${
-                          isCurrent
-                            ? 'py-2.5 px-2 border-l-2 border-black'
-                            : isFirst
-                              ? 'py-1.5 px-2 border-l-2 border-black/20 bg-black/[0.02]'
-                              : 'py-1.5 px-2 border-l-2 border-transparent hover:bg-black/[0.03] active:bg-black/[0.06]'
-                        }`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className={`leading-snug line-clamp-1 ${
-                            isCurrent ? 'text-[0.8rem] font-bold'
-                              : isFirst ? 'text-[0.75rem] font-bold text-black/80'
-                              : 'text-[0.75rem] font-normal text-black/60'
-                          }`}>{item.chapterLabel}</p>
-                        </div>
-                        <button
-                          onClick={e => { e.stopPropagation(); removeFromQueue(item.id); }}
-                          className={`shrink-0 flex items-center justify-center cursor-pointer transition-colors ${
-                            isCurrent ? 'w-7 h-7 text-black/20 hover:text-black/50' : 'w-6 h-6 text-black/15 hover:text-black/40'
-                          }`}
-                          aria-label="キューから削除"
-                        >
-                          <span className="material-symbols-outlined leading-none" style={{ fontSize: isCurrent ? 16 : 14 }}>close</span>
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-6 mb-20 flex justify-center gap-8">
-                  <button
-                    onClick={() => setShareOpen(true)}
-                    className="text-[0.7rem] font-thin text-black/30 cursor-pointer"
-                  >
-                    共有
-                  </button>
-                  <button
-                    onClick={() => setClearConfirmOpen(true)}
-                    className="text-[0.7rem] font-thin text-black/30 cursor-pointer"
-                  >
-                    全消去
-                  </button>
-                </div>
+                })}
               </div>
-            </section>
-          </>
+
+              <div className="mt-6 mb-20 flex justify-center gap-8">
+                <button
+                  onClick={() => setShareOpen(true)}
+                  className="text-[0.7rem] font-thin text-black/30 cursor-pointer"
+                >
+                  共有
+                </button>
+                <button
+                  onClick={() => setClearConfirmOpen(true)}
+                  className="text-[0.7rem] font-thin text-black/30 cursor-pointer"
+                >
+                  全消去
+                </button>
+              </div>
+            </div>
+          </section>
         )}
       </div>
 

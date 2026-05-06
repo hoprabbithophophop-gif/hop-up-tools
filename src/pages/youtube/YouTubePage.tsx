@@ -172,12 +172,11 @@ function ChapterPickupContent() {
     : isPlayLandscape
       ? { width: '45vw' }
     : pageState === 'play'
-      ? { height: state.currentIndex !== null ? 'calc(100vw * 9 / 16)' : '0px', transition: 'height 300ms ease-in-out', overflow: 'hidden' }
+      ? { height: state.currentIndex !== null ? 'calc(100vw * 9 / 16)' : '0px', overflow: 'hidden' }
     : landscapeSplit
       ? { width: '45vw' }
       : {
           height: showPlayerAtTop ? `calc(100vw * 9 / 16 + ${infoStripH}px)` : '0px',
-          transition: 'height 300ms ease-in-out',
           overflow: 'hidden',
         };
 
@@ -196,7 +195,7 @@ function ChapterPickupContent() {
       )}
 
       {/* 固定ヘッダー */}
-      <header className={`fixed top-0 left-0 right-0 z-50 h-[60px] flex items-center gap-4 px-6 bg-white border-b border-outline-variant/20 transition-opacity duration-300 ${isFullscreen || pageState === 'play' || showPlayerAtTop || isLoading || isExpired ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+      <header className={`fixed top-0 left-0 right-0 z-50 h-[60px] flex items-center gap-4 px-6 bg-white border-b border-outline-variant/20 ${isFullscreen || pageState === 'play' || showPlayerAtTop || isLoading || isExpired ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
         <a href="/" className="material-symbols-outlined text-black leading-none" style={{ fontSize: '20px' }}>arrow_back</a>
         <h1 className="text-xl font-black tracking-tighter uppercase flex-1">HELLO! VIDEO</h1>
         {pageState === 'home' && (
@@ -328,7 +327,6 @@ function ChapterPickupContent() {
           pageState === 'home'
             ? {
                 paddingTop: showPlayerAtTop ? 'calc(100vw * 9 / 16 + 72px)' : '60px',
-                transition: 'padding-top 300ms ease-in-out',
                 ...(landscapeSplit ? { marginLeft: '45vw' } : {}),
               }
             : undefined

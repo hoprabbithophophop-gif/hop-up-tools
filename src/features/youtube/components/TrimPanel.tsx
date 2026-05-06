@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistContext';
 import { formatSeconds } from '../../videos/utils/playlist-utils';
 
-/** mm:ss または hh:mm:ss を秒に変換。失敗時は null */
+/** mm:ss(.f) または hh:mm:ss(.f) を秒に変換。失敗時は null */
 function parseTime(val: string): number | null {
   const parts = val.trim().split(':').map(Number);
   if (parts.some(n => isNaN(n) || n < 0)) return null;
@@ -11,6 +11,8 @@ function parseTime(val: string): number | null {
     return parts[0] * 3600 + parts[1] * 60 + parts[2];
   return null;
 }
+
+const STEP_DELTAS = [-1, -0.1, 0.1, 1] as const;
 
 export function TrimPanel() {
   const { state, trimItem, getCurrentTime } = useChapterPlaylistContext();
@@ -24,10 +26,10 @@ export function TrimPanel() {
   // 再生アイテムが変わったら IN/OUT をリセット
   useEffect(() => {
     if (!current) { setInVal(''); setOutVal(''); setInOutError(false); return; }
-    setInVal(formatSeconds(current.startSeconds));
+    setInVal(formatSeconds(current.startSeconds, 1));
     const end = current.endSeconds;
     setOutVal(
-      isFinite(end) && end !== Number.MAX_SAFE_INTEGER ? formatSeconds(end) : ''
+      isFinite(end) && end !== Number.MAX_SAFE_INTEGER ? formatSeconds(end, 1) : ''
     );
     setInOutError(false);
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -47,15 +49,34 @@ export function TrimPanel() {
   };
 
   const setCurrentAsIn = () => {
-    const t = Math.floor(getCurrentTime());
-    const ts = formatSeconds(t);
+    const t = getCurrentTime();
+    const ts = formatSeconds(t, 1);
     setInVal(ts);
     applyTrim(ts, outVal);
   };
 
   const setCurrentAsOut = () => {
-    const t = Math.floor(getCurrentTime());
-    const ts = formatSeconds(t);
+    const t = getCurrentTime();
+    const ts = formatSeconds(t, 1);
+    setOutVal(ts);
+    applyTrim(inVal, ts);
+  };
+
+  const stepIn = (delta: number) => {
+    if (!current) return;
+    const base = parseTime(inVal) ?? current.startSeconds;
+    const next = Math.max(0, base + delta);
+    const ts = formatSeconds(next, 1);
+    setInVal(ts);
+    applyTrim(ts, outVal);
+  };
+
+  const stepOut = (delta: number) => {
+    if (!current) return;
+    const base = parseTime(outVal);
+    if (base === null) return;
+    const next = Math.max(0, base + delta);
+    const ts = formatSeconds(next, 1);
     setOutVal(ts);
     applyTrim(inVal, ts);
   };
@@ -86,8 +107,8 @@ export function TrimPanel() {
                 if (parseTime(v) !== null) applyTrim(v, outVal);
               }}
               onBlur={() => applyTrim(inVal, outVal)}
-              placeholder="mm:ss"
-              className="w-20 bg-transparent border-b border-outline-variant/40 text-sm py-0.5 focus:outline-none focus:border-primary transition-colors tabular-nums font-mono"
+              placeholder="mm:ss.f"
+              className="w-24 bg-transparent border-b border-outline-variant/40 text-sm py-0.5 focus:outline-none focus:border-primary transition-colors tabular-nums font-mono"
             />
             <button
               onClick={setCurrentAsIn}
@@ -101,6 +122,17 @@ export function TrimPanel() {
                 my_location
               </span>
             </button>
+          </div>
+          <div className="flex items-center gap-1 mt-2">
+            {STEP_DELTAS.map(delta => (
+              <button
+                key={delta}
+                onClick={() => stepIn(delta)}
+                className="text-[0.65rem] tabular-nums px-2 py-1 border border-outline-variant/30 hover:border-primary text-outline hover:text-primary transition-colors cursor-pointer"
+              >
+                {delta > 0 ? `+${delta}` : delta}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -119,8 +151,8 @@ export function TrimPanel() {
                 if (parseTime(v) !== null) applyTrim(inVal, v);
               }}
               onBlur={() => applyTrim(inVal, outVal)}
-              placeholder="mm:ss"
-              className="w-20 bg-transparent border-b border-outline-variant/40 text-sm py-0.5 focus:outline-none focus:border-primary transition-colors tabular-nums font-mono"
+              placeholder="mm:ss.f"
+              className="w-24 bg-transparent border-b border-outline-variant/40 text-sm py-0.5 focus:outline-none focus:border-primary transition-colors tabular-nums font-mono"
             />
             <button
               onClick={setCurrentAsOut}
@@ -134,6 +166,17 @@ export function TrimPanel() {
                 my_location
               </span>
             </button>
+          </div>
+          <div className="flex items-center gap-1 mt-2">
+            {STEP_DELTAS.map(delta => (
+              <button
+                key={delta}
+                onClick={() => stepOut(delta)}
+                className="text-[0.65rem] tabular-nums px-2 py-1 border border-outline-variant/30 hover:border-primary text-outline hover:text-primary transition-colors cursor-pointer"
+              >
+                {delta > 0 ? `+${delta}` : delta}
+              </button>
+            ))}
           </div>
         </div>
       </div>

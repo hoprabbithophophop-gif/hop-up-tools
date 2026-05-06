@@ -86,16 +86,20 @@ export function buildFullVideoQueueItem(video: VideoRow): ChapterQueueItem {
   };
 }
 
-/** 秒数を mm:ss または hh:mm:ss フォーマットに変換 */
-export function formatSeconds(totalSeconds: number): string {
+/** 秒数を mm:ss(.f) または hh:mm:ss(.f) フォーマットに変換。precisionで小数点桁数指定（0=整数, 1=.f, 2=.ff） */
+export function formatSeconds(totalSeconds: number, precision: 0 | 1 | 2 = 0): string {
   if (!isFinite(totalSeconds) || totalSeconds === Number.MAX_SAFE_INTEGER) return '--:--';
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = Math.floor(totalSeconds % 60);
+  const wholeS = Math.floor(totalSeconds % 60);
+  const fraction = precision > 0
+    ? '.' + String(Math.floor((totalSeconds * Math.pow(10, precision)) % Math.pow(10, precision))).padStart(precision, '0')
+    : '';
+  const sStr = String(wholeS).padStart(2, '0') + fraction;
   if (h > 0) {
-    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${h}:${String(m).padStart(2, '0')}:${sStr}`;
   }
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${String(m).padStart(2, '0')}:${sStr}`;
 }
 
 /** Fisher-Yates シャッフル */
