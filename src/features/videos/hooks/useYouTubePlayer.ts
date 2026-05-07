@@ -66,6 +66,8 @@ export function useYouTubePlayer({
   // isReady 前に playChapter が呼ばれた場合に保持する
   const pendingChapterRef = useRef<PendingChapter | null>(null);
   const isReadyRef = useRef(false);
+  // 同一チャプターの二重呼び出し（PlayView直接呼び＋Context useEffect）を抑制
+  const lastPlayCallRef = useRef<{ videoId: string; startSeconds: number; time: number } | null>(null);
 
   useEffect(() => {
     onChapterEndRef.current = onChapterEnd;
@@ -244,6 +246,20 @@ export function useYouTubePlayer({
   }, [enabled]);
 
   const playChapter = useCallback((videoId: string, startSeconds: number, endSeconds: number) => {
+    // 500ms以内の同一videoId/startSeconds呼び出しはスキップ（共有URL初回再生バグ対策）
+    const now = Date.now();
+    const last = lastPlayCallRef.current;
+    if (
+      last &&
+      last.videoId === videoId &&
+      Math.abs(last.startSeconds - startSeconds) < 0.01 &&
+      now - last.time < 500
+    ) {
+      console.log('[YTPlayer] Dedup: skip duplicate playChapter', videoId, startSeconds);
+      return;
+    }
+    lastPlayCallRef.current = { videoId, startSeconds, time: now };
+
     if (isReadyRef.current && playerRef.current) {
       // 準備完了済み → 即再生
       doLoadVideo(playerRef.current, videoId, startSeconds, endSeconds);

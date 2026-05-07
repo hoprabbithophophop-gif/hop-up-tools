@@ -44,13 +44,20 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
       )}
 
       {currentItem && (
-        <section className="shrink-0 mt-3">
-          <div className="px-4 mb-2">
-            <p className="text-[0.95rem] font-bold leading-snug line-clamp-2">{currentItem.chapterLabel}</p>
-            <span className="block text-[0.65rem] font-thin text-black/40 tabular-nums mt-0.5">
+        <section className="shrink-0">
+          {/* チャプター名: 黒バー (ホーム再生中の黒バーと統一 / h-9 / text-[0.65rem] font-thin truncate) */}
+          <div className="h-9 bg-black flex items-center px-4 border-t border-white/10">
+            <p className="text-white text-[0.65rem] font-thin truncate">
+              {currentItem.chapterLabel}
+            </p>
+          </div>
+          {/* 時間表示 (中央) */}
+          <div className="text-center pt-2">
+            <span className="text-[0.6rem] font-thin text-black/40 tabular-nums">
               {formatSeconds(currentItem.startSeconds, 1)} – {endKnown ? formatSeconds(currentItem.endSeconds, 1) : '--:--'}
             </span>
           </div>
+          {/* PlayControls + フルスクリーン */}
           <div className="flex items-center px-4">
             <div className="w-9 h-9 shrink-0" />
             <div className="flex-1 flex justify-center">

@@ -99,13 +99,16 @@ function ChapterPickupContent() {
       const items = share.items.map(fromShareItem);
       setSharedPlaylist({ title: share.title, items });
 
+      // A案: キューの有無に関わらず先にPLAYLIST画面に遷移する。
+      // キューがある場合はその上にダイアログを重ねるので、現在のキューを背景で確認しながら判断できる。
+      setPageState('play');
+
       if (state.queue.length > 0) {
         setPendingSharedItems(items);
         setRestoreStatus('done');
       } else {
         appendItems(items);
         setRestoreStatus('done');
-        setPageState('play');
       }
     });
 

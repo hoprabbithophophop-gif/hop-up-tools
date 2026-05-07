@@ -90,14 +90,14 @@ export function TrimPanel() {
   }
 
   return (
-    <div className="px-4 py-3">
-      <div className="flex items-start gap-6">
+    <div className="px-4 py-2">
+      <div className="flex items-start gap-4">
         {/* IN */}
         <div className="flex-1">
-          <p className="text-[0.6rem] font-bold uppercase tracking-widest text-outline mb-1">
-            IN
-          </p>
           <div className="flex items-center gap-2">
+            <p className="text-[0.6rem] font-bold uppercase tracking-widest text-outline shrink-0">
+              IN
+            </p>
             <input
               type="text"
               value={inVal}
@@ -108,12 +108,12 @@ export function TrimPanel() {
               }}
               onBlur={() => applyTrim(inVal, outVal)}
               placeholder="mm:ss.f"
-              className="w-24 bg-transparent border-b border-outline-variant/40 text-sm py-0.5 focus:outline-none focus:border-primary transition-colors tabular-nums font-mono"
+              className="flex-1 min-w-0 bg-transparent border-b border-outline-variant/40 text-sm py-0.5 focus:outline-none focus:border-primary transition-colors tabular-nums font-mono"
             />
             <button
               onClick={setCurrentAsIn}
               title="現在位置をINにセット"
-              className="text-outline hover:text-primary transition-colors cursor-pointer"
+              className="shrink-0 text-outline hover:text-primary transition-colors cursor-pointer"
             >
               <span
                 className="material-symbols-outlined leading-none"
@@ -123,7 +123,7 @@ export function TrimPanel() {
               </span>
             </button>
           </div>
-          <div className="flex items-center gap-1 mt-2">
+          <div className="flex items-center gap-1 mt-1.5">
             {STEP_DELTAS.map(delta => (
               <button
                 key={delta}
@@ -138,10 +138,10 @@ export function TrimPanel() {
 
         {/* OUT */}
         <div className="flex-1">
-          <p className="text-[0.6rem] font-bold uppercase tracking-widest text-outline mb-1">
-            OUT
-          </p>
           <div className="flex items-center gap-2">
+            <p className="text-[0.6rem] font-bold uppercase tracking-widest text-outline shrink-0">
+              OUT
+            </p>
             <input
               type="text"
               value={outVal}
@@ -152,12 +152,12 @@ export function TrimPanel() {
               }}
               onBlur={() => applyTrim(inVal, outVal)}
               placeholder="mm:ss.f"
-              className="w-24 bg-transparent border-b border-outline-variant/40 text-sm py-0.5 focus:outline-none focus:border-primary transition-colors tabular-nums font-mono"
+              className="flex-1 min-w-0 bg-transparent border-b border-outline-variant/40 text-sm py-0.5 focus:outline-none focus:border-primary transition-colors tabular-nums font-mono"
             />
             <button
               onClick={setCurrentAsOut}
               title="現在位置をOUTにセット"
-              className="text-outline hover:text-primary transition-colors cursor-pointer"
+              className="shrink-0 text-outline hover:text-primary transition-colors cursor-pointer"
             >
               <span
                 className="material-symbols-outlined leading-none"
@@ -167,7 +167,7 @@ export function TrimPanel() {
               </span>
             </button>
           </div>
-          <div className="flex items-center gap-1 mt-2">
+          <div className="flex items-center gap-1 mt-1.5">
             {STEP_DELTAS.map(delta => (
               <button
                 key={delta}
@@ -180,13 +180,9 @@ export function TrimPanel() {
           </div>
         </div>
       </div>
-      {inOutError ? (
+      {inOutError && (
         <p className="text-[0.55rem] text-error mt-2">
           IN点はOUT点より前に設定してください
-        </p>
-      ) : (
-        <p className="text-[0.55rem] text-outline/60 mt-2">
-          ◉ ボタンで現在の再生位置をセット
         </p>
       )}
     </div>
