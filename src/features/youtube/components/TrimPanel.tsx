@@ -22,6 +22,7 @@ export function TrimPanel() {
   const [inVal, setInVal] = useState('');
   const [outVal, setOutVal] = useState('');
   const [inOutError, setInOutError] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   // 再生アイテムが変わったら IN/OUT をリセット
   useEffect(() => {
@@ -83,21 +84,69 @@ export function TrimPanel() {
 
   if (!current) {
     return (
-      <div className="px-4 py-3 text-[0.625rem] text-outline uppercase tracking-widest">
+      <div className="px-4 py-3 text-[0.625rem] text-black/40 uppercase tracking-widest">
         再生中のアイテムがありません
       </div>
     );
   }
 
+  const startSec = parseTime(inVal);
+  const endSec = parseTime(outVal);
+  const duration =
+    startSec !== null && endSec !== null && endSec > startSec ? endSec - startSec : null;
+
   return (
     <div className="px-4 py-2">
-      <div className="flex items-start gap-4">
-        {/* IN */}
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <p className="text-[0.6rem] font-bold uppercase tracking-widest text-outline shrink-0">
-              IN
-            </p>
+      {/* ステータス: 開始 → 終了  長さ */}
+      <div className="text-center text-[0.65rem] tabular-nums font-mono">
+        <span className="text-black/60">{inVal || '--:--'}</span>
+        <span className="mx-2 text-black/30">→</span>
+        <span className="text-black/60">{outVal || '--:--'}</span>
+        {duration !== null && (
+          <span className="ml-3 text-black/40">{formatSeconds(duration, 1)}</span>
+        )}
+      </div>
+
+      {/* タップ領域 2つ */}
+      <div className="mt-2 flex">
+        <button
+          onClick={setCurrentAsIn}
+          className="flex-1 py-3 text-center cursor-pointer hover:bg-black/[0.04] active:bg-black/[0.08] transition-colors"
+        >
+          <p className="text-[0.6rem] font-thin text-black/50 tracking-widest">開始</p>
+          <p className="text-[0.8rem] font-bold text-black mt-0.5">ここに設定</p>
+        </button>
+        <button
+          onClick={setCurrentAsOut}
+          className="flex-1 py-3 text-center cursor-pointer hover:bg-black/[0.04] active:bg-black/[0.08] transition-colors"
+        >
+          <p className="text-[0.6rem] font-thin text-black/50 tracking-widest">終了</p>
+          <p className="text-[0.8rem] font-bold text-black mt-0.5">ここに設定</p>
+        </button>
+      </div>
+
+      {inOutError && (
+        <p className="text-[0.6rem] text-red-600 text-center mt-2">
+          開始は終了より前に設定してください
+        </p>
+      )}
+
+      {/* 微調整トグル */}
+      <div className="mt-2 text-center">
+        <button
+          onClick={() => setDetailOpen(o => !o)}
+          className="text-[0.6rem] font-thin text-black/40 hover:text-black/70 cursor-pointer tracking-widest"
+        >
+          {detailOpen ? '︿ 微調整' : '﹀ 微調整'}
+        </button>
+      </div>
+
+      {/* 微調整パネル */}
+      {detailOpen && (
+        <div className="mt-2 flex items-start gap-4">
+          {/* 開始 */}
+          <div className="flex-1 min-w-0">
+            <p className="text-[0.55rem] font-thin text-black/40 mb-1 tracking-widest">開始</p>
             <input
               type="text"
               value={inVal}
@@ -108,40 +157,23 @@ export function TrimPanel() {
               }}
               onBlur={() => applyTrim(inVal, outVal)}
               placeholder="mm:ss.f"
-              className="flex-1 min-w-0 bg-transparent border-b border-outline-variant/40 text-sm py-0.5 focus:outline-none focus:border-primary transition-colors tabular-nums font-mono"
+              className="w-full bg-transparent text-sm py-0.5 focus:outline-none tabular-nums font-mono"
             />
-            <button
-              onClick={setCurrentAsIn}
-              title="現在位置をINにセット"
-              className="shrink-0 text-outline hover:text-primary transition-colors cursor-pointer"
-            >
-              <span
-                className="material-symbols-outlined leading-none"
-                style={{ fontSize: '18px' }}
-              >
-                my_location
-              </span>
-            </button>
+            <div className="flex items-center gap-1 mt-1">
+              {STEP_DELTAS.map(delta => (
+                <button
+                  key={delta}
+                  onClick={() => stepIn(delta)}
+                  className="flex-1 text-[0.6rem] tabular-nums py-1 text-black/50 hover:text-black cursor-pointer"
+                >
+                  {delta > 0 ? `+${delta}` : delta}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex items-center gap-1 mt-1.5">
-            {STEP_DELTAS.map(delta => (
-              <button
-                key={delta}
-                onClick={() => stepIn(delta)}
-                className="text-[0.65rem] tabular-nums px-2 py-1 border border-outline-variant/30 hover:border-primary text-outline hover:text-primary transition-colors cursor-pointer"
-              >
-                {delta > 0 ? `+${delta}` : delta}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* OUT */}
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <p className="text-[0.6rem] font-bold uppercase tracking-widest text-outline shrink-0">
-              OUT
-            </p>
+          {/* 終了 */}
+          <div className="flex-1 min-w-0">
+            <p className="text-[0.55rem] font-thin text-black/40 mb-1 tracking-widest">終了</p>
             <input
               type="text"
               value={outVal}
@@ -152,38 +184,21 @@ export function TrimPanel() {
               }}
               onBlur={() => applyTrim(inVal, outVal)}
               placeholder="mm:ss.f"
-              className="flex-1 min-w-0 bg-transparent border-b border-outline-variant/40 text-sm py-0.5 focus:outline-none focus:border-primary transition-colors tabular-nums font-mono"
+              className="w-full bg-transparent text-sm py-0.5 focus:outline-none tabular-nums font-mono"
             />
-            <button
-              onClick={setCurrentAsOut}
-              title="現在位置をOUTにセット"
-              className="shrink-0 text-outline hover:text-primary transition-colors cursor-pointer"
-            >
-              <span
-                className="material-symbols-outlined leading-none"
-                style={{ fontSize: '18px' }}
-              >
-                my_location
-              </span>
-            </button>
-          </div>
-          <div className="flex items-center gap-1 mt-1.5">
-            {STEP_DELTAS.map(delta => (
-              <button
-                key={delta}
-                onClick={() => stepOut(delta)}
-                className="text-[0.65rem] tabular-nums px-2 py-1 border border-outline-variant/30 hover:border-primary text-outline hover:text-primary transition-colors cursor-pointer"
-              >
-                {delta > 0 ? `+${delta}` : delta}
-              </button>
-            ))}
+            <div className="flex items-center gap-1 mt-1">
+              {STEP_DELTAS.map(delta => (
+                <button
+                  key={delta}
+                  onClick={() => stepOut(delta)}
+                  className="flex-1 text-[0.6rem] tabular-nums py-1 text-black/50 hover:text-black cursor-pointer"
+                >
+                  {delta > 0 ? `+${delta}` : delta}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
-      {inOutError && (
-        <p className="text-[0.55rem] text-error mt-2">
-          IN点はOUT点より前に設定してください
-        </p>
       )}
     </div>
   );
