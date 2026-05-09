@@ -12,6 +12,7 @@ interface VideoRow {
   channel_name: string;
   thumbnail_url: string;
   duration_seconds?: number | null;
+  published_at?: string | null;
 }
 
 interface Chapter {

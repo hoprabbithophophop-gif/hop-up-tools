@@ -6,6 +6,7 @@ interface VideoRow {
   channel_name: string;
   thumbnail_url: string;
   duration_seconds?: number | null;
+  published_at?: string | null;
 }
 
 interface Chapter {
@@ -33,6 +34,7 @@ export function buildChapterQueueItems(
     id: makeChapterId(video.video_id, ch.seconds),
     videoId: video.video_id,
     videoTitle: video.title,
+    publishedAt: video.published_at ?? undefined,
     channelName: video.channel_name,
     thumbnailUrl: video.thumbnail_url,
     chapterLabel: ch.label,
@@ -56,6 +58,7 @@ export function buildSingleChapterQueueItem(
     id: makeChapterId(video.video_id, ch.seconds),
     videoId: video.video_id,
     videoTitle: video.title,
+    publishedAt: video.published_at ?? undefined,
     channelName: video.channel_name,
     thumbnailUrl: video.thumbnail_url,
     chapterLabel: ch.label,
@@ -74,6 +77,7 @@ export function buildFullVideoQueueItem(video: VideoRow): ChapterQueueItem {
     id: makeVideoId(video.video_id),
     videoId: video.video_id,
     videoTitle: video.title,
+    publishedAt: video.published_at ?? undefined,
     channelName: video.channel_name,
     thumbnailUrl: video.thumbnail_url,
     chapterLabel: video.title,

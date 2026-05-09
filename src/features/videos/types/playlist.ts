@@ -5,6 +5,8 @@ export interface ChapterQueueItem {
   videoId: string;
   /** 動画タイトル */
   videoTitle: string;
+  /** 動画公開日（ISO8601） */
+  publishedAt?: string;
   /** チャンネル名 */
   channelName: string;
   /** サムネイルURL */

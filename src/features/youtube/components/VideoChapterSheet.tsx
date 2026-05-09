@@ -84,7 +84,7 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
   const chapterItems = useMemo<ChapterQueueItem[]>(() => {
     if (chapters.length === 0) return [];
     return buildChapterQueueItems(
-      { video_id: video.video_id, title: video.title, channel_name: video.channel_name, thumbnail_url: video.thumbnail_url },
+      { video_id: video.video_id, title: video.title, channel_name: video.channel_name, thumbnail_url: video.thumbnail_url, published_at: video.published_at },
       chapters
     );
   }, [video, chapters]);
@@ -94,6 +94,7 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
     title: video.title,
     channel_name: video.channel_name,
     thumbnail_url: video.thumbnail_url,
+    published_at: video.published_at,
   }), [video]);
 
   const [previewItem, setPreviewItem] = useState<ChapterQueueItem | null>(null);
