@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistContext';
 import { formatSeconds } from '../../videos/utils/playlist-utils';
+
+const PREVIEW_DURATION = 3;
 
 /** mm:ss(.f) または hh:mm:ss(.f) を秒に変換。失敗時は null */
 function parseTime(val: string): number | null {
@@ -13,13 +15,14 @@ function parseTime(val: string): number | null {
 }
 
 export function TrimPanel() {
-  const { state, trimItem, getCurrentTime } = useChapterPlaylistContext();
+  const { state, trimItem, getCurrentTime, playChapter, pause } = useChapterPlaylistContext();
   const { queue, currentIndex } = state;
   const current = currentIndex !== null ? queue[currentIndex] : null;
 
   const [inVal, setInVal] = useState('');
   const [outVal, setOutVal] = useState('');
   const [inOutError, setInOutError] = useState(false);
+  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!current) { setInVal(''); setOutVal(''); setInOutError(false); return; }
@@ -30,6 +33,12 @@ export function TrimPanel() {
     );
     setInOutError(false);
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    return () => {
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+    };
+  }, []);
 
   const applyTrim = (nextIn: string, nextOut: string) => {
     if (!current) return;
@@ -56,6 +65,60 @@ export function TrimPanel() {
     const ts = formatSeconds(t, 1);
     setOutVal(ts);
     applyTrim(inVal, ts);
+  };
+
+  const adjustIn = (delta: number) => {
+    if (!current) return;
+    const base = parseTime(inVal) ?? current.startSeconds;
+    const next = Math.max(0, base + delta);
+    const ts = formatSeconds(next, 1);
+    setInVal(ts);
+    applyTrim(ts, outVal);
+  };
+
+  const adjustOut = (delta: number) => {
+    if (!current) return;
+    const base = parseTime(outVal);
+    if (base === null) return;
+    const next = Math.max(0, base + delta);
+    const ts = formatSeconds(next, 1);
+    setOutVal(ts);
+    applyTrim(inVal, ts);
+  };
+
+  // 区間プレビュー: previewStart→previewEnd を再生し、終端で停止
+  // playChapter は終端で次チャプターへ進む可能性があるため、endSeconds は元の値で渡し、
+  // setTimeout で previewEnd 到達時に手動 pause する
+  const previewSegment = (previewStart: number, previewEnd: number) => {
+    if (!current) return;
+    if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+    playChapter(current.videoId, previewStart, current.endSeconds);
+    const ms = Math.max(0, (previewEnd - previewStart) * 1000);
+    previewTimerRef.current = setTimeout(() => {
+      pause();
+      previewTimerRef.current = null;
+    }, ms);
+  };
+
+  const confirmIn = () => {
+    applyTrim(inVal, outVal);
+    if (!current) return;
+    const start = parseTime(inVal);
+    if (start === null) return;
+    const endSec = parseTime(outVal);
+    const upperBound = endSec !== null ? endSec : start + PREVIEW_DURATION;
+    const previewEnd = Math.min(start + PREVIEW_DURATION, upperBound);
+    previewSegment(start, previewEnd);
+  };
+
+  const confirmOut = () => {
+    applyTrim(inVal, outVal);
+    if (!current) return;
+    const end = parseTime(outVal);
+    if (end === null) return;
+    const startSec = parseTime(inVal) ?? current.startSeconds;
+    const previewStart = Math.max(end - PREVIEW_DURATION, startSec);
+    previewSegment(previewStart, end);
   };
 
   if (!current) {
@@ -91,7 +154,12 @@ export function TrimPanel() {
             setInVal(v);
             if (parseTime(v) !== null) applyTrim(v, outVal);
           }}
-          onBlur={() => applyTrim(inVal, outVal)}
+          onBlur={confirmIn}
+          onKeyDown={e => {
+            if (e.key === 'ArrowUp') { e.preventDefault(); adjustIn(0.1); }
+            else if (e.key === 'ArrowDown') { e.preventDefault(); adjustIn(-0.1); }
+            else if (e.key === 'Enter') { e.preventDefault(); confirmIn(); }
+          }}
           placeholder="--:--"
           className="min-w-0 text-center text-[1.05rem] tabular-nums text-black bg-transparent py-0.5 focus:outline-none focus:bg-black/[0.03]"
         />
@@ -105,7 +173,12 @@ export function TrimPanel() {
             setOutVal(v);
             if (parseTime(v) !== null) applyTrim(inVal, v);
           }}
-          onBlur={() => applyTrim(inVal, outVal)}
+          onBlur={confirmOut}
+          onKeyDown={e => {
+            if (e.key === 'ArrowUp') { e.preventDefault(); adjustOut(0.1); }
+            else if (e.key === 'ArrowDown') { e.preventDefault(); adjustOut(-0.1); }
+            else if (e.key === 'Enter') { e.preventDefault(); confirmOut(); }
+          }}
           placeholder="--:--"
           className="min-w-0 text-center text-[1.05rem] tabular-nums text-black bg-transparent py-0.5 focus:outline-none focus:bg-black/[0.03]"
         />

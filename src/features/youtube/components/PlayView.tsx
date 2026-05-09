@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistContext';
-import { formatSeconds, shuffleArray } from '../../videos/utils/playlist-utils';
+import { shuffleArray } from '../../videos/utils/playlist-utils';
 import { PlayControls } from './PlayControls';
 import { TrimPanel } from './TrimPanel';
 import { ShareModal } from './ShareModal';
@@ -20,10 +20,6 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
 
   const [shareOpen, setShareOpen] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-
-  const endKnown = currentItem
-    ? isFinite(currentItem.endSeconds) && currentItem.endSeconds !== Number.MAX_SAFE_INTEGER
-    : false;
 
   return (
     <div className="bg-white text-black flex flex-col" style={{ height: queue.length > 0 ? 'calc(100svh - 68px)' : '100svh' }}>
@@ -51,14 +47,8 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
               {currentItem.chapterLabel}
             </p>
           </div>
-          {/* 時間表示 (中央) */}
-          <div className="text-center pt-2">
-            <span className="text-[0.6rem] font-thin text-black/40 tabular-nums">
-              {formatSeconds(currentItem.startSeconds, 1)} – {endKnown ? formatSeconds(currentItem.endSeconds, 1) : '--:--'}
-            </span>
-          </div>
           {/* PlayControls + フルスクリーン */}
-          <div className="flex items-center px-4">
+          <div className="flex items-center px-4 pt-2">
             <div className="w-9 h-9 shrink-0" />
             <div className="flex-1 flex justify-center">
               <PlayControls />
