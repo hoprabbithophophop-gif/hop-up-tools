@@ -12,8 +12,6 @@ function parseTime(val: string): number | null {
   return null;
 }
 
-const STEP_DELTAS = [-1, -0.1, 0.1, 1] as const;
-
 export function TrimPanel() {
   const { state, trimItem, getCurrentTime } = useChapterPlaylistContext();
   const { queue, currentIndex } = state;
@@ -22,9 +20,7 @@ export function TrimPanel() {
   const [inVal, setInVal] = useState('');
   const [outVal, setOutVal] = useState('');
   const [inOutError, setInOutError] = useState(false);
-  const [detailOpen, setDetailOpen] = useState(false);
 
-  // 再生アイテムが変わったら IN/OUT をリセット
   useEffect(() => {
     if (!current) { setInVal(''); setOutVal(''); setInOutError(false); return; }
     setInVal(formatSeconds(current.startSeconds, 1));
@@ -40,7 +36,6 @@ export function TrimPanel() {
     const start = parseTime(nextIn) ?? current.startSeconds;
     const end = parseTime(nextOut);
     const endSec = end !== null ? end : current.endSeconds;
-    // IN >= OUT の場合は警告表示し、trim は適用しない
     if (end !== null && start >= endSec) {
       setInOutError(true);
       return;
@@ -63,28 +58,9 @@ export function TrimPanel() {
     applyTrim(inVal, ts);
   };
 
-  const stepIn = (delta: number) => {
-    if (!current) return;
-    const base = parseTime(inVal) ?? current.startSeconds;
-    const next = Math.max(0, base + delta);
-    const ts = formatSeconds(next, 1);
-    setInVal(ts);
-    applyTrim(ts, outVal);
-  };
-
-  const stepOut = (delta: number) => {
-    if (!current) return;
-    const base = parseTime(outVal);
-    if (base === null) return;
-    const next = Math.max(0, base + delta);
-    const ts = formatSeconds(next, 1);
-    setOutVal(ts);
-    applyTrim(inVal, ts);
-  };
-
   if (!current) {
     return (
-      <div className="px-4 py-3 text-[0.625rem] text-black/40 uppercase tracking-widest">
+      <div className="px-4 py-3 text-[0.625rem] text-black/40 text-center">
         再生中のアイテムがありません
       </div>
     );
@@ -97,31 +73,56 @@ export function TrimPanel() {
 
   return (
     <div className="px-4 py-2">
-      {/* ステータス: 開始 → 終了  長さ */}
-      <div className="text-center text-[0.65rem] tabular-nums font-mono">
-        <span className="text-black/60">{inVal || '--:--'}</span>
-        <span className="mx-2 text-black/30">→</span>
-        <span className="text-black/60">{outVal || '--:--'}</span>
-        {duration !== null && (
-          <span className="ml-3 text-black/40">{formatSeconds(duration, 1)}</span>
-        )}
-      </div>
+      <div className="grid grid-cols-[1fr_4rem_1fr] items-center gap-y-1">
+        {/* 1行目: ラベル + 区間長 + ラベル */}
+        <div className="text-center text-[0.65rem] text-black/50">開始</div>
+        <div className="text-center text-[0.65rem] text-black/40 tabular-nums">
+          {duration !== null ? formatSeconds(duration, 1) : ''}
+        </div>
+        <div className="text-center text-[0.65rem] text-black/50">終了</div>
 
-      {/* タップ領域 2つ */}
-      <div className="mt-2 flex">
+        {/* 2行目: input + 矢印 + input */}
+        <input
+          type="text"
+          inputMode="decimal"
+          value={inVal}
+          onChange={e => {
+            const v = e.target.value;
+            setInVal(v);
+            if (parseTime(v) !== null) applyTrim(v, outVal);
+          }}
+          onBlur={() => applyTrim(inVal, outVal)}
+          placeholder="--:--"
+          className="min-w-0 text-center text-[1.05rem] tabular-nums text-black bg-transparent py-0.5 focus:outline-none focus:bg-black/[0.03]"
+        />
+        <div className="text-center text-[0.85rem] text-black/30">→</div>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={outVal}
+          onChange={e => {
+            const v = e.target.value;
+            setOutVal(v);
+            if (parseTime(v) !== null) applyTrim(inVal, v);
+          }}
+          onBlur={() => applyTrim(inVal, outVal)}
+          placeholder="--:--"
+          className="min-w-0 text-center text-[1.05rem] tabular-nums text-black bg-transparent py-0.5 focus:outline-none focus:bg-black/[0.03]"
+        />
+
+        {/* 3行目: ボタン + (空) + ボタン */}
         <button
           onClick={setCurrentAsIn}
-          className="flex-1 py-3 text-center cursor-pointer hover:bg-black/[0.04] active:bg-black/[0.08] transition-colors"
+          className="py-2 text-[0.75rem] text-black/80 hover:bg-black/[0.04] active:bg-black/[0.08] cursor-pointer transition-colors"
         >
-          <p className="text-[0.6rem] font-thin text-black/50 tracking-widest">開始</p>
-          <p className="text-[0.8rem] font-bold text-black mt-0.5">ここに設定</p>
+          開始をここに
         </button>
+        <div></div>
         <button
           onClick={setCurrentAsOut}
-          className="flex-1 py-3 text-center cursor-pointer hover:bg-black/[0.04] active:bg-black/[0.08] transition-colors"
+          className="py-2 text-[0.75rem] text-black/80 hover:bg-black/[0.04] active:bg-black/[0.08] cursor-pointer transition-colors"
         >
-          <p className="text-[0.6rem] font-thin text-black/50 tracking-widest">終了</p>
-          <p className="text-[0.8rem] font-bold text-black mt-0.5">ここに設定</p>
+          終了をここに
         </button>
       </div>
 
@@ -129,76 +130,6 @@ export function TrimPanel() {
         <p className="text-[0.6rem] text-red-600 text-center mt-2">
           開始は終了より前に設定してください
         </p>
-      )}
-
-      {/* 微調整トグル */}
-      <div className="mt-2 text-center">
-        <button
-          onClick={() => setDetailOpen(o => !o)}
-          className="text-[0.6rem] font-thin text-black/40 hover:text-black/70 cursor-pointer tracking-widest"
-        >
-          {detailOpen ? '︿ 微調整' : '﹀ 微調整'}
-        </button>
-      </div>
-
-      {/* 微調整パネル */}
-      {detailOpen && (
-        <div className="mt-2 flex items-start gap-4">
-          {/* 開始 */}
-          <div className="flex-1 min-w-0">
-            <p className="text-[0.55rem] font-thin text-black/40 mb-1 tracking-widest">開始</p>
-            <input
-              type="text"
-              value={inVal}
-              onChange={e => {
-                const v = e.target.value;
-                setInVal(v);
-                if (parseTime(v) !== null) applyTrim(v, outVal);
-              }}
-              onBlur={() => applyTrim(inVal, outVal)}
-              placeholder="mm:ss.f"
-              className="w-full bg-transparent text-sm py-0.5 focus:outline-none tabular-nums font-mono"
-            />
-            <div className="flex items-center gap-1 mt-1">
-              {STEP_DELTAS.map(delta => (
-                <button
-                  key={delta}
-                  onClick={() => stepIn(delta)}
-                  className="flex-1 text-[0.6rem] tabular-nums py-1 text-black/50 hover:text-black cursor-pointer"
-                >
-                  {delta > 0 ? `+${delta}` : delta}
-                </button>
-              ))}
-            </div>
-          </div>
-          {/* 終了 */}
-          <div className="flex-1 min-w-0">
-            <p className="text-[0.55rem] font-thin text-black/40 mb-1 tracking-widest">終了</p>
-            <input
-              type="text"
-              value={outVal}
-              onChange={e => {
-                const v = e.target.value;
-                setOutVal(v);
-                if (parseTime(v) !== null) applyTrim(inVal, v);
-              }}
-              onBlur={() => applyTrim(inVal, outVal)}
-              placeholder="mm:ss.f"
-              className="w-full bg-transparent text-sm py-0.5 focus:outline-none tabular-nums font-mono"
-            />
-            <div className="flex items-center gap-1 mt-1">
-              {STEP_DELTAS.map(delta => (
-                <button
-                  key={delta}
-                  onClick={() => stepOut(delta)}
-                  className="flex-1 text-[0.6rem] tabular-nums py-1 text-black/50 hover:text-black cursor-pointer"
-                >
-                  {delta > 0 ? `+${delta}` : delta}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
