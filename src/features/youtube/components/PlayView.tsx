@@ -15,9 +15,12 @@ function formatPublishedDate(iso?: string): string {
   return `${y}.${m}.${day}`;
 }
 
-const SWIPE_REVEAL_WIDTH = 72;
+const SWIPE_DELETE_WIDTH = 72;
+const SWIPE_REORDER_WIDTH = 96;
 const SWIPE_OPEN_THRESHOLD = 36;
 const SWIPE_AXIS_DECISION = 6;
+
+type SwipeDir = 'left' | 'right';
 
 interface Props {
   sharedPlaylist?: SharedPlaylist | null;
@@ -27,7 +30,7 @@ interface Props {
 }
 
 export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLandscapePlay }: Props) {
-  const { state, removeFromQueue, clearQueue, jumpTo, playChapter } = useChapterPlaylistContext();
+  const { state, removeFromQueue, clearQueue, jumpTo, playChapter, reorder } = useChapterPlaylistContext();
   const { queue, currentIndex } = state;
   const currentItem = currentIndex !== null ? queue[currentIndex] ?? null : null;
 
@@ -39,27 +42,28 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
     setTitleBarExpanded(false);
   }, [currentItem?.id]);
 
-  // スワイプ削除
-  const [swipeOpenId, setSwipeOpenId] = useState<string | null>(null);
-  const [activeDrag, setActiveDrag] = useState<{ id: string; x: number } | null>(null);
-  const dragRef = useRef<{ id: string; x: number } | null>(null);
+  // スワイプ（左=削除 / 右=並び替え）
+  const [swipeOpen, setSwipeOpen] = useState<{ id: string; dir: SwipeDir } | null>(null);
+  const [activeDrag, setActiveDrag] = useState<{ id: string; x: number; dir: SwipeDir } | null>(null);
+  const dragRef = useRef<{ id: string; x: number; dir: SwipeDir } | null>(null);
   const touchRef = useRef<{
     id: string;
     startX: number;
     startY: number;
     axis: 'unknown' | 'horizontal' | 'vertical';
-    startedOpen: boolean;
+    dir: SwipeDir | null;
+    startedOpenDir: SwipeDir | null;
   } | null>(null);
 
   useEffect(() => {
-    if (swipeOpenId && !queue.some(i => i.id === swipeOpenId)) {
-      setSwipeOpenId(null);
+    if (swipeOpen && !queue.some(i => i.id === swipeOpen.id)) {
+      setSwipeOpen(null);
     }
-  }, [queue, swipeOpenId]);
+  }, [queue, swipeOpen]);
 
   const handleRowTouchStart = (id: string, e: React.TouchEvent) => {
-    if (swipeOpenId && swipeOpenId !== id) {
-      setSwipeOpenId(null);
+    if (swipeOpen && swipeOpen.id !== id) {
+      setSwipeOpen(null);
     }
     const t = e.touches[0];
     touchRef.current = {
@@ -67,7 +71,8 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
       startX: t.clientX,
       startY: t.clientY,
       axis: 'unknown',
-      startedOpen: swipeOpenId === id,
+      dir: null,
+      startedOpenDir: swipeOpen?.id === id ? swipeOpen.dir : null,
     };
     dragRef.current = null;
   };
@@ -81,13 +86,22 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
     if (ts.axis === 'unknown') {
       if (Math.abs(dx) > SWIPE_AXIS_DECISION || Math.abs(dy) > SWIPE_AXIS_DECISION) {
         ts.axis = Math.abs(dx) > Math.abs(dy) ? 'horizontal' : 'vertical';
+        if (ts.axis === 'horizontal') {
+          ts.dir = ts.startedOpenDir ?? (dx > 0 ? 'right' : 'left');
+        }
       }
     }
-    if (ts.axis === 'horizontal') {
-      const baseX = ts.startedOpen ? -SWIPE_REVEAL_WIDTH : 0;
+    if (ts.axis === 'horizontal' && ts.dir) {
+      let baseX = 0;
+      if (ts.startedOpenDir === 'left') baseX = -SWIPE_DELETE_WIDTH;
+      if (ts.startedOpenDir === 'right') baseX = SWIPE_REORDER_WIDTH;
       let newX = baseX + dx;
-      newX = Math.max(-SWIPE_REVEAL_WIDTH * 1.2, Math.min(0, newX));
-      const drag = { id: ts.id, x: newX };
+      if (ts.dir === 'left') {
+        newX = Math.max(-SWIPE_DELETE_WIDTH * 1.2, Math.min(0, newX));
+      } else {
+        newX = Math.max(0, Math.min(SWIPE_REORDER_WIDTH * 1.2, newX));
+      }
+      const drag = { id: ts.id, x: newX, dir: ts.dir };
       dragRef.current = drag;
       setActiveDrag(drag);
     }
@@ -96,22 +110,30 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
   const handleRowTouchEnd = () => {
     const ts = touchRef.current;
     touchRef.current = null;
-    if (!ts) {
-      setActiveDrag(null);
-      return;
-    }
-    if (ts.axis !== 'horizontal') {
+    if (!ts || ts.axis !== 'horizontal') {
       setActiveDrag(null);
       return;
     }
     const drag = dragRef.current;
     dragRef.current = null;
-    if (drag && drag.id === ts.id && drag.x <= -SWIPE_OPEN_THRESHOLD) {
-      setSwipeOpenId(ts.id);
+    if (drag && drag.id === ts.id) {
+      if (drag.dir === 'left' && drag.x <= -SWIPE_OPEN_THRESHOLD) {
+        setSwipeOpen({ id: ts.id, dir: 'left' });
+      } else if (drag.dir === 'right' && drag.x >= SWIPE_OPEN_THRESHOLD) {
+        setSwipeOpen({ id: ts.id, dir: 'right' });
+      } else {
+        setSwipeOpen(null);
+      }
     } else {
-      setSwipeOpenId(null);
+      setSwipeOpen(null);
     }
     setActiveDrag(null);
+  };
+
+  const moveItem = (idx: number, delta: -1 | 1) => {
+    const target = idx + delta;
+    if (target < 0 || target >= queue.length) return;
+    reorder(idx, target);
   };
 
   return (
@@ -218,30 +240,62 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
               <div className="flex flex-col">
                 {queue.map((item, idx) => {
                   const isCurrent = idx === currentIndex;
-                  const isOpen = swipeOpenId === item.id;
+                  const isFirst = idx === 0;
+                  const isLast = idx === queue.length - 1;
+                  const openDir = swipeOpen?.id === item.id ? swipeOpen.dir : null;
                   const isDragging = activeDrag?.id === item.id;
-                  const xOffset = isDragging ? activeDrag!.x : isOpen ? -SWIPE_REVEAL_WIDTH : 0;
+                  const xOffset = isDragging
+                    ? activeDrag!.x
+                    : openDir === 'left'
+                      ? -SWIPE_DELETE_WIDTH
+                      : openDir === 'right'
+                        ? SWIPE_REORDER_WIDTH
+                        : 0;
                   return (
                     <div key={item.id} className="relative overflow-hidden group">
-                      {/* スワイプで現れる削除ボタン */}
+                      {/* 左スワイプで右側に現れる削除ボタン */}
                       <button
                         onClick={e => {
                           e.stopPropagation();
-                          setSwipeOpenId(null);
+                          setSwipeOpen(null);
                           removeFromQueue(item.id);
                         }}
-                        className="absolute right-0 top-0 bottom-0 bg-black text-white text-[0.7rem] font-bold flex items-center justify-center cursor-pointer"
-                        style={{ width: `${SWIPE_REVEAL_WIDTH}px` }}
+                        className="absolute right-0 top-0 bottom-0 bg-red-700 text-white text-[0.7rem] font-bold flex items-center justify-center cursor-pointer"
+                        style={{ width: `${SWIPE_DELETE_WIDTH}px` }}
                         aria-label="キューから削除"
-                        tabIndex={isOpen ? 0 : -1}
+                        tabIndex={openDir === 'left' ? 0 : -1}
                       >
                         削除
                       </button>
+                      {/* 右スワイプで左側に現れる ↑ / ↓ ボタン */}
+                      <div
+                        className="absolute left-0 top-0 bottom-0 flex"
+                        style={{ width: `${SWIPE_REORDER_WIDTH}px` }}
+                      >
+                        <button
+                          onClick={e => { e.stopPropagation(); moveItem(idx, -1); }}
+                          disabled={isFirst}
+                          className="flex-1 bg-black text-white flex items-center justify-center cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                          aria-label="1つ上に移動"
+                          tabIndex={openDir === 'right' ? 0 : -1}
+                        >
+                          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>arrow_upward</span>
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); moveItem(idx, 1); }}
+                          disabled={isLast}
+                          className="flex-1 bg-black/80 text-white flex items-center justify-center cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed border-l border-white/15"
+                          aria-label="1つ下に移動"
+                          tabIndex={openDir === 'right' ? 0 : -1}
+                        >
+                          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>arrow_downward</span>
+                        </button>
+                      </div>
                       {/* スライドする本体 */}
                       <div
                         onClick={() => {
-                          if (isOpen) {
-                            setSwipeOpenId(null);
+                          if (openDir) {
+                            setSwipeOpen(null);
                             return;
                           }
                           jumpTo(idx);
@@ -267,33 +321,52 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
                               : 'text-[0.75rem] font-normal text-black/60'
                           }`}>{item.chapterLabel}</p>
                         </div>
-                        {/* PC（hoverデバイス）のみ右端に×が出る */}
-                        <button
-                          onClick={e => { e.stopPropagation(); removeFromQueue(item.id); }}
-                          className={`shrink-0 flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity ${
-                            isCurrent ? 'w-7 h-7 text-black/40 hover:text-black/70' : 'w-6 h-6 text-black/40 hover:text-black/70'
-                          }`}
-                          aria-label="キューから削除"
-                          tabIndex={-1}
-                        >
-                          <span className="material-symbols-outlined leading-none" style={{ fontSize: isCurrent ? 16 : 14 }}>close</span>
-                        </button>
+                        {/* PC（hoverデバイス）のみ右端に ↑ / ↓ / × が出る */}
+                        <div className="shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={e => { e.stopPropagation(); moveItem(idx, -1); }}
+                            disabled={isFirst}
+                            className="w-6 h-6 flex items-center justify-center cursor-pointer text-black/40 hover:text-black/70 disabled:opacity-20 disabled:cursor-not-allowed"
+                            aria-label="1つ上に移動"
+                            tabIndex={-1}
+                          >
+                            <span className="material-symbols-outlined leading-none" style={{ fontSize: 16 }}>arrow_upward</span>
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); moveItem(idx, 1); }}
+                            disabled={isLast}
+                            className="w-6 h-6 flex items-center justify-center cursor-pointer text-black/40 hover:text-black/70 disabled:opacity-20 disabled:cursor-not-allowed"
+                            aria-label="1つ下に移動"
+                            tabIndex={-1}
+                          >
+                            <span className="material-symbols-outlined leading-none" style={{ fontSize: 16 }}>arrow_downward</span>
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); removeFromQueue(item.id); }}
+                            className={`flex items-center justify-center cursor-pointer text-black/40 hover:text-black/70 ${isCurrent ? 'w-7 h-7' : 'w-6 h-6'}`}
+                            aria-label="キューから削除"
+                            tabIndex={-1}
+                          >
+                            <span className="material-symbols-outlined leading-none" style={{ fontSize: isCurrent ? 16 : 14 }}>close</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
                 })}
               </div>
 
-              <div className="mt-6 mb-20 flex justify-center gap-8">
+              <div className="mt-6 mb-20 flex flex-col">
                 <button
                   onClick={() => setShareOpen(true)}
-                  className="text-[0.7rem] font-thin text-black/30 cursor-pointer"
+                  className="w-full py-2.5 bg-black text-white text-[0.8rem] font-bold cursor-pointer"
                 >
                   共有
                 </button>
+                <div className="h-10" />
                 <button
                   onClick={() => setClearConfirmOpen(true)}
-                  className="text-[0.7rem] font-thin text-black/30 cursor-pointer"
+                  className="w-full py-2.5 bg-white border border-black/20 text-red-700 text-[0.8rem] font-normal cursor-pointer"
                 >
                   全消去
                 </button>
@@ -324,7 +397,7 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
               </button>
               <button
                 onClick={() => { clearQueue(); setClearConfirmOpen(false); }}
-                className="text-[0.8rem] font-bold cursor-pointer px-4 py-2 bg-black text-white"
+                className="text-[0.8rem] font-bold cursor-pointer px-4 py-2 bg-red-700 text-white"
               >
                 全消去
               </button>
