@@ -202,6 +202,16 @@ function playlistReducer(
         ),
       };
     }
+    case 'BACKFILL_PUBLISHED_AT': {
+      let changed = false;
+      const newQueue = state.queue.map(item => {
+        if (item.publishedAt || !action.data[item.videoId]) return item;
+        changed = true;
+        return { ...item, publishedAt: action.data[item.videoId] };
+      });
+      if (!changed) return state;
+      return { ...state, queue: newQueue };
+    }
     default:
       return state;
   }
@@ -225,6 +235,7 @@ export interface UseChapterPlaylistReturn {
   setPlaying: (isPlaying: boolean) => void;
   reorder: (fromIndex: number, toIndex: number) => void;
   trimItem: (id: string, startSeconds: number, endSeconds: number) => void;
+  backfillPublishedAt: (data: Record<string, string>) => void;
 }
 
 export function useChapterPlaylist(): UseChapterPlaylistReturn {
@@ -313,6 +324,10 @@ export function useChapterPlaylist(): UseChapterPlaylistReturn {
     dispatch({ type: 'TRIM_ITEM', id, startSeconds, endSeconds });
   }, []);
 
+  const backfillPublishedAt = useCallback((data: Record<string, string>) => {
+    dispatch({ type: 'BACKFILL_PUBLISHED_AT', data });
+  }, []);
+
   return {
     state,
     addItem,
@@ -331,5 +346,6 @@ export function useChapterPlaylist(): UseChapterPlaylistReturn {
     setPlaying,
     reorder,
     trimItem,
+    backfillPublishedAt,
   };
 }

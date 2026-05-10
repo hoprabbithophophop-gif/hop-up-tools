@@ -6,6 +6,7 @@ import { BrowseView } from '../../features/youtube/components/BrowseView';
 import { PlayView } from '../../features/youtube/components/PlayView';
 import { Player } from '../../features/youtube/components/Player';
 import { ExpiredView } from '../../features/youtube/components/ExpiredView';
+import { NowPlayingBar } from '../../features/youtube/components/NowPlayingBar';
 import { getPlaylistShare, fromShareItem } from '../../features/videos/hooks/usePlaylistShare';
 import type { ChapterQueueItem } from '../../features/videos/types/playlist';
 
@@ -168,6 +169,7 @@ function ChapterPickupContent() {
       : 'fixed top-0 left-0 right-0 z-20 flex flex-col';
 
   // ホーム再生中はプレイヤー直下に「黒バー36px(チャプター名) + 白ストリップ36px(操作)」=72px
+  // 黒バー展開時はoverlayになるため、レイアウト計算は折りたたみ時の高さ固定で取る
   const infoStripH = showPlayerAtTop && !isFullscreen ? 72 : 0;
 
   const playerStyle: React.CSSProperties | undefined = isFullscreen
@@ -245,17 +247,8 @@ function ChapterPickupContent() {
         </div>
         {showPlayerAtTop && !isFullscreen && (
           <>
-            {/* 黒バー: チャプター名のみ。タップでPLAYLIST画面へ */}
-            <div
-              className="h-9 bg-black flex items-center shrink-0 cursor-pointer border-t border-white/10"
-              onClick={() => setPageState('play')}
-            >
-              <div className="flex-1 min-w-0 px-3">
-                <p className="text-white text-[0.65rem] font-thin truncate">
-                  {currentItem?.chapterLabel ?? ''}
-                </p>
-              </div>
-            </div>
+            {/* 黒バー: チャプター名（タップで全文+動画タイトル・投稿日をオーバーレイ表示。動画は縮まない） */}
+            <NowPlayingBar currentItem={currentItem} variant="overlay" />
             {/* 白ストリップ: 一覧操作（フィルター + 検索） */}
             <div className="h-9 bg-white border-b border-outline-variant/20 flex items-center px-4 shrink-0">
               <button
@@ -302,7 +295,7 @@ function ChapterPickupContent() {
             >
               <span className="material-symbols-outlined leading-none" style={{ fontSize: '22px' }}>skip_previous</span>
             </button>
-            <p className="flex-1 text-white text-[0.75rem] font-thin truncate text-center px-3">
+            <p className="flex-1 text-white text-[0.75rem] font-normal truncate text-center px-3">
               {currentItem?.chapterLabel ?? ''}
             </p>
             <button

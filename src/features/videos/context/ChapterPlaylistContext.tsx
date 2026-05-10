@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useChapterPlaylist, type UseChapterPlaylistReturn } from '../hooks/useChapterPlaylist';
 import { useYouTubePlayer } from '../hooks/useYouTubePlayer';
 import { useChapterSelection, type UseChapterSelectionReturn } from '../hooks/useChapterSelection';
 import { saveToPlayHistory } from '../hooks/usePlayHistory';
 import type { ChapterQueueItem } from '../types/playlist';
 import { shuffleArray, type SearchResultItem } from '../utils/playlist-utils';
+import { getSupabase } from '../../../lib/supabase';
 
 interface ChapterPlaylistContextValue extends UseChapterPlaylistReturn {
   playerReady: boolean;
@@ -19,6 +20,9 @@ interface ChapterPlaylistContextValue extends UseChapterPlaylistReturn {
   startInSelectionOrder: () => void;
   /** シャッフル順でキューを構築して再生開始 */
   startShuffled: () => void;
+  /** 再生中チャプターバーが展開状態か（HOME・PLAYLISTで共有） */
+  chapterBarExpanded: boolean;
+  toggleChapterBar: () => void;
 }
 
 const ChapterPlaylistContext = createContext<ChapterPlaylistContextValue | null>(null);
@@ -119,6 +123,47 @@ export function ChapterPlaylistProvider({
     startPlaylist(items);
   }, [selection, startPlaylist]);
 
+  // 投稿日が欠損しているキュー項目を Supabase から再取得して backfill する
+  // (publishedAt 追加前に保存された古いキュー項目向け)
+  const backfillTriedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const missing = state.queue
+      .filter(i => !i.publishedAt && !backfillTriedRef.current.has(i.videoId))
+      .map(i => i.videoId);
+    const unique = Array.from(new Set(missing));
+    if (unique.length === 0) return;
+    unique.forEach(id => backfillTriedRef.current.add(id));
+
+    let cancelled = false;
+    (async () => {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from('youtube_videos')
+        .select('video_id, published_at')
+        .in('video_id', unique);
+      if (cancelled || error || !data) return;
+      const map: Record<string, string> = {};
+      for (const r of data as { video_id: string; published_at: string | null }[]) {
+        if (r.published_at) map[r.video_id] = r.published_at;
+      }
+      if (Object.keys(map).length > 0) {
+        playlist.backfillPublishedAt(map);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [state.queue, playlist]);
+
+  // 再生中チャプターバーの展開状態 (HOME・PLAYLIST共有)
+  const [chapterBarExpanded, setChapterBarExpanded] = useState(false);
+  const toggleChapterBar = useCallback(() => setChapterBarExpanded(v => !v), []);
+  const currentItemIdForBar = state.currentIndex !== null
+    ? state.queue[state.currentIndex]?.id ?? null
+    : null;
+  useEffect(() => {
+    setChapterBarExpanded(false);
+  }, [currentItemIdForBar]);
+
   // キューをクリアするときは選択状態も合わせてリセット
   const handleClearQueue = useCallback(() => {
     playlist.clearQueue();
@@ -138,7 +183,9 @@ export function ChapterPlaylistProvider({
     selection,
     startInSelectionOrder,
     startShuffled,
-  }), [playlist, handleClearQueue, isReady, isTransitioning, handlePause, handleResume, getCurrentTime, playChapter, selection, startInSelectionOrder, startShuffled]);
+    chapterBarExpanded,
+    toggleChapterBar,
+  }), [playlist, handleClearQueue, isReady, isTransitioning, handlePause, handleResume, getCurrentTime, playChapter, selection, startInSelectionOrder, startShuffled, chapterBarExpanded, toggleChapterBar]);
 
   return (
     <ChapterPlaylistContext.Provider value={contextValue}>

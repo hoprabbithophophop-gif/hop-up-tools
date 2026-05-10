@@ -46,4 +46,5 @@ export type PlaylistAction =
   | { type: 'SET_PLAYING'; isPlaying: boolean }
   | { type: 'REORDER'; fromIndex: number; toIndex: number }
   | { type: 'TRIM_ITEM'; id: string; startSeconds: number; endSeconds: number }
-  | { type: 'INSERT_NEXT'; item: ChapterQueueItem };
+  | { type: 'INSERT_NEXT'; item: ChapterQueueItem }
+  | { type: 'BACKFILL_PUBLISHED_AT'; data: Record<string, string> };

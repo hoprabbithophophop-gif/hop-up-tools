@@ -3,17 +3,8 @@ import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistC
 import { PlayControls } from './PlayControls';
 import { TrimPanel } from './TrimPanel';
 import { ShareModal } from './ShareModal';
+import { NowPlayingBar } from './NowPlayingBar';
 import type { SharedPlaylist } from '../../../pages/youtube/YouTubePage';
-
-function formatPublishedDate(iso?: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}.${m}.${day}`;
-}
 
 const SWIPE_DELETE_WIDTH = 72;
 const SWIPE_REORDER_WIDTH = 96;
@@ -36,11 +27,6 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
 
   const [shareOpen, setShareOpen] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [titleBarExpanded, setTitleBarExpanded] = useState(false);
-
-  useEffect(() => {
-    setTitleBarExpanded(false);
-  }, [currentItem?.id]);
 
   // スワイプ（左=削除 / 右=並び替え）
   const [swipeOpen, setSwipeOpen] = useState<{ id: string; dir: SwipeDir } | null>(null);
@@ -156,27 +142,7 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
 
       {currentItem && (
         <section className="shrink-0">
-          {/* チャプター名 + 出典（動画タイトル · 投稿日）の黒バー。タップで全文展開 */}
-          <div
-            className="bg-black px-4 py-2 border-t border-white/10 cursor-pointer"
-            onClick={() => setTitleBarExpanded(v => !v)}
-          >
-            <p className={`text-white text-[0.7rem] font-normal ${titleBarExpanded ? 'whitespace-normal break-words' : 'truncate'}`}>
-              {currentItem.chapterLabel}
-            </p>
-            {(() => {
-              const dateText = formatPublishedDate(currentItem.publishedAt);
-              const showTitle = !currentItem.isFullVideo;
-              if (!showTitle && !dateText) return null;
-              return (
-                <p className={`text-white/40 text-[0.6rem] font-thin mt-0.5 ${titleBarExpanded ? 'whitespace-normal break-words' : 'truncate'}`}>
-                  {showTitle && currentItem.videoTitle}
-                  {showTitle && dateText && ' · '}
-                  {dateText}
-                </p>
-              );
-            })()}
-          </div>
+          <NowPlayingBar currentItem={currentItem} />
           {/* PlayControls + フルスクリーン */}
           <div className="flex items-center px-4 pt-2">
             <div className="w-9 h-9 shrink-0" />
@@ -229,7 +195,7 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
                       playChapter(item.videoId, item.startSeconds, item.endSeconds);
                     }
                   }}
-                  className="flex items-center gap-1.5 px-5 py-2.5 bg-black text-white text-[0.8rem] font-bold cursor-pointer"
+                  className="flex items-center justify-center gap-1.5 w-40 py-2.5 bg-black text-white text-[0.8rem] font-bold cursor-pointer"
                 >
                   <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>play_arrow</span>
                   すべて再生
@@ -311,7 +277,7 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
                         className={`flex items-center gap-3 cursor-pointer bg-white relative ${
                           isCurrent
                             ? 'py-2.5 px-2 border-l-2 border-black'
-                            : 'py-1.5 px-2 border-l-2 border-transparent hover:bg-black/[0.03] active:bg-black/[0.06]'
+                            : 'py-1.5 px-2 border-l-2 border-transparent hover:bg-neutral-50 active:bg-neutral-100'
                         }`}
                       >
                         <div className="flex-1 min-w-0">
@@ -321,52 +287,57 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
                               : 'text-[0.75rem] font-normal text-black/60'
                           }`}>{item.chapterLabel}</p>
                         </div>
-                        {/* PC（hoverデバイス）のみ右端に ↑ / ↓ / × が出る */}
-                        <div className="shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={e => { e.stopPropagation(); moveItem(idx, -1); }}
-                            disabled={isFirst}
-                            className="w-6 h-6 flex items-center justify-center cursor-pointer text-black/40 hover:text-black/70 disabled:opacity-20 disabled:cursor-not-allowed"
-                            aria-label="1つ上に移動"
-                            tabIndex={-1}
-                          >
-                            <span className="material-symbols-outlined leading-none" style={{ fontSize: 16 }}>arrow_upward</span>
-                          </button>
-                          <button
-                            onClick={e => { e.stopPropagation(); moveItem(idx, 1); }}
-                            disabled={isLast}
-                            className="w-6 h-6 flex items-center justify-center cursor-pointer text-black/40 hover:text-black/70 disabled:opacity-20 disabled:cursor-not-allowed"
-                            aria-label="1つ下に移動"
-                            tabIndex={-1}
-                          >
-                            <span className="material-symbols-outlined leading-none" style={{ fontSize: 16 }}>arrow_downward</span>
-                          </button>
-                          <button
-                            onClick={e => { e.stopPropagation(); removeFromQueue(item.id); }}
-                            className={`flex items-center justify-center cursor-pointer text-black/40 hover:text-black/70 ${isCurrent ? 'w-7 h-7' : 'w-6 h-6'}`}
-                            aria-label="キューから削除"
-                            tabIndex={-1}
-                          >
-                            <span className="material-symbols-outlined leading-none" style={{ fontSize: isCurrent ? 16 : 14 }}>close</span>
-                          </button>
-                        </div>
+                      </div>
+                      {/* PC（hoverデバイス）のみ右端に絶対配置で ↑ / ↓ / × が出る */}
+                      <div
+                        className={`absolute right-0 top-0 bottom-0 flex items-center pl-4 pr-1 bg-white opacity-0 group-hover:opacity-100 transition-opacity duration-150 group-hover:delay-200 pointer-events-none group-hover:pointer-events-auto ${
+                          openDir ? 'hidden' : ''
+                        }`}
+                        style={{ transform: `translateX(${xOffset}px)` }}
+                      >
+                        <button
+                          onClick={e => { e.stopPropagation(); moveItem(idx, -1); }}
+                          disabled={isFirst}
+                          className="w-6 h-6 flex items-center justify-center cursor-pointer text-black/40 hover:text-black/70 disabled:opacity-20 disabled:cursor-not-allowed"
+                          aria-label="1つ上に移動"
+                          tabIndex={-1}
+                        >
+                          <span className="material-symbols-outlined leading-none" style={{ fontSize: 16 }}>arrow_upward</span>
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); moveItem(idx, 1); }}
+                          disabled={isLast}
+                          className="w-6 h-6 flex items-center justify-center cursor-pointer text-black/40 hover:text-black/70 disabled:opacity-20 disabled:cursor-not-allowed"
+                          aria-label="1つ下に移動"
+                          tabIndex={-1}
+                        >
+                          <span className="material-symbols-outlined leading-none" style={{ fontSize: 16 }}>arrow_downward</span>
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); removeFromQueue(item.id); }}
+                          className={`flex items-center justify-center cursor-pointer text-black/40 hover:text-black/70 ${isCurrent ? 'w-7 h-7' : 'w-6 h-6'}`}
+                          aria-label="キューから削除"
+                          tabIndex={-1}
+                        >
+                          <span className="material-symbols-outlined leading-none" style={{ fontSize: isCurrent ? 16 : 14 }}>close</span>
+                        </button>
                       </div>
                     </div>
                   );
                 })}
               </div>
 
-              <div className="mt-6 mb-20 flex flex-col">
+              <div className="mt-6 mb-20 flex flex-col items-center">
                 <button
                   onClick={() => setShareOpen(true)}
-                  className="w-full py-2.5 bg-black text-white text-[0.8rem] font-bold cursor-pointer"
+                  className="flex items-center justify-center w-40 py-2.5 bg-black text-white text-[0.8rem] font-bold cursor-pointer"
                 >
                   共有
                 </button>
                 <div className="h-10" />
                 <button
                   onClick={() => setClearConfirmOpen(true)}
-                  className="w-full py-2.5 bg-white border border-black/20 text-red-700 text-[0.8rem] font-normal cursor-pointer"
+                  className="flex items-center justify-center w-40 py-2.5 bg-white border border-black/20 text-red-700 text-[0.8rem] font-normal cursor-pointer"
                 >
                   全消去
                 </button>
