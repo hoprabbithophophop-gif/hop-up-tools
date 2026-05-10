@@ -318,7 +318,7 @@ function ChapterPickupContent() {
 
       {/* Home (Browse + Search 統合) */}
       <div
-        className={pageState === 'home' ? (hasQueue ? 'pb-[68px]' : '') : 'hidden'}
+        className={pageState === 'home' ? 'pb-[68px]' : 'hidden'}
         style={
           pageState === 'home'
             ? {
@@ -334,7 +334,7 @@ function ChapterPickupContent() {
       {/* PlayView */}
       <div
         data-testid="play-view"
-        className={pageState === 'play' ? `${hasQueue ? 'pb-[68px]' : ''}` : 'hidden'}
+        className={pageState === 'play' ? 'pb-[68px]' : 'hidden'}
         style={isPlayLandscape ? { marginLeft: '45vw' } : undefined}
       >
         <PlayView sharedPlaylist={sharedPlaylist} onGoHome={handleGoToHome} onToggleFullscreen={toggleFullscreen} isLandscapePlay={isPlayLandscape} />
@@ -373,7 +373,7 @@ function ChapterPickupContent() {
       )}
 
       {/* タブバー */}
-      <nav className={`fixed bottom-[20px] left-0 right-0 z-50 h-12 bg-white flex${isFullscreen || !hasQueue ? ' hidden' : ''}`}>
+      <nav className={`fixed bottom-[20px] left-0 right-0 z-50 h-12 bg-white flex${isFullscreen ? ' hidden' : ''}`}>
         <button
           onClick={handleGoToHome}
           className={`flex-1 flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
@@ -405,7 +405,7 @@ function ChapterPickupContent() {
       </nav>
 
       {/* フッター */}
-      <div className={`fixed bottom-0 left-0 right-0 z-50 h-[20px] bg-black flex items-center justify-center${isFullscreen || !hasQueue ? ' hidden' : ''}`}>
+      <div className={`fixed bottom-0 left-0 right-0 z-50 h-[20px] bg-black flex items-center justify-center${isFullscreen ? ' hidden' : ''}`}>
         <span className="text-white text-[0.6rem] font-thin tracking-wide">
           ▶ YouTube · Unofficial Fan Tool · hop-up-tools.pages.dev
         </span>

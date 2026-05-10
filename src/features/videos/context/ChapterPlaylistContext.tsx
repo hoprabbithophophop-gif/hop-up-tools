@@ -154,6 +154,19 @@ export function ChapterPlaylistProvider({
     return () => { cancelled = true; };
   }, [state.queue, playlist]);
 
+  // キュー終端でプレイヤーを停止（音だけ残る問題対策）
+  // チャプターポーリングでendSecondsを越えるとplayNext→NEXT reducerが走り、
+  // キュー末尾なら currentIndex=null になる。が、player.pauseVideo()は呼ばれないので
+  // iframe内では動画が再生継続して音だけ残る → このeffectで明示的に停止する。
+  const prevCurrentIndexForStopRef = useRef<number | null>(null);
+  useEffect(() => {
+    const prev = prevCurrentIndexForStopRef.current;
+    prevCurrentIndexForStopRef.current = state.currentIndex;
+    if (prev !== null && state.currentIndex === null) {
+      pause();
+    }
+  }, [state.currentIndex, pause]);
+
   // 再生中チャプターバーの展開状態 (HOME・PLAYLIST共有)
   const [chapterBarExpanded, setChapterBarExpanded] = useState(false);
   const toggleChapterBar = useCallback(() => setChapterBarExpanded(v => !v), []);

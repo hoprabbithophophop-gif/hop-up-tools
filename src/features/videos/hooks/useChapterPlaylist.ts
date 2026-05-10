@@ -87,17 +87,20 @@ function playlistReducer(
       const newQueue = [...state.queue];
       newQueue.splice(idx, 1);
       let newCurrentIndex = state.currentIndex;
+      let newIsPlaying = state.isPlaying;
       if (newCurrentIndex !== null) {
         if (idx === newCurrentIndex) {
           // 再生中のアイテムを削除: 同位置のアイテムへ（存在すれば）
           newCurrentIndex = newQueue.length > 0
             ? Math.min(newCurrentIndex, newQueue.length - 1)
             : null;
+          // 次の項目があれば自動再生に切り替え（player に古い動画が残ってる問題回避）
+          newIsPlaying = newCurrentIndex !== null;
         } else if (idx < newCurrentIndex) {
           newCurrentIndex = newCurrentIndex - 1;
         }
       }
-      return { ...state, queue: newQueue, currentIndex: newCurrentIndex };
+      return { ...state, queue: newQueue, currentIndex: newCurrentIndex, isPlaying: newIsPlaying };
     }
     case 'SET_CURRENT': {
       if (action.index < 0 || action.index >= state.queue.length) return state;
