@@ -5,6 +5,8 @@ interface VideoRow {
   title: string;
   channel_name: string;
   thumbnail_url: string;
+  duration_seconds?: number | null;
+  published_at?: string | null;
 }
 
 interface Chapter {
@@ -32,6 +34,7 @@ export function buildChapterQueueItems(
     id: makeChapterId(video.video_id, ch.seconds),
     videoId: video.video_id,
     videoTitle: video.title,
+    publishedAt: video.published_at ?? undefined,
     channelName: video.channel_name,
     thumbnailUrl: video.thumbnail_url,
     chapterLabel: ch.label,
@@ -39,7 +42,7 @@ export function buildChapterQueueItems(
     startSeconds: ch.seconds,
     endSeconds: i + 1 < chapters.length
       ? chapters[i + 1].seconds
-      : Number.MAX_SAFE_INTEGER,
+      : (video.duration_seconds && video.duration_seconds > 0 ? video.duration_seconds : Number.MAX_SAFE_INTEGER),
     isFullVideo: false,
   }));
 }
@@ -55,6 +58,7 @@ export function buildSingleChapterQueueItem(
     id: makeChapterId(video.video_id, ch.seconds),
     videoId: video.video_id,
     videoTitle: video.title,
+    publishedAt: video.published_at ?? undefined,
     channelName: video.channel_name,
     thumbnailUrl: video.thumbnail_url,
     chapterLabel: ch.label,
@@ -62,7 +66,7 @@ export function buildSingleChapterQueueItem(
     startSeconds: ch.seconds,
     endSeconds: index + 1 < chapters.length
       ? chapters[index + 1].seconds
-      : Number.MAX_SAFE_INTEGER,
+      : (video.duration_seconds && video.duration_seconds > 0 ? video.duration_seconds : Number.MAX_SAFE_INTEGER),
     isFullVideo: false,
   };
 }
@@ -73,26 +77,33 @@ export function buildFullVideoQueueItem(video: VideoRow): ChapterQueueItem {
     id: makeVideoId(video.video_id),
     videoId: video.video_id,
     videoTitle: video.title,
+    publishedAt: video.published_at ?? undefined,
     channelName: video.channel_name,
     thumbnailUrl: video.thumbnail_url,
     chapterLabel: video.title,
     chapterTimestamp: '',
     startSeconds: 0,
-    endSeconds: Infinity,
+    endSeconds: video.duration_seconds && video.duration_seconds > 0
+      ? video.duration_seconds
+      : Number.MAX_SAFE_INTEGER,
     isFullVideo: true,
   };
 }
 
-/** 秒数を mm:ss または hh:mm:ss フォーマットに変換 */
-export function formatSeconds(totalSeconds: number): string {
+/** 秒数を mm:ss(.f) または hh:mm:ss(.f) フォーマットに変換。precisionで小数点桁数指定（0=整数, 1=.f, 2=.ff） */
+export function formatSeconds(totalSeconds: number, precision: 0 | 1 | 2 = 0): string {
   if (!isFinite(totalSeconds) || totalSeconds === Number.MAX_SAFE_INTEGER) return '--:--';
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = Math.floor(totalSeconds % 60);
+  const wholeS = Math.floor(totalSeconds % 60);
+  const fraction = precision > 0
+    ? '.' + String(Math.floor((totalSeconds * Math.pow(10, precision)) % Math.pow(10, precision))).padStart(precision, '0')
+    : '';
+  const sStr = String(wholeS).padStart(2, '0') + fraction;
   if (h > 0) {
-    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${h}:${String(m).padStart(2, '0')}:${sStr}`;
   }
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${String(m).padStart(2, '0')}:${sStr}`;
 }
 
 /** Fisher-Yates シャッフル */

@@ -7,15 +7,18 @@ const END_THRESHOLD_SECONDS = 0.5;
 interface UseYouTubePlayerOptions {
   onChapterEnd: () => void;
   onError?: (errorCode: number) => void;
+  onPlayStateChange?: (isPlaying: boolean) => void;
   /** true になったときにプレイヤーを初期化する。false の間は初期化しない */
   enabled?: boolean;
 }
 
 interface UseYouTubePlayerReturn {
   isReady: boolean;
+  isTransitioning: boolean;
   playChapter: (videoId: string, startSeconds: number, endSeconds: number) => void;
   pause: () => void;
   resume: () => void;
+  getCurrentTime: () => number;
 }
 
 interface PendingChapter {
@@ -49,21 +52,30 @@ function loadYouTubeAPI(): Promise<void> {
 export function useYouTubePlayer({
   onChapterEnd,
   onError,
+  onPlayStateChange,
   enabled = true,
 }: UseYouTubePlayerOptions): UseYouTubePlayerReturn {
   const [isReady, setIsReady] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const playerRef = useRef<YT.Player | null>(null);
   const endSecondsRef = useRef<number>(Number.MAX_SAFE_INTEGER);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onChapterEndRef = useRef(onChapterEnd);
+  const onPlayStateChangeRef = useRef(onPlayStateChange);
   const chapterEndFiredRef = useRef(false);
   // isReady 前に playChapter が呼ばれた場合に保持する
   const pendingChapterRef = useRef<PendingChapter | null>(null);
   const isReadyRef = useRef(false);
+  // 同一チャプターの二重呼び出し（PlayView直接呼び＋Context useEffect）を抑制
+  const lastPlayCallRef = useRef<{ videoId: string; startSeconds: number; time: number } | null>(null);
 
   useEffect(() => {
     onChapterEndRef.current = onChapterEnd;
   }, [onChapterEnd]);
+
+  useEffect(() => {
+    onPlayStateChangeRef.current = onPlayStateChange;
+  }, [onPlayStateChange]);
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current !== null) {
@@ -78,8 +90,8 @@ export function useYouTubePlayer({
       const player = playerRef.current;
       if (!player) return;
       const end = endSecondsRef.current;
-      // Infinity or MAX_SAFE_INTEGER の場合はポーリング不要
-      if (!isFinite(end) || end === Number.MAX_SAFE_INTEGER) return;
+      // Infinity / MAX_SAFE_INTEGER / 無効値の場合はポーリング不要
+      if (!isFinite(end) || end === Number.MAX_SAFE_INTEGER || end <= 0) return;
       try {
         const current = player.getCurrentTime();
         if (!chapterEndFiredRef.current && current >= end - END_THRESHOLD_SECONDS) {
@@ -93,6 +105,8 @@ export function useYouTubePlayer({
     }, POLLING_MS);
   }, [stopPolling]);
 
+  const currentVideoIdRef = useRef<string | null>(null);
+
   const doLoadVideo = useCallback((
     player: YT.Player,
     videoId: string,
@@ -102,17 +116,27 @@ export function useYouTubePlayer({
     endSecondsRef.current = endSeconds;
     chapterEndFiredRef.current = false;
     stopPolling();
+
+    const sameVideo = currentVideoIdRef.current === videoId;
+    currentVideoIdRef.current = videoId;
+
+    if (sameVideo) {
+      player.seekTo(startSeconds, true);
+      player.playVideo();
+      startPolling();
+      return;
+    }
+
+    setIsTransitioning(true);
     const params: { videoId: string; startSeconds: number; endSeconds?: number } = {
       videoId,
       startSeconds,
     };
-    // Infinity や MAX_SAFE_INTEGER は endSeconds を渡さない
-    if (isFinite(endSeconds) && endSeconds !== Number.MAX_SAFE_INTEGER) {
+    if (isFinite(endSeconds) && endSeconds !== Number.MAX_SAFE_INTEGER && endSeconds > 0) {
       params.endSeconds = endSeconds;
     }
-    console.log('[YTPlayer] loadVideoById called:', videoId, startSeconds, endSeconds);
     player.loadVideoById(params);
-  }, [stopPolling]);
+  }, [stopPolling, startPolling]);
 
   useEffect(() => {
     // enabled が false の間はプレイヤーを初期化しない
@@ -137,8 +161,14 @@ export function useYouTubePlayer({
 
       if (!mounted) return;
 
-      // Step 2: DOM要素の存在確認
-      const element = document.getElementById(PLAYER_CONTAINER_ID);
+      // Step 2: DOM要素の出現を待機（LoadingScreen中はPlayerが未描画の場合がある）
+      let element: HTMLElement | null = null;
+      for (let i = 0; i < 25; i++) {
+        element = document.getElementById(PLAYER_CONTAINER_ID);
+        if (element || !mounted) break;
+        await new Promise(r => setTimeout(r, 200));
+      }
+      if (!mounted) return;
       if (!element) {
         console.error(`[YTPlayer] Element #${PLAYER_CONTAINER_ID} not found in DOM`);
         return;
@@ -175,8 +205,13 @@ export function useYouTubePlayer({
             if (!mounted) return;
             const state = event.data;
             if (state === YT.PlayerState.PLAYING) {
+              setIsTransitioning(false);
               startPolling();
-            } else if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.BUFFERING) {
+              onPlayStateChangeRef.current?.(true);
+            } else if (state === YT.PlayerState.PAUSED) {
+              stopPolling();
+              onPlayStateChangeRef.current?.(false);
+            } else if (state === YT.PlayerState.BUFFERING) {
               stopPolling();
             } else if (state === YT.PlayerState.ENDED) {
               stopPolling();
@@ -211,6 +246,20 @@ export function useYouTubePlayer({
   }, [enabled]);
 
   const playChapter = useCallback((videoId: string, startSeconds: number, endSeconds: number) => {
+    // 500ms以内の同一videoId/startSeconds呼び出しはスキップ（共有URL初回再生バグ対策）
+    const now = Date.now();
+    const last = lastPlayCallRef.current;
+    if (
+      last &&
+      last.videoId === videoId &&
+      Math.abs(last.startSeconds - startSeconds) < 0.01 &&
+      now - last.time < 500
+    ) {
+      console.log('[YTPlayer] Dedup: skip duplicate playChapter', videoId, startSeconds);
+      return;
+    }
+    lastPlayCallRef.current = { videoId, startSeconds, time: now };
+
     if (isReadyRef.current && playerRef.current) {
       // 準備完了済み → 即再生
       doLoadVideo(playerRef.current, videoId, startSeconds, endSeconds);
@@ -230,9 +279,17 @@ export function useYouTubePlayer({
     playerRef.current?.playVideo();
   }, []);
 
+  const getCurrentTime = useCallback(() => {
+    try {
+      return playerRef.current?.getCurrentTime() ?? 0;
+    } catch {
+      return 0;
+    }
+  }, []);
+
   useEffect(() => {
     return () => stopPolling();
   }, [stopPolling]);
 
-  return { isReady, playChapter, pause, resume };
+  return { isReady, isTransitioning, playChapter, pause, resume, getCurrentTime };
 }

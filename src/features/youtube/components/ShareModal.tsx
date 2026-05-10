@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import type { ChapterQueueItem } from '../types/playlist';
-import { createPlaylistShare } from '../hooks/usePlaylistShare';
+import type { ChapterQueueItem } from '../../videos/types/playlist';
+import { createPlaylistShare } from '../../videos/hooks/usePlaylistShare';
 
 type Step = 'input' | 'loading' | 'result' | 'error';
 
@@ -9,7 +9,7 @@ interface Props {
   onClose: () => void;
 }
 
-export function SharePlaylistDialog({ queue, onClose }: Props) {
+export function ShareModal({ queue, onClose }: Props) {
   const defaultTitle = queue[0]?.chapterLabel ?? '';
   const [title, setTitle] = useState('');
   const [step, setStep] = useState<Step>('input');
@@ -19,20 +19,24 @@ export function SharePlaylistDialog({ queue, onClose }: Props) {
   const [copied, setCopied] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+  useEffect(() => { inputRef.current?.focus(); }, []);
 
-  const handleCreate = async () => {
+  const handleTitleNext = async () => {
+    setResolvedTitle(title.trim() || defaultTitle);
+    await generateShareUrl(title.trim() || defaultTitle);
+  };
+
+  const generateShareUrl = async (titleOverride?: string) => {
     setStep('loading');
     try {
-      const t = title.trim() || defaultTitle;
-      const url = await createPlaylistShare(t, queue);
-      setShareUrl(url);
+      const t = titleOverride ?? (resolvedTitle || title.trim() || defaultTitle);
       setResolvedTitle(t);
+      const rawUrl = await createPlaylistShare(t, queue);
+      const url = rawUrl.replace('/youtube/pickup?p=', '/youtube?p=');
+      setShareUrl(url);
       setStep('result');
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : '不明なエラー');
+      setErrorMsg(e instanceof Error ? e.message : '');
       setStep('error');
     }
   };
@@ -44,7 +48,7 @@ export function SharePlaylistDialog({ queue, onClose }: Props) {
   };
 
   const handleTweet = () => {
-    const text = `${resolvedTitle}\n${shareUrl}\n#SHIOOOOORI #hopuptools`;
+    const text = `${resolvedTitle}\n${shareUrl}`;
     window.open(
       `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
       '_blank'
@@ -55,25 +59,47 @@ export function SharePlaylistDialog({ queue, onClose }: Props) {
     if (e.target === e.currentTarget) onClose();
   };
 
+  const stepLabels = ['タイトル', '共有'];
+  const stepIndex = step === 'input' ? 0 : 1;
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
       onClick={handleBackdrop}
     >
       <div className="bg-surface border border-outline-variant/40 w-full max-w-sm mx-4 shadow-2xl">
-        {/* ヘッダー */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-outline-variant/20">
           <p className="text-sm font-bold">プレイリストを共有</p>
           <button
             onClick={onClose}
-            className="text-outline hover:text-primary text-sm cursor-pointer"
+            className="w-8 h-8 flex items-center justify-center text-outline hover:text-primary transition-colors cursor-pointer"
           >
-            ✕
+            <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>
+              close
+            </span>
           </button>
         </div>
 
+        <div className="flex px-4 pt-3 pb-1 gap-1">
+          {stepLabels.map((label, i) => (
+            <div key={label} className="flex-1 flex flex-col items-center gap-1">
+              <div
+                className={`h-0.5 w-full ${
+                  i <= stepIndex ? 'bg-primary' : 'bg-outline-variant/30'
+                }`}
+              />
+              <span
+                className={`text-[0.5rem] uppercase tracking-widest ${
+                  i <= stepIndex ? 'text-on-surface font-bold' : 'text-outline/50'
+                }`}
+              >
+                {label}
+              </span>
+            </div>
+          ))}
+        </div>
+
         <div className="px-4 py-4">
-          {/* タイトル入力 */}
           {step === 'input' && (
             <>
               <p className="text-[0.65rem] text-outline mb-1">
@@ -92,14 +118,12 @@ export function SharePlaylistDialog({ queue, onClose }: Props) {
                 type="text"
                 value={title}
                 onChange={e => setTitle(e.target.value.slice(0, 50))}
-                onKeyDown={e => e.key === 'Enter' && handleCreate()}
+                onKeyDown={e => e.key === 'Enter' && handleTitleNext()}
                 placeholder={defaultTitle}
                 maxLength={50}
                 className="w-full bg-surface-container border border-outline-variant/40 px-3 py-2 text-sm focus:outline-none focus:border-primary"
               />
-              <p className="text-[0.55rem] text-outline/50 text-right mt-1">
-                {title.length}/50
-              </p>
+              <p className="text-[0.55rem] text-outline/50 text-right mt-1">{title.length}/50</p>
               <div className="flex gap-2 mt-4">
                 <button
                   onClick={onClose}
@@ -108,29 +132,28 @@ export function SharePlaylistDialog({ queue, onClose }: Props) {
                   キャンセル
                 </button>
                 <button
-                  onClick={handleCreate}
-                  className="flex-1 py-2 text-xs font-bold uppercase tracking-widest bg-primary text-on-primary-fixed hover:bg-secondary transition-colors cursor-pointer"
+                  onClick={handleTitleNext}
+                  className="flex-1 py-2 text-xs font-bold uppercase tracking-widest bg-primary text-on-primary-fixed hover:opacity-80 transition-opacity cursor-pointer"
                 >
-                  共有URLを作成
+                  次へ
                 </button>
               </div>
             </>
           )}
 
-          {/* 生成中 */}
           {step === 'loading' && (
             <div className="flex items-center justify-center py-8">
               <p className="text-xs text-outline uppercase tracking-widest">生成中...</p>
             </div>
           )}
 
-          {/* 結果 */}
           {step === 'result' && (
             <>
-              <p className="text-[0.65rem] text-outline mb-1">共有URLを作成しました！</p>
+              <p className="text-[0.65rem] text-outline mb-1">共有URLを作成しました</p>
               <p className="text-[0.7rem] font-bold text-on-surface mb-2 line-clamp-1">
                 {resolvedTitle}
               </p>
+
               <div className="bg-surface-container px-3 py-2 mb-1">
                 <p className="text-[0.6rem] font-mono text-outline break-all">{shareUrl}</p>
               </div>
@@ -140,9 +163,9 @@ export function SharePlaylistDialog({ queue, onClose }: Props) {
               <div className="flex flex-col gap-2">
                 <button
                   onClick={handleCopy}
-                  className="w-full py-2.5 text-xs font-bold uppercase tracking-widest bg-primary text-on-primary-fixed hover:bg-secondary transition-colors cursor-pointer"
+                  className="w-full py-2.5 text-xs font-bold uppercase tracking-widest bg-primary text-on-primary-fixed hover:opacity-80 transition-opacity cursor-pointer"
                 >
-                  {copied ? '✓ コピー済み' : '📋 コピー'}
+                  {copied ? '✓ コピー済み' : 'コピー'}
                 </button>
                 <button
                   onClick={handleTweet}
@@ -154,7 +177,6 @@ export function SharePlaylistDialog({ queue, onClose }: Props) {
             </>
           )}
 
-          {/* エラー */}
           {step === 'error' && (
             <>
               <p className="text-sm text-red-500 mb-4">{errorMsg}</p>

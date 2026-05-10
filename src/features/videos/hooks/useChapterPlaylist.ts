@@ -1,4 +1,4 @@
-import { useReducer, useCallback } from 'react';
+import { useReducer, useCallback, useEffect } from 'react';
 import type { ChapterQueueItem, ChapterPlaylistState, PlaylistAction } from '../types/playlist';
 import {
   buildChapterQueueItems,
@@ -11,12 +11,44 @@ interface VideoRow {
   title: string;
   channel_name: string;
   thumbnail_url: string;
+  duration_seconds?: number | null;
+  published_at?: string | null;
 }
 
 interface Chapter {
   seconds: number;
   label: string;
   timestamp: string;
+}
+
+const QUEUE_STORAGE_KEY = 'hop-yt-queue';
+
+function loadSavedQueue(): ChapterQueueItem[] {
+  try {
+    const raw = localStorage.getItem(QUEUE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item: ChapterQueueItem) => ({
+      ...item,
+      endSeconds:
+        item.endSeconds == null || item.endSeconds <= 0
+          ? Number.MAX_SAFE_INTEGER
+          : item.endSeconds,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function saveQueue(queue: ChapterQueueItem[]) {
+  try {
+    if (queue.length === 0) {
+      localStorage.removeItem(QUEUE_STORAGE_KEY);
+    } else {
+      localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
+    }
+  } catch {}
 }
 
 const initialState: ChapterPlaylistState = {
@@ -34,15 +66,11 @@ function playlistReducer(
 ): ChapterPlaylistState {
   switch (action.type) {
     case 'ADD_ITEM': {
-      if (state.queue.some(i => i.id === action.item.id)) return state;
       return { ...state, queue: [...state.queue, action.item] };
     }
     case 'ADD_ITEMS': {
-      const newItems = action.items.filter(
-        item => !state.queue.some(existing => existing.id === item.id)
-      );
-      if (newItems.length === 0) return state;
-      return { ...state, queue: [...state.queue, ...newItems] };
+      if (action.items.length === 0) return state;
+      return { ...state, queue: [...state.queue, ...action.items] };
     }
     case 'START_PLAYLIST': {
       if (action.items.length === 0) return state;
@@ -56,19 +84,23 @@ function playlistReducer(
     case 'REMOVE_ITEM': {
       const idx = state.queue.findIndex(i => i.id === action.id);
       if (idx === -1) return state;
-      const newQueue = state.queue.filter(i => i.id !== action.id);
+      const newQueue = [...state.queue];
+      newQueue.splice(idx, 1);
       let newCurrentIndex = state.currentIndex;
+      let newIsPlaying = state.isPlaying;
       if (newCurrentIndex !== null) {
         if (idx === newCurrentIndex) {
           // 再生中のアイテムを削除: 同位置のアイテムへ（存在すれば）
           newCurrentIndex = newQueue.length > 0
             ? Math.min(newCurrentIndex, newQueue.length - 1)
             : null;
+          // 次の項目があれば自動再生に切り替え（player に古い動画が残ってる問題回避）
+          newIsPlaying = newCurrentIndex !== null;
         } else if (idx < newCurrentIndex) {
           newCurrentIndex = newCurrentIndex - 1;
         }
       }
-      return { ...state, queue: newQueue, currentIndex: newCurrentIndex };
+      return { ...state, queue: newQueue, currentIndex: newCurrentIndex, isPlaying: newIsPlaying };
     }
     case 'SET_CURRENT': {
       if (action.index < 0 || action.index >= state.queue.length) return state;
@@ -157,6 +189,32 @@ function playlistReducer(
       }
       return { ...state, queue: newQueue, currentIndex: newCurrentIndex };
     }
+    case 'INSERT_NEXT': {
+      const insertAt = state.currentIndex !== null ? state.currentIndex + 1 : 0;
+      const newQueue = [...state.queue];
+      newQueue.splice(insertAt, 0, action.item);
+      return { ...state, queue: newQueue };
+    }
+    case 'TRIM_ITEM': {
+      return {
+        ...state,
+        queue: state.queue.map(item =>
+          item.id === action.id
+            ? { ...item, startSeconds: action.startSeconds, endSeconds: action.endSeconds }
+            : item
+        ),
+      };
+    }
+    case 'BACKFILL_PUBLISHED_AT': {
+      let changed = false;
+      const newQueue = state.queue.map(item => {
+        if (item.publishedAt || !action.data[item.videoId]) return item;
+        changed = true;
+        return { ...item, publishedAt: action.data[item.videoId] };
+      });
+      if (!changed) return state;
+      return { ...state, queue: newQueue };
+    }
     default:
       return state;
   }
@@ -164,9 +222,12 @@ function playlistReducer(
 
 export interface UseChapterPlaylistReturn {
   state: ChapterPlaylistState;
+  addItem: (item: ChapterQueueItem) => void;
+  insertNext: (item: ChapterQueueItem) => void;
   addToQueue: (video: VideoRow, chapters: Chapter[], chapterIndex: number) => void;
   addAllToQueue: (video: VideoRow, chapters: Chapter[]) => void;
   startPlaylist: (items: ChapterQueueItem[]) => void;
+  appendItems: (items: ChapterQueueItem[]) => void;
   removeFromQueue: (id: string) => void;
   jumpTo: (index: number) => void;
   playNext: () => void;
@@ -175,23 +236,55 @@ export interface UseChapterPlaylistReturn {
   toggleRepeat: () => void;
   clearQueue: () => void;
   setPlaying: (isPlaying: boolean) => void;
+  reorder: (fromIndex: number, toIndex: number) => void;
+  trimItem: (id: string, startSeconds: number, endSeconds: number) => void;
+  backfillPublishedAt: (data: Record<string, string>) => void;
 }
 
 export function useChapterPlaylist(): UseChapterPlaylistReturn {
-  const [state, dispatch] = useReducer(playlistReducer, initialState);
+  const [state, dispatch] = useReducer(playlistReducer, null, (): ChapterPlaylistState => ({
+    ...initialState,
+    queue: loadSavedQueue(),
+  }));
+
+  useEffect(() => {
+    saveQueue(state.queue);
+  }, [state.queue]);
+
+  const addItem = useCallback((item: ChapterQueueItem) => {
+    const uid = `${item.id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    dispatch({ type: 'ADD_ITEM', item: { ...item, id: uid } });
+  }, []);
+
+  const insertNext = useCallback((item: ChapterQueueItem) => {
+    const uid = `${item.id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    dispatch({ type: 'INSERT_NEXT', item: { ...item, id: uid } });
+  }, []);
 
   const addToQueue = useCallback((video: VideoRow, chapters: Chapter[], chapterIndex: number) => {
     const item = buildSingleChapterQueueItem(video, chapters, chapterIndex);
-    dispatch({ type: 'ADD_ITEM', item });
+    const uid = `${item.id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    dispatch({ type: 'ADD_ITEM', item: { ...item, id: uid } });
   }, []);
 
   const addAllToQueue = useCallback((video: VideoRow, chapters: Chapter[]) => {
-    const items = buildChapterQueueItems(video, chapters);
+    const items = buildChapterQueueItems(video, chapters).map(item => ({
+      ...item,
+      id: `${item.id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    }));
     dispatch({ type: 'ADD_ITEMS', items });
   }, []);
 
   const startPlaylist = useCallback((items: ChapterQueueItem[]) => {
     dispatch({ type: 'START_PLAYLIST', items });
+  }, []);
+
+  const appendItems = useCallback((items: ChapterQueueItem[]) => {
+    const withUids = items.map(item => ({
+      ...item,
+      id: `${item.id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    }));
+    dispatch({ type: 'ADD_ITEMS', items: withUids });
   }, []);
 
   const removeFromQueue = useCallback((id: string) => {
@@ -226,11 +319,26 @@ export function useChapterPlaylist(): UseChapterPlaylistReturn {
     dispatch({ type: 'SET_PLAYING', isPlaying });
   }, []);
 
+  const reorder = useCallback((fromIndex: number, toIndex: number) => {
+    dispatch({ type: 'REORDER', fromIndex, toIndex });
+  }, []);
+
+  const trimItem = useCallback((id: string, startSeconds: number, endSeconds: number) => {
+    dispatch({ type: 'TRIM_ITEM', id, startSeconds, endSeconds });
+  }, []);
+
+  const backfillPublishedAt = useCallback((data: Record<string, string>) => {
+    dispatch({ type: 'BACKFILL_PUBLISHED_AT', data });
+  }, []);
+
   return {
     state,
+    addItem,
+    insertNext,
     addToQueue,
     addAllToQueue,
     startPlaylist,
+    appendItems,
     removeFromQueue,
     jumpTo,
     playNext,
@@ -239,5 +347,8 @@ export function useChapterPlaylist(): UseChapterPlaylistReturn {
     toggleRepeat,
     clearQueue,
     setPlaying,
+    reorder,
+    trimItem,
+    backfillPublishedAt,
   };
 }

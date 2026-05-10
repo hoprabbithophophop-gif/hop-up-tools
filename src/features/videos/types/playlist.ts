@@ -5,6 +5,8 @@ export interface ChapterQueueItem {
   videoId: string;
   /** 動画タイトル */
   videoTitle: string;
+  /** 動画公開日（ISO8601） */
+  publishedAt?: string;
   /** チャンネル名 */
   channelName: string;
   /** サムネイルURL */
@@ -42,4 +44,7 @@ export type PlaylistAction =
   | { type: 'TOGGLE_REPEAT' }
   | { type: 'CLEAR' }
   | { type: 'SET_PLAYING'; isPlaying: boolean }
-  | { type: 'REORDER'; fromIndex: number; toIndex: number };
+  | { type: 'REORDER'; fromIndex: number; toIndex: number }
+  | { type: 'TRIM_ITEM'; id: string; startSeconds: number; endSeconds: number }
+  | { type: 'INSERT_NEXT'; item: ChapterQueueItem }
+  | { type: 'BACKFILL_PUBLISHED_AT'; data: Record<string, string> };

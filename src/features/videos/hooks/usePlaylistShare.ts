@@ -6,6 +6,7 @@ import type { ChapterQueueItem } from '../types/playlist';
 export interface PlaylistShareItem {
   videoId: string;
   videoTitle: string;
+  publishedAt?: string | null;
   chapterTitle: string;
   startSeconds: number;
   endSeconds: number | null; // null = Infinity
@@ -28,6 +29,7 @@ export function toShareItem(item: ChapterQueueItem): PlaylistShareItem {
   return {
     videoId: item.videoId,
     videoTitle: item.videoTitle,
+    publishedAt: item.publishedAt ?? null,
     chapterTitle: item.chapterLabel,
     startSeconds: item.startSeconds,
     endSeconds: isInfinite ? null : item.endSeconds,
@@ -41,12 +43,13 @@ export function fromShareItem(item: PlaylistShareItem): ChapterQueueItem {
     id: `shared_${item.videoId}_${item.startSeconds}`,
     videoId: item.videoId,
     videoTitle: item.videoTitle,
+    publishedAt: item.publishedAt ?? undefined,
     channelName: '',
     thumbnailUrl: `https://img.youtube.com/vi/${item.videoId}/mqdefault.jpg`,
     chapterLabel: item.chapterTitle,
     chapterTimestamp: '',
     startSeconds: item.startSeconds,
-    endSeconds: item.endSeconds === null ? Infinity : item.endSeconds,
+    endSeconds: item.endSeconds === null ? Number.MAX_SAFE_INTEGER : item.endSeconds,
     isFullVideo: item.isFullVideo,
   };
 }
