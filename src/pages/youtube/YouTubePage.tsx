@@ -27,7 +27,7 @@ function LoadingScreen() {
 }
 
 function ChapterPickupContent() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const playlistId = searchParams.get('p');
 
   const [pageState, setPageState] = useState<PageState>('home');
@@ -123,6 +123,18 @@ function ChapterPickupContent() {
       requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
     }
   }, [pageState]);
+
+  // キューが空になったら共有バナーとURLパラメータをクリーンアップ
+  // 全消去・最後の1件削除・終端到達など、結果的にキューが空になったすべてのケースで発火
+  const hadItemsRef = useRef(false);
+  useEffect(() => {
+    const hasItems = state.queue.length > 0;
+    if (hadItemsRef.current && !hasItems) {
+      setSharedPlaylist(null);
+      setSearchParams({}, { replace: true });
+    }
+    hadItemsRef.current = hasItems;
+  }, [state.queue.length, setSearchParams]);
 
   const handleGoToHome = useCallback(() => {
     setPageState('home');
