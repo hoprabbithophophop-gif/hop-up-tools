@@ -35,7 +35,7 @@ export function ChapterPlaylistProvider({
   initialQueue?: import('../types/playlist').ChapterQueueItem[];
 }) {
   const playlist = useChapterPlaylist();
-  const { state, playNext, setPlaying, startPlaylist } = playlist;
+  const { state, playNext, setPlaying, startPlaylist, backfillPublishedAt } = playlist;
   const selection = useChapterSelection();
 
   const handleChapterEnd = () => {
@@ -124,8 +124,10 @@ export function ChapterPlaylistProvider({
   }, [selection, startPlaylist]);
 
   // 投稿日が欠損しているキュー項目を Supabase から再取得して backfill する
-  // (publishedAt 追加前に保存された古いキュー項目向け)
+  // (publishedAt 追加前に保存された古いキュー項目・古い共有プレイリスト向け)
   const backfillTriedRef = useRef<Set<string>>(new Set());
+  const unmountedRef = useRef(false);
+  useEffect(() => () => { unmountedRef.current = true; }, []);
   useEffect(() => {
     const missing = state.queue
       .filter(i => !i.publishedAt && !backfillTriedRef.current.has(i.videoId))
@@ -134,25 +136,22 @@ export function ChapterPlaylistProvider({
     if (unique.length === 0) return;
     unique.forEach(id => backfillTriedRef.current.add(id));
 
-    let cancelled = false;
     (async () => {
       const supabase = getSupabase();
       const { data, error } = await supabase
         .from('youtube_videos')
         .select('video_id, published_at')
         .in('video_id', unique);
-      if (cancelled || error || !data) return;
+      if (unmountedRef.current || error || !data) return;
       const map: Record<string, string> = {};
       for (const r of data as { video_id: string; published_at: string | null }[]) {
         if (r.published_at) map[r.video_id] = r.published_at;
       }
       if (Object.keys(map).length > 0) {
-        playlist.backfillPublishedAt(map);
+        backfillPublishedAt(map);
       }
     })();
-
-    return () => { cancelled = true; };
-  }, [state.queue, playlist]);
+  }, [state.queue, backfillPublishedAt]);
 
   // キュー終端でプレイヤーを停止（音だけ残る問題対策）
   // チャプターポーリングでendSecondsを越えるとplayNext→NEXT reducerが走り、
