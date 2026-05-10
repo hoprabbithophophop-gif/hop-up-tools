@@ -16,11 +16,10 @@ type SwipeDir = 'left' | 'right';
 interface Props {
   sharedPlaylist?: SharedPlaylist | null;
   onGoHome?: () => void;
-  onToggleFullscreen?: () => void;
   isLandscapePlay?: boolean;
 }
 
-export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLandscapePlay }: Props) {
+export function PlayView({ sharedPlaylist, onGoHome, isLandscapePlay }: Props) {
   const { state, removeFromQueue, clearQueue, jumpTo, playChapter, reorder } = useChapterPlaylistContext();
   const { queue, currentIndex } = state;
   const currentItem = currentIndex !== null ? queue[currentIndex] ?? null : null;
@@ -149,17 +148,7 @@ export function PlayView({ sharedPlaylist, onGoHome, onToggleFullscreen, isLands
             <div className="flex-1 flex justify-center">
               <PlayControls />
             </div>
-            {onToggleFullscreen ? (
-              <button
-                onClick={onToggleFullscreen}
-                className="w-9 h-9 shrink-0 flex items-center justify-center text-black/30 hover:text-black/60 cursor-pointer transition-colors"
-                aria-label="全画面"
-              >
-                <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>fullscreen</span>
-              </button>
-            ) : (
-              <div className="w-9 h-9 shrink-0" />
-            )}
+            <div className="w-9 h-9 shrink-0" />
           </div>
           <TrimPanel />
         </section>

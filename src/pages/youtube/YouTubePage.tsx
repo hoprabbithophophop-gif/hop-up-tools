@@ -349,7 +349,7 @@ function ChapterPickupContent() {
         className={pageState === 'play' ? 'pb-[68px]' : 'hidden'}
         style={isPlayLandscape ? { marginLeft: '45vw' } : undefined}
       >
-        <PlayView sharedPlaylist={sharedPlaylist} onGoHome={handleGoToHome} onToggleFullscreen={toggleFullscreen} isLandscapePlay={isPlayLandscape} />
+        <PlayView sharedPlaylist={sharedPlaylist} onGoHome={handleGoToHome} isLandscapePlay={isPlayLandscape} />
       </div>
 
       {/* 共有プレイリスト確認ダイアログ */}

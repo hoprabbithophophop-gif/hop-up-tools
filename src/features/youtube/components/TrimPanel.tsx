@@ -135,7 +135,7 @@ export function TrimPanel() {
     startSec !== null && endSec !== null && endSec > startSec ? endSec - startSec : null;
 
   return (
-    <div className="px-4 py-2">
+    <div className="px-4 py-1">
       <div className="grid grid-cols-[1fr_4rem_1fr] items-center gap-y-1">
         {/* 1行目: ラベル + 区間長 + ラベル */}
         <div className="text-center text-[0.65rem] text-black/50">開始</div>
@@ -186,14 +186,14 @@ export function TrimPanel() {
         {/* 3行目: ボタン + (空) + ボタン */}
         <button
           onClick={setCurrentAsIn}
-          className="py-2 text-[0.75rem] text-black/80 hover:bg-black/[0.04] active:bg-black/[0.08] cursor-pointer transition-colors"
+          className="py-1 text-[0.7rem] text-black/80 hover:bg-black/[0.04] active:bg-black/[0.08] cursor-pointer transition-colors"
         >
           開始をここに
         </button>
         <div></div>
         <button
           onClick={setCurrentAsOut}
-          className="py-2 text-[0.75rem] text-black/80 hover:bg-black/[0.04] active:bg-black/[0.08] cursor-pointer transition-colors"
+          className="py-1 text-[0.7rem] text-black/80 hover:bg-black/[0.04] active:bg-black/[0.08] cursor-pointer transition-colors"
         >
           終了をここに
         </button>
