@@ -26,18 +26,6 @@ export default function MemberSelect({ initialSelectedId, onConfirm }: Props) {
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
       }}
     >
-      <p
-        style={{
-          fontSize: "0.6875rem",
-          fontWeight: 700,
-          textTransform: "uppercase",
-          letterSpacing: "0.1em",
-          color: "#777",
-          margin: "0 0 0.8rem",
-        }}
-      >
-        Step 1 / 2
-      </p>
       <h1
         style={{
           fontSize: "1.5rem",
@@ -137,7 +125,7 @@ export default function MemberSelect({ initialSelectedId, onConfirm }: Props) {
       >
         楽曲・映像の著作権は権利者に帰属します。
         <br />
-        やめてねと言われたらすぐやめます。
+        権利者からの申し出により直ちに公開を停止します。
       </p>
     </div>
   );

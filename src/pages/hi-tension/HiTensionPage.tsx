@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import MemberSelect from "./components/MemberSelect";
 import YouTubePlayer from "./components/YouTubePlayer";
 import { VIDEO_ID, findMember } from "./data";
@@ -10,14 +10,23 @@ import {
 
 type Screen = "select" | "play";
 
+const LONG_PRESS_INTERVAL_MS = 150;
+
 export default function HiTensionPage() {
   const [screen, setScreen] = useState<Screen>("select");
   const [memberId, setMemberId] = useState<string | null>(() => getLastSelectedMemberId());
   const timestampsRef = useRef<number[]>([]);
+  const currentTimeRef = useRef(0);
+  const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    // anonymous_session_id を初回訪問時に確保（書き込みはまだしないが、IDだけ確保）
     getOrCreateAnonymousSessionId();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pressIntervalRef.current) clearInterval(pressIntervalRef.current);
+    };
   }, []);
 
   const handleConfirm = (id: string) => {
@@ -29,16 +38,37 @@ export default function HiTensionPage() {
 
   const handleVideoEnded = () => {
     console.log("[hi-tension] video ended. timestamps:", timestampsRef.current);
-    // Phase 1 で Supabase に保存する
+    // Phase 1: Supabase 保存をここで結線する
   };
 
-  const handleHi = () => {
-    // Phase 1 まで: 押下時刻をローカルに溜めるだけ
-    // currentTime の取得はプレイヤー側のポーリングコールバックでまかなう想定。
-    // ボタン押下の瞬間は「最後にポーリングで取れた時刻」を使う方が同期しやすいので、
-    // useRef で最新時刻を保持する設計に Phase 1 で差し替える。
-    timestampsRef.current.push(performance.now() / 1000);
-    console.log("[hi-tension] HI! pressed. count:", timestampsRef.current.length);
+  const handleTimeUpdate = useCallback((t: number) => {
+    currentTimeRef.current = t;
+  }, []);
+
+  const recordHi = useCallback(() => {
+    const t = currentTimeRef.current;
+    timestampsRef.current.push(t);
+    console.log(
+      `[hi-tension] HI! @ ${t.toFixed(2)}s (total: ${timestampsRef.current.length})`,
+    );
+  }, []);
+
+  const clearPressInterval = () => {
+    if (pressIntervalRef.current) {
+      clearInterval(pressIntervalRef.current);
+      pressIntervalRef.current = null;
+    }
+  };
+
+  const handlePressStart = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    recordHi();
+    clearPressInterval();
+    pressIntervalRef.current = setInterval(recordHi, LONG_PRESS_INTERVAL_MS);
+  };
+
+  const handlePressEnd = () => {
+    clearPressInterval();
   };
 
   if (screen === "select") {
@@ -60,7 +90,11 @@ export default function HiTensionPage() {
         flexDirection: "column",
       }}
     >
-      <YouTubePlayer videoId={VIDEO_ID} onEnded={handleVideoEnded} />
+      <YouTubePlayer
+        videoId={VIDEO_ID}
+        onEnded={handleVideoEnded}
+        onTimeUpdate={handleTimeUpdate}
+      />
 
       <div
         style={{
@@ -73,7 +107,11 @@ export default function HiTensionPage() {
       >
         <button
           type="button"
-          onClick={handleHi}
+          onPointerDown={handlePressStart}
+          onPointerUp={handlePressEnd}
+          onPointerLeave={handlePressEnd}
+          onPointerCancel={handlePressEnd}
+          onContextMenu={(e) => e.preventDefault()}
           style={{
             width: 120,
             height: 120,
@@ -86,6 +124,11 @@ export default function HiTensionPage() {
             letterSpacing: "0.05em",
             cursor: "pointer",
             boxShadow: "0 0 0 1px rgba(0,0,0,0.08)",
+            touchAction: "manipulation",
+            userSelect: "none",
+            WebkitUserSelect: "none",
+            WebkitTouchCallout: "none",
+            WebkitTapHighlightColor: "transparent",
           }}
         >
           ハイ！
@@ -103,7 +146,7 @@ export default function HiTensionPage() {
         >
           楽曲・映像の著作権は権利者に帰属します。
           <br />
-          やめてねと言われたらすぐやめます。
+          権利者からの申し出により直ちに公開を停止します。
         </p>
       </div>
     </div>
