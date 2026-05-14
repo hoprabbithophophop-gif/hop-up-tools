@@ -11,12 +11,15 @@ import {
 type Screen = "select" | "play";
 
 const LONG_PRESS_INTERVAL_MS = 150;
+const LONG_PRESS_THRESHOLD_MS = 250;
 
 // 「ハイ！テンション」の特殊区間（動画再生秒）
 const STOP_WINDOW = { start: 185, end: 188 };       // 「STOP！ハイは一回ね」(押下不可)
-const LONGPRESS_WINDOW = { start: 188, end: 190 };  // ロングトーン「ハーイ！」(長押し推奨)
+const PREP_WINDOW = { start: 186, end: 188 };       // 長押し予告(STOP区間の後半に被せる)
+const LONGPRESS_WINDOW = { start: 188, end: 190 };  // ロングトーン「ハーイ！」(長押し本番)
 
 type ButtonMode = "normal" | "stop" | "longpress";
+type HintMode = "none" | "prep" | "now";
 
 function computeButtonMode(t: number): ButtonMode {
   if (t >= STOP_WINDOW.start && t < STOP_WINDOW.end) return "stop";
@@ -24,39 +27,52 @@ function computeButtonMode(t: number): ButtonMode {
   return "normal";
 }
 
+function computeHintMode(t: number): HintMode {
+  if (t >= LONGPRESS_WINDOW.start && t < LONGPRESS_WINDOW.end) return "now";
+  if (t >= PREP_WINDOW.start && t < PREP_WINDOW.end) return "prep";
+  return "none";
+}
+
 export default function HiTensionPage() {
   const [screen, setScreen] = useState<Screen>("select");
   const [memberId, setMemberId] = useState<string | null>(() => getLastSelectedMemberId());
   const [buttonMode, setButtonMode] = useState<ButtonMode>("normal");
+  const [hintMode, setHintMode] = useState<HintMode>("none");
   const timestampsRef = useRef<number[]>([]);
   const currentTimeRef = useRef(0);
   const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     getOrCreateAnonymousSessionId();
   }, []);
 
-  const clearPressInterval = useCallback(() => {
+  const clearPressTimers = useCallback(() => {
     if (pressIntervalRef.current) {
       clearInterval(pressIntervalRef.current);
       pressIntervalRef.current = null;
     }
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
-    return () => clearPressInterval();
-  }, [clearPressInterval]);
+    return () => clearPressTimers();
+  }, [clearPressTimers]);
 
-  // STOP区間に入ったら連射ループも止める
+  // STOP区間に入ったら連射ループ・待機タイマーも止める
   useEffect(() => {
-    if (buttonMode === "stop") clearPressInterval();
-  }, [buttonMode, clearPressInterval]);
+    if (buttonMode === "stop") clearPressTimers();
+  }, [buttonMode, clearPressTimers]);
 
   const handleConfirm = (id: string) => {
     setMemberId(id);
     setLastSelectedMemberId(id);
     timestampsRef.current = [];
     setButtonMode("normal");
+    setHintMode("none");
     setScreen("play");
   };
 
@@ -66,8 +82,10 @@ export default function HiTensionPage() {
 
   const handleTimeUpdate = useCallback((t: number) => {
     currentTimeRef.current = t;
-    const mode = computeButtonMode(t);
-    setButtonMode((prev) => (prev === mode ? prev : mode));
+    const bm = computeButtonMode(t);
+    const hm = computeHintMode(t);
+    setButtonMode((prev) => (prev === bm ? prev : bm));
+    setHintMode((prev) => (prev === hm ? prev : hm));
   }, []);
 
   const recordHi = useCallback(() => {
@@ -80,12 +98,15 @@ export default function HiTensionPage() {
   const handlePressStart = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
     recordHi();
-    clearPressInterval();
-    pressIntervalRef.current = setInterval(recordHi, LONG_PRESS_INTERVAL_MS);
+    clearPressTimers();
+    // 250ms 以上押し続けられたら初めて連射開始(短タップの誤連射防止)
+    holdTimerRef.current = setTimeout(() => {
+      pressIntervalRef.current = setInterval(recordHi, LONG_PRESS_INTERVAL_MS);
+    }, LONG_PRESS_THRESHOLD_MS);
   };
 
   const handlePressEnd = () => {
-    clearPressInterval();
+    clearPressTimers();
   };
 
   if (screen === "select") {
@@ -96,7 +117,6 @@ export default function HiTensionPage() {
 
   const member = findMember(memberId);
   const isStop = buttonMode === "stop";
-  const isLongPress = buttonMode === "longpress";
   const buttonSize = isStop ? 64 : 120;
 
   return (
@@ -133,7 +153,7 @@ export default function HiTensionPage() {
         }}
       >
         <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 120 }}>
-          {isLongPress && (
+          {hintMode !== "none" && (
             <div
               style={{
                 position: "absolute",
@@ -141,15 +161,19 @@ export default function HiTensionPage() {
                 bottom: "calc(100% + 0.4rem)",
                 whiteSpace: "nowrap",
                 fontWeight: 800,
-                fontSize: "1.1rem",
+                fontSize: hintMode === "now" ? "1.1rem" : "0.9rem",
                 letterSpacing: "0.05em",
                 color: member?.color ?? "#000",
+                opacity: hintMode === "now" ? 1 : 0.75,
                 transformOrigin: "center bottom",
-                animation: "hi-tension-longpress-pulse 0.4s ease-in-out infinite alternate",
+                transform: "translate(-50%, 0)",
+                animation: hintMode === "now"
+                  ? "hi-tension-longpress-pulse 0.4s ease-in-out infinite alternate"
+                  : "none",
                 pointerEvents: "none",
               }}
             >
-              長押し！
+              {hintMode === "now" ? "長押し！" : "もうすぐ長押し！"}
             </div>
           )}
           <button
