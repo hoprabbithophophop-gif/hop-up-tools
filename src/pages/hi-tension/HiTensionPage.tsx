@@ -7,6 +7,7 @@ import {
   setLastSelectedMemberId,
   getOrCreateAnonymousSessionId,
 } from "./storage";
+import { submitHiSession, fetchHiAggregations, type AggregationBucket } from "./api";
 
 type Screen = "select" | "play";
 
@@ -38,10 +39,12 @@ export default function HiTensionPage() {
   const [memberId, setMemberId] = useState<string | null>(() => getLastSelectedMemberId());
   const [buttonMode, setButtonMode] = useState<ButtonMode>("normal");
   const [hintMode, setHintMode] = useState<HintMode>("none");
+  const [aggregations, setAggregations] = useState<AggregationBucket[]>([]);
   const timestampsRef = useRef<number[]>([]);
   const currentTimeRef = useRef(0);
   const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const submittedRef = useRef(false);
 
   useEffect(() => {
     getOrCreateAnonymousSessionId();
@@ -71,13 +74,40 @@ export default function HiTensionPage() {
     setMemberId(id);
     setLastSelectedMemberId(id);
     timestampsRef.current = [];
+    submittedRef.current = false;
     setButtonMode("normal");
     setHintMode("none");
     setScreen("play");
+
+    // 過去セッションの集約データを取得(✋アニメは Phase 2 で実装。今は取得だけ)
+    fetchHiAggregations().then((data) => {
+      setAggregations(data);
+      const total = data.reduce((sum, b) => sum + b.hi_count, 0);
+      console.log(`[hi-tension] loaded aggregations: ${data.length} buckets, ${total} hi total`);
+    });
   };
 
   const handleVideoEnded = () => {
-    console.log(`[hi-tension] video ended (${timestampsRef.current.length} presses)`);
+    const count = timestampsRef.current.length;
+    console.log(`[hi-tension] video ended (${count} presses)`);
+
+    if (submittedRef.current) return;
+    if (!memberId || count === 0) return;
+
+    submittedRef.current = true;
+    const anonId = getOrCreateAnonymousSessionId();
+    submitHiSession({
+      memberId,
+      timestamps: timestampsRef.current.slice(),
+      anonymousSessionId: anonId,
+    }).then((result) => {
+      if (result.ok) {
+        console.log("[hi-tension] session saved.");
+      } else {
+        console.warn("[hi-tension] save failed:", result.error);
+        submittedRef.current = false; // 失敗時は再送可能に
+      }
+    });
   };
 
   const handleTimeUpdate = useCallback((t: number) => {
