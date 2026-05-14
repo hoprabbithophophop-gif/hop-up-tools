@@ -11,10 +11,12 @@
     "test:e2e:update": "playwright test --update-snapshots"
   },
   "dependencies": {
+    "@fortawesome/free-solid-svg-icons": "^7.2.0",
     "@supabase/supabase-js": "^2.99.2",
     "fabric": "^7.3.1",
     "lz-string": "^1.5.0",
     "nanoid": "^5.1.7",
+    "pixi.js": "^8.18.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-router-dom": "^7.13.2"

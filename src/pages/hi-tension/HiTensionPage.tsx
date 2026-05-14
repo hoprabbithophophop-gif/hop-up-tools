@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import MemberSelect from "./components/MemberSelect";
 import YouTubePlayer from "./components/YouTubePlayer";
+import HandsCanvas, { type HandsCanvasApi } from "./components/HandsCanvas";
 import { VIDEO_ID, findMember } from "./data";
 import {
   getLastSelectedMemberId,
   setLastSelectedMemberId,
   getOrCreateAnonymousSessionId,
 } from "./storage";
-import { submitHiSession, fetchHiAggregations, type AggregationBucket } from "./api";
+import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
 
 type Screen = "select" | "play";
 
@@ -34,17 +35,24 @@ function computeHintMode(t: number): HintMode {
   return "none";
 }
 
+function newSeatHash(): number {
+  // 「はじめる」毎にランダムな席を抽選
+  return Math.floor(Math.random() * 0x7fffffff);
+}
+
 export default function HiTensionPage() {
   const [screen, setScreen] = useState<Screen>("select");
   const [memberId, setMemberId] = useState<string | null>(() => getLastSelectedMemberId());
   const [buttonMode, setButtonMode] = useState<ButtonMode>("normal");
   const [hintMode, setHintMode] = useState<HintMode>("none");
-  const [aggregations, setAggregations] = useState<AggregationBucket[]>([]);
+  const [sessions, setSessions] = useState<HiSession[]>([]);
+  const [seatHash, setSeatHash] = useState<number>(0);
   const timestampsRef = useRef<number[]>([]);
   const currentTimeRef = useRef(0);
   const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const submittedRef = useRef(false);
+  const canvasRef = useRef<HandsCanvasApi | null>(null);
 
   useEffect(() => {
     getOrCreateAnonymousSessionId();
@@ -77,13 +85,14 @@ export default function HiTensionPage() {
     submittedRef.current = false;
     setButtonMode("normal");
     setHintMode("none");
+    setSeatHash(newSeatHash()); // 入るたびに違う席
     setScreen("play");
 
-    // 過去セッションの集約データを取得(✋アニメは Phase 2 で実装。今は取得だけ)
-    fetchHiAggregations().then((data) => {
-      setAggregations(data);
-      const total = data.reduce((sum, b) => sum + b.hi_count, 0);
-      console.log(`[hi-tension] loaded aggregations: ${data.length} buckets, ${total} hi total`);
+    // 過去セッションの集約データを取得
+    fetchHiSessions().then((data) => {
+      setSessions(data);
+      const totalHi = data.reduce((sum, s) => sum + s.bucket_indices.length, 0);
+      console.log(`[hi-tension] loaded ${data.length} sessions, ${totalHi} hi total`);
     });
   };
 
@@ -116,6 +125,7 @@ export default function HiTensionPage() {
     const hm = computeHintMode(t);
     setButtonMode((prev) => (prev === bm ? prev : bm));
     setHintMode((prev) => (prev === hm ? prev : hm));
+    canvasRef.current?.onTimeUpdate(t);
   }, []);
 
   const recordHi = useCallback(() => {
@@ -123,6 +133,7 @@ export default function HiTensionPage() {
     if (computeButtonMode(t) === "stop") return;
     timestampsRef.current.push(t);
     console.log(`[hi-tension] HI! @ ${t.toFixed(2)}s`);
+    canvasRef.current?.spawnSelf();
   }, []);
 
   const handlePressStart = (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -176,13 +187,30 @@ export default function HiTensionPage() {
       <div
         style={{
           flex: 1,
+          position: "relative",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
           padding: "2.4rem 1.2rem 2rem",
         }}
       >
-        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 120 }}>
+        <HandsCanvas
+          ref={canvasRef}
+          sessions={sessions}
+          selfMemberId={memberId}
+          selfSeatHash={seatHash}
+        />
+
+        <div
+          style={{
+            position: "relative",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: 120,
+            zIndex: 1,
+          }}
+        >
           {hintMode !== "none" && (
             <div
               style={{
@@ -247,11 +275,17 @@ export default function HiTensionPage() {
             color: "#777",
             textAlign: "center",
             lineHeight: 1.6,
+            position: "relative",
+            zIndex: 1,
           }}
         >
           楽曲・映像の著作権は権利者に帰属します。
           <br />
           権利者からの申し出により直ちに公開を停止します。
+          <br />
+          <span style={{ fontSize: "0.5rem", color: "#999" }}>
+            Hand icon by Font Awesome (CC BY 4.0)
+          </span>
         </p>
       </div>
     </div>
