@@ -288,10 +288,11 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       });
     },
     onTimeUpdate(currentTime: number) {
-      // バケットの先頭時刻ではなく中央時刻で発火する。
-      // 0.1秒バケットの floor は構造的に平均 50ms 早い側にズレるため、
-      // -0.05 して中央に合わせることで元の押下時刻に最も近い再現になる。
-      const newBucket = Math.floor((currentTime - 0.05) * 10);
+      // バケット先頭で発火させる単純な floor。
+      // 100ms poll の平均遅延が +50ms 乗ることで、結果的にバケット中央で
+      // 発火する形になる(押下時刻の期待値=中央と一致)。
+      // 余計なシフトを足すと平均ズレを増やすだけなので素のままで良い。
+      const newBucket = Math.floor(currentTime * 10);
       const lastBucket = lastBucketRef.current;
       if (newBucket === lastBucket) return;
       lastBucketRef.current = newBucket;
