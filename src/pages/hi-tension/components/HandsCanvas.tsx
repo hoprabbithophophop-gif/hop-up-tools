@@ -288,7 +288,10 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       });
     },
     onTimeUpdate(currentTime: number) {
-      const newBucket = Math.floor(currentTime * 10);
+      // バケットの先頭時刻ではなく中央時刻で発火する。
+      // 0.1秒バケットの floor は構造的に平均 50ms 早い側にズレるため、
+      // -0.05 して中央に合わせることで元の押下時刻に最も近い再現になる。
+      const newBucket = Math.floor((currentTime - 0.05) * 10);
       const lastBucket = lastBucketRef.current;
       if (newBucket === lastBucket) return;
       lastBucketRef.current = newBucket;

@@ -59,7 +59,7 @@ export default function IntroModal({ onDismiss }: Props) {
             color: "#474747",
           }}
         >
-          横アリの予行演習のつもりで、みんなで一緒にハイ！しましょう。
+          コールのタイミングをつかむ練習になればいいな、くらいの気持ちで気軽に楽しんでください。
         </p>
         <p
           style={{
@@ -69,11 +69,11 @@ export default function IntroModal({ onDismiss }: Props) {
             color: "#777",
           }}
         >
-          ※ハイ！のタイミングは人それぞれ。
+          ※タイミングを合わせる必要はありません。
           <br />
-          好きなタイミングで押してください。
+          お好きなときにどうぞ。
           <br />
-          本番(現地)では、周囲の迷惑にならないようご注意ください。
+          本番では、周囲の迷惑にならないようご注意ください。
         </p>
         <button
           type="button"
