@@ -5,13 +5,14 @@ interface Props {
   totalCount: number;
   memberColor: string;
   onReplay: () => void;
+  onChangeColor: () => void;
 }
 
 /**
  * 動画完走時に表示する終了カード。
  * ハイ！ボタンの位置を置き換える形で出る(動画はそのまま残る)。
  */
-export default function EndCard({ selfCount, totalCount, memberColor, onReplay }: Props) {
+export default function EndCard({ selfCount, totalCount, memberColor, onReplay, onChangeColor }: Props) {
   return (
     <div
       style={{
@@ -56,24 +57,51 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay }
         <BouncyNumber value={totalCount} color={memberColor} size="2.25rem" />
       </div>
 
-      <button
-        type="button"
-        onClick={onReplay}
+      <div
         style={{
           marginTop: "0.4rem",
-          padding: "0.8rem 2.4rem",
-          background: "#000",
-          color: "#fff",
-          border: "none",
-          fontSize: "0.875rem",
-          fontWeight: 700,
-          letterSpacing: "0.05em",
-          textTransform: "uppercase",
-          cursor: "pointer",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: "0.8rem",
+          width: "100%",
         }}
       >
-        もう一度
-      </button>
+        <button
+          type="button"
+          onClick={onReplay}
+          style={{
+            padding: "0.8rem 2.4rem",
+            background: "#000",
+            color: "#fff",
+            border: "none",
+            fontSize: "0.875rem",
+            fontWeight: 700,
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            cursor: "pointer",
+          }}
+        >
+          もう一度
+        </button>
+        <button
+          type="button"
+          onClick={onChangeColor}
+          style={{
+            padding: "0.4rem 0.8rem",
+            background: "transparent",
+            color: "#474747",
+            border: "none",
+            fontSize: "0.8125rem",
+            fontWeight: 500,
+            textDecoration: "underline",
+            textUnderlineOffset: "0.2rem",
+            cursor: "pointer",
+          }}
+        >
+          別の色を選ぶ
+        </button>
+      </div>
     </div>
   );
 }

@@ -147,6 +147,21 @@ export default function HiTensionPage() {
     });
   };
 
+  const handleChangeColor = () => {
+    // 動画を止めて選択画面に戻る
+    playerApiRef.current?.pause();
+    clearPressTimers();
+    videoEndedRef.current = false;
+    setVideoEnded(false);
+    setEndedSelfCount(0);
+    timestampsRef.current = [];
+    submittedRef.current = false;
+    setIsPressed(false);
+    setButtonMode("normal");
+    setHintMode("none");
+    setScreen("select");
+  };
+
   const handleReplay = () => {
     // iOS Safari のユーザージェスチャー文脈を維持するため、player への命令を最初に
     playerApiRef.current?.replay();
@@ -256,6 +271,7 @@ export default function HiTensionPage() {
                 }
                 memberColor={member?.color ?? "#000"}
                 onReplay={handleReplay}
+                onChangeColor={handleChangeColor}
               />
             </div>
           ) : (
