@@ -47,6 +47,7 @@ export default function HiTensionPage() {
   const [hintMode, setHintMode] = useState<HintMode>("none");
   const [sessions, setSessions] = useState<HiSession[]>([]);
   const [seatHash, setSeatHash] = useState<number>(0);
+  const [isPressed, setIsPressed] = useState(false);
   const timestampsRef = useRef<number[]>([]);
   const currentTimeRef = useRef(0);
   const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -147,6 +148,7 @@ export default function HiTensionPage() {
 
   const handlePressStart = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
+    setIsPressed(true);
     recordHi();
     clearPressTimers();
     holdTimerRef.current = setTimeout(() => {
@@ -155,6 +157,7 @@ export default function HiTensionPage() {
   };
 
   const handlePressEnd = () => {
+    setIsPressed(false);
     clearPressTimers();
   };
 
@@ -259,9 +262,12 @@ export default function HiTensionPage() {
                 fontWeight: 800,
                 letterSpacing: "0.05em",
                 cursor: isStop ? "not-allowed" : "pointer",
-                boxShadow: "0 0 0 1px rgba(0,0,0,0.08)",
+                boxShadow: isPressed && !isStop
+                  ? "0 0 0 1px rgba(0,0,0,0.12), 0 0 0 8px rgba(0,0,0,0.06)"
+                  : "0 0 0 1px rgba(0,0,0,0.08)",
                 opacity: isStop ? 0.3 : 1,
-                transition: "width 0.25s, height 0.25s, opacity 0.25s, font-size 0.25s",
+                transform: isPressed && !isStop ? "scale(0.92)" : "scale(1)",
+                transition: "width 0.25s, height 0.25s, opacity 0.25s, font-size 0.25s, transform 0.12s, box-shadow 0.12s",
                 touchAction: "manipulation",
                 userSelect: "none",
                 WebkitUserSelect: "none",

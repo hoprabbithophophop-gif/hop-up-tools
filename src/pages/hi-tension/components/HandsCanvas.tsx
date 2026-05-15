@@ -158,12 +158,13 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
 
     layer.addChild(sprite);
 
-    // 仕様5.1〜5.2: ぴょん1回(+20%で二段ジャンプ)、フェードアウト
+    // ぴょん1回(+20%で二段ジャンプ)、フェードアウト
+    // up + hold + down を 230〜290ms に収める(0.3s 以内)
     const jumpHeight = 60 + Math.random() * 40;       // 60〜100px
-    const upDur = 200 + Math.random() * 100;          // 200〜300ms
-    const holdDur = 50 + Math.random() * 50;          // 50〜100ms
-    const downDur = 200 + Math.random() * 100;        // 200〜300ms
-    const fadeDur = 150;
+    const upDur = 100 + Math.random() * 20;           // 100〜120ms
+    const holdDur = 30 + Math.random() * 20;          // 30〜50ms
+    const downDur = 100 + Math.random() * 20;         // 100〜120ms
+    const fadeDur = 120;
     const doDouble = Math.random() < 0.2;
     const bounceFactor = 0.5; // 二段目は1段目の50%
 
