@@ -16,7 +16,7 @@ export default function MemberSelect({ initialSelectedId, onConfirm }: Props) {
   return (
     <div
       style={{
-        minHeight: "100vh",
+        minHeight: "100dvh", // Android Chrome のアドレスバー伸縮分のスクロール対策
         background: "#f8f9fa",
         color: "#191c1d",
         display: "flex",

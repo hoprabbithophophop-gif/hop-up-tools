@@ -196,7 +196,7 @@ export default function HiTensionPage() {
          「はじめる」クリックの同期スコープ内で playVideo() を確実に呼べるようにする。 */}
       <div
         style={{
-          minHeight: "100vh",
+          minHeight: "100dvh", // Android Chrome のアドレスバー伸縮分のスクロール対策(100vh だとアドレスバー込みの高さになりわずかにスクロールが出る)
           background: "#f8f9fa",
           color: "#191c1d",
           fontFamily: "Inter, 'Noto Sans JP', sans-serif",
