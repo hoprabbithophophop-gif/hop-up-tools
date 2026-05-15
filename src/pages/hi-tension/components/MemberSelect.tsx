@@ -1,13 +1,16 @@
 import { useState, useEffect } from "react";
 import { UNIT_ROWS } from "../data";
 import IntroModal from "./IntroModal";
+import type { HiMode } from "../HiTensionPage";
 
 interface Props {
   initialSelectedId: string | null;
+  mode: HiMode;
+  onModeChange: (mode: HiMode) => void;
   onConfirm: (memberId: string) => void;
 }
 
-export default function MemberSelect({ initialSelectedId, onConfirm }: Props) {
+export default function MemberSelect({ initialSelectedId, mode, onModeChange, onConfirm }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [showIntro, setShowIntro] = useState(true);
 
@@ -93,12 +96,57 @@ export default function MemberSelect({ initialSelectedId, onConfirm }: Props) {
         ))}
       </div>
 
+      <div
+        style={{
+          marginTop: "auto",
+          width: "100%",
+          maxWidth: 360,
+          display: "flex",
+          gap: "0.4rem",
+          marginBottom: "0.8rem",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => onModeChange("solo")}
+          style={{
+            flex: 1,
+            padding: "0.6rem",
+            background: mode === "solo" ? "#000" : "transparent",
+            color: mode === "solo" ? "#fff" : "#474747",
+            border: `1px solid ${mode === "solo" ? "#000" : "#c6c6c6"}`,
+            fontSize: "0.8125rem",
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "background 0.12s, color 0.12s",
+          }}
+        >
+          一人で
+        </button>
+        <button
+          type="button"
+          onClick={() => onModeChange("crowd")}
+          style={{
+            flex: 1,
+            padding: "0.6rem",
+            background: mode === "crowd" ? "#000" : "transparent",
+            color: mode === "crowd" ? "#fff" : "#474747",
+            border: `1px solid ${mode === "crowd" ? "#000" : "#c6c6c6"}`,
+            fontSize: "0.8125rem",
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "background 0.12s, color 0.12s",
+          }}
+        >
+          みんなで
+        </button>
+      </div>
+
       <button
         type="button"
         disabled={!selectedId}
         onClick={() => selectedId && onConfirm(selectedId)}
         style={{
-          marginTop: "auto",
           marginBottom: "0.4rem",
           width: "100%",
           maxWidth: 360,

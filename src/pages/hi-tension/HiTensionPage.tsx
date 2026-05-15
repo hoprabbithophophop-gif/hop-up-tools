@@ -7,12 +7,15 @@ import {
   getLastSelectedMemberId,
   setLastSelectedMemberId,
   getOrCreateAnonymousSessionId,
+  getHasCompleted,
+  markHasCompleted,
 } from "./storage";
 import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
 import EndCard from "./components/EndCard";
 import HandIcon from "./components/HandIcon";
 
 type Screen = "select" | "play";
+export type HiMode = "solo" | "crowd";
 
 const LONG_PRESS_INTERVAL_MS = 150;
 const LONG_PRESS_THRESHOLD_MS = 250;
@@ -52,6 +55,9 @@ export default function HiTensionPage() {
   const [isPressed, setIsPressed] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
   const [endedSelfCount, setEndedSelfCount] = useState(0);
+  // 初回は「ソロ」(過去✋を見せない)、一度完走すると「みんなで」がデフォルト。
+  // どちらのモードでも自分の押下 ✋ は表示され、Supabase 保存も行う。
+  const [mode, setMode] = useState<HiMode>(() => getHasCompleted() ? "crowd" : "solo");
   const timestampsRef = useRef<number[]>([]);
   const currentTimeRef = useRef(0);
   const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -132,6 +138,7 @@ export default function HiTensionPage() {
     if (!memberId || count === 0) return;
 
     submittedRef.current = true;
+    markHasCompleted(); // 次回からは「みんなで」モードがデフォルトになる
     const anonId = getOrCreateAnonymousSessionId();
     submitHiSession({
       memberId,
@@ -258,7 +265,7 @@ export default function HiTensionPage() {
           <HandsCanvas
             key={seatHash}
             ref={canvasRef}
-            sessions={sessions}
+            sessions={mode === "solo" ? [] : sessions}
             selfMemberId={memberId}
             selfSeatHash={seatHash}
           />
@@ -381,7 +388,12 @@ export default function HiTensionPage() {
             overflowY: "auto",
           }}
         >
-          <MemberSelect initialSelectedId={memberId} onConfirm={handleConfirm} />
+          <MemberSelect
+            initialSelectedId={memberId}
+            mode={mode}
+            onModeChange={setMode}
+            onConfirm={handleConfirm}
+          />
         </div>
       )}
     </>
