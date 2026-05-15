@@ -55,8 +55,10 @@ export default function HiTensionPage() {
   const [isPressed, setIsPressed] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
   const [endedSelfCount, setEndedSelfCount] = useState(0);
-  // 初回は「ソロ」(過去✋を見せない)、一度完走すると「みんなで」がデフォルト。
+  // 初回は強制ソロ(過去✋を見せない・トグルも出さない)。
+  // 一度完走すると「一人で/みんなで」トグルが出現し、みんなでがデフォルトに。
   // どちらのモードでも自分の押下 ✋ は表示され、Supabase 保存も行う。
+  const [completedBefore, setCompletedBefore] = useState(() => getHasCompleted());
   const [mode, setMode] = useState<HiMode>(() => getHasCompleted() ? "crowd" : "solo");
   const timestampsRef = useRef<number[]>([]);
   const currentTimeRef = useRef(0);
@@ -134,11 +136,15 @@ export default function HiTensionPage() {
     setEndedSelfCount(count);
     setVideoEnded(true);
 
+    // 完走したら(押下0回でも)次回からトグルを出し、初完走時はみんなでをデフォルトに
+    if (!completedBefore) setMode("crowd");
+    markHasCompleted();
+    setCompletedBefore(true);
+
     if (submittedRef.current) return;
     if (!memberId || count === 0) return;
 
     submittedRef.current = true;
-    markHasCompleted(); // 次回からは「みんなで」モードがデフォルトになる
     const anonId = getOrCreateAnonymousSessionId();
     submitHiSession({
       memberId,
@@ -391,6 +397,7 @@ export default function HiTensionPage() {
           <MemberSelect
             initialSelectedId={memberId}
             mode={mode}
+            showModeToggle={completedBefore}
             onModeChange={setMode}
             onConfirm={handleConfirm}
           />

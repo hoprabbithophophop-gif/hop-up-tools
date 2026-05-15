@@ -6,11 +6,12 @@ import type { HiMode } from "../HiTensionPage";
 interface Props {
   initialSelectedId: string | null;
   mode: HiMode;
+  showModeToggle: boolean;
   onModeChange: (mode: HiMode) => void;
   onConfirm: (memberId: string) => void;
 }
 
-export default function MemberSelect({ initialSelectedId, mode, onModeChange, onConfirm }: Props) {
+export default function MemberSelect({ initialSelectedId, mode, showModeToggle, onModeChange, onConfirm }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [showIntro, setShowIntro] = useState(true);
 
@@ -96,51 +97,68 @@ export default function MemberSelect({ initialSelectedId, mode, onModeChange, on
         ))}
       </div>
 
-      <div
-        style={{
-          marginTop: "auto",
-          width: "100%",
-          maxWidth: 360,
-          display: "flex",
-          gap: "0.4rem",
-          marginBottom: "0.8rem",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => onModeChange("solo")}
+      {showModeToggle ? (
+        <div
           style={{
-            flex: 1,
-            padding: "0.6rem",
-            background: mode === "solo" ? "#000" : "transparent",
-            color: mode === "solo" ? "#fff" : "#474747",
-            border: `1px solid ${mode === "solo" ? "#000" : "#c6c6c6"}`,
-            fontSize: "0.8125rem",
-            fontWeight: 600,
-            cursor: "pointer",
-            transition: "background 0.12s, color 0.12s",
+            marginTop: "auto",
+            width: "100%",
+            maxWidth: 360,
+            display: "flex",
+            gap: "0.4rem",
+            marginBottom: "0.8rem",
           }}
         >
-          一人で
-        </button>
-        <button
-          type="button"
-          onClick={() => onModeChange("crowd")}
+          <button
+            type="button"
+            onClick={() => onModeChange("solo")}
+            style={{
+              flex: 1,
+              padding: "0.6rem",
+              background: mode === "solo" ? "#000" : "transparent",
+              color: mode === "solo" ? "#fff" : "#474747",
+              border: `1px solid ${mode === "solo" ? "#000" : "#c6c6c6"}`,
+              fontSize: "0.8125rem",
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "background 0.12s, color 0.12s",
+            }}
+          >
+            一人で
+          </button>
+          <button
+            type="button"
+            onClick={() => onModeChange("crowd")}
+            style={{
+              flex: 1,
+              padding: "0.6rem",
+              background: mode === "crowd" ? "#000" : "transparent",
+              color: mode === "crowd" ? "#fff" : "#474747",
+              border: `1px solid ${mode === "crowd" ? "#000" : "#c6c6c6"}`,
+              fontSize: "0.8125rem",
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "background 0.12s, color 0.12s",
+            }}
+          >
+            みんなで
+          </button>
+        </div>
+      ) : (
+        <p
           style={{
-            flex: 1,
-            padding: "0.6rem",
-            background: mode === "crowd" ? "#000" : "transparent",
-            color: mode === "crowd" ? "#fff" : "#474747",
-            border: `1px solid ${mode === "crowd" ? "#000" : "#c6c6c6"}`,
+            marginTop: "auto",
+            width: "100%",
+            maxWidth: 360,
+            marginBottom: "0.8rem",
             fontSize: "0.8125rem",
-            fontWeight: 600,
-            cursor: "pointer",
-            transition: "background 0.12s, color 0.12s",
+            color: "#777",
+            textAlign: "center",
+            lineHeight: 1.6,
           }}
         >
-          みんなで
-        </button>
-      </div>
+          まずは一人で、自分のタイミングで。
+        </p>
+      )}
 
       <button
         type="button"
