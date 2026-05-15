@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import LoadingDots from "./LoadingDots";
 
 const CONTAINER_ID = "hi-tension-player";
 const POLL_MS = 100;
@@ -7,6 +8,8 @@ export type YouTubePlayerApi = {
   /** ユーザージェスチャー直後に同期的に呼ぶこと(iOS Safari の autoplay 制約対策) */
   play: () => void;
   pause: () => void;
+  /** 動画を頭出しして再生開始("もう一度" 用) */
+  replay: () => void;
 };
 
 interface Props {
@@ -150,6 +153,14 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
     pause() {
       try { playerRef.current?.pauseVideo(); } catch { /* ignore */ }
     },
+    replay() {
+      const p = playerRef.current;
+      if (!p) return;
+      try {
+        p.seekTo(0, true);
+        p.playVideo();
+      } catch { /* ignore */ }
+    },
   }), []);
 
   return (
@@ -164,14 +175,10 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
             alignItems: "center",
             justifyContent: "center",
             background: "#000",
-            color: "rgba(255,255,255,0.4)",
-            fontSize: "0.6875rem",
-            letterSpacing: "0.1em",
-            textTransform: "uppercase",
             pointerEvents: "none",
           }}
         >
-          Loading…
+          <LoadingDots />
         </div>
       )}
     </div>

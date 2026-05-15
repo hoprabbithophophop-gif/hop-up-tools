@@ -9,6 +9,7 @@ import {
   getOrCreateAnonymousSessionId,
 } from "./storage";
 import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
+import EndCard from "./components/EndCard";
 
 type Screen = "select" | "play";
 
@@ -48,6 +49,8 @@ export default function HiTensionPage() {
   const [sessions, setSessions] = useState<HiSession[]>([]);
   const [seatHash, setSeatHash] = useState<number>(0);
   const [isPressed, setIsPressed] = useState(false);
+  const [videoEnded, setVideoEnded] = useState(false);
+  const [endedSelfCount, setEndedSelfCount] = useState(0);
   const timestampsRef = useRef<number[]>([]);
   const currentTimeRef = useRef(0);
   const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -103,12 +106,18 @@ export default function HiTensionPage() {
     setButtonMode("normal");
     setHintMode("none");
     setSeatHash(newSeatHash()); // 入るたびに違う席
+    setVideoEnded(false);
+    setEndedSelfCount(0);
     setScreen("play");
   };
 
   const handleVideoEnded = () => {
     const count = timestampsRef.current.length;
     console.log(`[hi-tension] video ended (${count} presses)`);
+
+    // カードはまず先に出す(保存失敗・押下0回でも結果表示する)
+    setEndedSelfCount(count);
+    setVideoEnded(true);
 
     if (submittedRef.current) return;
     if (!memberId || count === 0) return;
@@ -127,6 +136,22 @@ export default function HiTensionPage() {
         submittedRef.current = false;
       }
     });
+  };
+
+  const handleReplay = () => {
+    // iOS Safari のユーザージェスチャー文脈を維持するため、player への命令を最初に
+    playerApiRef.current?.replay();
+
+    setVideoEnded(false);
+    setEndedSelfCount(0);
+    timestampsRef.current = [];
+    submittedRef.current = false;
+    setIsPressed(false);
+    setButtonMode("normal");
+    setHintMode("none");
+    setSeatHash(newSeatHash()); // 「もう一度」も新しい席
+    // 前回保存分(自分の直前の完走)が累計に反映されるよう再取得
+    fetchHiSessions().then(setSessions);
   };
 
   const handleTimeUpdate = useCallback((t: number) => {
@@ -204,80 +229,94 @@ export default function HiTensionPage() {
           }}
         >
           <HandsCanvas
+            key={seatHash}
             ref={canvasRef}
             sessions={sessions}
             selfMemberId={memberId}
             selfSeatHash={seatHash}
           />
 
-          <div
-            style={{
-              position: "relative",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              minHeight: 120,
-              zIndex: 1,
-            }}
-          >
-            {hintMode !== "none" && (
-              <div
-                style={{
-                  position: "absolute",
-                  left: "50%",
-                  bottom: "calc(100% + 0.4rem)",
-                  whiteSpace: "nowrap",
-                  fontWeight: 800,
-                  fontSize: hintMode === "now" ? "1.1rem" : "0.9rem",
-                  letterSpacing: "0.05em",
-                  color: member?.color ?? "#000",
-                  opacity: hintMode === "now" ? 1 : 0.75,
-                  transformOrigin: "center bottom",
-                  transform: "translate(-50%, 0)",
-                  animation: hintMode === "now"
-                    ? "hi-tension-longpress-pulse 0.4s ease-in-out infinite alternate"
-                    : "none",
-                  pointerEvents: "none",
-                }}
-              >
-                {hintMode === "now" ? "長押し！" : "もうすぐ長押し！"}
-              </div>
-            )}
-            <button
-              type="button"
-              disabled={isStop}
-              onPointerDown={isStop ? undefined : handlePressStart}
-              onPointerUp={handlePressEnd}
-              onPointerLeave={handlePressEnd}
-              onPointerCancel={handlePressEnd}
-              onContextMenu={(e) => e.preventDefault()}
+          {videoEnded ? (
+            <div style={{ position: "relative", zIndex: 1, width: "100%", display: "flex", justifyContent: "center" }}>
+              <EndCard
+                selfCount={endedSelfCount}
+                totalCount={
+                  sessions.reduce((sum, s) => sum + s.bucket_indices.length, 0) + endedSelfCount
+                }
+                memberColor={member?.color ?? "#000"}
+                onReplay={handleReplay}
+              />
+            </div>
+          ) : (
+            <div
               style={{
-                width: buttonSize,
-                height: buttonSize,
-                borderRadius: "50%",
-                background: member?.color ?? "#000",
-                color: "#fff",
-                border: "none",
-                fontSize: isStop ? "0.75rem" : "1.5rem",
-                fontWeight: 800,
-                letterSpacing: "0.05em",
-                cursor: isStop ? "not-allowed" : "pointer",
-                boxShadow: isPressed && !isStop
-                  ? "0 0 0 1px rgba(0,0,0,0.12), 0 0 0 8px rgba(0,0,0,0.06)"
-                  : "0 0 0 1px rgba(0,0,0,0.08)",
-                opacity: isStop ? 0.3 : 1,
-                transform: isPressed && !isStop ? "scale(0.92)" : "scale(1)",
-                transition: "width 0.25s, height 0.25s, opacity 0.25s, font-size 0.25s, transform 0.12s, box-shadow 0.12s",
-                touchAction: "manipulation",
-                userSelect: "none",
-                WebkitUserSelect: "none",
-                WebkitTouchCallout: "none",
-                WebkitTapHighlightColor: "transparent",
+                position: "relative",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: 120,
+                zIndex: 1,
               }}
             >
-              ハイ！
-            </button>
-          </div>
+              {hintMode !== "none" && (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: "50%",
+                    bottom: "calc(100% + 0.4rem)",
+                    whiteSpace: "nowrap",
+                    fontWeight: 800,
+                    fontSize: hintMode === "now" ? "1.1rem" : "0.9rem",
+                    letterSpacing: "0.05em",
+                    color: member?.color ?? "#000",
+                    opacity: hintMode === "now" ? 1 : 0.75,
+                    transformOrigin: "center bottom",
+                    transform: "translate(-50%, 0)",
+                    animation: hintMode === "now"
+                      ? "hi-tension-longpress-pulse 0.4s ease-in-out infinite alternate"
+                      : "none",
+                    pointerEvents: "none",
+                  }}
+                >
+                  {hintMode === "now" ? "長押し！" : "もうすぐ長押し！"}
+                </div>
+              )}
+              <button
+                type="button"
+                disabled={isStop}
+                onPointerDown={isStop ? undefined : handlePressStart}
+                onPointerUp={handlePressEnd}
+                onPointerLeave={handlePressEnd}
+                onPointerCancel={handlePressEnd}
+                onContextMenu={(e) => e.preventDefault()}
+                style={{
+                  width: buttonSize,
+                  height: buttonSize,
+                  borderRadius: "50%",
+                  background: member?.color ?? "#000",
+                  color: "#fff",
+                  border: "none",
+                  fontSize: isStop ? "0.75rem" : "1.5rem",
+                  fontWeight: 800,
+                  letterSpacing: "0.05em",
+                  cursor: isStop ? "not-allowed" : "pointer",
+                  boxShadow: isPressed && !isStop
+                    ? "0 0 0 1px rgba(0,0,0,0.12), 0 0 0 8px rgba(0,0,0,0.06)"
+                    : "0 0 0 1px rgba(0,0,0,0.08)",
+                  opacity: isStop ? 0.3 : 1,
+                  transform: isPressed && !isStop ? "scale(0.92)" : "scale(1)",
+                  transition: "width 0.25s, height 0.25s, opacity 0.25s, font-size 0.25s, transform 0.12s, box-shadow 0.12s",
+                  touchAction: "manipulation",
+                  userSelect: "none",
+                  WebkitUserSelect: "none",
+                  WebkitTouchCallout: "none",
+                  WebkitTapHighlightColor: "transparent",
+                }}
+              >
+                ハイ！
+              </button>
+            </div>
+          )}
 
           <p
             style={{
