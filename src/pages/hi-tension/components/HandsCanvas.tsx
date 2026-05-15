@@ -5,6 +5,11 @@ import {
   useMemo,
   useRef,
 } from "react";
+// PixiJS は内部で `new Function(...)` を使うため、CSP の script-src に unsafe-eval が
+// 含まれない環境(Cloudflare Pages のデフォルト)では起動できない。
+// `pixi.js/unsafe-eval` を side-effect import すると eval を使わない別実装に切り替わる。
+// import そのものに副作用があるので、pixi.js の他 import より前に置く。
+import "pixi.js/unsafe-eval";
 import { Application, Container, Sprite, Texture, Ticker } from "pixi.js";
 import { getHandTexture, seatFromHash } from "../handTexture";
 import { findMember } from "../data";
