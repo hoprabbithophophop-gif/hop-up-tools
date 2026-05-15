@@ -56,6 +56,7 @@ export default function HiTensionPage() {
   const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const submittedRef = useRef(false);
+  const videoEndedRef = useRef(false);
   const canvasRef = useRef<HandsCanvasApi | null>(null);
   const playerApiRef = useRef<YouTubePlayerApi | null>(null);
 
@@ -106,12 +107,19 @@ export default function HiTensionPage() {
     setButtonMode("normal");
     setHintMode("none");
     setSeatHash(newSeatHash()); // 入るたびに違う席
+    videoEndedRef.current = false;
     setVideoEnded(false);
     setEndedSelfCount(0);
     setScreen("play");
   };
 
   const handleVideoEnded = () => {
+    // 長押し中に動画完走するとボタンが unmount されて pointerup が届かず、
+    // setInterval が永続走行→ recordHi 連射→ ✋エンドレス、を防ぐ。
+    clearPressTimers();
+    setIsPressed(false);
+    videoEndedRef.current = true;
+
     const count = timestampsRef.current.length;
     console.log(`[hi-tension] video ended (${count} presses)`);
 
@@ -142,6 +150,7 @@ export default function HiTensionPage() {
     // iOS Safari のユーザージェスチャー文脈を維持するため、player への命令を最初に
     playerApiRef.current?.replay();
 
+    videoEndedRef.current = false;
     setVideoEnded(false);
     setEndedSelfCount(0);
     timestampsRef.current = [];
@@ -164,6 +173,7 @@ export default function HiTensionPage() {
   }, []);
 
   const recordHi = useCallback(() => {
+    if (videoEndedRef.current) return; // 動画完走後の取りこぼし保険
     const t = currentTimeRef.current;
     if (computeButtonMode(t) === "stop") return;
     timestampsRef.current.push(t);
