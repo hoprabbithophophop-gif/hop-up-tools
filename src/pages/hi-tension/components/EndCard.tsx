@@ -99,7 +99,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
             cursor: "pointer",
           }}
         >
-          別の色を選ぶ
+          別の色にする
         </button>
       </div>
     </div>

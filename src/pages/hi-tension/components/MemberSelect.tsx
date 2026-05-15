@@ -18,7 +18,8 @@ export default function MemberSelect({ initialSelectedId, onConfirm }: Props) {
   return (
     <div
       style={{
-        minHeight: "100dvh", // Android Chrome のアドレスバー伸縮分のスクロール対策
+        height: "100dvh", // dvh で動的に viewport に合わせ + overflow hidden で iOS の rubber band も潰す
+        overflow: "hidden",
         background: "#f8f9fa",
         color: "#191c1d",
         display: "flex",
