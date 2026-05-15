@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { UNIT_ROWS } from "../data";
+import IntroModal from "./IntroModal";
 
 interface Props {
   initialSelectedId: string | null;
@@ -8,6 +9,7 @@ interface Props {
 
 export default function MemberSelect({ initialSelectedId, onConfirm }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
+  const [showIntro, setShowIntro] = useState(true);
 
   useEffect(() => {
     document.title = "hi-tension | hop-up-tools";
@@ -22,34 +24,10 @@ export default function MemberSelect({ initialSelectedId, onConfirm }: Props) {
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: "2rem 1.2rem 2rem",
+        padding: "3rem 1.2rem 2rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
       }}
     >
-      <div
-        style={{
-          maxWidth: 360,
-          width: "100%",
-          margin: "0 0 1.6rem",
-          fontSize: "0.8rem",
-          lineHeight: 1.7,
-          color: "#474747",
-        }}
-      >
-        <p style={{ margin: 0 }}>
-          『ハイ！テンション』のライブ動画に合わせて、画面下のボタンでハイ！するツールです。押したタイミングが時間軸上に蓄積され、次に再生した人の画面に、過去のみんなのハイ！が✋として表示されます。横アリの予行演習のつもりで、みんなで一緒にハイ！しましょう。
-        </p>
-        <p
-          style={{
-            margin: "0.8rem 0 0",
-            fontSize: "0.7rem",
-            color: "#777",
-          }}
-        >
-          ※ハイ！のタイミングは人それぞれ。好きなタイミングで押してください。本番(現地)では、周囲の迷惑にならないようご注意ください。
-        </p>
-      </div>
-
       <h1
         style={{
           fontSize: "1.5rem",
@@ -151,6 +129,8 @@ export default function MemberSelect({ initialSelectedId, onConfirm }: Props) {
         <br />
         権利者からの申し出により直ちに公開を停止します。
       </p>
+
+      {showIntro && <IntroModal onDismiss={() => setShowIntro(false)} />}
     </div>
   );
 }
