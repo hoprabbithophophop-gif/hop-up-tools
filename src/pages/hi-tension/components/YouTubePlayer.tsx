@@ -3,6 +3,7 @@ import LoadingDots from "./LoadingDots";
 
 const CONTAINER_ID = "hi-tension-player";
 const POLL_MS = 100;
+const LOADING_MIN_MS = 2000;
 
 export type YouTubePlayerApi = {
   /** ユーザージェスチャー直後に同期的に呼ぶこと(iOS Safari の autoplay 制約対策) */
@@ -45,6 +46,12 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   ref,
 ) {
   const [isReady, setIsReady] = useState(false);
+  // 初回 play() から LOADING_MIN_MS 経過したかを保持。
+  // 再生がすぐ始まるとローディングアニメが見えないため、最低2秒は表示する。
+  const [started, setStarted] = useState(false);
+  const [minTimeElapsed, setMinTimeElapsed] = useState(false);
+  const startedRef = useRef(false);
+  const minTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playerRef = useRef<YT.Player | null>(null);
   const isReadyRef = useRef(false);
   const wantPlayRef = useRef(false);
@@ -139,8 +146,20 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
     };
   }, [videoId]);
 
+  useEffect(() => {
+    return () => {
+      if (minTimerRef.current) clearTimeout(minTimerRef.current);
+    };
+  }, []);
+
   useImperativeHandle(ref, () => ({
     play() {
+      // 初回 play() でローディング最低表示タイマーを開始
+      if (!startedRef.current) {
+        startedRef.current = true;
+        setStarted(true);
+        minTimerRef.current = setTimeout(() => setMinTimeElapsed(true), LOADING_MIN_MS);
+      }
       const p = playerRef.current;
       if (p && isReadyRef.current) {
         // ユーザージェスチャー直後の同期呼び出し
@@ -163,10 +182,13 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
     },
   }), []);
 
+  // 初回 play() から LOADING_MIN_MS の間、または player が ready になるまで表示
+  const showLoading = !isReady || (started && !minTimeElapsed);
+
   return (
     <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", background: "#000" }}>
       <div id={CONTAINER_ID} style={{ width: "100%", height: "100%" }} />
-      {!isReady && (
+      {showLoading && (
         <div
           style={{
             position: "absolute",
