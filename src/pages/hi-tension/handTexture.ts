@@ -4,48 +4,36 @@ import { faHand } from "@fortawesome/free-solid-svg-icons";
 import { Texture } from "pixi.js";
 
 let cachedTexture: Texture | null = null;
-let loadingPromise: Promise<Texture> | null = null;
 
 /**
- * FA hand アイコンの SVG パスを 1 枚の白い PIXI.Texture にロードする。
- * 色付けは PIXI.Sprite の tint で動的にやる(GPU 任せ、軽い)。
- * SVG → HTMLImageElement → Canvas → PIXI.Texture の順でラスタライズ。
- * 結果はモジュール内でキャッシュ、複数回の呼び出しでも 1 枚しかロードしない。
+ * FA hand アイコンのパスを Canvas に Path2D で直接描画し、PIXI.Texture にする。
+ * data: URL + <img> 方式だと Cloudflare の CSP(img-src 'self' のみ) でブロックされるため、
+ * Image を経由しない Path2D 直接描画にしている。
+ * 色は PIXI.Sprite の tint で動的に変える(GPU 任せで軽い)。
  */
-export async function getHandTexture(): Promise<Texture> {
+export function getHandTexture(): Texture {
   if (cachedTexture) return cachedTexture;
-  if (loadingPromise) return loadingPromise;
 
-  loadingPromise = (async () => {
-    const [iconW, iconH, , , pathData] = faHand.icon;
-    const path = Array.isArray(pathData) ? pathData.join(" ") : pathData;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${iconW} ${iconH}"><path fill="#ffffff" d="${path}"/></svg>`;
-    const dataUrl = "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+  const [iconW, iconH, , , pathData] = faHand.icon;
+  const path = Array.isArray(pathData) ? pathData.join(" ") : pathData;
 
-    const img = new Image();
-    img.src = dataUrl;
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error("hand SVG load failed"));
-    });
+  const renderSize = 256;
+  const scale = renderSize / Math.max(iconW, iconH);
+  const w = Math.max(1, Math.round(iconW * scale));
+  const h = Math.max(1, Math.round(iconH * scale));
 
-    // Canvas にラスタライズ。PIXI.Sprite 側でスケール・tint するので解像度は固定でOK
-    const renderSize = 256;
-    const scale = renderSize / Math.max(iconW, iconH);
-    const w = Math.max(1, Math.round(iconW * scale));
-    const h = Math.max(1, Math.round(iconH * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("2d context not available");
-    ctx.drawImage(img, 0, 0, w, h);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2d context not available");
 
-    cachedTexture = Texture.from(canvas);
-    return cachedTexture;
-  })();
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill(new Path2D(path));
 
-  return loadingPromise;
+  cachedTexture = Texture.from(canvas);
+  return cachedTexture;
 }
 
 /**

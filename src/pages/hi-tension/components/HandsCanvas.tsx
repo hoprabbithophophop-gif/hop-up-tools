@@ -88,8 +88,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       const container = containerRef.current;
       if (!container) return;
 
-      const texture = await getHandTexture();
-      if (cancelled) return;
+      const texture = getHandTexture();
 
       app = new Application();
       await app.init({

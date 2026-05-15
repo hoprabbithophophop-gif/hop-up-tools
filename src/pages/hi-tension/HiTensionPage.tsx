@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import MemberSelect from "./components/MemberSelect";
-import YouTubePlayer from "./components/YouTubePlayer";
+import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
 import HandsCanvas, { type HandsCanvasApi } from "./components/HandsCanvas";
 import { VIDEO_ID, findMember } from "./data";
 import {
@@ -53,9 +53,19 @@ export default function HiTensionPage() {
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const submittedRef = useRef(false);
   const canvasRef = useRef<HandsCanvasApi | null>(null);
+  const playerApiRef = useRef<YouTubePlayerApi | null>(null);
 
   useEffect(() => {
     getOrCreateAnonymousSessionId();
+  }, []);
+
+  // 過去セッションをページ初回ロード時に先読み(「はじめる」を押すころには揃ってる)
+  useEffect(() => {
+    fetchHiSessions().then((data) => {
+      setSessions(data);
+      const totalHi = data.reduce((sum, s) => sum + s.bucket_indices.length, 0);
+      console.log(`[hi-tension] loaded ${data.length} sessions, ${totalHi} hi total`);
+    });
   }, []);
 
   const clearPressTimers = useCallback(() => {
@@ -79,6 +89,12 @@ export default function HiTensionPage() {
   }, [buttonMode, clearPressTimers]);
 
   const handleConfirm = (id: string) => {
+    // ★ ここが最重要: iOS Safari の autoplay 制約対策。
+    // ユーザージェスチャー(クリック)の同期スコープ内で play() を呼び切る。
+    // この呼び出しより前に setState や非同期処理を挟むとジェスチャー文脈が切れて
+    // playVideo() が拒否される可能性があるので、必ず最初に呼ぶ。
+    playerApiRef.current?.play();
+
     setMemberId(id);
     setLastSelectedMemberId(id);
     timestampsRef.current = [];
@@ -87,13 +103,6 @@ export default function HiTensionPage() {
     setHintMode("none");
     setSeatHash(newSeatHash()); // 入るたびに違う席
     setScreen("play");
-
-    // 過去セッションの集約データを取得
-    fetchHiSessions().then((data) => {
-      setSessions(data);
-      const totalHi = data.reduce((sum, s) => sum + s.bucket_indices.length, 0);
-      console.log(`[hi-tension] loaded ${data.length} sessions, ${totalHi} hi total`);
-    });
   };
 
   const handleVideoEnded = () => {
@@ -114,7 +123,7 @@ export default function HiTensionPage() {
         console.log("[hi-tension] session saved.");
       } else {
         console.warn("[hi-tension] save failed:", result.error);
-        submittedRef.current = false; // 失敗時は再送可能に
+        submittedRef.current = false;
       }
     });
   };
@@ -140,7 +149,6 @@ export default function HiTensionPage() {
     e.preventDefault();
     recordHi();
     clearPressTimers();
-    // 250ms 以上押し続けられたら初めて連射開始(短タップの誤連射防止)
     holdTimerRef.current = setTimeout(() => {
       pressIntervalRef.current = setInterval(recordHi, LONG_PRESS_INTERVAL_MS);
     }, LONG_PRESS_THRESHOLD_MS);
@@ -150,144 +158,158 @@ export default function HiTensionPage() {
     clearPressTimers();
   };
 
-  if (screen === "select") {
-    return (
-      <MemberSelect initialSelectedId={memberId} onConfirm={handleConfirm} />
-    );
-  }
-
   const member = findMember(memberId);
   const isStop = buttonMode === "stop";
   const buttonSize = isStop ? 64 : 120;
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#f8f9fa",
-        color: "#191c1d",
-        fontFamily: "Inter, 'Noto Sans JP', sans-serif",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <style>{`
-        @keyframes hi-tension-longpress-pulse {
-          0% { transform: translate(-50%, 0) scale(1); }
-          100% { transform: translate(-50%, 0) scale(1.12); }
-        }
-      `}</style>
-
-      <YouTubePlayer
-        videoId={VIDEO_ID}
-        onEnded={handleVideoEnded}
-        onTimeUpdate={handleTimeUpdate}
-      />
-
+    <>
+      {/* Play screen は常時マウント。YouTubePlayer の iframe をユーザー操作前から DOM に置いておくことで、
+         「はじめる」クリックの同期スコープ内で playVideo() を確実に呼べるようにする。 */}
       <div
         style={{
-          flex: 1,
-          position: "relative",
+          minHeight: "100vh",
+          background: "#f8f9fa",
+          color: "#191c1d",
+          fontFamily: "Inter, 'Noto Sans JP', sans-serif",
           display: "flex",
           flexDirection: "column",
-          alignItems: "center",
-          padding: "2.4rem 1.2rem 2rem",
         }}
       >
-        <HandsCanvas
-          ref={canvasRef}
-          sessions={sessions}
-          selfMemberId={memberId}
-          selfSeatHash={seatHash}
+        <style>{`
+          @keyframes hi-tension-longpress-pulse {
+            0% { transform: translate(-50%, 0) scale(1); }
+            100% { transform: translate(-50%, 0) scale(1.12); }
+          }
+        `}</style>
+
+        <YouTubePlayer
+          ref={playerApiRef}
+          videoId={VIDEO_ID}
+          onEnded={handleVideoEnded}
+          onTimeUpdate={handleTimeUpdate}
         />
 
         <div
           style={{
+            flex: 1,
             position: "relative",
             display: "flex",
+            flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
-            minHeight: 120,
-            zIndex: 1,
+            padding: "2.4rem 1.2rem 2rem",
           }}
         >
-          {hintMode !== "none" && (
-            <div
-              style={{
-                position: "absolute",
-                left: "50%",
-                bottom: "calc(100% + 0.4rem)",
-                whiteSpace: "nowrap",
-                fontWeight: 800,
-                fontSize: hintMode === "now" ? "1.1rem" : "0.9rem",
-                letterSpacing: "0.05em",
-                color: member?.color ?? "#000",
-                opacity: hintMode === "now" ? 1 : 0.75,
-                transformOrigin: "center bottom",
-                transform: "translate(-50%, 0)",
-                animation: hintMode === "now"
-                  ? "hi-tension-longpress-pulse 0.4s ease-in-out infinite alternate"
-                  : "none",
-                pointerEvents: "none",
-              }}
-            >
-              {hintMode === "now" ? "長押し！" : "もうすぐ長押し！"}
-            </div>
-          )}
-          <button
-            type="button"
-            disabled={isStop}
-            onPointerDown={isStop ? undefined : handlePressStart}
-            onPointerUp={handlePressEnd}
-            onPointerLeave={handlePressEnd}
-            onPointerCancel={handlePressEnd}
-            onContextMenu={(e) => e.preventDefault()}
+          <HandsCanvas
+            ref={canvasRef}
+            sessions={sessions}
+            selfMemberId={memberId}
+            selfSeatHash={seatHash}
+          />
+
+          <div
             style={{
-              width: buttonSize,
-              height: buttonSize,
-              borderRadius: "50%",
-              background: member?.color ?? "#000",
-              color: "#fff",
-              border: "none",
-              fontSize: isStop ? "0.75rem" : "1.5rem",
-              fontWeight: 800,
-              letterSpacing: "0.05em",
-              cursor: isStop ? "not-allowed" : "pointer",
-              boxShadow: "0 0 0 1px rgba(0,0,0,0.08)",
-              opacity: isStop ? 0.3 : 1,
-              transition: "width 0.25s, height 0.25s, opacity 0.25s, font-size 0.25s",
-              touchAction: "manipulation",
-              userSelect: "none",
-              WebkitUserSelect: "none",
-              WebkitTouchCallout: "none",
-              WebkitTapHighlightColor: "transparent",
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: 120,
+              zIndex: 1,
             }}
           >
-            ハイ！
-          </button>
-        </div>
+            {hintMode !== "none" && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: "50%",
+                  bottom: "calc(100% + 0.4rem)",
+                  whiteSpace: "nowrap",
+                  fontWeight: 800,
+                  fontSize: hintMode === "now" ? "1.1rem" : "0.9rem",
+                  letterSpacing: "0.05em",
+                  color: member?.color ?? "#000",
+                  opacity: hintMode === "now" ? 1 : 0.75,
+                  transformOrigin: "center bottom",
+                  transform: "translate(-50%, 0)",
+                  animation: hintMode === "now"
+                    ? "hi-tension-longpress-pulse 0.4s ease-in-out infinite alternate"
+                    : "none",
+                  pointerEvents: "none",
+                }}
+              >
+                {hintMode === "now" ? "長押し！" : "もうすぐ長押し！"}
+              </div>
+            )}
+            <button
+              type="button"
+              disabled={isStop}
+              onPointerDown={isStop ? undefined : handlePressStart}
+              onPointerUp={handlePressEnd}
+              onPointerLeave={handlePressEnd}
+              onPointerCancel={handlePressEnd}
+              onContextMenu={(e) => e.preventDefault()}
+              style={{
+                width: buttonSize,
+                height: buttonSize,
+                borderRadius: "50%",
+                background: member?.color ?? "#000",
+                color: "#fff",
+                border: "none",
+                fontSize: isStop ? "0.75rem" : "1.5rem",
+                fontWeight: 800,
+                letterSpacing: "0.05em",
+                cursor: isStop ? "not-allowed" : "pointer",
+                boxShadow: "0 0 0 1px rgba(0,0,0,0.08)",
+                opacity: isStop ? 0.3 : 1,
+                transition: "width 0.25s, height 0.25s, opacity 0.25s, font-size 0.25s",
+                touchAction: "manipulation",
+                userSelect: "none",
+                WebkitUserSelect: "none",
+                WebkitTouchCallout: "none",
+                WebkitTapHighlightColor: "transparent",
+              }}
+            >
+              ハイ！
+            </button>
+          </div>
 
-        <p
+          <p
+            style={{
+              marginTop: "auto",
+              paddingTop: "2.4rem",
+              fontSize: "0.625rem",
+              color: "#777",
+              textAlign: "center",
+              lineHeight: 1.6,
+              position: "relative",
+              zIndex: 1,
+            }}
+          >
+            楽曲・映像の著作権は権利者に帰属します。
+            <br />
+            権利者からの申し出により直ちに公開を停止します。
+            <br />
+            <span style={{ fontSize: "0.5rem", color: "#999" }}>
+              Hand icon by Font Awesome (CC BY 4.0)
+            </span>
+          </p>
+        </div>
+      </div>
+
+      {/* Select 画面はオーバーレイで上に重ねる。「はじめる」クリックでアンマウント */}
+      {screen === "select" && (
+        <div
           style={{
-            marginTop: "auto",
-            paddingTop: "2.4rem",
-            fontSize: "0.625rem",
-            color: "#777",
-            textAlign: "center",
-            lineHeight: 1.6,
-            position: "relative",
-            zIndex: 1,
+            position: "fixed",
+            inset: 0,
+            zIndex: 100,
+            background: "#f8f9fa",
+            overflowY: "auto",
           }}
         >
-          楽曲・映像の著作権は権利者に帰属します。
-          <br />
-          権利者からの申し出により直ちに公開を停止します。
-          <br />
-          <span style={{ fontSize: "0.5rem", color: "#999" }}>
-            Hand icon by Font Awesome (CC BY 4.0)
-          </span>
-        </p>
-      </div>
-    </div>
+          <MemberSelect initialSelectedId={memberId} onConfirm={handleConfirm} />
+        </div>
+      )}
+    </>
   );
 }

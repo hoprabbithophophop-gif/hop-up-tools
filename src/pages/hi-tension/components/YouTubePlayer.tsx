@@ -1,7 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 const CONTAINER_ID = "hi-tension-player";
 const POLL_MS = 100;
+
+export type YouTubePlayerApi = {
+  /** ユーザージェスチャー直後に同期的に呼ぶこと(iOS Safari の autoplay 制約対策) */
+  play: () => void;
+  pause: () => void;
+};
 
 interface Props {
   videoId: string;
@@ -31,9 +37,14 @@ function loadYouTubeAPI(): Promise<void> {
   });
 }
 
-export default function YouTubePlayer({ videoId, onEnded, onTimeUpdate }: Props) {
+const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer(
+  { videoId, onEnded, onTimeUpdate },
+  ref,
+) {
   const [isReady, setIsReady] = useState(false);
   const playerRef = useRef<YT.Player | null>(null);
+  const isReadyRef = useRef(false);
+  const wantPlayRef = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onEndedRef = useRef(onEnded);
   const onTimeUpdateRef = useRef(onTimeUpdate);
@@ -43,6 +54,26 @@ export default function YouTubePlayer({ videoId, onEnded, onTimeUpdate }: Props)
 
   useEffect(() => {
     let mounted = true;
+
+    const stopPolling = () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+
+    const startPolling = () => {
+      stopPolling();
+      pollRef.current = setInterval(() => {
+        const p = playerRef.current;
+        if (!p) return;
+        try {
+          onTimeUpdateRef.current?.(p.getCurrentTime());
+        } catch {
+          // ignore
+        }
+      }, POLL_MS);
+    };
 
     const init = async () => {
       await loadYouTubeAPI();
@@ -61,7 +92,7 @@ export default function YouTubePlayer({ videoId, onEnded, onTimeUpdate }: Props)
         width: "100%",
         videoId,
         playerVars: {
-          autoplay: 1,
+          autoplay: 0,           // iOS Safari は同期 play() で起動するのでブラウザ任せの autoplay は使わない
           controls: 1,
           rel: 0,
           modestbranding: 1,
@@ -70,7 +101,13 @@ export default function YouTubePlayer({ videoId, onEnded, onTimeUpdate }: Props)
         events: {
           onReady: () => {
             if (!mounted) return;
+            isReadyRef.current = true;
             setIsReady(true);
+            // 先に play() が呼ばれていれば、ここで再生開始
+            if (wantPlayRef.current) {
+              wantPlayRef.current = false;
+              try { playerRef.current?.playVideo(); } catch { /* ignore */ }
+            }
           },
           onStateChange: (event) => {
             if (!mounted) return;
@@ -88,26 +125,6 @@ export default function YouTubePlayer({ videoId, onEnded, onTimeUpdate }: Props)
       });
     };
 
-    const startPolling = () => {
-      stopPolling();
-      pollRef.current = setInterval(() => {
-        const p = playerRef.current;
-        if (!p) return;
-        try {
-          onTimeUpdateRef.current?.(p.getCurrentTime());
-        } catch {
-          // ignore
-        }
-      }, POLL_MS);
-    };
-
-    const stopPolling = () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-
     init();
 
     return () => {
@@ -115,8 +132,25 @@ export default function YouTubePlayer({ videoId, onEnded, onTimeUpdate }: Props)
       stopPolling();
       try { playerRef.current?.destroy(); } catch { /* ignore */ }
       playerRef.current = null;
+      isReadyRef.current = false;
     };
   }, [videoId]);
+
+  useImperativeHandle(ref, () => ({
+    play() {
+      const p = playerRef.current;
+      if (p && isReadyRef.current) {
+        // ユーザージェスチャー直後の同期呼び出し
+        try { p.playVideo(); } catch { /* ignore */ }
+      } else {
+        // まだ準備できていない → 準備完了時に再生
+        wantPlayRef.current = true;
+      }
+    },
+    pause() {
+      try { playerRef.current?.pauseVideo(); } catch { /* ignore */ }
+    },
+  }), []);
 
   return (
     <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", background: "#000" }}>
@@ -142,4 +176,6 @@ export default function YouTubePlayer({ videoId, onEnded, onTimeUpdate }: Props)
       )}
     </div>
   );
-}
+});
+
+export default YouTubePlayer;
