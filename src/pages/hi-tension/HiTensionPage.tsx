@@ -10,6 +10,7 @@ import {
 } from "./storage";
 import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
 import EndCard from "./components/EndCard";
+import HandIcon from "./components/HandIcon";
 
 type Screen = "select" | "play";
 
@@ -288,7 +289,7 @@ export default function HiTensionPage() {
                     pointerEvents: "none",
                   }}
                 >
-                  {hintMode === "now" ? "長押し！" : "もうすぐ長押し！"}
+                  {hintMode === "now" ? "押してー！" : "次は長押し！"}
                 </div>
               )}
               <button
@@ -306,24 +307,25 @@ export default function HiTensionPage() {
                   background: member?.color ?? "#000",
                   color: "#fff",
                   border: "none",
-                  fontSize: isStop ? "0.75rem" : "1.5rem",
-                  fontWeight: 800,
-                  letterSpacing: "0.05em",
                   cursor: isStop ? "not-allowed" : "pointer",
                   boxShadow: isPressed && !isStop
                     ? "0 0 0 1px rgba(0,0,0,0.12), 0 0 0 8px rgba(0,0,0,0.06)"
                     : "0 0 0 1px rgba(0,0,0,0.08)",
                   opacity: isStop ? 0.3 : 1,
                   transform: isPressed && !isStop ? "scale(0.92)" : "scale(1)",
-                  transition: "width 0.25s, height 0.25s, opacity 0.25s, font-size 0.25s, transform 0.12s, box-shadow 0.12s",
+                  transition: "width 0.25s, height 0.25s, opacity 0.25s, transform 0.12s, box-shadow 0.12s",
                   touchAction: "manipulation",
                   userSelect: "none",
                   WebkitUserSelect: "none",
                   WebkitTouchCallout: "none",
                   WebkitTapHighlightColor: "transparent",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 0,
                 }}
               >
-                ハイ！
+                <HandIcon size={Math.round(buttonSize * 0.55)} color="#fff" />
               </button>
             </div>
           )}
