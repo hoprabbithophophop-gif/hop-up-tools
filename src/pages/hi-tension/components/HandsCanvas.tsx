@@ -32,6 +32,9 @@ type BucketEntry = { session: HiSession; count: number };
 const BASE_SIZE = 60;
 const SELF_SIZE = 72; // 仕様5.5: 自分は他人の約20%大きく
 const NON_TODAY_ALPHA = 0.4;
+// 跳躍してもキャンバス上端(プレイヤー直下)で✋が見切れないための上余白。
+// スプライト高(最大 SELF_SIZE) + 最大跳躍(jumpHeight 最大100) + バッファ。
+const TOP_MARGIN = SELF_SIZE + 120;
 
 function hexToTint(hex: string): number {
   return parseInt(hex.replace(/^#/, ""), 16);
@@ -152,7 +155,10 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     const baseAlpha = params.isToday ? 1.0 : NON_TODAY_ALPHA;
     sprite.alpha = baseAlpha;
 
-    const baselineY = params.yRatio * h;
+    // 上端に TOP_MARGIN 分の余白を確保した残り領域に着地点を配置する。
+    // これで yRatio が小さい(=上寄りの)席でも、跳躍が上端で見切れない。
+    const usableH = Math.max(1, h - TOP_MARGIN);
+    const baselineY = TOP_MARGIN + params.yRatio * usableH;
     sprite.x = params.xRatio * w;
     sprite.y = baselineY;
 
