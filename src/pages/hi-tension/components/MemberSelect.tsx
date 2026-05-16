@@ -74,7 +74,7 @@ export default function MemberSelect({ initialSelectedId, mode, showModeToggle, 
             key={row.unit}
             style={{
               display: "flex",
-              gap: "0.8rem",
+              gap: "1rem",
               justifyContent: "center",
               flexWrap: "nowrap",
             }}
