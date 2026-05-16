@@ -40,6 +40,16 @@ function hexToTint(hex: string): number {
   return parseInt(hex.replace(/^#/, ""), 16);
 }
 
+/**
+ * 累計セッション数に応じた✋サイズの倍率。
+ * 100セッションまでは 100%、そこから 1000セッションへ向けて線形に縮小、
+ * 1000以降は 50% で固定。人が増えても画面密度をだいたい一定に保つ。
+ */
+function crowdScale(sessionCount: number): number {
+  const t = Math.min(1, Math.max(0, (sessionCount - 100) / 900));
+  return 1 - t * 0.5;
+}
+
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
@@ -148,7 +158,9 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
 
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5, 1.0); // 下端中央(着地地点を yRatio に固定)
-    const targetSize = params.isSelf ? SELF_SIZE : BASE_SIZE;
+    // 累計セッション数に応じて全✋を縮小(自分も同率なので「自分は1.2倍」は維持)
+    const crowdK = crowdScale(sessionsRef.current.length);
+    const targetSize = (params.isSelf ? SELF_SIZE : BASE_SIZE) * crowdK;
     const texMax = Math.max(texture.width, texture.height) || 1;
     sprite.scale.set(targetSize / texMax);
     sprite.tint = hexToTint(params.color);
