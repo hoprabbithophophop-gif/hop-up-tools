@@ -29,7 +29,7 @@ export default function MemberSelect({ initialSelectedId, mode, showModeToggle, 
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: "3rem 1.2rem 2rem",
+        padding: "2rem 1.2rem 1.5rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
       }}
     >
@@ -50,7 +50,7 @@ export default function MemberSelect({ initialSelectedId, mode, showModeToggle, 
         style={{
           fontSize: "0.95rem",
           fontWeight: 500,
-          margin: "0 0 1.6rem",
+          margin: "0 0 1.2rem",
           textAlign: "center",
           color: "#474747",
         }}
@@ -62,10 +62,11 @@ export default function MemberSelect({ initialSelectedId, mode, showModeToggle, 
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: "1.4rem",
+          gap: "1.1rem",
           alignItems: "center",
           width: "100%",
           maxWidth: 360,
+          marginBottom: "1.4rem",
         }}
       >
         {UNIT_ROWS.map((row) => (
@@ -81,7 +82,6 @@ export default function MemberSelect({ initialSelectedId, mode, showModeToggle, 
             {row.members.map((m) => {
               const isSelected = selectedId === m.id;
               const baseSize = 56;
-              const size = isSelected ? baseSize * 1.2 : baseSize;
               return (
                 <button
                   key={m.id}
@@ -90,17 +90,21 @@ export default function MemberSelect({ initialSelectedId, mode, showModeToggle, 
                   aria-pressed={isSelected}
                   onClick={() => setSelectedId(m.id)}
                   style={{
-                    width: size,
-                    height: size,
+                    // box サイズは常に baseSize 固定。選択時は transform: scale で
+                    // その場で拡大するだけなので、行の高さも他の丸の位置も動かない。
+                    width: baseSize,
+                    height: baseSize,
                     borderRadius: "50%",
                     background: m.color,
-                    border: isSelected ? `3px solid ${m.color}` : "none",
+                    border: "none",
+                    // リングは box-shadow(レイアウトに影響しない)で表現
                     boxShadow: isSelected
-                      ? `0 0 0 3px #f8f9fa inset, 0 0 0 1px rgba(0,0,0,0.08)`
+                      ? `0 0 0 3px #f8f9fa, 0 0 0 5px ${m.color}`
                       : "0 0 0 1px rgba(0,0,0,0.08)",
                     padding: 0,
                     cursor: "pointer",
-                    transition: "width 0.18s, height 0.18s, box-shadow 0.18s",
+                    transform: isSelected ? "scale(1.2)" : "scale(1)",
+                    transition: "transform 0.18s, box-shadow 0.18s",
                   }}
                 />
               );
