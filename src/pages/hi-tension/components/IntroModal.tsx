@@ -31,45 +31,29 @@ export default function IntroModal({ onDismiss }: Props) {
           color: "#191c1d",
         }}
       >
-        <p
+        <h2
           style={{
-            margin: 0,
-            fontSize: "0.85rem",
-            lineHeight: 1.7,
-            color: "#474747",
+            margin: "0 0 1rem",
+            fontSize: "1.0625rem",
+            fontWeight: 700,
+            color: "#000",
+            textAlign: "center",
+            lineHeight: 1.4,
           }}
         >
-          『ハイ！テンション』のライブ動画に合わせて、画面下のボタンでハイ！するツールです。
+          ハイ！テンション✋ Practice ver.
+        </h2>
+        <p style={{ margin: 0, fontSize: "0.85rem", lineHeight: 1.7, color: "#474747" }}>
+          『ハイ！テンション』のライブ動画に合わせて、✋ボタンでハイ！するツールです。
         </p>
-        <p
-          style={{
-            margin: "0.8rem 0 0",
-            fontSize: "0.85rem",
-            lineHeight: 1.7,
-            color: "#474747",
-          }}
-        >
-          押したタイミングが時間軸上に蓄積され、次に再生した人の画面に、過去のみんなのハイ！が✋として表示されます。
+        <p style={{ margin: "0.8rem 0 0", fontSize: "0.85rem", lineHeight: 1.7, color: "#474747" }}>
+          あなたのハイ！は記録されて、次に再生した人の画面に✋として湧き出します。
         </p>
-        <p
-          style={{
-            margin: "0.8rem 0 0",
-            fontSize: "0.85rem",
-            lineHeight: 1.7,
-            color: "#474747",
-          }}
-        >
-          動画の中で「ハイは一回ね」と言われたら、ボタンを長押ししてみてください。
+        <p style={{ margin: "0.8rem 0 0", fontSize: "0.85rem", lineHeight: 1.7, color: "#474747" }}>
+          「ハイは一回ね」の後は長押し！
         </p>
-        <p
-          style={{
-            margin: "0.8rem 0 0",
-            fontSize: "0.85rem",
-            lineHeight: 1.7,
-            color: "#474747",
-          }}
-        >
-          コールのタイミングをつかむ練習になればいいな、くらいの気持ちで気軽に楽しんでください。
+        <p style={{ margin: "0.8rem 0 0", fontSize: "0.85rem", lineHeight: 1.7, color: "#474747" }}>
+          ハイ！の練習にどうぞ。
         </p>
         <p
           style={{
@@ -79,13 +63,11 @@ export default function IntroModal({ onDismiss }: Props) {
             color: "#777",
           }}
         >
-          ※タイミングを合わせる必要はありません。
-          <br />
-          お好きなときにどうぞ。
+          ※お好きなタイミングでハイ！してみましょう。
           <br />
           本番では、周囲の迷惑にならないようご注意ください。
           <br />
-          スマートフォンでの利用を想定しています。
+          現時点ではスマートフォンでの利用を想定しています。
         </p>
         <button
           type="button"
