@@ -59,6 +59,16 @@ export default function IntroModal({ onDismiss }: Props) {
             color: "#474747",
           }}
         >
+          動画の中で「ハイは一回ね」と言われたら、ボタンを長押ししてみてください。
+        </p>
+        <p
+          style={{
+            margin: "0.8rem 0 0",
+            fontSize: "0.85rem",
+            lineHeight: 1.7,
+            color: "#474747",
+          }}
+        >
           コールのタイミングをつかむ練習になればいいな、くらいの気持ちで気軽に楽しんでください。
         </p>
         <p
@@ -74,6 +84,8 @@ export default function IntroModal({ onDismiss }: Props) {
           お好きなときにどうぞ。
           <br />
           本番では、周囲の迷惑にならないようご注意ください。
+          <br />
+          スマートフォンでの利用を想定しています。
         </p>
         <button
           type="button"

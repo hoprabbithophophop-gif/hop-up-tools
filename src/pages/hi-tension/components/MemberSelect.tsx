@@ -16,7 +16,7 @@ export default function MemberSelect({ initialSelectedId, mode, showModeToggle, 
   const [showIntro, setShowIntro] = useState(true);
 
   useEffect(() => {
-    document.title = "hi-tension | hop-up-tools";
+    document.title = "ハイ！テンション✋ Practice ver. | hop-up-tools";
   }, []);
 
   return (
@@ -35,16 +35,28 @@ export default function MemberSelect({ initialSelectedId, mode, showModeToggle, 
     >
       <h1
         style={{
-          fontSize: "1.5rem",
+          fontSize: "1.375rem",
           fontWeight: 700,
           letterSpacing: "-0.02em",
-          margin: "0 0 1.6rem",
+          margin: "0 0 0.4rem",
           textAlign: "center",
           color: "#000",
+          lineHeight: 1.3,
+        }}
+      >
+        ハイ！テンション✋ Practice ver.
+      </h1>
+      <p
+        style={{
+          fontSize: "0.95rem",
+          fontWeight: 500,
+          margin: "0 0 1.6rem",
+          textAlign: "center",
+          color: "#474747",
         }}
       >
         好きな色は？
-      </h1>
+      </p>
 
       <div
         style={{
