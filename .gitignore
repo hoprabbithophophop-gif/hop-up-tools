@@ -32,8 +32,10 @@ yarn-error.log*
 # Playwright テスト出力
 test-results/
 
-# スクリーンショット
+# スクリーンショット（作業用）
 *.png
+# OGPアセットは除外対象外
+!public/ogp/*.png
 
 # GAS clasp設定（scriptIdを公開しない）
 gas/.clasp.json
