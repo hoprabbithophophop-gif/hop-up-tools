@@ -162,8 +162,12 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
       }
       const p = playerRef.current;
       if (p && isReadyRef.current) {
-        // ユーザージェスチャー直後の同期呼び出し
-        try { p.playVideo(); } catch { /* ignore */ }
+        try {
+          // 動画終了後に play() が呼ばれた場合は先頭に戻してから再生
+          // (ENDED 状態で playVideo() しても iOS Safari では無反応)
+          if (p.getPlayerState() === 0 /* ENDED */) p.seekTo(0, true);
+          p.playVideo();
+        } catch { /* ignore */ }
       } else {
         // まだ準備できていない → 準備完了時に再生
         wantPlayRef.current = true;
