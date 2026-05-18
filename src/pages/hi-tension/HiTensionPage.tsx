@@ -71,6 +71,7 @@ export default function HiTensionPage() {
 
   const {
     participants,
+    presenceKey,
     isHost,
     connected,
     channelError,
@@ -131,6 +132,12 @@ export default function HiTensionPage() {
     trackPresence(id);
     setSeatHash(newSeatHash());
     setScreen("waiting");
+  };
+
+  // 誰かと合わないならやめる（待機室 → 色選択に戻る）
+  const handleBackToTop = () => {
+    untrackPresence();
+    setScreen("select");
   };
 
   // やっぱりひとりで（待機室から直接再生）
@@ -371,7 +378,7 @@ export default function HiTensionPage() {
         <div style={{ position: "fixed", inset: 0, zIndex: 100 }}>
           <WaitingRoom
             participants={participants}
-            mySessionId={anonSessionId}
+            mySessionId={presenceKey}
             isHost={isHost}
             connected={connected}
             channelError={channelError}
@@ -379,6 +386,7 @@ export default function HiTensionPage() {
             bouncingSessionId={bouncingSessionId}
             onStart={broadcastStart}
             onSolo={handleSolo}
+            onBackToTop={handleBackToTop}
           />
         </div>
       )}

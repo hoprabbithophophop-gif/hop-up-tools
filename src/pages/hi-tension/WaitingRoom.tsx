@@ -14,6 +14,7 @@ interface Props {
   bouncingSessionId: string | null;
   onStart: () => void;
   onSolo: () => void;
+  onBackToTop: () => void;
 }
 
 const DOT_SIZE = 48;
@@ -28,6 +29,7 @@ export default function WaitingRoom({
   bouncingSessionId,
   onStart,
   onSolo,
+  onBackToTop,
 }: Props) {
   const [selfBouncing, setSelfBouncing] = useState(false);
   const selfBounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -132,9 +134,26 @@ export default function WaitingRoom({
 
       {/* 接続エラー */}
       {channelError && (
-        <p style={{ fontSize: "0.8125rem", color: "#c00", textAlign: "center", margin: 0, lineHeight: 1.5 }}>
-          接続が悪いです。しばらく待つか、ひとりで始めてください。
-        </p>
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontSize: "0.8125rem", color: "#c00", margin: "0 0 0.5rem", lineHeight: 1.5 }}>
+            接続が悪いです。しばらく待つか、ひとりで始めてください。
+          </p>
+          <button
+            type="button"
+            onClick={onBackToTop}
+            style={{
+              background: "none",
+              border: "none",
+              fontSize: "0.8125rem",
+              color: "#c00",
+              cursor: "pointer",
+              textDecoration: "underline",
+              padding: 0,
+            }}
+          >
+            ← 誰かと合わないならやめる
+          </button>
+        </div>
       )}
 
       {/* スタートボタン */}

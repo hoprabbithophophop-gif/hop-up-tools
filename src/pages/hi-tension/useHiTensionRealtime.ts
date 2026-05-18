@@ -44,6 +44,10 @@ export function useHiTensionRealtime({
   const [connected, setConnected] = useState(false);
   const [channelError, setChannelError] = useState(false);
 
+  // Presence キーはタブごとに一意（同じブラウザの複数タブで localStorage の sessionId が
+  // 被っても Presence が上書きされないよう、マウント時にランダムサフィックスを付与する）
+  const presenceKeyRef = useRef(`${sessionId}-${Math.random().toString(36).slice(2, 8)}`);
+
   const channelRef = useRef<RealtimeChannel | null>(null);
   const onStartRef = useRef(onStart);
   const onTapRef = useRef(onTap);
@@ -52,16 +56,17 @@ export function useHiTensionRealtime({
   useEffect(() => { onTapRef.current = onTap; }, [onTap]);
   useEffect(() => { onBounceRef.current = onBounce; }, [onBounce]);
 
-  // 自分の seat_index とホスト判定
-  const mySeatIndex = participants.findIndex(p => p.sessionId === sessionId);
+  // 自分の seat_index とホスト判定（presenceKey で比較）
+  const mySeatIndex = participants.findIndex(p => p.sessionId === presenceKeyRef.current);
   const isHost = mySeatIndex === 0 && participants.length > 0;
 
   useEffect(() => {
+    const presenceKey = presenceKeyRef.current;
     const supabase = getSupabase();
     const channel = supabase.channel(CHANNEL, {
       config: {
         broadcast: { self: false },
-        presence: { key: sessionId },
+        presence: { key: presenceKey },
       },
     });
     channelRef.current = channel;
@@ -95,7 +100,7 @@ export function useHiTensionRealtime({
         }
       })
       .on("broadcast", { event: "tap" }, ({ payload }) => {
-        if (payload?.session_id === sessionId) return;
+        if (payload?.session_id === presenceKey) return;
         if (
           typeof payload?.member_id === "string" &&
           typeof payload?.seat_index === "number" &&
@@ -128,11 +133,11 @@ export function useHiTensionRealtime({
   /** 待機室に入るとき（memberId は呼び出し元から直接渡す） */
   const trackPresence = useCallback((mid: string) => {
     channelRef.current?.track({
-      session_id: sessionId,
+      session_id: presenceKeyRef.current,
       member_id: mid,
       joined_at: Date.now(),
     });
-  }, [sessionId]);
+  }, []);
 
   /** 待機室を出るとき（スタート後 or やっぱりひとりで） */
   const untrackPresence = useCallback(() => {
@@ -159,32 +164,33 @@ export function useHiTensionRealtime({
     const ch = channelRef.current;
     const mid = memberId;
     if (!ch || !mid) return;
-    const idx = participants.findIndex(p => p.sessionId === sessionId);
+    const idx = participants.findIndex(p => p.sessionId === presenceKeyRef.current);
     if (idx < 0) return;
     ch.send({
       type: "broadcast",
       event: "tap",
       payload: {
-        session_id: sessionId,
+        session_id: presenceKeyRef.current,
         member_id: mid,
         seat_index: idx,
         video_time: videoTime,
       },
     });
-  }, [sessionId, memberId, participants]);
+  }, [memberId, participants]);
 
   /** 待機室でドットを跳ねさせる合図を全員に送る */
   const broadcastBounce = useCallback(() => {
     channelRef.current?.send({
       type: "broadcast",
       event: "bounce",
-      payload: { session_id: sessionId },
+      payload: { session_id: presenceKeyRef.current },
     });
     // self: false なので自分には届かない → 呼び出し元でローカル処理する
-  }, [sessionId]);
+  }, []);
 
   return {
     participants,
+    presenceKey: presenceKeyRef.current,
     mySeatIndex,
     isHost,
     connected,
