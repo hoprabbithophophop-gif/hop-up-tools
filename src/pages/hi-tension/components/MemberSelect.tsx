@@ -5,10 +5,18 @@ import IntroModal from "./IntroModal";
 interface Props {
   initialSelectedId: string | null;
   onConfirm: (memberId: string) => void;
-  onWait: (memberId: string) => void;
+  onWaitGlobal: (memberId: string) => void;
+  onOpenRoomMenu: (memberId: string) => void;
+  roomFull: boolean;
 }
 
-export default function MemberSelect({ initialSelectedId, onConfirm, onWait }: Props) {
+export default function MemberSelect({
+  initialSelectedId,
+  onConfirm,
+  onWaitGlobal,
+  onOpenRoomMenu,
+  roomFull,
+}: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [showIntro, setShowIntro] = useState(true);
 
@@ -134,11 +142,33 @@ export default function MemberSelect({ initialSelectedId, onConfirm, onWait }: P
         はじめる
       </button>
 
-      {/* みんなで待つ */}
+      {/* だれでも待つ（グローバル待機室） */}
+      {(() => {
+        const globalDisabled = !selectedId || roomFull;
+        return (
+          <button
+            type="button"
+            disabled={globalDisabled}
+            onClick={() => selectedId && !roomFull && onWaitGlobal(selectedId)}
+            style={{
+              background: "none",
+              border: "none",
+              fontSize: "0.8125rem",
+              color: globalDisabled ? "#c6c6c6" : "#474747",
+              cursor: globalDisabled ? "not-allowed" : "pointer",
+              padding: "0.25rem 0",
+            }}
+          >
+            {roomFull ? "満員（4人まで）" : "だれでも待つ →"}
+          </button>
+        );
+      })()}
+
+      {/* 合言葉の部屋（コードで集まる） */}
       <button
         type="button"
         disabled={!selectedId}
-        onClick={() => selectedId && onWait(selectedId)}
+        onClick={() => selectedId && onOpenRoomMenu(selectedId)}
         style={{
           background: "none",
           border: "none",
@@ -149,7 +179,7 @@ export default function MemberSelect({ initialSelectedId, onConfirm, onWait }: P
           marginBottom: "0.5rem",
         }}
       >
-        みんなで待つ →
+        合言葉の部屋 →
       </button>
 
       <p

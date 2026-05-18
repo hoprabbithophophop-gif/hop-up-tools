@@ -10,6 +10,8 @@ interface Props {
   isHost: boolean;
   connected: boolean;
   channelError: boolean;
+  isOverflow: boolean;
+  roomCode: string | null;
   onBounceSignal: () => void;
   bouncingSessionId: string | null;
   onStart: () => void;
@@ -17,7 +19,7 @@ interface Props {
   onBackToTop: () => void;
 }
 
-const DOT_SIZE = 48;
+const DOT_SIZE = 12;
 
 export default function WaitingRoom({
   participants,
@@ -25,6 +27,8 @@ export default function WaitingRoom({
   isHost,
   connected,
   channelError,
+  isOverflow,
+  roomCode,
   onBounceSignal,
   bouncingSessionId,
   onStart,
@@ -46,6 +50,69 @@ export default function WaitingRoom({
   };
 
   const count = participants.length;
+
+  // あふれ（5人目以降）: 満員パネルを表示。スタートには参加できない。
+  if (isOverflow) {
+    return (
+      <div
+        style={{
+          height: "100dvh",
+          overflow: "hidden",
+          background: "#f8f9fa",
+          color: "#191c1d",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "2rem 1.2rem",
+          fontFamily: "Inter, 'Noto Sans JP', sans-serif",
+          gap: "1.5rem",
+        }}
+      >
+        <p style={{ fontSize: "1.125rem", fontWeight: 700, margin: 0, color: "#000" }}>
+          満員です（4人まで）
+        </p>
+        <p style={{ fontSize: "0.875rem", color: "#474747", margin: 0, textAlign: "center", lineHeight: 1.6 }}>
+          いま4人が待ってます。
+          <br />
+          ひとりで始めるか、ロビーに戻ってね。
+        </p>
+        <button
+          type="button"
+          onClick={onSolo}
+          style={{
+            width: "100%",
+            maxWidth: 360,
+            padding: "1rem",
+            background: "#000",
+            color: "#fff",
+            border: "none",
+            fontSize: "0.875rem",
+            fontWeight: 700,
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            cursor: "pointer",
+          }}
+        >
+          ひとりで始める
+        </button>
+        <button
+          type="button"
+          onClick={onBackToTop}
+          style={{
+            background: "none",
+            border: "none",
+            fontSize: "0.8125rem",
+            color: "#777",
+            cursor: "pointer",
+            padding: "0.25rem 0",
+          }}
+        >
+          ← ロビーに戻る
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -73,6 +140,18 @@ export default function WaitingRoom({
           100% { transform: translateY(0) scale(1); }
         }
       `}</style>
+
+      {/* 合言葉（コード部屋のみ）。SNS等で共有して仲間を呼ぶ */}
+      {roomCode && (
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontSize: "0.6875rem", color: "#777", margin: 0, letterSpacing: "0.15em" }}>
+            あいことば
+          </p>
+          <p style={{ fontSize: "2rem", fontWeight: 900, letterSpacing: "0.25em", margin: "0.15rem 0 0", color: "#000" }}>
+            {roomCode}
+          </p>
+        </div>
+      )}
 
       {/* 動画読み込みアニメーション */}
       <LoadingDots />
@@ -151,7 +230,7 @@ export default function WaitingRoom({
               padding: 0,
             }}
           >
-            ← 誰かと合わないならやめる
+            ← ロビーに戻る
           </button>
         </div>
       )}

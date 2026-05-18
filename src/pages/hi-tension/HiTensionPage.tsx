@@ -3,6 +3,7 @@ import MemberSelect from "./components/MemberSelect";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
 import HandsCanvas, { type HandsCanvasApi } from "./components/HandsCanvas";
 import WaitingRoom from "./WaitingRoom";
+import RoomMenu from "./RoomMenu";
 import Countdown from "./Countdown";
 import { VIDEO_ID, findMember } from "./data";
 import {
@@ -11,11 +12,11 @@ import {
   getOrCreateAnonymousSessionId,
 } from "./storage";
 import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
-import { useHiTensionRealtime } from "./useHiTensionRealtime";
+import { useHiTensionRealtime, MAX_PARTICIPANTS, generateRoomCode } from "./useHiTensionRealtime";
 import EndCard from "./components/EndCard";
 import HandIcon from "./components/HandIcon";
 
-type Screen = "select" | "waiting" | "countdown" | "play";
+type Screen = "select" | "room-menu" | "waiting" | "countdown" | "play";
 
 const LONG_PRESS_INTERVAL_MS = 150;
 const LONG_PRESS_THRESHOLD_MS = 250;
@@ -37,6 +38,8 @@ export default function HiTensionPage() {
   const [startAt, setStartAt] = useState<number | null>(null);
   const [isRealtimePlay, setIsRealtimePlay] = useState(false);
   const [bouncingSessionId, setBouncingSessionId] = useState<string | null>(null);
+  // 部屋コード。null = グローバル部屋、文字列 = 合言葉の専用部屋
+  const [roomCode, setRoomCode] = useState<string | null>(null);
 
   // セッションIDはコンポーネント生存中に固定
   const anonSessionId = useMemo(() => getOrCreateAnonymousSessionId(), []);
@@ -53,7 +56,12 @@ export default function HiTensionPage() {
   const isRealtimePlayRef = useRef(false);
   useEffect(() => { isRealtimePlayRef.current = isRealtimePlay; }, [isRealtimePlay]);
 
+  // 待機室での自分の席番（あふれ判定用）。start 受信時に最新値を参照するため ref で持つ。
+  const mySeatIndexRef = useRef(-1);
+
   const handleStart = useCallback((at: number) => {
+    // あふれ（5人目以降）は start broadcast を受けてもカウントダウンに入れない
+    if (mySeatIndexRef.current >= MAX_PARTICIPANTS) return;
     setStartAt(at);
     setScreen("countdown");
   }, []);
@@ -72,21 +80,28 @@ export default function HiTensionPage() {
   const {
     participants,
     presenceKey,
+    mySeatIndex,
     isHost,
     connected,
     channelError,
-    trackPresence,
-    untrackPresence,
     broadcastStart,
     broadcastTap,
     broadcastBounce,
   } = useHiTensionRealtime({
     sessionId: anonSessionId,
     memberId,
+    roomCode,
+    inWaitingRoom: screen === "waiting",
     onStart: handleStart,
     onTap: handleTap,
     onBounce: handleBounce,
   });
+
+  useEffect(() => { mySeatIndexRef.current = mySeatIndex; }, [mySeatIndex]);
+
+  // 待機室が満員か / 自分があふれ（5人目以降）か
+  const roomFull = participants.length >= MAX_PARTICIPANTS;
+  const isOverflow = mySeatIndex >= MAX_PARTICIPANTS;
 
   useEffect(() => {
     fetchHiSessions().then((data) => {
@@ -109,6 +124,14 @@ export default function HiTensionPage() {
 
   useEffect(() => { return () => clearPressTimers(); }, [clearPressTimers]);
 
+  // グローバル待機室は5分でタイムアウト → ロビーに戻す（放置・居座り対策）。
+  // 合言葉の部屋（roomCode あり）には適用しない。
+  useEffect(() => {
+    if (screen !== "waiting" || roomCode !== null) return;
+    const timer = setTimeout(() => setScreen("select"), 5 * 60 * 1000);
+    return () => clearTimeout(timer);
+  }, [screen, roomCode]);
+
   // ひとりで始める
   const handleConfirm = (id: string) => {
     // ★ iOS Safari autoplay 対策: gesture スコープ内で最初に呼ぶ
@@ -125,24 +148,50 @@ export default function HiTensionPage() {
     setScreen("play");
   };
 
-  // みんなで待つ
-  const handleWait = (id: string) => {
+  // だれでも待つ（グローバル待機室）
+  const handleWaitGlobal = (id: string) => {
+    if (roomFull) return; // 満員なら入室しない（ボタン無効化のバックストップ）
     setMemberId(id);
     setLastSelectedMemberId(id);
-    trackPresence(id);
+    setRoomCode(null);
     setSeatHash(newSeatHash());
     setScreen("waiting");
   };
 
-  // 誰かと合わないならやめる（待機室 → 色選択に戻る）
-  const handleBackToTop = () => {
-    untrackPresence();
+  // 合言葉の部屋メニューを開く
+  const handleOpenRoomMenu = (id: string) => {
+    setMemberId(id);
+    setLastSelectedMemberId(id);
+    setScreen("room-menu");
+  };
+
+  // 部屋を作る（新しいコードを発行して待機室へ）
+  const handleCreateRoom = () => {
+    setRoomCode(generateRoomCode());
+    setSeatHash(newSeatHash());
+    setScreen("waiting");
+  };
+
+  // コードで部屋に入る
+  const handleJoinRoom = (code: string) => {
+    setRoomCode(code);
+    setSeatHash(newSeatHash());
+    setScreen("waiting");
+  };
+
+  // 部屋メニュー → 色選択に戻る
+  const handleRoomMenuBack = () => {
     setScreen("select");
   };
 
-  // やっぱりひとりで（待機室から直接再生）
+  // 待機室 → 色選択に戻る
+  const handleBackToTop = () => {
+    setRoomCode(null);
+    setScreen("select");
+  };
+
+  // やっぱりひとりで（待機室から直接再生。inWaitingRoom が false になり自動で untrack される）
   const handleSolo = () => {
-    untrackPresence();
     // gesture スコープ内なので iOS でも play() が通る
     playerApiRef.current?.play();
     timestampsRef.current = [];
@@ -155,8 +204,8 @@ export default function HiTensionPage() {
   };
 
   // カウントダウン終了・TAP ボタン押下（gesture スコープ → iOS でも play() が通る）
+  // screen が "play" になると inWaitingRoom が false になり自動で untrack される。
   const handleCountdownReady = useCallback(() => {
-    untrackPresence();
     timestampsRef.current = [];
     submittedRef.current = false;
     videoEndedRef.current = false;
@@ -165,7 +214,7 @@ export default function HiTensionPage() {
     setIsRealtimePlay(true);
     playerApiRef.current?.play();
     setScreen("play");
-  }, [untrackPresence]);
+  }, []);
 
   const handleVideoEnded = () => {
     clearPressTimers();
@@ -197,6 +246,7 @@ export default function HiTensionPage() {
     timestampsRef.current = [];
     submittedRef.current = false;
     setIsPressed(false);
+    setRoomCode(null);
     setScreen("select");
   };
 
@@ -368,7 +418,20 @@ export default function HiTensionPage() {
           <MemberSelect
             initialSelectedId={memberId}
             onConfirm={handleConfirm}
-            onWait={handleWait}
+            onWaitGlobal={handleWaitGlobal}
+            onOpenRoomMenu={handleOpenRoomMenu}
+            roomFull={roomFull}
+          />
+        </div>
+      )}
+
+      {/* 合言葉の部屋メニュー */}
+      {screen === "room-menu" && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100 }}>
+          <RoomMenu
+            onCreate={handleCreateRoom}
+            onJoin={handleJoinRoom}
+            onBack={handleRoomMenuBack}
           />
         </div>
       )}
@@ -382,6 +445,8 @@ export default function HiTensionPage() {
             isHost={isHost}
             connected={connected}
             channelError={channelError}
+            isOverflow={isOverflow}
+            roomCode={roomCode}
             onBounceSignal={broadcastBounce}
             bouncingSessionId={bouncingSessionId}
             onStart={broadcastStart}
