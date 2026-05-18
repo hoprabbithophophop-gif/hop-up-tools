@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import LoadingDots from "./components/LoadingDots";
 import HandIcon from "./components/HandIcon";
 import { findMember } from "./data";
 import type { Participant } from "./useHiTensionRealtime";
@@ -9,8 +10,8 @@ interface Props {
   isHost: boolean;
   connected: boolean;
   channelError: boolean;
-  onBounceSignal: () => void;        // ✋タップ → bounce broadcast
-  bouncingSessionId: string | null;  // 今ドットが跳ねているセッションID
+  onBounceSignal: () => void;
+  bouncingSessionId: string | null;
   onStart: () => void;
   onSolo: () => void;
 }
@@ -28,22 +29,19 @@ export default function WaitingRoom({
   onStart,
   onSolo,
 }: Props) {
-  // ✋ボタンを押したとき自分のドットもローカルで跳ねさせる
   const [selfBouncing, setSelfBouncing] = useState(false);
   const selfBounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleHandTap = () => {
     onBounceSignal();
-    setSelfBouncing(true);
-    if (selfBounceTimerRef.current) clearTimeout(selfBounceTimerRef.current);
-    selfBounceTimerRef.current = setTimeout(() => setSelfBouncing(false), 400);
-  };
-
-  useEffect(() => {
-    return () => {
+    setSelfBouncing(false);
+    // 一度 false にしてから true にすることで再アニメーションを強制
+    requestAnimationFrame(() => {
+      setSelfBouncing(true);
       if (selfBounceTimerRef.current) clearTimeout(selfBounceTimerRef.current);
-    };
-  }, []);
+      selfBounceTimerRef.current = setTimeout(() => setSelfBouncing(false), 500);
+    });
+  };
 
   const count = participants.length;
 
@@ -63,22 +61,21 @@ export default function WaitingRoom({
         gap: "2rem",
       }}
     >
-      {/* 接続状態 */}
-      {(channelError || !connected) && (
-        <p
-          style={{
-            position: "absolute",
-            top: "1.2rem",
-            fontSize: "0.75rem",
-            color: "#c00",
-            textAlign: "center",
-          }}
-        >
-          {channelError ? "接続できませんでした。しばらく待つか、ひとりで始めてください。" : "接続中…"}
-        </p>
-      )}
+      <style>{`
+        @keyframes dot-bounce {
+          0%   { transform: translateY(0) scale(1); }
+          20%  { transform: translateY(-22px) scale(0.93); }
+          48%  { transform: translateY(-22px) scale(0.93); }
+          72%  { transform: translateY(0) scale(1.06); }
+          88%  { transform: translateY(-7px) scale(1); }
+          100% { transform: translateY(0) scale(1); }
+        }
+      `}</style>
 
-      {/* ✋ ボタン（タップで合図） */}
+      {/* 動画読み込みアニメーション */}
+      <LoadingDots />
+
+      {/* ✋ボタン（アイコン自体は動かない） */}
       <button
         type="button"
         onClick={handleHandTap}
@@ -86,57 +83,61 @@ export default function WaitingRoom({
           background: "none",
           border: "none",
           cursor: "pointer",
-          padding: 0,
+          padding: "0.5rem",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          transform: selfBouncing ? "translateY(-16px) scale(1.1)" : "translateY(0) scale(1)",
-          transition: "transform 0.15s cubic-bezier(0.34,1.56,0.64,1)",
         }}
       >
-        <HandIcon size={72} color="#191c1d" />
+        <HandIcon size={56} color="#191c1d" />
       </button>
 
-      {/* 参加者ドット */}
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          justifyContent: "center",
-          gap: "0.75rem",
-          minHeight: DOT_SIZE,
-        }}
-      >
-        {participants.map((p) => {
-          const member = findMember(p.memberId);
-          const color = member?.color ?? "#ccc";
-          const isSelf = p.sessionId === mySessionId;
-          const isBouncing = isSelf ? selfBouncing : bouncingSessionId === p.sessionId;
-          return (
-            <div
-              key={p.sessionId}
-              style={{
-                width: DOT_SIZE,
-                height: DOT_SIZE,
-                borderRadius: "50%",
-                background: color,
-                boxShadow: isSelf
-                  ? `0 0 0 3px #f8f9fa, 0 0 0 5px ${color}`
-                  : "0 0 0 1px rgba(0,0,0,0.08)",
-                transform: isBouncing ? "translateY(-14px)" : "translateY(0)",
-                transition: "transform 0.18s cubic-bezier(0.34,1.56,0.64,1)",
-              }}
-            />
-          );
-        })}
+      {/* 参加者ドット（✋の下に並ぶ） */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.75rem" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            justifyContent: "center",
+            gap: "0.75rem",
+            minHeight: DOT_SIZE,
+          }}
+        >
+          {participants.map((p) => {
+            const member = findMember(p.memberId);
+            const color = member?.color ?? "#ccc";
+            const isSelf = p.sessionId === mySessionId;
+            const isBouncing = isSelf ? selfBouncing : bouncingSessionId === p.sessionId;
+            return (
+              <div
+                key={p.sessionId}
+                style={{
+                  width: DOT_SIZE,
+                  height: DOT_SIZE,
+                  borderRadius: "50%",
+                  background: color,
+                  boxShadow: isSelf
+                    ? `0 0 0 3px #f8f9fa, 0 0 0 5px ${color}`
+                    : "0 0 0 1px rgba(0,0,0,0.08)",
+                  animation: isBouncing ? "dot-bounce 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards" : "none",
+                }}
+              />
+            );
+          })}
+        </div>
+        <p style={{ fontSize: "0.875rem", color: "#474747", margin: 0 }}>
+          {count === 0 ? "つながっています" : `${count}人が待ってる`}
+        </p>
       </div>
 
-      {/* 人数テキスト */}
-      <p style={{ fontSize: "0.875rem", color: "#474747", margin: 0 }}>
-        {count === 0 ? "つながっています" : `${count}人が待ってる`}
-      </p>
+      {/* 接続エラー */}
+      {channelError && (
+        <p style={{ fontSize: "0.8125rem", color: "#c00", textAlign: "center", margin: 0, lineHeight: 1.5 }}>
+          接続が悪いです。しばらく待つか、ひとりで始めてください。
+        </p>
+      )}
 
-      {/* スタートボタン（ホストのみ有効） */}
+      {/* スタートボタン */}
       <button
         type="button"
         disabled={!isHost || !connected}
