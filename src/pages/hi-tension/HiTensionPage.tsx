@@ -7,15 +7,12 @@ import {
   getLastSelectedMemberId,
   setLastSelectedMemberId,
   getOrCreateAnonymousSessionId,
-  getHasCompleted,
-  markHasCompleted,
 } from "./storage";
 import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
 import EndCard from "./components/EndCard";
 import HandIcon from "./components/HandIcon";
 
 type Screen = "select" | "play";
-export type HiMode = "solo" | "crowd";
 
 const LONG_PRESS_INTERVAL_MS = 150;
 const LONG_PRESS_THRESHOLD_MS = 250;
@@ -34,11 +31,6 @@ export default function HiTensionPage() {
   const [isPressed, setIsPressed] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
   const [endedSelfCount, setEndedSelfCount] = useState(0);
-  // 初回は強制ソロ(過去✋を見せない・トグルも出さない)。
-  // 一度完走すると「一人で/みんなで」トグルが出現し、みんなでがデフォルトに。
-  // どちらのモードでも自分の押下 ✋ は表示され、Supabase 保存も行う。
-  const [completedBefore, setCompletedBefore] = useState(() => getHasCompleted());
-  const [mode, setMode] = useState<HiMode>(() => getHasCompleted() ? "crowd" : "solo");
   const timestampsRef = useRef<number[]>([]);
   const currentTimeRef = useRef(0);
   const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -107,11 +99,6 @@ export default function HiTensionPage() {
     // カードはまず先に出す(保存失敗・押下0回でも結果表示する)
     setEndedSelfCount(count);
     setVideoEnded(true);
-
-    // 完走したら(押下0回でも)次回からトグルを出し、初完走時はみんなでをデフォルトに
-    if (!completedBefore) setMode("crowd");
-    markHasCompleted();
-    setCompletedBefore(true);
 
     if (submittedRef.current) return;
     if (!memberId || count === 0) return;
@@ -225,7 +212,7 @@ export default function HiTensionPage() {
           <HandsCanvas
             key={seatHash}
             ref={canvasRef}
-            sessions={mode === "solo" ? [] : sessions}
+            sessions={sessions}
             selfMemberId={memberId}
             selfSeatHash={seatHash}
           />
@@ -325,9 +312,6 @@ export default function HiTensionPage() {
         >
           <MemberSelect
             initialSelectedId={memberId}
-            mode={mode}
-            showModeToggle={completedBefore}
-            onModeChange={setMode}
             onConfirm={handleConfirm}
           />
         </div>

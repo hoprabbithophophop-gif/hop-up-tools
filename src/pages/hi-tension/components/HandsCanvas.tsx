@@ -50,6 +50,19 @@ function crowdScale(sessionCount: number): number {
   return 1 - t * 0.5;
 }
 
+/**
+ * セッションの日付に応じた✋サイズの倍率（区間線形減衰）。
+ * day0=100%, day1=80%, day7=50%, day30=20%, それ以降は20%固定。
+ */
+function ageScale(playedDate: string): number {
+  const days = (Date.now() - new Date(playedDate).getTime()) / 86400000;
+  if (days <= 0) return 1.0;
+  if (days <= 1) return 1.0 - 0.2 * days;
+  if (days <= 7) return 0.8 - (0.3 / 6) * (days - 1);
+  if (days <= 30) return 0.5 - (0.3 / 23) * (days - 7);
+  return 0.2;
+}
+
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
@@ -146,6 +159,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     color: string;
     isSelf: boolean;
     isToday: boolean;
+    playedDate?: string;
   }) {
     const app = appRef.current;
     const texture = textureRef.current;
@@ -158,9 +172,10 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
 
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5, 1.0); // 下端中央(着地地点を yRatio に固定)
-    // 累計セッション数に応じて全✋を縮小(自分も同率なので「自分は1.2倍」は維持)
+    // 累計セッション数 × 日付経過に応じて✋を縮小(自分も同率なので「自分は1.2倍」は維持)
     const crowdK = crowdScale(sessionsRef.current.length);
-    const targetSize = (params.isSelf ? SELF_SIZE : BASE_SIZE) * crowdK;
+    const ageK = params.playedDate ? ageScale(params.playedDate) : 1.0;
+    const targetSize = (params.isSelf ? SELF_SIZE : BASE_SIZE) * crowdK * ageK;
     const texMax = Math.max(texture.width, texture.height) || 1;
     sprite.scale.set(targetSize / texMax);
     sprite.tint = hexToTint(params.color);
@@ -286,6 +301,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
           color: member.color,
           isSelf: false,
           isToday: session.is_today,
+          playedDate: session.played_date,
         });
       }
     }

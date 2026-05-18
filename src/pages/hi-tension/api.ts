@@ -39,13 +39,14 @@ export type HiSession = {
   member_id: string;
   is_today: boolean;
   bucket_indices: number[];
+  played_date: string;
 };
 
 export async function fetchHiSessions(): Promise<HiSession[]> {
   const supabase = getSupabase();
   const { data, error } = await supabase
     .from("hi_aggregations")
-    .select("session_hash, member_id, is_today, bucket_indices")
+    .select("session_hash, member_id, is_today, bucket_indices, played_date")
     .eq("video_id", VIDEO_ID);
   if (error) {
     console.error("[hi-tension] fetch sessions failed:", error);
