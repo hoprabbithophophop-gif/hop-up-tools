@@ -18,6 +18,7 @@ import type { HiSession } from "../api";
 export type HandsCanvasApi = {
   spawnSelf: () => void;
   onTimeUpdate: (currentTime: number) => void;
+  receiveLiveTap: (memberId: string, seatIndex: number, videoTime: number) => void;
 };
 
 interface Props {
@@ -63,6 +64,24 @@ function ageScale(playedDate: string): number {
   return 0.2;
 }
 
+/**
+ * 参加順インデックスから✋の位置を決める（リアルタイムセッション用）。
+ * 最大8人（2行×4列）。
+ */
+function seatIndexToPosition(index: number): { xRatio: number; yRatio: number } {
+  const col = index % 4;
+  const row = Math.floor(index / 4);
+  return {
+    xRatio: 0.15 + col * 0.233,
+    yRatio: 0.82 - row * 0.18,
+  };
+}
+
+const LIVE_QUEUE_MAX = 100;
+const LIVE_DISCARD_SEC = 3;
+
+type QueuedLiveTap = { videoTime: number; memberId: string; seatIndex: number };
+
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
@@ -79,6 +98,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   const textureRef = useRef<Texture | null>(null);
   const layerRef = useRef<Container | null>(null);
   const lastBucketRef = useRef<number>(-1);
+  const currentTimeRef = useRef<number>(0);
+  const liveQueueRef = useRef<QueuedLiveTap[]>([]);
   const sessionsRef = useRef<HiSession[]>(sessions);
   const selfMemberIdRef = useRef<string | null>(selfMemberId);
   const selfSeatHashRef = useRef<number>(selfSeatHash);
@@ -321,7 +342,51 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         isToday: true,
       });
     },
+    receiveLiveTap(memberId: string, seatIndex: number, videoTime: number) {
+      const now = currentTimeRef.current;
+      const ageSecs = now - videoTime;
+      if (ageSecs > LIVE_DISCARD_SEC) return; // 古すぎ → 捨てる
+      const member = findMember(memberId);
+      if (!member) return;
+      const spawn = () => {
+        const { xRatio, yRatio } = seatIndexToPosition(seatIndex);
+        spawnHand({
+          xRatio, yRatio,
+          color: member.color,
+          isSelf: false,
+          isToday: true,
+          playedDate: new Date().toISOString().slice(0, 10),
+        });
+      };
+      if (videoTime <= now) {
+        spawn();
+      } else {
+        const queue = liveQueueRef.current;
+        queue.push({ videoTime, memberId, seatIndex });
+        if (queue.length > LIVE_QUEUE_MAX) queue.splice(0, queue.length - LIVE_QUEUE_MAX);
+      }
+    },
     onTimeUpdate(currentTime: number) {
+      currentTimeRef.current = currentTime;
+
+      // live キューを走査してスポーン
+      const queue = liveQueueRef.current;
+      if (queue.length > 0) {
+        const remaining: QueuedLiveTap[] = [];
+        for (const tap of queue) {
+          if (tap.videoTime <= currentTime) {
+            const member = findMember(tap.memberId);
+            if (member) {
+              const { xRatio, yRatio } = seatIndexToPosition(tap.seatIndex);
+              spawnHand({ xRatio, yRatio, color: member.color, isSelf: false, isToday: true, playedDate: new Date().toISOString().slice(0, 10) });
+            }
+          } else {
+            remaining.push(tap);
+          }
+        }
+        liveQueueRef.current = remaining;
+      }
+
       // バケット先頭で発火させる単純な floor。
       // 100ms poll の平均遅延が +50ms 乗ることで、結果的にバケット中央で
       // 発火する形になる(押下時刻の期待値=中央と一致)。

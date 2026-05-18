@@ -5,9 +5,10 @@ import IntroModal from "./IntroModal";
 interface Props {
   initialSelectedId: string | null;
   onConfirm: (memberId: string) => void;
+  onWait: (memberId: string) => void;
 }
 
-export default function MemberSelect({ initialSelectedId, onConfirm }: Props) {
+export default function MemberSelect({ initialSelectedId, onConfirm, onWait }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [showIntro, setShowIntro] = useState(true);
 
@@ -131,6 +132,24 @@ export default function MemberSelect({ initialSelectedId, onConfirm }: Props) {
         }}
       >
         はじめる
+      </button>
+
+      {/* みんなで待つ */}
+      <button
+        type="button"
+        disabled={!selectedId}
+        onClick={() => selectedId && onWait(selectedId)}
+        style={{
+          background: "none",
+          border: "none",
+          fontSize: "0.8125rem",
+          color: selectedId ? "#474747" : "#c6c6c6",
+          cursor: selectedId ? "pointer" : "not-allowed",
+          padding: "0.25rem 0",
+          marginBottom: "0.5rem",
+        }}
+      >
+        みんなで待つ →
       </button>
 
       <p

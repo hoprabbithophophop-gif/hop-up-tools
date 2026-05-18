@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import MemberSelect from "./components/MemberSelect";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
 import HandsCanvas, { type HandsCanvasApi } from "./components/HandsCanvas";
+import WaitingRoom from "./WaitingRoom";
+import Countdown from "./Countdown";
 import { VIDEO_ID, findMember } from "./data";
 import {
   getLastSelectedMemberId,
@@ -9,17 +11,18 @@ import {
   getOrCreateAnonymousSessionId,
 } from "./storage";
 import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
+import { useHiTensionRealtime } from "./useHiTensionRealtime";
 import EndCard from "./components/EndCard";
 import HandIcon from "./components/HandIcon";
 
-type Screen = "select" | "play";
+type Screen = "select" | "waiting" | "countdown" | "play";
 
 const LONG_PRESS_INTERVAL_MS = 150;
 const LONG_PRESS_THRESHOLD_MS = 250;
 const BUTTON_SIZE = 120;
+const BOUNCE_DURATION_MS = 400;
 
 function newSeatHash(): number {
-  // 「はじめる」毎にランダムな席を抽選
   return Math.floor(Math.random() * 0x7fffffff);
 }
 
@@ -31,6 +34,13 @@ export default function HiTensionPage() {
   const [isPressed, setIsPressed] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
   const [endedSelfCount, setEndedSelfCount] = useState(0);
+  const [startAt, setStartAt] = useState<number | null>(null);
+  const [isRealtimePlay, setIsRealtimePlay] = useState(false);
+  const [bouncingSessionId, setBouncingSessionId] = useState<string | null>(null);
+
+  // セッションIDはコンポーネント生存中に固定
+  const anonSessionId = useMemo(() => getOrCreateAnonymousSessionId(), []);
+
   const timestampsRef = useRef<number[]>([]);
   const currentTimeRef = useRef(0);
   const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -39,12 +49,44 @@ export default function HiTensionPage() {
   const videoEndedRef = useRef(false);
   const canvasRef = useRef<HandsCanvasApi | null>(null);
   const playerApiRef = useRef<YouTubePlayerApi | null>(null);
+  const bounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isRealtimePlayRef = useRef(false);
+  useEffect(() => { isRealtimePlayRef.current = isRealtimePlay; }, [isRealtimePlay]);
 
-  useEffect(() => {
-    getOrCreateAnonymousSessionId();
+  const handleStart = useCallback((at: number) => {
+    setStartAt(at);
+    setScreen("countdown");
   }, []);
 
-  // 過去セッションをページ初回ロード時に先読み(「はじめる」を押すころには揃ってる)
+  const handleTap = useCallback((tap: { memberId: string; seatIndex: number; videoTime: number }) => {
+    if (!isRealtimePlayRef.current) return;
+    canvasRef.current?.receiveLiveTap(tap.memberId, tap.seatIndex, tap.videoTime);
+  }, []);
+
+  const handleBounce = useCallback((bounce: { sessionId: string }) => {
+    setBouncingSessionId(bounce.sessionId);
+    if (bounceTimerRef.current) clearTimeout(bounceTimerRef.current);
+    bounceTimerRef.current = setTimeout(() => setBouncingSessionId(null), BOUNCE_DURATION_MS);
+  }, []);
+
+  const {
+    participants,
+    isHost,
+    connected,
+    channelError,
+    trackPresence,
+    untrackPresence,
+    broadcastStart,
+    broadcastTap,
+    broadcastBounce,
+  } = useHiTensionRealtime({
+    sessionId: anonSessionId,
+    memberId,
+    onStart: handleStart,
+    onTap: handleTap,
+    onBounce: handleBounce,
+  });
+
   useEffect(() => {
     fetchHiSessions().then((data) => {
       setSessions(data);
@@ -53,74 +95,93 @@ export default function HiTensionPage() {
     });
   }, []);
 
-  const clearPressTimers = useCallback(() => {
-    if (pressIntervalRef.current) {
-      clearInterval(pressIntervalRef.current);
-      pressIntervalRef.current = null;
-    }
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
+  useEffect(() => {
+    return () => {
+      if (bounceTimerRef.current) clearTimeout(bounceTimerRef.current);
+    };
   }, []);
 
-  useEffect(() => {
-    return () => clearPressTimers();
-  }, [clearPressTimers]);
+  const clearPressTimers = useCallback(() => {
+    if (pressIntervalRef.current) { clearInterval(pressIntervalRef.current); pressIntervalRef.current = null; }
+    if (holdTimerRef.current) { clearTimeout(holdTimerRef.current); holdTimerRef.current = null; }
+  }, []);
 
+  useEffect(() => { return () => clearPressTimers(); }, [clearPressTimers]);
+
+  // ひとりで始める
   const handleConfirm = (id: string) => {
-    // ★ ここが最重要: iOS Safari の autoplay 制約対策。
-    // ユーザージェスチャー(クリック)の同期スコープ内で play() を呼び切る。
-    // この呼び出しより前に setState や非同期処理を挟むとジェスチャー文脈が切れて
-    // playVideo() が拒否される可能性があるので、必ず最初に呼ぶ。
+    // ★ iOS Safari autoplay 対策: gesture スコープ内で最初に呼ぶ
     playerApiRef.current?.play();
-
     setMemberId(id);
     setLastSelectedMemberId(id);
     timestampsRef.current = [];
     submittedRef.current = false;
-    setSeatHash(newSeatHash()); // 入るたびに違う席
+    setSeatHash(newSeatHash());
     videoEndedRef.current = false;
     setVideoEnded(false);
     setEndedSelfCount(0);
+    setIsRealtimePlay(false);
     setScreen("play");
   };
 
+  // みんなで待つ
+  const handleWait = (id: string) => {
+    setMemberId(id);
+    setLastSelectedMemberId(id);
+    trackPresence(id);
+    setSeatHash(newSeatHash());
+    setScreen("waiting");
+  };
+
+  // やっぱりひとりで（待機室から直接再生）
+  const handleSolo = () => {
+    untrackPresence();
+    // gesture スコープ内なので iOS でも play() が通る
+    playerApiRef.current?.play();
+    timestampsRef.current = [];
+    submittedRef.current = false;
+    videoEndedRef.current = false;
+    setVideoEnded(false);
+    setEndedSelfCount(0);
+    setIsRealtimePlay(false);
+    setScreen("play");
+  };
+
+  // カウントダウン終了・TAP ボタン押下（gesture スコープ → iOS でも play() が通る）
+  const handleCountdownReady = useCallback(() => {
+    untrackPresence();
+    timestampsRef.current = [];
+    submittedRef.current = false;
+    videoEndedRef.current = false;
+    setVideoEnded(false);
+    setEndedSelfCount(0);
+    setIsRealtimePlay(true);
+    playerApiRef.current?.play();
+    setScreen("play");
+  }, [untrackPresence]);
+
   const handleVideoEnded = () => {
-    // 長押し中に動画完走するとボタンが unmount されて pointerup が届かず、
-    // setInterval が永続走行→ recordHi 連射→ ✋エンドレス、を防ぐ。
     clearPressTimers();
     setIsPressed(false);
     videoEndedRef.current = true;
-
     const count = timestampsRef.current.length;
     console.log(`[hi-tension] video ended (${count} presses)`);
-
-    // カードはまず先に出す(保存失敗・押下0回でも結果表示する)
     setEndedSelfCount(count);
     setVideoEnded(true);
-
     if (submittedRef.current) return;
     if (!memberId || count === 0) return;
-
     submittedRef.current = true;
-    const anonId = getOrCreateAnonymousSessionId();
     submitHiSession({
       memberId,
       timestamps: timestampsRef.current.slice(),
-      anonymousSessionId: anonId,
+      anonymousSessionId: anonSessionId,
     }).then((result) => {
-      if (result.ok) {
-        console.log("[hi-tension] session saved.");
-      } else {
-        console.warn("[hi-tension] save failed:", result.error);
-        submittedRef.current = false;
-      }
+      if (result.ok) { console.log("[hi-tension] session saved."); }
+      else { console.warn("[hi-tension] save failed:", result.error); submittedRef.current = false; }
     });
   };
 
   const handleChangeColor = () => {
-    // 動画を止めて選択画面に戻る
     playerApiRef.current?.pause();
     clearPressTimers();
     videoEndedRef.current = false;
@@ -133,17 +194,14 @@ export default function HiTensionPage() {
   };
 
   const handleReplay = () => {
-    // iOS Safari のユーザージェスチャー文脈を維持するため、player への命令を最初に
-    playerApiRef.current?.replay();
-
+    playerApiRef.current?.replay(); // gesture スコープ内
     videoEndedRef.current = false;
     setVideoEnded(false);
     setEndedSelfCount(0);
     timestampsRef.current = [];
     submittedRef.current = false;
     setIsPressed(false);
-    setSeatHash(newSeatHash()); // 「もう一度」も新しい席
-    // 前回保存分(自分の直前の完走)が累計に反映されるよう再取得
+    setSeatHash(newSeatHash());
     fetchHiSessions().then(setSessions);
   };
 
@@ -153,12 +211,13 @@ export default function HiTensionPage() {
   }, []);
 
   const recordHi = useCallback(() => {
-    if (videoEndedRef.current) return; // 動画完走後の取りこぼし保険
+    if (videoEndedRef.current) return;
     const t = currentTimeRef.current;
     timestampsRef.current.push(t);
     console.log(`[hi-tension] HI! @ ${t.toFixed(2)}s`);
     canvasRef.current?.spawnSelf();
-  }, []);
+    if (isRealtimePlayRef.current) broadcastTap(t);
+  }, [broadcastTap]);
 
   const handlePressStart = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -179,12 +238,11 @@ export default function HiTensionPage() {
 
   return (
     <>
-      {/* Play screen は常時マウント。YouTubePlayer の iframe をユーザー操作前から DOM に置いておくことで、
-         「はじめる」クリックの同期スコープ内で playVideo() を確実に呼べるようにする。 */}
+      {/* Play screen は常時マウント */}
       <div
         style={{
-          height: "100dvh", // dvh で動的に viewport に合わせ + overflow hidden で
-          overflow: "hidden", // iOS Safari の rubber band 余地まで完全に潰す
+          height: "100dvh",
+          overflow: "hidden",
           background: "#f8f9fa",
           color: "#191c1d",
           fontFamily: "Inter, 'Noto Sans JP', sans-serif",
@@ -221,9 +279,7 @@ export default function HiTensionPage() {
             <div style={{ position: "relative", zIndex: 1, width: "100%", display: "flex", justifyContent: "center" }}>
               <EndCard
                 selfCount={endedSelfCount}
-                totalCount={
-                  sessions.reduce((sum, s) => sum + s.bucket_indices.length, 0) + endedSelfCount
-                }
+                totalCount={sessions.reduce((sum, s) => sum + s.bucket_indices.length, 0) + endedSelfCount}
                 memberColor={member?.color ?? "#000"}
                 onReplay={handleReplay}
                 onChangeColor={handleChangeColor}
@@ -299,22 +355,37 @@ export default function HiTensionPage() {
         </div>
       </div>
 
-      {/* Select 画面はオーバーレイで上に重ねる。「はじめる」クリックでアンマウント */}
+      {/* Select 画面 */}
       {screen === "select" && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 100,
-            background: "#f8f9fa",
-            overflowY: "auto",
-          }}
-        >
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "#f8f9fa", overflowY: "auto" }}>
           <MemberSelect
             initialSelectedId={memberId}
             onConfirm={handleConfirm}
+            onWait={handleWait}
           />
         </div>
+      )}
+
+      {/* 待機室 */}
+      {screen === "waiting" && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100 }}>
+          <WaitingRoom
+            participants={participants}
+            mySessionId={anonSessionId}
+            isHost={isHost}
+            connected={connected}
+            channelError={channelError}
+            onBounceSignal={broadcastBounce}
+            bouncingSessionId={bouncingSessionId}
+            onStart={broadcastStart}
+            onSolo={handleSolo}
+          />
+        </div>
+      )}
+
+      {/* カウントダウン */}
+      {screen === "countdown" && startAt !== null && (
+        <Countdown startAt={startAt} onReady={handleCountdownReady} />
       )}
     </>
   );
