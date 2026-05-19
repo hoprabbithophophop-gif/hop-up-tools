@@ -14,7 +14,7 @@ interface Props {
   roomCode: string | null;
   onBounceSignal: () => void;
   bouncingSessionId: string | null;
-  onStart: () => void;
+  onSeno: () => void;
   onSolo: () => void;
   onBackToTop: () => void;
 }
@@ -31,7 +31,7 @@ export default function WaitingRoom({
   roomCode,
   onBounceSignal,
   bouncingSessionId,
-  onStart,
+  onSeno,
   onSolo,
   onBackToTop,
 }: Props) {
@@ -235,11 +235,11 @@ export default function WaitingRoom({
         </div>
       )}
 
-      {/* スタートボタン */}
+      {/* せーのボタン（ホストが合図を出す） */}
       <button
         type="button"
         disabled={!isHost || !connected}
-        onClick={onStart}
+        onClick={onSeno}
         style={{
           width: "100%",
           maxWidth: 360,
@@ -255,7 +255,7 @@ export default function WaitingRoom({
           transition: "background 0.12s",
         }}
       >
-        {isHost ? "スタート" : "ホストがスタートするのを待ってる"}
+        {isHost ? "せーの！" : "ホストの合図を待ってる"}
       </button>
 
       {/* やっぱりひとりで */}

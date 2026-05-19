@@ -4,7 +4,7 @@ import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer
 import HandsCanvas, { type HandsCanvasApi } from "./components/HandsCanvas";
 import WaitingRoom from "./WaitingRoom";
 import RoomMenu from "./RoomMenu";
-import Countdown from "./Countdown";
+import ReadyCheck from "./ReadyCheck";
 import { VIDEO_ID, findMember } from "./data";
 import {
   getLastSelectedMemberId,
@@ -12,16 +12,22 @@ import {
   getOrCreateAnonymousSessionId,
 } from "./storage";
 import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
-import { useHiTensionRealtime, MAX_PARTICIPANTS, generateRoomCode } from "./useHiTensionRealtime";
+import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, generateRoomCode } from "./useHiTensionRealtime";
 import EndCard from "./components/EndCard";
 import HandIcon from "./components/HandIcon";
 
-type Screen = "select" | "room-menu" | "waiting" | "countdown" | "play";
+type Screen = "select" | "room-menu" | "waiting" | "ready-check" | "play";
 
 const LONG_PRESS_INTERVAL_MS = 150;
 const LONG_PRESS_THRESHOLD_MS = 250;
 const BUTTON_SIZE = 120;
 const BOUNCE_DURATION_MS = 400;
+
+// せーの失敗判定: 窓 + ready 受信のための余裕
+const SENO_FAIL_TIMEOUT_MS = SENO_WINDOW_MS + 1500;
+// 同期ドリフト補正
+const DRIFT_CHECK_INTERVAL_MS = 2000;
+const DRIFT_THRESHOLD_SEC = 1.0;
 
 function newSeatHash(): number {
   return Math.floor(Math.random() * 0x7fffffff);
@@ -35,11 +41,15 @@ export default function HiTensionPage() {
   const [isPressed, setIsPressed] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
   const [endedSelfCount, setEndedSelfCount] = useState(0);
-  const [startAt, setStartAt] = useState<number | null>(null);
   const [isRealtimePlay, setIsRealtimePlay] = useState(false);
   const [bouncingSessionId, setBouncingSessionId] = useState<string | null>(null);
   // 部屋コード。null = グローバル部屋、文字列 = 合言葉の専用部屋
   const [roomCode, setRoomCode] = useState<string | null>(null);
+  // ready-check 状態
+  const [readyCheckGroup, setReadyCheckGroup] = useState<string[]>([]);
+  const [readyCount, setReadyCount] = useState(0);
+  const [selfReadied, setSelfReadied] = useState(false);
+  const [readyCheckFailed, setReadyCheckFailed] = useState(false);
 
   // セッションIDはコンポーネント生存中に固定
   const anonSessionId = useMemo(() => getOrCreateAnonymousSessionId(), []);
@@ -54,17 +64,99 @@ export default function HiTensionPage() {
   const playerApiRef = useRef<YouTubePlayerApi | null>(null);
   const bounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRealtimePlayRef = useRef(false);
+
+  // ready-check / 同期まわりの ref
+  const screenRef = useRef<Screen>("select");
+  const isHostRef = useRef(false);
+  const myKeyRef = useRef("");
+  const readyCheckGroupRef = useRef<string[]>([]);
+  const readiedSetRef = useRef<Set<string>>(new Set());
+  const senoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clockAnchorRef = useRef<{ t0: number; p0: number } | null>(null);
+  const driftTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const getClockOffsetRef = useRef<() => number>(() => 0);
+  const sendSongStartRef = useRef<(t0: number, p0: number) => void>(() => {});
+  const sendSenoFailRef = useRef<() => void>(() => {});
+
   useEffect(() => { isRealtimePlayRef.current = isRealtimePlay; }, [isRealtimePlay]);
+  useEffect(() => { screenRef.current = screen; }, [screen]);
 
-  // 待機室での自分の席番（あふれ判定用）。start 受信時に最新値を参照するため ref で持つ。
-  const mySeatIndexRef = useRef(-1);
-
-  const handleStart = useCallback((at: number) => {
-    // あふれ（5人目以降）は start broadcast を受けてもカウントダウンに入れない
-    if (mySeatIndexRef.current >= MAX_PARTICIPANTS) return;
-    setStartAt(at);
-    setScreen("countdown");
+  // --- 同期ドリフト補正ループ ---
+  const stopDriftLoop = useCallback(() => {
+    if (driftTimerRef.current) { clearInterval(driftTimerRef.current); driftTimerRef.current = null; }
   }, []);
+
+  const startDriftLoop = useCallback(() => {
+    stopDriftLoop();
+    driftTimerRef.current = setInterval(() => {
+      const anchor = clockAnchorRef.current;
+      const player = playerApiRef.current;
+      if (!anchor || !player) return;
+      const hostNow = Date.now() + getClockOffsetRef.current();
+      const expected = anchor.p0 + (hostNow - anchor.t0) / 1000;
+      const actual = player.getCurrentTime();
+      // 動画が走っていて、しきい値以上ズレていたら「あるべき位置」へ seek
+      if (actual > 0 && expected > 0 && Math.abs(expected - actual) > DRIFT_THRESHOLD_SEC) {
+        player.seekTo(expected);
+      }
+    }, DRIFT_CHECK_INTERVAL_MS);
+  }, [stopDriftLoop]);
+
+  // --- realtime hook コールバック ---
+  const clearSenoTimer = useCallback(() => {
+    if (senoTimerRef.current) { clearTimeout(senoTimerRef.current); senoTimerRef.current = null; }
+  }, []);
+
+  // せーの受信: 自分がグループに入っていれば ready-check へ
+  const handleSeno = useCallback((_senoAt: number, group: string[]) => {
+    if (!group.includes(myKeyRef.current)) return; // 後から来た人は対象外
+    clearSenoTimer();
+    readyCheckGroupRef.current = group;
+    readiedSetRef.current = new Set();
+    setReadyCheckGroup(group);
+    setReadyCount(0);
+    setSelfReadied(false);
+    setReadyCheckFailed(false);
+    setScreen("ready-check");
+    // ホストは窓の番人: 時間内に全員揃わなければ seno-fail を出す
+    if (isHostRef.current) {
+      senoTimerRef.current = setTimeout(() => {
+        sendSenoFailRef.current();
+      }, SENO_FAIL_TIMEOUT_MS);
+    }
+  }, [clearSenoTimer]);
+
+  // ready 受信: 集計し、ホストは全員揃ったら songstart
+  const handleReady = useCallback((sessionId: string) => {
+    readiedSetRef.current.add(sessionId);
+    const group = readyCheckGroupRef.current;
+    setReadyCount(group.filter(id => readiedSetRef.current.has(id)).length);
+    if (isHostRef.current && group.length > 0 && group.every(id => readiedSetRef.current.has(id))) {
+      clearSenoTimer();
+      const p0 = playerApiRef.current?.getCurrentTime() ?? 0;
+      sendSongStartRef.current(Date.now(), p0);
+    }
+  }, [clearSenoTimer]);
+
+  // songstart 受信: 基準点を保存して再生画面へ。動画は✋押下時に既に再生中。
+  const handleSongStart = useCallback((t0: number, p0: number) => {
+    if (screenRef.current !== "ready-check") return; // 後から来た人は無視
+    clearSenoTimer();
+    clockAnchorRef.current = { t0, p0 };
+    setIsRealtimePlay(true);
+    setScreen("play");
+    startDriftLoop();
+  }, [clearSenoTimer, startDriftLoop]);
+
+  // せーの失敗: ready-check に留まったまま「息が合わなかった」表示
+  const handleSenoFail = useCallback(() => {
+    if (screenRef.current !== "ready-check") return;
+    clearSenoTimer();
+    readiedSetRef.current = new Set();
+    setReadyCount(0);
+    setSelfReadied(false);
+    setReadyCheckFailed(true);
+  }, [clearSenoTimer]);
 
   const handleTap = useCallback((tap: { memberId: string; seatIndex: number; videoTime: number }) => {
     if (!isRealtimePlayRef.current) return;
@@ -84,20 +176,31 @@ export default function HiTensionPage() {
     isHost,
     connected,
     channelError,
-    broadcastStart,
+    getClockOffset,
+    sendSeno,
+    sendReady,
+    sendSongStart,
+    sendSenoFail,
     broadcastTap,
     broadcastBounce,
   } = useHiTensionRealtime({
     sessionId: anonSessionId,
     memberId,
     roomCode,
-    inWaitingRoom: screen === "waiting",
-    onStart: handleStart,
+    inWaitingRoom: screen === "waiting" || screen === "ready-check",
+    onSeno: handleSeno,
+    onReady: handleReady,
+    onSongStart: handleSongStart,
+    onSenoFail: handleSenoFail,
     onTap: handleTap,
     onBounce: handleBounce,
   });
 
-  useEffect(() => { mySeatIndexRef.current = mySeatIndex; }, [mySeatIndex]);
+  useEffect(() => { isHostRef.current = isHost; }, [isHost]);
+  useEffect(() => { myKeyRef.current = presenceKey; }, [presenceKey]);
+  useEffect(() => { getClockOffsetRef.current = getClockOffset; }, [getClockOffset]);
+  useEffect(() => { sendSongStartRef.current = sendSongStart; }, [sendSongStart]);
+  useEffect(() => { sendSenoFailRef.current = sendSenoFail; }, [sendSenoFail]);
 
   // 待機室が満員か / 自分があふれ（5人目以降）か
   const roomFull = participants.length >= MAX_PARTICIPANTS;
@@ -114,8 +217,10 @@ export default function HiTensionPage() {
   useEffect(() => {
     return () => {
       if (bounceTimerRef.current) clearTimeout(bounceTimerRef.current);
+      clearSenoTimer();
+      stopDriftLoop();
     };
-  }, []);
+  }, [clearSenoTimer, stopDriftLoop]);
 
   const clearPressTimers = useCallback(() => {
     if (pressIntervalRef.current) { clearInterval(pressIntervalRef.current); pressIntervalRef.current = null; }
@@ -132,23 +237,28 @@ export default function HiTensionPage() {
     return () => clearTimeout(timer);
   }, [screen, roomCode]);
 
+  // 再生まわりの状態をリセットする
+  const resetPlayState = () => {
+    timestampsRef.current = [];
+    submittedRef.current = false;
+    videoEndedRef.current = false;
+    setVideoEnded(false);
+    setEndedSelfCount(0);
+  };
+
   // ひとりで始める
   const handleConfirm = (id: string) => {
     // ★ iOS Safari autoplay 対策: gesture スコープ内で最初に呼ぶ
     playerApiRef.current?.play();
     setMemberId(id);
     setLastSelectedMemberId(id);
-    timestampsRef.current = [];
-    submittedRef.current = false;
     setSeatHash(newSeatHash());
-    videoEndedRef.current = false;
-    setVideoEnded(false);
-    setEndedSelfCount(0);
+    resetPlayState();
     setIsRealtimePlay(false);
     setScreen("play");
   };
 
-  // だれでも待つ（グローバル待機室）
+  // だれかと（グローバル待機室）
   const handleWaitGlobal = (id: string) => {
     if (roomFull) return; // 満員なら入室しない（ボタン無効化のバックストップ）
     setMemberId(id);
@@ -184,8 +294,10 @@ export default function HiTensionPage() {
     setScreen("select");
   };
 
-  // 待機室 → 色選択に戻る
+  // 待機室 / ready-check → 色選択に戻る
   const handleBackToTop = () => {
+    clearSenoTimer();
+    stopDriftLoop();
     setRoomCode(null);
     setScreen("select");
   };
@@ -194,30 +306,39 @@ export default function HiTensionPage() {
   const handleSolo = () => {
     // gesture スコープ内なので iOS でも play() が通る
     playerApiRef.current?.play();
-    timestampsRef.current = [];
-    submittedRef.current = false;
-    videoEndedRef.current = false;
-    setVideoEnded(false);
-    setEndedSelfCount(0);
+    resetPlayState();
     setIsRealtimePlay(false);
     setScreen("play");
   };
 
-  // カウントダウン終了・TAP ボタン押下（gesture スコープ → iOS でも play() が通る）
-  // screen が "play" になると inWaitingRoom が false になり自動で untrack される。
-  const handleCountdownReady = useCallback(() => {
-    timestampsRef.current = [];
-    submittedRef.current = false;
-    videoEndedRef.current = false;
-    setVideoEnded(false);
-    setEndedSelfCount(0);
-    setIsRealtimePlay(true);
+  // ホストが「せーの」を押す（待機室）
+  const handleSenoButton = () => {
+    const group = participants.slice(0, MAX_PARTICIPANTS).map(p => p.sessionId);
+    if (group.length === 0) return;
+    sendSeno(group);
+  };
+
+  // ホストが失敗後「もう一回 せーの」を押す（同じグループで再挑戦、抜けた人は除外）
+  const handleRetrySeno = () => {
+    const present = new Set(participants.map(p => p.sessionId));
+    const group = readyCheckGroupRef.current.filter(id => present.has(id));
+    if (group.length === 0) return;
+    sendSeno(group);
+  };
+
+  // ready-check で✋を押す（＝参加＆動画再生＆開始の意思表明）
+  const handleReadyTap = () => {
+    if (selfReadied) return;
+    // ★ この✋押下が各端末の iOS autoplay 突破のジェスチャー
     playerApiRef.current?.play();
-    setScreen("play");
-  }, []);
+    resetPlayState();
+    setSelfReadied(true);
+    sendReady();
+  };
 
   const handleVideoEnded = () => {
     clearPressTimers();
+    stopDriftLoop();
     setIsPressed(false);
     videoEndedRef.current = true;
     const count = timestampsRef.current.length;
@@ -240,11 +361,8 @@ export default function HiTensionPage() {
   const handleChangeColor = () => {
     playerApiRef.current?.pause();
     clearPressTimers();
-    videoEndedRef.current = false;
-    setVideoEnded(false);
-    setEndedSelfCount(0);
-    timestampsRef.current = [];
-    submittedRef.current = false;
+    stopDriftLoop();
+    resetPlayState();
     setIsPressed(false);
     setRoomCode(null);
     setScreen("select");
@@ -252,11 +370,7 @@ export default function HiTensionPage() {
 
   const handleReplay = () => {
     playerApiRef.current?.replay(); // gesture スコープ内
-    videoEndedRef.current = false;
-    setVideoEnded(false);
-    setEndedSelfCount(0);
-    timestampsRef.current = [];
-    submittedRef.current = false;
+    resetPlayState();
     setIsPressed(false);
     setSeatHash(newSeatHash());
     fetchHiSessions().then(setSessions);
@@ -449,16 +563,26 @@ export default function HiTensionPage() {
             roomCode={roomCode}
             onBounceSignal={broadcastBounce}
             bouncingSessionId={bouncingSessionId}
-            onStart={broadcastStart}
+            onSeno={handleSenoButton}
             onSolo={handleSolo}
             onBackToTop={handleBackToTop}
           />
         </div>
       )}
 
-      {/* カウントダウン */}
-      {screen === "countdown" && startAt !== null && (
-        <Countdown startAt={startAt} onReady={handleCountdownReady} />
+      {/* せーの → ready-check */}
+      {screen === "ready-check" && (
+        <ReadyCheck
+          isHost={isHost}
+          selfReadied={selfReadied}
+          readyCount={readyCount}
+          groupSize={readyCheckGroup.length}
+          failed={readyCheckFailed}
+          memberColor={member?.color ?? "#000"}
+          onReadyTap={handleReadyTap}
+          onRetrySeno={handleRetrySeno}
+          onQuit={handleBackToTop}
+        />
       )}
     </>
   );

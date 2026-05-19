@@ -11,6 +11,10 @@ export type YouTubePlayerApi = {
   pause: () => void;
   /** 動画を頭出しして再生開始("もう一度" 用) */
   replay: () => void;
+  /** 指定秒へシーク(同期ドリフト補正用) */
+  seekTo: (seconds: number) => void;
+  /** 現在の再生位置(秒)。取得不可なら 0 */
+  getCurrentTime: () => number;
 };
 
 interface Props {
@@ -183,6 +187,12 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
         p.seekTo(0, true);
         p.playVideo();
       } catch { /* ignore */ }
+    },
+    seekTo(seconds: number) {
+      try { playerRef.current?.seekTo(Math.max(0, seconds), true); } catch { /* ignore */ }
+    },
+    getCurrentTime() {
+      try { return playerRef.current?.getCurrentTime() ?? 0; } catch { return 0; }
     },
   }), []);
 

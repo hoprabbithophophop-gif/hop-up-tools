@@ -79,6 +79,8 @@ function seatIndexToPosition(index: number): { xRatio: number; yRatio: number } 
 
 const LIVE_QUEUE_MAX = 100;
 const LIVE_DISCARD_SEC = 3;
+// 遅延した✋のアニメ先送り量の上限（ms）。これ以上ズレても消さず軽く先送りして出す。
+const MAX_EXTRAPOLATION_MS = 200;
 
 type QueuedLiveTap = { videoTime: number; memberId: string; seatIndex: number };
 
@@ -181,6 +183,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     isSelf: boolean;
     isToday: boolean;
     playedDate?: string;
+    /** アニメをこの ms 分だけ先に進めてスポーンする（遅延した他人の✋の補正） */
+    animationOffsetMs?: number;
   }) {
     const app = appRef.current;
     const texture = textureRef.current;
@@ -227,7 +231,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       | "up2" | "hold2" | "down2"
       | "fade" | "done" = "up";
     let phaseStart = 0;
-    let totalMs = 0;
+    // 遅延した✋はアニメを先に進めた状態から開始（FPS式の予測）
+    let totalMs = params.animationOffsetMs ?? 0;
 
     const onTick = (ticker: Ticker) => {
       totalMs += ticker.deltaMS;
@@ -348,7 +353,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       if (ageSecs > LIVE_DISCARD_SEC) return; // 古すぎ → 捨てる
       const member = findMember(memberId);
       if (!member) return;
-      const spawn = () => {
+      const spawn = (animationOffsetMs: number) => {
         const { xRatio, yRatio } = seatIndexToPosition(seatIndex);
         spawnHand({
           xRatio, yRatio,
@@ -356,10 +361,12 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
           isSelf: false,
           isToday: true,
           playedDate: new Date().toISOString().slice(0, 10),
+          animationOffsetMs,
         });
       };
       if (videoTime <= now) {
-        spawn();
+        // 既に過ぎたタップ = 遅れて届いた → 遅れ分アニメを先送りして補正
+        spawn(Math.min((now - videoTime) * 1000, MAX_EXTRAPOLATION_MS));
       } else {
         const queue = liveQueueRef.current;
         queue.push({ videoTime, memberId, seatIndex });
@@ -378,7 +385,14 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
             const member = findMember(tap.memberId);
             if (member) {
               const { xRatio, yRatio } = seatIndexToPosition(tap.seatIndex);
-              spawnHand({ xRatio, yRatio, color: member.color, isSelf: false, isToday: true, playedDate: new Date().toISOString().slice(0, 10) });
+              spawnHand({
+                xRatio, yRatio,
+                color: member.color,
+                isSelf: false,
+                isToday: true,
+                playedDate: new Date().toISOString().slice(0, 10),
+                animationOffsetMs: Math.min((currentTime - tap.videoTime) * 1000, MAX_EXTRAPOLATION_MS),
+              });
             }
           } else {
             remaining.push(tap);

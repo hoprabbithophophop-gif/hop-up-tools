@@ -159,7 +159,7 @@ export default function MemberSelect({
               padding: "0.25rem 0",
             }}
           >
-            {roomFull ? "満員（4人まで）" : "だれでも待つ →"}
+            {roomFull ? "満員（4人まで）" : "だれかと →"}
           </button>
         );
       })()}
@@ -179,7 +179,7 @@ export default function MemberSelect({
           marginBottom: "0.5rem",
         }}
       >
-        合言葉の部屋 →
+        合言葉で →
       </button>
 
       <p
