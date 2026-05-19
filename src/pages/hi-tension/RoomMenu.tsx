@@ -9,7 +9,8 @@ interface Props {
 
 export default function RoomMenu({ onCreate, onJoin, onBack }: Props) {
   const [code, setCode] = useState("");
-  const canJoin = code.length === ROOM_CODE_LENGTH;
+  // 表示は生入力（大文字化のみ）。使用可否は正規化後の長さで判定する。
+  const canJoin = normalizeRoomCode(code).length === ROOM_CODE_LENGTH;
 
   return (
     <div
@@ -77,8 +78,11 @@ export default function RoomMenu({ onCreate, onJoin, onBack }: Props) {
           type="text"
           inputMode="text"
           autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
+          maxLength={ROOM_CODE_LENGTH}
           value={code}
-          onChange={(e) => setCode(normalizeRoomCode(e.target.value))}
+          onChange={(e) => setCode(e.target.value.toUpperCase())}
           placeholder="コード"
           aria-label="部屋のコード"
           style={{
@@ -99,7 +103,7 @@ export default function RoomMenu({ onCreate, onJoin, onBack }: Props) {
         <button
           type="button"
           disabled={!canJoin}
-          onClick={() => canJoin && onJoin(code)}
+          onClick={() => canJoin && onJoin(normalizeRoomCode(code))}
           style={{
             width: "100%",
             padding: "1rem",

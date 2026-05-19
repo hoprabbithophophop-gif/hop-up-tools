@@ -16,6 +16,7 @@ interface Props {
   bouncingSessionId: string | null;
   onSeno: () => void;
   onSolo: () => void;
+  onReenterCode: () => void;
   onBackToTop: () => void;
 }
 
@@ -33,6 +34,7 @@ export default function WaitingRoom({
   bouncingSessionId,
   onSeno,
   onSolo,
+  onReenterCode,
   onBackToTop,
 }: Props) {
   const [selfBouncing, setSelfBouncing] = useState(false);
@@ -213,26 +215,9 @@ export default function WaitingRoom({
 
       {/* 接続エラー */}
       {channelError && (
-        <div style={{ textAlign: "center" }}>
-          <p style={{ fontSize: "0.8125rem", color: "#c00", margin: "0 0 0.5rem", lineHeight: 1.5 }}>
-            接続が悪いです。しばらく待つか、ひとりで始めてください。
-          </p>
-          <button
-            type="button"
-            onClick={onBackToTop}
-            style={{
-              background: "none",
-              border: "none",
-              fontSize: "0.8125rem",
-              color: "#c00",
-              cursor: "pointer",
-              textDecoration: "underline",
-              padding: 0,
-            }}
-          >
-            ← ロビーに戻る
-          </button>
-        </div>
+        <p style={{ fontSize: "0.8125rem", color: "#c00", textAlign: "center", margin: 0, lineHeight: 1.5 }}>
+          接続が悪いです。しばらく待つか、ひとりで始めてください。
+        </p>
       )}
 
       {/* せーのボタン（ホストが合図を出す） */}
@@ -258,21 +243,54 @@ export default function WaitingRoom({
         {isHost ? "せーの！" : "ホストの合図を待ってる"}
       </button>
 
-      {/* やっぱりひとりで */}
-      <button
-        type="button"
-        onClick={onSolo}
-        style={{
-          background: "none",
-          border: "none",
-          fontSize: "0.8125rem",
-          color: "#777",
-          cursor: "pointer",
-          padding: "0.25rem 0",
-        }}
-      >
-        やっぱりひとりで →
-      </button>
+      {/* サブ導線。合言葉部屋では「入力し直す」、グローバル部屋では「やっぱりひとりで」 */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.1rem" }}>
+        {roomCode ? (
+          <button
+            type="button"
+            onClick={onReenterCode}
+            style={{
+              background: "none",
+              border: "none",
+              fontSize: "0.8125rem",
+              color: "#777",
+              cursor: "pointer",
+              padding: "0.25rem 0",
+            }}
+          >
+            合言葉を入力し直す →
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onSolo}
+            style={{
+              background: "none",
+              border: "none",
+              fontSize: "0.8125rem",
+              color: "#777",
+              cursor: "pointer",
+              padding: "0.25rem 0",
+            }}
+          >
+            やっぱりひとりで →
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onBackToTop}
+          style={{
+            background: "none",
+            border: "none",
+            fontSize: "0.8125rem",
+            color: "#777",
+            cursor: "pointer",
+            padding: "0.25rem 0",
+          }}
+        >
+          ← ロビーに戻る
+        </button>
+      </div>
     </div>
   );
 }

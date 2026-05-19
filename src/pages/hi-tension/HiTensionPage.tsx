@@ -72,7 +72,9 @@ export default function HiTensionPage() {
   const readyCheckGroupRef = useRef<string[]>([]);
   const readiedSetRef = useRef<Set<string>>(new Set());
   const senoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clockAnchorRef = useRef<{ t0: number; p0: number } | null>(null);
+  // 曲開始の基準点。offset は開始時の対ホスト時計ズレを凍結したもの
+  // （再生中にホストが移行しても計算が狂わないように）
+  const clockAnchorRef = useRef<{ t0: number; p0: number; offset: number } | null>(null);
   const driftTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const getClockOffsetRef = useRef<() => number>(() => 0);
   const sendSongStartRef = useRef<(t0: number, p0: number) => void>(() => {});
@@ -92,7 +94,8 @@ export default function HiTensionPage() {
       const anchor = clockAnchorRef.current;
       const player = playerApiRef.current;
       if (!anchor || !player) return;
-      const hostNow = Date.now() + getClockOffsetRef.current();
+      // offset は開始時に凍結済み（ホスト移行の影響を受けない）
+      const hostNow = Date.now() + anchor.offset;
       const expected = anchor.p0 + (hostNow - anchor.t0) / 1000;
       const actual = player.getCurrentTime();
       // 動画が走っていて、しきい値以上ズレていたら「あるべき位置」へ seek
@@ -142,16 +145,19 @@ export default function HiTensionPage() {
   const handleSongStart = useCallback((t0: number, p0: number) => {
     if (screenRef.current !== "ready-check") return; // 後から来た人は無視
     clearSenoTimer();
-    clockAnchorRef.current = { t0, p0 };
+    clockAnchorRef.current = { t0, p0, offset: getClockOffsetRef.current() };
     setIsRealtimePlay(true);
     setScreen("play");
     startDriftLoop();
   }, [clearSenoTimer, startDriftLoop]);
 
-  // せーの失敗: ready-check に留まったまま「息が合わなかった」表示
+  // せーの失敗: ready-check に留まったまま「息が合わなかった」表示。
+  // ✋押下で再生開始した動画を止めて頭出しする（裏で流れ続けないように）。
   const handleSenoFail = useCallback(() => {
     if (screenRef.current !== "ready-check") return;
     clearSenoTimer();
+    playerApiRef.current?.pause();
+    playerApiRef.current?.seekTo(0);
     readiedSetRef.current = new Set();
     setReadyCount(0);
     setSelfReadied(false);
@@ -292,6 +298,11 @@ export default function HiTensionPage() {
   // 部屋メニュー → 色選択に戻る
   const handleRoomMenuBack = () => {
     setScreen("select");
+  };
+
+  // 合言葉部屋の待機室 → コード入力画面に戻る（打ち間違えた時の入れ直し）
+  const handleReenterCode = () => {
+    setScreen("room-menu");
   };
 
   // 待機室 / ready-check → 色選択に戻る
@@ -565,6 +576,7 @@ export default function HiTensionPage() {
             bouncingSessionId={bouncingSessionId}
             onSeno={handleSenoButton}
             onSolo={handleSolo}
+            onReenterCode={handleReenterCode}
             onBackToTop={handleBackToTop}
           />
         </div>
