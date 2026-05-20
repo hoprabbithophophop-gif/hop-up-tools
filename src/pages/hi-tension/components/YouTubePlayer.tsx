@@ -17,12 +17,18 @@ export type YouTubePlayerApi = {
   getCurrentTime: () => number;
   /** PLAYING 状態か(一時停止/バッファリング中は false) */
   isPlaying: () => boolean;
+  /** 再生速度を設定(YouTubeは 0.25/0.5/0.75/1/1.25/1.5/1.75/2 のいずれか。それ以外は最寄りに丸められる) */
+  setPlaybackRate: (rate: number) => void;
+  /** 現在の再生速度。取得不可なら 1 */
+  getPlaybackRate: () => number;
 };
 
 interface Props {
   videoId: string;
   onEnded: () => void;
   onTimeUpdate?: (currentTime: number) => void;
+  /** YT.PlayerState の値(1=PLAYING, 2=PAUSED, 3=BUFFERING, 0=ENDED) */
+  onPlayerStateChange?: (state: number) => void;
 }
 
 function loadYouTubeAPI(): Promise<void> {
@@ -48,7 +54,7 @@ function loadYouTubeAPI(): Promise<void> {
 }
 
 const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer(
-  { videoId, onEnded, onTimeUpdate },
+  { videoId, onEnded, onTimeUpdate, onPlayerStateChange },
   ref,
 ) {
   const [isReady, setIsReady] = useState(false);
@@ -64,9 +70,11 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onEndedRef = useRef(onEnded);
   const onTimeUpdateRef = useRef(onTimeUpdate);
+  const onPlayerStateChangeRef = useRef(onPlayerStateChange);
 
   useEffect(() => { onEndedRef.current = onEnded; }, [onEnded]);
   useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
+  useEffect(() => { onPlayerStateChangeRef.current = onPlayerStateChange; }, [onPlayerStateChange]);
 
   useEffect(() => {
     let mounted = true;
@@ -128,6 +136,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
           onStateChange: (event) => {
             if (!mounted) return;
             const state = event.data;
+            onPlayerStateChangeRef.current?.(state);
             if (state === 1 /* PLAYING */) {
               startPolling();
             } else if (state === 2 /* PAUSED */ || state === 3 /* BUFFERING */) {
@@ -198,6 +207,12 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
     },
     isPlaying() {
       try { return playerRef.current?.getPlayerState() === 1; } catch { return false; }
+    },
+    setPlaybackRate(rate: number) {
+      try { (playerRef.current as unknown as { setPlaybackRate?: (r: number) => void })?.setPlaybackRate?.(rate); } catch { /* ignore */ }
+    },
+    getPlaybackRate() {
+      try { return (playerRef.current as unknown as { getPlaybackRate?: () => number })?.getPlaybackRate?.() ?? 1; } catch { return 1; }
     },
   }), []);
 

@@ -27,12 +27,21 @@ const BOUNCE_DURATION_MS = 400;
 const SENO_FAIL_TIMEOUT_MS = SENO_WINDOW_MS + 1500;
 // 同期ドリフト補正
 const DRIFT_CHECK_INTERVAL_MS = 1000;
-const DRIFT_THRESHOLD_SEC = 0.3;          // 高速回線時のしきい値
-const DRIFT_THRESHOLD_SEC_SLOW = 1.0;     // 低速回線時のしきい値（緩める）
-const SLOW_NETWORK_ROUNDTRIP_MS = 500;    // 往復遅延がこれを超えたら低速判定
+// 3段階階層: dead zone → soft sync (rate) → hard sync (seek)
+const DEAD_ZONE_SEC = 0.15;               // ここ未満は無視（業界標準）
+const SOFT_SYNC_MAX_SEC = 2.0;            // ここ未満は rate 補正、超えたら seek
+const RATE_FAST = 1.25;                   // 自分が遅れてる時の加速
+const RATE_SLOW = 0.75;                   // 自分が先行してる時の減速
+const RATE_HOLD_MAX_MS = 5000;            // rate 維持の最大時間
 const SEEK_COOLDOWN_MS = 3000;            // seek直後の再 seek を抑制する間隔
 const SEEK_LEAD_TRIGGER_SEC = 1.5;        // ズレがこれを超えたら先回り seek
 const SEEK_LEAD_SEC = 1.5;                // 先回り秒（バッファリング中に進むぶんを見越す）
+// バッファ検知とリカバリ
+const BUFFER_RECOVERY_GRACE_MS = 2500;    // バッファ復帰後の補正禁止猶予
+// 諦めモード（連続バッファで seek を諦める）
+const GIVE_UP_BUFFER_COUNT = 3;           // この回数以上バッファったら諦めモード
+const GIVE_UP_WINDOW_MS = 30000;          // バッファ回数を数える窓
+const GIVE_UP_THRESHOLD_SEC = 0.5;        // 諦めモード時のしきい値（rate補正のみ）。手のアニメが見えなくなる前に強めの rate 補正を入れる
 
 function newSeatHash(): number {
   return Math.floor(Math.random() * 0x7fffffff);
@@ -82,6 +91,13 @@ export default function HiTensionPage() {
   const clockAnchorRef = useRef<{ t0: number; p0: number; offset: number } | null>(null);
   const driftTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastSeekAtRef = useRef<number>(0);
+  // バッファ検知関連
+  const isBufferingRef = useRef(false);
+  const bufferRecoveryGraceUntilRef = useRef(0);
+  const bufferingTimestampsRef = useRef<number[]>([]);
+  const lowQualityModeRef = useRef(false);
+  // rate 補正中の hold タイマー（再判定までの保持時間）
+  const rateHoldUntilRef = useRef(0);
   const getClockOffsetRef = useRef<() => number>(() => 0);
   const getBestRoundtripRef = useRef<() => number>(() => Infinity);
   const sendSongStartRef = useRef<(t0: number, p0: number) => void>(() => {});
@@ -93,6 +109,17 @@ export default function HiTensionPage() {
   // --- 同期ドリフト補正ループ ---
   const stopDriftLoop = useCallback(() => {
     if (driftTimerRef.current) { clearInterval(driftTimerRef.current); driftTimerRef.current = null; }
+    // 同期関連の状態をリセット（次回の再生開始時に持ち越さない）
+    rateHoldUntilRef.current = 0;
+    bufferRecoveryGraceUntilRef.current = 0;
+    isBufferingRef.current = false;
+    bufferingTimestampsRef.current = [];
+    lowQualityModeRef.current = false;
+    lastSeekAtRef.current = 0;
+    // 再生速度を 1.0 に戻す（rate 補正中に動画が終わるケース等）
+    if (playerApiRef.current?.getPlaybackRate() !== 1) {
+      playerApiRef.current?.setPlaybackRate(1);
+    }
   }, []);
 
   const startDriftLoop = useCallback(() => {
@@ -101,32 +128,83 @@ export default function HiTensionPage() {
       const anchor = clockAnchorRef.current;
       const player = playerApiRef.current;
       if (!anchor || !player) return;
-      // 一時停止/バッファリング中に seek するとコマ送りバグや無駄な再バッファを誘発するのでスキップ
+      // 再生中以外（一時停止/バッファリング）は補正しない
       if (!player.isPlaying()) return;
-      // seek 直後はクールダウン期間を置く（連続 seek でバッファリング地獄に陥らないため）
-      if (Date.now() - lastSeekAtRef.current < SEEK_COOLDOWN_MS) return;
-      // 低速回線ではしきい値を緩めて、ネット揺らぎ起因の不要 seek を減らす
-      const roundtrip = getBestRoundtripRef.current();
-      const isSlowNetwork = Number.isFinite(roundtrip) && roundtrip > SLOW_NETWORK_ROUNDTRIP_MS;
-      const threshold = isSlowNetwork ? DRIFT_THRESHOLD_SEC_SLOW : DRIFT_THRESHOLD_SEC;
+      // バッファ復帰直後はプレイヤーの位置情報が不安定なので猶予期間を置く
+      if (Date.now() < bufferRecoveryGraceUntilRef.current) return;
+      // rate 補正中の hold 期間中は判定スキップ（rate を変えたら効果が出るまで待つ）
+      if (Date.now() < rateHoldUntilRef.current) return;
+
       // offset は開始時に凍結済み（ホスト移行の影響を受けない）
       const hostNow = Date.now() + anchor.offset;
       const expected = anchor.p0 + (hostNow - anchor.t0) / 1000;
       const actual = player.getCurrentTime();
-      // 動画が走っていて、しきい値以上ズレていたら seek
-      if (actual > 0 && expected > 0) {
-        const drift = Math.abs(expected - actual);
-        if (drift > threshold) {
-          // ズレが大きい時はバッファリング時間を見越して先回りする。
-          // seek 中もホスト時計は進むので、現在位置に seek すると
-          // 復帰した瞬間にもう過去になっていて永遠に追いつけないため。
-          const leadSec = drift >= SEEK_LEAD_TRIGGER_SEC ? SEEK_LEAD_SEC : 0;
-          player.seekTo(expected + leadSec);
-          lastSeekAtRef.current = Date.now();
-        }
+      if (actual <= 0 || expected <= 0) return;
+
+      const drift = expected - actual;   // 正: 自分が遅れ、負: 自分が先行
+      const absDrift = Math.abs(drift);
+
+      // dead zone: ほぼ揃ってる → rate が 1.0 でなければ戻す
+      if (absDrift < DEAD_ZONE_SEC) {
+        if (player.getPlaybackRate() !== 1.0) player.setPlaybackRate(1.0);
+        return;
       }
+
+      const isGiveUp = lowQualityModeRef.current;
+      const seekThreshold = isGiveUp ? GIVE_UP_THRESHOLD_SEC : SOFT_SYNC_MAX_SEC;
+
+      // hard sync (seek) 領域
+      if (absDrift >= seekThreshold) {
+        // 諦めモードでは seek 禁止 → rate 補正のみで耐える
+        if (isGiveUp) {
+          const targetRate = drift > 0 ? RATE_FAST : RATE_SLOW;
+          if (player.getPlaybackRate() !== targetRate) player.setPlaybackRate(targetRate);
+          rateHoldUntilRef.current = Date.now() + Math.min(RATE_HOLD_MAX_MS, (absDrift / 0.25) * 1000);
+          return;
+        }
+        // 通常モード: クールダウン経過後に先回り seek
+        if (Date.now() - lastSeekAtRef.current < SEEK_COOLDOWN_MS) return;
+        const leadSec = absDrift >= SEEK_LEAD_TRIGGER_SEC ? SEEK_LEAD_SEC : 0;
+        player.seekTo(expected + leadSec);
+        if (player.getPlaybackRate() !== 1.0) player.setPlaybackRate(1.0);
+        lastSeekAtRef.current = Date.now();
+        return;
+      }
+
+      // soft sync (rate 補正) 領域
+      // drift > 0: 自分が遅れ → 1.25倍で追いつく
+      // drift < 0: 自分が先行 → 0.75倍で待つ
+      const targetRate = drift > 0 ? RATE_FAST : RATE_SLOW;
+      if (player.getPlaybackRate() !== targetRate) player.setPlaybackRate(targetRate);
+      // 0.25 / 秒のペースで補正されるので、その時間ぶん rate を維持する
+      rateHoldUntilRef.current = Date.now() + Math.min(RATE_HOLD_MAX_MS, (absDrift / 0.25) * 1000);
     }, DRIFT_CHECK_INTERVAL_MS);
   }, [stopDriftLoop]);
+
+  // --- YouTube プレイヤー状態の監視（バッファ検知 / 諦めモード）---
+  const handlePlayerStateChange = useCallback((state: number) => {
+    if (state === 3 /* BUFFERING */) {
+      if (!isBufferingRef.current) {
+        isBufferingRef.current = true;
+        // 同期再生中に発生したバッファだけを諦めモード判定に数える
+        if (isRealtimePlayRef.current) {
+          const now = Date.now();
+          const recent = bufferingTimestampsRef.current.filter(t => now - t < GIVE_UP_WINDOW_MS);
+          recent.push(now);
+          bufferingTimestampsRef.current = recent;
+          if (recent.length >= GIVE_UP_BUFFER_COUNT) {
+            lowQualityModeRef.current = true;
+            console.log("[hi-tension] entered give-up sync mode (buffering loop detected)");
+          }
+        }
+      }
+    } else if (state === 1 /* PLAYING */) {
+      if (isBufferingRef.current) {
+        isBufferingRef.current = false;
+        bufferRecoveryGraceUntilRef.current = Date.now() + BUFFER_RECOVERY_GRACE_MS;
+      }
+    }
+  }, []);
 
   // --- realtime hook コールバック ---
   const clearSenoTimer = useCallback(() => {
@@ -476,6 +554,7 @@ export default function HiTensionPage() {
           videoId={VIDEO_ID}
           onEnded={handleVideoEnded}
           onTimeUpdate={handleTimeUpdate}
+          onPlayerStateChange={handlePlayerStateChange}
         />
 
         <div
