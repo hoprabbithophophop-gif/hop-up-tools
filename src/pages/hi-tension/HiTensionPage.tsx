@@ -31,6 +31,8 @@ const DRIFT_THRESHOLD_SEC = 0.3;          // 高速回線時のしきい値
 const DRIFT_THRESHOLD_SEC_SLOW = 1.0;     // 低速回線時のしきい値（緩める）
 const SLOW_NETWORK_ROUNDTRIP_MS = 500;    // 往復遅延がこれを超えたら低速判定
 const SEEK_COOLDOWN_MS = 3000;            // seek直後の再 seek を抑制する間隔
+const SEEK_LEAD_TRIGGER_SEC = 1.5;        // ズレがこれを超えたら先回り seek
+const SEEK_LEAD_SEC = 1.5;                // 先回り秒（バッファリング中に進むぶんを見越す）
 
 function newSeatHash(): number {
   return Math.floor(Math.random() * 0x7fffffff);
@@ -111,10 +113,17 @@ export default function HiTensionPage() {
       const hostNow = Date.now() + anchor.offset;
       const expected = anchor.p0 + (hostNow - anchor.t0) / 1000;
       const actual = player.getCurrentTime();
-      // 動画が走っていて、しきい値以上ズレていたら「あるべき位置」へ seek
-      if (actual > 0 && expected > 0 && Math.abs(expected - actual) > threshold) {
-        player.seekTo(expected);
-        lastSeekAtRef.current = Date.now();
+      // 動画が走っていて、しきい値以上ズレていたら seek
+      if (actual > 0 && expected > 0) {
+        const drift = Math.abs(expected - actual);
+        if (drift > threshold) {
+          // ズレが大きい時はバッファリング時間を見越して先回りする。
+          // seek 中もホスト時計は進むので、現在位置に seek すると
+          // 復帰した瞬間にもう過去になっていて永遠に追いつけないため。
+          const leadSec = drift >= SEEK_LEAD_TRIGGER_SEC ? SEEK_LEAD_SEC : 0;
+          player.seekTo(expected + leadSec);
+          lastSeekAtRef.current = Date.now();
+        }
       }
     }, DRIFT_CHECK_INTERVAL_MS);
   }, [stopDriftLoop]);

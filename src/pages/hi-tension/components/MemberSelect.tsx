@@ -85,7 +85,9 @@ export default function MemberSelect({
           >
             {row.members.map((m) => {
               const isSelected = selectedId === m.id;
-              const baseSize = 48;
+              // 画面の高さに応じて 44〜56px の範囲で自動調整。
+              // 大画面では押しやすい 56px、iPhone SE 1st gen 等では HIG 最低の 44px。
+              const baseSize = "clamp(44px, 7.5dvh, 56px)";
               return (
                 <button
                   key={m.id}
@@ -94,8 +96,8 @@ export default function MemberSelect({
                   aria-pressed={isSelected}
                   onClick={() => setSelectedId(m.id)}
                   style={{
-                    // box サイズは常に baseSize 固定。選択時は transform: scale で
-                    // その場で拡大するだけなので、行の高さも他の丸の位置も動かない。
+                    // 選択時は transform: scale で拡大するだけなので、
+                    // 行の高さも他の丸の位置も動かない。
                     width: baseSize,
                     height: baseSize,
                     borderRadius: "50%",
