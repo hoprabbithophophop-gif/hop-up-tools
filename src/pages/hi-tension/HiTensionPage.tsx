@@ -27,7 +27,10 @@ const BOUNCE_DURATION_MS = 400;
 const SENO_FAIL_TIMEOUT_MS = SENO_WINDOW_MS + 1500;
 // 同期ドリフト補正
 const DRIFT_CHECK_INTERVAL_MS = 1000;
-const DRIFT_THRESHOLD_SEC = 0.3;
+const DRIFT_THRESHOLD_SEC = 0.3;          // 高速回線時のしきい値
+const DRIFT_THRESHOLD_SEC_SLOW = 1.0;     // 低速回線時のしきい値（緩める）
+const SLOW_NETWORK_ROUNDTRIP_MS = 500;    // 往復遅延がこれを超えたら低速判定
+const SEEK_COOLDOWN_MS = 3000;            // seek直後の再 seek を抑制する間隔
 
 function newSeatHash(): number {
   return Math.floor(Math.random() * 0x7fffffff);
@@ -76,6 +79,7 @@ export default function HiTensionPage() {
   // （再生中にホストが移行しても計算が狂わないように）
   const clockAnchorRef = useRef<{ t0: number; p0: number; offset: number } | null>(null);
   const driftTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastSeekAtRef = useRef<number>(0);
   const getClockOffsetRef = useRef<() => number>(() => 0);
   const getBestRoundtripRef = useRef<() => number>(() => Infinity);
   const sendSongStartRef = useRef<(t0: number, p0: number) => void>(() => {});
@@ -97,13 +101,20 @@ export default function HiTensionPage() {
       if (!anchor || !player) return;
       // 一時停止/バッファリング中に seek するとコマ送りバグや無駄な再バッファを誘発するのでスキップ
       if (!player.isPlaying()) return;
+      // seek 直後はクールダウン期間を置く（連続 seek でバッファリング地獄に陥らないため）
+      if (Date.now() - lastSeekAtRef.current < SEEK_COOLDOWN_MS) return;
+      // 低速回線ではしきい値を緩めて、ネット揺らぎ起因の不要 seek を減らす
+      const roundtrip = getBestRoundtripRef.current();
+      const isSlowNetwork = Number.isFinite(roundtrip) && roundtrip > SLOW_NETWORK_ROUNDTRIP_MS;
+      const threshold = isSlowNetwork ? DRIFT_THRESHOLD_SEC_SLOW : DRIFT_THRESHOLD_SEC;
       // offset は開始時に凍結済み（ホスト移行の影響を受けない）
       const hostNow = Date.now() + anchor.offset;
       const expected = anchor.p0 + (hostNow - anchor.t0) / 1000;
       const actual = player.getCurrentTime();
       // 動画が走っていて、しきい値以上ズレていたら「あるべき位置」へ seek
-      if (actual > 0 && expected > 0 && Math.abs(expected - actual) > DRIFT_THRESHOLD_SEC) {
+      if (actual > 0 && expected > 0 && Math.abs(expected - actual) > threshold) {
         player.seekTo(expected);
+        lastSeekAtRef.current = Date.now();
       }
     }, DRIFT_CHECK_INTERVAL_MS);
   }, [stopDriftLoop]);
@@ -156,6 +167,7 @@ export default function HiTensionPage() {
     const initialPos = p0 + oneWaySec;
     clockAnchorRef.current = { t0, p0, offset };
     playerApiRef.current?.seekTo(initialPos);
+    lastSeekAtRef.current = Date.now();
     setIsRealtimePlay(true);
     setScreen("play");
     startDriftLoop();

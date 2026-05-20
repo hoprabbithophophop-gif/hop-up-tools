@@ -32,7 +32,7 @@ export default function MemberSelect({
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: "2rem 1.2rem 1.5rem",
+        padding: "1.5rem 1.2rem 1.5rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         animation: "hi-tension-fade-in 180ms ease-out",
       }}
@@ -66,7 +66,7 @@ export default function MemberSelect({
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: "1.1rem",
+          gap: "0.8rem",
           alignItems: "center",
           width: "100%",
           maxWidth: 360,
@@ -85,7 +85,7 @@ export default function MemberSelect({
           >
             {row.members.map((m) => {
               const isSelected = selectedId === m.id;
-              const baseSize = 56;
+              const baseSize = 48;
               return (
                 <button
                   key={m.id}
@@ -117,83 +117,87 @@ export default function MemberSelect({
         ))}
       </div>
 
-      <button
-        type="button"
-        disabled={!selectedId}
-        onClick={() => selectedId && onConfirm(selectedId)}
+      <div
         style={{
           marginTop: "auto",
-          marginBottom: "0.4rem",
+          marginBottom: "0.5rem",
           width: "100%",
           maxWidth: 360,
-          padding: "1rem",
-          background: selectedId ? "#000" : "#c6c6c6",
-          color: "#fff",
-          border: "none",
-          fontSize: "0.875rem",
-          fontWeight: 700,
-          letterSpacing: "0.05em",
-          textTransform: "uppercase",
-          cursor: selectedId ? "pointer" : "not-allowed",
-          transition: "background 0.12s",
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.6rem",
         }}
       >
-        はじめる
-      </button>
+        <button
+          type="button"
+          disabled={!selectedId}
+          onClick={() => selectedId && onConfirm(selectedId)}
+          style={{
+            width: "100%",
+            padding: "1rem",
+            background: selectedId ? "#000" : "#c6c6c6",
+            color: "#fff",
+            border: "none",
+            fontSize: "0.875rem",
+            fontWeight: 700,
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            cursor: selectedId ? "pointer" : "not-allowed",
+            transition: "background 0.12s",
+          }}
+        >
+          ひとりではじめる
+        </button>
 
-      {/* だれでも待つ（グローバル待機室） */}
-      {(() => {
-        const globalDisabled = !selectedId || roomFull;
-        return (
-          <button
-            type="button"
-            disabled={globalDisabled}
-            onClick={() => selectedId && !roomFull && onWaitGlobal(selectedId)}
-            style={{
-              background: "none",
-              border: "none",
-              fontSize: "0.8125rem",
-              color: globalDisabled ? "#c6c6c6" : "#474747",
-              cursor: globalDisabled ? "not-allowed" : "pointer",
-              padding: "0.25rem 0",
-            }}
-          >
-            {roomFull ? "満員（4人まで）" : "だれかと合わせる →"}
-          </button>
-        );
-      })()}
+        {/* だれかと合わせる（グローバル待機室） */}
+        {(() => {
+          const globalDisabled = !selectedId || roomFull;
+          return (
+            <button
+              type="button"
+              disabled={globalDisabled}
+              onClick={() => selectedId && !roomFull && onWaitGlobal(selectedId)}
+              style={{
+                width: "100%",
+                padding: "1rem",
+                background: globalDisabled ? "#c6c6c6" : "#000",
+                color: "#fff",
+                border: "none",
+                fontSize: "0.875rem",
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                cursor: globalDisabled ? "not-allowed" : "pointer",
+                transition: "background 0.12s",
+              }}
+            >
+              {roomFull ? "満員（4人まで）" : "だれかと合わせる"}
+            </button>
+          );
+        })()}
 
-      {/* 合言葉の部屋（コードで集まる） */}
-      <button
-        type="button"
-        disabled={!selectedId}
-        onClick={() => selectedId && onOpenRoomMenu(selectedId)}
-        style={{
-          background: "none",
-          border: "none",
-          fontSize: "0.8125rem",
-          color: selectedId ? "#474747" : "#c6c6c6",
-          cursor: selectedId ? "pointer" : "not-allowed",
-          padding: "0.25rem 0",
-          marginBottom: "0.5rem",
-        }}
-      >
-        合言葉で →
-      </button>
-
-      <p
-        style={{
-          fontSize: "0.625rem",
-          color: "#777",
-          margin: "1.6rem 0 0",
-          textAlign: "center",
-          lineHeight: 1.6,
-        }}
-      >
-        楽曲・映像の著作権は権利者に帰属します。
-        <br />
-        権利者からの申し出により直ちに公開を停止します。
-      </p>
+        {/* 合言葉の部屋（コードで集まる） */}
+        <button
+          type="button"
+          disabled={!selectedId}
+          onClick={() => selectedId && onOpenRoomMenu(selectedId)}
+          style={{
+            width: "100%",
+            padding: "1rem",
+            background: selectedId ? "#000" : "#c6c6c6",
+            color: "#fff",
+            border: "none",
+            fontSize: "0.875rem",
+            fontWeight: 700,
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            cursor: selectedId ? "pointer" : "not-allowed",
+            transition: "background 0.12s",
+          }}
+        >
+          合言葉の部屋へ
+        </button>
+      </div>
 
     </div>
   );
