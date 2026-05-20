@@ -294,6 +294,9 @@ export function useHiTensionRealtime({
   /** ホスト時計とのズレ（ms）。ホスト時計 ≈ 自分の時計 + これ */
   const getClockOffset = useCallback(() => clockOffsetRef.current, []);
 
+  /** これまで測定した最良の往復遅延（ms）。未測定なら Infinity */
+  const getBestRoundtrip = useCallback(() => bestRoundtripRef.current, []);
+
   /** ホストが「せーの」を送る。group は今回の ready-check 対象（後から来た人を混ぜない） */
   const sendSeno = useCallback((group: string[]) => {
     const senoAt = Date.now();
@@ -370,6 +373,7 @@ export function useHiTensionRealtime({
     connected,
     channelError,
     getClockOffset,
+    getBestRoundtrip,
     sendSeno,
     sendReady,
     sendSongStart,

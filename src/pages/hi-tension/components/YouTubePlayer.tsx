@@ -15,6 +15,8 @@ export type YouTubePlayerApi = {
   seekTo: (seconds: number) => void;
   /** 現在の再生位置(秒)。取得不可なら 0 */
   getCurrentTime: () => number;
+  /** PLAYING 状態か(一時停止/バッファリング中は false) */
+  isPlaying: () => boolean;
 };
 
 interface Props {
@@ -193,6 +195,9 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
     },
     getCurrentTime() {
       try { return playerRef.current?.getCurrentTime() ?? 0; } catch { return 0; }
+    },
+    isPlaying() {
+      try { return playerRef.current?.getPlayerState() === 1; } catch { return false; }
     },
   }), []);
 

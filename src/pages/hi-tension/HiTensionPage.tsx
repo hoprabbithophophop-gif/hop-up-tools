@@ -26,8 +26,8 @@ const BOUNCE_DURATION_MS = 400;
 // せーの失敗判定: 窓 + ready 受信のための余裕
 const SENO_FAIL_TIMEOUT_MS = SENO_WINDOW_MS + 1500;
 // 同期ドリフト補正
-const DRIFT_CHECK_INTERVAL_MS = 2000;
-const DRIFT_THRESHOLD_SEC = 1.0;
+const DRIFT_CHECK_INTERVAL_MS = 1000;
+const DRIFT_THRESHOLD_SEC = 0.3;
 
 function newSeatHash(): number {
   return Math.floor(Math.random() * 0x7fffffff);
@@ -77,6 +77,7 @@ export default function HiTensionPage() {
   const clockAnchorRef = useRef<{ t0: number; p0: number; offset: number } | null>(null);
   const driftTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const getClockOffsetRef = useRef<() => number>(() => 0);
+  const getBestRoundtripRef = useRef<() => number>(() => Infinity);
   const sendSongStartRef = useRef<(t0: number, p0: number) => void>(() => {});
   const sendSenoFailRef = useRef<() => void>(() => {});
 
@@ -94,6 +95,8 @@ export default function HiTensionPage() {
       const anchor = clockAnchorRef.current;
       const player = playerApiRef.current;
       if (!anchor || !player) return;
+      // 一時停止/バッファリング中に seek するとコマ送りバグや無駄な再バッファを誘発するのでスキップ
+      if (!player.isPlaying()) return;
       // offset は開始時に凍結済み（ホスト移行の影響を受けない）
       const hostNow = Date.now() + anchor.offset;
       const expected = anchor.p0 + (hostNow - anchor.t0) / 1000;
@@ -145,7 +148,14 @@ export default function HiTensionPage() {
   const handleSongStart = useCallback((t0: number, p0: number) => {
     if (screenRef.current !== "ready-check") return; // 後から来た人は無視
     clearSenoTimer();
-    clockAnchorRef.current = { t0, p0, offset: getClockOffsetRef.current() };
+    const offset = getClockOffsetRef.current();
+    const roundtrip = getBestRoundtripRef.current();
+    // ホスト時計 t0 で動画位置 p0 だった → 自分が受信した時点ではすでに片道遅延ぶん進んでいる。
+    // 受信直後に明示的にその位置へ seek して初期同期の精度を上げる（以降は driftLoop が維持）。
+    const oneWaySec = Number.isFinite(roundtrip) ? roundtrip / 2000 : 0;
+    const initialPos = p0 + oneWaySec;
+    clockAnchorRef.current = { t0, p0, offset };
+    playerApiRef.current?.seekTo(initialPos);
     setIsRealtimePlay(true);
     setScreen("play");
     startDriftLoop();
@@ -183,6 +193,7 @@ export default function HiTensionPage() {
     connected,
     channelError,
     getClockOffset,
+    getBestRoundtrip,
     sendSeno,
     sendReady,
     sendSongStart,
@@ -205,6 +216,7 @@ export default function HiTensionPage() {
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
   useEffect(() => { myKeyRef.current = presenceKey; }, [presenceKey]);
   useEffect(() => { getClockOffsetRef.current = getClockOffset; }, [getClockOffset]);
+  useEffect(() => { getBestRoundtripRef.current = getBestRoundtrip; }, [getBestRoundtrip]);
   useEffect(() => { sendSongStartRef.current = sendSongStart; }, [sendSongStart]);
   useEffect(() => { sendSenoFailRef.current = sendSenoFail; }, [sendSenoFail]);
 
