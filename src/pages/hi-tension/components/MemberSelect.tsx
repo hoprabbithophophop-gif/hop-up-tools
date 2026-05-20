@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { UNIT_ROWS } from "../data";
-import IntroModal from "./IntroModal";
 
 interface Props {
   initialSelectedId: string | null;
@@ -18,7 +17,6 @@ export default function MemberSelect({
   roomFull,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
-  const [showIntro, setShowIntro] = useState(true);
 
   useEffect(() => {
     document.title = "ハイ！テンション✋ Practice ver. | hop-up-tools";
@@ -36,6 +34,7 @@ export default function MemberSelect({
         alignItems: "center",
         padding: "2rem 1.2rem 1.5rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
+        animation: "hi-tension-fade-in 180ms ease-out",
       }}
     >
       <h1
@@ -159,7 +158,7 @@ export default function MemberSelect({
               padding: "0.25rem 0",
             }}
           >
-            {roomFull ? "満員（4人まで）" : "だれかと →"}
+            {roomFull ? "満員（4人まで）" : "だれかと合わせる →"}
           </button>
         );
       })()}
@@ -196,7 +195,6 @@ export default function MemberSelect({
         権利者からの申し出により直ちに公開を停止します。
       </p>
 
-      {showIntro && <IntroModal onDismiss={() => setShowIntro(false)} />}
     </div>
   );
 }

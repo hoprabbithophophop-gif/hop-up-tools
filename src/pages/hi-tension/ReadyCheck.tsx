@@ -1,5 +1,6 @@
 import LoadingDots from "./components/LoadingDots";
 import HandIcon from "./components/HandIcon";
+import BouncyNumber from "./components/BouncyNumber";
 
 interface Props {
   isHost: boolean;
@@ -44,6 +45,7 @@ export default function ReadyCheck({
         gap: "2rem",
         padding: "2rem 1.2rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
+        animation: "hi-tension-fade-in 180ms ease-out",
       }}
     >
       <LoadingDots />
@@ -71,19 +73,21 @@ export default function ReadyCheck({
                 cursor: "pointer",
               }}
             >
-              もう一回 せーの
+              もう一回 せーの！
             </button>
           ) : (
             <p style={{ fontSize: "0.875rem", color: "#777", margin: 0 }}>
-              ホストの合図を待ってる…
+              せーの待ち…
             </p>
           )}
         </>
       ) : (
         <>
-          <p style={{ fontSize: "1rem", fontWeight: 700, color: "#000", margin: 0, textAlign: "center" }}>
-            {selfReadied ? "みんなを待ってる…" : "せーの、で✋を押して！"}
-          </p>
+          {!selfReadied && (
+            <p style={{ fontSize: "1rem", fontWeight: 700, color: "#000", margin: 0, textAlign: "center" }}>
+              Let's go！
+            </p>
+          )}
 
           <button
             type="button"
@@ -109,9 +113,16 @@ export default function ReadyCheck({
             <HandIcon size={Math.round(BUTTON_SIZE * 0.55)} color="#fff" />
           </button>
 
-          <p style={{ fontSize: "0.875rem", color: "#474747", margin: 0 }}>
-            {readyCount} / {groupSize} 人
-          </p>
+          {selfReadied ? (
+            <div style={{ display: "flex", alignItems: "baseline", gap: "0.4rem" }}>
+              <BouncyNumber value={readyCount} color={memberColor} size="3rem" />
+              <span style={{ fontSize: "1rem", color: "#474747" }}>/ {groupSize} 人</span>
+            </div>
+          ) : (
+            <p style={{ fontSize: "0.875rem", color: "#474747", margin: 0 }}>
+              {readyCount} / {groupSize} 人
+            </p>
+          )}
         </>
       )}
 

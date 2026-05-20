@@ -69,6 +69,7 @@ export default function WaitingRoom({
           padding: "2rem 1.2rem",
           fontFamily: "Inter, 'Noto Sans JP', sans-serif",
           gap: "1.5rem",
+          animation: "hi-tension-fade-in 180ms ease-out",
         }}
       >
         <p style={{ fontSize: "1.125rem", fontWeight: 700, margin: 0, color: "#000" }}>
@@ -130,6 +131,7 @@ export default function WaitingRoom({
         padding: "2rem 1.2rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         gap: "2rem",
+        animation: "hi-tension-fade-in 180ms ease-out",
       }}
     >
       <style>{`
@@ -240,7 +242,7 @@ export default function WaitingRoom({
           transition: "background 0.12s",
         }}
       >
-        {isHost ? "せーの！" : "ホストの合図を待ってる"}
+        {isHost ? "せーの！" : "せーの待ち"}
       </button>
 
       {/* サブ導線。合言葉部屋では「入力し直す」、グローバル部屋では「やっぱりひとりで」 */}

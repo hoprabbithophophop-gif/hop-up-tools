@@ -432,6 +432,12 @@ export default function HiTensionPage() {
 
   return (
     <>
+      <style>{`
+        @keyframes hi-tension-fade-in {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+      `}</style>
       {/* Play screen は常時マウント */}
       <div
         style={{
