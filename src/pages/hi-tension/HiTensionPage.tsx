@@ -24,6 +24,8 @@ function detectDevice(): string {
   if (/Android/.test(ua)) return "Android";
   return "other";
 }
+// iOS は pause→play が不安定なので songstart まで再生継続（基準）。それ以外は songstart まで pause する。
+const IS_IOS = detectDevice() === "iOS";
 const SYNC_LOG_INTERVAL_MS = 3000;
 
 type Screen = "select" | "room-menu" | "waiting" | "ready-check" | "play";
@@ -284,6 +286,9 @@ export default function HiTensionPage() {
         // 動画 0 秒だった Supabase 時刻 = 今の Supabase 時刻 − 経過再生秒
         const tZero = (Date.now() + offset) - videoPos * 1000;
         sendPlaybackReadyRef.current(tZero);
+        // iOS 以外は songstart まで進ませない（iOS のバッファ待ちで先行するのを防ぐ）。
+        // doSync の play() で全員一斉に再開する。
+        if (!IS_IOS) playerApiRef.current?.pause();
       }
       if (isBufferingRef.current) {
         isBufferingRef.current = false;
