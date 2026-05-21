@@ -28,7 +28,7 @@ const SENO_FAIL_TIMEOUT_MS = SENO_WINDOW_MS + 1500;
 // 同期ドリフト補正
 const DRIFT_CHECK_INTERVAL_MS = 1000;
 // 3段階階層: dead zone → soft sync (rate) → hard sync (seek)
-const DEAD_ZONE_SEC = 0.15;               // ここ未満は無視（業界標準）
+const DEAD_ZONE_SEC = 0.15;               // ここ未満は無視（±150ms 目標＝半拍未満）
 const SOFT_SYNC_MAX_SEC = 2.0;            // ここ未満は rate 補正、超えたら seek
 const RATE_FAST = 1.25;                   // 自分が遅れてる時の加速
 const RATE_SLOW = 0.75;                   // 自分が先行してる時の減速
@@ -43,7 +43,8 @@ const GIVE_UP_BUFFER_COUNT = 3;           // この回数以上バッファっ�
 const GIVE_UP_WINDOW_MS = 30000;          // バッファ回数を数える窓
 const GIVE_UP_THRESHOLD_SEC = 0.5;        // 諦めモード時のしきい値（rate補正のみ）。手のアニメが見えなくなる前に強めの rate 補正を入れる
 // Plan E: 全員一斉再生（pause を使わず、再生継続したまま rate sync で揃える）
-const LEAD_TIME_MS = 1000;                // songstart 送信から一斉リビール(ドットウェーブを外す)までの先取り時間。通信遅延を吸収
+const LEAD_TIME_MS = 500;                 // songstart 送信から一斉リビール(ドットウェーブを外す)までの先取り時間。短いほど裏再生時間が減り iOS の自動 pause も避けやすい
+const RATE_HOLD_FACTOR = 0.7;             // rate 補正の hold を控えめにしてオーバーシュート(振動)を防ぐ
 const PLAYBACK_READY_TIMEOUT_MS = 5000;   // playback-ready が揃わない時、ホストが待つ上限
 
 function newSeatHash(): number {
@@ -200,7 +201,7 @@ export default function HiTensionPage() {
         if (isGiveUp) {
           const targetRate = drift > 0 ? RATE_FAST : RATE_SLOW;
           if (player.getPlaybackRate() !== targetRate) player.setPlaybackRate(targetRate);
-          rateHoldUntilRef.current = Date.now() + Math.min(RATE_HOLD_MAX_MS, (absDrift / 0.25) * 1000);
+          rateHoldUntilRef.current = Date.now() + Math.min(RATE_HOLD_MAX_MS, (absDrift / 0.25) * 1000 * RATE_HOLD_FACTOR);
           return;
         }
         // 通常モード: クールダウン経過後に先回り seek
@@ -217,8 +218,8 @@ export default function HiTensionPage() {
       // drift < 0: 自分が先行 → 0.75倍で待つ
       const targetRate = drift > 0 ? RATE_FAST : RATE_SLOW;
       if (player.getPlaybackRate() !== targetRate) player.setPlaybackRate(targetRate);
-      // 0.25 / 秒のペースで補正されるので、その時間ぶん rate を維持する
-      rateHoldUntilRef.current = Date.now() + Math.min(RATE_HOLD_MAX_MS, (absDrift / 0.25) * 1000);
+      // 0.25 / 秒のペースで補正される。控えめ(70%)に止めて再判定し、行き過ぎ(振動)を防ぐ
+      rateHoldUntilRef.current = Date.now() + Math.min(RATE_HOLD_MAX_MS, (absDrift / 0.25) * 1000 * RATE_HOLD_FACTOR);
     }, DRIFT_CHECK_INTERVAL_MS);
   }, [stopDriftLoop]);
 
@@ -335,6 +336,9 @@ export default function HiTensionPage() {
     const delay = localReveal - Date.now();
     const reveal = () => {
       songStartTimerRef.current = null;
+      // ドットウェーブ中に iOS が隠れた動画を自動 pause している場合があるので、
+      // seek の前に play() で再生状態を確実にする（pause 状態で seek すると cued=サムネ化するため）。
+      playerApiRef.current?.play();
       // リビール時に基準位置へ1回だけ揃える（ドットウェーブ中の再生進行のばらつきをリセット）。
       // 以降の微ズレは driftLoop の rate sync で吸収する。
       playerApiRef.current?.seekTo(p0);
