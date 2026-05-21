@@ -8,3 +8,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+// vite.config.ts の define で注入されるビルド時コミットハッシュ
+declare const __COMMIT_SHA__: string;

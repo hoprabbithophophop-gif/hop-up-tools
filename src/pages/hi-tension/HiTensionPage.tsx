@@ -67,6 +67,8 @@ export default function HiTensionPage() {
   const [readyCount, setReadyCount] = useState(0);
   const [selfReadied, setSelfReadied] = useState(false);
   const [readyCheckFailed, setReadyCheckFailed] = useState(false);
+  // 再生中の手の整列用の自分の席番号（ソロ時は -1）
+  const [playSeatIndex, setPlaySeatIndex] = useState(-1);
 
   // セッションIDはコンポーネント生存中に固定
   const anonSessionId = useMemo(() => getOrCreateAnonymousSessionId(), []);
@@ -86,6 +88,8 @@ export default function HiTensionPage() {
   const screenRef = useRef<Screen>("select");
   const isHostRef = useRef(false);
   const myKeyRef = useRef("");
+  // 自分の席番号の最新有効値（再生中は untrack で -1 になるため保持しておく）
+  const mySeatIndexRef = useRef(-1);
   const readyCheckGroupRef = useRef<string[]>([]);
   const readiedSetRef = useRef<Set<string>>(new Set());
   const senoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -298,11 +302,16 @@ export default function HiTensionPage() {
     clearSenoTimer();
     const offset = getClockOffsetRef.current();   // Supabase時計 - 自分の時計
     clockAnchorRef.current = { t0, p0, offset };
+    setPlaySeatIndex(mySeatIndexRef.current);     // 再生中の手を席ベース横一列に整列するため保存
     setIsRealtimePlay(true);
     const localReveal = t0 - offset;              // リビール時刻を自分のローカル時計に換算
     const delay = localReveal - Date.now();
     const reveal = () => {
       songStartTimerRef.current = null;
+      // リビール時に基準位置へ1回だけ揃える（ドットウェーブ中の再生進行のばらつきをリセット）。
+      // 以降の微ズレは driftLoop の rate sync で吸収する。
+      playerApiRef.current?.seekTo(p0);
+      lastSeekAtRef.current = Date.now();
       setScreen("play");
       startDriftLoop();
     };
@@ -373,6 +382,7 @@ export default function HiTensionPage() {
 
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
   useEffect(() => { myKeyRef.current = presenceKey; }, [presenceKey]);
+  useEffect(() => { if (mySeatIndex >= 0) mySeatIndexRef.current = mySeatIndex; }, [mySeatIndex]);
   useEffect(() => { getClockOffsetRef.current = getClockOffset; }, [getClockOffset]);
   useEffect(() => { sendSongStartRef.current = sendSongStart; }, [sendSongStart]);
   useEffect(() => { sendSenoFailRef.current = sendSenoFail; }, [sendSenoFail]);
@@ -430,6 +440,7 @@ export default function HiTensionPage() {
     setLastSelectedMemberId(id);
     setSeatHash(newSeatHash());
     resetPlayState();
+    setPlaySeatIndex(-1);
     setIsRealtimePlay(false);
     setScreen("play");
   };
@@ -488,6 +499,7 @@ export default function HiTensionPage() {
     // gesture スコープ内なので iOS でも play() が通る
     playerApiRef.current?.play();
     resetPlayState();
+    setPlaySeatIndex(-1);
     setIsRealtimePlay(false);
     setScreen("play");
   };
@@ -641,6 +653,7 @@ export default function HiTensionPage() {
             sessions={sessions}
             selfMemberId={memberId}
             selfSeatHash={seatHash}
+            selfSeatIndex={isRealtimePlay ? playSeatIndex : -1}
           />
 
           {videoEnded ? (

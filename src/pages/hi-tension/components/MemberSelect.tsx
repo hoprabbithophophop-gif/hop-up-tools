@@ -35,8 +35,22 @@ export default function MemberSelect({
         padding: "1.5rem 1.2rem 1.5rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         animation: "hi-tension-fade-in 180ms ease-out",
+        position: "relative",
       }}
     >
+      <span
+        style={{
+          position: "absolute",
+          bottom: 4,
+          right: 8,
+          fontSize: "0.5rem",
+          color: "#c6c6c6",
+          letterSpacing: "0.02em",
+          pointerEvents: "none",
+        }}
+      >
+        v.{__COMMIT_SHA__}
+      </span>
       <h1
         style={{
           fontSize: "1.375rem",

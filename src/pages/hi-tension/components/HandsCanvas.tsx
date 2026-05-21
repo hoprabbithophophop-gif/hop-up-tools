@@ -25,6 +25,8 @@ interface Props {
   sessions: HiSession[];
   selfMemberId: string | null;
   selfSeatHash: number;
+  /** リアルタイム再生中の自分の席番号（0始まり）。横一列の整列位置に使う。ソロ時は -1 */
+  selfSeatIndex?: number;
 }
 
 // バケットインデックスに紐づく「(セッション, このバケットでの押下回数)」
@@ -66,14 +68,13 @@ function ageScale(playedDate: string): number {
 
 /**
  * 参加順インデックスから✋の位置を決める（リアルタイムセッション用）。
- * 最大8人（2行×4列）。
+ * 待合室のドットと同じく横一列に整列する（最大4人）。
  */
 function seatIndexToPosition(index: number): { xRatio: number; yRatio: number } {
-  const col = index % 4;
-  const row = Math.floor(index / 4);
+  const col = index % 4;            // 0,1,2,3
   return {
-    xRatio: 0.15 + col * 0.233,
-    yRatio: 0.82 - row * 0.18,
+    xRatio: 0.2 + col * 0.2,        // 0.2 / 0.4 / 0.6 / 0.8 で横一列
+    yRatio: 0.82,
   };
 }
 
@@ -92,7 +93,7 @@ function easeInQuad(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -105,6 +106,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   const sessionsRef = useRef<HiSession[]>(sessions);
   const selfMemberIdRef = useRef<string | null>(selfMemberId);
   const selfSeatHashRef = useRef<number>(selfSeatHash);
+  const selfSeatIndexRef = useRef<number | undefined>(selfSeatIndex);
 
   // バケット → 該当セッションのインデックス(検索を O(1) にする)
   const bucketIndex = useMemo<Map<number, BucketEntry[]>>(() => {
@@ -128,6 +130,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
   useEffect(() => { selfMemberIdRef.current = selfMemberId; }, [selfMemberId]);
   useEffect(() => { selfSeatHashRef.current = selfSeatHash; }, [selfSeatHash]);
+  useEffect(() => { selfSeatIndexRef.current = selfSeatIndex; }, [selfSeatIndex]);
 
   // 区間遷移時にlastBucketを初期化(別動画再生・再入場時)
   useEffect(() => {
@@ -339,7 +342,12 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       if (!memberId) return;
       const member = findMember(memberId);
       if (!member) return;
-      const { xRatio, yRatio } = seatFromHash(selfSeatHashRef.current);
+      // リアルタイム時は席ベースの横一列、ソロ時は従来のランダム位置
+      const seatIdx = selfSeatIndexRef.current;
+      const { xRatio, yRatio } =
+        seatIdx != null && seatIdx >= 0
+          ? seatIndexToPosition(seatIdx)
+          : seatFromHash(selfSeatHashRef.current);
       spawnHand({
         xRatio, yRatio,
         color: member.color,
