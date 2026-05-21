@@ -69,6 +69,10 @@ export default function HiTensionPage() {
   const [readyCheckFailed, setReadyCheckFailed] = useState(false);
   // 再生中の手の整列用の自分の席番号（ソロ時は -1）
   const [playSeatIndex, setPlaySeatIndex] = useState(-1);
+  // 同期デバッグ表示（原因特定用、後で削除）
+  const [debugInfo, setDebugInfo] = useState<{
+    anchorOffset: number; liveOffset: number; rtt: number; drift: number; rate: number;
+  } | null>(null);
 
   // セッションIDはコンポーネント生存中に固定
   const anonSessionId = useMemo(() => getOrCreateAnonymousSessionId(), []);
@@ -111,11 +115,34 @@ export default function HiTensionPage() {
   // rate 補正中の hold タイマー（再判定までの保持時間）
   const rateHoldUntilRef = useRef(0);
   const getClockOffsetRef = useRef<() => number>(() => 0);
+  const getBestRoundtripRef = useRef<() => number>(() => Infinity);
   const sendSongStartRef = useRef<(t0: number, p0: number) => void>(() => {});
   const sendSenoFailRef = useRef<() => void>(() => {});
 
   useEffect(() => { isRealtimePlayRef.current = isRealtimePlay; }, [isRealtimePlay]);
   useEffect(() => { screenRef.current = screen; }, [screen]);
+
+  // 同期デバッグ表示の更新ループ（原因特定用、後で削除）
+  useEffect(() => {
+    if (!isRealtimePlay) { setDebugInfo(null); return; }
+    const timer = setInterval(() => {
+      const anchor = clockAnchorRef.current;
+      const player = playerApiRef.current;
+      if (!anchor || !player) return;
+      const supabaseNow = Date.now() + anchor.offset;
+      const expected = anchor.p0 + (supabaseNow - anchor.t0) / 1000;
+      const actual = player.getCurrentTime();
+      const rtt = getBestRoundtripRef.current();
+      setDebugInfo({
+        anchorOffset: Math.round(anchor.offset),
+        liveOffset: Math.round(getClockOffsetRef.current()),
+        rtt: Number.isFinite(rtt) ? Math.round(rtt) : -1,
+        drift: +(expected - actual).toFixed(2),
+        rate: player.getPlaybackRate(),
+      });
+    }, 200);
+    return () => clearInterval(timer);
+  }, [isRealtimePlay]);
 
   // --- 同期ドリフト補正ループ ---
   const stopDriftLoop = useCallback(() => {
@@ -359,6 +386,7 @@ export default function HiTensionPage() {
     connected,
     channelError,
     getClockOffset,
+    getBestRoundtrip,
     sendSeno,
     sendReady,
     sendSongStart,
@@ -384,6 +412,7 @@ export default function HiTensionPage() {
   useEffect(() => { myKeyRef.current = presenceKey; }, [presenceKey]);
   useEffect(() => { if (mySeatIndex >= 0) mySeatIndexRef.current = mySeatIndex; }, [mySeatIndex]);
   useEffect(() => { getClockOffsetRef.current = getClockOffset; }, [getClockOffset]);
+  useEffect(() => { getBestRoundtripRef.current = getBestRoundtrip; }, [getBestRoundtrip]);
   useEffect(() => { sendSongStartRef.current = sendSongStart; }, [sendSongStart]);
   useEffect(() => { sendSenoFailRef.current = sendSenoFail; }, [sendSenoFail]);
   useEffect(() => { sendPlaybackReadyRef.current = sendPlaybackReady; }, [sendPlaybackReady]);
@@ -617,6 +646,28 @@ export default function HiTensionPage() {
           to   { opacity: 1; }
         }
       `}</style>
+
+      {/* 同期デバッグ表示（原因特定用、後で削除） */}
+      {debugInfo && (
+        <div
+          style={{
+            position: "fixed",
+            top: 4,
+            left: 4,
+            zIndex: 300,
+            background: "rgba(0,0,0,0.72)",
+            color: "#0f0",
+            fontSize: "0.6rem",
+            fontFamily: "monospace",
+            padding: "4px 6px",
+            lineHeight: 1.4,
+            pointerEvents: "none",
+            whiteSpace: "pre",
+          }}
+        >
+          {`offset a/l: ${debugInfo.anchorOffset} / ${debugInfo.liveOffset}\nrtt: ${debugInfo.rtt}ms\ndrift: ${debugInfo.drift}s\nrate: ${debugInfo.rate}x`}
+        </div>
+      )}
       {/* Play screen は常時マウント */}
       <div
         style={{
