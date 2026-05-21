@@ -42,6 +42,8 @@ const DEAD_ZONE_SEC = 0.15;               // ここ未満は無視（±150ms 目
 const SOFT_SYNC_MAX_SEC = 2.0;            // ここ未満は rate 補正、超えたら seek
 const RATE_FAST = 1.25;                   // 自分が遅れてる時の加速
 const RATE_SLOW = 0.75;                   // 自分が先行してる時の減速
+const RATE_FAST_STRONG = 1.5;             // 大きく遅れてる時の加速（seek の代わり）
+const RATE_SLOW_STRONG = 0.5;             // 大きく先行してる時の減速（seek の代わり）
 const RATE_HOLD_MAX_MS = 5000;            // rate 維持の最大時間
 const SEEK_COOLDOWN_MS = 3000;            // seek直後の再 seek を抑制する間隔
 const SEEK_LEAD_TRIGGER_SEC = 1.5;        // ズレがこれを超えたら先回り seek
@@ -235,30 +237,19 @@ export default function HiTensionPage() {
         return;
       }
 
-      const isGiveUp = lowQualityModeRef.current;
-      const seekThreshold = isGiveUp ? GIVE_UP_THRESHOLD_SEC : SOFT_SYNC_MAX_SEC;
-
-      // hard sync (seek) 領域
-      if (absDrift >= seekThreshold) {
-        // 諦めモードでは seek 禁止 → rate 補正のみで耐える
-        if (isGiveUp) {
-          const targetRate = drift > 0 ? RATE_FAST : RATE_SLOW;
-          if (player.getPlaybackRate() !== targetRate) player.setPlaybackRate(targetRate);
-          rateHoldUntilRef.current = Date.now() + Math.min(RATE_HOLD_MAX_MS, (absDrift / 0.25) * 1000 * RATE_HOLD_FACTOR);
-          return;
-        }
-        // 通常モード: クールダウン経過後に先回り seek
-        if (Date.now() - lastSeekAtRef.current < SEEK_COOLDOWN_MS) return;
-        const leadSec = absDrift >= SEEK_LEAD_TRIGGER_SEC ? SEEK_LEAD_SEC : 0;
-        player.seekTo(expected + leadSec);
-        if (player.getPlaybackRate() !== 1.0) player.setPlaybackRate(1.0);
-        lastSeekAtRef.current = Date.now();
+      // 大きいズレ領域: seek は iOS 4G で停止を招くので使わず、強い rate(1.5/0.5)で詰める。
+      // 諦めモードでは早め(0.5s超)に強い rate を入れる。
+      const strongThreshold = lowQualityModeRef.current ? GIVE_UP_THRESHOLD_SEC : SOFT_SYNC_MAX_SEC;
+      if (absDrift >= strongThreshold) {
+        const targetRate = drift > 0 ? RATE_FAST_STRONG : RATE_SLOW_STRONG;
+        if (player.getPlaybackRate() !== targetRate) player.setPlaybackRate(targetRate);
+        // 強い rate は 0.5/秒で補正。控えめ(70%)に止めて再判定し、行き過ぎを防ぐ
+        rateHoldUntilRef.current = Date.now() + Math.min(RATE_HOLD_MAX_MS, (absDrift / 0.5) * 1000 * RATE_HOLD_FACTOR);
         return;
       }
 
-      // soft sync (rate 補正) 領域
-      // drift > 0: 自分が遅れ → 1.25倍で追いつく
-      // drift < 0: 自分が先行 → 0.75倍で待つ
+      // soft sync (rate 補正) 領域 (0.15 〜 strongThreshold)
+      // drift > 0: 自分が遅れ → 1.25倍で追いつく / drift < 0: 自分が先行 → 0.75倍で待つ
       const targetRate = drift > 0 ? RATE_FAST : RATE_SLOW;
       if (player.getPlaybackRate() !== targetRate) player.setPlaybackRate(targetRate);
       // 0.25 / 秒のペースで補正される。控えめ(70%)に止めて再判定し、行き過ぎ(振動)を防ぐ
@@ -381,11 +372,9 @@ export default function HiTensionPage() {
     const doSync = () => {
       songStartTimerRef.current = null;
       setSyncing(false); // 揃え完了 → presence から抜ける（再生開始）
-      // 動画は表示中（アクティブ）なので seek してもサムネ化しない。基準位置へ一斉に揃える。
+      // seek はしない（iOS 4G で停止を招くため）。✋押下からの連続再生を維持し、
+      // 位置のズレは driftLoop の rate sync で揃える。
       playerApiRef.current?.play();
-      playerApiRef.current?.seekTo(p0);
-      lastSeekAtRef.current = Date.now();
-      // seek 完了（バッファ）を待ってから補正開始（未完了での誤判定・暴走を防ぐ）
       bufferRecoveryGraceUntilRef.current = Date.now() + 2000;
       // 収束デバッグ用のリセット
       syncStartAtRef.current = Date.now();
