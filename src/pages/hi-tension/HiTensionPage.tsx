@@ -105,6 +105,7 @@ export default function HiTensionPage() {
   const lastSeekAtRef = useRef<number>(0);
   // Plan E（全員一斉再生）の状態
   const awaitingPlaybackRef = useRef(false);                            // ✋押下後、初回 PLAYING 到達を待っている
+  const awaitingSongStartRef = useRef(false);                           // ✋押下後、songstart(seek揃え) を待っている
   const playbackReadyMapRef = useRef<Map<string, number>>(new Map());   // sessionId → PLAYING 到達時刻(Supabase)
   const songStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -301,6 +302,7 @@ export default function HiTensionPage() {
     readiedSetRef.current = new Set();
     playbackReadyMapRef.current = new Map();
     awaitingPlaybackRef.current = false;
+    awaitingSongStartRef.current = false;
     setReadyCheckGroup(group);
     setReadyCount(0);
     setSelfReadied(false);
@@ -331,24 +333,20 @@ export default function HiTensionPage() {
     }
   }, [clearSenoTimer, startSyncedPlayback]);
 
-  // songstart 受信: t0(=リビール時刻, Supabase時刻)でドットウェーブを外し、再生画面へ。Plan E (pause なし)。
-  // 動画は✋押下時から再生継続中。位置のズレは driftLoop の rate sync で揃える。
+  // songstart 受信: t0(=揃え時刻, Supabase時刻)で全員一斉に seek(p0) して動画位置を揃える。
+  // 動画は✋押下時から再生画面で見えている（隠さない）。以降の微ズレは driftLoop の rate sync で吸収。
   const handleSongStart = useCallback((t0: number, p0: number) => {
-    if (screenRef.current !== "ready-check") return; // 後から来た人は無視
+    if (!awaitingSongStartRef.current) return; // ✋を押して songstart 待ちの人だけ
+    awaitingSongStartRef.current = false;
     clearSenoTimer();
     const offset = getClockOffsetRef.current();   // Supabase時計 - 自分の時計
     clockAnchorRef.current = { t0, p0, offset };
-    setPlaySeatIndex(mySeatIndexRef.current);     // 再生中の手を席ベース横一列に整列するため保存
-    setIsRealtimePlay(true);
-    const localReveal = t0 - offset;              // リビール時刻を自分のローカル時計に換算
-    const delay = localReveal - Date.now();
-    const reveal = () => {
+    const localT0 = t0 - offset;                  // 揃え時刻を自分のローカル時計に換算
+    const delay = localT0 - Date.now();
+    const doSync = () => {
       songStartTimerRef.current = null;
-      // ドットウェーブ中に iOS が隠れた動画を自動 pause している場合があるので、
-      // seek の前に play() で再生状態を確実にする（pause 状態で seek すると cued=サムネ化するため）。
+      // 動画は表示中（アクティブ）なので seek してもサムネ化しない。基準位置へ一斉に揃える。
       playerApiRef.current?.play();
-      // リビール時に基準位置へ1回だけ揃える（ドットウェーブ中の再生進行のばらつきをリセット）。
-      // 以降の微ズレは driftLoop の rate sync で吸収する。
       playerApiRef.current?.seekTo(p0);
       lastSeekAtRef.current = Date.now();
       // seek 完了（バッファ）を待ってから補正開始（未完了での誤判定・暴走を防ぐ）
@@ -356,33 +354,37 @@ export default function HiTensionPage() {
       // 収束デバッグ用のリセット
       syncStartAtRef.current = Date.now();
       maxDriftRef.current = 0;
-      setScreen("play");
       startDriftLoop();
     };
     if (songStartTimerRef.current) clearTimeout(songStartTimerRef.current);
     if (delay > 0) {
-      songStartTimerRef.current = setTimeout(reveal, delay);
+      songStartTimerRef.current = setTimeout(doSync, delay);
     } else {
-      reveal();
+      doSync();
     }
   }, [clearSenoTimer, startDriftLoop]);
 
   // せーの失敗: ready-check に留まったまま「息が合わなかった」表示。
   // ✋押下で再生開始した動画を止めて頭出しする（裏で流れ続けないように）。
   const handleSenoFail = useCallback(() => {
-    if (screenRef.current !== "ready-check") return;
+    // ✋押下で play 画面に遷移済みの人（awaitingSongStart）と、ready-check で待ってる人を処理。
+    // 無関係（ソロ再生中など）は無視。
+    if (!awaitingSongStartRef.current && screenRef.current !== "ready-check") return;
     clearSenoTimer();
     if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
-    if (songStartTimerRef.current) { clearTimeout(songStartTimerRef.current); songStartTimerRef.current = null; }
+    stopDriftLoop();
     playerApiRef.current?.pause();
     playerApiRef.current?.seekTo(0);
     readiedSetRef.current = new Set();
     playbackReadyMapRef.current = new Map();
     awaitingPlaybackRef.current = false;
+    awaitingSongStartRef.current = false;
+    setIsRealtimePlay(false);
     setReadyCount(0);
     setSelfReadied(false);
     setReadyCheckFailed(true);
-  }, [clearSenoTimer]);
+    setScreen("ready-check"); // play に遷移済みでも ready-check に戻す
+  }, [clearSenoTimer, stopDriftLoop]);
 
   const handleTap = useCallback((tap: { memberId: string; seatIndex: number; videoTime: number }) => {
     if (!isRealtimePlayRef.current) return;
@@ -568,13 +570,17 @@ export default function HiTensionPage() {
   // ready-check で✋を押す（＝参加＆動画再生＆開始の意思表明）
   const handleReadyTap = () => {
     if (selfReadied) return;
-    // ★ この✋押下が各端末の iOS autoplay 突破のジェスチャー（Plan E ①）
-    // play() で再生開始 → PLAYING 到達時に 0秒へ戻して待機し、準備完了を報告する
+    // ✋押下で再生開始し、すぐ再生画面へ遷移する（動画を隠さない = iOS の自動 pause を回避）。
+    // 全員の再生位置は songstart 受信時に seek で一斉に揃える。
     playerApiRef.current?.play();
     awaitingPlaybackRef.current = true;
+    awaitingSongStartRef.current = true;
     resetPlayState();
     setSelfReadied(true);
+    setPlaySeatIndex(mySeatIndexRef.current);  // 手の整列用に席番号を保存
+    setIsRealtimePlay(true);
     sendReady();
+    setScreen("play");
   };
 
   const handleVideoEnded = () => {
