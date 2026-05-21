@@ -42,8 +42,8 @@ const BUFFER_RECOVERY_GRACE_MS = 2500;    // バッファ復帰後の補正禁�
 const GIVE_UP_BUFFER_COUNT = 3;           // この回数以上バッファったら諦めモード
 const GIVE_UP_WINDOW_MS = 30000;          // バッファ回数を数える窓
 const GIVE_UP_THRESHOLD_SEC = 0.5;        // 諦めモード時のしきい値（rate補正のみ）。手のアニメが見えなくなる前に強めの rate 補正を入れる
-// Plan E: 全員一斉再生（Play & Hold-back）
-const LEAD_TIME_MS = 1000;                // 全員 playback-ready 後、一斉再生までの先取り時間（ドットウェーブ表示中に吸収）
+// Plan E: 全員一斉再生（pause を使わず、再生継続したまま rate sync で揃える）
+const LEAD_TIME_MS = 1000;                // songstart 送信から一斉リビール(ドットウェーブを外す)までの先取り時間。通信遅延を吸収
 const PLAYBACK_READY_TIMEOUT_MS = 5000;   // playback-ready が揃わない時、ホストが待つ上限
 
 function newSeatHash(): number {
@@ -209,13 +209,15 @@ export default function HiTensionPage() {
         }
       }
     } else if (state === 1 /* PLAYING */) {
-      // Plan E: ✋押下後の初回 PLAYING 到達 → 0秒で待機して「準備完了」を Supabase 時刻で報告
+      // Plan E (pause なし): ✋押下後の初回 PLAYING 到達 → 動画は止めず再生継続。
+      // 「動画 0 秒に相当する Supabase 時刻」を計算して報告する。
       if (awaitingPlaybackRef.current) {
         awaitingPlaybackRef.current = false;
-        playerApiRef.current?.seekTo(0);
-        playerApiRef.current?.pause();
-        const tPlay = Date.now() + getClockOffsetRef.current(); // Supabase 時刻に換算
-        sendPlaybackReadyRef.current(tPlay);
+        const offset = getClockOffsetRef.current();
+        const videoPos = playerApiRef.current?.getCurrentTime() ?? 0;
+        // 動画 0 秒だった Supabase 時刻 = 今の Supabase 時刻 − 経過再生秒
+        const tZero = (Date.now() + offset) - videoPos * 1000;
+        sendPlaybackReadyRef.current(tZero);
       }
       if (isBufferingRef.current) {
         isBufferingRef.current = false;
@@ -224,18 +226,27 @@ export default function HiTensionPage() {
     }
   }, []);
 
-  // playback-ready 受信（ホスト）: 全員の PLAYING 到達時刻が揃ったら一斉再生時刻 t0 を配る
-  const handlePlaybackReady = useCallback((sessionId: string, tPlay: number) => {
-    playbackReadyMapRef.current.set(sessionId, tPlay);
+  // 全員の再生開始が出揃ったら、一斉リビール時刻 t_reveal と基準動画位置 p0 を配る（ホスト）。
+  // 最も遅く 0 秒に到達した端末を基準にする（他は先行しているので減速で揃う）。
+  const startSyncedPlayback = useCallback((group: string[]) => {
+    const ready = group.filter(id => playbackReadyMapRef.current.has(id));
+    if (ready.length === 0) return;
+    const tZeroMax = Math.max(...ready.map(id => playbackReadyMapRef.current.get(id)!));
+    const tReveal = Date.now() + getClockOffsetRef.current() + LEAD_TIME_MS;
+    const p0 = (tReveal - tZeroMax) / 1000; // 基準端末が t_reveal 時点でいる動画位置
+    sendSongStartRef.current(tReveal, p0);
+  }, []);
+
+  // playback-ready 受信（ホスト）: 全員の再生開始時刻が揃ったら一斉リビールを配る
+  const handlePlaybackReady = useCallback((sessionId: string, tZero: number) => {
+    playbackReadyMapRef.current.set(sessionId, tZero);
     const group = readyCheckGroupRef.current;
     if (!isHostRef.current || group.length === 0) return;
     if (group.every(id => playbackReadyMapRef.current.has(id))) {
       if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
-      // 全員が再生準備できた時刻の最大値 + 先取り時間 を一斉再生時刻にする
-      const tMax = Math.max(...group.map(id => playbackReadyMapRef.current.get(id)!));
-      sendSongStartRef.current(tMax + LEAD_TIME_MS, 0);
+      startSyncedPlayback(group);
     }
-  }, []);
+  }, [startSyncedPlayback]);
 
   // --- realtime hook コールバック ---
   const clearSenoTimer = useCallback(() => {
@@ -275,37 +286,31 @@ export default function HiTensionPage() {
       // 5秒待っても playback-ready が揃わなければ、準備できた端末だけで開始する（フォールバック）
       playbackTimeoutRef.current = setTimeout(() => {
         playbackTimeoutRef.current = null;
-        const ready = group.filter(id => playbackReadyMapRef.current.has(id));
-        if (ready.length === 0) return;
-        const tMax = Math.max(...ready.map(id => playbackReadyMapRef.current.get(id)!));
-        sendSongStartRef.current(tMax + LEAD_TIME_MS, 0);
+        startSyncedPlayback(group);
       }, PLAYBACK_READY_TIMEOUT_MS);
     }
-  }, [clearSenoTimer]);
+  }, [clearSenoTimer, startSyncedPlayback]);
 
-  // songstart 受信: t0(Supabase時刻)に全員一斉再生する。Plan E。
-  // t0 まではドットウェーブ（ready-check 画面）を表示し続け、t0 の瞬間に play + 再生画面へ。
+  // songstart 受信: t0(=リビール時刻, Supabase時刻)でドットウェーブを外し、再生画面へ。Plan E (pause なし)。
+  // 動画は✋押下時から再生継続中。位置のズレは driftLoop の rate sync で揃える。
   const handleSongStart = useCallback((t0: number, p0: number) => {
     if (screenRef.current !== "ready-check") return; // 後から来た人は無視
     clearSenoTimer();
     const offset = getClockOffsetRef.current();   // Supabase時計 - 自分の時計
     clockAnchorRef.current = { t0, p0, offset };
     setIsRealtimePlay(true);
-    const localT0 = t0 - offset;                  // t0(Supabase時刻) を自分のローカル時計に換算
-    const delay = localT0 - Date.now();
-    const start = () => {
+    const localReveal = t0 - offset;              // リビール時刻を自分のローカル時計に換算
+    const delay = localReveal - Date.now();
+    const reveal = () => {
       songStartTimerRef.current = null;
-      playerApiRef.current?.play();
       setScreen("play");
       startDriftLoop();
     };
     if (songStartTimerRef.current) clearTimeout(songStartTimerRef.current);
     if (delay > 0) {
-      songStartTimerRef.current = setTimeout(start, delay);
+      songStartTimerRef.current = setTimeout(reveal, delay);
     } else {
-      // 既に t0 を過ぎている → 経過ぶん seek して即再生
-      playerApiRef.current?.seekTo(p0 + (-delay) / 1000);
-      start();
+      reveal();
     }
   }, [clearSenoTimer, startDriftLoop]);
 
