@@ -43,7 +43,7 @@ const GIVE_UP_BUFFER_COUNT = 3;           // この回数以上バッファっ�
 const GIVE_UP_WINDOW_MS = 30000;          // バッファ回数を数える窓
 const GIVE_UP_THRESHOLD_SEC = 0.5;        // 諦めモード時のしきい値（rate補正のみ）。手のアニメが見えなくなる前に強めの rate 補正を入れる
 // Plan E: 全員一斉再生（pause を使わず、再生継続したまま rate sync で揃える）
-const LEAD_TIME_MS = 500;                 // songstart 送信から一斉リビール(ドットウェーブを外す)までの先取り時間。短いほど裏再生時間が減り iOS の自動 pause も避けやすい
+const LEAD_TIME_MS = 300;                 // songstart 送信から一斉リビール(ドットウェーブを外す)までの先取り時間。短いほど裏再生時間が減り iOS の自動 pause も避けやすい
 const RATE_HOLD_FACTOR = 0.7;             // rate 補正の hold を控えめにしてオーバーシュート(振動)を防ぐ
 const PLAYBACK_READY_TIMEOUT_MS = 5000;   // playback-ready が揃わない時、ホストが待つ上限
 
@@ -73,6 +73,7 @@ export default function HiTensionPage() {
   // 同期デバッグ表示（原因特定用、後で削除）
   const [debugInfo, setDebugInfo] = useState<{
     anchorOffset: number; liveOffset: number; rtt: number; drift: number; rate: number;
+    maxDrift: number; elapsed: number;
   } | null>(null);
 
   // セッションIDはコンポーネント生存中に固定
@@ -108,6 +109,9 @@ export default function HiTensionPage() {
   const songStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendPlaybackReadyRef = useRef<(tPlay: number) => void>(() => {});
+  // 収束デバッグ用（後で削除）
+  const syncStartAtRef = useRef(0);
+  const maxDriftRef = useRef(0);
   // バッファ検知関連
   const isBufferingRef = useRef(false);
   const bufferRecoveryGraceUntilRef = useRef(0);
@@ -134,12 +138,16 @@ export default function HiTensionPage() {
       const expected = anchor.p0 + (supabaseNow - anchor.t0) / 1000;
       const actual = player.getCurrentTime();
       const rtt = getBestRoundtripRef.current();
+      const drift = expected - actual;
+      if (Math.abs(drift) > maxDriftRef.current) maxDriftRef.current = Math.abs(drift);
       setDebugInfo({
         anchorOffset: Math.round(anchor.offset),
         liveOffset: Math.round(getClockOffsetRef.current()),
         rtt: Number.isFinite(rtt) ? Math.round(rtt) : -1,
-        drift: +(expected - actual).toFixed(2),
+        drift: +drift.toFixed(2),
         rate: player.getPlaybackRate(),
+        maxDrift: +maxDriftRef.current.toFixed(2),
+        elapsed: syncStartAtRef.current ? Math.round((Date.now() - syncStartAtRef.current) / 1000) : 0,
       });
     }, 200);
     return () => clearInterval(timer);
@@ -343,6 +351,11 @@ export default function HiTensionPage() {
       // 以降の微ズレは driftLoop の rate sync で吸収する。
       playerApiRef.current?.seekTo(p0);
       lastSeekAtRef.current = Date.now();
+      // seek 完了（バッファ）を待ってから補正開始（未完了での誤判定・暴走を防ぐ）
+      bufferRecoveryGraceUntilRef.current = Date.now() + 2000;
+      // 収束デバッグ用のリセット
+      syncStartAtRef.current = Date.now();
+      maxDriftRef.current = 0;
       setScreen("play");
       startDriftLoop();
     };
@@ -669,7 +682,7 @@ export default function HiTensionPage() {
             whiteSpace: "pre",
           }}
         >
-          {`offset a/l: ${debugInfo.anchorOffset} / ${debugInfo.liveOffset}\nrtt: ${debugInfo.rtt}ms\ndrift: ${debugInfo.drift}s\nrate: ${debugInfo.rate}x`}
+          {`offset a/l: ${debugInfo.anchorOffset} / ${debugInfo.liveOffset}\nrtt: ${debugInfo.rtt}ms\ndrift: ${debugInfo.drift}s\nmaxDrift: ${debugInfo.maxDrift}s\nrate: ${debugInfo.rate}x\nelapsed: ${debugInfo.elapsed}s`}
         </div>
       )}
       {/* Play screen は常時マウント */}
