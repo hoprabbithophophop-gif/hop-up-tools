@@ -42,6 +42,9 @@ const BUFFER_RECOVERY_GRACE_MS = 2500;    // バッファ復帰後の補正禁�
 const GIVE_UP_BUFFER_COUNT = 3;           // この回数以上バッファったら諦めモード
 const GIVE_UP_WINDOW_MS = 30000;          // バッファ回数を数える窓
 const GIVE_UP_THRESHOLD_SEC = 0.5;        // 諦めモード時のしきい値（rate補正のみ）。手のアニメが見えなくなる前に強めの rate 補正を入れる
+// Plan E: 全員一斉再生（Play & Hold-back）
+const LEAD_TIME_MS = 1000;                // 全員 playback-ready 後、一斉再生までの先取り時間（ドットウェーブ表示中に吸収）
+const PLAYBACK_READY_TIMEOUT_MS = 5000;   // playback-ready が揃わない時、ホストが待つ上限
 
 function newSeatHash(): number {
   return Math.floor(Math.random() * 0x7fffffff);
@@ -86,11 +89,16 @@ export default function HiTensionPage() {
   const readyCheckGroupRef = useRef<string[]>([]);
   const readiedSetRef = useRef<Set<string>>(new Set());
   const senoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 曲開始の基準点。offset は開始時の対ホスト時計ズレを凍結したもの
-  // （再生中にホストが移行しても計算が狂わないように）
+  // 曲開始の基準点。t0/p0 は Supabase 時計基準、offset は開始時の対 Supabase 時計ズレを凍結したもの
   const clockAnchorRef = useRef<{ t0: number; p0: number; offset: number } | null>(null);
   const driftTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastSeekAtRef = useRef<number>(0);
+  // Plan E（全員一斉再生）の状態
+  const awaitingPlaybackRef = useRef(false);                            // ✋押下後、初回 PLAYING 到達を待っている
+  const playbackReadyMapRef = useRef<Map<string, number>>(new Map());   // sessionId → PLAYING 到達時刻(Supabase)
+  const songStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendPlaybackReadyRef = useRef<(tPlay: number) => void>(() => {});
   // バッファ検知関連
   const isBufferingRef = useRef(false);
   const bufferRecoveryGraceUntilRef = useRef(0);
@@ -99,7 +107,6 @@ export default function HiTensionPage() {
   // rate 補正中の hold タイマー（再判定までの保持時間）
   const rateHoldUntilRef = useRef(0);
   const getClockOffsetRef = useRef<() => number>(() => 0);
-  const getBestRoundtripRef = useRef<() => number>(() => Infinity);
   const sendSongStartRef = useRef<(t0: number, p0: number) => void>(() => {});
   const sendSenoFailRef = useRef<() => void>(() => {});
 
@@ -109,7 +116,10 @@ export default function HiTensionPage() {
   // --- 同期ドリフト補正ループ ---
   const stopDriftLoop = useCallback(() => {
     if (driftTimerRef.current) { clearInterval(driftTimerRef.current); driftTimerRef.current = null; }
+    if (songStartTimerRef.current) { clearTimeout(songStartTimerRef.current); songStartTimerRef.current = null; }
+    if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
     // 同期関連の状態をリセット（次回の再生開始時に持ち越さない）
+    awaitingPlaybackRef.current = false;
     rateHoldUntilRef.current = 0;
     bufferRecoveryGraceUntilRef.current = 0;
     isBufferingRef.current = false;
@@ -135,9 +145,9 @@ export default function HiTensionPage() {
       // rate 補正中の hold 期間中は判定スキップ（rate を変えたら効果が出るまで待つ）
       if (Date.now() < rateHoldUntilRef.current) return;
 
-      // offset は開始時に凍結済み（ホスト移行の影響を受けない）
-      const hostNow = Date.now() + anchor.offset;
-      const expected = anchor.p0 + (hostNow - anchor.t0) / 1000;
+      // offset は開始時に凍結済み。anchor は Supabase 時計基準。
+      const supabaseNow = Date.now() + anchor.offset;
+      const expected = anchor.p0 + (supabaseNow - anchor.t0) / 1000;
       const actual = player.getCurrentTime();
       if (actual <= 0 || expected <= 0) return;
 
@@ -199,10 +209,31 @@ export default function HiTensionPage() {
         }
       }
     } else if (state === 1 /* PLAYING */) {
+      // Plan E: ✋押下後の初回 PLAYING 到達 → 0秒で待機して「準備完了」を Supabase 時刻で報告
+      if (awaitingPlaybackRef.current) {
+        awaitingPlaybackRef.current = false;
+        playerApiRef.current?.seekTo(0);
+        playerApiRef.current?.pause();
+        const tPlay = Date.now() + getClockOffsetRef.current(); // Supabase 時刻に換算
+        sendPlaybackReadyRef.current(tPlay);
+      }
       if (isBufferingRef.current) {
         isBufferingRef.current = false;
         bufferRecoveryGraceUntilRef.current = Date.now() + BUFFER_RECOVERY_GRACE_MS;
       }
+    }
+  }, []);
+
+  // playback-ready 受信（ホスト）: 全員の PLAYING 到達時刻が揃ったら一斉再生時刻 t0 を配る
+  const handlePlaybackReady = useCallback((sessionId: string, tPlay: number) => {
+    playbackReadyMapRef.current.set(sessionId, tPlay);
+    const group = readyCheckGroupRef.current;
+    if (!isHostRef.current || group.length === 0) return;
+    if (group.every(id => playbackReadyMapRef.current.has(id))) {
+      if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
+      // 全員が再生準備できた時刻の最大値 + 先取り時間 を一斉再生時刻にする
+      const tMax = Math.max(...group.map(id => playbackReadyMapRef.current.get(id)!));
+      sendSongStartRef.current(tMax + LEAD_TIME_MS, 0);
     }
   }, []);
 
@@ -217,6 +248,8 @@ export default function HiTensionPage() {
     clearSenoTimer();
     readyCheckGroupRef.current = group;
     readiedSetRef.current = new Set();
+    playbackReadyMapRef.current = new Map();
+    awaitingPlaybackRef.current = false;
     setReadyCheckGroup(group);
     setReadyCount(0);
     setSelfReadied(false);
@@ -230,34 +263,50 @@ export default function HiTensionPage() {
     }
   }, [clearSenoTimer]);
 
-  // ready 受信: 集計し、ホストは全員揃ったら songstart
+  // ready 受信: 集計のみ。全員が✋を押したら、ホストは playback-ready の集約タイムアウトを開始する。
+  // （songstart のトリガーは playback-ready 集約に移譲。Plan E）
   const handleReady = useCallback((sessionId: string) => {
     readiedSetRef.current.add(sessionId);
     const group = readyCheckGroupRef.current;
     setReadyCount(group.filter(id => readiedSetRef.current.has(id)).length);
     if (isHostRef.current && group.length > 0 && group.every(id => readiedSetRef.current.has(id))) {
       clearSenoTimer();
-      const p0 = playerApiRef.current?.getCurrentTime() ?? 0;
-      sendSongStartRef.current(Date.now(), p0);
+      if (playbackTimeoutRef.current) clearTimeout(playbackTimeoutRef.current);
+      // 5秒待っても playback-ready が揃わなければ、準備できた端末だけで開始する（フォールバック）
+      playbackTimeoutRef.current = setTimeout(() => {
+        playbackTimeoutRef.current = null;
+        const ready = group.filter(id => playbackReadyMapRef.current.has(id));
+        if (ready.length === 0) return;
+        const tMax = Math.max(...ready.map(id => playbackReadyMapRef.current.get(id)!));
+        sendSongStartRef.current(tMax + LEAD_TIME_MS, 0);
+      }, PLAYBACK_READY_TIMEOUT_MS);
     }
   }, [clearSenoTimer]);
 
-  // songstart 受信: 基準点を保存して再生画面へ。動画は✋押下時に既に再生中。
+  // songstart 受信: t0(Supabase時刻)に全員一斉再生する。Plan E。
+  // t0 まではドットウェーブ（ready-check 画面）を表示し続け、t0 の瞬間に play + 再生画面へ。
   const handleSongStart = useCallback((t0: number, p0: number) => {
     if (screenRef.current !== "ready-check") return; // 後から来た人は無視
     clearSenoTimer();
-    const offset = getClockOffsetRef.current();
-    const roundtrip = getBestRoundtripRef.current();
-    // ホスト時計 t0 で動画位置 p0 だった → 自分が受信した時点ではすでに片道遅延ぶん進んでいる。
-    // 受信直後に明示的にその位置へ seek して初期同期の精度を上げる（以降は driftLoop が維持）。
-    const oneWaySec = Number.isFinite(roundtrip) ? roundtrip / 2000 : 0;
-    const initialPos = p0 + oneWaySec;
+    const offset = getClockOffsetRef.current();   // Supabase時計 - 自分の時計
     clockAnchorRef.current = { t0, p0, offset };
-    playerApiRef.current?.seekTo(initialPos);
-    lastSeekAtRef.current = Date.now();
     setIsRealtimePlay(true);
-    setScreen("play");
-    startDriftLoop();
+    const localT0 = t0 - offset;                  // t0(Supabase時刻) を自分のローカル時計に換算
+    const delay = localT0 - Date.now();
+    const start = () => {
+      songStartTimerRef.current = null;
+      playerApiRef.current?.play();
+      setScreen("play");
+      startDriftLoop();
+    };
+    if (songStartTimerRef.current) clearTimeout(songStartTimerRef.current);
+    if (delay > 0) {
+      songStartTimerRef.current = setTimeout(start, delay);
+    } else {
+      // 既に t0 を過ぎている → 経過ぶん seek して即再生
+      playerApiRef.current?.seekTo(p0 + (-delay) / 1000);
+      start();
+    }
   }, [clearSenoTimer, startDriftLoop]);
 
   // せーの失敗: ready-check に留まったまま「息が合わなかった」表示。
@@ -265,9 +314,13 @@ export default function HiTensionPage() {
   const handleSenoFail = useCallback(() => {
     if (screenRef.current !== "ready-check") return;
     clearSenoTimer();
+    if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
+    if (songStartTimerRef.current) { clearTimeout(songStartTimerRef.current); songStartTimerRef.current = null; }
     playerApiRef.current?.pause();
     playerApiRef.current?.seekTo(0);
     readiedSetRef.current = new Set();
+    playbackReadyMapRef.current = new Map();
+    awaitingPlaybackRef.current = false;
     setReadyCount(0);
     setSelfReadied(false);
     setReadyCheckFailed(true);
@@ -292,11 +345,11 @@ export default function HiTensionPage() {
     connected,
     channelError,
     getClockOffset,
-    getBestRoundtrip,
     sendSeno,
     sendReady,
     sendSongStart,
     sendSenoFail,
+    sendPlaybackReady,
     broadcastTap,
     broadcastBounce,
   } = useHiTensionRealtime({
@@ -310,14 +363,15 @@ export default function HiTensionPage() {
     onSenoFail: handleSenoFail,
     onTap: handleTap,
     onBounce: handleBounce,
+    onPlaybackReady: handlePlaybackReady,
   });
 
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
   useEffect(() => { myKeyRef.current = presenceKey; }, [presenceKey]);
   useEffect(() => { getClockOffsetRef.current = getClockOffset; }, [getClockOffset]);
-  useEffect(() => { getBestRoundtripRef.current = getBestRoundtrip; }, [getBestRoundtrip]);
   useEffect(() => { sendSongStartRef.current = sendSongStart; }, [sendSongStart]);
   useEffect(() => { sendSenoFailRef.current = sendSenoFail; }, [sendSenoFail]);
+  useEffect(() => { sendPlaybackReadyRef.current = sendPlaybackReady; }, [sendPlaybackReady]);
 
   // 待機室が満員か / 自分があふれ（5人目以降）か
   const roomFull = participants.length >= MAX_PARTICIPANTS;
@@ -451,8 +505,10 @@ export default function HiTensionPage() {
   // ready-check で✋を押す（＝参加＆動画再生＆開始の意思表明）
   const handleReadyTap = () => {
     if (selfReadied) return;
-    // ★ この✋押下が各端末の iOS autoplay 突破のジェスチャー
+    // ★ この✋押下が各端末の iOS autoplay 突破のジェスチャー（Plan E ①）
+    // play() で再生開始 → PLAYING 到達時に 0秒へ戻して待機し、準備完了を報告する
     playerApiRef.current?.play();
+    awaitingPlaybackRef.current = true;
     resetPlayState();
     setSelfReadied(true);
     sendReady();
@@ -505,7 +561,14 @@ export default function HiTensionPage() {
 
   const recordHi = useCallback(() => {
     if (videoEndedRef.current) return;
-    const t = currentTimeRef.current;
+    const anchor = clockAnchorRef.current;
+    let t = currentTimeRef.current;
+    // 同期再生中は、ズレ補正(seek/rate)の影響を打ち消すため Supabase 基準の動画時刻を使う。
+    // 「同じリアル瞬間に押した」が全員同じ video_time として共有される。
+    if (isRealtimePlayRef.current && anchor) {
+      const supabaseNow = Date.now() + anchor.offset;
+      t = anchor.p0 + (supabaseNow - anchor.t0) / 1000;
+    }
     timestampsRef.current.push(t);
     console.log(`[hi-tension] HI! @ ${t.toFixed(2)}s`);
     canvasRef.current?.spawnSelf();

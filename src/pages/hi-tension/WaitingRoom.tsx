@@ -293,6 +293,10 @@ export default function WaitingRoom({
           ← ロビーに戻る
         </button>
       </div>
+
+      <p style={{ fontSize: "0.6875rem", color: "#999", textAlign: "center", margin: 0, lineHeight: 1.5 }}>
+        ※ 回線状況により再生速度が変わることがあります
+      </p>
     </div>
   );
 }
