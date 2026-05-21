@@ -15,6 +15,16 @@ import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
 import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, generateRoomCode } from "./useHiTensionRealtime";
 import EndCard from "./components/EndCard";
 import HandIcon from "./components/HandIcon";
+import { getSupabase } from "@/lib/supabase";
+
+// 同期デバッグ用のデバイス判定（後で削除）
+function detectDevice(): string {
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/.test(ua)) return "iOS";
+  if (/Android/.test(ua)) return "Android";
+  return "other";
+}
+const SYNC_LOG_INTERVAL_MS = 3000;
 
 type Screen = "select" | "room-menu" | "waiting" | "ready-check" | "play";
 
@@ -113,6 +123,7 @@ export default function HiTensionPage() {
   // 収束デバッグ用（後で削除）
   const syncStartAtRef = useRef(0);
   const maxDriftRef = useRef(0);
+  const lastSyncLogAtRef = useRef(0);
   // バッファ検知関連
   const isBufferingRef = useRef(false);
   const bufferRecoveryGraceUntilRef = useRef(0);
@@ -141,15 +152,35 @@ export default function HiTensionPage() {
       const rtt = getBestRoundtripRef.current();
       const drift = expected - actual;
       if (Math.abs(drift) > maxDriftRef.current) maxDriftRef.current = Math.abs(drift);
+      const liveOffset = Math.round(getClockOffsetRef.current());
+      const rttMs = Number.isFinite(rtt) ? Math.round(rtt) : -1;
+      const rate = player.getPlaybackRate();
+      const elapsed = syncStartAtRef.current ? Math.round((Date.now() - syncStartAtRef.current) / 1000) : 0;
       setDebugInfo({
         anchorOffset: Math.round(anchor.offset),
-        liveOffset: Math.round(getClockOffsetRef.current()),
-        rtt: Number.isFinite(rtt) ? Math.round(rtt) : -1,
+        liveOffset,
+        rtt: rttMs,
         drift: +drift.toFixed(2),
-        rate: player.getPlaybackRate(),
+        rate,
         maxDrift: +maxDriftRef.current.toFixed(2),
-        elapsed: syncStartAtRef.current ? Math.round((Date.now() - syncStartAtRef.current) / 1000) : 0,
+        elapsed,
       });
+      // 3秒ごとに Supabase へ記録（手打ち不要にする。後で削除）
+      const now = Date.now();
+      if (now - lastSyncLogAtRef.current >= SYNC_LOG_INTERVAL_MS) {
+        lastSyncLogAtRef.current = now;
+        getSupabase().from("hi_sync_debug").insert({
+          session_id: anonSessionId,
+          member_id: memberId,
+          device: detectDevice(),
+          clock_offset: Math.round(anchor.offset),
+          rtt: rttMs,
+          drift: +drift.toFixed(2),
+          rate,
+          max_drift: +maxDriftRef.current.toFixed(2),
+          elapsed,
+        }).then(({ error }) => { if (error) console.warn("[hi-tension] sync log failed", error.message); });
+      }
     }, 200);
     return () => clearInterval(timer);
   }, [isRealtimePlay]);
