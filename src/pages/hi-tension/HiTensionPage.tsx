@@ -80,6 +80,9 @@ export default function HiTensionPage() {
   const [readyCheckFailed, setReadyCheckFailed] = useState(false);
   // 再生中の手の整列用の自分の席番号（ソロ時は -1）
   const [playSeatIndex, setPlaySeatIndex] = useState(-1);
+  // ✋押下で play 画面に遷移後、songstart で揃うまでの間。この間は presence track を維持して
+  // ホスト判定（seno/ready 集計）を生かす。
+  const [syncing, setSyncing] = useState(false);
   // 同期デバッグ表示（原因特定用、後で削除）
   const [debugInfo, setDebugInfo] = useState<{
     anchorOffset: number; liveOffset: number; rtt: number; drift: number; rate: number;
@@ -334,6 +337,7 @@ export default function HiTensionPage() {
     playbackReadyMapRef.current = new Map();
     awaitingPlaybackRef.current = false;
     awaitingSongStartRef.current = false;
+    setSyncing(false);
     setReadyCheckGroup(group);
     setReadyCount(0);
     setSelfReadied(false);
@@ -376,6 +380,7 @@ export default function HiTensionPage() {
     const delay = localT0 - Date.now();
     const doSync = () => {
       songStartTimerRef.current = null;
+      setSyncing(false); // 揃え完了 → presence から抜ける（再生開始）
       // 動画は表示中（アクティブ）なので seek してもサムネ化しない。基準位置へ一斉に揃える。
       playerApiRef.current?.play();
       playerApiRef.current?.seekTo(p0);
@@ -411,6 +416,7 @@ export default function HiTensionPage() {
     awaitingPlaybackRef.current = false;
     awaitingSongStartRef.current = false;
     setIsRealtimePlay(false);
+    setSyncing(false);
     setReadyCount(0);
     setSelfReadied(false);
     setReadyCheckFailed(true);
@@ -448,7 +454,7 @@ export default function HiTensionPage() {
     sessionId: anonSessionId,
     memberId,
     roomCode,
-    inWaitingRoom: screen === "waiting" || screen === "ready-check",
+    inWaitingRoom: screen === "waiting" || screen === "ready-check" || (screen === "play" && syncing),
     onSeno: handleSeno,
     onReady: handleReady,
     onSongStart: handleSongStart,
@@ -610,6 +616,7 @@ export default function HiTensionPage() {
     setSelfReadied(true);
     setPlaySeatIndex(mySeatIndexRef.current);  // 手の整列用に席番号を保存
     setIsRealtimePlay(true);
+    setSyncing(true);  // songstart まで presence track を維持（ホスト判定を生かす）
     sendReady();
     setScreen("play");
   };
