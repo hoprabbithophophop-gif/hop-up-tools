@@ -24,6 +24,9 @@ function detectDevice(): string {
   if (/Android/.test(ua)) return "Android";
   return "other";
 }
+// iOS は seek するたびに WebKit がメディアを取り直す（バッファ潤沢・WiFiでも再読込が走る）ことを実機で確認。
+// よって iOS は seek 禁止＝倍速のみで追いつく。非iOS は seek で一瞬合流。倍速の強さはバッファ判定で全端末共通。
+const IS_IOS = detectDevice() === "iOS";
 const SYNC_LOG_INTERVAL_MS = 3000;
 
 type Screen = "select" | "room-menu" | "waiting" | "ready-check" | "play";
@@ -253,19 +256,22 @@ export default function HiTensionPage() {
       if (drift > 0) {
         // 遅れてる → 前進して追いつく。基準が「最前の端末」なので基本こちら側。
         const bufferAhead = getBufferAheadSec(player);
+        // 非iOS のみ seek 可（iOS は seek で再読込が走るため禁止）。
         // 小さいズレ(〜2s)は手元バッファ内に着地するので計測に頼らず直接 seek（回線問わず安全）。
         // 大きいズレはバッファ済みが読めて足りる時だけ seek（未バッファへの大ジャンプ＝停止を避ける）。
-        const seekSafe =
-          drift <= SEEK_SAFE_DRIFT_SEC ||
-          expected <= actual + bufferAhead - SEEK_BUFFER_MARGIN_SEC;
-        if (seekSafe) {
-          if (player.getPlaybackRate() !== 1.0) player.setPlaybackRate(1.0);
-          player.seekTo(expected);
-          seekCountRef.current += 1;
-          bufferRecoveryGraceUntilRef.current = Date.now() + SEEK_SETTLE_MS;
-          return;
+        if (!IS_IOS) {
+          const seekSafe =
+            drift <= SEEK_SAFE_DRIFT_SEC ||
+            expected <= actual + bufferAhead - SEEK_BUFFER_MARGIN_SEC;
+          if (seekSafe) {
+            if (player.getPlaybackRate() !== 1.0) player.setPlaybackRate(1.0);
+            player.seekTo(expected);
+            seekCountRef.current += 1;
+            bufferRecoveryGraceUntilRef.current = Date.now() + SEEK_SETTLE_MS;
+            return;
+          }
         }
-        // 未バッファの大きいズレ → バッファ残量で許す範囲の倍速で詰める
+        // iOS（seek=再読込なので不可）/ 非iOSで未バッファの大きいズレ → バッファ残量で許す範囲の倍速で詰める
         const rate = maxCatchupRate(bufferAhead);
         if (player.getPlaybackRate() !== rate) player.setPlaybackRate(rate);
         if (rate <= 1.0) return; // 残量わずか → 据置（停止回避。遅れはタップ表示Aが吸収）
