@@ -21,6 +21,10 @@ export type YouTubePlayerApi = {
   setPlaybackRate: (rate: number) => void;
   /** 現在の再生速度。取得不可なら 1 */
   getPlaybackRate: () => number;
+  /** バッファ済み割合(0〜1)。取得不可なら 0 */
+  getVideoLoadedFraction: () => number;
+  /** 動画の総尺(秒)。取得不可なら 0 */
+  getDuration: () => number;
 };
 
 interface Props {
@@ -213,6 +217,12 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
     },
     getPlaybackRate() {
       try { return (playerRef.current as unknown as { getPlaybackRate?: () => number })?.getPlaybackRate?.() ?? 1; } catch { return 1; }
+    },
+    getVideoLoadedFraction() {
+      try { return (playerRef.current as unknown as { getVideoLoadedFraction?: () => number })?.getVideoLoadedFraction?.() ?? 0; } catch { return 0; }
+    },
+    getDuration() {
+      try { return playerRef.current?.getDuration?.() ?? 0; } catch { return 0; }
     },
   }), []);
 

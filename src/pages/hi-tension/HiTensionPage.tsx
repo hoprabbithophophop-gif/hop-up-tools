@@ -24,8 +24,6 @@ function detectDevice(): string {
   if (/Android/.test(ua)) return "Android";
   return "other";
 }
-// iOS は pause→play が不安定なので songstart まで再生継続（基準）。それ以外は songstart まで pause する。
-const IS_IOS = detectDevice() === "iOS";
 const SYNC_LOG_INTERVAL_MS = 3000;
 
 type Screen = "select" | "room-menu" | "waiting" | "ready-check" | "play";
@@ -39,27 +37,39 @@ const BOUNCE_DURATION_MS = 400;
 const SENO_FAIL_TIMEOUT_MS = SENO_WINDOW_MS + 1500;
 // 同期ドリフト補正
 const DRIFT_CHECK_INTERVAL_MS = 1000;
-// 3段階階層: dead zone → soft sync (rate) → hard sync (seek)
-const DEAD_ZONE_SEC = 0.15;               // ここ未満は無視（±150ms 目標＝半拍未満）
-const SOFT_SYNC_MAX_SEC = 2.0;            // ここ未満は rate 補正、超えたら seek
-const RATE_FAST = 1.25;                   // 自分が遅れてる時の加速
-const RATE_SLOW = 0.75;                   // 自分が先行してる時の減速
-const RATE_FAST_STRONG = 1.5;             // 大きく遅れてる時の加速（seek の代わり）
-const RATE_SLOW_STRONG = 0.5;             // 大きく先行してる時の減速（seek の代わり）
+const DEAD_ZONE_SEC = 0.15;               // ここ未満は揃ったとみなす（±150ms 目標＝半拍未満）
+// 追いつき方式: 「目標がバッファ済みなら seek 一発、未バッファなら倍速（残量で上限）」。
+// OS では分岐せず、各端末が実測バッファ残量で安全な手段を自分で選ぶ（4G Android も弱WiFi PC も同じ判定）。
+const SEEK_BUFFER_MARGIN_SEC = 1.0;       // 目標がバッファ末端からこの余裕以上内側なら seek 安全とみなす
+const SEEK_SETTLE_MS = 800;               // seek 直後の補正禁止猶予
+// 未バッファ時の倍速上限（バッファ残量に応じて段階的に。残量わずかなら倍速を上げず停止を回避）
+const BUFFER_FOR_2X_SEC = 8;              // この残量以上なら 2.0x まで許可
+const BUFFER_FOR_1_5X_SEC = 4;            // この残量以上なら 1.5x まで許可
+const BUFFER_FOR_1_25X_SEC = 1.5;         // この残量以上なら 1.25x まで許可。これ未満は 1.0x 据置
+const RATE_SLOW = 0.75;                   // 先行してる時（レア：オーバーシュート）の減速
 const RATE_HOLD_MAX_MS = 5000;            // rate 維持の最大時間
-const SEEK_COOLDOWN_MS = 3000;            // seek直後の再 seek を抑制する間隔
-const SEEK_LEAD_TRIGGER_SEC = 1.5;        // ズレがこれを超えたら先回り seek
-const SEEK_LEAD_SEC = 1.5;                // 先回り秒（バッファリング中に進むぶんを見越す）
+const RATE_HOLD_FACTOR = 0.7;             // rate 補正の hold を控えめにしてオーバーシュート(振動)を防ぐ
 // バッファ検知とリカバリ
 const BUFFER_RECOVERY_GRACE_MS = 2500;    // バッファ復帰後の補正禁止猶予
-// 諦めモード（連続バッファで seek を諦める）
-const GIVE_UP_BUFFER_COUNT = 3;           // この回数以上バッファったら諦めモード
-const GIVE_UP_WINDOW_MS = 30000;          // バッファ回数を数える窓
-const GIVE_UP_THRESHOLD_SEC = 0.5;        // 諦めモード時のしきい値（rate補正のみ）。手のアニメが見えなくなる前に強めの rate 補正を入れる
-// Plan E: 全員一斉再生（pause を使わず、再生継続したまま rate sync で揃える）
-const LEAD_TIME_MS = 300;                 // songstart 送信から一斉リビール(ドットウェーブを外す)までの先取り時間。短いほど裏再生時間が減り iOS の自動 pause も避けやすい
-const RATE_HOLD_FACTOR = 0.7;             // rate 補正の hold を控えめにしてオーバーシュート(振動)を防ぐ
+// 全員一斉再生（pause を使わず、再生継続したまま seek/rate で揃える）
+const LEAD_TIME_MS = 300;                 // songstart 送信から一斉リビール(ドットウェーブを外す)までの先取り時間
+const SYNC_START_GRACE_MS = 800;          // doSync 直後の補正禁止猶予（短いほど早く追いつき始める）
 const PLAYBACK_READY_TIMEOUT_MS = 5000;   // playback-ready が揃わない時、ホストが待つ上限
+
+// バッファ残量(秒)＝今の位置より先に溜まってる尺。取得不可なら 0。
+function getBufferAheadSec(player: YouTubePlayerApi): number {
+  const dur = player.getDuration();
+  if (dur <= 0) return 0;
+  return player.getVideoLoadedFraction() * dur - player.getCurrentTime();
+}
+
+// バッファ残量に応じた安全な追いつき倍速の上限。
+function maxCatchupRate(bufferAheadSec: number): number {
+  if (bufferAheadSec >= BUFFER_FOR_2X_SEC) return 2.0;
+  if (bufferAheadSec >= BUFFER_FOR_1_5X_SEC) return 1.5;
+  if (bufferAheadSec >= BUFFER_FOR_1_25X_SEC) return 1.25;
+  return 1.0; // 残量わずか → 倍速を上げない（停止を招くより遅れたまま。タップ表示は A が担保）
+}
 
 function newSeatHash(): number {
   return Math.floor(Math.random() * 0x7fffffff);
@@ -119,8 +129,7 @@ export default function HiTensionPage() {
   // 曲開始の基準点。t0/p0 は Supabase 時計基準、offset は開始時の対 Supabase 時計ズレを凍結したもの
   const clockAnchorRef = useRef<{ t0: number; p0: number; offset: number } | null>(null);
   const driftTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastSeekAtRef = useRef<number>(0);
-  // Plan E（全員一斉再生）の状態
+  // 全員一斉再生の状態
   const awaitingPlaybackRef = useRef(false);                            // ✋押下後、初回 PLAYING 到達を待っている
   const awaitingSongStartRef = useRef(false);                           // ✋押下後、songstart(seek揃え) を待っている
   const playbackReadyMapRef = useRef<Map<string, number>>(new Map());   // sessionId → PLAYING 到達時刻(Supabase)
@@ -134,8 +143,6 @@ export default function HiTensionPage() {
   // バッファ検知関連
   const isBufferingRef = useRef(false);
   const bufferRecoveryGraceUntilRef = useRef(0);
-  const bufferingTimestampsRef = useRef<number[]>([]);
-  const lowQualityModeRef = useRef(false);
   // rate 補正中の hold タイマー（再判定までの保持時間）
   const rateHoldUntilRef = useRef(0);
   const getClockOffsetRef = useRef<() => number>(() => 0);
@@ -202,9 +209,6 @@ export default function HiTensionPage() {
     rateHoldUntilRef.current = 0;
     bufferRecoveryGraceUntilRef.current = 0;
     isBufferingRef.current = false;
-    bufferingTimestampsRef.current = [];
-    lowQualityModeRef.current = false;
-    lastSeekAtRef.current = 0;
     // 再生速度を 1.0 に戻す（rate 補正中に動画が終わるケース等）
     if (playerApiRef.current?.getPlaybackRate() !== 1) {
       playerApiRef.current?.setPlaybackRate(1);
@@ -230,31 +234,38 @@ export default function HiTensionPage() {
       const actual = player.getCurrentTime();
       if (actual <= 0 || expected <= 0) return;
 
-      const drift = expected - actual;   // 正: 自分が遅れ、負: 自分が先行
+      const drift = expected - actual;   // 正: 遅れ, 負: 先行
       const absDrift = Math.abs(drift);
 
-      // dead zone: ほぼ揃ってる → rate が 1.0 でなければ戻す
+      // dead zone: ほぼ揃ってる → rate を 1.0 に戻す
       if (absDrift < DEAD_ZONE_SEC) {
         if (player.getPlaybackRate() !== 1.0) player.setPlaybackRate(1.0);
         return;
       }
 
-      // 大きいズレ領域: seek は iOS 4G で停止を招くので使わず、強い rate(1.5/0.5)で詰める。
-      // 諦めモードでは早め(0.5s超)に強い rate を入れる。
-      const strongThreshold = lowQualityModeRef.current ? GIVE_UP_THRESHOLD_SEC : SOFT_SYNC_MAX_SEC;
-      if (absDrift >= strongThreshold) {
-        const targetRate = drift > 0 ? RATE_FAST_STRONG : RATE_SLOW_STRONG;
-        if (player.getPlaybackRate() !== targetRate) player.setPlaybackRate(targetRate);
-        // 強い rate は 0.5/秒で補正。控えめ(70%)に止めて再判定し、行き過ぎを防ぐ
-        rateHoldUntilRef.current = Date.now() + Math.min(RATE_HOLD_MAX_MS, (absDrift / 0.5) * 1000 * RATE_HOLD_FACTOR);
+      if (drift > 0) {
+        // 遅れてる → 前進して追いつく。基準が「最前の端末」なので基本こちら側。
+        const bufferAhead = getBufferAheadSec(player);
+        // 目標(expected)がバッファ済みなら seek 一発（一瞬・回線問わず安全）
+        if (expected <= actual + bufferAhead - SEEK_BUFFER_MARGIN_SEC) {
+          if (player.getPlaybackRate() !== 1.0) player.setPlaybackRate(1.0);
+          player.seekTo(expected);
+          bufferRecoveryGraceUntilRef.current = Date.now() + SEEK_SETTLE_MS;
+          return;
+        }
+        // 未バッファ → バッファ残量で許す範囲の倍速で詰める
+        const rate = maxCatchupRate(bufferAhead);
+        if (player.getPlaybackRate() !== rate) player.setPlaybackRate(rate);
+        if (rate <= 1.0) return; // 残量わずか → 据置（停止回避。遅れはタップ表示Aが吸収）
+        // net 追いつき = (rate-1)/秒。閉じるまで = drift/(rate-1)。控えめ(70%)で再判定
+        rateHoldUntilRef.current = Date.now() + Math.min(RATE_HOLD_MAX_MS, (drift / (rate - 1)) * 1000 * RATE_HOLD_FACTOR);
         return;
       }
 
-      // soft sync (rate 補正) 領域 (0.15 〜 strongThreshold)
-      // drift > 0: 自分が遅れ → 1.25倍で追いつく / drift < 0: 自分が先行 → 0.75倍で待つ
-      const targetRate = drift > 0 ? RATE_FAST : RATE_SLOW;
-      if (player.getPlaybackRate() !== targetRate) player.setPlaybackRate(targetRate);
-      // 0.25 / 秒のペースで補正される。控えめ(70%)に止めて再判定し、行き過ぎ(振動)を防ぐ
+      // 先行してる（レア：追いつきのオーバーシュート程度）→ 緩く減速して待つ。
+      // 巻き戻り seek は不自然なので使わない。
+      if (player.getPlaybackRate() !== RATE_SLOW) player.setPlaybackRate(RATE_SLOW);
+      // 0.25/秒で詰まる。控えめ(70%)で再判定
       rateHoldUntilRef.current = Date.now() + Math.min(RATE_HOLD_MAX_MS, (absDrift / 0.25) * 1000 * RATE_HOLD_FACTOR);
     }, DRIFT_CHECK_INTERVAL_MS);
   }, [stopDriftLoop]);
@@ -262,20 +273,7 @@ export default function HiTensionPage() {
   // --- YouTube プレイヤー状態の監視（バッファ検知 / 諦めモード）---
   const handlePlayerStateChange = useCallback((state: number) => {
     if (state === 3 /* BUFFERING */) {
-      if (!isBufferingRef.current) {
-        isBufferingRef.current = true;
-        // 同期再生中に発生したバッファだけを諦めモード判定に数える
-        if (isRealtimePlayRef.current) {
-          const now = Date.now();
-          const recent = bufferingTimestampsRef.current.filter(t => now - t < GIVE_UP_WINDOW_MS);
-          recent.push(now);
-          bufferingTimestampsRef.current = recent;
-          if (recent.length >= GIVE_UP_BUFFER_COUNT) {
-            lowQualityModeRef.current = true;
-            console.log("[hi-tension] entered give-up sync mode (buffering loop detected)");
-          }
-        }
-      }
+      isBufferingRef.current = true;
     } else if (state === 1 /* PLAYING */) {
       // Plan E (pause なし): ✋押下後の初回 PLAYING 到達 → 動画は止めず再生継続。
       // 「動画 0 秒に相当する Supabase 時刻」を計算して報告する。
@@ -286,9 +284,6 @@ export default function HiTensionPage() {
         // 動画 0 秒だった Supabase 時刻 = 今の Supabase 時刻 − 経過再生秒
         const tZero = (Date.now() + offset) - videoPos * 1000;
         sendPlaybackReadyRef.current(tZero);
-        // iOS 以外は songstart まで進ませない（iOS のバッファ待ちで先行するのを防ぐ）。
-        // doSync の play() で全員一斉に再開する。
-        if (!IS_IOS) playerApiRef.current?.pause();
       }
       if (isBufferingRef.current) {
         isBufferingRef.current = false;
@@ -298,13 +293,14 @@ export default function HiTensionPage() {
   }, []);
 
   // 全員の再生開始が出揃ったら、一斉リビール時刻 t_reveal と基準動画位置 p0 を配る（ホスト）。
-  // 最も遅く 0 秒に到達した端末を基準にする（他は先行しているので減速で揃う）。
+  // 最も早く 0 秒に到達した「最前の端末」を基準にする → 他は全員「遅れてる側＝前進で追いつくだけ」になり、
+  // 減速して待つ端末がなくなる（待ち＝間延びの体感を消す）。
   const startSyncedPlayback = useCallback((group: string[]) => {
     const ready = group.filter(id => playbackReadyMapRef.current.has(id));
     if (ready.length === 0) return;
-    const tZeroMax = Math.max(...ready.map(id => playbackReadyMapRef.current.get(id)!));
+    const tZeroMin = Math.min(...ready.map(id => playbackReadyMapRef.current.get(id)!));
     const tReveal = Date.now() + getClockOffsetRef.current() + LEAD_TIME_MS;
-    const p0 = (tReveal - tZeroMax) / 1000; // 基準端末が t_reveal 時点でいる動画位置
+    const p0 = (tReveal - tZeroMin) / 1000; // 最前の端末が t_reveal 時点でいる動画位置
     sendSongStartRef.current(tReveal, p0);
   }, []);
 
@@ -364,8 +360,9 @@ export default function HiTensionPage() {
     }
   }, [clearSenoTimer, startSyncedPlayback]);
 
-  // songstart 受信: t0(=揃え時刻, Supabase時刻)で全員一斉に seek(p0) して動画位置を揃える。
-  // 動画は✋押下時から再生画面で見えている（隠さない）。以降の微ズレは driftLoop の rate sync で吸収。
+  // songstart 受信: t0(=揃え時刻, Supabase時刻)で基準(t0,p0)を確定し、全員 driftLoop を開始する。
+  // 動画は✋押下時から再生画面で見えている（隠さない）。位置のズレは driftLoop が
+  // 「バッファ済みなら seek 一発／未バッファなら倍速」で前進して揃える。
   const handleSongStart = useCallback((t0: number, p0: number) => {
     if (!awaitingSongStartRef.current) return; // ✋を押して songstart 待ちの人だけ
     awaitingSongStartRef.current = false;
@@ -377,10 +374,9 @@ export default function HiTensionPage() {
     const doSync = () => {
       songStartTimerRef.current = null;
       setSyncing(false); // 揃え完了 → presence から抜ける（再生開始）
-      // seek はしない（iOS 4G で停止を招くため）。✋押下からの連続再生を維持し、
-      // 位置のズレは driftLoop の rate sync で揃える。
+      // 連続再生を維持。位置のズレは driftLoop が「バッファ済みなら seek 一発／未バッファなら倍速」で詰める。
       playerApiRef.current?.play();
-      bufferRecoveryGraceUntilRef.current = Date.now() + 2000;
+      bufferRecoveryGraceUntilRef.current = Date.now() + SYNC_START_GRACE_MS;
       // 収束デバッグ用のリセット
       syncStartAtRef.current = Date.now();
       maxDriftRef.current = 0;
@@ -602,7 +598,7 @@ export default function HiTensionPage() {
   const handleReadyTap = () => {
     if (selfReadied) return;
     // ✋押下で再生開始し、すぐ再生画面へ遷移する（動画を隠さない = iOS の自動 pause を回避）。
-    // 全員の再生位置は songstart 受信時に seek で一斉に揃える。
+    // 各自そのまま再生継続し、songstart 後に driftLoop が最前の端末へ前進して揃える。
     playerApiRef.current?.play();
     awaitingPlaybackRef.current = true;
     awaitingSongStartRef.current = true;
