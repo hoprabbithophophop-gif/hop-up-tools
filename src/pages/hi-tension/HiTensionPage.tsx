@@ -43,9 +43,6 @@ const DEAD_ZONE_SEC = 0.15;               // ここ未満は揃ったとみな�
 const BUFFER_FOR_2X_SEC = 8;              // この残量以上なら 2.0x まで許可
 const BUFFER_FOR_1_5X_SEC = 4;            // この残量以上なら 1.5x まで許可
 const BUFFER_FOR_1_25X_SEC = 1.5;         // この残量以上なら 1.25x まで許可。これ未満は 1.0x 据置
-const RATE_SLOW = 0.75;                   // 先行してる時（レア：オーバーシュート）の減速
-const RATE_HOLD_MAX_MS = 5000;            // rate 維持の最大時間
-const RATE_HOLD_FACTOR = 0.7;             // rate 補正の hold を控えめにしてオーバーシュート(振動)を防ぐ
 // バッファ検知とリカバリ
 const BUFFER_RECOVERY_GRACE_MS = 2500;    // バッファ復帰後の補正禁止猶予
 // 全員一斉再生（pause を使わず、再生継続したまま seek/rate で揃える）
@@ -140,8 +137,6 @@ export default function HiTensionPage() {
   // バッファ検知関連
   const isBufferingRef = useRef(false);
   const bufferRecoveryGraceUntilRef = useRef(0);
-  // rate 補正中の hold タイマー（再判定までの保持時間）
-  const rateHoldUntilRef = useRef(0);
   const getClockOffsetRef = useRef<() => number>(() => 0);
   const getBestRoundtripRef = useRef<() => number>(() => Infinity);
   const sendSongStartRef = useRef<(t0: number, p0: number) => void>(() => {});
@@ -206,7 +201,6 @@ export default function HiTensionPage() {
     if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
     // 同期関連の状態をリセット（次回の再生開始時に持ち越さない）
     awaitingPlaybackRef.current = false;
-    rateHoldUntilRef.current = 0;
     bufferRecoveryGraceUntilRef.current = 0;
     isBufferingRef.current = false;
     // 再生速度を 1.0 に戻す（rate 補正中に動画が終わるケース等）
@@ -225,8 +219,6 @@ export default function HiTensionPage() {
       if (!player.isPlaying()) return;
       // バッファ復帰直後はプレイヤーの位置情報が不安定なので猶予期間を置く
       if (Date.now() < bufferRecoveryGraceUntilRef.current) return;
-      // rate 補正中の hold 期間中は判定スキップ（rate を変えたら効果が出るまで待つ）
-      if (Date.now() < rateHoldUntilRef.current) return;
 
       // offset は開始時に凍結済み。anchor は Supabase 時計基準。
       const supabaseNow = Date.now() + anchor.offset;
@@ -235,30 +227,22 @@ export default function HiTensionPage() {
       if (actual <= 0 || expected <= 0) return;
 
       const drift = expected - actual;   // 正: 遅れ, 負: 先行
-      const absDrift = Math.abs(drift);
 
       // dead zone: ほぼ揃ってる → rate を 1.0 に戻す
-      if (absDrift < DEAD_ZONE_SEC) {
+      if (Math.abs(drift) < DEAD_ZONE_SEC) {
         if (player.getPlaybackRate() !== 1.0) player.setPlaybackRate(1.0);
         return;
       }
 
-      if (drift > 0) {
-        // 遅れてる → 前進して追いつく。基準が「最前の端末」なので基本こちら側。
-        // seek はモバイルで再読込を起こすので使わず、バッファ残量で許す範囲の倍速で詰める。
-        const rate = maxCatchupRate(getBufferAheadSec(player));
-        if (player.getPlaybackRate() !== rate) player.setPlaybackRate(rate);
-        if (rate <= 1.0) return; // 残量わずか → 据置（停止回避。遅れはタップ表示Aが吸収）
-        // net 追いつき = (rate-1)/秒。閉じるまで = drift/(rate-1)。控えめ(70%)で再判定
-        rateHoldUntilRef.current = Date.now() + Math.min(RATE_HOLD_MAX_MS, (drift / (rate - 1)) * 1000 * RATE_HOLD_FACTOR);
-        return;
-      }
-
-      // 先行してる（レア：追いつきのオーバーシュート程度）→ 緩く減速して待つ。
-      // 巻き戻り seek は不自然なので使わない。
-      if (player.getPlaybackRate() !== RATE_SLOW) player.setPlaybackRate(RATE_SLOW);
-      // 0.25/秒で詰まる。控えめ(70%)で再判定
-      rateHoldUntilRef.current = Date.now() + Math.min(RATE_HOLD_MAX_MS, (absDrift / 0.25) * 1000 * RATE_HOLD_FACTOR);
+      // 比例制御: 1判定(=DRIFT_CHECK_INTERVAL)でちょうど drift を詰める rate にする。
+      // 行き過ぎ(オーバーシュート)で負に振れる往復が無くなり、最短で滑らかに収束する。
+      // seek はモバイルで再読込を起こすので使わない。加速の上限はバッファ残量で安全側に決める。
+      const intervalSec = DRIFT_CHECK_INTERVAL_MS / 1000;
+      const maxRate = maxCatchupRate(getBufferAheadSec(player)); // 遅れ側の加速上限（バッファ薄いと 1.0=据置）
+      // drift>0:加速(>1) / drift<0:減速(<1)。加速はバッファ上限、減速は 0.5 まで許可。
+      const targetRate = Math.max(0.5, Math.min(maxRate, 1 + drift / intervalSec));
+      // YouTube は離散値(…/1.25/1.5/1.75/2)に丸める。差が小さい時だけ set して無駄呼び出しを減らす。
+      if (Math.abs(player.getPlaybackRate() - targetRate) > 0.05) player.setPlaybackRate(targetRate);
     }, DRIFT_CHECK_INTERVAL_MS);
   }, [stopDriftLoop]);
 
