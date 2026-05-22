@@ -40,7 +40,8 @@ const DRIFT_CHECK_INTERVAL_MS = 1000;
 const DEAD_ZONE_SEC = 0.15;               // ここ未満は揃ったとみなす（±150ms 目標＝半拍未満）
 // 追いつき方式: 「目標がバッファ済みなら seek 一発、未バッファなら倍速（残量で上限）」。
 // OS では分岐せず、各端末が実測バッファ残量で安全な手段を自分で選ぶ（4G Android も弱WiFi PC も同じ判定）。
-const SEEK_BUFFER_MARGIN_SEC = 1.0;       // 目標がバッファ末端からこの余裕以上内側なら seek 安全とみなす
+const SEEK_SAFE_DRIFT_SEC = 2.0;          // このズレ未満なら計測に頼らず直接 seek（小さい前方seekは手元バッファ内＝回線問わず安全）
+const SEEK_BUFFER_MARGIN_SEC = 1.0;       // 大きいズレ時：目標がバッファ末端からこの余裕以上内側なら seek 安全とみなす
 const SEEK_SETTLE_MS = 800;               // seek 直後の補正禁止猶予
 // 未バッファ時の倍速上限（バッファ残量に応じて段階的に。残量わずかなら倍速を上げず停止を回避）
 const BUFFER_FOR_2X_SEC = 8;              // この残量以上なら 2.0x まで許可
@@ -100,7 +101,7 @@ export default function HiTensionPage() {
   // 同期デバッグ表示（原因特定用、後で削除）
   const [debugInfo, setDebugInfo] = useState<{
     anchorOffset: number; liveOffset: number; rtt: number; drift: number; rate: number;
-    maxDrift: number; elapsed: number;
+    maxDrift: number; elapsed: number; bufferAhead: number; seeks: number;
   } | null>(null);
 
   // セッションIDはコンポーネント生存中に固定
@@ -140,6 +141,7 @@ export default function HiTensionPage() {
   const syncStartAtRef = useRef(0);
   const maxDriftRef = useRef(0);
   const lastSyncLogAtRef = useRef(0);
+  const seekCountRef = useRef(0);   // driftLoop で seek を発火した回数（診断用）
   // バッファ検知関連
   const isBufferingRef = useRef(false);
   const bufferRecoveryGraceUntilRef = useRef(0);
@@ -169,6 +171,8 @@ export default function HiTensionPage() {
       const liveOffset = Math.round(getClockOffsetRef.current());
       const rttMs = Number.isFinite(rtt) ? Math.round(rtt) : -1;
       const rate = player.getPlaybackRate();
+      const bufferAhead = +getBufferAheadSec(player).toFixed(1);
+      const seeks = seekCountRef.current;
       const elapsed = syncStartAtRef.current ? Math.round((Date.now() - syncStartAtRef.current) / 1000) : 0;
       setDebugInfo({
         anchorOffset: Math.round(anchor.offset),
@@ -178,6 +182,8 @@ export default function HiTensionPage() {
         rate,
         maxDrift: +maxDriftRef.current.toFixed(2),
         elapsed,
+        bufferAhead,
+        seeks,
       });
       // 3秒ごとに Supabase へ記録（手打ち不要にする。後で削除）
       const now = Date.now();
@@ -193,6 +199,7 @@ export default function HiTensionPage() {
           rate,
           max_drift: +maxDriftRef.current.toFixed(2),
           elapsed,
+          buffer_ahead: bufferAhead,
         }).then(({ error }) => { if (error) console.warn("[hi-tension] sync log failed", error.message); });
       }
     }, 200);
@@ -246,14 +253,19 @@ export default function HiTensionPage() {
       if (drift > 0) {
         // 遅れてる → 前進して追いつく。基準が「最前の端末」なので基本こちら側。
         const bufferAhead = getBufferAheadSec(player);
-        // 目標(expected)がバッファ済みなら seek 一発（一瞬・回線問わず安全）
-        if (expected <= actual + bufferAhead - SEEK_BUFFER_MARGIN_SEC) {
+        // 小さいズレ(〜2s)は手元バッファ内に着地するので計測に頼らず直接 seek（回線問わず安全）。
+        // 大きいズレはバッファ済みが読めて足りる時だけ seek（未バッファへの大ジャンプ＝停止を避ける）。
+        const seekSafe =
+          drift <= SEEK_SAFE_DRIFT_SEC ||
+          expected <= actual + bufferAhead - SEEK_BUFFER_MARGIN_SEC;
+        if (seekSafe) {
           if (player.getPlaybackRate() !== 1.0) player.setPlaybackRate(1.0);
           player.seekTo(expected);
+          seekCountRef.current += 1;
           bufferRecoveryGraceUntilRef.current = Date.now() + SEEK_SETTLE_MS;
           return;
         }
-        // 未バッファ → バッファ残量で許す範囲の倍速で詰める
+        // 未バッファの大きいズレ → バッファ残量で許す範囲の倍速で詰める
         const rate = maxCatchupRate(bufferAhead);
         if (player.getPlaybackRate() !== rate) player.setPlaybackRate(rate);
         if (rate <= 1.0) return; // 残量わずか → 据置（停止回避。遅れはタップ表示Aが吸収）
@@ -380,6 +392,7 @@ export default function HiTensionPage() {
       // 収束デバッグ用のリセット
       syncStartAtRef.current = Date.now();
       maxDriftRef.current = 0;
+      seekCountRef.current = 0;
       startDriftLoop();
     };
     if (songStartTimerRef.current) clearTimeout(songStartTimerRef.current);
@@ -716,7 +729,7 @@ export default function HiTensionPage() {
             whiteSpace: "pre",
           }}
         >
-          {`offset a/l: ${debugInfo.anchorOffset} / ${debugInfo.liveOffset}\nrtt: ${debugInfo.rtt}ms\ndrift: ${debugInfo.drift}s\nmaxDrift: ${debugInfo.maxDrift}s\nrate: ${debugInfo.rate}x\nelapsed: ${debugInfo.elapsed}s`}
+          {`offset a/l: ${debugInfo.anchorOffset} / ${debugInfo.liveOffset}\nrtt: ${debugInfo.rtt}ms\ndrift: ${debugInfo.drift}s\nmaxDrift: ${debugInfo.maxDrift}s\nrate: ${debugInfo.rate}x\nbuf: ${debugInfo.bufferAhead}s\nseeks: ${debugInfo.seeks}\nelapsed: ${debugInfo.elapsed}s`}
         </div>
       )}
       {/* Play screen は常時マウント */}
