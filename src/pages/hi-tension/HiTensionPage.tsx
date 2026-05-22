@@ -26,6 +26,19 @@ function detectDevice(): string {
 }
 const SYNC_LOG_INTERVAL_MS = 3000;
 
+// 診断用イベントログ（後で削除）。再生開始まわりの「どこで止まったか」を自動記録する。
+const YT_STATE_NAMES: Record<number, string> = {
+  [-1]: "UNSTARTED", 0: "ENDED", 1: "PLAYING", 2: "PAUSED", 3: "BUFFERING", 5: "CUED",
+};
+function logHiEvent(sessionId: string, event: string, detail?: string) {
+  getSupabase().from("hi_event_debug").insert({
+    session_id: sessionId,
+    device: detectDevice(),
+    event,
+    detail: detail ?? null,
+  }).then(({ error }) => { if (error) console.warn("[hi-tension] event log failed", error.message); });
+}
+
 type Screen = "select" | "room-menu" | "waiting" | "ready-check" | "play";
 
 const LONG_PRESS_INTERVAL_MS = 150;
@@ -96,6 +109,21 @@ export default function HiTensionPage() {
     anchorOffset: number; liveOffset: number; rtt: number; drift: number; rate: number;
     maxDrift: number; elapsed: number; bufferAhead: number;
   } | null>(null);
+  // 実行時ノブ（後で削除）: 倍速上限とデッドゾーンをスマホ上のパネルで切替えて1デプロイで詰める
+  const [knobMaxRate, setKnobMaxRate] = useState(2.0);
+  const [knobDeadZone, setKnobDeadZone] = useState(DEAD_ZONE_SEC);
+  const maxRateCapRef = useRef(2.0);
+  const deadZoneRef = useRef(DEAD_ZONE_SEC);
+  const cycleMaxRate = () => {
+    const opts = [1.5, 1.75, 2.0];
+    const next = opts[(opts.indexOf(knobMaxRate) + 1) % opts.length];
+    setKnobMaxRate(next); maxRateCapRef.current = next;
+  };
+  const cycleDeadZone = () => {
+    const opts = [0.1, 0.15, 0.2];
+    const next = opts[(opts.indexOf(knobDeadZone) + 1) % opts.length];
+    setKnobDeadZone(next); deadZoneRef.current = next;
+  };
 
   // セッションIDはコンポーネント生存中に固定
   const anonSessionId = useMemo(() => getOrCreateAnonymousSessionId(), []);
@@ -228,17 +256,17 @@ export default function HiTensionPage() {
 
       const drift = expected - actual;   // 正: 遅れ, 負: 先行
 
-      // dead zone: ほぼ揃ってる → rate を 1.0 に戻す
-      if (Math.abs(drift) < DEAD_ZONE_SEC) {
+      // dead zone: ほぼ揃ってる → rate を 1.0 に戻す（しきい値はノブで可変）
+      if (Math.abs(drift) < deadZoneRef.current) {
         if (player.getPlaybackRate() !== 1.0) player.setPlaybackRate(1.0);
         return;
       }
 
       // 比例制御: 1判定(=DRIFT_CHECK_INTERVAL)でちょうど drift を詰める rate にする。
       // 行き過ぎ(オーバーシュート)で負に振れる往復が無くなり、最短で滑らかに収束する。
-      // seek はモバイルで再読込を起こすので使わない。加速の上限はバッファ残量で安全側に決める。
+      // seek はモバイルで再読込を起こすので使わない。加速の上限はバッファ残量とノブ上限の小さい方。
       const intervalSec = DRIFT_CHECK_INTERVAL_MS / 1000;
-      const maxRate = maxCatchupRate(getBufferAheadSec(player)); // 遅れ側の加速上限（バッファ薄いと 1.0=据置）
+      const maxRate = Math.min(maxRateCapRef.current, maxCatchupRate(getBufferAheadSec(player))); // 加速上限
       // drift>0:加速(>1) / drift<0:減速(<1)。加速はバッファ上限、減速は 0.5 まで許可。
       const targetRate = Math.max(0.5, Math.min(maxRate, 1 + drift / intervalSec));
       // YouTube は離散値(…/1.25/1.5/1.75/2)に丸める。差が小さい時だけ set して無駄呼び出しを減らす。
@@ -248,6 +276,10 @@ export default function HiTensionPage() {
 
   // --- YouTube プレイヤー状態の監視（バッファ検知 / 諦めモード）---
   const handlePlayerStateChange = useCallback((state: number) => {
+    // 診断ログ（後で削除）: 再生画面にいる間の状態遷移を記録
+    if (screenRef.current === "play") {
+      logHiEvent(anonSessionId, "state", YT_STATE_NAMES[state] ?? String(state));
+    }
     if (state === 3 /* BUFFERING */) {
       isBufferingRef.current = true;
     } else if (state === 1 /* PLAYING */) {
@@ -260,13 +292,14 @@ export default function HiTensionPage() {
         // 動画 0 秒だった Supabase 時刻 = 今の Supabase 時刻 − 経過再生秒
         const tZero = (Date.now() + offset) - videoPos * 1000;
         sendPlaybackReadyRef.current(tZero);
+        logHiEvent(anonSessionId, "playback_ready", `pos=${videoPos.toFixed(2)}`);
       }
       if (isBufferingRef.current) {
         isBufferingRef.current = false;
         bufferRecoveryGraceUntilRef.current = Date.now() + BUFFER_RECOVERY_GRACE_MS;
       }
     }
-  }, []);
+  }, [anonSessionId]);
 
   // 全員の再生開始が出揃ったら、一斉リビール時刻 t_reveal と基準動画位置 p0 を配る（ホスト）。
   // 最も早く 0 秒に到達した「最前の端末」を基準にする → 他は全員「遅れてる側＝前進で追いつくだけ」になり、
@@ -338,20 +371,23 @@ export default function HiTensionPage() {
 
   // songstart 受信: t0(=揃え時刻, Supabase時刻)で基準(t0,p0)を確定し、全員 driftLoop を開始する。
   // 動画は✋押下時から再生画面で見えている（隠さない）。位置のズレは driftLoop が
-  // 「バッファ済みなら seek 一発／未バッファなら倍速」で前進して揃える。
+  // 倍速で前進して揃える（seek はモバイル再読込のため使わない）。
   const handleSongStart = useCallback((t0: number, p0: number) => {
     if (!awaitingSongStartRef.current) return; // ✋を押して songstart 待ちの人だけ
     awaitingSongStartRef.current = false;
     clearSenoTimer();
+    logHiEvent(anonSessionId, "songstart_recv", `p0=${p0.toFixed(2)}`);
     const offset = getClockOffsetRef.current();   // Supabase時計 - 自分の時計
     clockAnchorRef.current = { t0, p0, offset };
     const localT0 = t0 - offset;                  // 揃え時刻を自分のローカル時計に換算
     const delay = localT0 - Date.now();
     const doSync = () => {
       songStartTimerRef.current = null;
-      setSyncing(false); // 揃え完了 → presence から抜ける（再生開始）
-      // 連続再生を維持。位置のズレは driftLoop が「バッファ済みなら seek 一発／未バッファなら倍速」で詰める。
-      playerApiRef.current?.play();
+      logHiEvent(anonSessionId, "dosync", `playing=${playerApiRef.current?.isPlaying()}`);
+      setSyncing(false); // 揃え完了 → presence から抜ける
+      // ここで play() は呼ばない。動画は✋押下のジェスチャーで既に再生中で、pause もしないため。
+      // 非ジェスチャーな2回目の play() は iOS 4G で初回ロードを弾き spinner が回り続ける原因になる。
+      // 位置のズレは driftLoop が倍速で詰める。
       bufferRecoveryGraceUntilRef.current = Date.now() + SYNC_START_GRACE_MS;
       // 収束デバッグ用のリセット
       syncStartAtRef.current = Date.now();
@@ -364,7 +400,7 @@ export default function HiTensionPage() {
     } else {
       doSync();
     }
-  }, [clearSenoTimer, startDriftLoop]);
+  }, [clearSenoTimer, startDriftLoop, anonSessionId]);
 
   // せーの失敗: ready-check に留まったまま「息が合わなかった」表示。
   // ✋押下で再生開始した動画を止めて頭出しする（裏で流れ続けないように）。
@@ -486,6 +522,7 @@ export default function HiTensionPage() {
   // ひとりで始める
   const handleConfirm = (id: string) => {
     // ★ iOS Safari autoplay 対策: gesture スコープ内で最初に呼ぶ
+    logHiEvent(anonSessionId, "play_called", "confirm");
     playerApiRef.current?.play();
     setMemberId(id);
     setLastSelectedMemberId(id);
@@ -548,6 +585,7 @@ export default function HiTensionPage() {
   // やっぱりひとりで（待機室から直接再生。inWaitingRoom が false になり自動で untrack される）
   const handleSolo = () => {
     // gesture スコープ内なので iOS でも play() が通る
+    logHiEvent(anonSessionId, "play_called", "solo");
     playerApiRef.current?.play();
     resetPlayState();
     setPlaySeatIndex(-1);
@@ -575,6 +613,7 @@ export default function HiTensionPage() {
     if (selfReadied) return;
     // ✋押下で再生開始し、すぐ再生画面へ遷移する（動画を隠さない = iOS の自動 pause を回避）。
     // 各自そのまま再生継続し、songstart 後に driftLoop が最前の端末へ前進して揃える。
+    logHiEvent(anonSessionId, "play_called", "readyTap");
     playerApiRef.current?.play();
     awaitingPlaybackRef.current = true;
     awaitingSongStartRef.current = true;
@@ -693,6 +732,37 @@ export default function HiTensionPage() {
           }}
         >
           {`offset a/l: ${debugInfo.anchorOffset} / ${debugInfo.liveOffset}\nrtt: ${debugInfo.rtt}ms\ndrift: ${debugInfo.drift}s\nmaxDrift: ${debugInfo.maxDrift}s\nrate: ${debugInfo.rate}x\nbuf: ${debugInfo.bufferAhead}s\nelapsed: ${debugInfo.elapsed}s`}
+        </div>
+      )}
+
+      {/* 実行時ノブ（スマホ上で倍速上限/デッドゾーンを切替、後で削除） */}
+      {isRealtimePlay && (
+        <div
+          style={{
+            position: "fixed", top: 4, right: 4, zIndex: 300,
+            display: "flex", flexDirection: "column", gap: 4,
+          }}
+        >
+          <button
+            type="button"
+            onClick={cycleMaxRate}
+            style={{
+              background: "rgba(0,0,0,0.72)", color: "#0ff", border: "1px solid #0ff",
+              fontSize: "0.6rem", fontFamily: "monospace", padding: "4px 6px", cursor: "pointer",
+            }}
+          >
+            {`max ${knobMaxRate}x`}
+          </button>
+          <button
+            type="button"
+            onClick={cycleDeadZone}
+            style={{
+              background: "rgba(0,0,0,0.72)", color: "#0ff", border: "1px solid #0ff",
+              fontSize: "0.6rem", fontFamily: "monospace", padding: "4px 6px", cursor: "pointer",
+            }}
+          >
+            {`dz ${knobDeadZone}s`}
+          </button>
         </div>
       )}
       {/* Play screen は常時マウント */}
