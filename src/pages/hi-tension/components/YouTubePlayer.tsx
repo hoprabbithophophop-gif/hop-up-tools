@@ -25,6 +25,15 @@ export type YouTubePlayerApi = {
   getVideoLoadedFraction: () => number;
   /** 動画の総尺(秒)。取得不可なら 0 */
   getDuration: () => number;
+  /** ミュート（待機室の暖機再生用） */
+  mute: () => void;
+  /** ミュート解除（本番動画再生時） */
+  unMute: () => void;
+  /** 指定動画IDをロードして即再生（同じ iframe を使い回し、JS/CDN接続を温存）。
+   *  opts で開始/終了秒を指定可能（暖機用クリップで使う） */
+  loadVideo: (id: string, opts?: { startSeconds?: number; endSeconds?: number }) => void;
+  /** 指定動画IDを cue（ロードのみで再生はしない。✋押下までの待ち時間に仕込む） */
+  cueVideo: (id: string, opts?: { startSeconds?: number; endSeconds?: number }) => void;
 };
 
 interface Props {
@@ -223,6 +232,42 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
     },
     getDuration() {
       try { return playerRef.current?.getDuration?.() ?? 0; } catch { return 0; }
+    },
+    mute() {
+      try { (playerRef.current as unknown as { mute?: () => void })?.mute?.(); } catch { /* ignore */ }
+    },
+    unMute() {
+      try { (playerRef.current as unknown as { unMute?: () => void })?.unMute?.(); } catch { /* ignore */ }
+    },
+    loadVideo(id: string, opts?: { startSeconds?: number; endSeconds?: number }) {
+      // 初回 play() 同様にローディング最小表示タイマーを開始
+      if (!startedRef.current) {
+        startedRef.current = true;
+        setStarted(true);
+        minTimerRef.current = setTimeout(() => setMinTimeElapsed(true), LOADING_MIN_MS);
+      }
+      const p = playerRef.current;
+      if (p && isReadyRef.current) {
+        try {
+          (p as unknown as { loadVideoById?: (a: { videoId: string; startSeconds?: number; endSeconds?: number }) => void })?.loadVideoById?.({
+            videoId: id,
+            startSeconds: opts?.startSeconds ?? 0,
+            ...(opts?.endSeconds !== undefined ? { endSeconds: opts.endSeconds } : {}),
+          });
+        } catch { /* ignore */ }
+      }
+    },
+    cueVideo(id: string, opts?: { startSeconds?: number; endSeconds?: number }) {
+      const p = playerRef.current;
+      if (p && isReadyRef.current) {
+        try {
+          (p as unknown as { cueVideoById?: (a: { videoId: string; startSeconds?: number; endSeconds?: number }) => void })?.cueVideoById?.({
+            videoId: id,
+            startSeconds: opts?.startSeconds ?? 0,
+            ...(opts?.endSeconds !== undefined ? { endSeconds: opts.endSeconds } : {}),
+          });
+        } catch { /* ignore */ }
+      }
     },
   }), []);
 

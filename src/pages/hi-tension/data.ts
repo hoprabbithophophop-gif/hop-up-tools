@@ -1,4 +1,10 @@
 export const VIDEO_ID = "mn1wkO0Ysbw";
+// 待機室で muted 再生してネットワーク/プレイヤー/CDN接続を暖機する別動画。
+// 別URLで完全独立に暖機しつつ、公式 views にも追加貢献。
+// https://www.youtube.com/watch?v=vsD2lApG9yc の 0:20〜1:22（62秒分）。
+export const WARMUP_VIDEO_ID = "vsD2lApG9yc";
+export const WARMUP_VIDEO_START = 20;
+export const WARMUP_VIDEO_END = 82;
 
 export type HiTensionMember = {
   id: string;

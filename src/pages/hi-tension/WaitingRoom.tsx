@@ -295,7 +295,9 @@ export default function WaitingRoom({
       </div>
 
       <p style={{ fontSize: "0.6875rem", color: "#999", textAlign: "center", margin: 0, lineHeight: 1.5 }}>
-        ※ 回線状況により再生速度が変わることがあります
+        ※ 電波の良い場所だと、みんなとぴったり揃います
+        <br />
+        ※ 電波状態により再生速度が変わることがあります
       </p>
     </div>
   );

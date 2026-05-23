@@ -4,6 +4,7 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
 } from "react";
 // PixiJS は内部で `new Function(...)` を使うため、CSP の script-src に unsafe-eval が
 // 含まれない環境(Cloudflare Pages のデフォルト)では起動できない。
@@ -27,6 +28,8 @@ interface Props {
   selfSeatHash: number;
   /** リアルタイム再生中の自分の席番号（0始まり）。横一列の整列位置に使う。ソロ時は -1 */
   selfSeatIndex?: number;
+  /** 診断用: Pixi/WebGL 関連イベントを親に通知（後で削除） */
+  onPixiEvent?: (event: string, detail?: string) => void;
 }
 
 // バケットインデックスに紐づく「(セッション, このバケットでの押下回数)」
@@ -93,7 +96,7 @@ function easeInQuad(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, onPixiEvent },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -107,6 +110,10 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   const selfMemberIdRef = useRef<string | null>(selfMemberId);
   const selfSeatHashRef = useRef<number>(selfSeatHash);
   const selfSeatIndexRef = useRef<number | undefined>(selfSeatIndex);
+  const onPixiEventRef = useRef<typeof onPixiEvent>(onPixiEvent);
+  useEffect(() => { onPixiEventRef.current = onPixiEvent; }, [onPixiEvent]);
+  // WebGL コンテキストロスト時の再初期化トリガ（カウンタを増やすと init useEffect が再実行される）
+  const [reinitCount, setReinitCount] = useState(0);
 
   // バケット → 該当セッションのインデックス(検索を O(1) にする)
   const bucketIndex = useMemo<Map<number, BucketEntry[]>>(() => {
@@ -140,21 +147,31 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   useEffect(() => {
     let cancelled = false;
     let app: Application | null = null;
+    let onContextLost: ((e: Event) => void) | null = null;
+    let onContextRestored: (() => void) | null = null;
+    let canvasEl: HTMLCanvasElement | null = null;
+
+    onPixiEventRef.current?.("pixi_init_start", reinitCount > 0 ? `reinit=${reinitCount}` : undefined);
 
     (async () => {
       const container = containerRef.current;
-      if (!container) return;
+      if (!container) { onPixiEventRef.current?.("pixi_init_fail", "no container"); return; }
 
       const texture = getHandTexture();
 
       app = new Application();
-      await app.init({
-        resizeTo: container,
-        backgroundAlpha: 0,
-        antialias: true,
-        autoDensity: true,
-        resolution: window.devicePixelRatio || 1,
-      });
+      try {
+        await app.init({
+          resizeTo: container,
+          backgroundAlpha: 0,
+          antialias: true,
+          autoDensity: true,
+          resolution: window.devicePixelRatio || 1,
+        });
+      } catch (e) {
+        onPixiEventRef.current?.("pixi_init_fail", e instanceof Error ? e.message : String(e));
+        return;
+      }
       if (cancelled) {
         app.destroy(true, { children: true });
         return;
@@ -167,17 +184,38 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       appRef.current = app;
       textureRef.current = texture;
       layerRef.current = layer;
+      canvasEl = app.canvas as HTMLCanvasElement;
+
+      // WebGL コンテキストロスト復旧（Android 等の GPU 圧迫時に発生しやすい）
+      onContextLost = (e: Event) => {
+        e.preventDefault(); // ブラウザにコンテキスト復元の機会を与える
+        onPixiEventRef.current?.("webgl_context_lost");
+      };
+      onContextRestored = () => {
+        onPixiEventRef.current?.("webgl_context_restored");
+        // useEffect を再実行させて Pixi 全体を作り直す
+        setReinitCount(c => c + 1);
+      };
+      canvasEl.addEventListener("webglcontextlost", onContextLost);
+      canvasEl.addEventListener("webglcontextrestored", onContextRestored);
+
+      const rendererType = (app.renderer as unknown as { type?: number }).type === 1 ? "webgl" : "unknown";
+      onPixiEventRef.current?.("pixi_init_ok", `r=${rendererType}`);
     })();
 
     return () => {
       cancelled = true;
       const a = appRef.current;
+      if (canvasEl) {
+        if (onContextLost) canvasEl.removeEventListener("webglcontextlost", onContextLost);
+        if (onContextRestored) canvasEl.removeEventListener("webglcontextrestored", onContextRestored);
+      }
       appRef.current = null;
       textureRef.current = null;
       layerRef.current = null;
       try { a?.destroy(true, { children: true }); } catch { /* ignore */ }
     };
-  }, []);
+  }, [reinitCount]);
 
   function spawnHand(params: {
     xRatio: number;

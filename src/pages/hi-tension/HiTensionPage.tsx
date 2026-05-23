@@ -5,7 +5,10 @@ import HandsCanvas, { type HandsCanvasApi } from "./components/HandsCanvas";
 import WaitingRoom from "./WaitingRoom";
 import RoomMenu from "./RoomMenu";
 import ReadyCheck from "./ReadyCheck";
-import { VIDEO_ID, findMember } from "./data";
+import { VIDEO_ID, WARMUP_VIDEO_ID, WARMUP_VIDEO_START, WARMUP_VIDEO_END, findMember } from "./data";
+
+// 待機室で暖機再生する warmup クリップの YouTube 再生オプション
+const WARMUP_LOAD_OPTS = { startSeconds: WARMUP_VIDEO_START, endSeconds: WARMUP_VIDEO_END };
 import {
   getLastSelectedMemberId,
   setLastSelectedMemberId,
@@ -165,6 +168,8 @@ export default function HiTensionPage() {
   // バッファ検知関連
   const isBufferingRef = useRef(false);
   const bufferRecoveryGraceUntilRef = useRef(0);
+  // 待機室で warmup 動画を muted 再生中フラグ。本番動画とENDED処理を切り分けるのに使う
+  const isWarmupRef = useRef(false);
   const getClockOffsetRef = useRef<() => number>(() => 0);
   const getBestRoundtripRef = useRef<() => number>(() => Infinity);
   const sendSongStartRef = useRef<(t0: number, p0: number) => void>(() => {});
@@ -344,6 +349,11 @@ export default function HiTensionPage() {
     setSelfReadied(false);
     setReadyCheckFailed(false);
     setScreen("ready-check");
+    // 暖機していた warmup から本番動画へ切替（cue＝ロードのみで再生はしない）。
+    // ✋押下まで音は出さず、iframe/JS/CDN接続は温存したまま本番動画を仕込む。
+    isWarmupRef.current = false;
+    playerApiRef.current?.unMute();
+    playerApiRef.current?.cueVideo(VIDEO_ID);
     // ホストは窓の番人: 時間内に全員揃わなければ seno-fail を出す
     if (isHostRef.current) {
       senoTimerRef.current = setTimeout(() => {
@@ -523,7 +533,9 @@ export default function HiTensionPage() {
   const handleConfirm = (id: string) => {
     // ★ iOS Safari autoplay 対策: gesture スコープ内で最初に呼ぶ
     logHiEvent(anonSessionId, "play_called", "confirm");
-    playerApiRef.current?.play();
+    isWarmupRef.current = false;
+    playerApiRef.current?.unMute();
+    playerApiRef.current?.loadVideo(VIDEO_ID); // warmup が乗ってる可能性があるので明示的に本番動画をロード
     setMemberId(id);
     setLastSelectedMemberId(id);
     setSeatHash(newSeatHash());
@@ -540,6 +552,10 @@ export default function HiTensionPage() {
     setLastSelectedMemberId(id);
     setRoomCode(null);
     setSeatHash(newSeatHash());
+    // 待機中に muted 暖機（iframe初期化・CDN接続・デコーダを温める）
+    isWarmupRef.current = true;
+    playerApiRef.current?.mute();
+    playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
     setScreen("waiting");
   };
 
@@ -554,6 +570,10 @@ export default function HiTensionPage() {
   const handleCreateRoom = () => {
     setRoomCode(generateRoomCode());
     setSeatHash(newSeatHash());
+    // 待機中に muted 暖機
+    isWarmupRef.current = true;
+    playerApiRef.current?.mute();
+    playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
     setScreen("waiting");
   };
 
@@ -561,6 +581,10 @@ export default function HiTensionPage() {
   const handleJoinRoom = (code: string) => {
     setRoomCode(code);
     setSeatHash(newSeatHash());
+    // 待機中に muted 暖機
+    isWarmupRef.current = true;
+    playerApiRef.current?.mute();
+    playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
     setScreen("waiting");
   };
 
@@ -578,15 +602,20 @@ export default function HiTensionPage() {
   const handleBackToTop = () => {
     clearSenoTimer();
     stopDriftLoop();
+    // 暖機/cue 中の動画を止める（ロビーに戻ったら鳴らない/データ消費しない）
+    isWarmupRef.current = false;
+    playerApiRef.current?.pause();
     setRoomCode(null);
     setScreen("select");
   };
 
   // やっぱりひとりで（待機室から直接再生。inWaitingRoom が false になり自動で untrack される）
   const handleSolo = () => {
-    // gesture スコープ内なので iOS でも play() が通る
+    // gesture スコープ内なので iOS でも play() が通る。warmup→本番動画へ切替。
     logHiEvent(anonSessionId, "play_called", "solo");
-    playerApiRef.current?.play();
+    isWarmupRef.current = false;
+    playerApiRef.current?.unMute();
+    playerApiRef.current?.loadVideo(VIDEO_ID);
     resetPlayState();
     setPlaySeatIndex(-1);
     setIsRealtimePlay(false);
@@ -627,6 +656,11 @@ export default function HiTensionPage() {
   };
 
   const handleVideoEnded = () => {
+    // warmup クリップが endSeconds に達した時もここに来る。本番ではなく単に頭から再ロードしてループ。
+    if (isWarmupRef.current) {
+      playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
+      return;
+    }
     clearPressTimers();
     stopDriftLoop();
     setIsPressed(false);
@@ -802,6 +836,7 @@ export default function HiTensionPage() {
             selfMemberId={memberId}
             selfSeatHash={seatHash}
             selfSeatIndex={isRealtimePlay ? playSeatIndex : -1}
+            onPixiEvent={(event, detail) => logHiEvent(anonSessionId, event, detail)}
           />
 
           {videoEnded ? (
