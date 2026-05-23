@@ -29,11 +29,6 @@ function detectDevice(): string {
 }
 const SYNC_LOG_INTERVAL_MS = 3000;
 
-// 事前検証モード：true の間は rate 補正を全停止し rate=1.0 固定で
-// 「素の」実効再生速度（Δ getCurrentTime / Δ Date.now）を hi_sync_debug.effective_rate に記録する。
-// 本実装（pause-and-wait + 観測ベース固定 rate）に着手する前の慢性スリップ実測ステップ。
-const VERIFICATION_MODE = true;
-
 // 診断用イベントログ（後で削除）。再生開始まわりの「どこで止まったか」を自動記録する。
 const YT_STATE_NAMES: Record<number, string> = {
   [-1]: "UNSTARTED", 0: "ENDED", 1: "PLAYING", 2: "PAUSED", 3: "BUFFERING", 5: "CUED",
@@ -56,43 +51,25 @@ const BOUNCE_DURATION_MS = 400;
 
 // せーの失敗判定: 窓 + ready 受信のための余裕
 const SENO_FAIL_TIMEOUT_MS = SENO_WINDOW_MS + 1500;
-// 同期ドリフト補正
+// 同期方式：rate は弄らない（一切 setPlaybackRate を呼ばない）。
+// 自分が先行している（drift < -0.3s）端末だけが pauseVideo で待ち、最遅端末に揃える。
+// 自分が遅延している（drift > +0.3s）端末は何もしない（他端末が pause で待ってくれる）。
+// 動画が止まって見える代わりに、再生中のリズム変化は絶対に起きない設計。
 const DRIFT_CHECK_INTERVAL_MS = 1000;
-const DEAD_ZONE_SEC = 0.15;               // ここ未満は揃ったとみなす（±150ms 目標＝半拍未満）
-// 追いつき方式: 倍速のみ（seek はモバイルブラウザで再読込を起こすため全廃。iOS/Android ともに実測で確認）。
-// 倍速の強さは実測バッファ残量で決める（残量わずかなら倍速を上げず停止を回避）。OS では分岐しない。
-const BUFFER_FOR_2X_SEC = 8;              // この残量以上なら 2.0x まで許可
-const BUFFER_FOR_1_5X_SEC = 4;            // この残量以上なら 1.5x まで許可
-const BUFFER_FOR_1_25X_SEC = 1.5;         // この残量以上なら 1.25x まで許可。これ未満は 1.0x 据置
-// 二段階制御（acquisition=大ズレ詰め / tracking=小ズレ維持）パラメータ
-const ACQUISITION_TO_TRACKING_SEC = 0.5;  // ズレがこれ未満になったら tracking モードへ
-const TRACKING_TO_ACQUISITION_SEC = 1.0;  // tracking 中ズレがこれを超えたら acquisition に戻す（ヒステリシス）
-const TRACKING_RATE_MIN = 0.99;           // tracking 中の rate 下限（±1%＝リズム変化が知覚されない閾値）
-const TRACKING_RATE_MAX = 1.01;           // tracking 中の rate 上限（同上）
-const EMA_ALPHA = 0.2;                    // EMA フィルタの強さ（小さいほど平滑、ノイズ吸収）
-const KP_TRACKING = 0.5;                  // tracking の比例ゲイン（控えめ）
-const KI_TRACKING = 0.01;                 // tracking の積分ゲイン（極小、慢性スリップを長時間かけて吸収）
-const TRACKING_INTEGRAL_CAP = 3.0;        // 積分項上限（rate補正で最大±0.03に収まる）
+const PAUSE_AND_WAIT_THRESHOLD_SEC = 0.15;  // この差分（先行）から pause で待ち始める。検証で観測したノイズ床(~0.1s)から余裕を取った値
+const PAUSE_MAX_SEC = 10;                    // 待ちが 10 秒を超えるなら諦めて同期失敗扱い
 // バッファ検知とリカバリ
-const BUFFER_RECOVERY_GRACE_MS = 2500;    // バッファ復帰後の補正禁止猶予
-// 全員一斉再生（pause を使わず、再生継続したまま seek/rate で揃える）
-const LEAD_TIME_MS = 300;                 // songstart 送信から一斉リビール(ドットウェーブを外す)までの先取り時間
-const SYNC_START_GRACE_MS = 800;          // doSync 直後の補正禁止猶予（短いほど早く追いつき始める）
-const PLAYBACK_READY_TIMEOUT_MS = 5000;   // playback-ready が揃わない時、ホストが待つ上限
+const BUFFER_RECOVERY_GRACE_MS = 2500;       // バッファ復帰後の補正禁止猶予
+// 全員一斉再生
+const LEAD_TIME_MS = 300;                    // songstart 送信から一斉リビール(ドットウェーブを外す)までの先取り時間
+const SYNC_START_GRACE_MS = 800;             // doSync 直後の補正禁止猶予
+const PLAYBACK_READY_TIMEOUT_MS = 5000;      // playback-ready が揃わない時、ホストが待つ上限
 
-// バッファ残量(秒)＝今の位置より先に溜まってる尺。取得不可なら 0。
+// バッファ残量(秒)＝今の位置より先に溜まってる尺。取得不可なら 0。デバッグ表示で使用。
 function getBufferAheadSec(player: YouTubePlayerApi): number {
   const dur = player.getDuration();
   if (dur <= 0) return 0;
   return player.getVideoLoadedFraction() * dur - player.getCurrentTime();
-}
-
-// バッファ残量に応じた安全な追いつき倍速の上限。
-function maxCatchupRate(bufferAheadSec: number): number {
-  if (bufferAheadSec >= BUFFER_FOR_2X_SEC) return 2.0;
-  if (bufferAheadSec >= BUFFER_FOR_1_5X_SEC) return 1.5;
-  if (bufferAheadSec >= BUFFER_FOR_1_25X_SEC) return 1.25;
-  return 1.0; // 残量わずか → 倍速を上げない（停止を招くより遅れたまま。タップ表示は A が担保）
 }
 
 function newSeatHash(): number {
@@ -126,22 +103,6 @@ export default function HiTensionPage() {
     anchorOffset: number; liveOffset: number; rtt: number; drift: number; rate: number;
     maxDrift: number; elapsed: number; bufferAhead: number;
   } | null>(null);
-  // 実行時ノブ（後で削除）: 倍速上限とデッドゾーンをスマホ上のパネルで切替えて1デプロイで詰める
-  const [knobMaxRate, setKnobMaxRate] = useState(2.0);
-  const [knobDeadZone, setKnobDeadZone] = useState(DEAD_ZONE_SEC);
-  const maxRateCapRef = useRef(2.0);
-  const deadZoneRef = useRef(DEAD_ZONE_SEC);
-  const cycleMaxRate = () => {
-    const opts = [1.5, 1.75, 2.0];
-    const next = opts[(opts.indexOf(knobMaxRate) + 1) % opts.length];
-    setKnobMaxRate(next); maxRateCapRef.current = next;
-  };
-  const cycleDeadZone = () => {
-    const opts = [0.1, 0.15, 0.2];
-    const next = opts[(opts.indexOf(knobDeadZone) + 1) % opts.length];
-    setKnobDeadZone(next); deadZoneRef.current = next;
-  };
-
   // セッションIDはコンポーネント生存中に固定
   const anonSessionId = useMemo(() => getOrCreateAnonymousSessionId(), []);
 
@@ -187,12 +148,9 @@ export default function HiTensionPage() {
   const bufferRecoveryGraceUntilRef = useRef(0);
   // 待機室で warmup 動画を muted 再生中フラグ。本番動画とENDED処理を切り分けるのに使う
   const isWarmupRef = useRef(false);
-  // 二段階制御（acquisition=大ズレ詰め / tracking=小ズレ維持）
-  // 業界標準（PLL/Spotify Group Session/AirPlay）の "acquisition + tracking" パターン
-  const syncPhaseRef = useRef<"acquisition" | "tracking">("acquisition");
-  // tracking モードで使う drift の EMA フィルタ（ノイズ吸収用）と積分項
-  const filteredDriftRef = useRef(0);
-  const trackingIntegralRef = useRef(0);
+  // pause-and-wait：自分が先行している時に pauseVideo() を入れて待つ。0 なら pause していない、
+  // 値が入っていれば「この時刻になったら playVideo() で復帰」
+  const pauseUntilRef = useRef(0);
   const getClockOffsetRef = useRef<() => number>(() => 0);
   const getBestRoundtripRef = useRef<() => number>(() => Infinity);
   const sendSongStartRef = useRef<(t0: number, p0: number) => void>(() => {});
@@ -269,16 +227,9 @@ export default function HiTensionPage() {
     awaitingPlaybackRef.current = false;
     bufferRecoveryGraceUntilRef.current = 0;
     isBufferingRef.current = false;
-    // 二段階制御の状態リセット（次セッションは acquisition から）
-    syncPhaseRef.current = "acquisition";
-    filteredDriftRef.current = 0;
-    trackingIntegralRef.current = 0;
+    pauseUntilRef.current = 0;
     // 実効再生速度の前回サンプルもクリア（次セッションは初回 log で null になる）
     prevSampleForRateRef.current = null;
-    // 再生速度を 1.0 に戻す（rate 補正中に動画が終わるケース等）
-    if (playerApiRef.current?.getPlaybackRate() !== 1) {
-      playerApiRef.current?.setPlaybackRate(1);
-    }
   }, []);
 
   const startDriftLoop = useCallback(() => {
@@ -287,54 +238,51 @@ export default function HiTensionPage() {
       const anchor = clockAnchorRef.current;
       const player = playerApiRef.current;
       if (!anchor || !player) return;
+
+      // pause-and-wait 中は何もしない（resume は別 setTimeout が担当）
+      if (pauseUntilRef.current > 0) return;
+
       // 再生中以外（一時停止/バッファリング）は補正しない
       if (!player.isPlaying()) return;
+
+      const now = Date.now();
       // バッファ復帰直後はプレイヤーの位置情報が不安定なので猶予期間を置く
-      if (Date.now() < bufferRecoveryGraceUntilRef.current) return;
+      if (now < bufferRecoveryGraceUntilRef.current) return;
 
       // offset は開始時に凍結済み。anchor は Supabase 時計基準。
-      const supabaseNow = Date.now() + anchor.offset;
+      const supabaseNow = now + anchor.offset;
       const expected = anchor.p0 + (supabaseNow - anchor.t0) / 1000;
       const actual = player.getCurrentTime();
       if (actual <= 0 || expected <= 0) return;
 
-      const drift = expected - actual;   // 正: 遅れ, 負: 先行
-      const absDrift = Math.abs(drift);
-      const intervalSec = DRIFT_CHECK_INTERVAL_MS / 1000;
+      const drift = expected - actual;   // 正: 自分が遅れ, 負: 自分が先行
 
-      // --- 二段階制御（acquisition / tracking）の状態遷移 ---
-      // ヒステリシスで頻繁な切替を防ぐ：tracking 入りは 0.5 以下、acquisition 戻りは 1.0 超
-      if (syncPhaseRef.current === "acquisition" && absDrift < ACQUISITION_TO_TRACKING_SEC) {
-        syncPhaseRef.current = "tracking";
-        filteredDriftRef.current = drift;     // EMA 初期化
-        trackingIntegralRef.current = 0;       // 積分リセット
-      } else if (syncPhaseRef.current === "tracking" && absDrift > TRACKING_TO_ACQUISITION_SEC) {
-        syncPhaseRef.current = "acquisition";
+      // 自分が PAUSE_MAX_SEC 以上先行している → 待ちきれないので同期失敗扱い。
+      // 全員 ready-check に戻して仕切り直す（不調側を見限る）。
+      if (drift < -PAUSE_MAX_SEC) {
+        sendSenoFailRef.current();
+        return;
       }
 
-      let targetRate: number;
-      if (syncPhaseRef.current === "acquisition") {
-        // Acquisition: 大ズレを急いで詰める。比例制御で1判定でちょうど drift 分を詰める rate。
-        // 加速上限はバッファ残量とノブの小さい方。seek はモバイル再読込で使えない。
-        const maxRate = Math.min(maxRateCapRef.current, maxCatchupRate(getBufferAheadSec(player)));
-        targetRate = Math.max(0.5, Math.min(maxRate, 1 + drift / intervalSec));
-      } else {
-        // Tracking: 揃った後の維持。**人間に聞こえない範囲(±5%)** で超ゆっくり補正する。
-        // ノイズ吸収のため drift を EMA で平滑化してから判定（Android のような安定端末を
-        // 微小ノイズで踊らせない）。慢性スリップは積分で吸収。
-        filteredDriftRef.current = EMA_ALPHA * drift + (1 - EMA_ALPHA) * filteredDriftRef.current;
-        trackingIntegralRef.current += filteredDriftRef.current * intervalSec;
-        trackingIntegralRef.current = Math.max(-TRACKING_INTEGRAL_CAP, Math.min(TRACKING_INTEGRAL_CAP, trackingIntegralRef.current));
-
-        const correction = KP_TRACKING * filteredDriftRef.current + KI_TRACKING * trackingIntegralRef.current;
-        // rate を 0.95〜1.05 にハードクランプ（音程変化が人間に聞こえない閾値）
-        targetRate = Math.max(TRACKING_RATE_MIN, Math.min(TRACKING_RATE_MAX, 1 + correction));
+      // 自分が先行 → pause で最遅端末を待つ。rate は触らない。
+      // drift = -0.5 なら 500ms pause、drift = -3 なら 3000ms pause。
+      if (drift < -PAUSE_AND_WAIT_THRESHOLD_SEC) {
+        const pauseMs = Math.abs(drift) * 1000;
+        player.pause();
+        pauseUntilRef.current = now + pauseMs;
+        // pause 終了予定時刻に playVideo() で復帰。
+        // この play() はジェスチャースコープ外だが、既に PLAYING に到達済みなので iOS でも通る。
+        setTimeout(() => {
+          if (pauseUntilRef.current > 0 && Date.now() >= pauseUntilRef.current) {
+            pauseUntilRef.current = 0;
+            playerApiRef.current?.play();
+          }
+        }, pauseMs);
+        return;
       }
 
-      // 事前検証モード中は rate を絶対に動かさない（rate=1.0 のままで実効速度を測るため）
-      if (VERIFICATION_MODE) return;
-      // 差が小さい時は set しない（無駄呼び出し抑制）。tracking は微小変化なので閾値も小さく。
-      if (Math.abs(player.getPlaybackRate() - targetRate) > 0.02) player.setPlaybackRate(targetRate);
+      // 自分が遅延（drift > 0）または小ジッタ（|drift| ≤ 閾値）→ 何もしない。
+      // 他端末が pause で待ってくれる、または既に揃っている。
     }, DRIFT_CHECK_INTERVAL_MS);
   }, [stopDriftLoop]);
 
@@ -474,9 +422,10 @@ export default function HiTensionPage() {
   // せーの失敗: ready-check に留まったまま「息が合わなかった」表示。
   // ✋押下で再生開始した動画を止めて頭出しする（裏で流れ続けないように）。
   const handleSenoFail = useCallback(() => {
-    // ✋押下で play 画面に遷移済みの人（awaitingSongStart）と、ready-check で待ってる人を処理。
-    // 無関係（ソロ再生中など）は無視。
-    if (!awaitingSongStartRef.current && screenRef.current !== "ready-check") return;
+    // ✋押下で play 画面に遷移済みの人（awaitingSongStart）、ready-check で待ってる人、
+    // または同期再生中(isRealtimePlay)に drift 超過で見限られた人を処理。
+    // 無関係（ソロ再生中、ロビーなど）は無視。
+    if (!awaitingSongStartRef.current && screenRef.current !== "ready-check" && !isRealtimePlayRef.current) return;
     clearSenoTimer();
     if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
     stopDriftLoop();
@@ -830,36 +779,6 @@ export default function HiTensionPage() {
         </div>
       )}
 
-      {/* 実行時ノブ（スマホ上で倍速上限/デッドゾーンを切替、後で削除） */}
-      {isRealtimePlay && (
-        <div
-          style={{
-            position: "fixed", top: 4, right: 4, zIndex: 300,
-            display: "flex", flexDirection: "column", gap: 4,
-          }}
-        >
-          <button
-            type="button"
-            onClick={cycleMaxRate}
-            style={{
-              background: "rgba(0,0,0,0.72)", color: "#0ff", border: "1px solid #0ff",
-              fontSize: "0.6rem", fontFamily: "monospace", padding: "4px 6px", cursor: "pointer",
-            }}
-          >
-            {`max ${knobMaxRate}x`}
-          </button>
-          <button
-            type="button"
-            onClick={cycleDeadZone}
-            style={{
-              background: "rgba(0,0,0,0.72)", color: "#0ff", border: "1px solid #0ff",
-              fontSize: "0.6rem", fontFamily: "monospace", padding: "4px 6px", cursor: "pointer",
-            }}
-          >
-            {`dz ${knobDeadZone}s`}
-          </button>
-        </div>
-      )}
       {/* Play screen は常時マウント */}
       <div
         style={{
