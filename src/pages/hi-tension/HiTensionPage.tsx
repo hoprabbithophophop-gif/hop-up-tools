@@ -349,11 +349,10 @@ export default function HiTensionPage() {
     setSelfReadied(false);
     setReadyCheckFailed(false);
     setScreen("ready-check");
-    // 暖機していた warmup から本番動画へ切替（cue＝ロードのみで再生はしない）。
-    // ✋押下まで音は出さず、iframe/JS/CDN接続は温存したまま本番動画を仕込む。
-    isWarmupRef.current = false;
-    playerApiRef.current?.unMute();
-    playerApiRef.current?.cueVideo(VIDEO_ID);
+    // 暖機の warmup は muted のまま走らせ続ける（iframe/JS/CDN接続を維持）。
+    // 本番動画への切替は✋押下時に一発でやる（ジェスチャー内で確実に再生開始）。
+    // ※以前ここで cueVideo していたが、iOS 4G で cue 完了前に play() が来ると
+    //   CUED→UNSTARTED の死に状態に陥り再生されなくなるため廃止。
     // ホストは窓の番人: 時間内に全員揃わなければ seno-fail を出す
     if (isHostRef.current) {
       senoTimerRef.current = setTimeout(() => {
@@ -640,10 +639,12 @@ export default function HiTensionPage() {
   // ready-check で✋を押す（＝参加＆動画再生＆開始の意思表明）
   const handleReadyTap = () => {
     if (selfReadied) return;
-    // ✋押下で再生開始し、すぐ再生画面へ遷移する（動画を隠さない = iOS の自動 pause を回避）。
-    // 各自そのまま再生継続し、songstart 後に driftLoop が最前の端末へ前進して揃える。
+    // ✋押下のジェスチャー内で warmup→本番動画を一発切替＆再生。
+    // iOS の厳しい再生ルールをクリアできる唯一のタイミング（4G でも確実に動く）。
     logHiEvent(anonSessionId, "play_called", "readyTap");
-    playerApiRef.current?.play();
+    isWarmupRef.current = false;
+    playerApiRef.current?.unMute();
+    playerApiRef.current?.loadVideo(VIDEO_ID);
     awaitingPlaybackRef.current = true;
     awaitingSongStartRef.current = true;
     resetPlayState();
