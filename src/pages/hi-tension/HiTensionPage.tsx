@@ -170,6 +170,9 @@ export default function HiTensionPage() {
   const bufferRecoveryGraceUntilRef = useRef(0);
   // 待機室で warmup 動画を muted 再生中フラグ。本番動画とENDED処理を切り分けるのに使う
   const isWarmupRef = useRef(false);
+  // PID 制御の状態（積分項=慢性スリップ吸収用、前回drift=微分項用）
+  const driftIntegralRef = useRef(0);
+  const prevDriftRef = useRef<number | null>(null);
   const getClockOffsetRef = useRef<() => number>(() => 0);
   const getBestRoundtripRef = useRef<() => number>(() => Infinity);
   const sendSongStartRef = useRef<(t0: number, p0: number) => void>(() => {});
@@ -236,6 +239,9 @@ export default function HiTensionPage() {
     awaitingPlaybackRef.current = false;
     bufferRecoveryGraceUntilRef.current = 0;
     isBufferingRef.current = false;
+    // PID 状態リセット
+    driftIntegralRef.current = 0;
+    prevDriftRef.current = null;
     // 再生速度を 1.0 に戻す（rate 補正中に動画が終わるケース等）
     if (playerApiRef.current?.getPlaybackRate() !== 1) {
       playerApiRef.current?.setPlaybackRate(1);
@@ -248,10 +254,10 @@ export default function HiTensionPage() {
       const anchor = clockAnchorRef.current;
       const player = playerApiRef.current;
       if (!anchor || !player) return;
-      // 再生中以外（一時停止/バッファリング）は補正しない
-      if (!player.isPlaying()) return;
-      // バッファ復帰直後はプレイヤーの位置情報が不安定なので猶予期間を置く
-      if (Date.now() < bufferRecoveryGraceUntilRef.current) return;
+      // 再生中以外（一時停止/バッファリング）は補正しない（PID 微分項もリセット）
+      if (!player.isPlaying()) { prevDriftRef.current = null; return; }
+      // バッファ復帰直後はプレイヤーの位置情報が不安定なので猶予期間を置く（PID 微分項もリセット）
+      if (Date.now() < bufferRecoveryGraceUntilRef.current) { prevDriftRef.current = null; return; }
 
       // offset は開始時に凍結済み。anchor は Supabase 時計基準。
       const supabaseNow = Date.now() + anchor.offset;
@@ -261,19 +267,37 @@ export default function HiTensionPage() {
 
       const drift = expected - actual;   // 正: 遅れ, 負: 先行
 
-      // dead zone: ほぼ揃ってる → rate を 1.0 に戻す（しきい値はノブで可変）
-      if (Math.abs(drift) < deadZoneRef.current) {
-        if (player.getPlaybackRate() !== 1.0) player.setPlaybackRate(1.0);
-        return;
-      }
-
-      // 比例制御: 1判定(=DRIFT_CHECK_INTERVAL)でちょうど drift を詰める rate にする。
-      // 行き過ぎ(オーバーシュート)で負に振れる往復が無くなり、最短で滑らかに収束する。
-      // seek はモバイルで再読込を起こすので使わない。加速の上限はバッファ残量とノブ上限の小さい方。
+      // PID 制御で目標 rate を決める。
+      // - P (比例): 今のズレに即反応
+      // - I (積分): 慢性スリップ（iPhone が常時 0.95倍くらいでサボる等）を累積で吸収。
+      //              数秒で基準 rate がシフトして自動補償される。dead zone 内でも積み続ける。
+      //              anti-windup: 大ズレ時(>1s)は積分停止して初期 catch-up を引きずらない。
+      // - D (微分): ズレ変化速度。詰まりかけ時にブレーキ＝オーバーシュート抑制。
+      // dead zone 内は P を 0 にする（無駄な小刻みrate変更を防ぐ）が I/D は動かす。
       const intervalSec = DRIFT_CHECK_INTERVAL_MS / 1000;
-      const maxRate = Math.min(maxRateCapRef.current, maxCatchupRate(getBufferAheadSec(player))); // 加速上限
-      // drift>0:加速(>1) / drift<0:減速(<1)。加速はバッファ上限、減速は 0.5 まで許可。
-      const targetRate = Math.max(0.5, Math.min(maxRate, 1 + drift / intervalSec));
+      const Kp = 1.0 / intervalSec;  // 1判定でちょうどズレ分詰める強さ（既存比例と同じ）
+      const Ki = 0.1;                // 慢性スリップ吸収（控えめ）
+      const Kd = 0.5;                // 変化ダンピング
+
+      const inDeadZone = Math.abs(drift) < deadZoneRef.current;
+      const pTerm = inDeadZone ? 0 : Kp * drift;
+
+      // anti-windup: 大きいズレ時は積分しない（初期catch-up を引きずらない）
+      if (Math.abs(drift) < 1.0) {
+        driftIntegralRef.current += drift * intervalSec;
+        // 積分項の上限。Ki=0.1 と組み合わせて rate 補正 ±0.1 相当（±10%の基準シフト）に収める
+        driftIntegralRef.current = Math.max(-1.0, Math.min(1.0, driftIntegralRef.current));
+      }
+      const iTerm = Ki * driftIntegralRef.current;
+
+      const prev = prevDriftRef.current;
+      const dTerm = prev === null ? 0 : Kd * (drift - prev) / intervalSec;
+      prevDriftRef.current = drift;
+
+      // seek はモバイルで再読込を起こすので使わない。加速の上限はバッファ残量とノブ上限の小さい方。
+      const maxRate = Math.min(maxRateCapRef.current, maxCatchupRate(getBufferAheadSec(player)));
+      const targetRate = Math.max(0.5, Math.min(maxRate, 1 + pTerm + iTerm + dTerm));
+
       // YouTube は離散値(…/1.25/1.5/1.75/2)に丸める。差が小さい時だけ set して無駄呼び出しを減らす。
       if (Math.abs(player.getPlaybackRate() - targetRate) > 0.05) player.setPlaybackRate(targetRate);
     }, DRIFT_CHECK_INTERVAL_MS);
@@ -401,6 +425,7 @@ export default function HiTensionPage() {
       // 収束デバッグ用のリセット
       syncStartAtRef.current = Date.now();
       maxDriftRef.current = 0;
+      // PID 状態は startDriftLoop 内の stopDriftLoop でリセットされる
       startDriftLoop();
     };
     if (songStartTimerRef.current) clearTimeout(songStartTimerRef.current);
