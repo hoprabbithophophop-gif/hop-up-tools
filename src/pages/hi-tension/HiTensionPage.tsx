@@ -29,6 +29,11 @@ function detectDevice(): string {
 }
 const SYNC_LOG_INTERVAL_MS = 3000;
 
+// 事前検証モード：true の間は rate 補正を全停止し rate=1.0 固定で
+// 「素の」実効再生速度（Δ getCurrentTime / Δ Date.now）を hi_sync_debug.effective_rate に記録する。
+// 本実装（pause-and-wait + 観測ベース固定 rate）に着手する前の慢性スリップ実測ステップ。
+const VERIFICATION_MODE = true;
+
 // 診断用イベントログ（後で削除）。再生開始まわりの「どこで止まったか」を自動記録する。
 const YT_STATE_NAMES: Record<number, string> = {
   [-1]: "UNSTARTED", 0: "ENDED", 1: "PLAYING", 2: "PAUSED", 3: "BUFFERING", 5: "CUED",
@@ -62,8 +67,8 @@ const BUFFER_FOR_1_25X_SEC = 1.5;         // この残量以上なら 1.25x ま�
 // 二段階制御（acquisition=大ズレ詰め / tracking=小ズレ維持）パラメータ
 const ACQUISITION_TO_TRACKING_SEC = 0.5;  // ズレがこれ未満になったら tracking モードへ
 const TRACKING_TO_ACQUISITION_SEC = 1.0;  // tracking 中ズレがこれを超えたら acquisition に戻す（ヒステリシス）
-const TRACKING_RATE_MIN = 0.95;           // tracking 中の rate 下限（音程変化が聞こえない閾値）
-const TRACKING_RATE_MAX = 1.05;           // tracking 中の rate 上限（同上）
+const TRACKING_RATE_MIN = 0.99;           // tracking 中の rate 下限（±1%＝リズム変化が知覚されない閾値）
+const TRACKING_RATE_MAX = 1.01;           // tracking 中の rate 上限（同上）
 const EMA_ALPHA = 0.2;                    // EMA フィルタの強さ（小さいほど平滑、ノイズ吸収）
 const KP_TRACKING = 0.5;                  // tracking の比例ゲイン（控えめ）
 const KI_TRACKING = 0.01;                 // tracking の積分ゲイン（極小、慢性スリップを長時間かけて吸収）
@@ -174,6 +179,9 @@ export default function HiTensionPage() {
   const syncStartAtRef = useRef(0);
   const maxDriftRef = useRef(0);
   const lastSyncLogAtRef = useRef(0);
+  // 実効再生速度測定用：前回の (videoPos, dateNow) サンプルを保持して
+  // 次の log 時に Δ videoPos / Δ dateNow を算出する
+  const prevSampleForRateRef = useRef<{ videoPos: number; dateNow: number } | null>(null);
   // バッファ検知関連
   const isBufferingRef = useRef(false);
   const bufferRecoveryGraceUntilRef = useRef(0);
@@ -225,6 +233,15 @@ export default function HiTensionPage() {
       const now = Date.now();
       if (now - lastSyncLogAtRef.current >= SYNC_LOG_INTERVAL_MS) {
         lastSyncLogAtRef.current = now;
+        // 実効再生速度（前回 log からの Δ videoPos / Δ dateNow）。初回サンプルは null。
+        let effectiveRate: number | null = null;
+        const prev = prevSampleForRateRef.current;
+        if (prev) {
+          const dVideo = actual - prev.videoPos;
+          const dWall = (now - prev.dateNow) / 1000;
+          if (dWall > 0) effectiveRate = +(dVideo / dWall).toFixed(4);
+        }
+        prevSampleForRateRef.current = { videoPos: actual, dateNow: now };
         getSupabase().from("hi_sync_debug").insert({
           session_id: anonSessionId,
           member_id: memberId,
@@ -236,6 +253,7 @@ export default function HiTensionPage() {
           max_drift: +maxDriftRef.current.toFixed(2),
           elapsed,
           buffer_ahead: bufferAhead,
+          effective_rate: effectiveRate,
         }).then(({ error }) => { if (error) console.warn("[hi-tension] sync log failed", error.message); });
       }
     }, 200);
@@ -255,6 +273,8 @@ export default function HiTensionPage() {
     syncPhaseRef.current = "acquisition";
     filteredDriftRef.current = 0;
     trackingIntegralRef.current = 0;
+    // 実効再生速度の前回サンプルもクリア（次セッションは初回 log で null になる）
+    prevSampleForRateRef.current = null;
     // 再生速度を 1.0 に戻す（rate 補正中に動画が終わるケース等）
     if (playerApiRef.current?.getPlaybackRate() !== 1) {
       playerApiRef.current?.setPlaybackRate(1);
@@ -311,6 +331,8 @@ export default function HiTensionPage() {
         targetRate = Math.max(TRACKING_RATE_MIN, Math.min(TRACKING_RATE_MAX, 1 + correction));
       }
 
+      // 事前検証モード中は rate を絶対に動かさない（rate=1.0 のままで実効速度を測るため）
+      if (VERIFICATION_MODE) return;
       // 差が小さい時は set しない（無駄呼び出し抑制）。tracking は微小変化なので閾値も小さく。
       if (Math.abs(player.getPlaybackRate() - targetRate) > 0.02) player.setPlaybackRate(targetRate);
     }, DRIFT_CHECK_INTERVAL_MS);
