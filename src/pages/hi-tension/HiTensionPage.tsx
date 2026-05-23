@@ -59,6 +59,15 @@ const DEAD_ZONE_SEC = 0.15;               // ここ未満は揃ったとみな�
 const BUFFER_FOR_2X_SEC = 8;              // この残量以上なら 2.0x まで許可
 const BUFFER_FOR_1_5X_SEC = 4;            // この残量以上なら 1.5x まで許可
 const BUFFER_FOR_1_25X_SEC = 1.5;         // この残量以上なら 1.25x まで許可。これ未満は 1.0x 据置
+// 二段階制御（acquisition=大ズレ詰め / tracking=小ズレ維持）パラメータ
+const ACQUISITION_TO_TRACKING_SEC = 0.5;  // ズレがこれ未満になったら tracking モードへ
+const TRACKING_TO_ACQUISITION_SEC = 1.0;  // tracking 中ズレがこれを超えたら acquisition に戻す（ヒステリシス）
+const TRACKING_RATE_MIN = 0.95;           // tracking 中の rate 下限（音程変化が聞こえない閾値）
+const TRACKING_RATE_MAX = 1.05;           // tracking 中の rate 上限（同上）
+const EMA_ALPHA = 0.2;                    // EMA フィルタの強さ（小さいほど平滑、ノイズ吸収）
+const KP_TRACKING = 0.5;                  // tracking の比例ゲイン（控えめ）
+const KI_TRACKING = 0.01;                 // tracking の積分ゲイン（極小、慢性スリップを長時間かけて吸収）
+const TRACKING_INTEGRAL_CAP = 3.0;        // 積分項上限（rate補正で最大±0.03に収まる）
 // バッファ検知とリカバリ
 const BUFFER_RECOVERY_GRACE_MS = 2500;    // バッファ復帰後の補正禁止猶予
 // 全員一斉再生（pause を使わず、再生継続したまま seek/rate で揃える）
@@ -170,9 +179,12 @@ export default function HiTensionPage() {
   const bufferRecoveryGraceUntilRef = useRef(0);
   // 待機室で warmup 動画を muted 再生中フラグ。本番動画とENDED処理を切り分けるのに使う
   const isWarmupRef = useRef(false);
-  // PID 制御の状態（積分項=慢性スリップ吸収用、前回drift=微分項用）
-  const driftIntegralRef = useRef(0);
-  const prevDriftRef = useRef<number | null>(null);
+  // 二段階制御（acquisition=大ズレ詰め / tracking=小ズレ維持）
+  // 業界標準（PLL/Spotify Group Session/AirPlay）の "acquisition + tracking" パターン
+  const syncPhaseRef = useRef<"acquisition" | "tracking">("acquisition");
+  // tracking モードで使う drift の EMA フィルタ（ノイズ吸収用）と積分項
+  const filteredDriftRef = useRef(0);
+  const trackingIntegralRef = useRef(0);
   const getClockOffsetRef = useRef<() => number>(() => 0);
   const getBestRoundtripRef = useRef<() => number>(() => Infinity);
   const sendSongStartRef = useRef<(t0: number, p0: number) => void>(() => {});
@@ -239,9 +251,10 @@ export default function HiTensionPage() {
     awaitingPlaybackRef.current = false;
     bufferRecoveryGraceUntilRef.current = 0;
     isBufferingRef.current = false;
-    // PID 状態リセット
-    driftIntegralRef.current = 0;
-    prevDriftRef.current = null;
+    // 二段階制御の状態リセット（次セッションは acquisition から）
+    syncPhaseRef.current = "acquisition";
+    filteredDriftRef.current = 0;
+    trackingIntegralRef.current = 0;
     // 再生速度を 1.0 に戻す（rate 補正中に動画が終わるケース等）
     if (playerApiRef.current?.getPlaybackRate() !== 1) {
       playerApiRef.current?.setPlaybackRate(1);
@@ -254,10 +267,10 @@ export default function HiTensionPage() {
       const anchor = clockAnchorRef.current;
       const player = playerApiRef.current;
       if (!anchor || !player) return;
-      // 再生中以外（一時停止/バッファリング）は補正しない（PID 微分項もリセット）
-      if (!player.isPlaying()) { prevDriftRef.current = null; return; }
-      // バッファ復帰直後はプレイヤーの位置情報が不安定なので猶予期間を置く（PID 微分項もリセット）
-      if (Date.now() < bufferRecoveryGraceUntilRef.current) { prevDriftRef.current = null; return; }
+      // 再生中以外（一時停止/バッファリング）は補正しない
+      if (!player.isPlaying()) return;
+      // バッファ復帰直後はプレイヤーの位置情報が不安定なので猶予期間を置く
+      if (Date.now() < bufferRecoveryGraceUntilRef.current) return;
 
       // offset は開始時に凍結済み。anchor は Supabase 時計基準。
       const supabaseNow = Date.now() + anchor.offset;
@@ -266,40 +279,40 @@ export default function HiTensionPage() {
       if (actual <= 0 || expected <= 0) return;
 
       const drift = expected - actual;   // 正: 遅れ, 負: 先行
-
-      // PID 制御で目標 rate を決める。
-      // - P (比例): 今のズレに即反応
-      // - I (積分): 慢性スリップ（iPhone が常時 0.95倍くらいでサボる等）を累積で吸収。
-      //              数秒で基準 rate がシフトして自動補償される。dead zone 内でも積み続ける。
-      //              anti-windup: 大ズレ時(>1s)は積分停止して初期 catch-up を引きずらない。
-      // - D (微分): ズレ変化速度。詰まりかけ時にブレーキ＝オーバーシュート抑制。
-      // dead zone 内は P を 0 にする（無駄な小刻みrate変更を防ぐ）が I/D は動かす。
+      const absDrift = Math.abs(drift);
       const intervalSec = DRIFT_CHECK_INTERVAL_MS / 1000;
-      const Kp = 1.0 / intervalSec;  // 1判定でちょうどズレ分詰める強さ（既存比例と同じ）
-      const Ki = 0.1;                // 慢性スリップ吸収（控えめ）
-      const Kd = 0.5;                // 変化ダンピング
 
-      const inDeadZone = Math.abs(drift) < deadZoneRef.current;
-      const pTerm = inDeadZone ? 0 : Kp * drift;
-
-      // anti-windup: 大きいズレ時は積分しない（初期catch-up を引きずらない）
-      if (Math.abs(drift) < 1.0) {
-        driftIntegralRef.current += drift * intervalSec;
-        // 積分項の上限。Ki=0.1 と組み合わせて rate 補正 ±0.1 相当（±10%の基準シフト）に収める
-        driftIntegralRef.current = Math.max(-1.0, Math.min(1.0, driftIntegralRef.current));
+      // --- 二段階制御（acquisition / tracking）の状態遷移 ---
+      // ヒステリシスで頻繁な切替を防ぐ：tracking 入りは 0.5 以下、acquisition 戻りは 1.0 超
+      if (syncPhaseRef.current === "acquisition" && absDrift < ACQUISITION_TO_TRACKING_SEC) {
+        syncPhaseRef.current = "tracking";
+        filteredDriftRef.current = drift;     // EMA 初期化
+        trackingIntegralRef.current = 0;       // 積分リセット
+      } else if (syncPhaseRef.current === "tracking" && absDrift > TRACKING_TO_ACQUISITION_SEC) {
+        syncPhaseRef.current = "acquisition";
       }
-      const iTerm = Ki * driftIntegralRef.current;
 
-      const prev = prevDriftRef.current;
-      const dTerm = prev === null ? 0 : Kd * (drift - prev) / intervalSec;
-      prevDriftRef.current = drift;
+      let targetRate: number;
+      if (syncPhaseRef.current === "acquisition") {
+        // Acquisition: 大ズレを急いで詰める。比例制御で1判定でちょうど drift 分を詰める rate。
+        // 加速上限はバッファ残量とノブの小さい方。seek はモバイル再読込で使えない。
+        const maxRate = Math.min(maxRateCapRef.current, maxCatchupRate(getBufferAheadSec(player)));
+        targetRate = Math.max(0.5, Math.min(maxRate, 1 + drift / intervalSec));
+      } else {
+        // Tracking: 揃った後の維持。**人間に聞こえない範囲(±5%)** で超ゆっくり補正する。
+        // ノイズ吸収のため drift を EMA で平滑化してから判定（Android のような安定端末を
+        // 微小ノイズで踊らせない）。慢性スリップは積分で吸収。
+        filteredDriftRef.current = EMA_ALPHA * drift + (1 - EMA_ALPHA) * filteredDriftRef.current;
+        trackingIntegralRef.current += filteredDriftRef.current * intervalSec;
+        trackingIntegralRef.current = Math.max(-TRACKING_INTEGRAL_CAP, Math.min(TRACKING_INTEGRAL_CAP, trackingIntegralRef.current));
 
-      // seek はモバイルで再読込を起こすので使わない。加速の上限はバッファ残量とノブ上限の小さい方。
-      const maxRate = Math.min(maxRateCapRef.current, maxCatchupRate(getBufferAheadSec(player)));
-      const targetRate = Math.max(0.5, Math.min(maxRate, 1 + pTerm + iTerm + dTerm));
+        const correction = KP_TRACKING * filteredDriftRef.current + KI_TRACKING * trackingIntegralRef.current;
+        // rate を 0.95〜1.05 にハードクランプ（音程変化が人間に聞こえない閾値）
+        targetRate = Math.max(TRACKING_RATE_MIN, Math.min(TRACKING_RATE_MAX, 1 + correction));
+      }
 
-      // YouTube は離散値(…/1.25/1.5/1.75/2)に丸める。差が小さい時だけ set して無駄呼び出しを減らす。
-      if (Math.abs(player.getPlaybackRate() - targetRate) > 0.05) player.setPlaybackRate(targetRate);
+      // 差が小さい時は set しない（無駄呼び出し抑制）。tracking は微小変化なので閾値も小さく。
+      if (Math.abs(player.getPlaybackRate() - targetRate) > 0.02) player.setPlaybackRate(targetRate);
     }, DRIFT_CHECK_INTERVAL_MS);
   }, [stopDriftLoop]);
 
