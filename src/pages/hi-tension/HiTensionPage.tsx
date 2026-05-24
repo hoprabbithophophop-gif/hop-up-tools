@@ -225,11 +225,19 @@ export default function HiTensionPage() {
   // 同期デバッグ表示の更新ループ（原因特定用、後で削除）。
   // syncActive で trigger するので暖機動画の同期中もログが取れる。
   useEffect(() => {
+    logHiEvent(anonSessionId, "debug_effect", `syncActive=${syncActive}`);
     if (!syncActive) { setDebugInfo(null); return; }
+    let tickCount = 0;
     const timer = setInterval(() => {
+      tickCount++;
+      if (tickCount === 1) logHiEvent(anonSessionId, "debug_tick_first");
+      if (tickCount % 25 === 0) logHiEvent(anonSessionId, "debug_tick", `count=${tickCount}`);
       const anchor = clockAnchorRef.current;
       const player = playerApiRef.current;
-      if (!anchor || !player) return;
+      if (!anchor || !player) {
+        if (tickCount % 25 === 0) logHiEvent(anonSessionId, "debug_skip", `anchor=${!!anchor} player=${!!player}`);
+        return;
+      }
       const nowMs = Date.now();
       const expected = calculateExpected(anchor, nowMs);
       const actual = player.getCurrentTime();
@@ -255,6 +263,7 @@ export default function HiTensionPage() {
       const now = Date.now();
       if (now - lastSyncLogAtRef.current >= SYNC_LOG_INTERVAL_MS) {
         lastSyncLogAtRef.current = now;
+        logHiEvent(anonSessionId, "sync_insert_attempt", `tick=${tickCount}`);
         // 実効再生速度（前回 log からの Δ videoPos / Δ dateNow）。初回サンプルは null。
         let effectiveRate: number | null = null;
         const prev = prevSampleForRateRef.current;
@@ -306,10 +315,18 @@ export default function HiTensionPage() {
 
   const startDriftLoop = useCallback(() => {
     stopDriftLoop();
+    logHiEvent(anonSessionId, "drift_loop_start");
+    let driftTickCount = 0;
     driftTimerRef.current = setInterval(() => {
+      driftTickCount++;
+      if (driftTickCount === 1) logHiEvent(anonSessionId, "drift_tick_first");
+      if (driftTickCount % 10 === 0) logHiEvent(anonSessionId, "drift_tick", `count=${driftTickCount}`);
       const anchor = clockAnchorRef.current;
       const player = playerApiRef.current;
-      if (!anchor || !player) return;
+      if (!anchor || !player) {
+        if (driftTickCount % 10 === 0) logHiEvent(anonSessionId, "drift_skip", `anchor=${!!anchor} player=${!!player}`);
+        return;
+      }
 
       const now = Date.now();
       const bufferAhead = getBufferAheadSec(player);
