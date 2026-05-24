@@ -478,8 +478,14 @@ export default function HiTensionPage() {
         reports.push(r);
       }
       const allBuffered = reports.every(r => r.bufferAhead >= SONGSTART_BUFFER_THRESHOLD_SEC);
-      const allDriftSmall = reports.every(r => Math.abs(r.drift) <= PAUSE_AND_WAIT_THRESHOLD_SEC);
-      if (!allBuffered || !allDriftSmall) {
+      // 端末間で揃っているかを見る。個々の |drift| は anchor 基準のズレで、暖機中は両端末で
+      // 同じ位置にいても anchor から数秒〜十数秒ずれていることがある（暖機 anchor は古い tick で
+      // 配信され続けるため）。本動画への切替判定は「端末間で揃っているか」で見るべき。
+      // anchor 基準のズレは本動画切替後に pause-and-wait（相対判定）で詰める。
+      const drifts = reports.map(r => r.drift);
+      const driftSpread = Math.max(...drifts) - Math.min(...drifts);
+      const allDriftAligned = driftSpread <= PAUSE_AND_WAIT_THRESHOLD_SEC;
+      if (!allBuffered || !allDriftAligned) {
         driftStableSinceRef.current = 0;
         return;
       }
