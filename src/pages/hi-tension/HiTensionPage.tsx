@@ -60,7 +60,9 @@ const PAUSE_AND_WAIT_THRESHOLD_SEC = 0.15;   // 本動画 pause-and-wait の発�
 const PAUSE_MAX_SEC = 10;                    // 1回の pause がこれを超えるなら諦めて同期失敗扱い
 const DRIFT_REPORT_TTL_MS = 4000;            // この時間以内に受信した report だけを「現在の他端末状態」として採用
 // 暖機 anchor 受信時の初期同期：自分の位置と「あるべき位置」の差がこれ以上なら loadVideo で飛ばす。
-const WARMUP_INITIAL_SEEK_THRESHOLD_SEC = 1.0;
+// 1.0 だと「ギリ閾値内」で seek スキップした結果、端末間で 20 秒級の相対ずれが残って rate 補正に
+// 1 分以上かかるケースが発生したため積極化（暖機は黒画面 buffering を許容しやすい）。
+const WARMUP_INITIAL_SEEK_THRESHOLD_SEC = 0.3;
 // 暖機動画の rate 補正パラメータ。暖機は「揃える体験のための出囃子」で、本動画と違って
 // 多少のリズム変化は許容できる選曲を使う前提。両側調整で両端末ともに少しずつ寄せる。
 const WARMUP_RATE_THRESHOLD_SEC = 0.15;      // 他端末 drift との差がこれを超えたら rate を動かす
