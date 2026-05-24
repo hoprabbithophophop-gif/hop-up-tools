@@ -582,6 +582,10 @@ export default function HiTensionPage() {
       logHiEvent(anonSessionId, "dosync", `playing=${playerApiRef.current?.isPlaying()}`);
       // 暖機動画から本動画へ切替（ここで loadVideo を呼ぶ。ジェスチャー外だが既に PLAYING なので iOS でも通る想定）
       isWarmupRef.current = false;
+      // 暖機 drift loop で 0.75/1.25 倍速がセットされた直後に本動画切替に来ると rate が持ち越されて
+      // 本動画が早送り/スロー再生になる（実機テストで iOS が rate=1.25 のまま本動画再生→ずっと早送り）。
+      // loadVideo 前に明示的に 1.0 へ戻す。
+      playerApiRef.current?.setPlaybackRate(1.0);
       playerApiRef.current?.unMute();
       playerApiRef.current?.loadVideo(VIDEO_ID);
       // 状態切替：syncing 終了、本動画再生中フラグ ON、画面遷移
@@ -617,6 +621,8 @@ export default function HiTensionPage() {
     // 本動画再生中だった場合は暖機動画に戻す（ready-check で再試行可能にするため）
     if (isRealtimePlayRef.current) {
       isWarmupRef.current = true;
+      // 念のため rate を 1.0 に戻してから暖機再生（次回の暖機 drift 補正は drift loop が必要時に再設定）
+      playerApiRef.current?.setPlaybackRate(1.0);
       playerApiRef.current?.unMute();
       playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
     }
