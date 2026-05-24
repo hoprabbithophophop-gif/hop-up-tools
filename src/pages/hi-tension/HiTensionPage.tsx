@@ -67,7 +67,7 @@ const WARMUP_RATE_THRESHOLD_SEC = 0.15;      // 他端末 drift との差がこ�
 const WARMUP_RATE_UP = 1.25;                 // 自分が遅延側 → 速くする
 const WARMUP_RATE_DOWN = 0.75;               // 自分が先行側 → 遅くする
 // バッファ検知とリカバリ
-const BUFFER_RECOVERY_GRACE_MS = 2500;       // バッファ復帰後の補正禁止猶予
+const BUFFER_RECOVERY_GRACE_MS = 5000;       // バッファ復帰後の補正禁止猶予（loadVideo 直後の getVideoLoadedFraction が安定するまで長めに）
 // 全員一斉再生
 const LEAD_TIME_MS = 300;                    // songstart 送信から一斉リビール(ドットウェーブを外す)までの先取り時間
 const SYNC_START_GRACE_MS = 800;             // doSync 直後の補正禁止猶予
@@ -341,6 +341,12 @@ export default function HiTensionPage() {
       const actual = player.getCurrentTime();
       const drift = normalizeDrift(anchor, expected - actual); // 正: 自分が遅れ, 負: 自分が先行
 
+      // 異常値スキップ：loadVideo 直後の buffering 中は actual=0, bufferAhead<0 になり、
+      // normalizeDrift が「ループ周期 62s」前提で誤計算する（例：actual=0 → 46-62=-16s で先行扱い）。
+      // この異常値を broadcast すると他端末の相対判定を巻き込むので、broadcast 自体をスキップする。
+      if (actual <= 0) return;
+      if (bufferAhead < 0.5) return;
+
       // 自分の drift+buffer を全員に配信。他端末はこれを見て相対判定する。
       sendDriftReportRef.current(drift, bufferAhead);
       driftReportsRef.current.set(myKeyRef.current, {
@@ -352,7 +358,6 @@ export default function HiTensionPage() {
 
       if (!isPlaying) return;
       if (now < bufferRecoveryGraceUntilRef.current) return;
-      if (actual <= 0) return;
 
       // 直近 DRIFT_REPORT_TTL_MS 以内の他端末 report から min/max を集計
       let maxOtherDrift = drift;
