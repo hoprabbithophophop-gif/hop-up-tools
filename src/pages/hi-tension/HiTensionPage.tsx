@@ -304,11 +304,13 @@ export default function HiTensionPage() {
     pauseUntilRef.current = 0;
     driftReportsRef.current.clear();
     driftStableSinceRef.current = 0;
-    warmupAnchorReceivedRef.current = false;
-    clockAnchorRef.current = null;
-    // setSyncActive(false) はここでは呼ばない。startDriftLoop の冒頭 stopDriftLoop で
-    // false にしてしまうと、handleWarmupStart の setSyncActive(true) を打ち消してしまう。
-    // 完全に同期動作を止めたい場面（本動画終了・ロビーに戻る等）では呼び側で setSyncActive(false) する。
+    // warmupAnchorReceivedRef と clockAnchorRef はここではクリアしない。
+    // startDriftLoop の冒頭でこの関数を呼ぶ「再起動リセット」用途で anchor まで
+    // 消してしまうと、ホストの 3 秒ごと再 broadcast → handleWarmupStart で
+    // skip 条件 (anchor 既存) が成立せず再 anchor → また startDriftLoop → また stopDriftLoop
+    // で anchor が永久に null のままになり、debug useEffect も drift loop も
+    // 「anchor なし」で skip し続ける。完全停止が必要な場所（handleVideoEnded 本動画終了・
+    // handleBackToTop・handleChangeColor）で呼び側が個別にクリアする。
     // 実効再生速度の前回サンプルもクリア（次セッションは初回 log で null になる）
     prevSampleForRateRef.current = null;
   }, []);
@@ -596,6 +598,9 @@ export default function HiTensionPage() {
     clearSenoTimer();
     if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
     stopDriftLoop();
+    // anchor もクリア → ホストの 3 秒ごと再 broadcast で新しい暖機 anchor がセットされる
+    warmupAnchorReceivedRef.current = false;
+    clockAnchorRef.current = null;
     // 本動画再生中だった場合は暖機動画に戻す（ready-check で再試行可能にするため）
     if (isRealtimePlayRef.current) {
       isWarmupRef.current = true;
@@ -816,6 +821,8 @@ export default function HiTensionPage() {
     clearSenoTimer();
     stopDriftLoop();
     setSyncActive(false); // ロビーに戻る → 同期動作を完全停止
+    warmupAnchorReceivedRef.current = false;
+    clockAnchorRef.current = null;
     // 暖機/cue 中の動画を止める（ロビーに戻ったら鳴らない/データ消費しない）
     isWarmupRef.current = false;
     playerApiRef.current?.pause();
@@ -874,6 +881,8 @@ export default function HiTensionPage() {
     clearPressTimers();
     stopDriftLoop();
     setSyncActive(false); // 本動画終了 → 同期動作を完全停止
+    warmupAnchorReceivedRef.current = false;
+    clockAnchorRef.current = null;
     setIsPressed(false);
     videoEndedRef.current = true;
     const count = timestampsRef.current.length;
@@ -898,6 +907,8 @@ export default function HiTensionPage() {
     clearPressTimers();
     stopDriftLoop();
     setSyncActive(false); // ロビーに戻る → 同期動作を完全停止
+    warmupAnchorReceivedRef.current = false;
+    clockAnchorRef.current = null;
     resetPlayState();
     setIsPressed(false);
     setRoomCode(null);
