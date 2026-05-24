@@ -56,6 +56,14 @@ export type LiveBounce = {
   sessionId: string;
 };
 
+/** 端末ごとの drift / buffer 状態。pause-and-wait の相対判定と「同期できたか」の判定に使う */
+export type LiveDriftReport = {
+  sessionId: string;
+  drift: number;        // expected_canonical - actual_local（秒）。正=自分が遅れ、負=自分が先行
+  bufferAhead: number;  // バッファ残量（秒）
+  receivedAt: number;   // 受信側ローカル時刻（古い report を間引くため）
+};
+
 /**
  * Supabase Realtime チャンネル（Presence + Broadcast）をまとめて管理する。
  * - 部屋: roomCode が null ならグローバル部屋、文字列なら専用部屋。
@@ -75,6 +83,8 @@ export function useHiTensionRealtime({
   onTap,
   onBounce,
   onPlaybackReady,
+  onWarmupStart,
+  onDriftReport,
 }: {
   sessionId: string;
   memberId: string | null;
@@ -87,6 +97,10 @@ export function useHiTensionRealtime({
   onTap: (tap: LiveTap) => void;
   onBounce?: (bounce: LiveBounce) => void;
   onPlaybackReady?: (sessionId: string, tPlay: number) => void;
+  /** 暖機動画の anchor 受信（待機室で暖機を同期するため）*/
+  onWarmupStart?: (t0: number, p0: number) => void;
+  /** 他端末の drift+buffer 受信（pause-and-wait の相対判定と本動画遷移条件の判定に使う）*/
+  onDriftReport?: (report: LiveDriftReport) => void;
 }) {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [connected, setConnected] = useState(false);
@@ -105,6 +119,8 @@ export function useHiTensionRealtime({
   const onTapRef = useRef(onTap);
   const onBounceRef = useRef(onBounce);
   const onPlaybackReadyRef = useRef(onPlaybackReady);
+  const onWarmupStartRef = useRef(onWarmupStart);
+  const onDriftReportRef = useRef(onDriftReport);
   useEffect(() => { onSenoRef.current = onSeno; }, [onSeno]);
   useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
   useEffect(() => { onSongStartRef.current = onSongStart; }, [onSongStart]);
@@ -112,6 +128,8 @@ export function useHiTensionRealtime({
   useEffect(() => { onTapRef.current = onTap; }, [onTap]);
   useEffect(() => { onBounceRef.current = onBounce; }, [onBounce]);
   useEffect(() => { onPlaybackReadyRef.current = onPlaybackReady; }, [onPlaybackReady]);
+  useEffect(() => { onWarmupStartRef.current = onWarmupStart; }, [onWarmupStart]);
+  useEffect(() => { onDriftReportRef.current = onDriftReport; }, [onDriftReport]);
 
   // 待機登録の意図（チャンネル再接続時に subscribe コールバックから参照する）
   const inWaitingRoomRef = useRef(inWaitingRoom);
@@ -198,6 +216,27 @@ export function useHiTensionRealtime({
       // せーの失敗
       .on("broadcast", { event: "seno-fail" }, () => {
         onSenoFailRef.current();
+      })
+      // 暖機動画の anchor 受信（待機室で暖機を同期するため）
+      .on("broadcast", { event: "warmup-start" }, ({ payload }) => {
+        if (typeof payload?.t0 === "number" && typeof payload?.p0 === "number") {
+          onWarmupStartRef.current?.(payload.t0, payload.p0);
+        }
+      })
+      // 他端末の drift / buffer 受信（pause-and-wait の相対判定に使う）
+      .on("broadcast", { event: "drift-report" }, ({ payload }) => {
+        if (
+          typeof payload?.session_id === "string" &&
+          typeof payload?.drift === "number" &&
+          typeof payload?.buffer_ahead === "number"
+        ) {
+          onDriftReportRef.current?.({
+            sessionId: payload.session_id,
+            drift: payload.drift,
+            bufferAhead: payload.buffer_ahead,
+            receivedAt: Date.now(),
+          });
+        }
       })
       // ドット跳ね合図
       .on("broadcast", { event: "bounce" }, ({ payload }) => {
@@ -330,6 +369,29 @@ export function useHiTensionRealtime({
     onSenoFailRef.current();
   }, []);
 
+  /** ホストが暖機動画の anchor を配信。t0=Supabase時刻ms（暖機動画0秒に相当）, p0=動画位置秒 */
+  const sendWarmupStart = useCallback((t0: number, p0: number) => {
+    channelRef.current?.send({
+      type: "broadcast",
+      event: "warmup-start",
+      payload: { t0, p0 },
+    });
+    onWarmupStartRef.current?.(t0, p0); // 自分にも届ける
+  }, []);
+
+  /** 自分の drift と buffer 残量を全員に配信（毎秒1回呼ぶ） */
+  const sendDriftReport = useCallback((drift: number, bufferAhead: number) => {
+    channelRef.current?.send({
+      type: "broadcast",
+      event: "drift-report",
+      payload: {
+        session_id: presenceKeyRef.current,
+        drift,
+        buffer_ahead: bufferAhead,
+      },
+    });
+  }, []);
+
   /** 自分の動画が PLAYING に到達した時刻（Supabase時刻）を報告する */
   const sendPlaybackReady = useCallback((tPlay: number) => {
     channelRef.current?.send({
@@ -385,6 +447,8 @@ export function useHiTensionRealtime({
     sendSongStart,
     sendSenoFail,
     sendPlaybackReady,
+    sendWarmupStart,
+    sendDriftReport,
     broadcastTap,
     broadcastBounce,
   };

@@ -15,7 +15,7 @@ import {
   getOrCreateAnonymousSessionId,
 } from "./storage";
 import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
-import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, generateRoomCode } from "./useHiTensionRealtime";
+import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, generateRoomCode, type LiveDriftReport } from "./useHiTensionRealtime";
 import EndCard from "./components/EndCard";
 import HandIcon from "./components/HandIcon";
 import { getSupabase } from "@/lib/supabase";
@@ -52,24 +52,60 @@ const BOUNCE_DURATION_MS = 400;
 // せーの失敗判定: 窓 + ready 受信のための余裕
 const SENO_FAIL_TIMEOUT_MS = SENO_WINDOW_MS + 1500;
 // 同期方式：rate は弄らない（一切 setPlaybackRate を呼ばない）。
-// 自分が先行している（drift < -0.3s）端末だけが pauseVideo で待ち、最遅端末に揃える。
-// 自分が遅延している（drift > +0.3s）端末は何もしない（他端末が pause で待ってくれる）。
+// 全端末が drift / buffer を毎秒 broadcast し合い、相対判定で「自分が最遅端末でない」端末が
+// pauseVideo で待ち、最遅端末に揃える。最遅端末本人は何もしないので動き続ける。
 // 動画が止まって見える代わりに、再生中のリズム変化は絶対に起きない設計。
 const DRIFT_CHECK_INTERVAL_MS = 1000;
-const PAUSE_AND_WAIT_THRESHOLD_SEC = 0.15;  // この差分（先行）から pause で待ち始める。検証で観測したノイズ床(~0.1s)から余裕を取った値
-const PAUSE_MAX_SEC = 10;                    // 待ちが 10 秒を超えるなら諦めて同期失敗扱い
+const PAUSE_AND_WAIT_THRESHOLD_SEC = 0.15;   // 最大drift - 自分drift がこれを超えたら自分を pause
+const PAUSE_MAX_SEC = 10;                    // 1回の pause がこれを超えるなら諦めて同期失敗扱い
+const DRIFT_REPORT_TTL_MS = 4000;            // この時間以内に受信した report だけを「現在の他端末状態」として採用
 // バッファ検知とリカバリ
 const BUFFER_RECOVERY_GRACE_MS = 2500;       // バッファ復帰後の補正禁止猶予
 // 全員一斉再生
 const LEAD_TIME_MS = 300;                    // songstart 送信から一斉リビール(ドットウェーブを外す)までの先取り時間
 const SYNC_START_GRACE_MS = 800;             // doSync 直後の補正禁止猶予
-const PLAYBACK_READY_TIMEOUT_MS = 5000;      // playback-ready が揃わない時、ホストが待つ上限
+// 本動画への遷移条件（ready-check で全員 ✋押下後、ホストが監視）
+const SONGSTART_BUFFER_THRESHOLD_SEC = 5;    // 全員の buffer_ahead がこれ以上で再生体力 OK
+const SONGSTART_DRIFT_STABLE_DURATION_MS = 2000; // drift ±0.15s が連続でこの時間続けば「揃った」
+const SONGSTART_READY_TIMEOUT_MS = 10000;    // 全員 ✋押下後この時間経っても揃わなければ同期失敗
 
 // バッファ残量(秒)＝今の位置より先に溜まってる尺。取得不可なら 0。デバッグ表示で使用。
 function getBufferAheadSec(player: YouTubePlayerApi): number {
   const dur = player.getDuration();
   if (dur <= 0) return 0;
   return player.getVideoLoadedFraction() * dur - player.getCurrentTime();
+}
+
+// 暖機動画のループ周期（秒）。drift を modular に正規化する際に使う。
+const WARMUP_LOOP_DURATION_SEC = WARMUP_VIDEO_END - WARMUP_VIDEO_START;
+
+type ClockAnchor = {
+  t0: number;       // Supabase 時刻 (ms)
+  p0: number;       // 動画位置（秒）
+  offset: number;   // Supabase時計 - 自分の時計（ms）。anchor 確定時に凍結
+  kind: "warmup" | "main";
+};
+
+// anchor から「今この瞬間の canonical 動画位置」を計算する。
+// warmup はループするので modular 正規化、main は単調増加。
+function calculateExpected(anchor: ClockAnchor, nowMs: number): number {
+  const supabaseNow = nowMs + anchor.offset;
+  const elapsedSec = (supabaseNow - anchor.t0) / 1000;
+  if (anchor.kind === "main") return anchor.p0 + elapsedSec;
+  // warmup: anchor.p0 から elapsed 秒進んだ位置をループ周期内に正規化
+  const offsetFromStart = (anchor.p0 - WARMUP_VIDEO_START) + elapsedSec;
+  const normalized = ((offsetFromStart % WARMUP_LOOP_DURATION_SEC) + WARMUP_LOOP_DURATION_SEC) % WARMUP_LOOP_DURATION_SEC;
+  return WARMUP_VIDEO_START + normalized;
+}
+
+// drift = expected - actual の生値を、ループの周回違い（例：expected=21, actual=81 等）を吸収して
+// 「最短経路の差」に正規化する。main では何もしない。
+function normalizeDrift(anchor: ClockAnchor, rawDrift: number): number {
+  if (anchor.kind === "main") return rawDrift;
+  let drift = rawDrift;
+  if (drift > WARMUP_LOOP_DURATION_SEC / 2) drift -= WARMUP_LOOP_DURATION_SEC;
+  if (drift < -WARMUP_LOOP_DURATION_SEC / 2) drift += WARMUP_LOOP_DURATION_SEC;
+  return drift;
 }
 
 function newSeatHash(): number {
@@ -98,6 +134,8 @@ export default function HiTensionPage() {
   // ✋押下で play 画面に遷移後、songstart で揃うまでの間。この間は presence track を維持して
   // ホスト判定（seno/ready 集計）を生かす。
   const [syncing, setSyncing] = useState(false);
+  // 同期動作中（暖機 anchor or 本動画 anchor が確定）→ debug ループと drift loop がアクティブ
+  const [syncActive, setSyncActive] = useState(false);
   // 同期デバッグ表示（原因特定用、後で削除）
   const [debugInfo, setDebugInfo] = useState<{
     anchorOffset: number; liveOffset: number; rtt: number; drift: number; rate: number;
@@ -126,8 +164,9 @@ export default function HiTensionPage() {
   const readyCheckGroupRef = useRef<string[]>([]);
   const readiedSetRef = useRef<Set<string>>(new Set());
   const senoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 曲開始の基準点。t0/p0 は Supabase 時計基準、offset は開始時の対 Supabase 時計ズレを凍結したもの
-  const clockAnchorRef = useRef<{ t0: number; p0: number; offset: number } | null>(null);
+  // 曲開始の基準点。kind="warmup" なら暖機動画用、kind="main" なら本動画用。
+  // t0/p0 は Supabase 時計基準、offset は anchor 確定時の対 Supabase 時計ズレを凍結したもの
+  const clockAnchorRef = useRef<ClockAnchor | null>(null);
   const driftTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // 全員一斉再生の状態
   const awaitingPlaybackRef = useRef(false);                            // ✋押下後、初回 PLAYING 到達を待っている
@@ -151,26 +190,39 @@ export default function HiTensionPage() {
   // pause-and-wait：自分が先行している時に pauseVideo() を入れて待つ。0 なら pause していない、
   // 値が入っていれば「この時刻になったら playVideo() で復帰」
   const pauseUntilRef = useRef(0);
+  // 他端末の最新 drift+buffer 報告（受信時刻つき）。pause-and-wait の相対判定と本動画遷移条件の判定に使う。
+  // sessionId === presenceKey の場合は自分。自分の最新値も入れておく（送信側の集計を簡単にするため）。
+  const driftReportsRef = useRef<Map<string, LiveDriftReport>>(new Map());
+  // ✋押下後、本動画遷移の安定判定で「全員 drift が ±0.15s 以内」が連続している開始時刻（ms）。
+  // 0 = まだ連続していない（誰かの drift が大きい）
+  const driftStableSinceRef = useRef(0);
+  // ✋押下後の遷移判定タイマー。ホストだけが回す
+  const songstartReadyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 暖機動画の anchor が確定済みか。後から待機室に入った人は受信するまで false
+  const warmupAnchorReceivedRef = useRef(false);
   const getClockOffsetRef = useRef<() => number>(() => 0);
   const getBestRoundtripRef = useRef<() => number>(() => Infinity);
   const sendSongStartRef = useRef<(t0: number, p0: number) => void>(() => {});
   const sendSenoFailRef = useRef<() => void>(() => {});
+  const sendWarmupStartRef = useRef<(t0: number, p0: number) => void>(() => {});
+  const sendDriftReportRef = useRef<(drift: number, bufferAhead: number) => void>(() => {});
 
   useEffect(() => { isRealtimePlayRef.current = isRealtimePlay; }, [isRealtimePlay]);
   useEffect(() => { screenRef.current = screen; }, [screen]);
 
-  // 同期デバッグ表示の更新ループ（原因特定用、後で削除）
+  // 同期デバッグ表示の更新ループ（原因特定用、後で削除）。
+  // syncActive で trigger するので暖機動画の同期中もログが取れる。
   useEffect(() => {
-    if (!isRealtimePlay) { setDebugInfo(null); return; }
+    if (!syncActive) { setDebugInfo(null); return; }
     const timer = setInterval(() => {
       const anchor = clockAnchorRef.current;
       const player = playerApiRef.current;
       if (!anchor || !player) return;
-      const supabaseNow = Date.now() + anchor.offset;
-      const expected = anchor.p0 + (supabaseNow - anchor.t0) / 1000;
+      const nowMs = Date.now();
+      const expected = calculateExpected(anchor, nowMs);
       const actual = player.getCurrentTime();
       const rtt = getBestRoundtripRef.current();
-      const drift = expected - actual;
+      const drift = normalizeDrift(anchor, expected - actual);
       if (Math.abs(drift) > maxDriftRef.current) maxDriftRef.current = Math.abs(drift);
       const liveOffset = Math.round(getClockOffsetRef.current());
       const rttMs = Number.isFinite(rtt) ? Math.round(rtt) : -1;
@@ -216,18 +268,24 @@ export default function HiTensionPage() {
       }
     }, 200);
     return () => clearInterval(timer);
-  }, [isRealtimePlay]);
+  }, [syncActive, anonSessionId, memberId]);
 
   // --- 同期ドリフト補正ループ ---
   const stopDriftLoop = useCallback(() => {
     if (driftTimerRef.current) { clearInterval(driftTimerRef.current); driftTimerRef.current = null; }
     if (songStartTimerRef.current) { clearTimeout(songStartTimerRef.current); songStartTimerRef.current = null; }
     if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
+    if (songstartReadyTimerRef.current) { clearInterval(songstartReadyTimerRef.current); songstartReadyTimerRef.current = null; }
     // 同期関連の状態をリセット（次回の再生開始時に持ち越さない）
     awaitingPlaybackRef.current = false;
     bufferRecoveryGraceUntilRef.current = 0;
     isBufferingRef.current = false;
     pauseUntilRef.current = 0;
+    driftReportsRef.current.clear();
+    driftStableSinceRef.current = 0;
+    warmupAnchorReceivedRef.current = false;
+    clockAnchorRef.current = null;
+    setSyncActive(false);
     // 実効再生速度の前回サンプルもクリア（次セッションは初回 log で null になる）
     prevSampleForRateRef.current = null;
   }, []);
@@ -239,35 +297,55 @@ export default function HiTensionPage() {
       const player = playerApiRef.current;
       if (!anchor || !player) return;
 
+      const now = Date.now();
+      const bufferAhead = getBufferAheadSec(player);
+
       // pause-and-wait 中は何もしない（resume は別 setTimeout が担当）
       if (pauseUntilRef.current > 0) return;
 
-      // 再生中以外（一時停止/バッファリング）は補正しない
-      if (!player.isPlaying()) return;
+      // 再生中以外（一時停止/バッファリング）は補正しない。
+      // ただし自分の drift は計算して broadcast はする（他端末がこちらの遅延を知って待てるように）。
+      const isPlaying = player.isPlaying();
 
-      const now = Date.now();
+      const expected = calculateExpected(anchor, now);
+      const actual = player.getCurrentTime();
+      const drift = normalizeDrift(anchor, expected - actual); // 正: 自分が遅れ, 負: 自分が先行
+
+      // 自分の drift+buffer を全員に配信。他端末はこれを見て pause-and-wait の相対判定をする。
+      // 自分の最新値も driftReportsRef に入れて、自分側の集計を統一する。
+      sendDriftReportRef.current(drift, bufferAhead);
+      driftReportsRef.current.set(myKeyRef.current, {
+        sessionId: myKeyRef.current,
+        drift,
+        bufferAhead,
+        receivedAt: now,
+      });
+
+      if (!isPlaying) return;
       // バッファ復帰直後はプレイヤーの位置情報が不安定なので猶予期間を置く
       if (now < bufferRecoveryGraceUntilRef.current) return;
-
-      // offset は開始時に凍結済み。anchor は Supabase 時計基準。
-      const supabaseNow = now + anchor.offset;
-      const expected = anchor.p0 + (supabaseNow - anchor.t0) / 1000;
-      const actual = player.getCurrentTime();
       if (actual <= 0 || expected <= 0) return;
 
-      const drift = expected - actual;   // 正: 自分が遅れ, 負: 自分が先行
+      // --- 相対判定 pause-and-wait ---
+      // 直近 DRIFT_REPORT_TTL_MS 以内の他端末 report を集計。
+      // 自分より drift が大きい（より遅れている）端末がいれば、その端末に合わせて待つ。
+      let maxOtherDrift = drift; // 自分の drift を初期値に
+      for (const report of driftReportsRef.current.values()) {
+        if (report.sessionId === myKeyRef.current) continue;
+        if (now - report.receivedAt > DRIFT_REPORT_TTL_MS) continue;
+        if (report.drift > maxOtherDrift) maxOtherDrift = report.drift;
+      }
+      const relativeDelay = maxOtherDrift - drift; // 自分から見て「最遅端末」がどれだけ後ろにいるか（秒）
 
-      // 自分が PAUSE_MAX_SEC 以上先行している → 待ちきれないので同期失敗扱い。
-      // 全員 ready-check に戻して仕切り直す（不調側を見限る）。
-      if (drift < -PAUSE_MAX_SEC) {
+      // relativeDelay が大きすぎる（最遅端末が PAUSE_MAX_SEC 以上遅れている）→ 諦め同期失敗
+      if (relativeDelay > PAUSE_MAX_SEC) {
         sendSenoFailRef.current();
         return;
       }
 
-      // 自分が先行 → pause で最遅端末を待つ。rate は触らない。
-      // drift = -0.5 なら 500ms pause、drift = -3 なら 3000ms pause。
-      if (drift < -PAUSE_AND_WAIT_THRESHOLD_SEC) {
-        const pauseMs = Math.abs(drift) * 1000;
+      // 自分が最遅端末より先行している（=他に追いつかせる必要がある）→ pause で待つ
+      if (relativeDelay > PAUSE_AND_WAIT_THRESHOLD_SEC) {
+        const pauseMs = relativeDelay * 1000;
         player.pause();
         pauseUntilRef.current = now + pauseMs;
         // pause 終了予定時刻に playVideo() で復帰。
@@ -281,60 +359,92 @@ export default function HiTensionPage() {
         return;
       }
 
-      // 自分が遅延（drift > 0）または小ジッタ（|drift| ≤ 閾値）→ 何もしない。
-      // 他端末が pause で待ってくれる、または既に揃っている。
+      // 揃っている（小ジッタ）または自分が最遅端末 → 何もしない（最遅端末は走り続け、他が pause で追ってくる）
     }, DRIFT_CHECK_INTERVAL_MS);
   }, [stopDriftLoop]);
 
-  // --- YouTube プレイヤー状態の監視（バッファ検知 / 諦めモード）---
+  // --- 暖機動画の anchor 受信（待機室入室時 / 新メンバー入室時にホストが配る）---
+  const handleWarmupStart = useCallback((t0: number, p0: number) => {
+    // 既に anchor 確定済みなら無視（重複配信を防ぐ）
+    if (warmupAnchorReceivedRef.current && clockAnchorRef.current) return;
+    const offset = getClockOffsetRef.current();
+    clockAnchorRef.current = { t0, p0, offset, kind: "warmup" };
+    warmupAnchorReceivedRef.current = true;
+    setSyncActive(true);
+    syncStartAtRef.current = Date.now();
+    maxDriftRef.current = 0;
+    startDriftLoop();
+    logHiEvent(anonSessionId, "warmup_start_recv", `p0=${p0.toFixed(2)}`);
+  }, [anonSessionId, startDriftLoop]);
+
+  // --- 他端末の drift / buffer 受信（pause-and-wait の相対判定に使う）---
+  const handleDriftReport = useCallback((report: LiveDriftReport) => {
+    driftReportsRef.current.set(report.sessionId, report);
+  }, []);
+
+  // --- 全員 ✋押下後、ホストが「本動画遷移してよい状態」を監視するループ ---
+  // 条件：全端末の drift report が新鮮、buffer >= 5s、|drift| <= 0.15s が 2 秒連続。
+  // 10 秒経って成立しなければ sendSenoFail。
+  const startSongstartReadyMonitor = useCallback(() => {
+    if (songstartReadyTimerRef.current) clearInterval(songstartReadyTimerRef.current);
+    driftStableSinceRef.current = 0;
+    const startedAt = Date.now();
+    songstartReadyTimerRef.current = setInterval(() => {
+      const now = Date.now();
+      // タイムアウト → 同期失敗で ready-check に戻す
+      if (now - startedAt > SONGSTART_READY_TIMEOUT_MS) {
+        if (songstartReadyTimerRef.current) { clearInterval(songstartReadyTimerRef.current); songstartReadyTimerRef.current = null; }
+        sendSenoFailRef.current();
+        return;
+      }
+      const group = readyCheckGroupRef.current;
+      if (group.length === 0) return;
+      // 全員の最新 report が新鮮か（TTL 以内）
+      const reports: LiveDriftReport[] = [];
+      for (const id of group) {
+        const r = driftReportsRef.current.get(id);
+        if (!r || now - r.receivedAt > DRIFT_REPORT_TTL_MS) {
+          driftStableSinceRef.current = 0;
+          return;
+        }
+        reports.push(r);
+      }
+      const allBuffered = reports.every(r => r.bufferAhead >= SONGSTART_BUFFER_THRESHOLD_SEC);
+      const allDriftSmall = reports.every(r => Math.abs(r.drift) <= PAUSE_AND_WAIT_THRESHOLD_SEC);
+      if (!allBuffered || !allDriftSmall) {
+        driftStableSinceRef.current = 0;
+        return;
+      }
+      // 連続安定の起点を記録
+      if (driftStableSinceRef.current === 0) {
+        driftStableSinceRef.current = now;
+      }
+      // DRIFT_STABLE_DURATION_MS 連続安定したら本動画遷移
+      if (now - driftStableSinceRef.current >= SONGSTART_DRIFT_STABLE_DURATION_MS) {
+        if (songstartReadyTimerRef.current) { clearInterval(songstartReadyTimerRef.current); songstartReadyTimerRef.current = null; }
+        // t0 = 今 + LEAD_TIME_MS（Supabase時計）, p0 = 0（本動画は 0 秒から開始）
+        const offset = getClockOffsetRef.current();
+        const tReveal = now + offset + LEAD_TIME_MS;
+        sendSongStartRef.current(tReveal, 0);
+      }
+    }, 500);
+  }, []);
+
+  // --- YouTube プレイヤー状態の監視 ---
   const handlePlayerStateChange = useCallback((state: number) => {
-    // 診断ログ（後で削除）: 再生画面にいる間の状態遷移を記録
-    if (screenRef.current === "play") {
+    // 診断ログ：待機室・ready-check・play すべての状態遷移を記録（暖機動画の挙動も追跡したいため）
+    if (screenRef.current === "waiting" || screenRef.current === "ready-check" || screenRef.current === "play") {
       logHiEvent(anonSessionId, "state", YT_STATE_NAMES[state] ?? String(state));
     }
     if (state === 3 /* BUFFERING */) {
       isBufferingRef.current = true;
     } else if (state === 1 /* PLAYING */) {
-      // Plan E (pause なし): ✋押下後の初回 PLAYING 到達 → 動画は止めず再生継続。
-      // 「動画 0 秒に相当する Supabase 時刻」を計算して報告する。
-      if (awaitingPlaybackRef.current) {
-        awaitingPlaybackRef.current = false;
-        const offset = getClockOffsetRef.current();
-        const videoPos = playerApiRef.current?.getCurrentTime() ?? 0;
-        // 動画 0 秒だった Supabase 時刻 = 今の Supabase 時刻 − 経過再生秒
-        const tZero = (Date.now() + offset) - videoPos * 1000;
-        sendPlaybackReadyRef.current(tZero);
-        logHiEvent(anonSessionId, "playback_ready", `pos=${videoPos.toFixed(2)}`);
-      }
       if (isBufferingRef.current) {
         isBufferingRef.current = false;
         bufferRecoveryGraceUntilRef.current = Date.now() + BUFFER_RECOVERY_GRACE_MS;
       }
     }
   }, [anonSessionId]);
-
-  // 全員の再生開始が出揃ったら、一斉リビール時刻 t_reveal と基準動画位置 p0 を配る（ホスト）。
-  // 最も早く 0 秒に到達した「最前の端末」を基準にする → 他は全員「遅れてる側＝前進で追いつくだけ」になり、
-  // 減速して待つ端末がなくなる（待ち＝間延びの体感を消す）。
-  const startSyncedPlayback = useCallback((group: string[]) => {
-    const ready = group.filter(id => playbackReadyMapRef.current.has(id));
-    if (ready.length === 0) return;
-    const tZeroMin = Math.min(...ready.map(id => playbackReadyMapRef.current.get(id)!));
-    const tReveal = Date.now() + getClockOffsetRef.current() + LEAD_TIME_MS;
-    const p0 = (tReveal - tZeroMin) / 1000; // 最前の端末が t_reveal 時点でいる動画位置
-    sendSongStartRef.current(tReveal, p0);
-  }, []);
-
-  // playback-ready 受信（ホスト）: 全員の再生開始時刻が揃ったら一斉リビールを配る
-  const handlePlaybackReady = useCallback((sessionId: string, tZero: number) => {
-    playbackReadyMapRef.current.set(sessionId, tZero);
-    const group = readyCheckGroupRef.current;
-    if (!isHostRef.current || group.length === 0) return;
-    if (group.every(id => playbackReadyMapRef.current.has(id))) {
-      if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
-      startSyncedPlayback(group);
-    }
-  }, [startSyncedPlayback]);
 
   // --- realtime hook コールバック ---
   const clearSenoTimer = useCallback(() => {
@@ -368,47 +478,46 @@ export default function HiTensionPage() {
     }
   }, [clearSenoTimer]);
 
-  // ready 受信: 集計のみ。全員が✋を押したら、ホストは playback-ready の集約タイムアウトを開始する。
-  // （songstart のトリガーは playback-ready 集約に移譲。Plan E）
+  // ready 受信: 集計のみ。全員が✋を押したら、ホストが「全員 buffer + drift 安定」監視を開始。
+  // 成立で sendSongStart（本動画遷移）、10秒タイムアウトで sendSenoFail。
   const handleReady = useCallback((sessionId: string) => {
     readiedSetRef.current.add(sessionId);
     const group = readyCheckGroupRef.current;
     setReadyCount(group.filter(id => readiedSetRef.current.has(id)).length);
     if (isHostRef.current && group.length > 0 && group.every(id => readiedSetRef.current.has(id))) {
       clearSenoTimer();
-      if (playbackTimeoutRef.current) clearTimeout(playbackTimeoutRef.current);
-      // 5秒待っても playback-ready が揃わなければ、準備できた端末だけで開始する（フォールバック）
-      playbackTimeoutRef.current = setTimeout(() => {
-        playbackTimeoutRef.current = null;
-        startSyncedPlayback(group);
-      }, PLAYBACK_READY_TIMEOUT_MS);
+      startSongstartReadyMonitor();
     }
-  }, [clearSenoTimer, startSyncedPlayback]);
+  }, [clearSenoTimer, startSongstartReadyMonitor]);
 
-  // songstart 受信: t0(=揃え時刻, Supabase時刻)で基準(t0,p0)を確定し、全員 driftLoop を開始する。
-  // 動画は✋押下時から再生画面で見えている（隠さない）。位置のズレは driftLoop が
-  // 倍速で前進して揃える（seek はモバイル再読込のため使わない）。
+  // songstart 受信: 暖機動画 anchor から本動画 anchor に切替、本動画を loadVideo で再生開始。
+  // ✋押下後 syncing 中の人だけ反応する（待機室・無関係な人は無視）。
   const handleSongStart = useCallback((t0: number, p0: number) => {
-    if (!awaitingSongStartRef.current) return; // ✋を押して songstart 待ちの人だけ
+    // ✋押下して songstart 待ちの人 or ready-check で✋押した状態の人だけ
+    if (!awaitingSongStartRef.current && screenRef.current !== "ready-check") return;
     awaitingSongStartRef.current = false;
     clearSenoTimer();
     logHiEvent(anonSessionId, "songstart_recv", `p0=${p0.toFixed(2)}`);
-    const offset = getClockOffsetRef.current();   // Supabase時計 - 自分の時計
-    clockAnchorRef.current = { t0, p0, offset };
-    const localT0 = t0 - offset;                  // 揃え時刻を自分のローカル時計に換算
+    const offset = getClockOffsetRef.current();
+    clockAnchorRef.current = { t0, p0, offset, kind: "main" }; // 本動画 anchor に切替
+    warmupAnchorReceivedRef.current = false;     // 暖機 anchor フラグ解除
+    const localT0 = t0 - offset;
     const delay = localT0 - Date.now();
     const doSync = () => {
       songStartTimerRef.current = null;
       logHiEvent(anonSessionId, "dosync", `playing=${playerApiRef.current?.isPlaying()}`);
-      setSyncing(false); // 揃え完了 → presence から抜ける
-      // ここで play() は呼ばない。動画は✋押下のジェスチャーで既に再生中で、pause もしないため。
-      // 非ジェスチャーな2回目の play() は iOS 4G で初回ロードを弾き spinner が回り続ける原因になる。
-      // 位置のズレは driftLoop が倍速で詰める。
+      // 暖機動画から本動画へ切替（ここで loadVideo を呼ぶ。ジェスチャー外だが既に PLAYING なので iOS でも通る想定）
+      isWarmupRef.current = false;
+      playerApiRef.current?.unMute();
+      playerApiRef.current?.loadVideo(VIDEO_ID);
+      // 状態切替：syncing 終了、本動画再生中フラグ ON、画面遷移
+      setSyncing(false);
+      setIsRealtimePlay(true);
+      setScreen("play");
       bufferRecoveryGraceUntilRef.current = Date.now() + SYNC_START_GRACE_MS;
-      // 収束デバッグ用のリセット
       syncStartAtRef.current = Date.now();
       maxDriftRef.current = 0;
-      // PID 状態は startDriftLoop 内の stopDriftLoop でリセットされる
+      // drift loop は暖機から続いているので start し直し（refs をリセットしたい場合に有効）
       startDriftLoop();
     };
     if (songStartTimerRef.current) clearTimeout(songStartTimerRef.current);
@@ -420,17 +529,20 @@ export default function HiTensionPage() {
   }, [clearSenoTimer, startDriftLoop, anonSessionId]);
 
   // せーの失敗: ready-check に留まったまま「息が合わなかった」表示。
-  // ✋押下で再生開始した動画を止めて頭出しする（裏で流れ続けないように）。
+  // 本動画再生中だった場合は暖機動画に戻して、再試行できるようにする。
   const handleSenoFail = useCallback(() => {
-    // ✋押下で play 画面に遷移済みの人（awaitingSongStart）、ready-check で待ってる人、
-    // または同期再生中(isRealtimePlay)に drift 超過で見限られた人を処理。
+    // ✋押下後の awaitingSongStart 中、ready-check 中、同期再生中(isRealtimePlay)で見限られた人を処理。
     // 無関係（ソロ再生中、ロビーなど）は無視。
     if (!awaitingSongStartRef.current && screenRef.current !== "ready-check" && !isRealtimePlayRef.current) return;
     clearSenoTimer();
     if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
     stopDriftLoop();
-    playerApiRef.current?.pause();
-    playerApiRef.current?.seekTo(0);
+    // 本動画再生中だった場合は暖機動画に戻す（ready-check で再試行可能にするため）
+    if (isRealtimePlayRef.current) {
+      isWarmupRef.current = true;
+      playerApiRef.current?.unMute();
+      playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
+    }
     readiedSetRef.current = new Set();
     playbackReadyMapRef.current = new Map();
     awaitingPlaybackRef.current = false;
@@ -467,7 +579,8 @@ export default function HiTensionPage() {
     sendReady,
     sendSongStart,
     sendSenoFail,
-    sendPlaybackReady,
+    sendWarmupStart,
+    sendDriftReport,
     broadcastTap,
     broadcastBounce,
   } = useHiTensionRealtime({
@@ -481,7 +594,8 @@ export default function HiTensionPage() {
     onSenoFail: handleSenoFail,
     onTap: handleTap,
     onBounce: handleBounce,
-    onPlaybackReady: handlePlaybackReady,
+    onWarmupStart: handleWarmupStart,
+    onDriftReport: handleDriftReport,
   });
 
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
@@ -491,7 +605,39 @@ export default function HiTensionPage() {
   useEffect(() => { getBestRoundtripRef.current = getBestRoundtrip; }, [getBestRoundtrip]);
   useEffect(() => { sendSongStartRef.current = sendSongStart; }, [sendSongStart]);
   useEffect(() => { sendSenoFailRef.current = sendSenoFail; }, [sendSenoFail]);
-  useEffect(() => { sendPlaybackReadyRef.current = sendPlaybackReady; }, [sendPlaybackReady]);
+  useEffect(() => { sendWarmupStartRef.current = sendWarmupStart; }, [sendWarmupStart]);
+  useEffect(() => { sendDriftReportRef.current = sendDriftReport; }, [sendDriftReport]);
+
+  // ホストが待機室・ready-check 画面にいる間、暖機動画の anchor を作成・配信する。
+  // 初回は暖機動画の再生開始を待って anchor を確定。新メンバーが入ったら（participants.length 変化）既存 anchor を再 broadcast。
+  useEffect(() => {
+    if (!isHost) return;
+    if (screen !== "waiting" && screen !== "ready-check") return;
+
+    const tryEstablishOrRebroadcast = (): boolean => {
+      const player = playerApiRef.current;
+      if (!player) return false;
+      // 既存の暖機 anchor がある → 再 broadcast（新メンバー対応）
+      const existing = clockAnchorRef.current;
+      if (existing && existing.kind === "warmup") {
+        sendWarmupStartRef.current(existing.t0, existing.p0);
+        return true;
+      }
+      // anchor まだない → 暖機動画の再生位置が確定するのを待つ
+      const currentPos = player.getCurrentTime();
+      if (currentPos < WARMUP_VIDEO_START) return false;
+      const offset = getClockOffsetRef.current();
+      const t0 = Date.now() + offset;
+      sendWarmupStartRef.current(t0, currentPos);
+      return true;
+    };
+
+    if (tryEstablishOrRebroadcast()) return;
+    const interval = setInterval(() => {
+      if (tryEstablishOrRebroadcast()) clearInterval(interval);
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isHost, screen, participants.length]);
 
   // 待機室が満員か / 自分があふれ（5人目以降）か
   const roomFull = participants.length >= MAX_PARTICIPANTS;
@@ -560,9 +706,9 @@ export default function HiTensionPage() {
     setLastSelectedMemberId(id);
     setRoomCode(null);
     setSeatHash(newSeatHash());
-    // 待機中に muted 暖機（iframe初期化・CDN接続・デコーダを温める）
+    // 待機室で暖機動画を音付きで再生（出囃子）。ボタン押下のジェスチャー内で loadVideo を呼ぶので iOS でも再生開始する。
     isWarmupRef.current = true;
-    playerApiRef.current?.mute();
+    playerApiRef.current?.unMute();
     playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
     setScreen("waiting");
   };
@@ -578,9 +724,9 @@ export default function HiTensionPage() {
   const handleCreateRoom = () => {
     setRoomCode(generateRoomCode());
     setSeatHash(newSeatHash());
-    // 待機中に muted 暖機
+    // 待機室で暖機動画を音付き再生（出囃子）
     isWarmupRef.current = true;
-    playerApiRef.current?.mute();
+    playerApiRef.current?.unMute();
     playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
     setScreen("waiting");
   };
@@ -589,9 +735,9 @@ export default function HiTensionPage() {
   const handleJoinRoom = (code: string) => {
     setRoomCode(code);
     setSeatHash(newSeatHash());
-    // 待機中に muted 暖機
+    // 待機室で暖機動画を音付き再生（出囃子）
     isWarmupRef.current = true;
-    playerApiRef.current?.mute();
+    playerApiRef.current?.unMute();
     playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
     setScreen("waiting");
   };
@@ -645,24 +791,18 @@ export default function HiTensionPage() {
     sendSeno(group);
   };
 
-  // ready-check で✋を押す（＝参加＆動画再生＆開始の意思表明）
+  // ready-check で✋を押す（＝参加＆開始の意思表明）。
+  // 暖機動画はそのまま継続。本動画への切替は songstart 受信時（暖機 drift 安定後）に行う。
   const handleReadyTap = () => {
     if (selfReadied) return;
-    // ✋押下のジェスチャー内で warmup→本番動画を一発切替＆再生。
-    // iOS の厳しい再生ルールをクリアできる唯一のタイミング（4G でも確実に動く）。
-    logHiEvent(anonSessionId, "play_called", "readyTap");
-    isWarmupRef.current = false;
-    playerApiRef.current?.unMute();
-    playerApiRef.current?.loadVideo(VIDEO_ID);
-    awaitingPlaybackRef.current = true;
+    logHiEvent(anonSessionId, "ready_tap");
     awaitingSongStartRef.current = true;
     resetPlayState();
     setSelfReadied(true);
     setPlaySeatIndex(mySeatIndexRef.current);  // 手の整列用に席番号を保存
-    setIsRealtimePlay(true);
     setSyncing(true);  // songstart まで presence track を維持（ホスト判定を生かす）
     sendReady();
-    setScreen("play");
+    // 画面遷移なし（ready-check のまま）、loadVideo 呼ばない（暖機継続）
   };
 
   const handleVideoEnded = () => {
@@ -923,25 +1063,24 @@ export default function HiTensionPage() {
         </div>
       )}
 
-      {/* 待機室 */}
+      {/* 待機室（コンポーネント自身が画面下半分に位置するため、ラッパ div は不要。
+          画面上半分の暖機動画は HiTensionPage の常時マウントエリアが見える）*/}
       {screen === "waiting" && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100 }}>
-          <WaitingRoom
-            participants={participants}
-            mySessionId={presenceKey}
-            isHost={isHost}
-            connected={connected}
-            channelError={channelError}
-            isOverflow={isOverflow}
-            roomCode={roomCode}
-            onBounceSignal={broadcastBounce}
-            bouncingSessionId={bouncingSessionId}
-            onSeno={handleSenoButton}
-            onSolo={handleSolo}
-            onReenterCode={handleReenterCode}
-            onBackToTop={handleBackToTop}
-          />
-        </div>
+        <WaitingRoom
+          participants={participants}
+          mySessionId={presenceKey}
+          isHost={isHost}
+          connected={connected}
+          channelError={channelError}
+          isOverflow={isOverflow}
+          roomCode={roomCode}
+          onBounceSignal={broadcastBounce}
+          bouncingSessionId={bouncingSessionId}
+          onSeno={handleSenoButton}
+          onSolo={handleSolo}
+          onReenterCode={handleReenterCode}
+          onBackToTop={handleBackToTop}
+        />
       )}
 
       {/* せーの → ready-check */}
