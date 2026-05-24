@@ -288,7 +288,9 @@ export default function HiTensionPage() {
     driftStableSinceRef.current = 0;
     warmupAnchorReceivedRef.current = false;
     clockAnchorRef.current = null;
-    setSyncActive(false);
+    // setSyncActive(false) はここでは呼ばない。startDriftLoop の冒頭 stopDriftLoop で
+    // false にしてしまうと、handleWarmupStart の setSyncActive(true) を打ち消してしまう。
+    // 完全に同期動作を止めたい場面（本動画終了・ロビーに戻る等）では呼び側で setSyncActive(false) する。
     // 実効再生速度の前回サンプルもクリア（次セッションは初回 log で null になる）
     prevSampleForRateRef.current = null;
   }, []);
@@ -632,36 +634,36 @@ export default function HiTensionPage() {
   useEffect(() => { sendWarmupStartRef.current = sendWarmupStart; }, [sendWarmupStart]);
   useEffect(() => { sendDriftReportRef.current = sendDriftReport; }, [sendDriftReport]);
 
-  // ホストが待機室・ready-check 画面にいる間、暖機動画の anchor を作成・配信する。
-  // 初回は暖機動画の再生開始を待って anchor を確定。新メンバーが入ったら（participants.length 変化）既存 anchor を再 broadcast。
+  // ホストが待機室・ready-check 画面にいる間、暖機動画の anchor を 3 秒ごとに永続的に配信する。
+  // 永続化の理由：
+  //  - 新メンバー入室時に確実に anchor が届く（participants.length 依存だと race condition がある）
+  //  - 同期失敗 (handleSenoFail) で anchor がクリアされた後、新しい anchor を自動再作成・配信できる
+  //  - ホスト引き継ぎ時にも自然に新ホストが配信を開始する
   useEffect(() => {
     if (!isHost) return;
     if (screen !== "waiting" && screen !== "ready-check") return;
 
-    const tryEstablishOrRebroadcast = (): boolean => {
+    const broadcastWarmupAnchor = () => {
       const player = playerApiRef.current;
-      if (!player) return false;
-      // 既存の暖機 anchor がある → 再 broadcast（新メンバー対応）
+      if (!player) return;
+      // 既存の暖機 anchor がある → そのまま再 broadcast
       const existing = clockAnchorRef.current;
       if (existing && existing.kind === "warmup") {
         sendWarmupStartRef.current(existing.t0, existing.p0);
-        return true;
+        return;
       }
-      // anchor まだない → 暖機動画の再生位置が確定するのを待つ
+      // anchor まだない → 暖機動画の再生位置が確定するのを待ってから作成
       const currentPos = player.getCurrentTime();
-      if (currentPos < WARMUP_VIDEO_START) return false;
+      if (currentPos < WARMUP_VIDEO_START) return;
       const offset = getClockOffsetRef.current();
       const t0 = Date.now() + offset;
       sendWarmupStartRef.current(t0, currentPos);
-      return true;
     };
 
-    if (tryEstablishOrRebroadcast()) return;
-    const interval = setInterval(() => {
-      if (tryEstablishOrRebroadcast()) clearInterval(interval);
-    }, 500);
+    broadcastWarmupAnchor();
+    const interval = setInterval(broadcastWarmupAnchor, 3000);
     return () => clearInterval(interval);
-  }, [isHost, screen, participants.length]);
+  }, [isHost, screen]);
 
   // 待機室が満員か / 自分があふれ（5人目以降）か
   const roomFull = participants.length >= MAX_PARTICIPANTS;
@@ -780,6 +782,7 @@ export default function HiTensionPage() {
   const handleBackToTop = () => {
     clearSenoTimer();
     stopDriftLoop();
+    setSyncActive(false); // ロビーに戻る → 同期動作を完全停止
     // 暖機/cue 中の動画を止める（ロビーに戻ったら鳴らない/データ消費しない）
     isWarmupRef.current = false;
     playerApiRef.current?.pause();
@@ -837,6 +840,7 @@ export default function HiTensionPage() {
     }
     clearPressTimers();
     stopDriftLoop();
+    setSyncActive(false); // 本動画終了 → 同期動作を完全停止
     setIsPressed(false);
     videoEndedRef.current = true;
     const count = timestampsRef.current.length;
@@ -860,6 +864,7 @@ export default function HiTensionPage() {
     playerApiRef.current?.pause();
     clearPressTimers();
     stopDriftLoop();
+    setSyncActive(false); // ロビーに戻る → 同期動作を完全停止
     resetPlayState();
     setIsPressed(false);
     setRoomCode(null);
