@@ -59,6 +59,9 @@ const DRIFT_CHECK_INTERVAL_MS = 1000;
 const PAUSE_AND_WAIT_THRESHOLD_SEC = 0.15;   // 最大drift - 自分drift がこれを超えたら自分を pause
 const PAUSE_MAX_SEC = 10;                    // 1回の pause がこれを超えるなら諦めて同期失敗扱い
 const DRIFT_REPORT_TTL_MS = 4000;            // この時間以内に受信した report だけを「現在の他端末状態」として採用
+// 暖機 anchor 受信時の初期同期：自分の位置と「あるべき位置」の差がこれ以上なら loadVideo で飛ばす。
+// pause-and-wait（10秒上限）では半周期分（~31秒）の差を詰めきれないため、初期だけ loadVideo で揃える。
+const WARMUP_INITIAL_SEEK_THRESHOLD_SEC = 1.0;
 // バッファ検知とリカバリ
 const BUFFER_RECOVERY_GRACE_MS = 2500;       // バッファ復帰後の補正禁止猶予
 // 全員一斉再生
@@ -368,11 +371,32 @@ export default function HiTensionPage() {
     // 既に anchor 確定済みなら無視（重複配信を防ぐ）
     if (warmupAnchorReceivedRef.current && clockAnchorRef.current) return;
     const offset = getClockOffsetRef.current();
-    clockAnchorRef.current = { t0, p0, offset, kind: "warmup" };
+    const anchor: ClockAnchor = { t0, p0, offset, kind: "warmup" };
+    clockAnchorRef.current = anchor;
     warmupAnchorReceivedRef.current = true;
     setSyncActive(true);
     syncStartAtRef.current = Date.now();
     maxDriftRef.current = 0;
+
+    // 初期同期: anchor が示す「今いるべき位置」と自分の現在位置を比較。
+    // 差が WARMUP_INITIAL_SEEK_THRESHOLD_SEC 超なら loadVideo の startSeconds で一気に飛ばす。
+    // pause-and-wait は 10秒上限なので、ループ周期内の最大半周期 (~31秒) は詰めきれないため、
+    // 初期だけは loadVideo で位置同期する必要がある。
+    const player = playerApiRef.current;
+    if (player) {
+      const nowMs = Date.now();
+      const expectedPos = calculateExpected(anchor, nowMs);
+      const actualPos = player.getCurrentTime();
+      const initialDrift = normalizeDrift(anchor, expectedPos - actualPos);
+      if (Math.abs(initialDrift) > WARMUP_INITIAL_SEEK_THRESHOLD_SEC) {
+        // 0.5 秒分の予測（loadVideo の buffering 時間）を加算してからジャンプ
+        const targetPos = calculateExpected(anchor, nowMs + 500);
+        player.loadVideo(WARMUP_VIDEO_ID, { startSeconds: targetPos, endSeconds: WARMUP_VIDEO_END });
+        bufferRecoveryGraceUntilRef.current = nowMs + BUFFER_RECOVERY_GRACE_MS;
+        logHiEvent(anonSessionId, "warmup_initial_sync", `expected=${expectedPos.toFixed(2)} actual=${actualPos.toFixed(2)} jumpTo=${targetPos.toFixed(2)}`);
+      }
+    }
+
     startDriftLoop();
     logHiEvent(anonSessionId, "warmup_start_recv", `p0=${p0.toFixed(2)}`);
   }, [anonSessionId, startDriftLoop]);
