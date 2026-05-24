@@ -56,12 +56,16 @@ const SENO_FAIL_TIMEOUT_MS = SENO_WINDOW_MS + 1500;
 // pauseVideo で待ち、最遅端末に揃える。最遅端末本人は何もしないので動き続ける。
 // 動画が止まって見える代わりに、再生中のリズム変化は絶対に起きない設計。
 const DRIFT_CHECK_INTERVAL_MS = 1000;
-const PAUSE_AND_WAIT_THRESHOLD_SEC = 0.15;   // 最大drift - 自分drift がこれを超えたら自分を pause
+const PAUSE_AND_WAIT_THRESHOLD_SEC = 0.15;   // 本動画 pause-and-wait の発動閾値
 const PAUSE_MAX_SEC = 10;                    // 1回の pause がこれを超えるなら諦めて同期失敗扱い
 const DRIFT_REPORT_TTL_MS = 4000;            // この時間以内に受信した report だけを「現在の他端末状態」として採用
 // 暖機 anchor 受信時の初期同期：自分の位置と「あるべき位置」の差がこれ以上なら loadVideo で飛ばす。
-// pause-and-wait（10秒上限）では半周期分（~31秒）の差を詰めきれないため、初期だけ loadVideo で揃える。
 const WARMUP_INITIAL_SEEK_THRESHOLD_SEC = 1.0;
+// 暖機動画の rate 補正パラメータ。暖機は「揃える体験のための出囃子」で、本動画と違って
+// 多少のリズム変化は許容できる選曲を使う前提。両側調整で両端末ともに少しずつ寄せる。
+const WARMUP_RATE_THRESHOLD_SEC = 0.15;      // 他端末 drift との差がこれを超えたら rate を動かす
+const WARMUP_RATE_UP = 1.25;                 // 自分が遅延側 → 速くする
+const WARMUP_RATE_DOWN = 0.75;               // 自分が先行側 → 遅くする
 // バッファ検知とリカバリ
 const BUFFER_RECOVERY_GRACE_MS = 2500;       // バッファ復帰後の補正禁止猶予
 // 全員一斉再生
@@ -213,6 +217,11 @@ export default function HiTensionPage() {
   useEffect(() => { isRealtimePlayRef.current = isRealtimePlay; }, [isRealtimePlay]);
   useEffect(() => { screenRef.current = screen; }, [screen]);
 
+  // 診断ログ：syncActive 変化を追う（pause/rate が動かない原因切り分け）
+  useEffect(() => {
+    logHiEvent(anonSessionId, "sync_active", String(syncActive));
+  }, [syncActive, anonSessionId]);
+
   // 同期デバッグ表示の更新ループ（原因特定用、後で削除）。
   // syncActive で trigger するので暖機動画の同期中もログが取れる。
   useEffect(() => {
@@ -305,19 +314,15 @@ export default function HiTensionPage() {
       const now = Date.now();
       const bufferAhead = getBufferAheadSec(player);
 
-      // pause-and-wait 中は何もしない（resume は別 setTimeout が担当）
+      // pause-and-wait 中（本動画のみ使う）は何もしない。resume は別 setTimeout が担当。
       if (pauseUntilRef.current > 0) return;
 
-      // 再生中以外（一時停止/バッファリング）は補正しない。
-      // ただし自分の drift は計算して broadcast はする（他端末がこちらの遅延を知って待てるように）。
       const isPlaying = player.isPlaying();
-
       const expected = calculateExpected(anchor, now);
       const actual = player.getCurrentTime();
       const drift = normalizeDrift(anchor, expected - actual); // 正: 自分が遅れ, 負: 自分が先行
 
-      // 自分の drift+buffer を全員に配信。他端末はこれを見て pause-and-wait の相対判定をする。
-      // 自分の最新値も driftReportsRef に入れて、自分側の集計を統一する。
+      // 自分の drift+buffer を全員に配信。他端末はこれを見て相対判定する。
       sendDriftReportRef.current(drift, bufferAhead);
       driftReportsRef.current.set(myKeyRef.current, {
         sessionId: myKeyRef.current,
@@ -327,46 +332,57 @@ export default function HiTensionPage() {
       });
 
       if (!isPlaying) return;
-      // バッファ復帰直後はプレイヤーの位置情報が不安定なので猶予期間を置く
       if (now < bufferRecoveryGraceUntilRef.current) return;
-      if (actual <= 0 || expected <= 0) return;
+      if (actual <= 0) return;
 
-      // --- 相対判定 pause-and-wait ---
-      // 直近 DRIFT_REPORT_TTL_MS 以内の他端末 report を集計。
-      // 自分より drift が大きい（より遅れている）端末がいれば、その端末に合わせて待つ。
-      let maxOtherDrift = drift; // 自分の drift を初期値に
+      // 直近 DRIFT_REPORT_TTL_MS 以内の他端末 report から min/max を集計
+      let maxOtherDrift = drift;
+      let minOtherDrift = drift;
       for (const report of driftReportsRef.current.values()) {
         if (report.sessionId === myKeyRef.current) continue;
         if (now - report.receivedAt > DRIFT_REPORT_TTL_MS) continue;
         if (report.drift > maxOtherDrift) maxOtherDrift = report.drift;
+        if (report.drift < minOtherDrift) minOtherDrift = report.drift;
       }
-      const relativeDelay = maxOtherDrift - drift; // 自分から見て「最遅端末」がどれだけ後ろにいるか（秒）
 
-      // relativeDelay が大きすぎる（最遅端末が PAUSE_MAX_SEC 以上遅れている）→ 諦め同期失敗
+      if (anchor.kind === "warmup") {
+        // 暖機動画は rate 補正で両側調整。pause しない（黒画面・buffering を避ける）。
+        const currentRate = player.getPlaybackRate();
+        let targetRate = 1.0;
+        if (drift > maxOtherDrift - WARMUP_RATE_THRESHOLD_SEC && drift > minOtherDrift + WARMUP_RATE_THRESHOLD_SEC) {
+          // 自分が一番遅れている（max ≈ self）→ 速くする
+          targetRate = WARMUP_RATE_UP;
+        } else if (drift < minOtherDrift + WARMUP_RATE_THRESHOLD_SEC && drift < maxOtherDrift - WARMUP_RATE_THRESHOLD_SEC) {
+          // 自分が一番進んでいる（min ≈ self）→ 遅くする
+          targetRate = WARMUP_RATE_DOWN;
+        }
+        if (Math.abs(currentRate - targetRate) > 0.05) {
+          player.setPlaybackRate(targetRate);
+          logHiEvent(anonSessionId, "rate_set", `warmup rate=${targetRate} drift=${drift.toFixed(2)} otherMin=${minOtherDrift.toFixed(2)} otherMax=${maxOtherDrift.toFixed(2)}`);
+        }
+        return;
+      }
+
+      // 本動画：pause-and-wait（rate は触らない）
+      const relativeDelay = maxOtherDrift - drift;
       if (relativeDelay > PAUSE_MAX_SEC) {
         sendSenoFailRef.current();
         return;
       }
-
-      // 自分が最遅端末より先行している（=他に追いつかせる必要がある）→ pause で待つ
       if (relativeDelay > PAUSE_AND_WAIT_THRESHOLD_SEC) {
         const pauseMs = relativeDelay * 1000;
         player.pause();
         pauseUntilRef.current = now + pauseMs;
-        // pause 終了予定時刻に playVideo() で復帰。
-        // この play() はジェスチャースコープ外だが、既に PLAYING に到達済みなので iOS でも通る。
+        logHiEvent(anonSessionId, "pause_called", `main pauseMs=${Math.round(pauseMs)} drift=${drift.toFixed(2)} maxOther=${maxOtherDrift.toFixed(2)}`);
         setTimeout(() => {
           if (pauseUntilRef.current > 0 && Date.now() >= pauseUntilRef.current) {
             pauseUntilRef.current = 0;
             playerApiRef.current?.play();
           }
         }, pauseMs);
-        return;
       }
-
-      // 揃っている（小ジッタ）または自分が最遅端末 → 何もしない（最遅端末は走り続け、他が pause で追ってくる）
     }, DRIFT_CHECK_INTERVAL_MS);
-  }, [stopDriftLoop]);
+  }, [stopDriftLoop, anonSessionId]);
 
   // --- 暖機動画の anchor 受信（待機室入室時 / 新メンバー入室時にホストが配る）---
   const handleWarmupStart = useCallback((t0: number, p0: number) => {
