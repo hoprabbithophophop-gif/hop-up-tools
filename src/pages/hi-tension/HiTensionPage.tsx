@@ -396,24 +396,12 @@ export default function HiTensionPage() {
         return;
       }
 
-      // 本動画：pause-and-wait（rate は触らない）
-      const relativeDelay = maxOtherDrift - drift;
-      if (relativeDelay > PAUSE_MAX_SEC) {
-        sendSenoFailRef.current();
-        return;
-      }
-      if (relativeDelay > PAUSE_AND_WAIT_THRESHOLD_SEC) {
-        const pauseMs = relativeDelay * 1000;
-        player.pause();
-        pauseUntilRef.current = now + pauseMs;
-        logHiEvent(anonSessionId, "pause_called", `main pauseMs=${Math.round(pauseMs)} drift=${drift.toFixed(2)} maxOther=${maxOtherDrift.toFixed(2)}`);
-        setTimeout(() => {
-          if (pauseUntilRef.current > 0 && Date.now() >= pauseUntilRef.current) {
-            pauseUntilRef.current = 0;
-            playerApiRef.current?.play();
-          }
-        }, pauseMs);
-      }
+      // 本動画：pause-and-wait は廃止（第1段階）。動画は絶対に止めない。
+      // drift と他端末の min/max は計測・broadcast のみ続け、次の段階（VVT 線形補正 + 緊急
+      // rate-fit + 強制seek）で動画位置の補正を行う。「リズム崩壊の元凶は pause」という
+      // 専門家見解と Hop の体験要件（動画停止は致命的）に従う。
+      // 参考値：以前は relativeDelay > 0.15 で pause、> PAUSE_MAX_SEC で seno_fail していた。
+      void maxOtherDrift; void minOtherDrift; void drift;
     }, DRIFT_CHECK_INTERVAL_MS);
   }, [stopDriftLoop, anonSessionId]);
 
