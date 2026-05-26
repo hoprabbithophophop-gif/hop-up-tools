@@ -21,6 +21,9 @@ export type YouTubePlayerApi = {
   setPlaybackRate: (rate: number) => void;
   /** 現在の再生速度。取得不可なら 1 */
   getPlaybackRate: () => number;
+  /** 再生品質を要求（'small'=240p, 'medium'=360p, 'large'=480p, 'hd720', 'hd1080', 'default'）。
+   *  デコード負荷を抑えたい時に呼ぶ。YouTube が auto を優先する場合は無視されることもある。 */
+  setPlaybackQuality: (quality: string) => void;
   /** バッファ済み割合(0〜1)。取得不可なら 0 */
   getVideoLoadedFraction: () => number;
   /** 動画の総尺(秒)。取得不可なら 0 */
@@ -226,6 +229,9 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
     },
     getPlaybackRate() {
       try { return (playerRef.current as unknown as { getPlaybackRate?: () => number })?.getPlaybackRate?.() ?? 1; } catch { return 1; }
+    },
+    setPlaybackQuality(quality: string) {
+      try { (playerRef.current as unknown as { setPlaybackQuality?: (q: string) => void })?.setPlaybackQuality?.(quality); } catch { /* ignore */ }
     },
     getVideoLoadedFraction() {
       try { return (playerRef.current as unknown as { getVideoLoadedFraction?: () => number })?.getVideoLoadedFraction?.() ?? 0; } catch { return 0; }

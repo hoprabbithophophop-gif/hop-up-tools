@@ -588,6 +588,12 @@ export default function HiTensionPage() {
       playerApiRef.current?.setPlaybackRate(1.0);
       playerApiRef.current?.unMute();
       playerApiRef.current?.loadVideo(VIDEO_ID);
+      // PC（other）はデコード余力が乏しく rate≈0.97 になりがちで同期破綻の主因。
+      // 低解像度を明示要求して負荷を激減させる（240p で画素数 約 1/12）。
+      // iframe サイズ縮小（ステージモニター化）と併用すると確実性 UP。
+      if (detectDevice() === "other") {
+        playerApiRef.current?.setPlaybackQuality("small");
+      }
       // 状態切替：syncing 終了、本動画再生中フラグ ON、画面遷移
       setSyncing(false);
       setIsRealtimePlay(true);
@@ -1023,13 +1029,25 @@ export default function HiTensionPage() {
           flexDirection: "column",
         }}
       >
-        <YouTubePlayer
-          ref={playerApiRef}
-          videoId={VIDEO_ID}
-          onEnded={handleVideoEnded}
-          onTimeUpdate={handleTimeUpdate}
-          onPlayerStateChange={handlePlayerStateChange}
-        />
+        {/* PC（other）では動画を 360px に縮めて「ステージモニター」風に表示。
+            iframe の表示サイズを小さくすることで YouTube が低解像度を自動選択しやすくなり、
+            PC ブラウザのデコード負荷が下がる（rate≈1.0 維持＝同期破綻防止）。
+            iOS/Android はモバイルの縦画面いっぱいで従来通り。 */}
+        <div
+          style={
+            detectDevice() === "other"
+              ? { width: 360, maxWidth: "100%", margin: "0 auto" }
+              : undefined
+          }
+        >
+          <YouTubePlayer
+            ref={playerApiRef}
+            videoId={VIDEO_ID}
+            onEnded={handleVideoEnded}
+            onTimeUpdate={handleTimeUpdate}
+            onPlayerStateChange={handlePlayerStateChange}
+          />
+        </div>
 
         <div
           style={{
