@@ -27,6 +27,13 @@ function detectDevice(): string {
   if (/Android/.test(ua)) return "Android";
   return "other";
 }
+
+// PC（other）の動画ステージモニターのサイズ。iframe を小さくして YouTube に低解像度を選ばせ、
+// デコード負荷を下げて rate=1.0 を維持しやすくするのが目的。
+// 480 だと 360p 自動選択（240p 比 2.25 倍）の可能性、それでも HandsCanvas を screen==="play"
+// でガードした効果で余力が吸収できる見込み。崩れたら下げる。
+const PC_VIDEO_WIDTH = 480;
+const PC_VIDEO_HEIGHT_PX = (PC_VIDEO_WIDTH * 9) / 16;
 const SYNC_LOG_INTERVAL_MS = 3000;
 
 // 診断用イベントログ（後で削除）。再生開始まわりの「どこで止まったか」を自動記録する。
@@ -1029,14 +1036,14 @@ export default function HiTensionPage() {
           flexDirection: "column",
         }}
       >
-        {/* PC（other）では動画を 360px に縮めて「ステージモニター」風に表示。
+        {/* PC（other）では動画を PC_VIDEO_WIDTH に縮めて「ステージモニター」風に表示。
             iframe の表示サイズを小さくすることで YouTube が低解像度を自動選択しやすくなり、
             PC ブラウザのデコード負荷が下がる（rate≈1.0 維持＝同期破綻防止）。
             iOS/Android はモバイルの縦画面いっぱいで従来通り。 */}
         <div
           style={
             detectDevice() === "other"
-              ? { width: 360, maxWidth: "100%", margin: "0 auto" }
+              ? { width: PC_VIDEO_WIDTH, maxWidth: "100%", margin: "0 auto" }
               : undefined
           }
         >
@@ -1181,10 +1188,10 @@ export default function HiTensionPage() {
       )}
 
       {/* 待機室・ready-check は動画ラッパーの直下に重ねる。動画の実高さに合わせて top を計算：
-          PC（other）: 動画ラッパーを 360px に縮めているので 16:9 で 202.5px。
+          PC（other）: 動画ラッパーを PC_VIDEO_WIDTH に縮めているので 16:9 で PC_VIDEO_HEIGHT_PX。
           モバイル: 動画は画面幅いっぱい × 9/16 = 56.25vw。 */}
       {(() => {
-        const overlayTop = detectDevice() === "other" ? `${(360 * 9) / 16}px` : "56.25vw";
+        const overlayTop = detectDevice() === "other" ? `${PC_VIDEO_HEIGHT_PX}px` : "56.25vw";
         return (
           <>
             {screen === "waiting" && (
