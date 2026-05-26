@@ -1049,104 +1049,111 @@ export default function HiTensionPage() {
           />
         </div>
 
-        <div
-          style={{
-            flex: 1,
-            position: "relative",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            padding: "2.4rem 1.2rem 2rem",
-          }}
-        >
-          <HandsCanvas
-            key={seatHash}
-            ref={canvasRef}
-            sessions={sessions}
-            selfMemberId={memberId}
-            selfSeatHash={seatHash}
-            selfSeatIndex={isRealtimePlay ? playSeatIndex : -1}
-            onPixiEvent={(event, detail) => logHiEvent(anonSessionId, event, detail)}
-          />
+        {/* HandsCanvas と recordHi ボタン等は本動画再生中（play）の時のみマウント。
+            ＊YouTubePlayer は上で常時マウント維持（暖機動画を切らさないため）。
+            waiting / ready-check の状態では下半分が空になり、その上に WaitingRoom / ReadyCheck が
+            通常通りオーバーレイされる。これまでは常時マウントしていたため、PC で動画を 360px に
+            縮小すると下層の recordHi ボタンが WaitingRoom 上端の隙間に透けて見えていた。 */}
+        {screen === "play" && (
+          <div
+            style={{
+              flex: 1,
+              position: "relative",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              padding: "2.4rem 1.2rem 2rem",
+            }}
+          >
+            <HandsCanvas
+              key={seatHash}
+              ref={canvasRef}
+              sessions={sessions}
+              selfMemberId={memberId}
+              selfSeatHash={seatHash}
+              selfSeatIndex={isRealtimePlay ? playSeatIndex : -1}
+              onPixiEvent={(event, detail) => logHiEvent(anonSessionId, event, detail)}
+            />
 
-          {videoEnded ? (
-            <div style={{ position: "relative", zIndex: 1, width: "100%", display: "flex", justifyContent: "center" }}>
-              <EndCard
-                selfCount={endedSelfCount}
-                totalCount={sessions.reduce((sum, s) => sum + s.bucket_indices.length, 0) + endedSelfCount}
-                memberColor={member?.color ?? "#000"}
-                onReplay={handleReplay}
-                onChangeColor={handleChangeColor}
-              />
-            </div>
-          ) : (
-            <div
-              style={{
-                position: "relative",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                minHeight: 120,
-                zIndex: 1,
-              }}
-            >
-              <button
-                type="button"
-                onPointerDown={handlePressStart}
-                onPointerUp={handlePressEnd}
-                onPointerLeave={handlePressEnd}
-                onPointerCancel={handlePressEnd}
-                onContextMenu={(e) => e.preventDefault()}
+            {videoEnded ? (
+              <div style={{ position: "relative", zIndex: 1, width: "100%", display: "flex", justifyContent: "center" }}>
+                <EndCard
+                  selfCount={endedSelfCount}
+                  totalCount={sessions.reduce((sum, s) => sum + s.bucket_indices.length, 0) + endedSelfCount}
+                  memberColor={member?.color ?? "#000"}
+                  onReplay={handleReplay}
+                  onChangeColor={handleChangeColor}
+                />
+              </div>
+            ) : (
+              <div
                 style={{
-                  width: BUTTON_SIZE,
-                  height: BUTTON_SIZE,
-                  borderRadius: "50%",
-                  background: member?.color ?? "#000",
-                  color: "#fff",
-                  border: "none",
-                  cursor: "pointer",
-                  boxShadow: isPressed
-                    ? "0 0 0 1px rgba(0,0,0,0.12), 0 0 0 8px rgba(0,0,0,0.06)"
-                    : "0 0 0 1px rgba(0,0,0,0.08)",
-                  transform: isPressed ? "scale(0.92)" : "scale(1)",
-                  transition: "transform 0.12s, box-shadow 0.12s",
-                  touchAction: "manipulation",
-                  userSelect: "none",
-                  WebkitUserSelect: "none",
-                  WebkitTouchCallout: "none",
-                  WebkitTapHighlightColor: "transparent",
+                  position: "relative",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  padding: 0,
+                  minHeight: 120,
+                  zIndex: 1,
                 }}
               >
-                <HandIcon size={Math.round(BUTTON_SIZE * 0.55)} color="#fff" />
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  onPointerDown={handlePressStart}
+                  onPointerUp={handlePressEnd}
+                  onPointerLeave={handlePressEnd}
+                  onPointerCancel={handlePressEnd}
+                  onContextMenu={(e) => e.preventDefault()}
+                  style={{
+                    width: BUTTON_SIZE,
+                    height: BUTTON_SIZE,
+                    borderRadius: "50%",
+                    background: member?.color ?? "#000",
+                    color: "#fff",
+                    border: "none",
+                    cursor: "pointer",
+                    boxShadow: isPressed
+                      ? "0 0 0 1px rgba(0,0,0,0.12), 0 0 0 8px rgba(0,0,0,0.06)"
+                      : "0 0 0 1px rgba(0,0,0,0.08)",
+                    transform: isPressed ? "scale(0.92)" : "scale(1)",
+                    transition: "transform 0.12s, box-shadow 0.12s",
+                    touchAction: "manipulation",
+                    userSelect: "none",
+                    WebkitUserSelect: "none",
+                    WebkitTouchCallout: "none",
+                    WebkitTapHighlightColor: "transparent",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: 0,
+                  }}
+                >
+                  <HandIcon size={Math.round(BUTTON_SIZE * 0.55)} color="#fff" />
+                </button>
+              </div>
+            )}
 
-          <p
-            style={{
-              marginTop: "auto",
-              paddingTop: "2.4rem",
-              fontSize: "0.625rem",
-              color: "#777",
-              textAlign: "center",
-              lineHeight: 1.6,
-              position: "relative",
-              zIndex: 1,
-            }}
-          >
-            楽曲・映像の著作権は権利者に帰属します。
-            <br />
-            権利者からの申し出により直ちに公開を停止します。
-            <br />
-            <span style={{ fontSize: "0.5rem", color: "#999" }}>
-              Hand icon by Font Awesome (CC BY 4.0)
-            </span>
-          </p>
-        </div>
+            <p
+              style={{
+                marginTop: "auto",
+                paddingTop: "2.4rem",
+                fontSize: "0.625rem",
+                color: "#777",
+                textAlign: "center",
+                lineHeight: 1.6,
+                position: "relative",
+                zIndex: 1,
+              }}
+            >
+              楽曲・映像の著作権は権利者に帰属します。
+              <br />
+              権利者からの申し出により直ちに公開を停止します。
+              <br />
+              <span style={{ fontSize: "0.5rem", color: "#999" }}>
+                Hand icon by Font Awesome (CC BY 4.0)
+              </span>
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Select 画面 */}
@@ -1173,40 +1180,49 @@ export default function HiTensionPage() {
         </div>
       )}
 
-      {/* 待機室（コンポーネント自身が画面下半分に位置するため、ラッパ div は不要。
-          画面上半分の暖機動画は HiTensionPage の常時マウントエリアが見える）*/}
-      {screen === "waiting" && (
-        <WaitingRoom
-          participants={participants}
-          mySessionId={presenceKey}
-          isHost={isHost}
-          connected={connected}
-          channelError={channelError}
-          isOverflow={isOverflow}
-          roomCode={roomCode}
-          onBounceSignal={broadcastBounce}
-          bouncingSessionId={bouncingSessionId}
-          onSeno={handleSenoButton}
-          onSolo={handleSolo}
-          onReenterCode={handleReenterCode}
-          onBackToTop={handleBackToTop}
-        />
-      )}
+      {/* 待機室・ready-check は動画ラッパーの直下に重ねる。動画の実高さに合わせて top を計算：
+          PC（other）: 動画ラッパーを 360px に縮めているので 16:9 で 202.5px。
+          モバイル: 動画は画面幅いっぱい × 9/16 = 56.25vw。 */}
+      {(() => {
+        const overlayTop = detectDevice() === "other" ? `${(360 * 9) / 16}px` : "56.25vw";
+        return (
+          <>
+            {screen === "waiting" && (
+              <WaitingRoom
+                participants={participants}
+                mySessionId={presenceKey}
+                isHost={isHost}
+                connected={connected}
+                channelError={channelError}
+                isOverflow={isOverflow}
+                roomCode={roomCode}
+                onBounceSignal={broadcastBounce}
+                bouncingSessionId={bouncingSessionId}
+                onSeno={handleSenoButton}
+                onSolo={handleSolo}
+                onReenterCode={handleReenterCode}
+                onBackToTop={handleBackToTop}
+                topOffset={overlayTop}
+              />
+            )}
 
-      {/* せーの → ready-check */}
-      {screen === "ready-check" && (
-        <ReadyCheck
-          isHost={isHost}
-          selfReadied={selfReadied}
-          readyCount={readyCount}
-          groupSize={readyCheckGroup.length}
-          failed={readyCheckFailed}
-          memberColor={member?.color ?? "#000"}
-          onReadyTap={handleReadyTap}
-          onRetrySeno={handleRetrySeno}
-          onQuit={handleBackToTop}
-        />
-      )}
+            {screen === "ready-check" && (
+              <ReadyCheck
+                isHost={isHost}
+                selfReadied={selfReadied}
+                readyCount={readyCount}
+                groupSize={readyCheckGroup.length}
+                failed={readyCheckFailed}
+                memberColor={member?.color ?? "#000"}
+                onReadyTap={handleReadyTap}
+                onRetrySeno={handleRetrySeno}
+                onQuit={handleBackToTop}
+                topOffset={overlayTop}
+              />
+            )}
+          </>
+        );
+      })()}
     </>
   );
 }

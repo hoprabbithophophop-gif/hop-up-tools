@@ -17,6 +17,9 @@ interface Props {
   onSolo: () => void;
   onReenterCode: () => void;
   onBackToTop: () => void;
+  /** 動画エリアの直下から始めるための top 値（例: "56.25vw"、PC では動画実高さの px 値）。
+   *  動画ラッパー縮小時に動画と密着させるため、HiTensionPage が計算して渡す。 */
+  topOffset?: string;
 }
 
 const DOT_SIZE = 14;
@@ -35,6 +38,7 @@ export default function WaitingRoom({
   onSolo,
   onReenterCode,
   onBackToTop,
+  topOffset,
 }: Props) {
   const [selfBouncing, setSelfBouncing] = useState(false);
   const selfBounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -117,12 +121,12 @@ export default function WaitingRoom({
   }
 
   // 暖機動画は HiTensionPage 側の常時マウントエリアで表示しているため、ここでは下半分だけ表示する。
-  // top を動画の高さぶん（16:9 = 56.25vw）空けることで、上に動画が見える。
+  // top は動画の実高さに合わせる（モバイル: 56.25vw = 動画 100vw 幅×9/16。PC: 動画 360px 縮小時は 202.5px）。
   return (
     <div
       style={{
         position: "fixed",
-        top: "56.25vw",
+        top: topOffset ?? "56.25vw",
         left: 0,
         right: 0,
         bottom: 0,
@@ -133,7 +137,7 @@ export default function WaitingRoom({
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        justifyContent: "space-between",
+        justifyContent: "space-evenly",
         padding: "1rem 1.2rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         animation: "hi-tension-fade-in 180ms ease-out",

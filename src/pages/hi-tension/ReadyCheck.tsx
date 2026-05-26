@@ -10,6 +10,8 @@ interface Props {
   onReadyTap: () => void;
   onRetrySeno: () => void;
   onQuit: () => void;
+  /** 動画エリアの直下から始めるための top 値（WaitingRoom と同じ）。 */
+  topOffset?: string;
 }
 
 const BUTTON_SIZE = 132;
@@ -29,12 +31,13 @@ export default function ReadyCheck({
   onReadyTap,
   onRetrySeno,
   onQuit,
+  topOffset,
 }: Props) {
   return (
     <div
       style={{
         position: "fixed",
-        top: "56.25vw",
+        top: topOffset ?? "56.25vw",
         left: 0,
         right: 0,
         bottom: 0,
@@ -43,7 +46,7 @@ export default function ReadyCheck({
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        justifyContent: "space-between",
+        justifyContent: "space-evenly",
         padding: "1.2rem 1.2rem 1rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         animation: "hi-tension-fade-in 180ms ease-out",
