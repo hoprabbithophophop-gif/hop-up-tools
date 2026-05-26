@@ -956,8 +956,20 @@ export default function HiTensionPage() {
   };
 
   const handleTimeUpdate = useCallback((t: number) => {
-    currentTimeRef.current = t;
-    canvasRef.current?.onTimeUpdate(t);
+    // 同期再生中は anchor 基準の経過時間に変換する。recordHi が anchor 基準の videoTime を
+    // broadcast している（「同じリアル瞬間に押した」が同じ video_time として共有される）ため、
+    // 受信側の比較も anchor 基準で行わないと drift 分だけタップ表示がズレる。
+    // 例: PC drift=2 / Android drift=0 で同時押し → Android が送る videoTime=anchor 上の 30
+    //     受信した PC が自分の getCurrentTime=28 と比較すると「2 秒未来のタップ」と判定し
+    //     2 秒待ってから表示してしまう。anchor 基準で変換すれば両端 30 で一致して即時表示。
+    let canonicalT = t;
+    const anchor = clockAnchorRef.current;
+    if (isRealtimePlayRef.current && anchor && anchor.kind === "main") {
+      const supabaseNow = Date.now() + anchor.offset;
+      canonicalT = anchor.p0 + (supabaseNow - anchor.t0) / 1000;
+    }
+    currentTimeRef.current = canonicalT;
+    canvasRef.current?.onTimeUpdate(canonicalT);
   }, []);
 
   const recordHi = useCallback(() => {
