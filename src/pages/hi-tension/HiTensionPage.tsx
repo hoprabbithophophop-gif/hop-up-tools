@@ -19,6 +19,7 @@ import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, generateRoomCod
 import EndCard from "./components/EndCard";
 import HandIcon from "./components/HandIcon";
 import { getSupabase } from "@/lib/supabase";
+import { VirtualVideoTimeKeeper } from "./vvt";
 
 // 同期デバッグ用のデバイス判定（後で削除）
 function detectDevice(): string {
@@ -209,6 +210,11 @@ export default function HiTensionPage() {
   // 他端末の最新 drift+buffer 報告（受信時刻つき）。pause-and-wait の相対判定と本動画遷移条件の判定に使う。
   // sessionId === presenceKey の場合は自分。自分の最新値も入れておく（送信側の集計を簡単にするため）。
   const driftReportsRef = useRef<Map<string, LiveDriftReport>>(new Map());
+  // VVT（Virtual Video Time）：本動画再生中、performance.now() ベースで滑らかに進む論理時計。
+  // 動画 actual のガタつき（buffering / コマ落ち）に振り回されず、HandsCanvas（✋描画）と
+  // 端末間同期の基準として使う。第3段階で✋ broadcast を VVT 基準にして完璧な同期を実現する。
+  const vvtRef = useRef<VirtualVideoTimeKeeper>(new VirtualVideoTimeKeeper());
+  const vvtFrameIdRef = useRef<number | null>(null);
   // ✋押下後、本動画遷移の安定判定で「全員 drift が ±0.15s 以内」が連続している開始時刻（ms）。
   // 0 = まだ連続していない（誰かの drift が大きい）
   const driftStableSinceRef = useRef(0);
@@ -405,6 +411,39 @@ export default function HiTensionPage() {
     }, DRIFT_CHECK_INTERVAL_MS);
   }, [stopDriftLoop, anonSessionId]);
 
+  // VVT 自走ループ。毎フレーム VVT.update(actual) を呼んで currentTimeRef と HandsCanvas に書き込む。
+  // VVT が動いている間だけ rAF を回し、stop() されると次フレームで自然に止まる。
+  const tickVVT = useCallback(() => {
+    if (!vvtRef.current.isRunning()) {
+      vvtFrameIdRef.current = null;
+      return;
+    }
+    const player = playerApiRef.current;
+    const actualTime = player ? player.getCurrentTime() : 0;
+    const vvt = vvtRef.current.update(actualTime);
+    currentTimeRef.current = vvt;
+    canvasRef.current?.onTimeUpdate(vvt);
+    vvtFrameIdRef.current = requestAnimationFrame(tickVVT);
+  }, []);
+
+  // VVT 起動。本動画 anchor が確定しているタイミングで呼ぶ（doSync 内）。
+  // ソロモードでも呼べるように offset=0 / t0=今 のフォールバックは将来追加可能。
+  const startVVT = useCallback(() => {
+    const anchor = clockAnchorRef.current;
+    if (!anchor) return;
+    vvtRef.current.start(anchor.t0, anchor.offset);
+    if (vvtFrameIdRef.current !== null) cancelAnimationFrame(vvtFrameIdRef.current);
+    vvtFrameIdRef.current = requestAnimationFrame(tickVVT);
+  }, [tickVVT]);
+
+  const stopVVT = useCallback(() => {
+    vvtRef.current.stop();
+    if (vvtFrameIdRef.current !== null) {
+      cancelAnimationFrame(vvtFrameIdRef.current);
+      vvtFrameIdRef.current = null;
+    }
+  }, []);
+
   // --- 暖機動画の anchor 受信（待機室入室時 / 新メンバー入室時にホストが配る）---
   const handleWarmupStart = useCallback((t0: number, p0: number) => {
     // 既に anchor 確定済みなら無視（重複配信を防ぐ）
@@ -598,6 +637,10 @@ export default function HiTensionPage() {
       maxDriftRef.current = 0;
       // drift loop は暖機から続いているので start し直し（refs をリセットしたい場合に有効）
       startDriftLoop();
+      // VVT を起動。本動画 anchor.t0 を起点として、performance.now() ベースの滑らかな
+      // 論理時計が走る。HandsCanvas はこの VVT を currentTimeRef 経由で参照するため、
+      // 動画 actual のガタつきと独立して滑らかに進む。
+      startVVT();
     };
     if (songStartTimerRef.current) clearTimeout(songStartTimerRef.current);
     if (delay > 0) {
@@ -605,7 +648,7 @@ export default function HiTensionPage() {
     } else {
       doSync();
     }
-  }, [clearSenoTimer, startDriftLoop, anonSessionId]);
+  }, [clearSenoTimer, startDriftLoop, startVVT, anonSessionId]);
 
   // せーの失敗: ready-check に留まったまま「息が合わなかった」表示。
   // 本動画再生中だった場合は暖機動画に戻して、再試行できるようにする。
@@ -616,6 +659,7 @@ export default function HiTensionPage() {
     clearSenoTimer();
     if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
     stopDriftLoop();
+    stopVVT();
     // anchor もクリア → ホストの 3 秒ごと再 broadcast で新しい暖機 anchor がセットされる
     warmupAnchorReceivedRef.current = false;
     clockAnchorRef.current = null;
@@ -637,7 +681,7 @@ export default function HiTensionPage() {
     setSelfReadied(false);
     setReadyCheckFailed(true);
     setScreen("ready-check"); // play に遷移済みでも ready-check に戻す
-  }, [clearSenoTimer, stopDriftLoop]);
+  }, [clearSenoTimer, stopDriftLoop, stopVVT]);
 
   const handleTap = useCallback((tap: { memberId: string; seatIndex: number; videoTime: number }) => {
     if (!isRealtimePlayRef.current) return;
@@ -840,6 +884,7 @@ export default function HiTensionPage() {
   const handleBackToTop = () => {
     clearSenoTimer();
     stopDriftLoop();
+    stopVVT();
     setSyncActive(false); // ロビーに戻る → 同期動作を完全停止
     warmupAnchorReceivedRef.current = false;
     clockAnchorRef.current = null;
@@ -900,6 +945,7 @@ export default function HiTensionPage() {
     }
     clearPressTimers();
     stopDriftLoop();
+    stopVVT();
     setSyncActive(false); // 本動画終了 → 同期動作を完全停止
     warmupAnchorReceivedRef.current = false;
     clockAnchorRef.current = null;
@@ -926,6 +972,7 @@ export default function HiTensionPage() {
     playerApiRef.current?.pause();
     clearPressTimers();
     stopDriftLoop();
+    stopVVT();
     setSyncActive(false); // ロビーに戻る → 同期動作を完全停止
     warmupAnchorReceivedRef.current = false;
     clockAnchorRef.current = null;
@@ -943,21 +990,11 @@ export default function HiTensionPage() {
     fetchHiSessions().then(setSessions);
   };
 
-  const handleTimeUpdate = useCallback((t: number) => {
-    // 同期再生中は anchor 基準の経過時間に変換する。recordHi が anchor 基準の videoTime を
-    // broadcast している（「同じリアル瞬間に押した」が同じ video_time として共有される）ため、
-    // 受信側の比較も anchor 基準で行わないと drift 分だけタップ表示がズレる。
-    // 例: PC drift=2 / Android drift=0 で同時押し → Android が送る videoTime=anchor 上の 30
-    //     受信した PC が自分の getCurrentTime=28 と比較すると「2 秒未来のタップ」と判定し
-    //     2 秒待ってから表示してしまう。anchor 基準で変換すれば両端 30 で一致して即時表示。
-    let canonicalT = t;
-    const anchor = clockAnchorRef.current;
-    if (isRealtimePlayRef.current && anchor && anchor.kind === "main") {
-      const supabaseNow = Date.now() + anchor.offset;
-      canonicalT = anchor.p0 + (supabaseNow - anchor.t0) / 1000;
-    }
-    currentTimeRef.current = canonicalT;
-    canvasRef.current?.onTimeUpdate(canonicalT);
+  // 旧 handleTimeUpdate（YouTubePlayer の 100ms ポーリングで呼ばれていた）の役割は
+  // VVT の rAF ループに置き換わったため空関数化。YouTubePlayer 側のポーリング自体は
+  // state PLAYING 検知などで使われているため残しておく。
+  const handleTimeUpdate = useCallback((_t: number) => {
+    // no-op: VVT が rAF で currentTimeRef と canvasRef を更新する
   }, []);
 
   const recordHi = useCallback(() => {
