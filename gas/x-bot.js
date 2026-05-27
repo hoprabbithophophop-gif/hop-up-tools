@@ -248,10 +248,11 @@ function XBmain() {
   });
 
   // 締切ツイートがあった場合のみツール紹介を1回投稿
+  // 同じ文言を毎日投稿するとspam判定されやすいので、4バリエーション × 2URL の組み合わせをシーケンシャルに使う
   if (notifiedCount > 0) {
     Utilities.sleep(2000);
     try {
-      postTweet('締切管理ツールとして使えます🐰\nhttps://x.com/hop_rabbit_hop/status/2041114959590101294?s=20');
+      postTweet(buildPromoTweet());
       Logger.log('[X] ツール紹介ツイート成功');
     } catch (e) {
       Logger.log('[X] ツール紹介ツイート失敗: ' + e.message);
@@ -260,6 +261,42 @@ function XBmain() {
 
   flushEmailNotify();
   flushSheetQueue();
+}
+
+// ===== 宣伝ツイートのシーケンシャル切替 =====
+// 同じ定型文の連投を避けるため、4文言 × 2URLの4ペアを順番に使い回す
+function buildPromoTweet() {
+  var VARIANTS = [
+    { text: 'FCチケットの申込・入金期限、まとめて確認できるツールあるよ🐰', url: 'https://x.com/hop_rabbit_hop/status/2041114959590101294' },
+    { text: 'ガントチャートで申込期間と入金期間を可視化してます🐰', url: 'https://x.com/hop_rabbit_hop/status/2058673226100936928' },
+    { text: 'UPFCの申込状況を貼り付けるだけで締切一覧化できるツール、こちら🐰', url: 'https://x.com/hop_rabbit_hop/status/2041114959590101294' },
+    { text: 'スマホ標準カレンダーと自動同期できる機能を追加しました🐰', url: 'https://x.com/hop_rabbit_hop/status/2058673226100936928' },
+  ];
+  var props = PropertiesService.getScriptProperties();
+  var lastIndex = parseInt(props.getProperty('X_PROMO_LAST_INDEX') || '-1', 10);
+  if (isNaN(lastIndex)) lastIndex = -1;
+  var nextIndex = (lastIndex + 1) % VARIANTS.length;
+  props.setProperty('X_PROMO_LAST_INDEX', String(nextIndex));
+  var v = VARIANTS[nextIndex];
+  return v.text + '\n' + v.url;
+}
+
+// ===== デバッグ用: 宣伝ツイートのローテーション確認 =====
+// X_DRY_RUN不要、postTweet()を呼ばないのでX投稿もしない
+// 元のindexを保存→5回ローテ→indexを元に戻す
+function debugPromoRotation() {
+  var props = PropertiesService.getScriptProperties();
+  var saved = props.getProperty('X_PROMO_LAST_INDEX');
+  for (var i = 0; i < 5; i++) {
+    var t = buildPromoTweet();
+    Logger.log('--- 回 ' + (i + 1) + ' ---\n' + t);
+  }
+  if (saved === null) {
+    props.deleteProperty('X_PROMO_LAST_INDEX');
+  } else {
+    props.setProperty('X_PROMO_LAST_INDEX', saved);
+  }
+  Logger.log('（テスト完了。X_PROMO_LAST_INDEX を元に戻しました）');
 }
 
 // ===== JST 日付フォーマット（"4/5(土)" 形式）=====
