@@ -395,6 +395,12 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     },
     receiveLiveTap(memberId: string, seatIndex: number, videoTime: number) {
       const now = currentTimeRef.current;
+      // 受信側の videoTime と自分の currentTime の差が大きいときだけ記録。
+      // 修正の効果検証用: 0.3s 未満に収まれば送受信が同じ基準で揃ってる。
+      const diff = videoTime - now;
+      if (Math.abs(diff) > 0.3) {
+        onPixiEventRef.current?.("tap_recv_diff", `diff=${diff.toFixed(2)}s`);
+      }
       const ageSecs = now - videoTime;
       if (ageSecs > LIVE_DISCARD_SEC) return; // 古すぎ → 捨てる
       const member = findMember(memberId);

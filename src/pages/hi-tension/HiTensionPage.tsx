@@ -957,7 +957,17 @@ export default function HiTensionPage() {
 
   const handleTimeUpdate = useCallback((t: number) => {
     currentTimeRef.current = t;
-    canvasRef.current?.onTimeUpdate(t);
+    // HandsCanvas に渡す時刻は recordHi(送信側) の videoTime と基準を揃える。
+    // 同期再生中は Supabase 時刻基準で算出した動画位置を渡し、他端末から届いた
+    // videoTime と「同じ物差し」で比較できるようにする(YouTube の生 currentTime は
+    // 端末ごとに drift があるので比較基準にすると体感ズレが出る)。
+    let canvasT = t;
+    const anchor = clockAnchorRef.current;
+    if (isRealtimePlayRef.current && anchor) {
+      const supabaseNow = Date.now() + anchor.offset;
+      canvasT = anchor.p0 + (supabaseNow - anchor.t0) / 1000;
+    }
+    canvasRef.current?.onTimeUpdate(canvasT);
   }, []);
 
   const recordHi = useCallback(() => {
