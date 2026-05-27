@@ -212,9 +212,10 @@ function fetchDeadlines(article) {
   const deadlines = [];
 
   // ── 日付パターン（年あり・なし両対応、時刻任意） ──
-  // UPFC は「2026 年3月26日（木）17時」のように年と「年」の間にスペースが入ることがある
-  const D_WITH_YEAR = '\\d{4}\\s*年\\d{1,2}月\\d{1,2}日[（(][月火水木金土日][祝]?[）)](?:\\d{1,2}時(?:\\d{1,2}分)?)?';
-  const D_NO_YEAR   = '\\d{1,2}月\\d{1,2}日[（(][月火水木金土日][祝]?[）)](?:\\d{1,2}時(?:\\d{1,2}分)?)?';
+  // UPFC は「2026 年 6 月 7 日（日）」のように数字の前後にスペース/改行が入ることがある
+  // text は事前に \s+ → ' ' に正規化されているため、すべての数字単位の前後に \s* を許可する
+  const D_WITH_YEAR = '\\d{4}\\s*年\\s*\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日\\s*[（(]\\s*[月火水木金土日][祝]?\\s*[）)](?:\\s*\\d{1,2}\\s*時(?:\\s*\\d{1,2}\\s*分)?)?';
+  const D_NO_YEAR   = '\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日\\s*[（(]\\s*[月火水木金土日][祝]?\\s*[）)](?:\\s*\\d{1,2}\\s*時(?:\\s*\\d{1,2}\\s*分)?)?';
 
   // ── 申込期間（開始〜終了） ──
   // 例: ■申込期間： 2026 年3月26日（木）17時～4月1日（水）12時
@@ -304,7 +305,7 @@ function extractYear(str) {
  */
 function parseJapaneseDate(str, fallbackYear) {
   // 年あり
-  const withYear = str.match(/(\d{4})\s*年(\d{1,2})月(\d{1,2})日[（(][^）)]*[）)](?:(\d{1,2})時(?:(\d{1,2})分)?)?/);
+  const withYear = str.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*[（(][^）)]*[）)](?:\s*(\d{1,2})\s*時(?:\s*(\d{1,2})\s*分)?)?/);
   if (withYear) {
     const year   = parseInt(withYear[1], 10);
     const month  = parseInt(withYear[2], 10) - 1;
@@ -314,7 +315,7 @@ function parseJapaneseDate(str, fallbackYear) {
     return new Date(Date.UTC(year, month, day, hour - 9, minute)).toISOString();
   }
   // 年なし（fallbackYear を使う）
-  const noYear = str.match(/(\d{1,2})月(\d{1,2})日[（(][^）)]*[）)](?:(\d{1,2})時(?:(\d{1,2})分)?)?/);
+  const noYear = str.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*[（(][^）)]*[）)](?:\s*(\d{1,2})\s*時(?:\s*(\d{1,2})\s*分)?)?/);
   if (noYear && fallbackYear) {
     const month  = parseInt(noYear[1], 10) - 1;
     const day    = parseInt(noYear[2], 10);

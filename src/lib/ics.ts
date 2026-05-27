@@ -78,6 +78,57 @@ export function generateYahooCalendarUrl(event: IcsEvent): string {
   return `https://calendar.yahoo.co.jp/?${params.toString()}`;
 }
 
+/**
+ * 複数イベントを1つのICSにまとめる（購読URL用）
+ */
+export function generateMultiIcs(events: IcsEvent[]): string {
+  const now = formatIcsDate(new Date());
+
+  const veventBlocks = events.flatMap((event) => {
+    const start = formatIcsDate(event.dtstart);
+    const end = formatIcsDate(event.dtend);
+    return [
+      "BEGIN:VEVENT",
+      `UID:${event.uid}`,
+      `DTSTAMP:${now}`,
+      `DTSTART:${start}`,
+      `DTEND:${end}`,
+      `SUMMARY:${event.summary}`,
+      `DESCRIPTION:${event.description.replace(/\n/g, "\\n")}`,
+      "BEGIN:VALARM",
+      "TRIGGER:-P1D",
+      "ACTION:DISPLAY",
+      "DESCRIPTION:明日が締切です",
+      "END:VALARM",
+      "BEGIN:VALARM",
+      "TRIGGER:-PT1H",
+      "ACTION:DISPLAY",
+      "DESCRIPTION:1時間後が締切です",
+      "END:VALARM",
+      "END:VEVENT",
+    ];
+  });
+
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//hop-up-tools//FC Ticket Subscription//JA",
+    "CALSCALE:GREGORIAN",
+    "X-WR-CALNAME:FC締切リマインダー",
+    ...veventBlocks,
+    "END:VCALENDAR",
+  ].join("\r\n");
+}
+
+/**
+ * 32文字の小文字英数字スラグを生成（推測不可なURL用）
+ */
+export function generateSubscriptionSlug(): string {
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export function downloadIcs(ics: string, filename: string): void {
   const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
   const url = URL.createObjectURL(blob);

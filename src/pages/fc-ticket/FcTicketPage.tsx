@@ -1,7 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import UpfcDummyPreview from "./UpfcDummyPreview";
 import { getSupabase } from "../../lib/supabase";
-import { generateIcs, downloadIcs, generateGoogleCalendarUrl, generateYahooCalendarUrl, type IcsEvent } from "../../lib/ics";
+import {
+  generateIcs,
+  downloadIcs,
+  generateGoogleCalendarUrl,
+  generateYahooCalendarUrl,
+  generateMultiIcs,
+  generateSubscriptionSlug,
+  type IcsEvent,
+} from "../../lib/ics";
+import {
+  uploadSubscriptionIcs,
+  deleteSubscriptionIcs,
+  subscriptionUrls,
+  type SubscriptionUrls,
+} from "../../lib/icsSubscription";
 import {
   parseUpfcText,
   matchApplications,
@@ -21,7 +35,9 @@ interface Deadline {
   fc_news: { title: string; detail_url: string; category: string };
 }
 
-type Tab = "input" | "result" | "calendar";
+type Tab = "input" | "result" | "calendar" | "subscribe";
+
+type RetentionMode = "after-event-1m" | "6m" | "forever";
 
 interface GanttPeriod {
   newsUid: string;
@@ -193,6 +209,7 @@ export default function FcTicketPage() {
               matchResults={matchResults}
               allDeadlines={allDeadlines}
               onBack={() => setTab("input")}
+              onSubscribe={() => setTab("subscribe")}
             />
           )}
           {tab === "calendar" && (
@@ -206,6 +223,15 @@ export default function FcTicketPage() {
               paid={paid}
               onPaidChange={setPaid}
               matchedUids={matchedUids}
+            />
+          )}
+          {tab === "subscribe" && (
+            <SubscribeScreen
+              allDeadlines={allDeadlines}
+              matchResults={matchResults}
+              watchlist={watchlist}
+              applied={applied}
+              paid={paid}
             />
           )}
         </>
@@ -226,7 +252,7 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
         <h1 className="text-2xl font-black tracking-tighter text-primary uppercase">DEADLINES</h1>
       </div>
       <nav className="hidden md:flex gap-8">
-        {(["input", "result", "calendar"] as Tab[]).map((t) => (
+        {(["input", "result", "calendar", "subscribe"] as Tab[]).map((t) => (
           <button
             key={t}
             data-demo-id={t === 'calendar' ? 'nav-calendar' : undefined}
@@ -237,7 +263,7 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
                 : "text-outline hover:text-primary"
             }`}
           >
-            {t === "input" ? "Input" : t === "result" ? "Result" : "Calendar"}
+            {t === "input" ? "Input" : t === "result" ? "Result" : t === "calendar" ? "Calendar" : "Subscribe"}
           </button>
         ))}
       </nav>
@@ -413,10 +439,12 @@ function ResultScreen({
   matchResults,
   allDeadlines,
   onBack,
+  onSubscribe,
 }: {
   matchResults: MatchResult[];
   allDeadlines: Deadline[];
   onBack: () => void;
+  onSubscribe: () => void;
 }) {
   const matched = matchResults.filter((r) => r.matched.length > 0);
   const unmatched = matchResults.filter((r) => r.matched.length === 0);
@@ -483,6 +511,16 @@ function ResultScreen({
               </div>
             )}
           </div>
+          <button
+            onClick={onSubscribe}
+            className="bg-primary text-on-primary-fixed px-6 py-4 text-left transition-colors hover:bg-secondary cursor-pointer flex items-start gap-3"
+          >
+            <span className="material-symbols-outlined">rss_feed</span>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest mb-1">カレンダーアプリで購読</p>
+              <p className="text-[0.6875rem] opacity-90 leading-tight">TimeTree・iPhone標準カレンダーに自動同期</p>
+            </div>
+          </button>
           <button onClick={onBack} className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer text-left">
             ← 入力に戻る
           </button>
@@ -1679,7 +1717,7 @@ const isMonthStart = d.getDate() === 1;
                       className="material-symbols-outlined text-xl cursor-pointer transition-colors flex-shrink-0"
                       style={{ color: isWatched ? "#000000" : "#c6c6c6", fontVariationSettings: `'FILL' ${isWatched ? 1 : 0}, 'wght' 400, 'GRAD' 0, 'opsz' 24` }}
                       title={isWatched ? "気になるから削除" : "気になるに追加"}
-                      {...(!isWatched && (news.title.includes('BEYOOOOONDS') && news.title.includes('宿泊')) ? { 'data-demo-id': 'watchlist-beyo-hotel-add-btn' } : {})}
+                      {...(!isWatched && news.title.includes('BEYOOOOONDS') ? { 'data-demo-id': 'watchlist-beyo-hotel-add-btn' } : {})}
                     >
                       bookmark
                     </button>
@@ -1881,9 +1919,441 @@ function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
         <p className="text-xs text-on-surface-variant">{dl.fc_news.category}</p>
       </div>
       <div className="flex items-center gap-3">
-        <AddToCalendarButton event={calEvent} />
+        <AddToCalendarButton event={calEvent} demoid="watchlist-add-calendar-btn" />
       </div>
     </div>
+  );
+}
+
+// ─── 画面D: 購読 ──────────────────────────────────────────
+
+const SUBSCRIPTION_TYPES_TO_SUBSCRIBE = ["apply_start", "apply_end", "result", "payment_start", "payment", "sale_start", "sale_end"];
+
+function computeDefaultIncluded(
+  deadlines: Deadline[],
+  matchResults: MatchResult[],
+  watchlistSet: Set<string>,
+  appliedSet: Set<string>,
+  paidSet: Set<string>,
+): Set<string> {
+  const now = new Date();
+  const statusByNewsUid = new Map<string, string>();
+  for (const r of matchResults) {
+    for (const m of r.matched) {
+      statusByNewsUid.set(m.uid, r.parsed.status);
+    }
+  }
+
+  const included = new Set<string>();
+  for (const dl of deadlines) {
+    if (new Date(dl.deadline_at) < now) continue;
+    if (!SUBSCRIPTION_TYPES_TO_SUBSCRIBE.includes(dl.type)) continue;
+
+    const status = statusByNewsUid.get(dl.news_uid) ?? "";
+    const isMatched = statusByNewsUid.has(dl.news_uid);
+    const isApplied = appliedSet.has(dl.news_uid);
+    const isPaid = paidSet.has(dl.news_uid);
+    const isInWatchlist = watchlistSet.has(dl.news_uid);
+
+    if (status.includes("入金済") || isPaid) continue;
+
+    if (status.includes("落選")) {
+      if (dl.type === "sale_start" || dl.type === "sale_end") included.add(dl.id);
+      continue;
+    }
+
+    if (isMatched || isApplied) {
+      if (["result", "payment_start", "payment", "sale_start", "sale_end"].includes(dl.type)) {
+        included.add(dl.id);
+      }
+      continue;
+    }
+
+    if (isInWatchlist) {
+      if (["apply_start", "apply_end", "sale_start", "sale_end"].includes(dl.type)) {
+        included.add(dl.id);
+      }
+      continue;
+    }
+  }
+  return included;
+}
+
+function statusBadgeFor(newsUid: string, matchResults: MatchResult[], appliedSet: Set<string>, paidSet: Set<string>): { label: string; tone: "primary" | "muted" | "danger" } | null {
+  const m = matchResults.find((r) => r.matched.some((mm) => mm.uid === newsUid));
+  if (m) {
+    if (m.parsed.status.includes("入金済")) return { label: "入金済", tone: "muted" };
+    if (m.parsed.status.includes("当選")) return { label: "当選", tone: "primary" };
+    if (m.parsed.status.includes("落選")) return { label: "落選", tone: "danger" };
+    return { label: "申込済み", tone: "primary" };
+  }
+  if (paidSet.has(newsUid)) return { label: "入金済", tone: "muted" };
+  if (appliedSet.has(newsUid)) return { label: "申込済み", tone: "primary" };
+  return null;
+}
+
+function SubscribeScreen({
+  allDeadlines,
+  matchResults,
+  watchlist,
+  applied,
+  paid,
+}: {
+  allDeadlines: Deadline[];
+  matchResults: MatchResult[];
+  watchlist: string[];
+  applied: string[];
+  paid: string[];
+}) {
+  const watchlistSet = useMemo(() => new Set(watchlist), [watchlist]);
+  const appliedSet = useMemo(() => new Set(applied), [applied]);
+  const paidSet = useMemo(() => new Set(paid), [paid]);
+
+  const [slug, setSlug] = useState<string | null>(() => {
+    try { return localStorage.getItem("fc-sub-slug"); } catch { return null; }
+  });
+  const [retention, setRetention] = useState<RetentionMode>(() => {
+    try {
+      const v = localStorage.getItem("fc-sub-retention");
+      if (v === "after-event-1m" || v === "6m" || v === "forever") return v;
+    } catch { /* ignore */ }
+    return "after-event-1m";
+  });
+  const [includedIds, setIncludedIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem("fc-sub-included");
+      if (saved) return new Set(JSON.parse(saved));
+    } catch { /* ignore */ }
+    return new Set<string>();
+  });
+  const [initialized, setInitialized] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [publishedUrls, setPublishedUrls] = useState<SubscriptionUrls | null>(() => slug ? subscriptionUrls(slug) : null);
+  const [copied, setCopied] = useState(false);
+
+  // 初回マウント時、保存済みincludedが無い場合だけ自動デフォルト計算
+  useEffect(() => {
+    if (initialized) return;
+    if (allDeadlines.length === 0) return;
+    const saved = (() => { try { return localStorage.getItem("fc-sub-included"); } catch { return null; } })();
+    if (saved) {
+      setInitialized(true);
+      return;
+    }
+    setIncludedIds(computeDefaultIncluded(allDeadlines, matchResults, watchlistSet, appliedSet, paidSet));
+    setInitialized(true);
+  }, [allDeadlines, matchResults, watchlistSet, appliedSet, paidSet, initialized]);
+
+  function persistIncluded(next: Set<string>) {
+    setIncludedIds(next);
+    try { localStorage.setItem("fc-sub-included", JSON.stringify([...next])); } catch { /* ignore */ }
+  }
+
+  function toggleDeadline(id: string) {
+    const next = new Set(includedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    persistIncluded(next);
+  }
+
+  function persistRetention(mode: RetentionMode) {
+    setRetention(mode);
+    try { localStorage.setItem("fc-sub-retention", mode); } catch { /* ignore */ }
+  }
+
+  const now = new Date();
+  const futureDeadlines = allDeadlines
+    .filter((dl) => SUBSCRIPTION_TYPES_TO_SUBSCRIBE.includes(dl.type))
+    .filter((dl) => new Date(dl.deadline_at) >= now)
+    .filter((dl) => {
+      // 関連のあるものだけ表示: matched / watchlist / applied / 既に購読対象
+      return (
+        matchResults.some((r) => r.matched.some((m) => m.uid === dl.news_uid)) ||
+        watchlistSet.has(dl.news_uid) ||
+        appliedSet.has(dl.news_uid) ||
+        includedIds.has(dl.id)
+      );
+    })
+    .sort((a, b) => new Date(a.deadline_at).getTime() - new Date(b.deadline_at).getTime());
+
+  // 完了済み (入金済 or paid) のDeadlineを分離
+  const completedDeadlines = futureDeadlines.filter((dl) => {
+    const status = matchResults.find((r) => r.matched.some((m) => m.uid === dl.news_uid))?.parsed.status ?? "";
+    return status.includes("入金済") || paidSet.has(dl.news_uid);
+  });
+  const activeDeadlines = futureDeadlines.filter((dl) => !completedDeadlines.includes(dl));
+
+  async function handlePublish() {
+    setError(null);
+    setPublishing(true);
+    try {
+      const useSlug = slug ?? generateSubscriptionSlug();
+      const events: IcsEvent[] = [...includedIds]
+        .map((id) => allDeadlines.find((dl) => dl.id === id))
+        .filter((dl): dl is Deadline => !!dl)
+        .map((dl) => ({
+          uid: dl.id + "@hop-up-tools",
+          summary: dl.fc_news.title + "【" + dl.label + "】",
+          description: dl.fc_news.detail_url,
+          dtstart: new Date(new Date(dl.deadline_at).getTime() - 3600000),
+          dtend: new Date(dl.deadline_at),
+        }));
+      if (events.length === 0) {
+        setError("配信する予定が1つも選択されていません。");
+        setPublishing(false);
+        return;
+      }
+      const ics = generateMultiIcs(events);
+      const urls = await uploadSubscriptionIcs(useSlug, ics);
+      if (!slug) {
+        setSlug(useSlug);
+        try { localStorage.setItem("fc-sub-slug", useSlug); } catch { /* ignore */ }
+      }
+      setPublishedUrls(urls);
+    } catch (e) {
+      setError("URLの発行に失敗しました: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!slug) return;
+    if (!confirm("購読URLを無効化します。\nスマホのカレンダーアプリでも購読の解除をお願いします。\n（設定 → カレンダー → アカウント → 該当カレンダーを削除）")) return;
+    setDeleting(true);
+    try {
+      await deleteSubscriptionIcs(slug);
+      setSlug(null);
+      setPublishedUrls(null);
+      try {
+        localStorage.removeItem("fc-sub-slug");
+      } catch { /* ignore */ }
+    } catch (e) {
+      setError("削除に失敗しました: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function handleCopy() {
+    if (!publishedUrls) return;
+    navigator.clipboard.writeText(publishedUrls.https).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  const includedCount = includedIds.size;
+
+  return (
+    <main className="pt-8 pb-32 px-6 max-w-4xl mx-auto">
+      <div className="mb-8">
+        <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">Section</span>
+        <h2 className="text-5xl font-extrabold tracking-tighter leading-none mt-2">
+          SUBSCRIBE
+        </h2>
+        <p className="text-sm text-on-surface-variant mt-3">
+          TimeTree・iPhone標準カレンダー・Googleカレンダーで自動同期できる購読URLを発行します。
+        </p>
+      </div>
+
+      {/* 配信する予定セクション */}
+      <section className="mb-8">
+        <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
+          <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">配信する予定</h3>
+          <span className="text-[0.6875rem] text-outline">{includedCount}件選択中</span>
+        </div>
+
+        {activeDeadlines.length === 0 && completedDeadlines.length === 0 && (
+          <p className="text-sm text-on-surface-variant py-8 text-center">
+            まず Input タブで申込状況を貼り付けるか、Calendar タブで気になる公演を追加してください。
+          </p>
+        )}
+
+        <div className="space-y-1">
+          {activeDeadlines.map((dl) => (
+            <DeadlineCheckRow
+              key={dl.id}
+              dl={dl}
+              checked={includedIds.has(dl.id)}
+              onToggle={() => toggleDeadline(dl.id)}
+              statusBadge={statusBadgeFor(dl.news_uid, matchResults, appliedSet, paidSet)}
+            />
+          ))}
+        </div>
+
+        {completedDeadlines.length > 0 && (
+          <div className="mt-4">
+            <button
+              onClick={() => setShowCompleted(!showCompleted)}
+              className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer"
+            >
+              {showCompleted ? "▾" : "▸"} 完了済みの予定 ({completedDeadlines.length})
+            </button>
+            {showCompleted && (
+              <div className="mt-2 space-y-1 opacity-60">
+                {completedDeadlines.map((dl) => (
+                  <DeadlineCheckRow
+                    key={dl.id}
+                    dl={dl}
+                    checked={includedIds.has(dl.id)}
+                    onToggle={() => toggleDeadline(dl.id)}
+                    statusBadge={statusBadgeFor(dl.news_uid, matchResults, appliedSet, paidSet)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* 保持期限セレクト */}
+      <section className="mb-8">
+        <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
+          <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">保持期限</h3>
+        </div>
+        <select
+          value={retention}
+          onChange={(e) => persistRetention(e.target.value as RetentionMode)}
+          className="w-full md:w-auto bg-surface-container-low border border-outline-variant/30 px-4 py-2 text-sm cursor-pointer"
+        >
+          <option value="after-event-1m">公演終了+1ヶ月後に自動削除（推奨）</option>
+          <option value="6m">6ヶ月後に自動削除</option>
+          <option value="forever">自分で削除するまで保持</option>
+        </select>
+        <p className="text-[0.6875rem] text-outline mt-2">
+          ※ 自動削除はPhase 2で実装予定。現在は手動削除のみ。
+        </p>
+      </section>
+
+      {/* URL発行/表示エリア */}
+      <section className="mb-8">
+        <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
+          <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">購読URL</h3>
+        </div>
+
+        {!publishedUrls ? (
+          <button
+            onClick={handlePublish}
+            disabled={publishing || includedCount === 0}
+            className="bg-primary text-on-primary-fixed px-8 py-4 text-sm font-bold uppercase tracking-[0.2em] hover:bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+          >
+            {publishing ? "発行中…" : "URLを発行する"}
+          </button>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-surface-container-low p-4 text-xs font-mono break-all">
+              {publishedUrls.https}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleCopy}
+                className="bg-primary text-on-primary-fixed px-6 py-3 text-xs font-bold uppercase tracking-widest hover:bg-secondary transition-colors cursor-pointer"
+              >
+                {copied ? "コピー済み" : "URLをコピー"}
+              </button>
+              <a
+                href={publishedUrls.webcal}
+                className="bg-surface-container text-on-surface px-6 py-3 text-xs font-bold uppercase tracking-widest hover:bg-surface-container-high transition-colors cursor-pointer inline-flex items-center gap-2"
+              >
+                <span className="material-symbols-outlined text-sm">phone_iphone</span>
+                カレンダーアプリで開く
+              </a>
+              <button
+                onClick={handlePublish}
+                disabled={publishing}
+                className="bg-surface-container text-on-surface px-6 py-3 text-xs font-bold uppercase tracking-widest hover:bg-surface-container-high transition-colors cursor-pointer disabled:opacity-30"
+              >
+                {publishing ? "更新中…" : "URLを更新"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <p className="mt-4 text-sm text-tertiary bg-tertiary-container/30 px-4 py-3">{error}</p>
+        )}
+      </section>
+
+      {/* 注意事項 */}
+      <section className="mb-8">
+        <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
+          <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">注意事項</h3>
+        </div>
+        <ul className="text-xs text-on-surface-variant space-y-2 list-disc list-inside">
+          <li>チェックを変更した予定は、カレンダーアプリに反映されるまで最大数時間かかります。</li>
+          <li>即時反映したい時は、カレンダーアプリの画面を下に引っ張って手動更新してください。</li>
+          <li>TimeTreeでは読み取り専用で表示されます（編集できません）。</li>
+          <li>URLを知っている人は誰でも予定の内容を見られます。流出させないでください。</li>
+        </ul>
+      </section>
+
+      {/* URL無効化 */}
+      {slug && (
+        <section className="mt-12 pt-6 border-t border-outline-variant/30">
+          <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline mb-2">URLを無効化する</h3>
+          <p className="text-xs text-on-surface-variant mb-3">
+            購読URLを完全に削除します。流出が疑われる場合や、もう使わない場合に。
+          </p>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="text-xs font-bold uppercase tracking-widest text-tertiary border border-tertiary px-4 py-2 hover:bg-tertiary hover:text-on-tertiary-container transition-colors cursor-pointer disabled:opacity-30"
+          >
+            {deleting ? "削除中…" : "URLを無効化"}
+          </button>
+        </section>
+      )}
+    </main>
+  );
+}
+
+function DeadlineCheckRow({
+  dl,
+  checked,
+  onToggle,
+  statusBadge,
+}: {
+  dl: Deadline;
+  checked: boolean;
+  onToggle: () => void;
+  statusBadge: { label: string; tone: "primary" | "muted" | "danger" } | null;
+}) {
+  const deadline = new Date(dl.deadline_at);
+  const dateStr = deadline.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
+  const timeStr = deadline.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+
+  const badgeClass = statusBadge?.tone === "danger"
+    ? "bg-tertiary-container text-on-tertiary-container"
+    : statusBadge?.tone === "muted"
+    ? "bg-surface-container text-outline"
+    : "bg-primary text-on-primary-fixed";
+
+  return (
+    <label className="flex items-start gap-3 p-3 bg-surface-container-lowest hover:bg-surface-container-low cursor-pointer transition-colors">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onToggle}
+        className="mt-1 w-4 h-4 cursor-pointer flex-shrink-0"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap mb-1">
+          <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">
+            {TYPE_LABEL_EN[dl.type] ?? dl.label}
+          </span>
+          <span className="text-xs font-bold">{dateStr} {timeStr}</span>
+          {statusBadge && (
+            <span className={`text-[0.5625rem] font-bold uppercase tracking-widest px-1.5 py-0.5 ${badgeClass}`}>
+              {statusBadge.label}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-on-surface-variant truncate">{dl.fc_news.title}</p>
+      </div>
+    </label>
   );
 }
 
@@ -1891,9 +2361,10 @@ function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
 
 function BottomNav({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const items: { t: Tab; icon: string; label: string }[] = [
-    { t: "input",    icon: "add_box",        label: "Input" },
-    { t: "result",   icon: "analytics",      label: "Result" },
-    { t: "calendar", icon: "calendar_today", label: "Calendar" },
+    { t: "input",     icon: "add_box",        label: "Input" },
+    { t: "result",    icon: "analytics",      label: "Result" },
+    { t: "calendar",  icon: "calendar_today", label: "Calendar" },
+    { t: "subscribe", icon: "rss_feed",       label: "Subscribe" },
   ];
 
   return (
