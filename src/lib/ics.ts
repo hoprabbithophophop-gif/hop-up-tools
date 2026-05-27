@@ -10,6 +10,22 @@ function formatIcsDate(d: Date): string {
   return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 }
 
+/**
+ * fc_news.title からカレンダー表示用にノイズを除去する
+ * iOS標準カレンダー等で予定タイトルが切れた時にも要旨が分かるよう、
+ * 装飾的な接頭辞・接尾辞・括弧を削る
+ */
+export function cleanFcTitle(title: string): string {
+  return title
+    .replace(/★ファンクラブ会員限定イベント★/g, "")
+    .replace(/Hello! Project会員の皆様へ、/g, "")
+    .replace(/のお知らせ\s*$/, "")
+    .replace(/開催決定[！!]\s*$/, "")
+    .replace(/[「」『』]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function generateIcs(event: IcsEvent): string {
   const now = formatIcsDate(new Date());
   const start = formatIcsDate(event.dtstart);

@@ -8,6 +8,7 @@ import {
   generateYahooCalendarUrl,
   generateMultiIcs,
   generateSubscriptionSlug,
+  cleanFcTitle,
   type IcsEvent,
 } from "../../lib/ics";
 import {
@@ -737,8 +738,8 @@ function DeadlineRow({ dl, paidUp = false, isFirst = false }: { dl: Deadline; pa
 
   const calEvent: IcsEvent = {
     uid: dl.id + "@hop-up-tools",
-    summary: dl.fc_news.title + "【" + dl.label + "】",
-    description: dl.fc_news.detail_url,
+    summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
+    description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
     dtstart: new Date(deadline.getTime() - 3600000),
     dtend: deadline,
   };
@@ -1882,8 +1883,8 @@ function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
 
   const calEvent: IcsEvent = {
     uid: dl.id + "@hop-up-tools",
-    summary: dl.fc_news.title + "【" + dl.label + "】",
-    description: dl.fc_news.detail_url,
+    summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
+    description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
     dtstart: new Date(deadline.getTime() - 3600000),
     dtend: deadline,
   };
@@ -2095,8 +2096,8 @@ function SubscribeScreen({
         .filter((dl): dl is Deadline => !!dl)
         .map((dl) => ({
           uid: dl.id + "@hop-up-tools",
-          summary: dl.fc_news.title + "【" + dl.label + "】",
-          description: dl.fc_news.detail_url,
+          summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
+          description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
           dtstart: new Date(new Date(dl.deadline_at).getTime() - 3600000),
           dtend: new Date(dl.deadline_at),
         }));
@@ -2155,7 +2156,7 @@ function SubscribeScreen({
           SUBSCRIBE
         </h2>
         <p className="text-sm text-on-surface-variant mt-3">
-          TimeTree・iPhone標準カレンダー・Googleカレンダーで自動同期できる購読URLを発行します。
+          カレンダーアプリと自動同期できる購読URLを発行します。
         </p>
       </div>
 
@@ -2224,7 +2225,7 @@ function SubscribeScreen({
           <option value="forever">自分で削除するまで保持</option>
         </select>
         <p className="text-[0.6875rem] text-outline mt-2">
-          ※ 自動削除はPhase 2で実装予定。現在は手動削除のみ。
+          ※ 自動削除は今後対応予定。現在は手動削除のみ。
         </p>
       </section>
 
@@ -2285,7 +2286,7 @@ function SubscribeScreen({
         <ul className="text-xs text-on-surface-variant space-y-2 list-disc list-inside">
           <li>チェックを変更した予定は、カレンダーアプリに反映されるまで最大数時間かかります。</li>
           <li>即時反映したい時は、カレンダーアプリの画面を下に引っ張って手動更新してください。</li>
-          <li>TimeTreeでは読み取り専用で表示されます（編集できません）。</li>
+          <li>カレンダーアプリによっては読み取り専用で表示されます（編集できません）。</li>
           <li>URLを知っている人は誰でも予定の内容を見られます。流出させないでください。</li>
         </ul>
       </section>
@@ -2341,8 +2342,8 @@ function DeadlineCheckRow({
       />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
-          <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">
-            {TYPE_LABEL_EN[dl.type] ?? dl.label}
+          <span className="text-xs font-bold text-on-surface">
+            {dl.label}
           </span>
           <span className="text-xs font-bold">{dateStr} {timeStr}</span>
           {statusBadge && (
