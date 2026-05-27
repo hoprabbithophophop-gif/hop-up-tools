@@ -484,30 +484,17 @@ export default function HiTensionPage() {
         }
         reports.push(r);
       }
+      // 暖機動画の目的は iOS Safari の Play/Pause を効く状態に持ち込むこと + 回線/バッファを温める
+      // ことであり、暖機中の同期は本来どうでもよい(本動画切替後に同期し直す)。
+      // ドリフト整列を待つと暖機 anchor のズレで判定が成立せず seno-fail を量産していたため、
+      // バッファ十分なら即 songstart を送る方針に変更。
       const allBuffered = reports.every(r => r.bufferAhead >= SONGSTART_BUFFER_THRESHOLD_SEC);
-      // 端末間で揃っているかを見る。個々の |drift| は anchor 基準のズレで、暖機中は両端末で
-      // 同じ位置にいても anchor から数秒〜十数秒ずれていることがある（暖機 anchor は古い tick で
-      // 配信され続けるため）。本動画への切替判定は「端末間で揃っているか」で見るべき。
-      // anchor 基準のズレは本動画切替後に pause-and-wait（相対判定）で詰める。
-      const drifts = reports.map(r => r.drift);
-      const driftSpread = Math.max(...drifts) - Math.min(...drifts);
-      const allDriftAligned = driftSpread <= PAUSE_AND_WAIT_THRESHOLD_SEC;
-      if (!allBuffered || !allDriftAligned) {
-        driftStableSinceRef.current = 0;
-        return;
-      }
-      // 連続安定の起点を記録
-      if (driftStableSinceRef.current === 0) {
-        driftStableSinceRef.current = now;
-      }
-      // DRIFT_STABLE_DURATION_MS 連続安定したら本動画遷移
-      if (now - driftStableSinceRef.current >= SONGSTART_DRIFT_STABLE_DURATION_MS) {
-        if (songstartReadyTimerRef.current) { clearInterval(songstartReadyTimerRef.current); songstartReadyTimerRef.current = null; }
-        // t0 = 今 + LEAD_TIME_MS（Supabase時計）, p0 = 0（本動画は 0 秒から開始）
-        const offset = getClockOffsetRef.current();
-        const tReveal = now + offset + LEAD_TIME_MS;
-        sendSongStartRef.current(tReveal, 0);
-      }
+      if (!allBuffered) return;
+      if (songstartReadyTimerRef.current) { clearInterval(songstartReadyTimerRef.current); songstartReadyTimerRef.current = null; }
+      // t0 = 今 + LEAD_TIME_MS（Supabase時計）, p0 = 0（本動画は 0 秒から開始）
+      const offset = getClockOffsetRef.current();
+      const tReveal = now + offset + LEAD_TIME_MS;
+      sendSongStartRef.current(tReveal, 0);
     }, 500);
   }, []);
 
