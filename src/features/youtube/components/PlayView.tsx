@@ -270,10 +270,10 @@ export function PlayView({ sharedPlaylist, onGoHome, isLandscapePlay }: Props) {
                         }`}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className={`leading-snug line-clamp-1 ${
+                          <p className={`leading-snug line-clamp-3 ${
                             isCurrent
-                              ? 'text-[0.8rem] font-bold'
-                              : 'text-[0.75rem] font-normal text-black/60'
+                              ? 'text-[0.65rem] font-normal first-line:text-[0.8rem] first-line:font-bold'
+                              : 'text-[0.62rem] font-normal text-black/40 first-line:text-[0.75rem] first-line:text-black/60'
                           }`}>{item.chapterLabel}</p>
                         </div>
                       </div>

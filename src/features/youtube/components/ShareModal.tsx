@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { ChapterQueueItem } from '../../videos/types/playlist';
-import { createPlaylistShare } from '../../videos/hooks/usePlaylistShare';
+import { createPlaylistShare, PLAYLIST_SHARE_LIMIT } from '../../videos/hooks/usePlaylistShare';
 
 type Step = 'input' | 'loading' | 'result' | 'error';
 
@@ -105,9 +105,9 @@ export function ShareModal({ queue, onClose }: Props) {
               <p className="text-[0.65rem] text-outline mb-1">
                 {queue.length}件 · 7日間有効（アクセスで延長）
               </p>
-              {queue.length > 10 && (
+              {queue.length > PLAYLIST_SHARE_LIMIT && (
                 <p className="text-[0.6rem] text-amber-500 mb-2">
-                  ※ 先頭10件のみ共有されます（{queue.length - 10}件は除外）
+                  ※ 先頭{PLAYLIST_SHARE_LIMIT}件のみ共有されます（{queue.length - PLAYLIST_SHARE_LIMIT}件は除外）
                 </p>
               )}
               <label className="text-[0.6rem] font-bold uppercase tracking-widest text-outline block mb-1">

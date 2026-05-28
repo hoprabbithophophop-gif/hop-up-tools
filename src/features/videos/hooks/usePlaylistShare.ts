@@ -2,6 +2,9 @@ import { nanoid } from 'nanoid';
 import { getSupabase } from '../../../lib/supabase';
 import type { ChapterQueueItem } from '../types/playlist';
 
+/** 共有プレイリストに保存できる最大件数（これを超える分は共有時に切り捨て） */
+export const PLAYLIST_SHARE_LIMIT = 30;
+
 /** Supabase に保存する形式（JSON非表現の Infinity は null で保管） */
 export interface PlaylistShareItem {
   videoId: string;
@@ -11,6 +14,7 @@ export interface PlaylistShareItem {
   startSeconds: number;
   endSeconds: number | null; // null = Infinity
   isFullVideo: boolean;
+  isShort?: boolean; // 縦長動画かどうか（古い共有データには無いので任意）
 }
 
 export interface PlaylistShare {
@@ -34,6 +38,7 @@ export function toShareItem(item: ChapterQueueItem): PlaylistShareItem {
     startSeconds: item.startSeconds,
     endSeconds: isInfinite ? null : item.endSeconds,
     isFullVideo: item.isFullVideo,
+    isShort: !!item.isShort,
   };
 }
 
@@ -51,17 +56,18 @@ export function fromShareItem(item: PlaylistShareItem): ChapterQueueItem {
     startSeconds: item.startSeconds,
     endSeconds: item.endSeconds === null ? Number.MAX_SAFE_INTEGER : item.endSeconds,
     isFullVideo: item.isFullVideo,
+    isShort: !!item.isShort,
   };
 }
 
-/** プレイリストを Supabase に保存して共有 URL を返す（最大10件） */
+/** プレイリストを Supabase に保存して共有 URL を返す（最大 PLAYLIST_SHARE_LIMIT 件） */
 export async function createPlaylistShare(
   title: string,
   items: ChapterQueueItem[]
 ): Promise<string> {
   const supabase = getSupabase();
   const id = nanoid(8);
-  const shareItems = items.slice(0, 10).map(toShareItem);
+  const shareItems = items.slice(0, PLAYLIST_SHARE_LIMIT).map(toShareItem);
 
   const { error } = await supabase
     .from('playlist_shares')

@@ -21,6 +21,8 @@ export interface ChapterQueueItem {
   endSeconds: number;
   /** 動画丸ごと再生かどうか */
   isFullVideo: boolean;
+  /** 縦長動画（ショート）かどうか。未設定/横長は false 扱い。分割レイアウトの向き判定に使う */
+  isShort?: boolean;
 }
 
 export interface ChapterPlaylistState {
