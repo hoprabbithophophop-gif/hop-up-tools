@@ -9,6 +9,7 @@ export interface VideoRow {
   video_type: string;
   group_tags: string[];
   description_short: string;
+  is_short?: boolean | null;
 }
 
 const LONG_PRESS_DELAY = 400;

@@ -7,6 +7,7 @@ interface VideoRow {
   thumbnail_url: string;
   duration_seconds?: number | null;
   published_at?: string | null;
+  is_short?: boolean | null;
 }
 
 interface Chapter {
@@ -44,6 +45,7 @@ export function buildChapterQueueItems(
       ? chapters[i + 1].seconds
       : (video.duration_seconds && video.duration_seconds > 0 ? video.duration_seconds : Number.MAX_SAFE_INTEGER),
     isFullVideo: false,
+    isShort: !!video.is_short,
   }));
 }
 
@@ -68,6 +70,7 @@ export function buildSingleChapterQueueItem(
       ? chapters[index + 1].seconds
       : (video.duration_seconds && video.duration_seconds > 0 ? video.duration_seconds : Number.MAX_SAFE_INTEGER),
     isFullVideo: false,
+    isShort: !!video.is_short,
   };
 }
 
@@ -87,6 +90,7 @@ export function buildFullVideoQueueItem(video: VideoRow): ChapterQueueItem {
       ? video.duration_seconds
       : Number.MAX_SAFE_INTEGER,
     isFullVideo: true,
+    isShort: !!video.is_short,
   };
 }
 

@@ -7,11 +7,20 @@ import { PlayView } from '../../features/youtube/components/PlayView';
 import { Player } from '../../features/youtube/components/Player';
 import { ExpiredView } from '../../features/youtube/components/ExpiredView';
 import { NowPlayingBar } from '../../features/youtube/components/NowPlayingBar';
-import { getPlaylistShare, fromShareItem } from '../../features/videos/hooks/usePlaylistShare';
+import { getPlaylistShare, fromShareItem, PLAYLIST_SHARE_LIMIT } from '../../features/videos/hooks/usePlaylistShare';
 import type { ChapterQueueItem } from '../../features/videos/types/playlist';
 
 type PageState = 'home' | 'play';
 type RestoreStatus = 'idle' | 'loading' | 'done' | 'expired';
+
+// 左右分割（プレイヤー左45vw + 一覧右）を出すのは、実ウィンドウが
+// 「横幅 > 縦幅」かつ「分割しても窮屈にならない最低幅以上」のときだけ。
+// orientation メディアクエリは端末によって画面(デバイス)の向きを返し、
+// 縦長ウィンドウでも landscape 扱いになることがあるため、実寸で判定する。
+const MIN_SPLIT_WIDTH = 700;
+function isWideLandscape(): boolean {
+  return window.innerWidth > window.innerHeight && window.innerWidth >= MIN_SPLIT_WIDTH;
+}
 
 export interface SharedPlaylist {
   title: string;
@@ -38,9 +47,7 @@ function ChapterPickupContent() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [formatFilter, setFormatFilter] = useState<'all' | 'regular' | 'short'>('all');
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isLandscape, setIsLandscape] = useState(
-    () => window.matchMedia('(orientation: landscape)').matches
-  );
+  const [isLandscape, setIsLandscape] = useState(isWideLandscape);
 
   const { state, startPlaylist, appendItems, playNext, playPrev } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
@@ -56,10 +63,13 @@ function ChapterPickupContent() {
   }, []);
 
   useEffect(() => {
-    const mql = window.matchMedia('(orientation: landscape)');
-    const handler = (e: MediaQueryListEvent) => setIsLandscape(e.matches);
-    mql.addEventListener('change', handler);
-    return () => mql.removeEventListener('change', handler);
+    const handler = () => setIsLandscape(isWideLandscape());
+    window.addEventListener('resize', handler);
+    window.addEventListener('orientationchange', handler);
+    return () => {
+      window.removeEventListener('resize', handler);
+      window.removeEventListener('orientationchange', handler);
+    };
   }, []);
 
   const canNativeFullscreen = typeof document.documentElement.requestFullscreen === 'function';
@@ -166,9 +176,13 @@ function ChapterPickupContent() {
 
   const isNotPlay = pageState !== 'play';
   const isPlayerActive = state.currentIndex !== null;
-  const landscapeSplit = isLandscape && isPlayerActive && isNotPlay && !isFullscreen;
+  // 左右分割（プレイヤー左 + リスト右）は「縦長(ショート)動画」のときだけ。
+  // 横長動画は左右分割にすると左カラムに収まりきらず下に大きな余白が出るため、
+  // 上下（プレイヤーを上に横幅いっぱい）にして余白を出さない。
+  const currentIsShort = !!currentItem?.isShort;
+  const landscapeSplit = isLandscape && isPlayerActive && isNotPlay && !isFullscreen && currentIsShort;
   const showPlayerAtTop = isNotPlay && isPlayerActive && !landscapeSplit;
-  const isPlayLandscape = isLandscape && pageState === 'play' && !isFullscreen;
+  const isPlayLandscape = isLandscape && pageState === 'play' && !isFullscreen && currentIsShort;
 
   const playerWrapClass = isFullscreen
     ? 'fixed inset-0 z-[100] flex flex-col bg-black'
@@ -407,7 +421,7 @@ function ChapterPickupContent() {
               <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-20 h-[6px] bg-black/10 overflow-hidden">
                 <span
                   className="block h-full bg-black transition-all duration-300"
-                  style={{ width: `${Math.min(state.queue.length / 10, 1) * 100}%` }}
+                  style={{ width: `${Math.min(state.queue.length / PLAYLIST_SHARE_LIMIT, 1) * 100}%` }}
                 />
               </span>
             )}
