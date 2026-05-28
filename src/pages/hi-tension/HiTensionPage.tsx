@@ -15,7 +15,7 @@ import {
   getOrCreateAnonymousSessionId,
 } from "./storage";
 import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
-import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, generateRoomCode, type LiveDriftReport } from "./useHiTensionRealtime";
+import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, generateRoomCode, type LiveDriftReport, type LiveTap } from "./useHiTensionRealtime";
 import EndCard from "./components/EndCard";
 import HandIcon from "./components/HandIcon";
 import { getSupabase } from "@/lib/supabase";
@@ -638,9 +638,13 @@ export default function HiTensionPage() {
     setScreen("ready-check"); // play に遷移済みでも ready-check に戻す
   }, [clearSenoTimer, stopDriftLoop]);
 
-  const handleTap = useCallback((tap: { memberId: string; seatIndex: number; videoTime: number }) => {
+  const handleTap = useCallback((tap: LiveTap) => {
     if (!isRealtimePlayRef.current) return;
-    canvasRef.current?.receiveLiveTap(tap.memberId, tap.seatIndex, tap.videoTime);
+    // 片道ラグを実測: 受信時のサーバー時刻 − 送信時のサーバー時刻。
+    // sentAt=0(旧クライアント or 欠落)や負値(時計逆転)は 0 にクランプ。
+    const recvServerNow = Date.now() + getClockOffsetRef.current();
+    const lagMs = tap.sentAt > 0 ? Math.max(0, recvServerNow - tap.sentAt) : 0;
+    canvasRef.current?.receiveLiveTap(tap.memberId, tap.seatIndex, tap.videoTime, lagMs);
   }, []);
 
   const handleBounce = useCallback((bounce: { sessionId: string }) => {

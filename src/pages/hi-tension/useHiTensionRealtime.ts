@@ -50,6 +50,8 @@ export type LiveTap = {
   memberId: string;
   seatIndex: number;
   videoTime: number;
+  /** 送信時の Supabase サーバー時刻(ms)。受信側で片道ラグを実測するのに使う。 */
+  sentAt: number;
 };
 
 export type LiveBounce = {
@@ -258,6 +260,8 @@ export function useHiTensionRealtime({
             memberId: payload.member_id,
             seatIndex: payload.seat_index,
             videoTime: payload.video_time,
+            // 旧クライアントは sent_at を送らない → 0 を入れて受信側で実ラグ補正をスキップ
+            sentAt: typeof payload?.sent_at === "number" ? payload.sent_at : 0,
           });
         }
       })
@@ -420,6 +424,7 @@ export function useHiTensionRealtime({
         member_id: mid,
         seat_index: idx,
         video_time: videoTime,
+        sent_at: now + clockOffsetRef.current, // Supabase サーバー時刻基準の送信時刻
       },
     });
   }, [memberId]);

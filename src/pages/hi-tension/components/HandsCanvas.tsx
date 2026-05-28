@@ -19,7 +19,7 @@ import type { HiSession } from "../api";
 export type HandsCanvasApi = {
   spawnSelf: () => void;
   onTimeUpdate: (currentTime: number) => void;
-  receiveLiveTap: (memberId: string, seatIndex: number, videoTime: number) => void;
+  receiveLiveTap: (memberId: string, seatIndex: number, videoTime: number, lagMs: number) => void;
 };
 
 interface Props {
@@ -83,16 +83,14 @@ function seatIndexToPosition(index: number): { xRatio: number; yRatio: number } 
 
 const LIVE_QUEUE_MAX = 100;
 const LIVE_DISCARD_SEC = 3;
-// 遅延した✋のアニメ先送り量の上限（ms）。これ以上ズレても消さず軽く先送りして出す。
-const MAX_EXTRAPOLATION_MS = 200;
+// 遅延した✋のアニメ先送り量の上限（ms）。上昇(最大120ms)+滞空(最大50ms)分までは飛ばし、
+// それ以上ラグが大きくても「上昇アニメ」だけは必ず見せる(挙げた瞬間を残すため)。
+const MAX_EXTRAPOLATION_MS = 170;
 
 type QueuedLiveTap = { videoTime: number; memberId: string; seatIndex: number };
 
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
-}
-function easeInQuad(t: number): number {
-  return t * t;
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
@@ -257,20 +255,15 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
 
     layer.addChild(sprite);
 
-    // ぴょん1回(+20%で二段ジャンプ)、フェードアウト
-    // up + hold + down を 230〜290ms に収める(0.3s 以内)
+    // 上昇 → 滞空 → 上のままフェードアウト（下降なし・二段ジャンプなし）。
+    // 下降を省くことで「✋を挙げた瞬間」の体感が長く残り、Broadcast の物理ラグ
+    // (≈ 300ms) を視覚的に隠蔽する効果を狙う。
     const jumpHeight = 60 + Math.random() * 40;       // 60〜100px
     const upDur = 100 + Math.random() * 20;           // 100〜120ms
     const holdDur = 30 + Math.random() * 20;          // 30〜50ms
-    const downDur = 100 + Math.random() * 20;         // 100〜120ms
     const fadeDur = 120;
-    const doDouble = Math.random() < 0.2;
-    const bounceFactor = 0.5; // 二段目は1段目の50%
 
-    let phase:
-      | "up" | "hold" | "down"
-      | "up2" | "hold2" | "down2"
-      | "fade" | "done" = "up";
+    let phase: "up" | "hold" | "fade" | "done" = "up";
     let phaseStart = 0;
     // 遅延した✋はアニメを先に進めた状態から開始（FPS式の予測）
     let totalMs = params.animationOffsetMs ?? 0;
@@ -292,45 +285,6 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         }
         case "hold": {
           if (local >= holdDur) {
-            phaseStart = totalMs;
-            phase = "down";
-          }
-          break;
-        }
-        case "down": {
-          if (local < downDur) {
-            sprite.y = baselineY - jumpHeight * (1 - easeInQuad(local / downDur));
-          } else {
-            sprite.y = baselineY;
-            phaseStart = totalMs;
-            phase = doDouble ? "up2" : "fade";
-          }
-          break;
-        }
-        case "up2": {
-          const dur = upDur * bounceFactor;
-          if (local < dur) {
-            sprite.y = baselineY - jumpHeight * bounceFactor * easeOutCubic(local / dur);
-          } else {
-            sprite.y = baselineY - jumpHeight * bounceFactor;
-            phaseStart = totalMs;
-            phase = "hold2";
-          }
-          break;
-        }
-        case "hold2": {
-          if (local >= holdDur * bounceFactor) {
-            phaseStart = totalMs;
-            phase = "down2";
-          }
-          break;
-        }
-        case "down2": {
-          const dur = downDur * bounceFactor;
-          if (local < dur) {
-            sprite.y = baselineY - jumpHeight * bounceFactor * (1 - easeInQuad(local / dur));
-          } else {
-            sprite.y = baselineY;
             phaseStart = totalMs;
             phase = "fade";
           }
@@ -393,13 +347,11 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         isToday: true,
       });
     },
-    receiveLiveTap(memberId: string, seatIndex: number, videoTime: number) {
+    receiveLiveTap(memberId: string, seatIndex: number, videoTime: number, lagMs: number) {
       const now = currentTimeRef.current;
-      // 受信側の videoTime と自分の currentTime の差が大きいときだけ記録。
-      // 修正の効果検証用: 0.3s 未満に収まれば送受信が同じ基準で揃ってる。
-      const diff = videoTime - now;
-      if (Math.abs(diff) > 0.3) {
-        onPixiEventRef.current?.("tap_recv_diff", `diff=${diff.toFixed(2)}s`);
+      // 実測ラグが大きいときだけ記録(効果検証用)。
+      if (lagMs > 300) {
+        onPixiEventRef.current?.("tap_recv_diff", `lag=${Math.round(lagMs)}ms`);
       }
       const ageSecs = now - videoTime;
       if (ageSecs > LIVE_DISCARD_SEC) return; // 古すぎ → 捨てる
@@ -417,8 +369,10 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         });
       };
       if (videoTime <= now) {
-        // 既に過ぎたタップ = 遅れて届いた → 遅れ分アニメを先送りして補正
-        spawn(Math.min((now - videoTime) * 1000, MAX_EXTRAPOLATION_MS));
+        // 既に過ぎたタップ = 遅れて届いた → 実測した片道ラグ分アニメを先送りして補正。
+        // ラグ実測値が無い(0)場合は動画位置差で近似フォールバック。
+        const offsetMs = lagMs > 0 ? lagMs : (now - videoTime) * 1000;
+        spawn(Math.min(offsetMs, MAX_EXTRAPOLATION_MS));
       } else {
         const queue = liveQueueRef.current;
         queue.push({ videoTime, memberId, seatIndex });
