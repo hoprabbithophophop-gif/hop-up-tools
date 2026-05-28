@@ -2365,7 +2365,7 @@ function BottomNav({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
     { t: "input",     icon: "add_box",        label: "Input" },
     { t: "result",    icon: "analytics",      label: "Result" },
     { t: "calendar",  icon: "calendar_today", label: "Calendar" },
-    { t: "subscribe", icon: "rss_feed",       label: "Subscribe" },
+    { t: "subscribe", icon: "rss_feed",       label: "Subsc" },
   ];
 
   return (
