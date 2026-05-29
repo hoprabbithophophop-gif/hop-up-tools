@@ -73,6 +73,21 @@ export default function TopPage() {
         >
           <HandIcon size={36} color="#191c1d" />
         </Link>
+        <a
+          href="https://chartaicho1234.github.io/lets-ddd-easy/"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Do-Did-Done で遊ぼう"
+          style={{ display: "inline-flex", padding: "0.8rem", textDecoration: "none" }}
+        >
+          {/* Font Awesome Free "d" icon (CC BY 4.0) */}
+          <svg width={36} height={36} viewBox="0 0 640 640" aria-hidden="true" style={{ display: "block" }}>
+            <path
+              d="M128 128C128 110.3 142.3 96 160 96L288 96C411.7 96 512 196.3 512 320C512 443.7 411.7 544 288 544L160 544C142.3 544 128 529.7 128 512L128 128zM192 160L192 480L288 480C376.4 480 448 408.4 448 320C448 231.6 376.4 160 288 160L192 160z"
+              fill="#191c1d"
+            />
+          </svg>
+        </a>
       </div>
 
       {/* フッター */}
@@ -86,6 +101,9 @@ export default function TopPage() {
           <a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer"
              style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>お問い合わせ</a>
         </div>
+        <p style={{ fontSize: "0.625rem", color: "#c6c6c6", margin: "1.2rem 0 0" }}>
+          Icons by Font Awesome (CC BY 4.0)
+        </p>
       </footer>
 
     </div>
