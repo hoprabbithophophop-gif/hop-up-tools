@@ -255,15 +255,20 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
 
     layer.addChild(sprite);
 
-    // 上昇 → 滞空 → 上のままフェードアウト（下降なし・二段ジャンプなし）。
+    // 溜め(squash) → 上昇 → 滞空 → 上のままフェードアウト（下降・二段ジャンプなし）。
+    // タップした瞬間に一瞬グッと縮んでから勢いよく上がる「予備動作」で手応えを出す。
+    // 値はすべて固定（揺らさない）。狙った1つの気持ちいいモーションを全✋で再現するため。
     // 下降を省くことで「✋を挙げた瞬間」の体感が長く残り、Broadcast の物理ラグ
-    // (≈ 300ms) を視覚的に隠蔽する効果を狙う。
-    const jumpHeight = 60 + Math.random() * 40;       // 60〜100px
-    const upDur = 100 + Math.random() * 20;           // 100〜120ms
-    const holdDur = 30 + Math.random() * 20;          // 30〜50ms
-    const fadeDur = 120;
+    // (≈ 300ms) を視覚的に隠蔽する効果も狙う。
+    const jumpHeight = 80;        // 上昇量(px)
+    const squashDur = 50;         // 溜め: scale を SQUASH_SCALE まで縮める時間
+    const upDur = 240;            // 上昇: しっかり見せる
+    const holdDur = 160;          // 滞空: 頂点で粘る
+    const fadeDur = 160;          // フェードアウト
+    const SQUASH_SCALE = 0.85;    // 溜め時の最小スケール倍率
+    const baseScale = sprite.scale.x; // spawn 時に設定済みのスケールを基準にする
 
-    let phase: "up" | "hold" | "fade" | "done" = "up";
+    let phase: "squash" | "up" | "hold" | "fade" | "done" = "squash";
     let phaseStart = 0;
     // 遅延した✋はアニメを先に進めた状態から開始（FPS式の予測）
     let totalMs = params.animationOffsetMs ?? 0;
@@ -273,11 +278,27 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       const local = totalMs - phaseStart;
 
       switch (phase) {
+        case "squash": {
+          if (local < squashDur) {
+            // baseScale → baseScale*SQUASH_SCALE へ縮む（タップの溜め）
+            const k = local / squashDur;
+            sprite.scale.set(baseScale * (1 - (1 - SQUASH_SCALE) * k));
+          } else {
+            sprite.scale.set(baseScale * SQUASH_SCALE);
+            phaseStart = totalMs;
+            phase = "up";
+          }
+          break;
+        }
         case "up": {
           if (local < upDur) {
-            sprite.y = baselineY - jumpHeight * easeOutCubic(local / upDur);
+            const k = easeOutCubic(local / upDur);
+            sprite.y = baselineY - jumpHeight * k;
+            // 縮んだスケールを上昇とともに通常へ戻す（伸び＝stretch感）
+            sprite.scale.set(baseScale * (SQUASH_SCALE + (1 - SQUASH_SCALE) * k));
           } else {
             sprite.y = baselineY - jumpHeight;
+            sprite.scale.set(baseScale);
             phaseStart = totalMs;
             phase = "hold";
           }
