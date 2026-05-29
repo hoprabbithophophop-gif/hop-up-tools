@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import UpfcDummyPreview from "./UpfcDummyPreview";
+import FavoritePicker, { type Favorites } from "./FavoritePicker";
+import { OG_MEMBERS, OG_GROUP_LABEL } from "@/data/ogMembers";
 import { getSupabase } from "../../lib/supabase";
 import {
   generateIcs,
@@ -1930,12 +1932,55 @@ function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
 
 const SUBSCRIPTION_TYPES_TO_SUBSCRIBE = ["apply_start", "apply_end", "result", "payment_start", "payment", "sale_start", "sale_end"];
 
+// 推しを登録していれば自動チェックする「申込前に動く」種別
+const FAVORITE_ACTIONABLE_TYPES = ["apply_start", "apply_end", "sale_start", "sale_end"];
+
+// ─── 推し（favorites）によるタイトル自動マッチ ────────────────
+// ③全体イベント用キーワード（全グループ出演 → 推しがいれば該当）
+const WHOLE_EVENT_KEYWORDS = ["ハロ！コン", "ハロコン", "ひなフェス", "Hello! Project 20", "ハロー！プロジェクト 20"];
+
+// グループ名 → タイトル中の検出キー（GROUP_KEYS と同じ語幹）
+const GROUP_TITLE_KEYS: Record<string, string[]> = {
+  "モーニング娘。'26": ["モーニング娘"],
+  "アンジュルム": ["アンジュルム"],
+  "Juice=Juice": ["Juice=Juice"],
+  "つばきファクトリー": ["つばきファクトリー"],
+  "BEYOOOOONDS": ["BEYOOOOONDS", "CHICA#TETSU", "雨ノ森 川海", "SeasoningS"],
+  "OCHA NORMA": ["OCHA NORMA"],
+  "ロージークロニクル": ["ロージークロニクル"],
+};
+
+const OG_NAME_LIST = OG_MEMBERS.map((m) => m.name);
+
+function favoritesAreEmpty(f: Favorites): boolean {
+  return f.members.length === 0 && f.groups.length === 0;
+}
+
+// タイトルが推し（①メンバー名 ②グループ名 ③全体イベント）に該当するか
+function titleMatchesFavorites(title: string, f: Favorites): boolean {
+  // ① 推しメンバー名
+  if (f.members.some((name) => title.includes(name))) return true;
+  // ② 推しグループ名（OG枠は OGメンバー名のいずれか）
+  for (const g of f.groups) {
+    if (g === OG_GROUP_LABEL) {
+      if (OG_NAME_LIST.some((name) => title.includes(name))) return true;
+    } else {
+      const keys = GROUP_TITLE_KEYS[g];
+      if (keys && keys.some((k) => title.includes(k))) return true;
+    }
+  }
+  // ③ 全体イベント（推しを1人でも登録していれば）
+  if (!favoritesAreEmpty(f) && WHOLE_EVENT_KEYWORDS.some((k) => title.includes(k))) return true;
+  return false;
+}
+
 function computeDefaultIncluded(
   deadlines: Deadline[],
   matchResults: MatchResult[],
   watchlistSet: Set<string>,
   appliedSet: Set<string>,
   paidSet: Set<string>,
+  favorites: Favorites,
 ): Set<string> {
   const now = new Date();
   const statusByNewsUid = new Map<string, string>();
@@ -1955,6 +2000,7 @@ function computeDefaultIncluded(
     const isApplied = appliedSet.has(dl.news_uid);
     const isPaid = paidSet.has(dl.news_uid);
     const isInWatchlist = watchlistSet.has(dl.news_uid);
+    const isFavorite = titleMatchesFavorites(dl.fc_news.title, favorites);
 
     if (status.includes("入金済") || isPaid) continue;
 
@@ -1970,8 +2016,8 @@ function computeDefaultIncluded(
       continue;
     }
 
-    if (isInWatchlist) {
-      if (["apply_start", "apply_end", "sale_start", "sale_end"].includes(dl.type)) {
+    if (isInWatchlist || isFavorite) {
+      if (FAVORITE_ACTIONABLE_TYPES.includes(dl.type)) {
         included.add(dl.id);
       }
       continue;
@@ -2027,6 +2073,16 @@ function SubscribeScreen({
     } catch { /* ignore */ }
     return new Set<string>();
   });
+  const [favorites, setFavorites] = useState<Favorites>(() => {
+    try {
+      const saved = localStorage.getItem("fc-sub-favorites");
+      if (saved) {
+        const v = JSON.parse(saved);
+        return { members: v.members ?? [], groups: v.groups ?? [] };
+      }
+    } catch { /* ignore */ }
+    return { members: [], groups: [] };
+  });
   const [initialized, setInitialized] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -2044,14 +2100,36 @@ function SubscribeScreen({
       setInitialized(true);
       return;
     }
-    setIncludedIds(computeDefaultIncluded(allDeadlines, matchResults, watchlistSet, appliedSet, paidSet));
+    setIncludedIds(computeDefaultIncluded(allDeadlines, matchResults, watchlistSet, appliedSet, paidSet, favorites));
     setInitialized(true);
-  }, [allDeadlines, matchResults, watchlistSet, appliedSet, paidSet, initialized]);
+  }, [allDeadlines, matchResults, watchlistSet, appliedSet, paidSet, favorites, initialized]);
 
   function persistIncluded(next: Set<string>) {
     setIncludedIds(next);
     try { localStorage.setItem("fc-sub-included", JSON.stringify([...next])); } catch { /* ignore */ }
   }
+
+  function persistFavorites(next: Favorites) {
+    setFavorites(next);
+    try { localStorage.setItem("fc-sub-favorites", JSON.stringify(next)); } catch { /* ignore */ }
+  }
+
+  // 推しを追加・変更したら、該当する「申込前に動く」予定を自動でチェックに追加（追加のみ・手動の外しは尊重）
+  useEffect(() => {
+    if (!initialized) return;
+    if (favoritesAreEmpty(favorites)) return;
+    const now = new Date();
+    const toAdd: string[] = [];
+    for (const dl of allDeadlines) {
+      if (new Date(dl.deadline_at) < now) continue;
+      if (!FAVORITE_ACTIONABLE_TYPES.includes(dl.type)) continue;
+      if (includedIds.has(dl.id)) continue;
+      if (titleMatchesFavorites(dl.fc_news.title, favorites)) toAdd.push(dl.id);
+    }
+    if (toAdd.length > 0) persistIncluded(new Set([...includedIds, ...toAdd]));
+    // includedIds は依存に含めない（追加のたびに再発火させない）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [favorites, initialized, allDeadlines]);
 
   function toggleDeadline(id: string) {
     const next = new Set(includedIds);
@@ -2074,7 +2152,8 @@ function SubscribeScreen({
         matchResults.some((r) => r.matched.some((m) => m.uid === dl.news_uid)) ||
         watchlistSet.has(dl.news_uid) ||
         appliedSet.has(dl.news_uid) ||
-        includedIds.has(dl.id)
+        includedIds.has(dl.id) ||
+        titleMatchesFavorites(dl.fc_news.title, favorites)
       );
     })
     .sort((a, b) => new Date(a.deadline_at).getTime() - new Date(b.deadline_at).getTime());
@@ -2159,6 +2238,9 @@ function SubscribeScreen({
           カレンダーアプリと自動同期できる購読URLを発行します。
         </p>
       </div>
+
+      {/* 推しを登録セクション */}
+      <FavoritePicker favorites={favorites} onChange={persistFavorites} />
 
       {/* 配信する予定セクション */}
       <section className="mb-8">
