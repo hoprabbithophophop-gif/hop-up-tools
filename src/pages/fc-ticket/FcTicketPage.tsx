@@ -236,6 +236,7 @@ export default function FcTicketPage() {
               allDeadlines={allDeadlines}
               matchResults={matchResults}
               watchlist={watchlist}
+              onWatchlistChange={setWatchlist}
               applied={applied}
               paid={paid}
             />
@@ -1881,6 +1882,16 @@ const isMonthStart = d.getDate() === 1;
                     : null;
                   return (
                     <div key={news.uid} className="flex items-center gap-4 px-4 py-3 bg-surface-container-low">
+                      {watchlistSet.has(news.uid) && (
+                        <button
+                          onClick={() => toggleWatchlist(news.uid)}
+                          className="material-symbols-outlined text-xl cursor-pointer transition-colors flex-shrink-0"
+                          style={{ color: "#000000", fontVariationSettings: `'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24` }}
+                          title="気になるから削除"
+                        >
+                          bookmark
+                        </button>
+                      )}
                       <div className="flex-1 min-w-0">
                         <a
                           href={news.detail_url}
@@ -2087,12 +2098,14 @@ function SubscribeScreen({
   allDeadlines,
   matchResults,
   watchlist,
+  onWatchlistChange,
   applied,
   paid,
 }: {
   allDeadlines: Deadline[];
   matchResults: MatchResult[];
   watchlist: string[];
+  onWatchlistChange: (uids: string[]) => void;
   applied: string[];
   paid: string[];
 }) {
@@ -2187,6 +2200,14 @@ function SubscribeScreen({
     const next = new Set(includedIds);
     for (const d of dls) { if (allIn) next.delete(d.id); else next.add(d.id); }
     persistIncluded(next);
+  }
+
+  // この公演を一覧から外す：気になる解除＋チェック全解除（申込締切後に居座る公演を消せるように）
+  function removeEventFromList(dls: Deadline[]) {
+    const uids = new Set(dls.map((d) => d.news_uid));
+    onWatchlistChange(watchlist.filter((u) => !uids.has(u)));
+    const ids = new Set(dls.map((d) => d.id));
+    persistIncluded(new Set([...includedIds].filter((id) => !ids.has(id))));
   }
 
   function persistRetention(mode: RetentionMode) {
@@ -2316,15 +2337,22 @@ function SubscribeScreen({
             const allChecked = g.deadlines.every((d) => includedIds.has(d.id));
             return (
               <div key={g.key}>
-                <button
-                  onClick={() => toggleGroup(g.deadlines)}
-                  className="w-full flex items-center gap-2 text-left mb-1 cursor-pointer"
-                  title="公演まるごとON/OFF"
-                >
-                  <span className={`w-3.5 h-3.5 flex-shrink-0 border ${allChecked ? "bg-primary border-primary" : "bg-transparent border-outline-variant"}`} />
-                  <span className="text-sm font-bold leading-snug">{g.key}</span>
-                  <span className="text-[0.625rem] text-outline ml-auto flex-shrink-0">{g.deadlines.length}件</span>
-                </button>
+                <div className="flex items-center gap-2 mb-1">
+                  <button
+                    onClick={() => toggleGroup(g.deadlines)}
+                    className="flex items-center gap-2 text-left flex-1 min-w-0 cursor-pointer"
+                    title="公演まるごとON/OFF"
+                  >
+                    <span className={`w-3.5 h-3.5 flex-shrink-0 border ${allChecked ? "bg-primary border-primary" : "bg-transparent border-outline-variant"}`} />
+                    <span className="text-sm font-bold leading-snug">{g.key}</span>
+                  </button>
+                  <span className="text-[0.625rem] text-outline flex-shrink-0">{g.deadlines.length}件</span>
+                  <button
+                    onClick={() => removeEventFromList(g.deadlines)}
+                    className="material-symbols-outlined text-base text-outline hover:text-error cursor-pointer flex-shrink-0 leading-none"
+                    title="この公演を一覧から外す（気になる解除）"
+                  >close</button>
+                </div>
                 <div className="space-y-1 pl-5">
                   {g.deadlines.map((dl) => (
                     <DeadlineCheckRow
