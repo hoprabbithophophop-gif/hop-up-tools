@@ -255,20 +255,19 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
 
     layer.addChild(sprite);
 
-    // 溜め(squash) → 上昇 → 滞空 → 上のままフェードアウト（下降・二段ジャンプなし）。
-    // タップした瞬間に一瞬グッと縮んでから勢いよく上がる「予備動作」で手応えを出す。
+    // 溜め(squash) → 上昇 → 軽い滞空 → 下降しながらフェードアウト（二段ジャンプなし）。
+    // タップした瞬間に一瞬グッと縮んでから勢いよく上がる「予備動作」で手応えを出し、
+    // 最後は元の位置に落ちながら消えるので、連打しても上に積もって居座らない。
     // 値はすべて固定（揺らさない）。狙った1つの気持ちいいモーションを全✋で再現するため。
-    // 下降を省くことで「✋を挙げた瞬間」の体感が長く残り、Broadcast の物理ラグ
-    // (≈ 300ms) を視覚的に隠蔽する効果も狙う。
     const jumpHeight = 80;        // 上昇量(px)
     const squashDur = 50;         // 溜め: scale を SQUASH_SCALE まで縮める時間
-    const upDur = 240;            // 上昇: しっかり見せる
-    const holdDur = 160;          // 滞空: 頂点で粘る
-    const fadeDur = 160;          // フェードアウト
+    const upDur = 220;            // 上昇: しっかり見せる
+    const holdDur = 80;           // 滞空: 頂点で軽く粘る
+    const downFadeDur = 180;      // 下降しながらフェードアウト
     const SQUASH_SCALE = 0.85;    // 溜め時の最小スケール倍率
     const baseScale = sprite.scale.x; // spawn 時に設定済みのスケールを基準にする
 
-    let phase: "squash" | "up" | "hold" | "fade" | "done" = "squash";
+    let phase: "squash" | "up" | "hold" | "downfade" | "done" = "squash";
     let phaseStart = 0;
     // 遅延した✋はアニメを先に進めた状態から開始（FPS式の予測）
     let totalMs = params.animationOffsetMs ?? 0;
@@ -307,13 +306,17 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         case "hold": {
           if (local >= holdDur) {
             phaseStart = totalMs;
-            phase = "fade";
+            phase = "downfade";
           }
           break;
         }
-        case "fade": {
-          if (local < fadeDur) {
-            sprite.alpha = baseAlpha * (1 - local / fadeDur);
+        case "downfade": {
+          if (local < downFadeDur) {
+            const k = local / downFadeDur;
+            // 頂点(baselineY - jumpHeight)から元の baselineY へ落としつつ消す。
+            // 落下は easeIn(k*k)で「重力で加速して落ちる」感、フェードは線形。
+            sprite.y = baselineY - jumpHeight * (1 - k * k);
+            sprite.alpha = baseAlpha * (1 - k);
           } else {
             phase = "done";
           }
