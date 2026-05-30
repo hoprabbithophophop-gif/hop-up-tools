@@ -464,10 +464,18 @@ export default function HiTensionPage() {
     if (songstartReadyTimerRef.current) clearInterval(songstartReadyTimerRef.current);
     driftStableSinceRef.current = 0;
     const startedAt = Date.now();
+    logHiEvent(anonSessionId, "monitor_start", `n=${readyCheckGroupRef.current.length}`);
     songstartReadyTimerRef.current = setInterval(() => {
       const now = Date.now();
       // タイムアウト → 同期失敗で ready-check に戻す
       if (now - startedAt > SONGSTART_READY_TIMEOUT_MS) {
+        // 各メンバーの最終 buffer/報告鮮度をスナップして失敗理由を残す
+        const snap = readyCheckGroupRef.current.map(id => {
+          const r = driftReportsRef.current.get(id);
+          if (!r) return "none";
+          return `buf=${r.bufferAhead.toFixed(1)},age=${now - r.receivedAt}`;
+        }).join(" | ");
+        logHiEvent(anonSessionId, "monitor_timeout", snap);
         if (songstartReadyTimerRef.current) { clearInterval(songstartReadyTimerRef.current); songstartReadyTimerRef.current = null; }
         sendSenoFailRef.current();
         return;
@@ -494,9 +502,10 @@ export default function HiTensionPage() {
       // t0 = 今 + LEAD_TIME_MS（Supabase時計）, p0 = 0（本動画は 0 秒から開始）
       const offset = getClockOffsetRef.current();
       const tReveal = now + offset + LEAD_TIME_MS;
+      logHiEvent(anonSessionId, "songstart_send", `n=${reports.length}`);
       sendSongStartRef.current(tReveal, 0);
     }, 500);
-  }, []);
+  }, [anonSessionId]);
 
   // --- YouTube プレイヤー状態の監視 ---
   const handlePlayerStateChange = useCallback((state: number) => {
@@ -521,7 +530,9 @@ export default function HiTensionPage() {
 
   // せーの受信: 自分がグループに入っていれば ready-check へ
   const handleSeno = useCallback((_senoAt: number, group: string[]) => {
-    if (!group.includes(myKeyRef.current)) return; // 後から来た人は対象外
+    const included = group.includes(myKeyRef.current);
+    logHiEvent(anonSessionId, "seno_recv", `included=${included} n=${group.length} seat=${mySeatIndexRef.current} host=${isHostRef.current}`);
+    if (!included) return; // 後から来た人は対象外
     clearSenoTimer();
     readyCheckGroupRef.current = group;
     readiedSetRef.current = new Set();
@@ -541,22 +552,27 @@ export default function HiTensionPage() {
     // ホストは窓の番人: 時間内に全員揃わなければ seno-fail を出す
     if (isHostRef.current) {
       senoTimerRef.current = setTimeout(() => {
+        const grp = readyCheckGroupRef.current;
+        const readied = grp.filter(id => readiedSetRef.current.has(id)).length;
+        logHiEvent(anonSessionId, "seno_fail_send", `reason=ready_timeout readied=${readied}/${grp.length}`);
         sendSenoFailRef.current();
       }, SENO_FAIL_TIMEOUT_MS);
     }
-  }, [clearSenoTimer]);
+  }, [clearSenoTimer, anonSessionId]);
 
   // ready 受信: 集計のみ。全員が✋を押したら、ホストが「全員 buffer + drift 安定」監視を開始。
   // 成立で sendSongStart（本動画遷移）、10秒タイムアウトで sendSenoFail。
   const handleReady = useCallback((sessionId: string) => {
     readiedSetRef.current.add(sessionId);
     const group = readyCheckGroupRef.current;
-    setReadyCount(group.filter(id => readiedSetRef.current.has(id)).length);
+    const readied = group.filter(id => readiedSetRef.current.has(id)).length;
+    setReadyCount(readied);
+    if (isHostRef.current) logHiEvent(anonSessionId, "ready_recv", `${readied}/${group.length} member=${group.includes(sessionId)}`);
     if (isHostRef.current && group.length > 0 && group.every(id => readiedSetRef.current.has(id))) {
       clearSenoTimer();
       startSongstartReadyMonitor();
     }
-  }, [clearSenoTimer, startSongstartReadyMonitor]);
+  }, [clearSenoTimer, startSongstartReadyMonitor, anonSessionId]);
 
   // songstart 受信: 暖機動画 anchor から本動画 anchor に切替、本動画を loadVideo で再生開始。
   // ✋押下後 syncing 中の人だけ反応する（待機室・無関係な人は無視）。
@@ -612,6 +628,7 @@ export default function HiTensionPage() {
     // ✋押下後の awaitingSongStart 中、ready-check 中、同期再生中(isRealtimePlay)で見限られた人を処理。
     // 無関係（ソロ再生中、ロビーなど）は無視。
     if (!awaitingSongStartRef.current && screenRef.current !== "ready-check" && !isRealtimePlayRef.current) return;
+    logHiEvent(anonSessionId, "seno_fail_recv", `screen=${screenRef.current} awaitSong=${awaitingSongStartRef.current} rtplay=${isRealtimePlayRef.current}`);
     clearSenoTimer();
     if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
     stopDriftLoop();
@@ -636,7 +653,7 @@ export default function HiTensionPage() {
     setSelfReadied(false);
     setReadyCheckFailed(true);
     setScreen("ready-check"); // play に遷移済みでも ready-check に戻す
-  }, [clearSenoTimer, stopDriftLoop]);
+  }, [clearSenoTimer, stopDriftLoop, anonSessionId]);
 
   const handleTap = useCallback((tap: LiveTap) => {
     if (!isRealtimePlayRef.current) return;
@@ -694,6 +711,13 @@ export default function HiTensionPage() {
   useEffect(() => { sendSenoFailRef.current = sendSenoFail; }, [sendSenoFail]);
   useEffect(() => { sendWarmupStartRef.current = sendWarmupStart; }, [sendWarmupStart]);
   useEffect(() => { sendDriftReportRef.current = sendDriftReport; }, [sendDriftReport]);
+
+  // 【計装】待機室/ready-check での presence 変化を記録。
+  // ランダム合流バグ調査用：ゴースト残留（n が実人数より多い）・seat ズレ・ホスト判定の取り違えを検出する。
+  useEffect(() => {
+    if (screen !== "waiting" && screen !== "ready-check") return;
+    logHiEvent(anonSessionId, "presence", `room=${roomCode ?? "global"} n=${participants.length} seat=${mySeatIndex} host=${isHost}`);
+  }, [participants, screen, mySeatIndex, isHost, roomCode, anonSessionId]);
 
   // ホストが待機室・ready-check 画面にいる間、暖機動画の anchor を 3 秒ごとに永続的に配信する。
   // 永続化の理由：
@@ -870,6 +894,7 @@ export default function HiTensionPage() {
   const handleSenoButton = () => {
     const group = participants.slice(0, MAX_PARTICIPANTS).map(p => p.sessionId);
     if (group.length === 0) return;
+    logHiEvent(anonSessionId, "seno_send", `room=${roomCode ?? "global"} n=${group.length} parts=${participants.length} seat=${mySeatIndex} host=${isHost}`);
     sendSeno(group);
   };
 
@@ -878,6 +903,7 @@ export default function HiTensionPage() {
     const present = new Set(participants.map(p => p.sessionId));
     const group = readyCheckGroupRef.current.filter(id => present.has(id));
     if (group.length === 0) return;
+    logHiEvent(anonSessionId, "seno_send", `retry room=${roomCode ?? "global"} n=${group.length} parts=${participants.length} seat=${mySeatIndex} host=${isHost}`);
     sendSeno(group);
   };
 
