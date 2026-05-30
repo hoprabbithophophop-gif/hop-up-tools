@@ -228,6 +228,7 @@ export default function FcTicketPage() {
               paid={paid}
               onPaidChange={setPaid}
               matchedUids={matchedUids}
+              onGoSubscribe={() => setTab("subscribe")}
             />
           )}
           {tab === "subscribe" && (
@@ -793,6 +794,7 @@ function CalendarScreen({
   paid,
   onPaidChange,
   matchedUids,
+  onGoSubscribe,
 }: {
   allDeadlines: Deadline[];
   allNews: FcNewsRow[];
@@ -803,9 +805,15 @@ function CalendarScreen({
   paid: string[];
   onPaidChange: (uids: string[]) => void;
   matchedUids: Set<string>;
+  onGoSubscribe: () => void;
 }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
+  // 購読URL発行済みか。発行済みなら気になる追加で自動配信されるため、単発カレンダー登録は出さない（二重登録防止）
+  const hasSubscription = (() => {
+    try { return !!localStorage.getItem("fc-sub-slug"); } catch { return false; }
+  })();
 
   // centerDate: スクロール連動（月ヘッダー・サマリー・タイムラインに反映）
   const [centerDate, setCenterDate] = useState<Date>(() => {
@@ -1799,29 +1807,47 @@ const isMonthStart = d.getDate() === 1;
                   </div>
                   {/* 追加直後のカレンダー登録提案 */}
                   {isPending && calEvent && (
-                    <div className="flex items-center gap-3 px-4 py-3 bg-surface-container-high border-l-2 flex-wrap" style={{ borderColor: "#000000" }}>
-                      <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "#000000" }}>calendar_add_on</span>
-                      <span className="text-xs font-bold flex-1">申込期日をカレンダーに登録しますか？</span>
-                      <div className="flex gap-2 flex-wrap">
-                        <button
-                          data-demo-id="watchlist-google-cal-btn"
-                          onClick={() => { window.open(generateGoogleCalendarUrl(calEvent), "_blank", "noopener"); setPendingCalendarUid(null); }}
-                          className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest bg-primary text-on-primary-fixed hover:bg-secondary cursor-pointer transition-colors"
-                        >Google</button>
-                        <button
-                          onClick={() => { window.open(generateYahooCalendarUrl(calEvent), "_blank", "noopener"); setPendingCalendarUid(null); }}
-                          className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest bg-primary text-on-primary-fixed hover:bg-secondary cursor-pointer transition-colors"
-                        >Yahoo!</button>
-                        <button
-                          onClick={() => { const ics = generateIcs(calEvent); downloadIcs(ics, "fc-watchlist-" + news.uid.slice(0, 8) + ".ics"); setPendingCalendarUid(null); }}
-                          className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest bg-primary text-on-primary-fixed hover:bg-secondary cursor-pointer transition-colors"
-                        >Apple / その他</button>
+                    hasSubscription ? (
+                      // 購読URL発行済み → 自動で配信されるので単発登録は出さない（二重登録防止）
+                      <div className="flex items-center gap-3 px-4 py-3 bg-surface-container-high border-l-2 flex-wrap" style={{ borderColor: "#000000" }}>
+                        <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "#000000" }}>check_circle</span>
+                        <span className="text-xs font-bold flex-1">この予定は購読URLに追加されました。「URLを更新」で配信されます。</span>
                         <button
                           onClick={() => setPendingCalendarUid(null)}
                           className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer transition-colors"
-                        >スキップ</button>
+                        >OK</button>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="flex flex-col gap-2 px-4 py-3 bg-surface-container-high border-l-2" style={{ borderColor: "#000000" }}>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "#000000" }}>calendar_add_on</span>
+                          <span className="text-xs font-bold flex-1">申込期日をカレンダーに登録しますか？</span>
+                          <div className="flex gap-2 flex-wrap">
+                            <button
+                              data-demo-id="watchlist-google-cal-btn"
+                              onClick={() => { window.open(generateGoogleCalendarUrl(calEvent), "_blank", "noopener"); setPendingCalendarUid(null); }}
+                              className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest bg-primary text-on-primary-fixed hover:bg-secondary cursor-pointer transition-colors"
+                            >Google</button>
+                            <button
+                              onClick={() => { window.open(generateYahooCalendarUrl(calEvent), "_blank", "noopener"); setPendingCalendarUid(null); }}
+                              className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest bg-primary text-on-primary-fixed hover:bg-secondary cursor-pointer transition-colors"
+                            >Yahoo!</button>
+                            <button
+                              onClick={() => { const ics = generateIcs(calEvent); downloadIcs(ics, "fc-watchlist-" + news.uid.slice(0, 8) + ".ics"); setPendingCalendarUid(null); }}
+                              className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest bg-primary text-on-primary-fixed hover:bg-secondary cursor-pointer transition-colors"
+                            >Apple / その他</button>
+                            <button
+                              onClick={() => setPendingCalendarUid(null)}
+                              className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer transition-colors"
+                            >スキップ</button>
+                          </div>
+                        </div>
+                        <button
+                          onClick={onGoSubscribe}
+                          className="text-[0.625rem] text-outline hover:text-primary cursor-pointer transition-colors text-left underline underline-offset-2"
+                        >毎回入れるのが面倒なら → まとめて購読する（Subscribe）</button>
+                      </div>
+                    )
                   )}
                 </div>
               );
