@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import UpfcDummyPreview from "./UpfcDummyPreview";
 import FavoritePicker, { type Favorites } from "./FavoritePicker";
+import MemberFilterInput from "./MemberFilterInput";
 import { OG_MEMBERS, OG_GROUP_LABEL } from "@/data/ogMembers";
+import { eventGroupKey } from "@/lib/eventGrouping";
 import { getSupabase } from "../../lib/supabase";
 import {
   generateIcs,
@@ -816,6 +818,7 @@ function CalendarScreen({
 
   const [calFilter, setCalFilter] = useState<"all" | "mine">("all");
   const [ganttGroupFilter, setGanttGroupFilter] = useState<string>("");
+  const [ganttMemberFilter, setGanttMemberFilter] = useState<string>("");
   const [watchlistSearch, setWatchlistSearch] = useState("");
   const [watchlistGroups, setWatchlistGroups] = useState<string[]>([]);
   const [pendingCalendarUid, setPendingCalendarUid] = useState<string | null>(null);
@@ -1128,6 +1131,7 @@ function CalendarScreen({
                 {g.label}
               </button>
             ))}
+            <MemberFilterInput value={ganttMemberFilter} onChange={setGanttMemberFilter} />
           </div>
         </div>
 
@@ -1154,12 +1158,14 @@ function CalendarScreen({
                 if (p.type !== "apply") return false;
                 if (p.end.getTime() < today.getTime()) return false;
                 if (p.start.getTime() > stripDates[TOTAL_DAYS - 1].getTime() + MS_PER_DAY) return false;
+                const news = allNews.find((n) => n.uid === p.newsUid);
                 if (ganttGroupFilter) {
-                  const news = allNews.find((n) => n.uid === p.newsUid);
                   if (!news) return false;
                   const g = GROUP_KEYS.find((k) => k.key === ganttGroupFilter);
-                  if (!g) return false;
-                  return titleMatchesGroup(news.title, g);
+                  if (!g || !titleMatchesGroup(news.title, g)) return false;
+                }
+                if (ganttMemberFilter) {
+                  if (!news || !news.title.includes(ganttMemberFilter)) return false;
                 }
                 return true;
               })
@@ -1974,6 +1980,18 @@ function titleMatchesFavorites(title: string, f: Favorites): boolean {
   return false;
 }
 
+// 締切リストを公演キーで束ねる（出現順＝最早締切順を維持）
+function groupDeadlinesByEvent(deadlines: Deadline[]): { key: string; deadlines: Deadline[] }[] {
+  const map = new Map<string, Deadline[]>();
+  for (const dl of deadlines) {
+    const key = eventGroupKey(dl.fc_news.title);
+    const arr = map.get(key);
+    if (arr) arr.push(dl);
+    else map.set(key, [dl]);
+  }
+  return [...map.entries()].map(([key, dls]) => ({ key, deadlines: dls }));
+}
+
 function computeDefaultIncluded(
   deadlines: Deadline[],
   matchResults: MatchResult[],
@@ -2137,6 +2155,14 @@ function SubscribeScreen({
     persistIncluded(next);
   }
 
+  // 公演まるごとON/OFF（全部入ってたら全部外す、そうでなければ全部入れる）
+  function toggleGroup(dls: Deadline[]) {
+    const allIn = dls.every((d) => includedIds.has(d.id));
+    const next = new Set(includedIds);
+    for (const d of dls) { if (allIn) next.delete(d.id); else next.add(d.id); }
+    persistIncluded(next);
+  }
+
   function persistRetention(mode: RetentionMode) {
     setRetention(mode);
     try { localStorage.setItem("fc-sub-retention", mode); } catch { /* ignore */ }
@@ -2164,6 +2190,10 @@ function SubscribeScreen({
     return status.includes("入金済") || paidSet.has(dl.news_uid);
   });
   const activeDeadlines = futureDeadlines.filter((dl) => !completedDeadlines.includes(dl));
+
+  // 公演単位グルーピング（配信する予定を公演キーで束ねて表示）
+  const activeGroups = groupDeadlinesByEvent(activeDeadlines);
+  const completedGroups = groupDeadlinesByEvent(completedDeadlines);
 
   async function handlePublish() {
     setError(null);
@@ -2255,16 +2285,35 @@ function SubscribeScreen({
           </p>
         )}
 
-        <div className="space-y-1">
-          {activeDeadlines.map((dl) => (
-            <DeadlineCheckRow
-              key={dl.id}
-              dl={dl}
-              checked={includedIds.has(dl.id)}
-              onToggle={() => toggleDeadline(dl.id)}
-              statusBadge={statusBadgeFor(dl.news_uid, matchResults, appliedSet, paidSet)}
-            />
-          ))}
+        <div className="space-y-4">
+          {activeGroups.map((g) => {
+            const allChecked = g.deadlines.every((d) => includedIds.has(d.id));
+            return (
+              <div key={g.key}>
+                <button
+                  onClick={() => toggleGroup(g.deadlines)}
+                  className="w-full flex items-center gap-2 text-left mb-1 cursor-pointer"
+                  title="公演まるごとON/OFF"
+                >
+                  <span className={`w-3.5 h-3.5 flex-shrink-0 border ${allChecked ? "bg-primary border-primary" : "bg-transparent border-outline-variant"}`} />
+                  <span className="text-sm font-bold leading-snug">{g.key}</span>
+                  <span className="text-[0.625rem] text-outline ml-auto flex-shrink-0">{g.deadlines.length}件</span>
+                </button>
+                <div className="space-y-1 pl-5">
+                  {g.deadlines.map((dl) => (
+                    <DeadlineCheckRow
+                      key={dl.id}
+                      dl={dl}
+                      checked={includedIds.has(dl.id)}
+                      onToggle={() => toggleDeadline(dl.id)}
+                      statusBadge={statusBadgeFor(dl.news_uid, matchResults, appliedSet, paidSet)}
+                      hideTitle
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {completedDeadlines.length > 0 && (
@@ -2276,15 +2325,26 @@ function SubscribeScreen({
               {showCompleted ? "▾" : "▸"} 完了済みの予定 ({completedDeadlines.length})
             </button>
             {showCompleted && (
-              <div className="mt-2 space-y-1 opacity-60">
-                {completedDeadlines.map((dl) => (
-                  <DeadlineCheckRow
-                    key={dl.id}
-                    dl={dl}
-                    checked={includedIds.has(dl.id)}
-                    onToggle={() => toggleDeadline(dl.id)}
-                    statusBadge={statusBadgeFor(dl.news_uid, matchResults, appliedSet, paidSet)}
-                  />
+              <div className="mt-2 space-y-4 opacity-60">
+                {completedGroups.map((g) => (
+                  <div key={g.key}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-bold leading-snug">{g.key}</span>
+                      <span className="text-[0.625rem] text-outline ml-auto flex-shrink-0">{g.deadlines.length}件</span>
+                    </div>
+                    <div className="space-y-1 pl-5">
+                      {g.deadlines.map((dl) => (
+                        <DeadlineCheckRow
+                          key={dl.id}
+                          dl={dl}
+                          checked={includedIds.has(dl.id)}
+                          onToggle={() => toggleDeadline(dl.id)}
+                          statusBadge={statusBadgeFor(dl.news_uid, matchResults, appliedSet, paidSet)}
+                          hideTitle
+                        />
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
@@ -2366,8 +2426,9 @@ function SubscribeScreen({
           <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">注意事項</h3>
         </div>
         <ul className="text-xs text-on-surface-variant space-y-2 list-disc list-inside">
-          <li>チェックを変更した予定は、カレンダーアプリに反映されるまで最大数時間かかります。</li>
-          <li>即時反映したい時は、カレンダーアプリの画面を下に引っ張って手動更新してください。</li>
+          <li>このツールは締切を忘れないためのリマインダーです。予定にチェックを付けても、公演への申込・入金は完了しません。申込は各公式ページで行ってください。</li>
+          <li>入力した申込状況や登録内容はお使いの端末内に保存され、運営が収集・分析することはありません。（購読URLを発行した場合のみ、選んだ予定がURL先に保管されます）</li>
+          <li>チェックを変えたら「URLを更新」を押してください。カレンダーアプリに反映されるまで最大数時間かかります（すぐ反映したい時は画面を下に引っ張って更新）。</li>
           <li>カレンダーアプリによっては読み取り専用で表示されます（編集できません）。</li>
           <li>URLを知っている人は誰でも予定の内容を見られます。流出させないでください。</li>
         </ul>
@@ -2398,11 +2459,13 @@ function DeadlineCheckRow({
   checked,
   onToggle,
   statusBadge,
+  hideTitle = false,
 }: {
   dl: Deadline;
   checked: boolean;
   onToggle: () => void;
   statusBadge: { label: string; tone: "primary" | "muted" | "danger" } | null;
+  hideTitle?: boolean;
 }) {
   const deadline = new Date(dl.deadline_at);
   const dateStr = deadline.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
@@ -2434,7 +2497,9 @@ function DeadlineCheckRow({
             </span>
           )}
         </div>
-        <p className="text-xs text-on-surface-variant truncate">{dl.fc_news.title}</p>
+        {!hideTitle && (
+          <p className="text-xs text-on-surface-variant truncate">{dl.fc_news.title}</p>
+        )}
       </div>
     </label>
   );

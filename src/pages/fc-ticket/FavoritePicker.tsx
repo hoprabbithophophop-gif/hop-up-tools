@@ -78,14 +78,14 @@ export default function FavoritePicker({
   return (
     <section className="mb-8">
       <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
-        <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">推しを登録</h3>
+        <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">メンバー・グループの登録</h3>
         <span className="text-[0.6875rem] text-outline">
           {favorites.members.length + favorites.groups.length}件
         </span>
       </div>
 
       <p className="text-sm text-on-surface-variant mb-4">
-        推しメンバー・グループを登録すると、その子が出る予定が自動で配信対象になります。
+        メンバー・グループを登録すると、出演予定にあらかじめチェックが付きます。参加されない公演はチェックを外してください（チェックの付いた予定のみ配信されます）。一覧にない公演は、カレンダー画面の「気になる」に追加すると、ここに表示されます。
       </p>
 
       {/* グループチップ */}
@@ -109,7 +109,7 @@ export default function FavoritePicker({
       <div className="relative">
         <input
           className="w-full px-3 py-2 text-sm bg-transparent border border-outline-variant outline-none focus:border-primary"
-          placeholder="メンバー名で検索（OG・卒業メンバーも）"
+          placeholder="メンバー名で検索（OG・卒業メンバーを含む）"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
