@@ -65,6 +65,9 @@ const SENO_FAIL_TIMEOUT_MS = SENO_WINDOW_MS + 1500;
 const DRIFT_CHECK_INTERVAL_MS = 1000;
 const PAUSE_AND_WAIT_THRESHOLD_SEC = 0.15;   // 本動画 pause-and-wait の発動閾値
 const PAUSE_MAX_SEC = 10;                    // 1回の pause がこれを超えるなら諦めて同期失敗扱い
+// 本動画再生中、友達待ちの一時停止がこの秒数を超えそうになったら「連携終了→ソロ完走」に切替。
+// せーの後に一度本編が始まったら、何があっても待機室には戻さない（カクッと止まったら即ソロ）。
+const SOLO_BAIL_SEC = 2;
 const DRIFT_REPORT_TTL_MS = 4000;            // この時間以内に受信した report だけを「現在の他端末状態」として採用
 // 暖機 anchor 受信時の初期同期：自分の位置と「あるべき位置」の差がこれ以上なら loadVideo で飛ばす。
 // 1.0 だと「ギリ閾値内」で seek スキップした結果、端末間で 20 秒級の相対ずれが残って rate 補正に
@@ -206,6 +209,9 @@ export default function HiTensionPage() {
   // pause-and-wait：自分が先行している時に pauseVideo() を入れて待つ。0 なら pause していない、
   // 値が入っていれば「この時刻になったら playVideo() で復帰」
   const pauseUntilRef = useRef(0);
+  // 連携終了→ソロ完走モード。本動画中にズレが大きくなった/友達と合わなくなった時点で true になり、
+  // 以降は同期（pause待ち・drift配信・✋共有）を一切やめて、自分のペースで最後まで再生する。
+  const soloModeRef = useRef(false);
   // 他端末の最新 drift+buffer 報告（受信時刻つき）。pause-and-wait の相対判定と本動画遷移条件の判定に使う。
   // sessionId === presenceKey の場合は自分。自分の最新値も入れておく（送信側の集計を簡単にするため）。
   const driftReportsRef = useRef<Map<string, LiveDriftReport>>(new Map());
@@ -344,6 +350,8 @@ export default function HiTensionPage() {
 
       // pause-and-wait 中（本動画のみ使う）は何もしない。resume は別 setTimeout が担当。
       if (pauseUntilRef.current > 0) return;
+      // 連携終了→ソロ完走モード：以降は同期も drift 配信もしない（自分のペースで最後まで再生）。
+      if (soloModeRef.current) return;
 
       const isPlaying = player.isPlaying();
       const expected = calculateExpected(anchor, now);
@@ -398,8 +406,14 @@ export default function HiTensionPage() {
 
       // 本動画：pause-and-wait（rate は触らない）
       const relativeDelay = maxOtherDrift - drift;
-      if (relativeDelay > PAUSE_MAX_SEC) {
-        sendSenoFailRef.current();
+      // 友達待ちが ~2秒を超えそう＝カクッと止まる手前で、連携を切って自分は止まらずソロ完走する。
+      // （旧：10秒待って seno-fail で全員待機室にリセット → 廃止）
+      if (relativeDelay > SOLO_BAIL_SEC) {
+        soloModeRef.current = true;
+        pauseUntilRef.current = 0;
+        player.play(); // 待ちで止めていたら再生に戻す
+        setIsRealtimePlay(false); // ✋共有を外し、既存のソロ再生と同じ状態へ
+        logHiEvent(anonSessionId, "go_solo", `relDelay=${relativeDelay.toFixed(2)} drift=${drift.toFixed(2)} maxOther=${maxOtherDrift.toFixed(2)}`);
         return;
       }
       if (relativeDelay > PAUSE_AND_WAIT_THRESHOLD_SEC) {
@@ -590,6 +604,7 @@ export default function HiTensionPage() {
     const doSync = () => {
       songStartTimerRef.current = null;
       logHiEvent(anonSessionId, "dosync", `playing=${playerApiRef.current?.isPlaying()}`);
+      soloModeRef.current = false; // 新しい本編開始：前回のソロ状態を持ち越さない
       // 暖機動画から本動画へ切替（ここで loadVideo を呼ぶ。ジェスチャー外だが既に PLAYING なので iOS でも通る想定）
       isWarmupRef.current = false;
       // 暖機 drift loop で 0.75/1.25 倍速がセットされた直後に本動画切替に来ると rate が持ち越されて
@@ -623,11 +638,12 @@ export default function HiTensionPage() {
   }, [clearSenoTimer, startDriftLoop, anonSessionId]);
 
   // せーの失敗: ready-check に留まったまま「息が合わなかった」表示。
-  // 本動画再生中だった場合は暖機動画に戻して、再試行できるようにする。
+  // ※本動画再生中（isRealtimePlay）は無視する。一度本編が始まったら待機室には戻さず、
+  //   ズレた時は drift loop 側で「連携終了→ソロ完走」に切り替える方針のため。
   const handleSenoFail = useCallback(() => {
-    // ✋押下後の awaitingSongStart 中、ready-check 中、同期再生中(isRealtimePlay)で見限られた人を処理。
-    // 無関係（ソロ再生中、ロビーなど）は無視。
-    if (!awaitingSongStartRef.current && screenRef.current !== "ready-check" && !isRealtimePlayRef.current) return;
+    // ✋押下後の awaitingSongStart 中、または ready-check 中の人だけ処理。
+    // 本動画再生中・ソロ再生中・ロビーなどは無視。
+    if (!awaitingSongStartRef.current && screenRef.current !== "ready-check") return;
     logHiEvent(anonSessionId, "seno_fail_recv", `screen=${screenRef.current} awaitSong=${awaitingSongStartRef.current} rtplay=${isRealtimePlayRef.current}`);
     clearSenoTimer();
     if (playbackTimeoutRef.current) { clearTimeout(playbackTimeoutRef.current); playbackTimeoutRef.current = null; }
@@ -635,14 +651,6 @@ export default function HiTensionPage() {
     // anchor もクリア → ホストの 3 秒ごと再 broadcast で新しい暖機 anchor がセットされる
     warmupAnchorReceivedRef.current = false;
     clockAnchorRef.current = null;
-    // 本動画再生中だった場合は暖機動画に戻す（ready-check で再試行可能にするため）
-    if (isRealtimePlayRef.current) {
-      isWarmupRef.current = true;
-      // 念のため rate を 1.0 に戻してから暖機再生（次回の暖機 drift 補正は drift loop が必要時に再設定）
-      playerApiRef.current?.setPlaybackRate(1.0);
-      playerApiRef.current?.unMute();
-      playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
-    }
     readiedSetRef.current = new Set();
     playbackReadyMapRef.current = new Map();
     awaitingPlaybackRef.current = false;
@@ -656,7 +664,7 @@ export default function HiTensionPage() {
   }, [clearSenoTimer, stopDriftLoop, anonSessionId]);
 
   const handleTap = useCallback((tap: LiveTap) => {
-    if (!isRealtimePlayRef.current) return;
+    if (!isRealtimePlayRef.current || soloModeRef.current) return;
     // 片道ラグを実測: 受信時のサーバー時刻 − 送信時のサーバー時刻。
     // sentAt=0(旧クライアント or 欠落)や負値(時計逆転)は 0 にクランプ。
     const recvServerNow = Date.now() + getClockOffsetRef.current();
@@ -790,6 +798,7 @@ export default function HiTensionPage() {
     timestampsRef.current = [];
     submittedRef.current = false;
     videoEndedRef.current = false;
+    soloModeRef.current = false; // 連携終了→ソロのフラグを次の再生に持ち越さない
     setVideoEnded(false);
     setEndedSelfCount(0);
   };
@@ -1000,7 +1009,7 @@ export default function HiTensionPage() {
     timestampsRef.current.push(t);
     console.log(`[hi-tension] HI! @ ${t.toFixed(2)}s`);
     canvasRef.current?.spawnSelf();
-    if (isRealtimePlayRef.current) broadcastTap(t);
+    if (isRealtimePlayRef.current && !soloModeRef.current) broadcastTap(t);
   }, [broadcastTap]);
 
   const handlePressStart = (e: React.PointerEvent<HTMLButtonElement>) => {
