@@ -40,6 +40,33 @@ interface Deadline {
   fc_news: { title: string; detail_url: string; category: string };
 }
 
+interface ElineupGoodsRow {
+  product_url: string;
+  product_name: string;
+  event_name: string | null;
+  sale_end_at: string | null;
+}
+
+// e-LineUPグッズを「イベント＋締切」単位でまとめ、締切パイプライン(Deadline)に乗せる形へ変換。
+// 同一イベントの複数商品は同じ受付締切なので1件に集約する。
+function buildGoodsDeadlines(rows: ElineupGoodsRow[]): Deadline[] {
+  const byKey = new Map<string, { ev: string; saleEnd: string; url: string }>();
+  for (const r of rows) {
+    if (!r.sale_end_at) continue;
+    const ev = (r.event_name || r.product_name || "グッズ").trim();
+    const key = ev + "|" + r.sale_end_at;
+    if (!byKey.has(key)) byKey.set(key, { ev, saleEnd: r.sale_end_at, url: r.product_url });
+  }
+  return [...byKey.entries()].map(([key, g]) => ({
+    id: "goods:" + key,
+    news_uid: "goods:" + g.ev,
+    type: "goods_sale_end",
+    label: "グッズ締切",
+    deadline_at: g.saleEnd,
+    fc_news: { title: g.ev + " グッズ", detail_url: g.url, category: "グッズ" },
+  }));
+}
+
 type Tab = "input" | "result" | "calendar" | "subscribe";
 
 type RetentionMode = "after-event-1m" | "6m" | "forever";
@@ -148,9 +175,16 @@ export default function FcTicketPage() {
         .gte("deadline_at", new Date(Date.now() - 60 * 86400000).toISOString())
         .order("deadline_at", { ascending: true })
         .limit(500),
-    ]).then(([newsRes, dlRes]) => {
+      sb
+        .from("elineup_goods")
+        .select("product_url, product_name, event_name, sale_end_at")
+        .not("sale_end_at", "is", null)
+        .gte("sale_end_at", new Date(Date.now() - 7 * 86400000).toISOString()),
+    ]).then(([newsRes, dlRes, goodsRes]) => {
       if (newsRes.data) setAllNews(newsRes.data as FcNewsRow[]);
-      if (dlRes.data) setAllDeadlines(dlRes.data as Deadline[]);
+      const deadlines = (dlRes.data as Deadline[]) ?? [];
+      const goodsDeadlines = buildGoodsDeadlines((goodsRes.data as ElineupGoodsRow[]) ?? []);
+      setAllDeadlines([...deadlines, ...goodsDeadlines]);
       setLoading(false);
     }).catch(() => {
       setFetchError(true);
@@ -1973,10 +2007,10 @@ function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
 
 // ─── 画面D: 購読 ──────────────────────────────────────────
 
-const SUBSCRIPTION_TYPES_TO_SUBSCRIBE = ["apply_start", "apply_end", "result", "payment_start", "payment", "sale_start", "sale_end", "event"];
+const SUBSCRIPTION_TYPES_TO_SUBSCRIBE = ["apply_start", "apply_end", "result", "payment_start", "payment", "sale_start", "sale_end", "event", "goods_sale_end"];
 
 // 推しを登録していれば自動チェックする「申込前に動く」種別
-const FAVORITE_ACTIONABLE_TYPES = ["apply_start", "apply_end", "sale_start", "sale_end", "event"];
+const FAVORITE_ACTIONABLE_TYPES = ["apply_start", "apply_end", "sale_start", "sale_end", "event", "goods_sale_end"];
 
 // ─── 推し（favorites）によるタイトル自動マッチ ────────────────
 // ③全体イベント用キーワード（全グループ出演 → 推しがいれば該当）
