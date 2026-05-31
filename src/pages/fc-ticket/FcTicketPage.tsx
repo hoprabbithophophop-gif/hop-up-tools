@@ -2547,6 +2547,20 @@ function SubscribeScreen({
                 {publishing ? "更新中…" : "URLを更新"}
               </button>
             </div>
+            {/* 発行完了直後の応援（C） */}
+            <div className="pt-4 border-t border-outline-variant/30">
+              <p className="text-sm text-on-surface-variant mb-3">
+                このツールが役に立ったら、維持費の足しに応援してもらえると嬉しいです（任意）。
+              </p>
+              <a
+                href="https://ofuse.me/hopuptools"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block bg-primary text-on-primary-fixed px-6 py-3 text-xs font-bold uppercase tracking-widest hover:bg-secondary transition-colors cursor-pointer"
+              >
+                応援する
+              </a>
+            </div>
           </div>
         )}
 
@@ -2585,6 +2599,24 @@ function SubscribeScreen({
           </button>
         </section>
       )}
+
+      {/* 応援（A・常設フッター） */}
+      <footer className="mt-12 pt-6 border-t border-outline-variant/30">
+        <p className="text-sm text-on-surface-variant mb-3">
+          このツールは無料で運営しています。余裕があれば、サーバー代の維持に応援していただけると助かります。
+        </p>
+        <a
+          href="https://ofuse.me/hopuptools"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block bg-primary text-on-primary-fixed px-6 py-3 text-xs font-bold uppercase tracking-widest hover:bg-secondary transition-colors cursor-pointer"
+        >
+          応援する
+        </a>
+        <p className="text-[0.6875rem] text-outline mt-3">
+          ※任意です。なくても全機能そのまま使えます。いただいた応援はサーバー代・運営の維持に使います（利益目的の運営ではありません）。
+        </p>
+      </footer>
     </main>
   );
 }
