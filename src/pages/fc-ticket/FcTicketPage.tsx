@@ -1973,10 +1973,10 @@ function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
 
 // ─── 画面D: 購読 ──────────────────────────────────────────
 
-const SUBSCRIPTION_TYPES_TO_SUBSCRIBE = ["apply_start", "apply_end", "result", "payment_start", "payment", "sale_start", "sale_end"];
+const SUBSCRIPTION_TYPES_TO_SUBSCRIBE = ["apply_start", "apply_end", "result", "payment_start", "payment", "sale_start", "sale_end", "event"];
 
 // 推しを登録していれば自動チェックする「申込前に動く」種別
-const FAVORITE_ACTIONABLE_TYPES = ["apply_start", "apply_end", "sale_start", "sale_end"];
+const FAVORITE_ACTIONABLE_TYPES = ["apply_start", "apply_end", "sale_start", "sale_end", "event"];
 
 // ─── 推し（favorites）によるタイトル自動マッチ ────────────────
 // ③全体イベント用キーワード（全グループ出演 → 推しがいれば該当）
@@ -2065,7 +2065,7 @@ function computeDefaultIncluded(
     }
 
     if (isMatched || isApplied) {
-      if (["result", "payment_start", "payment", "sale_start", "sale_end"].includes(dl.type)) {
+      if (["result", "payment_start", "payment", "sale_start", "sale_end", "event"].includes(dl.type)) {
         included.add(dl.id);
       }
       continue;
@@ -2250,13 +2250,18 @@ function SubscribeScreen({
       const events: IcsEvent[] = [...includedIds]
         .map((id) => allDeadlines.find((dl) => dl.id === id))
         .filter((dl): dl is Deadline => !!dl)
-        .map((dl) => ({
-          uid: dl.id + "@hop-up-tools",
-          summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
-          description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
-          dtstart: new Date(new Date(dl.deadline_at).getTime() - 3600000),
-          dtend: new Date(dl.deadline_at),
-        }));
+        .map((dl) => {
+          const at = new Date(dl.deadline_at);
+          // 公演(event)は「開演〜2時間」の予定として扱う。締切類は「締切の1時間前〜締切」。
+          const isEvent = dl.type === "event";
+          return {
+            uid: dl.id + "@hop-up-tools",
+            summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
+            description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
+            dtstart: isEvent ? at : new Date(at.getTime() - 3600000),
+            dtend: isEvent ? new Date(at.getTime() + 7200000) : at,
+          };
+        });
       if (events.length === 0) {
         setError("配信する予定が1つも選択されていません。");
         setPublishing(false);

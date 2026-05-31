@@ -92,6 +92,25 @@ function debugRawHtml() {
   }
 }
 
+/** 公演日(event)抽出の検証用：既知のイベント記事だけを処理してupsert。6分制限内で確実に回る。 */
+function UFtestEvents() {
+  const props = PropertiesService.getScriptProperties();
+  const supabaseUrl = props.getProperty('SUPABASE_URL');
+  const supabaseKey = props.getProperty('SUPABASE_SERVICE_KEY');
+  const TARGET = ['Abx3Hx4gFhagrPAh', 'rdwEdwDwx07vBMps', 'Y8txrJ1nyg4hMAMN', 'iMqgU62G1DsM7dPk', 'DxsejI97HUFf3jHz'];
+  const articles = fetchNewsList().filter(a => TARGET.indexOf(a.uid) >= 0);
+  const out = [];
+  for (const article of articles) {
+    const deadlines = fetchDeadlines(article);
+    upsertNewsToSupabase(supabaseUrl, supabaseKey, article, deadlines);
+    const ev = deadlines.filter(d => d.type === 'event');
+    out.push({ uid: article.uid, title: article.title, total: deadlines.length, events: ev });
+    Logger.log(article.uid + ' / ' + article.title + ' → event=' + JSON.stringify(ev));
+    Utilities.sleep(800);
+  }
+  return JSON.stringify(out, null, 2);
+}
+
 // ─── リスト取得 ───────────────────────────────────────────
 
 function fetchNewsList() {
@@ -287,6 +306,27 @@ function fetchDeadlines(article) {
     const end   = parseJapaneseDate(salePeriod[2], startYear);
     if (start) deadlines.push({ type: 'sale_start', label: '販売開始', deadline_at: start });
     if (end)   deadlines.push({ type: 'sale_end',   label: '販売終了', deadline_at: end });
+  }
+
+  // ── 公演本体の開催日時（締切ではなく公演そのもの。type='event'） ──
+  // 例: 「●日程：2026年7月14日（火）」＋「開場 16:05/開演 16:45」（部ごと）
+  // 単発イベント/バースデー系が対象。ツアーは公演日が別リンク先のため本文に無く取得不可。
+  // 注意: 開演時刻は最初の1件のみ採用（複数部・複数日は将来対応）。見つからなければ正午扱い。
+  const eventMatch = text.match(/日程[：:]\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  if (eventMatch) {
+    const ey = parseInt(eventMatch[1], 10);
+    const emo = parseInt(eventMatch[2], 10) - 1;
+    const ed = parseInt(eventMatch[3], 10);
+    let eh = 12, emin = 0; // 開演不明時は正午（締切類の23:59と区別するため）
+    const kaienColon = text.match(/開演\s*(\d{1,2})\s*[:：]\s*(\d{1,2})/);
+    const kaienKanji = text.match(/開演\s*(\d{1,2})\s*時\s*(?:(\d{1,2})\s*分)?/);
+    if (kaienColon) {
+      eh = parseInt(kaienColon[1], 10); emin = parseInt(kaienColon[2], 10);
+    } else if (kaienKanji) {
+      eh = parseInt(kaienKanji[1], 10); emin = kaienKanji[2] ? parseInt(kaienKanji[2], 10) : 0;
+    }
+    const eventIso = new Date(Date.UTC(ey, emo, ed, eh - 9, emin)).toISOString();
+    deadlines.push({ type: 'event', label: '公演', deadline_at: eventIso });
   }
 
   return deadlines;
