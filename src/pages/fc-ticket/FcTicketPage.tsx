@@ -1601,6 +1601,48 @@ const isMonthStart = d.getDate() === 1;
         </div>
       </section>
 
+      {/* ─── グッズ締切（誰でもブラウズ可・全件） ─── */}
+      {(() => {
+        const goods = allDeadlines
+          .filter((d) => d.type === "goods_sale_end" && new Date(d.deadline_at) >= now)
+          .sort((a, b) => new Date(a.deadline_at).getTime() - new Date(b.deadline_at).getTime());
+        if (goods.length === 0) return null;
+        return (
+          <section className="mb-16">
+            <header className="flex items-center gap-4 mb-6">
+              <div className="h-10 w-1 bg-primary" />
+              <div>
+                <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">Goods</span>
+                <h3 className="text-xl font-bold uppercase leading-none">グッズ締切</h3>
+              </div>
+              <span className="ml-auto text-[0.6875rem] text-outline">{goods.length}件</span>
+            </header>
+            <div className="flex flex-col gap-px">
+              {goods.map((d) => {
+                const end = new Date(d.deadline_at);
+                const dateStr = end.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
+                const timeStr = end.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+                return (
+                  <a
+                    key={d.id}
+                    href={d.fc_news.detail_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-4 px-4 py-4 bg-surface-container-lowest hover:bg-surface-container-low transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-xl flex-shrink-0">shopping_bag</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold leading-tight break-words">{d.fc_news.title}</p>
+                      <p className="text-xs text-outline mt-0.5">受付締切 {dateStr} {timeStr}</p>
+                    </div>
+                    <span className="material-symbols-outlined text-outline text-base flex-shrink-0">open_in_new</span>
+                  </a>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* ─── 気になる公演 ─── */}
       <section className="mb-16">
