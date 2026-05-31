@@ -312,8 +312,9 @@ function fetchDeadlines(article) {
   // 例: 「●日程：2026年7月14日（火）」＋「開場 16:05/開演 16:45」（部ごと）
   // 単発イベント/バースデー系が対象。ツアーは公演日が別リンク先のため本文に無く取得不可。
   // 注意: 開演時刻は最初の1件のみ採用（複数部・複数日は将来対応）。見つからなければ正午扱い。
+  // 中止・延期の記事からは公演日を作らない（主役の体調不良等で稀に発生）。「振替」は新日程が有効なので除外しない。
   const eventMatch = text.match(/日程[：:]\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
-  if (eventMatch) {
+  if (eventMatch && !/中止|延期/.test(article.title)) {
     const ey = parseInt(eventMatch[1], 10);
     const emo = parseInt(eventMatch[2], 10) - 1;
     const ed = parseInt(eventMatch[3], 10);
