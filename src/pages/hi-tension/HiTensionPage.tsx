@@ -1064,29 +1064,18 @@ export default function HiTensionPage() {
 
   const handleTimeUpdate = useCallback((t: number) => {
     currentTimeRef.current = t;
-    // HandsCanvas に渡す時刻は recordHi(送信側) の videoTime と基準を揃える。
-    // 同期再生中は Supabase 時刻基準で算出した動画位置を渡し、他端末から届いた
-    // videoTime と「同じ物差し」で比較できるようにする(YouTube の生 currentTime は
-    // 端末ごとに drift があるので比較基準にすると体感ズレが出る)。
-    let canvasT = t;
-    const anchor = clockAnchorRef.current;
-    if (isRealtimePlayRef.current && anchor) {
-      const supabaseNow = Date.now() + anchor.offset;
-      canvasT = anchor.p0 + (supabaseNow - anchor.t0) / 1000;
-    }
-    canvasRef.current?.onTimeUpdate(canvasT);
+    // ✋の物差しは「実際の動画位置(t)」をそのまま使う。recordHi(送信側)も同じ。
+    // 2台の動画は pause-and-wait でお互いほぼ揃っている一方、抽象クロックは起動時の
+    // 出遅れ(約1秒)ぶん映像とズレるため、クロック基準だと✋が映像から定常的にズレる。
+    // 映像位置基準にすると✋が映像にちゃんと乗る（端末間の残差は ~0.15秒）。
+    canvasRef.current?.onTimeUpdate(t);
   }, []);
 
   const recordHi = useCallback(() => {
     if (videoEndedRef.current) return;
-    const anchor = clockAnchorRef.current;
-    let t = currentTimeRef.current;
-    // 同期再生中は、ズレ補正(seek/rate)の影響を打ち消すため Supabase 基準の動画時刻を使う。
-    // 「同じリアル瞬間に押した」が全員同じ video_time として共有される。
-    if (isRealtimePlayRef.current && anchor) {
-      const supabaseNow = Date.now() + anchor.offset;
-      t = anchor.p0 + (supabaseNow - anchor.t0) / 1000;
-    }
+    // ✋の videoTime は実際の動画位置を使う（受信側 handleTimeUpdate と同じ物差し）。
+    // 抽象クロック基準だと映像との定常ズレ(約1秒)が✋に出るため。
+    const t = currentTimeRef.current;
     timestampsRef.current.push(t);
     console.log(`[hi-tension] HI! @ ${t.toFixed(2)}s`);
     canvasRef.current?.spawnSelf();
