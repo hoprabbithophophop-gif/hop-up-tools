@@ -87,8 +87,6 @@ function searchToLevel(search: string): number {
   return s === "room" ? 1 : s === "wait" ? 2 : s === "session" ? 3 : 0;
 }
 
-const LONG_PRESS_INTERVAL_MS = 150;
-const LONG_PRESS_THRESHOLD_MS = 250;
 const BUTTON_SIZE = 120;
 const BOUNCE_DURATION_MS = 400;
 
@@ -1085,11 +1083,7 @@ export default function HiTensionPage() {
   const handlePressStart = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
     setIsPressed(true);
-    recordHi();
-    clearPressTimers();
-    holdTimerRef.current = setTimeout(() => {
-      pressIntervalRef.current = setInterval(recordHi, LONG_PRESS_INTERVAL_MS);
-    }, LONG_PRESS_THRESHOLD_MS);
+    recordHi(); // 1押し=1ハイ！。押しっぱの連打(長押しリピート)は廃止（「ハイ！」コールに合わせ1回ずつ）。
   };
 
   const handlePressEnd = () => {
