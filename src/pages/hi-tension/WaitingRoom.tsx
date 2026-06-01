@@ -55,6 +55,8 @@ export default function WaitingRoom({
   };
 
   const count = participants.length;
+  // せーのは2人(MAX_PARTICIPANTS)揃ってから。1人で押すと相手が合流できないまま進んで詰むため。
+  const canSeno = isHost && connected && count >= MAX_PARTICIPANTS;
 
   // あふれ（3人目以降）: 満員パネルを表示。スタートには参加できない。
   if (isOverflow) {
@@ -232,24 +234,24 @@ export default function WaitingRoom({
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem", width: "100%" }}>
         <button
           type="button"
-          disabled={!isHost || !connected}
+          disabled={!canSeno}
           onClick={onSeno}
           style={{
             width: "100%",
             maxWidth: 360,
             padding: "0.85rem",
-            background: isHost && connected ? "#000" : "#c6c6c6",
+            background: canSeno ? "#000" : "#c6c6c6",
             color: "#fff",
             border: "none",
             fontSize: "0.875rem",
             fontWeight: 700,
             letterSpacing: "0.05em",
             textTransform: "uppercase",
-            cursor: isHost && connected ? "pointer" : "not-allowed",
+            cursor: canSeno ? "pointer" : "not-allowed",
             transition: "background 0.12s",
           }}
         >
-          {isHost ? "せーの！" : "せーの待ち"}
+          {!isHost ? "せーの待ち" : count >= MAX_PARTICIPANTS ? "せーの！" : `あと${MAX_PARTICIPANTS - count}人待ってね`}
         </button>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.05rem" }}>
           {roomCode ? (

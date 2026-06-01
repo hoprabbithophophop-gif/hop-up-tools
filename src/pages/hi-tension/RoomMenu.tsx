@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { normalizeRoomCode, ROOM_CODE_LENGTH } from "./useHiTensionRealtime";
 
 interface Props {
@@ -9,6 +9,10 @@ interface Props {
 
 export default function RoomMenu({ onCreate, onJoin, onBack }: Props) {
   const [code, setCode] = useState("");
+  // iOS フリック入力(IME)対策：変換確定前に value を toUpperCase で上書きすると
+  // 変換途中の文字が毎回潰れてフリックが確定できない。変換中(composition中)は state を
+  // 触らず、確定時(compositionEnd)と通常入力(非IME)のときだけ反映する。
+  const composingRef = useRef(false);
   // 表示は生入力（大文字化のみ）。使用可否は正規化後の長さで判定する。
   const canJoin = normalizeRoomCode(code).length === ROOM_CODE_LENGTH;
 
@@ -83,7 +87,16 @@ export default function RoomMenu({ onCreate, onJoin, onBack }: Props) {
           spellCheck={false}
           maxLength={ROOM_CODE_LENGTH}
           value={code}
-          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          onChange={(e) => {
+            // IME 変換中は触らない（フリック確定を邪魔しない）。確定は onCompositionEnd で。
+            if (composingRef.current) return;
+            setCode(e.target.value.toUpperCase());
+          }}
+          onCompositionStart={() => { composingRef.current = true; }}
+          onCompositionEnd={(e) => {
+            composingRef.current = false;
+            setCode(e.currentTarget.value.toUpperCase());
+          }}
           placeholder="コード"
           aria-label="部屋のコード"
           style={{

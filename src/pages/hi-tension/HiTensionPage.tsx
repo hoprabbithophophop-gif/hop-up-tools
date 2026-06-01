@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import MemberSelect from "./components/MemberSelect";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
 import HandsCanvas, { type HandsCanvasApi } from "./components/HandsCanvas";
@@ -60,15 +61,31 @@ const HI_DEBUG: boolean = (() => {
 
 function logHiEvent(sessionId: string, event: string, detail?: string) {
   // 軽いイベントログは本番でも常時収集（重い同期ログ・画面表示だけ HI_DEBUG で制御）。
-  getSupabase().from("hi_event_debug").insert({
-    session_id: sessionId,
-    device: detectDevice(),
-    event,
-    detail: detail ?? null,
-  }).then(({ error }) => { if (error) console.warn("[hi-tension] event log failed", error.message); });
+  // ログ送信は失敗してもアプリ本体を絶対に巻き込まない（getSupabase が env 不備で throw する等）。
+  try {
+    getSupabase().from("hi_event_debug").insert({
+      session_id: sessionId,
+      device: detectDevice(),
+      event,
+      detail: detail ?? null,
+    }).then(({ error }) => { if (error) console.warn("[hi-tension] event log failed", error.message); });
+  } catch {
+    /* ログ失敗は無視 */
+  }
 }
 
 type Screen = "select" | "room-menu" | "waiting" | "ready-check" | "play";
+
+// 画面の「深さ」。ブラウザ/端末の戻るで1段ずつ戻すための履歴レベル。
+// ready-check と play は同じ「セッション(3)」レベル＝1エントリにまとめ、戻るは待機室へ一段で戻す。
+const SCREEN_LEVEL: Record<Screen, number> = {
+  select: 0, "room-menu": 1, waiting: 2, "ready-check": 3, play: 3,
+};
+const LEVEL_SEARCH = ["", "?s=room", "?s=wait", "?s=session"];
+function searchToLevel(search: string): number {
+  const s = new URLSearchParams(search).get("s") ?? "";
+  return s === "room" ? 1 : s === "wait" ? 2 : s === "session" ? 3 : 0;
+}
 
 const LONG_PRESS_INTERVAL_MS = 150;
 const LONG_PRESS_THRESHOLD_MS = 250;
@@ -888,6 +905,68 @@ export default function HiTensionPage() {
     setScreen("select");
   };
 
+  // --- 画面 ↔ URL 履歴の連携（ブラウザ/端末の戻るで1画面ずつ戻れるように）---
+  const navigate = useNavigate();
+  const location = useLocation();
+  const skipUrlSyncRef = useRef(false);
+
+  // 戻る/進む で URL が screen とズレたとき、screen を URL のレベルに合わせて後始末する
+  const reconcileToLevel = (level: number) => {
+    // 部屋/待機/セッションのURLに直接来た・リロードした等で状態(メンバー)が無いならロビーへ
+    if (level >= 1 && !memberId) {
+      navigate("/hi-tension", { replace: true });
+      return;
+    }
+    const target: Screen =
+      level === 0 ? "select" : level === 1 ? "room-menu" : level === 2 ? "waiting" : "ready-check";
+    // 共通の後始末（セッション・タイマー・同期を畳む）
+    clearSenoTimer();
+    stopDriftLoop();
+    warmupAnchorReceivedRef.current = false;
+    clockAnchorRef.current = null;
+    readiedSetRef.current = new Set();
+    playbackReadyMapRef.current = new Map();
+    awaitingPlaybackRef.current = false;
+    awaitingSongStartRef.current = false;
+    soloModeRef.current = false;
+    setIsRealtimePlay(false);
+    setSyncing(false);
+    setSelfReadied(false);
+    setReadyCheckFailed(false);
+    setReadyCount(0);
+    if (target === "waiting") {
+      // 部屋に戻る：暖機を再開（出囃子）。※iOSはジェスチャー外なので自動再生しないことがある。
+      setSyncActive(true);
+      isWarmupRef.current = true;
+      playerApiRef.current?.setPlaybackRate(1.0);
+      playerApiRef.current?.unMute();
+      playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
+    } else {
+      setSyncActive(false);
+      isWarmupRef.current = false;
+      playerApiRef.current?.pause();
+      if (target === "select") setRoomCode(null);
+    }
+    skipUrlSyncRef.current = true; // この setScreen で URL push を再発火させない
+    setScreen(target);
+  };
+
+  // screen が変わったら URL を合わせる（前進=push / 後退・同レベルへの戻し=replace）
+  useEffect(() => {
+    if (skipUrlSyncRef.current) { skipUrlSyncRef.current = false; return; }
+    const level = SCREEN_LEVEL[screen];
+    const urlLevel = searchToLevel(window.location.search);
+    if (level === urlLevel) return;
+    navigate(`/hi-tension${LEVEL_SEARCH[level]}`, { replace: level < urlLevel });
+  }, [screen, navigate]);
+
+  // 戻る/進む（location 変化）で URL が screen とズレたら合わせ直す
+  useEffect(() => {
+    const urlLevel = searchToLevel(location.search);
+    if (urlLevel === SCREEN_LEVEL[screenRef.current]) return;
+    reconcileToLevel(urlLevel);
+  }, [location.search]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // やっぱりひとりで（待機室から直接再生。inWaitingRoom が false になり自動で untrack される）
   const handleSolo = () => {
     // gesture スコープ内なので iOS でも play() が通る。warmup→本番動画へ切替。
@@ -904,8 +983,8 @@ export default function HiTensionPage() {
   // ホストが「せーの」を押す（待機室）
   const handleSenoButton = () => {
     const group = participants.slice(0, MAX_PARTICIPANTS).map(p => p.sessionId);
-    if (group.length === 0) return;
-    logHiEvent(anonSessionId, "seno_send", `room=${roomCode ?? "global"} n=${group.length} parts=${participants.length} seat=${mySeatIndex} host=${isHost}`);
+    if (group.length < MAX_PARTICIPANTS) return; // 2人揃うまでせーのしない（ボタン無効化のバックストップ）
+    logHiEvent(anonSessionId, "seno_send", `n=${group.length} parts=${participants.length} seat=${mySeatIndex} host=${isHost}`);
     sendSeno(group);
   };
 
