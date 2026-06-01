@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import UpfcDummyPreview from "./UpfcDummyPreview";
 import FavoritePicker, { type Favorites } from "./FavoritePicker";
 import MemberFilterInput from "./MemberFilterInput";
@@ -184,7 +185,15 @@ const TYPE_LABEL_EN: Record<string, string> = {
 export default function FcTicketPage() {
   useEffect(() => { document.title = "FC 締切リマインダー | hop-up-tools"; }, []);
 
-  const [tab, setTab] = useState<Tab>("calendar");
+  // タブをURL(?tab=)に反映して履歴に積む → ブラウザの戻る/進むでタブ移動できる
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab: Tab = (() => {
+    const t = searchParams.get("tab");
+    return t === "input" || t === "result" || t === "subscribe" ? t : "calendar";
+  })();
+  const setTab = (t: Tab) => {
+    setSearchParams(t === "calendar" ? {} : { tab: t });
+  };
   const [pasteText, setPasteText] = useState<string>(() => {
     try { return localStorage.getItem("fc-input-text") ?? ""; }
     catch { return ""; }
@@ -2392,6 +2401,8 @@ function SubscribeScreen({
   function persistRetention(mode: RetentionMode) {
     setRetention(mode);
     try { localStorage.setItem("fc-sub-retention", mode); } catch { /* ignore */ }
+    // 発行済みなら保持期限の変更をサーバ側マニフェストに即時反映（再アップロード）
+    if (slug && includedIds.size > 0) handlePublish(mode);
   }
 
   const now = new Date();
@@ -2421,7 +2432,7 @@ function SubscribeScreen({
   const activeGroups = groupDeadlinesByEvent(activeDeadlines);
   const completedGroups = groupDeadlinesByEvent(completedDeadlines);
 
-  async function handlePublish() {
+  async function handlePublish(retentionArg?: RetentionMode) {
     setError(null);
     setPublishing(true);
     try {
@@ -2447,7 +2458,7 @@ function SubscribeScreen({
         return;
       }
       const ics = generateMultiIcs(events);
-      const urls = await uploadSubscriptionIcs(useSlug, ics);
+      const urls = await uploadSubscriptionIcs(useSlug, ics, events, retentionArg ?? retention);
       if (!slug) {
         setSlug(useSlug);
         try { localStorage.setItem("fc-sub-slug", useSlug); } catch { /* ignore */ }
@@ -2605,7 +2616,7 @@ function SubscribeScreen({
           <option value="forever">自分で削除するまで保持</option>
         </select>
         <p className="text-[0.6875rem] text-outline mt-2">
-          ※ 自動削除は今後対応予定。現在は手動削除のみ。
+          ※ 終了した予定は毎日の自動更新でカレンダーから整理されます（カレンダーアプリ側の同期タイミングにより反映が遅れる場合あり）。
         </p>
       </section>
 
@@ -2617,7 +2628,7 @@ function SubscribeScreen({
 
         {!publishedUrls ? (
           <button
-            onClick={handlePublish}
+            onClick={() => handlePublish()}
             disabled={publishing || includedCount === 0}
             className="bg-primary text-on-primary-fixed px-8 py-4 text-sm font-bold uppercase tracking-[0.2em] hover:bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
           >
@@ -2643,7 +2654,7 @@ function SubscribeScreen({
                 カレンダーアプリで開く
               </a>
               <button
-                onClick={handlePublish}
+                onClick={() => handlePublish()}
                 disabled={publishing}
                 className="bg-surface-container text-on-surface px-6 py-3 text-xs font-bold uppercase tracking-widest hover:bg-surface-container-high transition-colors cursor-pointer disabled:opacity-30"
               >

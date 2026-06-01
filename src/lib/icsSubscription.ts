@@ -1,6 +1,7 @@
 /**
  * fc-ics Edge Function 経由でICSサブスクリプションをアップロード/削除する
  */
+import type { IcsEvent } from "./ics";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -16,14 +17,20 @@ export function subscriptionUrls(slug: string): SubscriptionUrls {
   return { https: httpsUrl, webcal: webcalUrl };
 }
 
-export async function uploadSubscriptionIcs(slug: string, ics: string): Promise<SubscriptionUrls> {
+export async function uploadSubscriptionIcs(
+  slug: string,
+  ics: string,
+  events?: IcsEvent[],
+  retention?: string,
+): Promise<SubscriptionUrls> {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/fc-ics-upload`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${ANON_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ slug, ics }),
+    // events / retention は再生成（保持期限による自動削除）用にサーバ保存される
+    body: JSON.stringify({ slug, ics, events, retention }),
   });
 
   if (!res.ok) {
