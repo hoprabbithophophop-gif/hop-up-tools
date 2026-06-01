@@ -4,17 +4,13 @@ import { UNIT_ROWS } from "../data";
 interface Props {
   initialSelectedId: string | null;
   onConfirm: (memberId: string) => void;
-  onWaitGlobal: (memberId: string) => void;
   onOpenRoomMenu: (memberId: string) => void;
-  roomFull: boolean;
 }
 
 export default function MemberSelect({
   initialSelectedId,
   onConfirm,
-  onWaitGlobal,
   onOpenRoomMenu,
-  roomFull,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
 
@@ -164,33 +160,6 @@ export default function MemberSelect({
         >
           ひとりではじめる
         </button>
-
-        {/* だれかと合わせる（グローバル待機室） */}
-        {(() => {
-          const globalDisabled = !selectedId || roomFull;
-          return (
-            <button
-              type="button"
-              disabled={globalDisabled}
-              onClick={() => selectedId && !roomFull && onWaitGlobal(selectedId)}
-              style={{
-                width: "100%",
-                padding: "1rem",
-                background: globalDisabled ? "#c6c6c6" : "#000",
-                color: "#fff",
-                border: "none",
-                fontSize: "0.875rem",
-                fontWeight: 700,
-                letterSpacing: "0.05em",
-                textTransform: "uppercase",
-                cursor: globalDisabled ? "not-allowed" : "pointer",
-                transition: "background 0.12s",
-              }}
-            >
-              {roomFull ? "満員（4人まで）" : "だれかと合わせる"}
-            </button>
-          );
-        })()}
 
         {/* 合言葉の部屋（コードで集まる） */}
         <button

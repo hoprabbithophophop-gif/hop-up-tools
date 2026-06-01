@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import HandIcon from "./components/HandIcon";
 import { findMember } from "./data";
-import type { Participant } from "./useHiTensionRealtime";
+import { MAX_PARTICIPANTS, type Participant } from "./useHiTensionRealtime";
 
 interface Props {
   participants: Participant[];
@@ -56,7 +56,7 @@ export default function WaitingRoom({
 
   const count = participants.length;
 
-  // あふれ（5人目以降）: 満員パネルを表示。スタートには参加できない。
+  // あふれ（3人目以降）: 満員パネルを表示。スタートには参加できない。
   if (isOverflow) {
     return (
       <div
@@ -76,10 +76,10 @@ export default function WaitingRoom({
         }}
       >
         <p style={{ fontSize: "1.125rem", fontWeight: 700, margin: 0, color: "#000" }}>
-          満員です（4人まで）
+          満員です（{MAX_PARTICIPANTS}人まで）
         </p>
         <p style={{ fontSize: "0.875rem", color: "#474747", margin: 0, textAlign: "center", lineHeight: 1.6 }}>
-          いま4人が待ってます。
+          いま{MAX_PARTICIPANTS}人が待ってます。
           <br />
           ひとりで始めるか、ロビーに戻ってね。
         </p>
@@ -224,7 +224,7 @@ export default function WaitingRoom({
           })}
         </div>
         <p style={{ fontSize: "0.8125rem", color: "#474747", margin: 0 }}>
-          {`${count}/4人`}
+          {`${count}/${MAX_PARTICIPANTS}人`}
         </p>
       </div>
 

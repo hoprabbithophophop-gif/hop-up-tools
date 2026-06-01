@@ -71,7 +71,9 @@ function ageScale(playedDate: string): number {
 
 /**
  * 参加順インデックスから✋の位置を決める（リアルタイムセッション用）。
- * 待合室のドットと同じく横一列に整列する（最大4人）。
+ * 待合室のドットと同じく横一列に整列する（現在の上限は2人）。
+ * ※2人だと seat0=0.2 / seat1=0.4 と左寄りに密集する。✋重なり調査の結果次第で
+ *   2人用に左右へ広げる（例: 1/3・2/3）見直し余地あり。
  */
 function seatIndexToPosition(index: number): { xRatio: number; yRatio: number } {
   const col = index % 4;            // 0,1,2,3

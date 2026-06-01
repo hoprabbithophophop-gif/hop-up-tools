@@ -4,8 +4,10 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 
 const CHANNEL_BASE = "hi-tension";
 
-// 「みんなで」待機室の参加上限。seat_index 0〜3 が正規参加者。
-export const MAX_PARTICIPANTS = 4;
+// 「みんなで」待機室の参加上限。seat_index 0〜1 が正規参加者。
+// ※同期方式（pause-and-wait＝最遅端末に合わせて待つ）は人数が増えるほど崩れやすいため、
+//   確実に揃う 2 人に絞っている。
+export const MAX_PARTICIPANTS = 2;
 
 // 「せーの」後、各端末が✋を押せる猶予（ミリ秒）
 export const SENO_WINDOW_MS = 3000;

@@ -40,7 +40,25 @@ const SYNC_LOG_INTERVAL_MS = 3000;
 const YT_STATE_NAMES: Record<number, string> = {
   [-1]: "UNSTARTED", 0: "ENDED", 1: "PLAYING", 2: "PAUSED", 3: "BUFFERING", 5: "CUED",
 };
+// 調査ログのon/off。本番はoff（Supabaseに何も書かない）。
+// URLに ?hidebug=1 を付けるとonになり localStorage に記録される（?hidebug=0 でoff）。
+// プレビューURLで実機検証する時だけ有効化する用途。
+const HI_DEBUG: boolean = (() => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("hidebug")) {
+      const on = params.get("hidebug") !== "0";
+      window.localStorage.setItem("hi_debug", on ? "1" : "0");
+      return on;
+    }
+    return window.localStorage.getItem("hi_debug") === "1";
+  } catch {
+    return false;
+  }
+})();
+
 function logHiEvent(sessionId: string, event: string, detail?: string) {
+  if (!HI_DEBUG) return;
   getSupabase().from("hi_event_debug").insert({
     session_id: sessionId,
     device: detectDevice(),
@@ -240,6 +258,7 @@ export default function HiTensionPage() {
   // 同期デバッグ表示の更新ループ（原因特定用、後で削除）。
   // syncActive で trigger するので暖機動画の同期中もログが取れる。
   useEffect(() => {
+    if (!HI_DEBUG) return;            // 本番では同期デバッグ表示・hi_sync_debug書き込みを動かさない
     logHiEvent(anonSessionId, "debug_effect", `syncActive=${syncActive}`);
     if (!syncActive) { setDebugInfo(null); return; }
     let tickCount = 0;
@@ -763,8 +782,7 @@ export default function HiTensionPage() {
     return () => clearInterval(interval);
   }, [isHost, screen]);
 
-  // 待機室が満員か / 自分があふれ（5人目以降）か
-  const roomFull = participants.length >= MAX_PARTICIPANTS;
+  // 自分があふれ（3人目以降＝同じ合言葉に定員超で来た）か
   const isOverflow = mySeatIndex >= MAX_PARTICIPANTS;
 
   useEffect(() => {
@@ -790,14 +808,6 @@ export default function HiTensionPage() {
 
   useEffect(() => { return () => clearPressTimers(); }, [clearPressTimers]);
 
-  // グローバル待機室は5分でタイムアウト → ロビーに戻す（放置・居座り対策）。
-  // 合言葉の部屋（roomCode あり）には適用しない。
-  useEffect(() => {
-    if (screen !== "waiting" || roomCode !== null) return;
-    const timer = setTimeout(() => setScreen("select"), 5 * 60 * 1000);
-    return () => clearTimeout(timer);
-  }, [screen, roomCode]);
-
   // 再生まわりの状態をリセットする
   const resetPlayState = () => {
     timestampsRef.current = [];
@@ -822,20 +832,6 @@ export default function HiTensionPage() {
     setPlaySeatIndex(-1);
     setIsRealtimePlay(false);
     setScreen("play");
-  };
-
-  // だれかと（グローバル待機室）
-  const handleWaitGlobal = (id: string) => {
-    if (roomFull) return; // 満員なら入室しない（ボタン無効化のバックストップ）
-    setMemberId(id);
-    setLastSelectedMemberId(id);
-    setRoomCode(null);
-    setSeatHash(newSeatHash());
-    // 待機室で暖機動画を音付きで再生（出囃子）。ボタン押下のジェスチャー内で loadVideo を呼ぶので iOS でも再生開始する。
-    isWarmupRef.current = true;
-    playerApiRef.current?.unMute();
-    playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
-    setScreen("waiting");
   };
 
   // 合言葉の部屋メニューを開く
@@ -1043,8 +1039,8 @@ export default function HiTensionPage() {
         }
       `}</style>
 
-      {/* 同期デバッグ表示（原因特定用、後で削除） */}
-      {debugInfo && (
+      {/* 同期デバッグ表示（?hidebug=1 の時だけ。本番では出さない） */}
+      {HI_DEBUG && debugInfo && (
         <div
           style={{
             position: "fixed",
@@ -1210,9 +1206,7 @@ export default function HiTensionPage() {
           <MemberSelect
             initialSelectedId={memberId}
             onConfirm={handleConfirm}
-            onWaitGlobal={handleWaitGlobal}
             onOpenRoomMenu={handleOpenRoomMenu}
-            roomFull={roomFull}
           />
         </div>
       )}
