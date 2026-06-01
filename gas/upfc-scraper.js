@@ -308,6 +308,23 @@ function fetchDeadlines(article) {
     if (end)   deadlines.push({ type: 'sale_end',   label: '販売終了', deadline_at: end });
   }
 
+  // ── グッズ通信販売の開始（文章形式・年なし） ──
+  // 例: 「5/25（月）18:00より通信販売がスタート」「5月25日（月）10:00より販売開始」
+  // UPFCニュースには販売開始しか無く、締切は e-LineUP 側にしか無い（フロントで突き合わせる）。
+  // 年は記事本文に無いため現在日から推定（過去すぎる月日なら翌年扱い）。type='goods_sale_start'。
+  const goodsSale =
+    text.match(/(\d{1,2})\s*\/\s*(\d{1,2})\s*[（(]\s*[月火水木金土日][祝]?\s*[）)]\s*(?:(\d{1,2})\s*[:：]\s*(\d{1,2}))?\s*より\s*(?:の)?\s*(?:通信販売|オンライン販売|オンラインストア|販売|受付|発売)\s*(?:が)?\s*(?:スタート|開始)/) ||
+    text.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*[（(]\s*[月火水木金土日][祝]?\s*[）)]\s*(?:(\d{1,2})\s*[:：]\s*(\d{1,2}))?\s*より\s*(?:の)?\s*(?:通信販売|オンライン販売|オンラインストア|販売|受付|発売)\s*(?:が)?\s*(?:スタート|開始)/);
+  if (goodsSale) {
+    const gmo = parseInt(goodsSale[1], 10);
+    const gd  = parseInt(goodsSale[2], 10);
+    const gh  = goodsSale[3] ? parseInt(goodsSale[3], 10) : 0;  // 時刻なし → 0時（その日から）
+    const gmin = goodsSale[4] ? parseInt(goodsSale[4], 10) : 0;
+    const gy  = guessYearForMonthDay(gmo, gd);
+    const iso = new Date(Date.UTC(gy, gmo - 1, gd, gh - 9, gmin)).toISOString();
+    deadlines.push({ type: 'goods_sale_start', label: '通販開始', deadline_at: iso });
+  }
+
   // ── 公演本体の開催日時（締切ではなく公演そのもの。type='event'） ──
   // 例: 「●日程：2026年7月14日（火）」＋「開場 16:05/開演 16:45」（部ごと）
   // 単発イベント/バースデー系が対象。ツアーは公演日が別リンク先のため本文に無く取得不可。
@@ -331,6 +348,21 @@ function fetchDeadlines(article) {
   }
 
   return deadlines;
+}
+
+/**
+ * 年なし月日（例: 5/25）の年を現在日から推定する。
+ * グッズ通販開始は記事本文に年が無く、発表は販売日より前なので「直近の未来寄り」を選ぶ。
+ * 月日が3ヶ月以上過去なら翌年（年末発表・年明け販売の境界対応）、それ以外は今年。
+ * @param {number} month 1〜12
+ * @param {number} day 1〜31
+ */
+function guessYearForMonthDay(month, day) {
+  const now = new Date();
+  const y = now.getFullYear();
+  const candidate = new Date(y, month - 1, day);
+  const threeMonthsAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  return candidate < threeMonthsAgo ? y + 1 : y;
 }
 
 /** 日付文字列から年を抽出（年なし日付の fallback 用） */

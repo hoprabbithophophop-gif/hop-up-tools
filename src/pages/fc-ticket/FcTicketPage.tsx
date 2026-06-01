@@ -67,6 +67,60 @@ function buildGoodsDeadlines(rows: ElineupGoodsRow[]): Deadline[] {
   }));
 }
 
+// UPFC記事タイトル / e-LineUPイベント名を突き合わせ用キーに正規化する。
+// UPFC「アンジュルム 長野桃羽…2026オリジナルグッズ公開！」と
+// e-LineUP「アンジュルム 長野桃羽…2026」を一致させるため、グッズ告知の接尾辞・装飾・空白・
+// 引用符の表記揺れ（'26 / ’26）を全部落としてから比較する。
+function normGoodsKey(s: string): string {
+  return s
+    .replace(/オリジナルグッズ公開|グッズ公開|オリジナルグッズ|のお知らせ|グッズ/g, "")
+    .replace(/[’'＇`]/g, "")
+    .replace(/[！!]/g, "")
+    .replace(/[　\s]+/g, "")
+    .trim();
+}
+
+// 1グッズ販売期間（通販開始=UPFC, 受付締切=e-LineUP）。ガントの独立行になる。
+interface GoodsPeriod {
+  id: string;        // tooltip識別用（"goodsperiod:" + key）
+  label: string;     // イベント名
+  start: Date | null; // 通販開始（UPFC）。未ペアなら null
+  end: Date;         // 受付締切（e-LineUP）
+  url: string;       // e-LineUP商品ページ
+}
+
+// e-LineUP締切(goods_sale_end)とUPFC通販開始(goods_sale_start)をイベント名で突き合わせ、
+// 開始も締切も揃った「販売期間」だけを返す（開始が無いものはガントに出さず一覧側に任せる）。
+function buildGoodsPeriods(deadlines: Deadline[]): GoodsPeriod[] {
+  const startByKey = new Map<string, Date>();
+  for (const dl of deadlines) {
+    if (dl.type === "goods_sale_start") {
+      startByKey.set(normGoodsKey(dl.fc_news.title), new Date(dl.deadline_at));
+    }
+  }
+  const periods: GoodsPeriod[] = [];
+  for (const dl of deadlines) {
+    if (dl.type !== "goods_sale_end") continue;
+    const key = normGoodsKey(dl.fc_news.title);
+    let start = startByKey.get(key) ?? null;
+    if (!start && key) {
+      // 完全一致しなければ片方がもう片方を含む関係で照合（地域付き等の揺れ吸収）
+      for (const [k, v] of startByKey) {
+        if (k && (k.includes(key) || key.includes(k))) { start = v; break; }
+      }
+    }
+    if (!start) continue; // 開始が分からない＝期間バーにできない
+    periods.push({
+      id: "goodsperiod:" + key,
+      label: dl.fc_news.title.replace(/\s*グッズ$/, ""),
+      start,
+      end: new Date(dl.deadline_at),
+      url: dl.fc_news.detail_url,
+    });
+  }
+  return periods;
+}
+
 type Tab = "input" | "result" | "calendar" | "subscribe";
 
 type RetentionMode = "after-event-1m" | "6m" | "forever";
@@ -987,6 +1041,9 @@ function CalendarScreen({
   })();
 
 
+  // グッズ販売期間（通販開始↔受付締切のペア）。ガントの独立行として描く。
+  const goodsPeriods = buildGoodsPeriods(filteredDeadlines);
+
   // 要対応締切のみ（apply_end / payment）— result・apply_start 等は件数に含めない
   const actionableTypes = new Set(["apply_end", "payment"]);
   const actionableDeadlines = filteredDeadlines.filter((dl) => actionableTypes.has(dl.type));
@@ -1156,6 +1213,19 @@ function CalendarScreen({
                 </span>
                 <span className="text-[0.6875rem] font-bold uppercase tracking-widest ml-1.5">当落発表</span>
               </span>
+              <span className="flex items-center gap-1">
+                <span className="w-5 h-2 inline-block overflow-hidden" style={{ background: "#585f6c" }}>
+                  <svg width="20" height="8" style={{ display: "block" }}>
+                    {Array.from({ length: 4 }, (_, i) => (
+                      <g key={i}>
+                        <circle cx={3 + i * 6} cy={2.5} r={1} fill="rgba(255,255,255,0.6)" />
+                        <circle cx={6 + i * 6} cy={5.5} r={1} fill="rgba(255,255,255,0.6)" />
+                      </g>
+                    ))}
+                  </svg>
+                </span>
+                <span className="text-[0.6875rem] font-bold uppercase tracking-widest">グッズ販売期間</span>
+              </span>
               <span className="text-outline-variant">｜ バーをタップで詳細</span>
             </div>
           </div>
@@ -1213,6 +1283,27 @@ function CalendarScreen({
                 return true;
               })
               .sort((a, b) => a.end.getTime() - b.end.getTime());
+
+            // グッズ販売期間行: 締切が今日以降・ウィンドウ内・フィルタ適用
+            const goodsRows = goodsPeriods.filter((g) => {
+              if (g.end.getTime() < today.getTime()) return false;
+              if (g.start!.getTime() > stripDates[TOTAL_DAYS - 1].getTime() + MS_PER_DAY) return false;
+              if (ganttGroupFilter) {
+                const grp = GROUP_KEYS.find((k) => k.key === ganttGroupFilter);
+                if (!grp || !titleMatchesGroup(g.label, grp)) return false;
+              }
+              if (ganttMemberFilter && !g.label.includes(ganttMemberFilter)) return false;
+              return true;
+            });
+
+            // チケット行とグッズ行を締切が近い順に混在させる（種類は柄で区別）
+            const mergedRows: (
+              | { kind: "ticket"; sortDate: Date; ticket: GanttPeriod }
+              | { kind: "goods"; sortDate: Date; goods: GoodsPeriod }
+            )[] = [
+              ...gantRows.map((p) => ({ kind: "ticket" as const, sortDate: p.end, ticket: p })),
+              ...goodsRows.map((g) => ({ kind: "goods" as const, sortDate: g.end, goods: g })),
+            ].sort((a, b) => a.sortDate.getTime() - b.sortDate.getTime());
 
             // 現在時刻ラインのx座標（分単位でリアルタイム移動）
             const nowOffsetPx = (now.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH;
@@ -1278,12 +1369,47 @@ const isMonthStart = d.getDate() === 1;
                     pointerEvents: "none",
                   }} />
 
-                  {gantRows.length === 0 ? (
+                  {mergedRows.length === 0 ? (
                     <div style={{ height: 32, display: "flex", alignItems: "center", fontSize: 10, color: "#bbb" }}>
-                      申込期間データなし
+                      表示できる予定なし
                     </div>
                   ) : (
-                    gantRows.map((p) => {
+                    mergedRows.map((row) => {
+                      // ── グッズ販売期間行（通販開始↔受付締切。柄＝ドットで区別） ──
+                      if (row.kind === "goods") {
+                        const g = row.goods;
+                        const gLeft = Math.max(0, (g.start!.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
+                        const gRight = Math.min(TOTAL_DAYS * CELL_WIDTH, (g.end.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
+                        const gWidth = Math.max(CELL_WIDTH / 2, gRight - gLeft);
+                        const isOpen = tooltipUid === g.id;
+                        return (
+                          <div key={g.id} style={{ height: 30, position: "relative", background: isOpen ? "rgba(0,0,0,0.06)" : "transparent" }}>
+                            <div
+                              style={{ position: "absolute", left: gLeft, width: gWidth, top: 6, height: 18, background: "#585f6c", overflow: "hidden", boxSizing: "border-box", cursor: "pointer" }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isOpen) { setTooltipUid(null); }
+                                else { setTooltipUid(g.id); setTooltipPos({ x: e.clientX, y: e.clientY }); }
+                              }}
+                            >
+                              {/* 柄: 千鳥配置のドット（申込=ベタ／入金=斜線 と区別） */}
+                              <svg width={gWidth} height={18} style={{ position: "absolute", inset: 0, display: "block", pointerEvents: "none" }}>
+                                {Array.from({ length: Math.ceil(gWidth / 6) + 1 }, (_, c) => (
+                                  <g key={c}>
+                                    <circle cx={3 + c * 6} cy={5} r={1} fill="rgba(255,255,255,0.45)" />
+                                    <circle cx={6 + c * 6} cy={13} r={1} fill="rgba(255,255,255,0.45)" />
+                                  </g>
+                                ))}
+                              </svg>
+                              <span style={{ position: "relative", fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.95)", whiteSpace: "nowrap", lineHeight: "18px", display: "inline-block", paddingLeft: 8, paddingRight: 4 }}>
+                                {g.label}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      const p = row.ticket;
                       const news = newsMap.get(p.newsUid);
                       const title = news?.title ?? "";
                       const rawLeft = (p.start.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH;
@@ -1449,6 +1575,45 @@ const isMonthStart = d.getDate() === 1;
         const y = tooltipPos.y > window.innerHeight / 2
           ? tooltipPos.y - tipH - 8
           : tooltipPos.y + 8;
+
+        // ── グッズ販売期間のツールチップ ──
+        const goodsTip = goodsPeriods.find((gp) => gp.id === tooltipUid);
+        if (goodsTip) {
+          return (
+            <div style={{ position: "fixed", inset: 0, zIndex: 50 }} onClick={() => setTooltipUid(null)}>
+              <div
+                style={{ position: "fixed", left: Math.max(8, x), top: Math.max(8, y), width: tipW, background: "#ffffff", border: "1px solid #000000", borderRadius: 0, padding: "12px 14px", zIndex: 51, fontSize: 11 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div style={{ fontWeight: 700, fontSize: 11, lineHeight: 1.4, marginBottom: 10, color: "#191c1d" }}>
+                  {goodsTip.label}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ textTransform: "uppercase", letterSpacing: "0.05em", fontSize: "0.6875rem", fontWeight: 700, color: "#777" }}>通販開始</span>
+                    <span style={{ fontWeight: 700, color: "#191c1d", fontSize: 10 }}>{fmtDate(goodsTip.start!)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ textTransform: "uppercase", letterSpacing: "0.05em", fontSize: "0.6875rem", fontWeight: 700, color: "#777" }}>受付締切</span>
+                    <span style={{ fontWeight: 700, color: "#ba1a1a", fontSize: 10 }}>{fmtDate(goodsTip.end)}</span>
+                  </div>
+                </div>
+                {goodsTip.url && (
+                  <a
+                    href={goodsTip.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ display: "block", marginTop: 10, padding: "7px 0", textAlign: "center", background: "#000000", color: "#ffffff", borderRadius: 0, fontSize: "0.6875rem", fontWeight: 700, textDecoration: "none", letterSpacing: "0.05em", textTransform: "uppercase" }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    商品ページを開く →
+                  </a>
+                )}
+              </div>
+            </div>
+          );
+        }
+
         return (
           <div
             style={{ position: "fixed", inset: 0, zIndex: 50 }}
