@@ -1248,22 +1248,16 @@ function CalendarScreen({
           </div>
         </div>
 
-        {/* 統合スクロール: 日付ヘッダー + ガントバー */}
-        <div
-          ref={stripRef}
-          onScroll={handleStripScroll}
-          style={{
-            overflowX: "auto",
-            margin: "0 -16px",
-            scrollbarWidth: "none",
-            msOverflowStyle: "none",
-          } as React.CSSProperties}
-        >
+        {/* 左: イベントラベル固定列／右: タイムライン横スクロール */}
+        <div style={{ margin: "0 -16px", display: "flex", alignItems: "flex-start" }}>
           {(() => {
             const TOTAL_DAYS = stripDates.length; // 121
             const contentWidth = TOTAL_DAYS * CELL_WIDTH + 32; // +32 for 16px padding each side
             const stripStart = stripDates[0].getTime();
             const MS_PER_DAY = 86400000;
+            const LANE_H = 26;         // 各レーンの高さ（左ラベル列と右バーで共有し行を揃える）
+            const LABEL_W = "40%";     // 左ラベル列の幅（残り60%がタイムライン）
+            const HEADER_SPACER = 62;  // 日付ヘッダー高さ相当（左列の上端を右ペインの先頭行に揃える）
 
             // ガントバー: apply期間のみ、今日以降に締切があるもの
             const gantRows = ganttPeriods
@@ -1328,6 +1322,8 @@ function CalendarScreen({
               c.nearest = Math.min(c.nearest, g.end.getTime());
             }
             const clusters = [...clusterMap.values()].sort((a, b) => a.nearest - b.nearest);
+            const clusterLanes = (c: Cluster) => c.ticketRows.length + (c.goods ? 1 : 0);
+            const clusterH = (c: Cluster) => clusterLanes(c) * LANE_H + 8; // paddingTop(5)+marginBottom(3)相当
 
             // ── 1レーン描画: チケット申込（申込バー＋入金斜線＋当落ひし形） ──
             const renderTicketLane = (p: GanttPeriod, label: string) => {
@@ -1344,22 +1340,21 @@ function CalendarScreen({
               const resultDate = resultByUid.get(p.newsUid);
               const resultX = resultDate ? (resultDate.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH : null;
               const showResultMarker = resultX !== null && resultX >= 0 && resultX <= TOTAL_DAYS * CELL_WIDTH;
-              const rowHeight = showPaymentBar ? 28 : 24;
               const onClick = (e: React.MouseEvent) => { e.stopPropagation(); if (isOpen) setTooltipUid(null); else { setTooltipUid(p.newsUid); setTooltipPos({ x: e.clientX, y: e.clientY }); } };
               return (
-                <div key={p.newsUid} style={{ height: rowHeight, position: "relative", background: isOpen ? "rgba(0,0,0,0.06)" : "transparent" }}>
-                  <div className="gantt-bar-apply" style={{ position: "absolute", left, width, top: 3, height: 18, background: "#585f6c", overflow: "hidden", boxSizing: "border-box", cursor: "pointer" }} onClick={onClick}>
+                <div key={p.newsUid} style={{ height: LANE_H, position: "relative", background: isOpen ? "rgba(0,0,0,0.06)" : "transparent" }}>
+                  <div className="gantt-bar-apply" style={{ position: "absolute", left, width, top: 4, height: 18, background: "#585f6c", overflow: "hidden", boxSizing: "border-box", cursor: "pointer" }} onClick={onClick}>
                     <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.95)", whiteSpace: "nowrap", lineHeight: "18px", display: "inline-block", paddingLeft: 8, paddingRight: 4 }}>{label}</span>
                   </div>
                   {showPaymentBar && (
-                    <div className="gantt-bar-payment" style={{ position: "absolute", left: pLeft!, width: pWidth!, top: 7, height: 18, backgroundColor: "#f8f9fa", overflow: "hidden", cursor: "pointer", zIndex: 1 }} onClick={onClick}>
+                    <div className="gantt-bar-payment" style={{ position: "absolute", left: pLeft!, width: pWidth!, top: 4, height: 18, backgroundColor: "#f8f9fa", overflow: "hidden", cursor: "pointer", zIndex: 1 }} onClick={onClick}>
                       <svg width={pWidth!} height={18} style={{ display: "block" }}>
                         {Array.from({ length: Math.ceil((pWidth! + 18) / 8) + 1 }, (_, i) => { const x = -18 + i * 8; return <line key={i} x1={x} y1={18} x2={x + 18} y2={0} stroke="#585f6c" strokeWidth="1.5" />; })}
                       </svg>
                     </div>
                   )}
                   {showResultMarker && (
-                    <div style={{ position: "absolute", left: resultX! - 1, top: 1, width: 2, height: rowHeight - 2, background: "#585f6c", zIndex: 2, cursor: "pointer" }} onClick={onClick}>
+                    <div style={{ position: "absolute", left: resultX! - 1, top: 2, width: 2, height: LANE_H - 4, background: "#585f6c", zIndex: 2, cursor: "pointer" }} onClick={onClick}>
                       <div style={{ position: "absolute", top: -3, left: -3, width: 8, height: 8, background: "#585f6c", transform: "rotate(45deg)" }} />
                     </div>
                   )}
@@ -1374,8 +1369,8 @@ function CalendarScreen({
               const gWidth = Math.max(CELL_WIDTH / 2, gRight - gLeft);
               const isOpen = tooltipUid === g.id;
               return (
-                <div key={g.id} style={{ height: 24, position: "relative", background: isOpen ? "rgba(0,0,0,0.06)" : "transparent" }}>
-                  <div style={{ position: "absolute", left: gLeft, width: gWidth, top: 3, height: 18, background: "#585f6c", overflow: "hidden", boxSizing: "border-box", cursor: "pointer" }}
+                <div key={g.id} style={{ height: LANE_H, position: "relative", background: isOpen ? "rgba(0,0,0,0.06)" : "transparent" }}>
+                  <div style={{ position: "absolute", left: gLeft, width: gWidth, top: 4, height: 18, background: "#585f6c", overflow: "hidden", boxSizing: "border-box", cursor: "pointer" }}
                     onClick={(e) => { e.stopPropagation(); if (isOpen) setTooltipUid(null); else { setTooltipUid(g.id); setTooltipPos({ x: e.clientX, y: e.clientY }); } }}>
                     <svg width={gWidth} height={18} style={{ position: "absolute", inset: 0, display: "block", pointerEvents: "none" }}>
                       {Array.from({ length: Math.ceil(gWidth / 6) + 1 }, (_, c) => (
@@ -1393,6 +1388,24 @@ function CalendarScreen({
             const todayLineX = 16 + nowOffsetPx;
 
             return (
+              <>
+              {/* 左: イベントラベル固定列（横スクロールしても動かない） */}
+              <div style={{ width: LABEL_W, flexShrink: 0, paddingLeft: 16, boxSizing: "border-box" }}>
+                <div style={{ height: HEADER_SPACER }} />
+                {clusters.map((c, ci) => (
+                  <div key={c.key} style={{ height: clusterH(c), display: "flex", alignItems: "center", paddingRight: 8, ...(ci > 0 ? { borderTop: "1px solid rgba(0,0,0,0.06)" } : {}) }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, lineHeight: 1.2, color: "#191c1d", borderLeft: "3px solid #000000", paddingLeft: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" } as React.CSSProperties}>
+                      {c.name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {/* 右: タイムライン */}
+              <div
+                ref={stripRef}
+                onScroll={handleStripScroll}
+                style={{ overflowX: "auto", flex: 1, minWidth: 0, scrollbarWidth: "none", msOverflowStyle: "none" } as React.CSSProperties}
+              >
               <div style={{ width: contentWidth, padding: "4px 16px 0" }}>
                 {/* 日付ヘッダー行 */}
                 <div style={{ display: "flex", gap: 4 }}>
@@ -1458,13 +1471,7 @@ const isMonthStart = d.getDate() === 1;
                     </div>
                   ) : (
                     clusters.map((cluster, ci) => (
-                      <div key={cluster.key} style={{ paddingTop: 5, marginBottom: 3, ...(ci > 0 ? { borderTop: "1px solid rgba(0,0,0,0.06)" } : {}) }}>
-                        {/* イベント見出し（横スクロールしても左端に固定） */}
-                        <div style={{ position: "sticky", left: 0, zIndex: 3, width: "fit-content", maxWidth: "90vw", background: "#ffffff", marginBottom: 2 }}>
-                          <span style={{ fontSize: 10, fontWeight: 800, color: "#191c1d", borderLeft: "3px solid #000000", paddingLeft: 6, paddingRight: 8, whiteSpace: "nowrap", display: "inline-block", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "88vw" }}>
-                            {cluster.name}
-                          </span>
-                        </div>
+                      <div key={cluster.key} style={{ paddingTop: 5, paddingBottom: 3, ...(ci > 0 ? { borderTop: "1px solid rgba(0,0,0,0.06)" } : {}) }}>
                         {cluster.ticketRows.map(({ p, label }) => renderTicketLane(p, label))}
                         {cluster.goods && renderGoodsLane(cluster.goods)}
                       </div>
@@ -1472,6 +1479,8 @@ const isMonthStart = d.getDate() === 1;
                   )}
                 </div>
               </div>
+              </div>
+              </>
             );
           })()}
         </div>
