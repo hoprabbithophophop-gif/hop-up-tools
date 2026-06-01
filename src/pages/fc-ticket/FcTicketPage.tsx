@@ -1296,14 +1296,97 @@ function CalendarScreen({
               return true;
             });
 
-            // チケット行とグッズ行を締切が近い順に混在させる（種類は柄で区別）
-            const mergedRows: (
-              | { kind: "ticket"; sortDate: Date; ticket: GanttPeriod }
-              | { kind: "goods"; sortDate: Date; goods: GoodsPeriod }
-            )[] = [
-              ...gantRows.map((p) => ({ kind: "ticket" as const, sortDate: p.end, ticket: p })),
-              ...goodsRows.map((g) => ({ kind: "goods" as const, sortDate: g.end, goods: g })),
-            ].sort((a, b) => a.sortDate.getTime() - b.sortDate.getTime());
+            // ── イベント単位クラスタ: 申込各種＋グッズを eventGroupKey で束ねる ──
+            // チケット記事(★FC会員限定★/「」/受付種別/のお知らせ等)とグッズ記事(オリジナルグッズ公開！)を
+            // 同じ正規化キーに落として同一イベントとして束ねる。クラスタは最寄り締切が近い順。
+            const ck = (t: string) =>
+              eventGroupKey(t)
+                .replace(/オリジナルグッズ公開|グッズ公開|オリジナルグッズ|グッズ/g, "")
+                .replace(/[’'＇`！!]/g, "")
+                .replace(/[　\s]+/g, "")
+                .trim();
+            const KNOWN_RECEPTIONS = ["FC先行受付", "NEXT先行受付", "FC2次受付", "FC3次受付", "FC追加受付", "当日券予約販売", "当日券予約受付", "当日券販売", "開催決定"];
+            const laneLabel = (t: string) => KNOWN_RECEPTIONS.find((k) => t.includes(k)) ?? "申込";
+
+            type Cluster = { key: string; name: string; ticketRows: { p: GanttPeriod; label: string }[]; goods: GoodsPeriod | null; nearest: number };
+            const clusterMap = new Map<string, Cluster>();
+            const ensureCluster = (key: string, name: string) => {
+              let c = clusterMap.get(key);
+              if (!c) { c = { key, name, ticketRows: [], goods: null, nearest: Infinity }; clusterMap.set(key, c); }
+              return c;
+            };
+            for (const p of gantRows) {
+              const t = newsMap.get(p.newsUid)?.title ?? "";
+              const c = ensureCluster(ck(t) || p.newsUid, eventGroupKey(t) || t);
+              if (eventGroupKey(t)) c.name = eventGroupKey(t); // チケット由来の名前を優先
+              c.ticketRows.push({ p, label: laneLabel(t) });
+              c.nearest = Math.min(c.nearest, p.end.getTime());
+            }
+            for (const g of goodsRows) {
+              const c = ensureCluster(ck(g.label) || g.id, g.label);
+              c.goods = g;
+              c.nearest = Math.min(c.nearest, g.end.getTime());
+            }
+            const clusters = [...clusterMap.values()].sort((a, b) => a.nearest - b.nearest);
+
+            // ── 1レーン描画: チケット申込（申込バー＋入金斜線＋当落ひし形） ──
+            const renderTicketLane = (p: GanttPeriod, label: string) => {
+              const left = Math.max(0, (p.start.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
+              const right = Math.min(TOTAL_DAYS * CELL_WIDTH, (p.end.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
+              const width = Math.max(CELL_WIDTH / 2, right - left);
+              const isOpen = tooltipUid === p.newsUid;
+              const paymentDate = paymentByUid.get(p.newsUid);
+              const paymentBarStart = paymentDate ? (paymentStartByUid.get(p.newsUid) ?? resultByUid.get(p.newsUid) ?? p.end) : null;
+              const pLeft = paymentBarStart !== null ? Math.max(0, (paymentBarStart.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH) : null;
+              const pRight = paymentDate ? Math.min(TOTAL_DAYS * CELL_WIDTH, (paymentDate.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH) : null;
+              const pWidth = pLeft !== null && pRight !== null ? Math.max(CELL_WIDTH / 2, pRight - pLeft) : null;
+              const showPaymentBar = pLeft !== null && pWidth !== null && pRight! > 0 && pLeft < TOTAL_DAYS * CELL_WIDTH;
+              const resultDate = resultByUid.get(p.newsUid);
+              const resultX = resultDate ? (resultDate.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH : null;
+              const showResultMarker = resultX !== null && resultX >= 0 && resultX <= TOTAL_DAYS * CELL_WIDTH;
+              const rowHeight = showPaymentBar ? 28 : 24;
+              const onClick = (e: React.MouseEvent) => { e.stopPropagation(); if (isOpen) setTooltipUid(null); else { setTooltipUid(p.newsUid); setTooltipPos({ x: e.clientX, y: e.clientY }); } };
+              return (
+                <div key={p.newsUid} style={{ height: rowHeight, position: "relative", background: isOpen ? "rgba(0,0,0,0.06)" : "transparent" }}>
+                  <div className="gantt-bar-apply" style={{ position: "absolute", left, width, top: 3, height: 18, background: "#585f6c", overflow: "hidden", boxSizing: "border-box", cursor: "pointer" }} onClick={onClick}>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.95)", whiteSpace: "nowrap", lineHeight: "18px", display: "inline-block", paddingLeft: 8, paddingRight: 4 }}>{label}</span>
+                  </div>
+                  {showPaymentBar && (
+                    <div className="gantt-bar-payment" style={{ position: "absolute", left: pLeft!, width: pWidth!, top: 7, height: 18, backgroundColor: "#f8f9fa", overflow: "hidden", cursor: "pointer", zIndex: 1 }} onClick={onClick}>
+                      <svg width={pWidth!} height={18} style={{ display: "block" }}>
+                        {Array.from({ length: Math.ceil((pWidth! + 18) / 8) + 1 }, (_, i) => { const x = -18 + i * 8; return <line key={i} x1={x} y1={18} x2={x + 18} y2={0} stroke="#585f6c" strokeWidth="1.5" />; })}
+                      </svg>
+                    </div>
+                  )}
+                  {showResultMarker && (
+                    <div style={{ position: "absolute", left: resultX! - 1, top: 1, width: 2, height: rowHeight - 2, background: "#585f6c", zIndex: 2, cursor: "pointer" }} onClick={onClick}>
+                      <div style={{ position: "absolute", top: -3, left: -3, width: 8, height: 8, background: "#585f6c", transform: "rotate(45deg)" }} />
+                    </div>
+                  )}
+                </div>
+              );
+            };
+
+            // ── 1レーン描画: グッズ販売期間（ドット柄） ──
+            const renderGoodsLane = (g: GoodsPeriod) => {
+              const gLeft = Math.max(0, (g.start!.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
+              const gRight = Math.min(TOTAL_DAYS * CELL_WIDTH, (g.end.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
+              const gWidth = Math.max(CELL_WIDTH / 2, gRight - gLeft);
+              const isOpen = tooltipUid === g.id;
+              return (
+                <div key={g.id} style={{ height: 24, position: "relative", background: isOpen ? "rgba(0,0,0,0.06)" : "transparent" }}>
+                  <div style={{ position: "absolute", left: gLeft, width: gWidth, top: 3, height: 18, background: "#585f6c", overflow: "hidden", boxSizing: "border-box", cursor: "pointer" }}
+                    onClick={(e) => { e.stopPropagation(); if (isOpen) setTooltipUid(null); else { setTooltipUid(g.id); setTooltipPos({ x: e.clientX, y: e.clientY }); } }}>
+                    <svg width={gWidth} height={18} style={{ position: "absolute", inset: 0, display: "block", pointerEvents: "none" }}>
+                      {Array.from({ length: Math.ceil(gWidth / 6) + 1 }, (_, c) => (
+                        <g key={c}><circle cx={3 + c * 6} cy={5} r={1.1} fill="rgba(255,255,255,0.55)" /><circle cx={6 + c * 6} cy={13} r={1.1} fill="rgba(255,255,255,0.55)" /></g>
+                      ))}
+                    </svg>
+                    <span style={{ position: "relative", fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.95)", whiteSpace: "nowrap", lineHeight: "18px", display: "inline-block", paddingLeft: 8, paddingRight: 4 }}>グッズ販売</span>
+                  </div>
+                </div>
+              );
+            };
 
             // 現在時刻ラインのx座標（分単位でリアルタイム移動）
             const nowOffsetPx = (now.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH;
@@ -1369,184 +1452,23 @@ const isMonthStart = d.getDate() === 1;
                     pointerEvents: "none",
                   }} />
 
-                  {mergedRows.length === 0 ? (
+                  {clusters.length === 0 ? (
                     <div style={{ height: 32, display: "flex", alignItems: "center", fontSize: 10, color: "#bbb" }}>
                       表示できる予定なし
                     </div>
                   ) : (
-                    mergedRows.map((row) => {
-                      // ── グッズ販売期間行（通販開始↔受付締切。柄＝ドットで区別） ──
-                      if (row.kind === "goods") {
-                        const g = row.goods;
-                        const gLeft = Math.max(0, (g.start!.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
-                        const gRight = Math.min(TOTAL_DAYS * CELL_WIDTH, (g.end.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
-                        const gWidth = Math.max(CELL_WIDTH / 2, gRight - gLeft);
-                        const isOpen = tooltipUid === g.id;
-                        return (
-                          <div key={g.id} style={{ height: 30, position: "relative", background: isOpen ? "rgba(0,0,0,0.06)" : "transparent" }}>
-                            <div
-                              style={{ position: "absolute", left: gLeft, width: gWidth, top: 6, height: 18, background: "#585f6c", overflow: "hidden", boxSizing: "border-box", cursor: "pointer" }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (isOpen) { setTooltipUid(null); }
-                                else { setTooltipUid(g.id); setTooltipPos({ x: e.clientX, y: e.clientY }); }
-                              }}
-                            >
-                              {/* 柄: 千鳥配置のドット（申込=ベタ／入金=斜線 と区別） */}
-                              <svg width={gWidth} height={18} style={{ position: "absolute", inset: 0, display: "block", pointerEvents: "none" }}>
-                                {Array.from({ length: Math.ceil(gWidth / 6) + 1 }, (_, c) => (
-                                  <g key={c}>
-                                    <circle cx={3 + c * 6} cy={5} r={1} fill="rgba(255,255,255,0.45)" />
-                                    <circle cx={6 + c * 6} cy={13} r={1} fill="rgba(255,255,255,0.45)" />
-                                  </g>
-                                ))}
-                              </svg>
-                              <span style={{ position: "relative", fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.95)", whiteSpace: "nowrap", lineHeight: "18px", display: "inline-block", paddingLeft: 8, paddingRight: 4 }}>
-                                {g.label}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      const p = row.ticket;
-                      const news = newsMap.get(p.newsUid);
-                      const title = news?.title ?? "";
-                      const rawLeft = (p.start.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH;
-                      const rawRight = (p.end.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH;
-                      const left = Math.max(0, rawLeft);
-                      const right = Math.min(TOTAL_DAYS * CELL_WIDTH, rawRight);
-                      const width = Math.max(CELL_WIDTH / 2, right - left);
-                      const barColor = "#585f6c";
-                      const isTooltipOpen = tooltipUid === p.newsUid;
-
-                      // 入金バー: payment_start → result → 申込締切日 の優先順で開始日を決定
-                      const paymentDate = paymentByUid.get(p.newsUid);
-                      const paymentBarStart = paymentDate
-                        ? (paymentStartByUid.get(p.newsUid) ?? resultByUid.get(p.newsUid) ?? p.end)
-                        : null;
-                      const pRawLeft = paymentBarStart !== null ? (paymentBarStart.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH : null;
-                      const pRawRight = paymentDate ? (paymentDate.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH : null;
-                      const pLeft = pRawLeft !== null ? Math.max(0, pRawLeft) : null;
-                      const pRight = pRawRight !== null ? Math.min(TOTAL_DAYS * CELL_WIDTH, pRawRight) : null;
-                      const pWidth = pLeft !== null && pRight !== null ? Math.max(CELL_WIDTH / 2, pRight - pLeft) : null;
-                      const showPaymentBar = pLeft !== null && pWidth !== null && pRight! > 0 && pLeft < TOTAL_DAYS * CELL_WIDTH;
-
-                      // 当落発表マーカー
-                      const resultDate = resultByUid.get(p.newsUid);
-                      const resultRawX = resultDate ? (resultDate.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH : null;
-                      const resultX = resultRawX !== null ? resultRawX : null;
-                      const showResultMarker = resultX !== null && resultX >= 0 && resultX <= TOTAL_DAYS * CELL_WIDTH;
-
-                      const rowHeight = showPaymentBar ? 34 : 30;
-
-                      const handleBarClick = (e: React.MouseEvent) => {
-                        e.stopPropagation();
-                        if (isTooltipOpen) {
-                          setTooltipUid(null);
-                        } else {
-                          setTooltipUid(p.newsUid);
-                          setTooltipPos({ x: e.clientX, y: e.clientY });
-                        }
-                      };
-
-                      return (
-                        <div key={p.newsUid} style={{ height: rowHeight, position: "relative", background: isTooltipOpen ? "rgba(0,0,0,0.06)" : "transparent" }}>
-                          {/* 申込期間バー */}
-                          <div
-                            className="bar-text-wrap gantt-bar-apply"
-                            style={{
-                              position: "absolute",
-                              left,
-                              width,
-                              top: 6,
-                              height: 18,
-                              borderRadius: 0,
-                              background: barColor,
-                              overflow: "hidden",
-                              boxSizing: "border-box",
-                              cursor: "pointer",
-                              "--bar-w": `${width}px`,
-                            } as React.CSSProperties}
-                            onClick={handleBarClick}
-                          >
-                            {(() => {
-                              // 日本語混じりを考慮した概算: 8px/char。収まる場合はアニメなし
-                              const approxTextW = title.length * 8 + 12;
-                              const hasOverflow = approxTextW > width;
-                              const duration = hasOverflow ? Math.max(4, (approxTextW + width) / 35) : 0;
-                              return (
-                                <span
-                                  className={hasOverflow ? "bar-text-inner" : undefined}
-                                  style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.95)", whiteSpace: "nowrap", display: "inline-block", lineHeight: "18px", verticalAlign: "top", ...(hasOverflow ? { animationDuration: `${duration}s` } : {}) }}
-                                >
-                                  <span style={{ paddingLeft: 8, paddingRight: 4 }}>{title}</span>
-                                  {hasOverflow && (
-                                    <span className="bar-marquee-dup" aria-hidden="true">
-                                      <span style={{ display: "inline-block", width }} />
-                                      <span style={{ paddingLeft: 8, paddingRight: 4 }}>{title}</span>
-                                      <span style={{ display: "inline-block", width }} />
-                                    </span>
-                                  )}
-                                </span>
-                              );
-                            })()}
-                          </div>
-                          {/* 入金バー（斜線パターン、payment_start or 当落確認〜入金締切） */}
-                          {showPaymentBar && (
-                            <div
-                              className="gantt-bar-payment"
-                              style={{
-                                position: "absolute",
-                                left: pLeft!,
-                                width: pWidth!,
-                                top: 10,
-                                height: 18,
-                                backgroundColor: "#f8f9fa",
-                                overflow: "hidden",
-                                cursor: "pointer",
-                                zIndex: 1,
-                              }}
-                              onClick={handleBarClick}
-                            >
-                              <svg width={pWidth!} height={18} style={{ display: "block" }}>
-                                {Array.from({ length: Math.ceil((pWidth! + 18) / 8) + 1 }, (_, i) => {
-                                  const x = -18 + i * 8;
-                                  return <line key={i} x1={x} y1={18} x2={x + 18} y2={0} stroke="#585f6c" strokeWidth="1.5" />;
-                                })}
-                              </svg>
-                            </div>
-                          )}
-                          {/* 当落発表マーカー（縦線 + ひし形） */}
-                          {showResultMarker && (
-                            <div
-                              style={{
-                                position: "absolute",
-                                left: resultX! - 1,
-                                top: 2,
-                                width: 2,
-                                height: rowHeight - 4,
-                                background: "#585f6c",
-                                zIndex: 2,
-                                cursor: "pointer",
-                              }}
-                              onClick={handleBarClick}
-                            >
-                              {/* ひし形マーカー */}
-                              <div style={{
-                                position: "absolute",
-                                top: -3,
-                                left: -3,
-                                width: 8,
-                                height: 8,
-                                background: "#585f6c",
-                                transform: "rotate(45deg)",
-                              }} />
-                            </div>
-                          )}
+                    clusters.map((cluster, ci) => (
+                      <div key={cluster.key} style={{ paddingTop: 5, marginBottom: 3, ...(ci > 0 ? { borderTop: "1px solid rgba(0,0,0,0.06)" } : {}) }}>
+                        {/* イベント見出し（横スクロールしても左端に固定） */}
+                        <div style={{ position: "sticky", left: 0, zIndex: 3, width: "fit-content", maxWidth: "90vw", background: "#ffffff", marginBottom: 2 }}>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: "#191c1d", borderLeft: "3px solid #000000", paddingLeft: 6, paddingRight: 8, whiteSpace: "nowrap", display: "inline-block", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "88vw" }}>
+                            {cluster.name}
+                          </span>
                         </div>
-                      );
-                    })
+                        {cluster.ticketRows.map(({ p, label }) => renderTicketLane(p, label))}
+                        {cluster.goods && renderGoodsLane(cluster.goods)}
+                      </div>
+                    ))
                   )}
                 </div>
               </div>
