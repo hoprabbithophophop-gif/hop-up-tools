@@ -40,9 +40,10 @@ const SYNC_LOG_INTERVAL_MS = 3000;
 const YT_STATE_NAMES: Record<number, string> = {
   [-1]: "UNSTARTED", 0: "ENDED", 1: "PLAYING", 2: "PAUSED", 3: "BUFFERING", 5: "CUED",
 };
-// 調査ログのon/off。本番はoff（Supabaseに何も書かない）。
-// URLに ?hidebug=1 を付けるとonになり localStorage に記録される（?hidebug=0 でoff）。
-// プレビューURLで実機検証する時だけ有効化する用途。
+// 画面上のデバッグ表示 ＋ 重い同期サンプリングログ(hi_sync_debug, 3秒ごと)の on/off。
+// 本番はoff。URLに ?hidebug=1 を付けるとonになり localStorage に記録される（?hidebug=0 でoff）。
+// ※軽いイベントログ(hi_event_debug＝presence/seno/go_solo/seat_collision 等)は
+//   このフラグに関係なく常時収集する（実セッションを後から追えるように）。
 const HI_DEBUG: boolean = (() => {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -58,7 +59,7 @@ const HI_DEBUG: boolean = (() => {
 })();
 
 function logHiEvent(sessionId: string, event: string, detail?: string) {
-  if (!HI_DEBUG) return;
+  // 軽いイベントログは本番でも常時収集（重い同期ログ・画面表示だけ HI_DEBUG で制御）。
   getSupabase().from("hi_event_debug").insert({
     session_id: sessionId,
     device: detectDevice(),
