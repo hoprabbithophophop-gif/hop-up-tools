@@ -1300,7 +1300,12 @@ function CalendarScreen({
                 .replace(/[　\s]+/g, "")
                 .trim();
             const KNOWN_RECEPTIONS = ["FC先行受付", "NEXT先行受付", "FC2次受付", "FC3次受付", "FC追加受付", "当日券予約販売", "当日券予約受付", "当日券販売", "開催決定"];
-            const laneLabel = (t: string) => KNOWN_RECEPTIONS.find((k) => t.includes(k)) ?? "申込";
+            // 「開催決定！」記事はそのイベント最初のFC受付（apply期間あり）なので 1次受付 と表示する
+            const laneLabel = (t: string) => {
+              const k = KNOWN_RECEPTIONS.find((kw) => t.includes(kw));
+              if (!k) return "申込";
+              return k === "開催決定" ? "FC1次受付" : k;
+            };
 
             type Cluster = { key: string; name: string; ticketRows: { p: GanttPeriod; label: string }[]; goods: GoodsPeriod | null; nearest: number };
             const clusterMap = new Map<string, Cluster>();
