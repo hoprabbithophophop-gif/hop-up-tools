@@ -362,7 +362,7 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
                 : "text-outline hover:text-primary"
             }`}
           >
-            {t === "input" ? "Input" : t === "result" ? "Result" : t === "calendar" ? "Calendar" : "Subscribe"}
+            {t === "input" ? "Input" : t === "result" ? "Result" : t === "calendar" ? "Gantt" : "Subsc"}
           </button>
         ))}
       </nav>
@@ -1706,23 +1706,24 @@ const isMonthStart = d.getDate() === 1;
         </div>
       </section>
 
-      {/* ─── グッズ締切（誰でもブラウズ可・全件） ─── */}
+      {/* ─── グッズ締切フォールバック（通販開始が照合できずガント未掲載のものだけ・慎ましく） ─── */}
       {(() => {
+        const startKeys = allDeadlines
+          .filter((d) => d.type === "goods_sale_start")
+          .map((d) => normGoodsKey(d.fc_news.title))
+          .filter(Boolean);
+        const isPaired = (title: string) => {
+          const k = normGoodsKey(title);
+          return !!k && startKeys.some((sk) => sk === k || sk.includes(k) || k.includes(sk));
+        };
         const goods = allDeadlines
-          .filter((d) => d.type === "goods_sale_end" && new Date(d.deadline_at) >= now)
+          .filter((d) => d.type === "goods_sale_end" && new Date(d.deadline_at) >= now && !isPaired(d.fc_news.title))
           .sort((a, b) => new Date(a.deadline_at).getTime() - new Date(b.deadline_at).getTime());
         if (goods.length === 0) return null;
         return (
-          <section className="mb-16">
-            <header className="flex items-center gap-4 mb-6">
-              <div className="h-10 w-1 bg-primary" />
-              <div>
-                <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">Goods</span>
-                <h3 className="text-xl font-bold uppercase leading-none">グッズ締切</h3>
-              </div>
-              <span className="ml-auto text-[0.6875rem] text-outline">{goods.length}件</span>
-            </header>
-            <div className="flex flex-col gap-px">
+          <section className="mb-8">
+            <p className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline mb-2">グッズ締切</p>
+            <div className="flex flex-col">
               {goods.map((d) => {
                 const end = new Date(d.deadline_at);
                 const dateStr = end.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
@@ -1733,14 +1734,11 @@ const isMonthStart = d.getDate() === 1;
                     href={d.fc_news.detail_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-4 px-4 py-4 bg-surface-container-lowest hover:bg-surface-container-low transition-colors"
+                    className="flex items-center gap-2 py-1.5 border-b border-outline-variant/10 text-outline hover:text-primary transition-colors"
                   >
-                    <span className="material-symbols-outlined text-xl flex-shrink-0">shopping_bag</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold leading-tight break-words">{d.fc_news.title}</p>
-                      <p className="text-xs text-outline mt-0.5">受付締切 {dateStr} {timeStr}</p>
-                    </div>
-                    <span className="material-symbols-outlined text-outline text-base flex-shrink-0">open_in_new</span>
+                    <span className="material-symbols-outlined text-sm flex-shrink-0">shopping_bag</span>
+                    <span className="flex-1 min-w-0 truncate text-xs text-on-surface">{d.fc_news.title}</span>
+                    <span className="text-[0.6875rem] flex-shrink-0">{dateStr} {timeStr}</span>
                   </a>
                 );
               })}
@@ -2783,7 +2781,7 @@ function BottomNav({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const items: { t: Tab; icon: string; label: string }[] = [
     { t: "input",     icon: "add_box",        label: "Input" },
     { t: "result",    icon: "analytics",      label: "Result" },
-    { t: "calendar",  icon: "calendar_today", label: "Calendar" },
+    { t: "calendar",  icon: "calendar_today", label: "Gantt" },
     { t: "subscribe", icon: "rss_feed",       label: "Subsc" },
   ];
 
