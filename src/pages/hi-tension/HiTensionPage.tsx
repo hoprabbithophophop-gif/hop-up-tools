@@ -604,6 +604,7 @@ export default function HiTensionPage() {
     const doSync = () => {
       songStartTimerRef.current = null;
       logHiEvent(anonSessionId, "dosync", `playing=${playerApiRef.current?.isPlaying()}`);
+      logHiEvent(anonSessionId, "play_seat", `seat=${mySeatIndexRef.current}`); // 座標軸重なり調査：自分の席番号
       soloModeRef.current = false; // 新しい本編開始：前回のソロ状態を持ち越さない
       // 暖機動画から本動画へ切替（ここで loadVideo を呼ぶ。ジェスチャー外だが既に PLAYING なので iOS でも通る想定）
       isWarmupRef.current = false;
@@ -665,12 +666,16 @@ export default function HiTensionPage() {
 
   const handleTap = useCallback((tap: LiveTap) => {
     if (!isRealtimePlayRef.current || soloModeRef.current) return;
+    // 【計装】✋座標軸の重なり調査用：相手のタップが自分と同じ席番号で届いた瞬間だけ記録。
+    if (tap.seatIndex === mySeatIndexRef.current) {
+      logHiEvent(anonSessionId, "seat_collision", `recv_seat=${tap.seatIndex} my_seat=${mySeatIndexRef.current} member=${tap.memberId}`);
+    }
     // 片道ラグを実測: 受信時のサーバー時刻 − 送信時のサーバー時刻。
     // sentAt=0(旧クライアント or 欠落)や負値(時計逆転)は 0 にクランプ。
     const recvServerNow = Date.now() + getClockOffsetRef.current();
     const lagMs = tap.sentAt > 0 ? Math.max(0, recvServerNow - tap.sentAt) : 0;
     canvasRef.current?.receiveLiveTap(tap.memberId, tap.seatIndex, tap.videoTime, lagMs);
-  }, []);
+  }, [anonSessionId]);
 
   const handleBounce = useCallback((bounce: { sessionId: string }) => {
     setBouncingSessionId(bounce.sessionId);
