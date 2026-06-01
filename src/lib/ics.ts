@@ -4,6 +4,7 @@ export interface IcsEvent {
   description: string;
   dtstart: Date;
   dtend: Date;
+  location?: string | null;
 }
 
 function formatIcsDate(d: Date): string {
@@ -43,6 +44,7 @@ export function generateIcs(event: IcsEvent): string {
     `DTEND:${end}`,
     `SUMMARY:${event.summary}`,
     `DESCRIPTION:${event.description.replace(/\n/g, "\\n")}`,
+    ...(event.location ? [`LOCATION:${event.location}`] : []),
     "BEGIN:VALARM",
     "TRIGGER:-P1D",
     "ACTION:DISPLAY",
@@ -111,6 +113,7 @@ export function generateMultiIcs(events: IcsEvent[]): string {
       `DTEND:${end}`,
       `SUMMARY:${event.summary}`,
       `DESCRIPTION:${event.description.replace(/\n/g, "\\n")}`,
+      ...(event.location ? [`LOCATION:${event.location}`] : []),
       "BEGIN:VALARM",
       "TRIGGER:-P1D",
       "ACTION:DISPLAY",

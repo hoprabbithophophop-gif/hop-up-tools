@@ -38,6 +38,7 @@ interface Deadline {
   type: string;
   label: string;
   deadline_at: string;
+  location?: string | null;
   fc_news: { title: string; detail_url: string; category: string };
 }
 
@@ -849,6 +850,7 @@ function DeadlineRow({ dl, paidUp = false, isFirst = false }: { dl: Deadline; pa
     description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
     dtstart: new Date(deadline.getTime() - 3600000),
     dtend: deadline,
+    location: dl.location ?? undefined,
   };
 
   const dateStr = deadline.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
@@ -2114,12 +2116,14 @@ function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
   const diffDays = (deadline.getTime() - now.getTime()) / 86400000;
   const isUrgent = diffDays >= 0 && diffDays < 3;
 
+  const isEvent = dl.type === "event";
   const calEvent: IcsEvent = {
     uid: dl.id + "@hop-up-tools",
     summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
     description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
-    dtstart: new Date(deadline.getTime() - 3600000),
-    dtend: deadline,
+    dtstart: isEvent ? deadline : new Date(deadline.getTime() - 3600000),
+    dtend: isEvent ? new Date(deadline.getTime() + 7200000) : deadline,
+    location: dl.location ?? undefined,
   };
 
   const timeStr = deadline.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
@@ -2151,6 +2155,11 @@ function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
           </a>
         </h4>
         <p className="text-xs text-on-surface-variant">{dl.fc_news.category}</p>
+        {dl.location && (
+          <p className="text-xs text-outline flex items-center gap-1">
+            <span className="material-symbols-outlined text-sm">place</span>{dl.location}
+          </p>
+        )}
       </div>
       <div className="flex items-center gap-3">
         <AddToCalendarButton event={calEvent} demoid="watchlist-add-calendar-btn" />
@@ -2450,6 +2459,7 @@ function SubscribeScreen({
             description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
             dtstart: isEvent ? at : new Date(at.getTime() - 3600000),
             dtend: isEvent ? new Date(at.getTime() + 7200000) : at,
+            location: dl.location ?? undefined,
           };
         });
       if (events.length === 0) {

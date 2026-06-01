@@ -226,6 +226,8 @@ function fetchDeadlines(article) {
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&hellip;/g, '…')
+    .replace(/&rsquo;|&lsquo;|&#8217;|&#8216;|&#39;/g, "'")
+    .replace(/&ldquo;|&rdquo;|&quot;/g, '"')
     .replace(/\s+/g, ' ');
 
   const deadlines = [];
@@ -348,16 +350,24 @@ function fetchDeadlines(article) {
     const ey = parseInt(eventMatch[1], 10);
     const emo = parseInt(eventMatch[2], 10) - 1;
     const ed = parseInt(eventMatch[3], 10);
+    // 開演時刻: 「開演 18:00」「18:00開演」「開演18時」「18時開演」の4書式に対応（前後どちらでも）
     let eh = 12, emin = 0; // 開演不明時は正午（締切類の23:59と区別するため）
-    const kaienColon = text.match(/開演\s*(\d{1,2})\s*[:：]\s*(\d{1,2})/);
-    const kaienKanji = text.match(/開演\s*(\d{1,2})\s*時\s*(?:(\d{1,2})\s*分)?/);
-    if (kaienColon) {
-      eh = parseInt(kaienColon[1], 10); emin = parseInt(kaienColon[2], 10);
-    } else if (kaienKanji) {
-      eh = parseInt(kaienKanji[1], 10); emin = kaienKanji[2] ? parseInt(kaienKanji[2], 10) : 0;
-    }
+    let km;
+    if ((km = text.match(/開演\s*(\d{1,2})\s*[:：]\s*(\d{1,2})/))) { eh = +km[1]; emin = +km[2]; }
+    else if ((km = text.match(/(\d{1,2})\s*[:：]\s*(\d{1,2})\s*開演/))) { eh = +km[1]; emin = +km[2]; }
+    else if ((km = text.match(/開演\s*(\d{1,2})\s*時\s*(?:(\d{1,2})\s*分)?/))) { eh = +km[1]; emin = km[2] ? +km[2] : 0; }
+    else if ((km = text.match(/(\d{1,2})\s*時\s*(?:(\d{1,2})\s*分)?\s*開演/))) { eh = +km[1]; emin = km[2] ? +km[2] : 0; }
     const eventIso = new Date(Date.UTC(ey, emo, ed, eh - 9, emin)).toISOString();
-    deadlines.push({ type: 'event', label: '公演', deadline_at: eventIso });
+    // 会場（「会場：◯◯ （地域）」を最初の（…）括弧まで取る。後続の日程/料金等を巻き込まない）
+    let venue = null;
+    let vm;
+    if ((vm = text.match(/会場[：:]\s*(.{1,40}?[（(][^）)]{1,30}[）)])/))) {
+      venue = vm[1];
+    } else if ((vm = text.match(/会場[：:]\s*([^\s●※].{0,25}?)(?=\s*(?:[●※]|日程|開場|開演|チケット|$))/))) {
+      venue = vm[1]; // 括弧無し会場のフォールバック
+    }
+    if (venue) venue = venue.replace(/\s+/g, ' ').trim();
+    deadlines.push({ type: 'event', label: '公演', deadline_at: eventIso, location: venue });
   }
 
   return deadlines;
@@ -471,6 +481,7 @@ function upsertNewsToSupabase(supabaseUrl, supabaseKey, article, deadlines) {
         type:        dl.type,
         label:       dl.label,
         deadline_at: dl.deadline_at,
+        location:    dl.location ?? null,
       }]),
       muteHttpExceptions: true,
     });
