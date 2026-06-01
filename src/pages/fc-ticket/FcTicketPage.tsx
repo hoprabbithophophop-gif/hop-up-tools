@@ -110,9 +110,13 @@ function buildGoodsPeriods(deadlines: Deadline[]): GoodsPeriod[] {
       }
     }
     if (!start) continue; // 開始が分からない＝期間バーにできない
+    // 月次まとめ通販（「○月通販公開！」）はタイトルが長いので「N月通販」に整える
+    let label = dl.fc_news.title.replace(/\s*グッズ$/, "");
+    const monthly = label.match(/(\d+)\s*月通販/);
+    if (monthly) label = monthly[1] + "月通販";
     periods.push({
       id: "goodsperiod:" + key,
-      label: dl.fc_news.title.replace(/\s*グッズ$/, ""),
+      label,
       start,
       end: new Date(dl.deadline_at),
       url: dl.fc_news.detail_url,
@@ -1257,7 +1261,7 @@ function CalendarScreen({
             const MS_PER_DAY = 86400000;
             const LANE_H = 26;         // 各レーンの高さ（左ラベル列と右バーで共有し行を揃える）
             const LABEL_W = "40%";     // 左ラベル列の幅（残り60%がタイムライン）
-            const HEADER_SPACER = 62;  // 日付ヘッダー高さ相当（左列の上端を右ペインの先頭行に揃える）
+            const HEADER_SPACER = 64;  // 日付ヘッダー高さ相当（左列の上端を右ペインの先頭行に揃える）
 
             // ガントバー: apply期間のみ、今日以降に締切があるもの
             const gantRows = ganttPeriods
@@ -1398,7 +1402,7 @@ function CalendarScreen({
               <div style={{ width: LABEL_W, flexShrink: 0, paddingLeft: 16, boxSizing: "border-box" }}>
                 <div style={{ height: HEADER_SPACER }} />
                 {clusters.map((c, ci) => (
-                  <div key={c.key} style={{ height: clusterH(c), display: "flex", alignItems: "center", paddingRight: 8, ...(ci > 0 ? { borderTop: "1px solid rgba(0,0,0,0.06)" } : {}) }}>
+                  <div key={c.key} style={{ height: clusterH(c), boxSizing: "border-box", display: "flex", alignItems: "center", paddingRight: 8, ...(ci > 0 ? { borderTop: "1px solid rgba(0,0,0,0.06)" } : {}) }}>
                     <span style={{ fontSize: 10, fontWeight: 800, lineHeight: 1.2, color: "#191c1d", borderLeft: "3px solid #000000", paddingLeft: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" } as React.CSSProperties}>
                       {c.name}
                     </span>
@@ -1476,7 +1480,7 @@ const isMonthStart = d.getDate() === 1;
                     </div>
                   ) : (
                     clusters.map((cluster, ci) => (
-                      <div key={cluster.key} style={{ paddingTop: 5, paddingBottom: 3, ...(ci > 0 ? { borderTop: "1px solid rgba(0,0,0,0.06)" } : {}) }}>
+                      <div key={cluster.key} style={{ height: clusterH(cluster), boxSizing: "border-box", paddingTop: 5, paddingBottom: 3, overflow: "hidden", ...(ci > 0 ? { borderTop: "1px solid rgba(0,0,0,0.06)" } : {}) }}>
                         {cluster.ticketRows.map(({ p, label }) => renderTicketLane(p, label))}
                         {cluster.goods && renderGoodsLane(cluster.goods)}
                       </div>

@@ -236,6 +236,19 @@ function fetchDeadlines(article) {
   const D_WITH_YEAR = '\\d{4}\\s*年\\s*\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日\\s*[（(]\\s*[月火水木金土日][祝]?\\s*[）)](?:\\s*\\d{1,2}\\s*時(?:\\s*\\d{1,2}\\s*分)?)?';
   const D_NO_YEAR   = '\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日\\s*[（(]\\s*[月火水木金土日][祝]?\\s*[）)](?:\\s*\\d{1,2}\\s*時(?:\\s*\\d{1,2}\\s*分)?)?';
 
+  // ── 月次まとめ通販（「○月通販公開！」） ──
+  // 本文に「申込開始日：2026年6月1日（月）18:00」「申込締切日：2026年6月26日（金）23:59」が揃う。
+  // e-LineUP突き合わせ不要でUPFC単独で販売期間が完結する。
+  // 申込締切日が通常の申込締切パターン(apply_end)に当たってチケット扱いされるのを防ぐため、
+  // ここで goods_sale_start / goods_sale_end として確定し、以降のパターンには進ませず return。
+  if (/通販公開|\d+\s*月\s*通販/.test(article.title)) {
+    const open  = parseColonDateNear(text, '申込開始日');
+    const close = parseColonDateNear(text, '申込締切日');
+    if (open)  deadlines.push({ type: 'goods_sale_start', label: '通販開始', deadline_at: open });
+    if (close) deadlines.push({ type: 'goods_sale_end',   label: '通販締切', deadline_at: close });
+    return deadlines;
+  }
+
   // ── 申込期間（開始〜終了） ──
   // 例: ■申込期間： 2026 年3月26日（木）17時～4月1日（水）12時
   // 例: ■受付期間：2026年4月1日（水）17時～4月13日（月）12時
@@ -363,6 +376,23 @@ function guessYearForMonthDay(month, day) {
   const candidate = new Date(y, month - 1, day);
   const threeMonthsAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
   return candidate < threeMonthsAgo ? y + 1 : y;
+}
+
+/**
+ * ラベル直後の「YYYY年M月D日（曜）HH:MM」または「…HH時MM分」を ISO(UTC) で返す。
+ * 月次通販の申込開始日/申込締切日は時刻がコロン形式（18:00）なので専用に処理する。
+ * @param {string} text 正規化済み本文
+ * @param {string} label 例 '申込開始日'
+ */
+function parseColonDateNear(text, label) {
+  const m = text.match(new RegExp(label + '[：:]\\s*(\\d{4})\\s*年\\s*(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*日\\s*[（(][^）)]*[）)]\\s*(?:(\\d{1,2})\\s*[:：]\\s*(\\d{1,2})|(\\d{1,2})\\s*時(?:\\s*(\\d{1,2})\\s*分)?)?'));
+  if (!m) return null;
+  const y = +m[1], mo = +m[2] - 1, d = +m[3];
+  let h, min;
+  if (m[4] != null) { h = +m[4]; min = +m[5]; }           // HH:MM
+  else if (m[6] != null) { h = +m[6]; min = m[7] ? +m[7] : 0; } // HH時MM分
+  else { h = 23; min = 59; }                               // 時刻なし → 23:59
+  return new Date(Date.UTC(y, mo, d, h - 9, min)).toISOString();
 }
 
 /** 日付文字列から年を抽出（年なし日付の fallback 用） */
