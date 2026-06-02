@@ -39,6 +39,10 @@ export type HiSession = {
   member_id: string;
   is_today: boolean;
   bucket_indices: number[];
+  /** 0.05秒刻みのバケット番号配列(例: [119, 120] = 5.95s, 6.00s)。
+   *  従来の bucket_indices(0.1秒刻み) より細かく、人間の叩くブレを潰さず再現するための列。
+   *  古いビューには無いので optional（無ければ bucket_indices を2倍して近似する）。 */
+  bucket_indices_20?: number[];
   played_date: string;
 };
 
@@ -46,7 +50,7 @@ export async function fetchHiSessions(): Promise<HiSession[]> {
   const supabase = getSupabase();
   const { data, error } = await supabase
     .from("hi_aggregations")
-    .select("session_hash, member_id, is_today, bucket_indices, played_date")
+    .select("session_hash, member_id, is_today, bucket_indices, bucket_indices_20, played_date")
     .eq("video_id", VIDEO_ID);
   if (error) {
     console.error("[hi-tension] fetch sessions failed:", error);

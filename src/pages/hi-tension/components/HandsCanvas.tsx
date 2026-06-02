@@ -69,17 +69,20 @@ function ageScale(playedDate: string): number {
   return 0.2;
 }
 
+// ✋の着地点を収める安全な縦帯（0=領域上端/TOP_MARGIN直下, 1=下端＝ボタン裏）。
+// 動画(上)とタップボタン(下)の裏に回り込まないよう、中段だけに収める。
+const BAND_TOP = 0.10;
+const BAND_BOT = 0.50;
+
 /**
- * 参加順インデックスから✋の位置を決める（リアルタイムセッション用）。
- * 待合室のドットと同じく横一列に整列する（現在の上限は2人）。
- * ※2人だと seat0=0.2 / seat1=0.4 と左寄りに密集する。✋重なり調査の結果次第で
- *   2人用に左右へ広げる（例: 1/3・2/3）見直し余地あり。
+ * 参加順インデックスから✋の位置を決める（リアルタイムセッション用・上限2人）。
+ * 左右に等間隔（1/3・2/3）。yは中段（ボタンの裏に被らない）。
  */
 function seatIndexToPosition(index: number): { xRatio: number; yRatio: number } {
-  const col = index % 4;            // 0,1,2,3
+  const col = index % 2;                 // 上限2人
   return {
-    xRatio: 0.2 + col * 0.2,        // 0.2 / 0.4 / 0.6 / 0.8 で横一列
-    yRatio: 0.82,
+    xRatio: (col + 1) / 3,               // 0→0.333, 1→0.667（左右等間隔）
+    yRatio: (BAND_TOP + BAND_BOT) / 2,   // 中段
   };
 }
 
@@ -119,9 +122,12 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   const bucketIndex = useMemo<Map<number, BucketEntry[]>>(() => {
     const map = new Map<number, BucketEntry[]>();
     for (const session of sessions) {
-      // bucket_indices は重複あり(同じ 0.1秒に2回押せばダブる)
+      // 0.05秒刻みの細かいバケットを優先(人間の叩くブレが同じマスに丸まって機械っぽく揃うのを防ぐ)。
+      // 古いビューで列が無い場合は 0.1秒刻みを2倍して 0.05秒スケールに合わせる。
+      const buckets = session.bucket_indices_20 ?? session.bucket_indices.map((b) => b * 2);
+      // 重複あり(同じ 0.05秒に2回押せばダブる)
       const counts = new Map<number, number>();
-      for (const b of session.bucket_indices) {
+      for (const b of buckets) {
         counts.set(b, (counts.get(b) ?? 0) + 1);
       }
       for (const [bucket, count] of counts) {
@@ -130,6 +136,28 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         map.set(bucket, arr);
       }
     }
+    return map;
+  }, [sessions]);
+
+  // セッション → ✋の配置(等間隔グリッド)。session_hash で安定ソートし、安全帯の中に
+  // 列×行で均等に並べる。動画/ボタンの裏に回り込まないよう y は BAND_TOP〜BAND_BOT に収める。
+  const sessionLayout = useMemo<Map<number, { xRatio: number; yRatio: number }>>(() => {
+    const sorted = [...sessions].sort((a, b) => a.session_hash - b.session_hash);
+    const n = sorted.length;
+    const map = new Map<number, { xRatio: number; yRatio: number }>();
+    if (n === 0) return map;
+    // 横長になるよう列を多めに（縦帯が狭いので）
+    const cols = Math.max(1, Math.min(n, Math.ceil(Math.sqrt(n * 2.2))));
+    const rows = Math.max(1, Math.ceil(n / cols));
+    sorted.forEach((s, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const xRatio = (col + 1) / (cols + 1);                       // 左右端に張り付かない等間隔
+      const yRatio = rows === 1
+        ? (BAND_TOP + BAND_BOT) / 2
+        : BAND_TOP + ((row + 0.5) / rows) * (BAND_BOT - BAND_TOP); // 帯の中で行も等間隔
+      map.set(s.session_hash, { xRatio, yRatio });
+    });
     return map;
   }, [sessions]);
 
@@ -335,13 +363,13 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     app.ticker.add(onTick);
   }
 
-  function spawnForBucket(bucket: number) {
+  function spawnForBucket(bucket: number, animationOffsetMs: number) {
     const entries = bucketIndex.get(bucket);
     if (!entries) return;
     for (const { session, count } of entries) {
       const member = findMember(session.member_id);
       if (!member) continue;
-      const { xRatio, yRatio } = seatFromHash(session.session_hash);
+      const { xRatio, yRatio } = sessionLayout.get(session.session_hash) ?? seatFromHash(session.session_hash);
       for (let i = 0; i < count; i++) {
         spawnHand({
           xRatio, yRatio,
@@ -349,6 +377,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
           isSelf: false,
           isToday: session.is_today,
           playedDate: session.played_date,
+          animationOffsetMs,
         });
       }
     }
@@ -360,12 +389,12 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       if (!memberId) return;
       const member = findMember(memberId);
       if (!member) return;
-      // リアルタイム時は席ベースの横一列、ソロ時は従来のランダム位置
+      // リアルタイム時は席ベースの等間隔、ソロ時は中央・中段（動画/ボタンの裏に出ない）
       const seatIdx = selfSeatIndexRef.current;
       const { xRatio, yRatio } =
         seatIdx != null && seatIdx >= 0
           ? seatIndexToPosition(seatIdx)
-          : seatFromHash(selfSeatHashRef.current);
+          : { xRatio: 0.5, yRatio: (BAND_TOP + BAND_BOT) / 2 };
       spawnHand({
         xRatio, yRatio,
         color: member.color,
@@ -433,21 +462,24 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         liveQueueRef.current = remaining;
       }
 
-      // バケット先頭で発火させる単純な floor。
-      // 100ms poll の平均遅延が +50ms 乗ることで、結果的にバケット中央で
-      // 発火する形になる(押下時刻の期待値=中央と一致)。
-      // 余計なシフトを足すと平均ズレを増やすだけなので素のままで良い。
-      const newBucket = Math.floor(currentTime * 10);
+      // 0.05秒刻みのバケット先頭で発火させる単純な floor。
+      // poll 間に跨いだバケットは下の for で全て埋めるので取りこぼさない。
+      const newBucket = Math.floor(currentTime * 20);
       const lastBucket = lastBucketRef.current;
       if (newBucket === lastBucket) return;
       lastBucketRef.current = newBucket;
-      // 初回・大ジャンプ(シーク)時は湧き出しスキップ
-      if (lastBucket < 0 || newBucket < lastBucket || newBucket - lastBucket > 30) return;
+      // 初回・大ジャンプ(シーク)時は湧き出しスキップ(60バケット=3秒以上飛んだら無効)
+      if (lastBucket < 0 || newBucket < lastBucket || newBucket - lastBucket > 60) return;
+      // poll は 100ms 間隔なので、1回で複数バケットがまとめて来る。全部を同フレームに
+      // 湧かすと「壁」になって機械っぽく揃う。各バケットが「実際に何ms前だったか」だけ
+      // アニメを先送りして湧かすと、早い✋は少し上がった状態・遅い✋は出たて、で
+      // さざ波状にバラける（バケット内の本物のタイミング差をそのまま見せる）。
       for (let b = lastBucket + 1; b <= newBucket; b++) {
-        spawnForBucket(b);
+        const ageMs = (currentTime - b / 20) * 1000;
+        spawnForBucket(b, Math.max(0, Math.min(ageMs, MAX_EXTRAPOLATION_MS)));
       }
     },
-  }), [bucketIndex]);
+  }), [bucketIndex, sessionLayout]);
 
   return (
     <div
