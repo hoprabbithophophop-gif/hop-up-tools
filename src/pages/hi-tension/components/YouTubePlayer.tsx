@@ -34,7 +34,7 @@ export type YouTubePlayerApi = {
   unMute: () => void;
   /** 指定動画IDをロードして即再生（同じ iframe を使い回し、JS/CDN接続を温存）。
    *  opts で開始/終了秒を指定可能（暖機用クリップで使う） */
-  loadVideo: (id: string, opts?: { startSeconds?: number; endSeconds?: number }) => void;
+  loadVideo: (id: string, opts?: { startSeconds?: number; endSeconds?: number; cover?: boolean }) => void;
   /** 指定動画IDを cue（ロードのみで再生はしない。✋押下までの待ち時間に仕込む） */
   cueVideo: (id: string, opts?: { startSeconds?: number; endSeconds?: number }) => void;
 };
@@ -245,11 +245,15 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
     unMute() {
       try { (playerRef.current as unknown as { unMute?: () => void })?.unMute?.(); } catch { /* ignore */ }
     },
-    loadVideo(id: string, opts?: { startSeconds?: number; endSeconds?: number }) {
-      // 初回 play() 同様にローディング最小表示タイマーを開始
-      if (!startedRef.current) {
+    loadVideo(id: string, opts?: { startSeconds?: number; endSeconds?: number; cover?: boolean }) {
+      // 初回 play() 同様にローディング最小表示タイマーを開始。
+      // cover 指定時は2回目以降でもカバーを出し直す（前の動画＝本編サムネが切替の隙間に
+      // 一瞬見えるのを防ぐ。入室時の暖機ロードで使う。暖機ループや本編再生では使わない）。
+      if (opts?.cover || !startedRef.current) {
         startedRef.current = true;
         setStarted(true);
+        setMinTimeElapsed(false);
+        if (minTimerRef.current) clearTimeout(minTimerRef.current);
         minTimerRef.current = setTimeout(() => setMinTimeElapsed(true), LOADING_MIN_MS);
       }
       const p = playerRef.current;

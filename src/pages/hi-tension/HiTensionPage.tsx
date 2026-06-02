@@ -867,10 +867,10 @@ export default function HiTensionPage() {
     setRoomCode(generateRoomCode());
     setEnteredByCode(false); // 自分が発行した部屋 → 入れ直しは不要
     setSeatHash(newSeatHash());
-    // 待機室で暖機動画を音付き再生（出囃子）
+    // 待機室で暖機動画を音付き再生（出囃子）。cover で切替の隙間に本編サムネが見えるのを防ぐ。
     isWarmupRef.current = true;
     playerApiRef.current?.unMute();
-    playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
+    playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, { ...WARMUP_LOAD_OPTS, cover: true });
     setScreen("waiting");
   };
 
@@ -879,10 +879,10 @@ export default function HiTensionPage() {
     setRoomCode(code);
     setEnteredByCode(true); // コードを打って入った → 打ち間違い時に入れ直せるように
     setSeatHash(newSeatHash());
-    // 待機室で暖機動画を音付き再生（出囃子）
+    // 待機室で暖機動画を音付き再生（出囃子）。cover で切替の隙間に本編サムネが見えるのを防ぐ。
     isWarmupRef.current = true;
     playerApiRef.current?.unMute();
-    playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
+    playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, { ...WARMUP_LOAD_OPTS, cover: true });
     setScreen("waiting");
   };
 
@@ -891,8 +891,18 @@ export default function HiTensionPage() {
     setScreen("select");
   };
 
-  // 合言葉部屋の待機室 → コード入力画面に戻る（打ち間違えた時の入れ直し）
+  // 合言葉部屋の待機室 → コード入力画面に戻る（打ち間違えた時の入れ直し）。
+  // 「ロビーに戻る」同様、出囃子(暖機動画)を止めて同期状態もリセットする。
+  // （止めないと room-menu に移っても暖機動画の音が鳴り続ける。inWaitingRoom が
+  //  false になるのでリアルタイム接続自体は自動で切れる）
   const handleReenterCode = () => {
+    clearSenoTimer();
+    stopDriftLoop();
+    setSyncActive(false);
+    warmupAnchorReceivedRef.current = false;
+    clockAnchorRef.current = null;
+    isWarmupRef.current = false;
+    playerApiRef.current?.pause();
     setScreen("room-menu");
   };
 
@@ -946,7 +956,7 @@ export default function HiTensionPage() {
       isWarmupRef.current = true;
       playerApiRef.current?.setPlaybackRate(1.0);
       playerApiRef.current?.unMute();
-      playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
+      playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, { ...WARMUP_LOAD_OPTS, cover: true });
     } else {
       setSyncActive(false);
       isWarmupRef.current = false;
