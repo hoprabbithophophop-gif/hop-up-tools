@@ -158,7 +158,9 @@ export default function WaitingRoom({
             <p style={{ fontSize: "1.5rem", fontWeight: 900, letterSpacing: "0.25em", margin: "0.1rem 0 0", color: "#000" }}>
               {roomCode}
             </p>
-            {/* 打ち間違えた時の入れ直し。あいことば表示の真下に置き「その場で直す」を位置で示す（戻る導線とは別物） */}
+            {/* 打ち間違えた時の入れ直し。あいことば表示の真下に置き「その場で直す」を位置で示す（戻る導線とは別物）。
+                コードを打って入ったゲスト専用。ホストは自分でコードを発行した側なので入れ直しは無意味。 */}
+            {!isHost && (
             <button
               type="button"
               onClick={onReenterCode}
@@ -186,6 +188,7 @@ export default function WaitingRoom({
               <span aria-hidden>✎</span>
               入力し直す
             </button>
+            )}
           </div>
         )}
         {channelError && (
