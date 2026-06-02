@@ -146,29 +146,40 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     return map;
   }, [sessions]);
 
-  // セッション → ✋の配置(等間隔グリッド)。session_hash で安定ソートし、安全帯の中に
-  // 列×行で均等に並べる。動画/ボタンの裏に回り込まないよう y は BAND_TOP〜BAND_BOT に収める。
+  // セッション → ✋の配置(千鳥グリッド)。並び順は毎プレイ(selfSeatHash)で変え、色と位置を
+  // 固定で結びつけない（同じ色が毎回端で見切れるのを防ぐ）。同一プレイ中は安定なので再生中に
+  // ✋がワープすることはない。安全帯 BAND_TOP〜BAND_BOT に収め、上部のタップボタン裏を避ける。
   const sessionLayout = useMemo<Map<number, { xRatio: number; yRatio: number }>>(() => {
-    const sorted = [...sessions].sort((a, b) => a.session_hash - b.session_hash);
-    const n = sorted.length;
+    const n = sessions.length;
     const map = new Map<number, { xRatio: number; yRatio: number }>();
     if (n === 0) return map;
+    // selfSeatHash を種に session_hash を撹拌して並べ替える（毎プレイで席替え）。
+    const seed = selfSeatHash >>> 0;
+    const mix = (h: number) => {
+      let x = (h ^ seed) >>> 0;
+      x = Math.imul(x ^ (x >>> 16), 2246822507) >>> 0;
+      x = Math.imul(x ^ (x >>> 13), 3266489909) >>> 0;
+      return (x ^ (x >>> 16)) >>> 0;
+    };
+    const sorted = [...sessions].sort((a, b) => mix(a.session_hash) - mix(b.session_hash));
     // 横長になるよう列を多めに（縦帯が狭いので）
     const cols = Math.max(1, Math.min(n, Math.ceil(Math.sqrt(n * 2.2))));
     const rows = Math.max(1, Math.ceil(n / cols));
+    const step = cols > 1 ? 1 / (cols - 1) : 0; // 列間隔（端の✋が画面端で半分見切れる 0..1）
     sorted.forEach((s, i) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
-      // 横は両端の✋が画面端でちょうど半分見切れるよう 0..1 に割り付ける。
-      // 端で✋が切れることで「画面の外にもまだいっぱいいる」想像の余地を作る。
-      const xRatio = cols === 1 ? 0.5 : col / (cols - 1);
+      // 奇数行を半セルずらして千鳥に並べ、前列の隙間から後列の✋が覗くようにする
+      // （真後ろで重ならない）。端の✋は画面端で見切れて「画面外にもいる」余地を作る。
+      const brick = (row % 2) * step / 2;
+      const xRatio = cols === 1 ? 0.5 : col * step + brick;
       const yRatio = rows === 1
         ? (BAND_TOP + BAND_BOT) / 2
         : BAND_TOP + ((row + 0.5) / rows) * (BAND_BOT - BAND_TOP); // 帯の中で行も等間隔
       map.set(s.session_hash, { xRatio, yRatio });
     });
     return map;
-  }, [sessions]);
+  }, [sessions, selfSeatHash]);
 
   // 最新の props を ref に反映(imperative メソッドの中で参照する用)
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
