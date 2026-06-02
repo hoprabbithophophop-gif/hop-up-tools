@@ -1,4 +1,5 @@
 import HandIcon from "./components/HandIcon";
+import NavButton from "./components/NavButton";
 
 interface Props {
   isHost: boolean;
@@ -130,21 +131,12 @@ export default function ReadyCheck({
         </button>
       )}
 
-      {/* 下部：やめる */}
-      <button
-        type="button"
-        onClick={onQuit}
-        style={{
-          background: "none",
-          border: "none",
-          fontSize: "0.8125rem",
-          color: "#777",
-          cursor: "pointer",
-          padding: "0.25rem 0",
-        }}
-      >
-        ← ロビーに戻る
-      </button>
+      {/* 下部：やめる（左寄せ） */}
+      <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>
+        <NavButton direction="back" onClick={onQuit}>
+          ロビーに戻る
+        </NavButton>
+      </div>
     </div>
   );
 }

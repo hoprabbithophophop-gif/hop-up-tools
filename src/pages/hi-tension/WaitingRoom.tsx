@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import HandIcon from "./components/HandIcon";
+import NavButton from "./components/NavButton";
 import { findMember } from "./data";
 import { MAX_PARTICIPANTS, type Participant } from "./useHiTensionRealtime";
 
@@ -104,20 +105,11 @@ export default function WaitingRoom({
         >
           ひとりで始める
         </button>
-        <button
-          type="button"
-          onClick={onBackToTop}
-          style={{
-            background: "none",
-            border: "none",
-            fontSize: "0.8125rem",
-            color: "#777",
-            cursor: "pointer",
-            padding: "0.25rem 0",
-          }}
-        >
-          ← ロビーに戻る
-        </button>
+        <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>
+          <NavButton direction="back" onClick={onBackToTop}>
+            ロビーに戻る
+          </NavButton>
+        </div>
       </div>
     );
   }
@@ -159,13 +151,41 @@ export default function WaitingRoom({
       {/* 上部：合言葉と人数 */}
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem" }}>
         {roomCode && (
-          <div style={{ textAlign: "center" }}>
+          <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
             <p style={{ fontSize: "0.6875rem", color: "#777", margin: 0, letterSpacing: "0.15em" }}>
               あいことば
             </p>
             <p style={{ fontSize: "1.5rem", fontWeight: 900, letterSpacing: "0.25em", margin: "0.1rem 0 0", color: "#000" }}>
               {roomCode}
             </p>
+            {/* 打ち間違えた時の入れ直し。あいことば表示の真下に置き「その場で直す」を位置で示す（戻る導線とは別物） */}
+            <button
+              type="button"
+              onClick={onReenterCode}
+              style={{
+                marginTop: "0.5rem",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.3rem",
+                minHeight: 36,
+                padding: "0 0.7rem",
+                background: "#eceef0",
+                color: "#191c1d",
+                border: "none",
+                borderRadius: 0,
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                fontFamily: "inherit",
+                whiteSpace: "nowrap",
+                cursor: "pointer",
+                touchAction: "manipulation",
+                WebkitTapHighlightColor: "transparent",
+                transition: "background 0.12s",
+              }}
+            >
+              <span aria-hidden>✎</span>
+              入力し直す
+            </button>
           </div>
         )}
         {channelError && (
@@ -253,52 +273,11 @@ export default function WaitingRoom({
         >
           {!isHost ? "せーの待ち" : count >= MAX_PARTICIPANTS ? "せーの！" : `あと${MAX_PARTICIPANTS - count}人待ってね`}
         </button>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.05rem" }}>
-          {roomCode ? (
-            <button
-              type="button"
-              onClick={onReenterCode}
-              style={{
-                background: "none",
-                border: "none",
-                fontSize: "0.75rem",
-                color: "#777",
-                cursor: "pointer",
-                padding: "0.15rem 0",
-              }}
-            >
-              合言葉を入力し直す →
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onSolo}
-              style={{
-                background: "none",
-                border: "none",
-                fontSize: "0.75rem",
-                color: "#777",
-                cursor: "pointer",
-                padding: "0.15rem 0",
-              }}
-            >
-              やっぱりひとりで →
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onBackToTop}
-            style={{
-              background: "none",
-              border: "none",
-              fontSize: "0.75rem",
-              color: "#777",
-              cursor: "pointer",
-              padding: "0.15rem 0",
-            }}
-          >
-            ← ロビーに戻る
-          </button>
+        {/* 戻るは1つ（ロビーへ）。合言葉の入れ直しは上のあいことば表示の隣に置いた。 */}
+        <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>
+          <NavButton direction="back" onClick={onBackToTop}>
+            ロビーに戻る
+          </NavButton>
         </div>
       </div>
     </div>

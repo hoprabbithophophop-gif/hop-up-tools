@@ -1,4 +1,5 @@
 import { useState } from "react";
+import NavButton from "./components/NavButton";
 import { normalizeRoomCode, ROOM_CODE_LENGTH } from "./useHiTensionRealtime";
 
 interface Props {
@@ -126,21 +127,12 @@ export default function RoomMenu({ onCreate, onJoin, onBack }: Props) {
         </button>
       </div>
 
-      {/* 戻る */}
-      <button
-        type="button"
-        onClick={onBack}
-        style={{
-          background: "none",
-          border: "none",
-          fontSize: "0.8125rem",
-          color: "#777",
-          cursor: "pointer",
-          padding: "0.25rem 0",
-        }}
-      >
-        ← 戻る
-      </button>
+      {/* 戻る（左寄せ） */}
+      <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>
+        <NavButton direction="back" onClick={onBack}>
+          戻る
+        </NavButton>
+      </div>
     </div>
   );
 }
