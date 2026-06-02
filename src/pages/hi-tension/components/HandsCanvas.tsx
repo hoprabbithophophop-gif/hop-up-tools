@@ -76,15 +76,20 @@ function ageScale(playedDate: string): number {
 const BAND_TOP = 0.10;
 const BAND_BOT = 0.92;
 
+// 自分（と相手）の大きい✋の着地点。タップボタンは再生エリア上部にあるので、
+// ここを下寄り(0.75)にして上昇アニメがボタンに重なって隠れないようにする。
+// （履歴✋は小さいので帯の中＝多少ボタン寄りでも問題ない）
+const SELF_Y = 0.75;
+
 /**
  * 参加順インデックスから✋の位置を決める（リアルタイムセッション用・上限2人）。
- * 左右に等間隔（1/3・2/3）。yは中段（ボタンの裏に被らない）。
+ * 左右に等間隔（1/3・2/3）。yは下寄り（上昇アニメがタップボタンの裏に隠れない）。
  */
 function seatIndexToPosition(index: number): { xRatio: number; yRatio: number } {
   const col = index % 2;                 // 上限2人
   return {
     xRatio: (col + 1) / 3,               // 0→0.333, 1→0.667（左右等間隔）
-    yRatio: (BAND_TOP + BAND_BOT) / 2,   // 中段
+    yRatio: SELF_Y,                       // 下寄り
   };
 }
 
@@ -154,7 +159,9 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     sorted.forEach((s, i) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
-      const xRatio = (col + 1) / (cols + 1);                       // 左右端に張り付かない等間隔
+      // 横は両端の✋が画面端でちょうど半分見切れるよう 0..1 に割り付ける。
+      // 端で✋が切れることで「画面の外にもまだいっぱいいる」想像の余地を作る。
+      const xRatio = cols === 1 ? 0.5 : col / (cols - 1);
       const yRatio = rows === 1
         ? (BAND_TOP + BAND_BOT) / 2
         : BAND_TOP + ((row + 0.5) / rows) * (BAND_BOT - BAND_TOP); // 帯の中で行も等間隔
@@ -396,7 +403,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       const { xRatio, yRatio } =
         seatIdx != null && seatIdx >= 0
           ? seatIndexToPosition(seatIdx)
-          : { xRatio: 0.5, yRatio: (BAND_TOP + BAND_BOT) / 2 };
+          : { xRatio: 0.5, yRatio: SELF_Y };
       spawnHand({
         xRatio, yRatio,
         color: member.color,
