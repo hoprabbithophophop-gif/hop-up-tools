@@ -12,6 +12,8 @@ interface Props {
   channelError: boolean;
   isOverflow: boolean;
   roomCode: string | null;
+  /** 自分でコードを打って入った人か。true のときだけ「入力し直す」を出す（部屋を作った人には出さない） */
+  enteredByCode: boolean;
   onBounceSignal: () => void;
   bouncingSessionId: string | null;
   onSeno: () => void;
@@ -33,6 +35,7 @@ export default function WaitingRoom({
   channelError,
   isOverflow,
   roomCode,
+  enteredByCode,
   onBounceSignal,
   bouncingSessionId,
   onSeno,
@@ -159,8 +162,9 @@ export default function WaitingRoom({
               {roomCode}
             </p>
             {/* 打ち間違えた時の入れ直し。あいことば表示の真下に置き「その場で直す」を位置で示す（戻る導線とは別物）。
-                コードを打って入ったゲスト専用。ホストは自分でコードを発行した側なので入れ直しは無意味。 */}
-            {!isHost && (
+                コードを打って入った人にだけ出す。打ち間違いで空室に入りホストになっても入れ直せるよう、
+                isHost ではなく入室経路(enteredByCode)で判定する。部屋を作った人には出さない。 */}
+            {enteredByCode && (
             <button
               type="button"
               onClick={onReenterCode}

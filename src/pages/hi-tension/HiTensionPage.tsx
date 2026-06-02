@@ -179,6 +179,9 @@ export default function HiTensionPage() {
   const [bouncingSessionId, setBouncingSessionId] = useState<string | null>(null);
   // 部屋コード。null = グローバル部屋、文字列 = 合言葉の専用部屋
   const [roomCode, setRoomCode] = useState<string | null>(null);
+  // 自分でコードを打って入った人か（true）。打ち間違いで空室に入りホストになっても
+  // 「入力し直す」を出せるよう、isHost ではなく入室経路で判定する。部屋を作った人は false。
+  const [enteredByCode, setEnteredByCode] = useState(false);
   // ready-check 状態
   const [readyCheckGroup, setReadyCheckGroup] = useState<string[]>([]);
   const [readyCount, setReadyCount] = useState(0);
@@ -862,6 +865,7 @@ export default function HiTensionPage() {
   // 部屋を作る（新しいコードを発行して待機室へ）
   const handleCreateRoom = () => {
     setRoomCode(generateRoomCode());
+    setEnteredByCode(false); // 自分が発行した部屋 → 入れ直しは不要
     setSeatHash(newSeatHash());
     // 待機室で暖機動画を音付き再生（出囃子）
     isWarmupRef.current = true;
@@ -873,6 +877,7 @@ export default function HiTensionPage() {
   // コードで部屋に入る
   const handleJoinRoom = (code: string) => {
     setRoomCode(code);
+    setEnteredByCode(true); // コードを打って入った → 打ち間違い時に入れ直せるように
     setSeatHash(newSeatHash());
     // 待機室で暖機動画を音付き再生（出囃子）
     isWarmupRef.current = true;
@@ -902,6 +907,7 @@ export default function HiTensionPage() {
     isWarmupRef.current = false;
     playerApiRef.current?.pause();
     setRoomCode(null);
+    setEnteredByCode(false);
     setScreen("select");
   };
 
@@ -1307,6 +1313,7 @@ export default function HiTensionPage() {
                 channelError={channelError}
                 isOverflow={isOverflow}
                 roomCode={roomCode}
+                enteredByCode={enteredByCode}
                 onBounceSignal={broadcastBounce}
                 bouncingSessionId={bouncingSessionId}
                 onSeno={handleSenoButton}
