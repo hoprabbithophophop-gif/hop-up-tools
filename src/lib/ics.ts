@@ -69,6 +69,7 @@ export function generateGoogleCalendarUrl(event: IcsEvent): string {
     dates: `${fmt(event.dtstart)}/${fmt(event.dtend)}`,
     details: event.description,
   });
+  if (event.location) params.set("location", event.location);
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
@@ -93,6 +94,7 @@ export function generateYahooCalendarUrl(event: IcsEvent): string {
     ET: fmt(event.dtend),
     DESC: event.description,
   });
+  if (event.location) params.set("in_loc", event.location);
   return `https://calendar.yahoo.co.jp/?${params.toString()}`;
 }
 

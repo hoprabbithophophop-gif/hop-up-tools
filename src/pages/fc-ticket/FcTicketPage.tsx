@@ -844,12 +844,14 @@ function DeadlineRow({ dl, paidUp = false, isFirst = false }: { dl: Deadline; pa
   const isPast = diffDays < 0 || paidUp;
   const isUrgent = !paidUp && diffDays >= 0 && diffDays < 3;
 
+  // 公演(event)は「開演〜2時間」の予定として扱う。締切類は「締切の1時間前〜締切」。
+  const isEvent = dl.type === "event";
   const calEvent: IcsEvent = {
     uid: dl.id + "@hop-up-tools",
     summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
     description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
-    dtstart: new Date(deadline.getTime() - 3600000),
-    dtend: deadline,
+    dtstart: isEvent ? deadline : new Date(deadline.getTime() - 3600000),
+    dtend: isEvent ? new Date(deadline.getTime() + 7200000) : deadline,
     location: dl.location ?? undefined,
   };
 
