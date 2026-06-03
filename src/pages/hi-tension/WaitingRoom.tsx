@@ -143,12 +143,12 @@ export default function WaitingRoom({
       }}
     >
       <style>{`
+        /* ゆるやかな弧。狭い余白でも「天井にコツン」と止まらないよう、ピークでの hold と
+           オーバーシュートを無くし、じわっと上がってふわっと折り返す（ease-in-out）。 */
         @keyframes hand-hop {
           0%   { transform: translateY(0) scale(1); }
-          12%  { transform: translateY(0) scaleX(1.08) scaleY(0.86); }
-          40%  { transform: translateY(calc(-1 * var(--hop, 32px))) scale(1); }
-          60%  { transform: translateY(calc(-1 * var(--hop, 32px))) scale(1); }
-          84%  { transform: translateY(0) scaleX(1.05) scaleY(0.95); }
+          22%  { transform: translateY(0) scaleX(1.04) scaleY(0.93); }
+          60%  { transform: translateY(calc(-1 * var(--hop, 32px))) scaleX(0.99) scaleY(1.02); }
           100% { transform: translateY(0) scale(1); }
         }
       `}</style>
@@ -225,7 +225,7 @@ export default function WaitingRoom({
             const isBouncing = isSelf ? selfBouncing : bouncingSessionId === p.sessionId;
             const handStyle: CSSProperties = {
               transformOrigin: "bottom center",
-              animation: isBouncing ? "hand-hop 0.5s cubic-bezier(0.34,1.56,0.64,1)" : "none",
+              animation: isBouncing ? "hand-hop 0.6s ease-in-out" : "none",
               lineHeight: 0,
             };
             const icon = <HandIcon size={isSelf ? 46 : 40} color={color} />;
