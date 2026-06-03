@@ -162,8 +162,9 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       return (x ^ (x >>> 16)) >>> 0;
     };
     const sorted = [...sessions].sort((a, b) => mix(a.session_hash) - mix(b.session_hash));
-    // 横長になるよう列を多めに（縦帯が狭いので）
-    const cols = Math.max(1, Math.min(n, Math.ceil(Math.sqrt(n * 2.2))));
+    // 行を多めにして「奥行きのある群衆」に。列が増えると縦帯の中で行間が✋サイズより
+    // 詰まり、前後の✋が重なって観客席のように見える（人数が多いほど密になる）。
+    const cols = Math.max(1, Math.min(n, Math.ceil(Math.sqrt(n * 0.8))));
     const rows = Math.max(1, Math.ceil(n / cols));
     const step = cols > 1 ? 1 / (cols - 1) : 0; // 列間隔（端の✋が画面端で半分見切れる 0..1）
     sorted.forEach((s, i) => {
