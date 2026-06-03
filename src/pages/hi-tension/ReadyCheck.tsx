@@ -137,7 +137,7 @@ export default function ReadyCheck({
       {/* 下部：やめる（左寄せ・最下部キープ） */}
       <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>
         <NavButton direction="back" onClick={onQuit}>
-          最初に戻る
+          中断して戻る
         </NavButton>
       </div>
     </div>

@@ -1289,7 +1289,7 @@ export default function HiTensionPage() {
               {!videoEnded && (
                 <div style={{ display: "flex", justifyContent: "flex-start" }}>
                   <NavButton direction="back" onClick={handleChangeColor}>
-                    最初に戻る
+                    中断して戻る
                   </NavButton>
                 </div>
               )}

@@ -87,7 +87,7 @@ export default function WaitingRoom({
         <p style={{ fontSize: "0.875rem", color: "#474747", margin: 0, textAlign: "center", lineHeight: 1.6 }}>
           すでに{MAX_PARTICIPANTS}人が参加しています。
           <br />
-          ひとりで始めるか、最初に戻ってください。
+          ひとりで始めるか、いったん戻ってください。
         </p>
         <button
           type="button"
@@ -110,7 +110,7 @@ export default function WaitingRoom({
         </button>
         <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>
           <NavButton direction="back" onClick={onBackToTop}>
-            最初に戻る
+            中断して戻る
           </NavButton>
         </div>
       </div>
@@ -284,7 +284,7 @@ export default function WaitingRoom({
         {/* 戻るは1つ（最初の画面へ）。合言葉の入れ直しは上の合言葉表示の隣に置いた。 */}
         <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>
           <NavButton direction="back" onClick={onBackToTop}>
-            最初に戻る
+            中断して戻る
           </NavButton>
         </div>
       </div>
