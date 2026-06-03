@@ -3,12 +3,11 @@ import NavButton from "./components/NavButton";
 import { normalizeRoomCode, ROOM_CODE_LENGTH } from "./useHiTensionRealtime";
 
 interface Props {
-  onCreate: () => void;
   onJoin: (code: string) => void;
   onBack: () => void;
 }
 
-export default function RoomMenu({ onCreate, onJoin, onBack }: Props) {
+export default function RoomMenu({ onJoin, onBack }: Props) {
   const [code, setCode] = useState("");
   // iOS フリック入力(IME)対策：onChange で toUpperCase 等の変換をかけて value を
   // 書き換えると、フリック変換途中の文字が毎回潰れて入力できない（何も表示されない）。
@@ -56,30 +55,13 @@ export default function RoomMenu({ onCreate, onJoin, onBack }: Props) {
         }}
       >
 
-      {/* 部屋を作る */}
-      <button
-        type="button"
-        onClick={onCreate}
-        style={{
-          width: "100%",
-          maxWidth: 360,
-          padding: "1rem",
-          background: "#000",
-          color: "#fff",
-          border: "none",
-          fontSize: "0.875rem",
-          fontWeight: 700,
-          letterSpacing: "0.05em",
-          textTransform: "uppercase",
-          cursor: "pointer",
-        }}
-      >
-        部屋を作る
-      </button>
+      {/* 合言葉を入れて集まる（先に入れた人が部屋のホストになる。部屋作成は不要＝
+          同じ合言葉を入れた人同士で合流する） */}
+      <p style={{ fontSize: "0.8125rem", color: "#777", margin: 0, textAlign: "center", lineHeight: 1.6 }}>
+        同じ合言葉を入れた人と集まれます
+      </p>
 
-      <p style={{ fontSize: "0.8125rem", color: "#777", margin: 0 }}>または</p>
-
-      {/* コードで入る */}
+      {/* 合言葉で入る */}
       <div
         style={{
           display: "flex",

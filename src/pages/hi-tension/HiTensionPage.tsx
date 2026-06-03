@@ -16,7 +16,7 @@ import {
   getOrCreateAnonymousSessionId,
 } from "./storage";
 import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
-import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, generateRoomCode, type LiveDriftReport, type LiveTap } from "./useHiTensionRealtime";
+import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, type LiveDriftReport, type LiveTap } from "./useHiTensionRealtime";
 import EndCard from "./components/EndCard";
 import BouncyNumber from "./components/BouncyNumber";
 import HandIcon from "./components/HandIcon";
@@ -867,19 +867,8 @@ export default function HiTensionPage() {
     setScreen("room-menu");
   };
 
-  // 部屋を作る（新しいコードを発行して待機室へ）
-  const handleCreateRoom = () => {
-    setRoomCode(generateRoomCode());
-    setEnteredByCode(false); // 自分が発行した部屋 → 入れ直しは不要
-    setSeatHash(newSeatHash());
-    // 待機室で暖機動画を音付き再生（出囃子）。cover で切替の隙間に本編サムネが見えるのを防ぐ。
-    isWarmupRef.current = true;
-    playerApiRef.current?.unMute();
-    playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, { ...WARMUP_LOAD_OPTS, cover: true });
-    setScreen("waiting");
-  };
-
-  // コードで部屋に入る
+  // 合言葉で部屋に入る（部屋作成は廃止。同じ合言葉を入れた人同士で合流し、入室順で
+  // 先頭が自動的にホストになる）
   const handleJoinRoom = (code: string) => {
     setRoomCode(code);
     setEnteredByCode(true); // コードを打って入った → 打ち間違い時に入れ直せるように
@@ -1331,7 +1320,6 @@ export default function HiTensionPage() {
       {screen === "room-menu" && (
         <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "#f8f9fa" }}>
           <RoomMenu
-            onCreate={handleCreateRoom}
             onJoin={handleJoinRoom}
             onBack={handleRoomMenuBack}
           />
