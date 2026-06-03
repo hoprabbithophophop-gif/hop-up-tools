@@ -1209,24 +1209,25 @@ export default function HiTensionPage() {
               onPixiEvent={(event, detail) => logHiEvent(anonSessionId, event, detail)}
             />
 
-            {/* 中断導線：動画の左上に控えめな戻る。押した✋は送信せず最初の画面へ戻る。 */}
+            {/* 中断導線：動画プレイヤーの上には重ねず（YouTube API 規約順守）、動画の下・
+                コンテンツ領域の左上に控えめな戻る。押した✋は送信せず最初の画面へ戻る。 */}
             {!videoEnded && (
               <button
                 type="button"
                 onClick={handleChangeColor}
                 aria-label="最初に戻る"
                 style={{
-                  position: "fixed",
+                  position: "absolute",
                   top: 8,
                   left: 8,
-                  zIndex: 250,
-                  width: 38,
-                  height: 38,
+                  zIndex: 2,
+                  width: 40,
+                  height: 40,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  background: "rgba(0,0,0,0.45)",
-                  color: "#fff",
+                  background: "#eceef0",
+                  color: "#191c1d",
                   border: "none",
                   borderRadius: "50%",
                   fontSize: "1.1rem",
@@ -1264,12 +1265,7 @@ export default function HiTensionPage() {
                 }}
               >
                 {/* ごほうび：押した回数。押すたび桁が弾んでカウントアップ（音の代わりの手応え）。 */}
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.15rem" }}>
-                  <span style={{ fontSize: "0.625rem", fontWeight: 700, letterSpacing: "0.12em", color: "#777" }}>
-                    ハイ！
-                  </span>
-                  <BouncyNumber value={selfPressCount} color={member?.color ?? "#000"} size="1.75rem" />
-                </div>
+                <BouncyNumber value={selfPressCount} color={member?.color ?? "#000"} size="2rem" />
                 <button
                   type="button"
                   onPointerDown={handlePressStart}
