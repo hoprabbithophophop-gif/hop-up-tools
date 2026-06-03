@@ -48,8 +48,8 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        gap: "1.6rem",
-        padding: "1.2rem 0.4rem",
+        gap: "1.1rem", // 短い画面(iPhone SE)で縦を詰める
+        padding: "0.4rem 0.4rem",
       }}
     >
       <div style={{ textAlign: "center" }}>

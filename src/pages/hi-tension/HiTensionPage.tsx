@@ -1182,12 +1182,18 @@ export default function HiTensionPage() {
           <div
             style={{
               flex: 1,
+              minHeight: 0, // flex子のはみ出しをスクロールに回すため（auto だと縮まずクリップされる）
               position: "relative",
               isolation: "isolate", // 子の z-index を安定させる（✋履歴=2 / 中断=1 / タップ✋・免責=3）
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              padding: "2.4rem 1.2rem 2rem",
+              // 完走後の終了画面は iPhone SE 等の短い画面だと縦に収まらず、外側の overflow:hidden で
+              // シェアボタン・著作権表記が切れる。完走後だけ縦スクロールを許可して必ず届くようにする。
+              // 再生中はタップボタンを動かしたくないのでスクロールさせない。
+              overflowY: videoEnded ? "auto" : undefined,
+              WebkitOverflowScrolling: "touch",
+              padding: videoEnded ? "1.2rem 1.2rem 2rem" : "2.4rem 1.2rem 2rem",
             }}
           >
             <HandsCanvas
