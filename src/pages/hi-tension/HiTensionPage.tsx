@@ -20,6 +20,7 @@ import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, generateRoomCod
 import EndCard from "./components/EndCard";
 import BouncyNumber from "./components/BouncyNumber";
 import HandIcon from "./components/HandIcon";
+import NavButton from "./components/NavButton";
 import { getSupabase } from "@/lib/supabase";
 
 // 同期デバッグ用のデバイス判定（後で削除）
@@ -1209,38 +1210,6 @@ export default function HiTensionPage() {
               onPixiEvent={(event, detail) => logHiEvent(anonSessionId, event, detail)}
             />
 
-            {/* 中断導線：動画プレイヤーの上には重ねず（YouTube API 規約順守）、動画の下・
-                コンテンツ領域の左上に控えめな戻る。押した✋は送信せず最初の画面へ戻る。 */}
-            {!videoEnded && (
-              <button
-                type="button"
-                onClick={handleChangeColor}
-                aria-label="最初に戻る"
-                style={{
-                  position: "absolute",
-                  top: 8,
-                  left: 8,
-                  zIndex: 2,
-                  width: 40,
-                  height: 40,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "#eceef0",
-                  color: "#191c1d",
-                  border: "none",
-                  borderRadius: "50%",
-                  fontSize: "1.1rem",
-                  lineHeight: 1,
-                  cursor: "pointer",
-                  touchAction: "manipulation",
-                  WebkitTapHighlightColor: "transparent",
-                }}
-              >
-                ←
-              </button>
-            )}
-
             {videoEnded ? (
               <div style={{ position: "relative", zIndex: 1, width: "100%", display: "flex", justifyContent: "center" }}>
                 <EndCard
@@ -1302,26 +1271,46 @@ export default function HiTensionPage() {
               </div>
             )}
 
-            <p
+            {/* 下部：戻る（他画面と同じく下部左に統一）＋ 著作権表記 */}
+            <div
               style={{
                 marginTop: "auto",
                 paddingTop: "2.4rem",
-                fontSize: "0.625rem",
-                color: "#777",
-                textAlign: "center",
-                lineHeight: 1.6,
+                width: "100%",
+                maxWidth: 360,
                 position: "relative",
                 zIndex: 1,
+                display: "flex",
+                flexDirection: "column",
+                gap: "1rem",
               }}
             >
-              楽曲・映像の著作権は権利者に帰属します。
-              <br />
-              権利者からの申し出により直ちに公開を停止します。
-              <br />
-              <span style={{ fontSize: "0.5rem", color: "#999" }}>
-                Hand icon by Font Awesome (CC BY 4.0)
-              </span>
-            </p>
+              {/* 中断導線：押した✋は送信せず最初の画面へ戻る */}
+              {!videoEnded && (
+                <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                  <NavButton direction="back" onClick={handleChangeColor}>
+                    最初に戻る
+                  </NavButton>
+                </div>
+              )}
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "0.625rem",
+                  color: "#777",
+                  textAlign: "center",
+                  lineHeight: 1.6,
+                }}
+              >
+                楽曲・映像の著作権は権利者に帰属します。
+                <br />
+                権利者からの申し出により直ちに公開を停止します。
+                <br />
+                <span style={{ fontSize: "0.5rem", color: "#999" }}>
+                  Hand icon by Font Awesome (CC BY 4.0)
+                </span>
+              </p>
+            </div>
           </div>
         )}
       </div>
