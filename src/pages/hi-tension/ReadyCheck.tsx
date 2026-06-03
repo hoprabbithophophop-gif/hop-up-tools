@@ -47,24 +47,14 @@ export default function ReadyCheck({
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
+        justifyContent: "center",
+        gap: "1.25rem",
         padding: "1.2rem 1.2rem 1rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         animation: "hi-tension-fade-in 180ms ease-out",
       }}
     >
-      {/* 状態テキストと✋を動画下の領域の縦中央にまとめる（space-evenly の間延び解消）。
-          最初に戻るは下部キープ。 */}
-      <div
-        style={{
-          flex: 1,
-          width: "100%",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "1.8rem",
-        }}
-      >
+      {/* 状態テキスト・✋・最初に戻る をコンパクトな中央クラスタに（短い実機画面でも切れない） */}
 
       {/* 上部：状態テキスト */}
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
@@ -143,7 +133,6 @@ export default function ReadyCheck({
           <HandIcon size={Math.round(BUTTON_SIZE * 0.55)} color="#fff" />
         </button>
       )}
-      </div>
 
       {/* 下部：やめる（左寄せ・最下部キープ） */}
       <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>

@@ -134,6 +134,8 @@ export default function WaitingRoom({
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
+        justifyContent: "center",
+        gap: "1rem",
         padding: "1rem 1.2rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         animation: "hi-tension-fade-in 180ms ease-out",
@@ -150,21 +152,7 @@ export default function WaitingRoom({
         }
       `}</style>
 
-      {/* 合言葉・参加者は動画下の領域の縦中央にまとめる（space-evenly の間延び解消）。
-          せーの／最初に戻る は下部に残して親指リーチを保つ。 */}
-      <div
-        style={{
-          flex: 1,
-          width: "100%",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "1.8rem",
-        }}
-      >
-
-      {/* 上部：合言葉と人数 */}
+      {/* 上部：合言葉と人数（動画の直下） */}
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem" }}>
         {roomCode && (
           <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -216,7 +204,7 @@ export default function WaitingRoom({
       </div>
 
       {/* 中央：✋ボタン + 参加者ドット（タップでピョンピョン、お互いに挨拶する仕掛け） */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.6rem" }}>
         <button
           type="button"
           onClick={handleHandTap}
@@ -224,7 +212,7 @@ export default function WaitingRoom({
             background: "none",
             border: "none",
             cursor: "pointer",
-            padding: "0.5rem",
+            padding: "0.35rem",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -232,7 +220,7 @@ export default function WaitingRoom({
             WebkitTapHighlightColor: "transparent",
           }}
         >
-          <HandIcon size={56} color="#191c1d" />
+          <HandIcon size={48} color="#191c1d" />
         </button>
         <div
           style={{
@@ -268,7 +256,6 @@ export default function WaitingRoom({
         <p style={{ fontSize: "0.8125rem", color: "#474747", margin: 0 }}>
           {`${count}/${MAX_PARTICIPANTS}人`}
         </p>
-      </div>
       </div>
 
       {/* 下部：せーのボタン + サブ導線（最下部キープ） */}
