@@ -127,7 +127,8 @@ function buildGoodsPeriods(deadlines: Deadline[]): GoodsPeriod[] {
   return periods;
 }
 
-type Tab = "input" | "result" | "calendar" | "subscribe";
+// input に Result を統合（締切確認）。旧 "result" は input にエイリアス。
+type Tab = "input" | "calendar" | "subscribe";
 
 type RetentionMode = "after-event-1m" | "6m" | "forever";
 
@@ -190,7 +191,9 @@ export default function FcTicketPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: Tab = (() => {
     const t = searchParams.get("tab");
-    return t === "input" || t === "result" || t === "subscribe" ? t : "calendar";
+    if (t === "input" || t === "result") return "input"; // Result は input に統合（旧URL互換）
+    if (t === "subscribe") return "subscribe";
+    return "calendar";
   })();
   const setTab = (t: Tab) => {
     setSearchParams(t === "calendar" ? {} : { tab: t });
@@ -202,6 +205,8 @@ export default function FcTicketPage() {
   const [allNews, setAllNews] = useState<FcNewsRow[]>([]);
   const [allDeadlines, setAllDeadlines] = useState<Deadline[]>([]);
   const [matchResults, setMatchResults] = useState<MatchResult[]>([]);
+  // 締切確認タブ: 解析後は入力欄を畳んで結果に集中（再入力バーで開き直せる）
+  const [inputCollapsed, setInputCollapsed] = useState(true);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [watchlist, setWatchlistState] = useState<string[]>(() => {
@@ -273,7 +278,8 @@ export default function FcTicketPage() {
     const parsed = parseUpfcText(pasteText);
     const results = matchApplications(parsed, allNews);
     setMatchResults(results);
-    setTab("result");
+    setInputCollapsed(true); // 解析したら入力欄を畳んで結果を前面に
+    if (tab !== "input") setTab("input");
   }
 
   return (
@@ -304,20 +310,27 @@ export default function FcTicketPage() {
       ) : (
         <>
           {tab === "input" && (
-            <InputScreen
-              pasteText={pasteText}
-              setPasteText={setPasteText}
-              onAnalyze={handleAnalyze}
-              onCalendar={() => setTab("calendar")}
-            />
-          )}
-          {tab === "result" && (
-            <ResultScreen
-              matchResults={matchResults}
-              allDeadlines={allDeadlines}
-              onBack={() => setTab("input")}
-              onSubscribe={() => setTab("subscribe")}
-            />
+            <>
+              {(!inputCollapsed || matchResults.length === 0) ? (
+                <InputScreen
+                  pasteText={pasteText}
+                  setPasteText={setPasteText}
+                  onAnalyze={handleAnalyze}
+                  onCalendar={() => setTab("calendar")}
+                  compact={matchResults.length > 0}
+                  onCollapse={matchResults.length > 0 ? () => setInputCollapsed(true) : undefined}
+                />
+              ) : (
+                <ReInputBar onExpand={() => setInputCollapsed(false)} />
+              )}
+              {matchResults.length > 0 && (
+                <ResultScreen
+                  matchResults={matchResults}
+                  allDeadlines={allDeadlines}
+                  onSubscribe={() => setTab("subscribe")}
+                />
+              )}
+            </>
           )}
           {tab === "calendar" && (
             <CalendarScreen
@@ -361,7 +374,7 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
         <h1 className="text-2xl font-black tracking-tighter text-primary uppercase">DEADLINES</h1>
       </div>
       <nav className="hidden md:flex gap-8">
-        {(["input", "result", "calendar", "subscribe"] as Tab[]).map((t) => (
+        {(["calendar", "input", "subscribe"] as Tab[]).map((t) => (
           <button
             key={t}
             data-demo-id={t === 'calendar' ? 'nav-calendar' : undefined}
@@ -372,7 +385,7 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
                 : "text-outline hover:text-primary"
             }`}
           >
-            {t === "input" ? "Input" : t === "result" ? "Result" : t === "calendar" ? "Gantt" : "Subsc"}
+            {t === "input" ? "Import" : t === "calendar" ? "Calendar" : "Subscribe"}
           </button>
         ))}
       </nav>
@@ -382,23 +395,44 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
 
 // ─── 画面A: 入力 ──────────────────────────────────────────
 
+function ReInputBar({ onExpand }: { onExpand: () => void }) {
+  return (
+    <div className="px-4 pt-6 max-w-7xl mx-auto w-full">
+      <button
+        onClick={onExpand}
+        className="w-full flex items-center justify-between bg-surface-container-low px-5 py-3 text-left hover:bg-surface-container transition-colors cursor-pointer"
+      >
+        <span className="flex items-center gap-2 text-[0.6875rem] font-bold uppercase tracking-widest text-outline">
+          <span className="material-symbols-outlined text-base">edit</span>
+          再入力（貼り直す）
+        </span>
+        <span className="material-symbols-outlined text-outline">expand_more</span>
+      </button>
+    </div>
+  );
+}
+
 function InputScreen({
   pasteText,
   setPasteText,
   onAnalyze,
   onCalendar,
+  compact = false,
+  onCollapse,
 }: {
   pasteText: string;
   setPasteText: (v: string) => void;
   onAnalyze: () => void;
   onCalendar: () => void;
+  compact?: boolean;
+  onCollapse?: () => void;
 }) {
   const [helpOpen, setHelpOpen] = useState(false);
 
   return (
     <>
-    <main className="flex-grow flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-12 gap-0 border border-outline-variant/20 bg-surface-container-lowest">
+    <main className={compact ? "px-4 pt-6" : "flex-grow flex items-center justify-center px-4 py-12"}>
+      <div className="w-full max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-12 gap-0 border border-outline-variant/20 bg-surface-container-lowest">
         {/* 左カラム（デスクトップのみ） */}
         <div className="hidden md:flex md:col-span-3 bg-surface-container-low p-8 flex-col justify-between border-r border-outline-variant/20">
           <div>
@@ -479,20 +513,32 @@ function InputScreen({
               data-demo-id="analyze-btn"
               className="bg-primary text-on-primary-fixed px-12 py-5 text-sm font-bold uppercase tracking-[0.2em] hover:bg-secondary transition-colors w-full sm:w-auto disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
             >
-              締切を確認
+              {compact ? "再確認" : "締切を確認"}
             </button>
-            <button
-              onClick={onCalendar}
-              className="group flex items-center gap-2 text-[0.6875rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-all cursor-pointer"
-            >
-              <span>コピペせずにカレンダーから探す</span>
-              <span className="material-symbols-outlined text-sm group-hover:translate-x-1 transition-transform">
-                arrow_forward
-              </span>
-            </button>
-            <p className="text-[0.625rem] text-outline-variant">
-              ※ チケット申込にはHello! Projectオフィシャルファンクラブへの加入が必要です
-            </p>
+            {compact && onCollapse ? (
+              <button
+                onClick={onCollapse}
+                className="group flex items-center gap-2 text-[0.6875rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-all cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-sm">expand_less</span>
+                <span>閉じる</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={onCalendar}
+                  className="group flex items-center gap-2 text-[0.6875rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-all cursor-pointer"
+                >
+                  <span>コピペせずにカレンダーから探す</span>
+                  <span className="material-symbols-outlined text-sm group-hover:translate-x-1 transition-transform">
+                    arrow_forward
+                  </span>
+                </button>
+                <p className="text-[0.625rem] text-outline-variant">
+                  ※ チケット申込にはHello! Projectオフィシャルファンクラブへの加入が必要です
+                </p>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -547,12 +593,10 @@ function InputScreen({
 function ResultScreen({
   matchResults,
   allDeadlines,
-  onBack,
   onSubscribe,
 }: {
   matchResults: MatchResult[];
   allDeadlines: Deadline[];
-  onBack: () => void;
   onSubscribe: () => void;
 }) {
   const matched = matchResults.filter((r) => r.matched.length > 0);
@@ -584,18 +628,7 @@ function ResultScreen({
     });
   }).length;
 
-  if (matchResults.length === 0) {
-    return (
-      <main className="px-6 py-16 max-w-4xl mx-auto text-center">
-        <p className="text-outline text-sm uppercase tracking-widest mb-6">
-          まだ結果がありません
-        </p>
-        <button onClick={onBack} className="text-[0.6875rem] font-bold uppercase tracking-widest underline hover:text-primary transition-colors cursor-pointer">
-          ← Input に戻る
-        </button>
-      </main>
-    );
-  }
+  if (matchResults.length === 0) return null; // 結果が無い時は呼び出し側で非表示
 
   return (
     <main className="pt-8 pb-32 px-6 max-w-7xl mx-auto">
@@ -629,9 +662,6 @@ function ResultScreen({
               <p className="text-xs font-bold uppercase tracking-widest mb-1">カレンダーアプリで購読</p>
               <p className="text-[0.6875rem] opacity-90 leading-tight">TimeTree・iPhone標準カレンダーに自動同期</p>
             </div>
-          </button>
-          <button onClick={onBack} className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer text-left">
-            ← 入力に戻る
           </button>
         </aside>
 
@@ -2244,37 +2274,30 @@ function computeDefaultIncluded(
     }
   }
 
+  // 自分が関わる公演（貼った/申込済/入金済）の eventGroupKey 集合。
+  // 部や当落で出し分けず、この公演グループの「これから来る予定」は全部チェックする方針。
+  // （過去の締切は下の時間フィルタで自然に除外されるので、入金済の人に過ぎた申込締切が出る等は起きない）
+  const involvedGroups = new Set<string>();
+  for (const dl of deadlines) {
+    if (statusByNewsUid.has(dl.news_uid) || appliedSet.has(dl.news_uid) || paidSet.has(dl.news_uid)) {
+      involvedGroups.add(eventGroupKey(dl.fc_news.title));
+    }
+  }
+
   const included = new Set<string>();
   for (const dl of deadlines) {
     if (new Date(dl.deadline_at) < now) continue;
     if (!SUBSCRIPTION_TYPES_TO_SUBSCRIBE.includes(dl.type)) continue;
 
-    const status = statusByNewsUid.get(dl.news_uid) ?? "";
-    const isMatched = statusByNewsUid.has(dl.news_uid);
-    const isApplied = appliedSet.has(dl.news_uid);
-    const isPaid = paidSet.has(dl.news_uid);
-    const isInWatchlist = watchlistSet.has(dl.news_uid);
-    const isFavorite = titleMatchesFavorites(dl.fc_news.title, favorites);
-
-    if (status.includes("入金済") || isPaid) continue;
-
-    if (status.includes("落選")) {
-      if (dl.type === "sale_start" || dl.type === "sale_end") included.add(dl.id);
+    // 関わる公演 = 二次/追加受付・公演予定・グッズ含め、未来の予定を全部ON
+    if (involvedGroups.has(eventGroupKey(dl.fc_news.title))) {
+      included.add(dl.id);
       continue;
     }
 
-    if (isMatched || isApplied) {
-      if (["result", "payment_start", "payment", "sale_start", "sale_end", "event"].includes(dl.type)) {
-        included.add(dl.id);
-      }
-      continue;
-    }
-
-    if (isInWatchlist || isFavorite) {
-      if (FAVORITE_ACTIONABLE_TYPES.includes(dl.type)) {
-        included.add(dl.id);
-      }
-      continue;
+    // 推し・気になる = 申込前に動く予定だけON
+    if (watchlistSet.has(dl.news_uid) || titleMatchesFavorites(dl.fc_news.title, favorites)) {
+      if (FAVORITE_ACTIONABLE_TYPES.includes(dl.type)) included.add(dl.id);
     }
   }
   return included;
@@ -2386,6 +2409,28 @@ function SubscribeScreen({
     // includedIds は依存に含めない（追加のたびに再発火させない）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [favorites, initialized, allDeadlines]);
+
+  // Importで貼り直したら、その公演グループの未来の予定を自動でチェックに追加（追加のみ・手動の外しは尊重）
+  useEffect(() => {
+    if (!initialized) return;
+    if (matchResults.length === 0) return;
+    const matchedUids = new Set(matchResults.flatMap((r) => r.matched.map((m) => m.uid)));
+    const involved = new Set<string>();
+    for (const dl of allDeadlines) {
+      if (matchedUids.has(dl.news_uid)) involved.add(eventGroupKey(dl.fc_news.title));
+    }
+    if (involved.size === 0) return;
+    const now = new Date();
+    const toAdd: string[] = [];
+    for (const dl of allDeadlines) {
+      if (new Date(dl.deadline_at) < now) continue;
+      if (!SUBSCRIPTION_TYPES_TO_SUBSCRIBE.includes(dl.type)) continue;
+      if (includedIds.has(dl.id)) continue;
+      if (involved.has(eventGroupKey(dl.fc_news.title))) toAdd.push(dl.id);
+    }
+    if (toAdd.length > 0) persistIncluded(new Set([...includedIds, ...toAdd]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchResults, initialized, allDeadlines]);
 
   function toggleDeadline(id: string) {
     const next = new Set(includedIds);
@@ -2802,10 +2847,9 @@ function DeadlineCheckRow({
 
 function BottomNav({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const items: { t: Tab; icon: string; label: string }[] = [
-    { t: "input",     icon: "add_box",        label: "Input" },
-    { t: "result",    icon: "analytics",      label: "Result" },
-    { t: "calendar",  icon: "calendar_today", label: "Gantt" },
-    { t: "subscribe", icon: "rss_feed",       label: "Subsc" },
+    { t: "calendar",  icon: "calendar_today", label: "Calendar" },
+    { t: "input",     icon: "content_paste",  label: "Import" },
+    { t: "subscribe", icon: "rss_feed",       label: "Subscribe" },
   ];
 
   return (
