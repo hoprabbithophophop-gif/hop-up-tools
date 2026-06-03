@@ -40,8 +40,11 @@ export default function MemberSelect({
       }}
     >
       <style>{`
+        /* 本編/待機室の hand-hop と同じ「squash→stretch」の感触。全画面の✋なので
+           平行移動はせず、その場で潰れて伸びて戻る（色変更のたびに走る）。 */
         @keyframes hi-tension-hand-pop {
-          0%   { transform: translate(-50%, -50%) scale(0.93); }
+          0%   { transform: translate(-50%, -50%) scaleX(1.06) scaleY(0.9); }
+          45%  { transform: translate(-50%, -50%) scaleX(0.97) scaleY(1.05); }
           100% { transform: translate(-50%, -50%) scale(1); }
         }
       `}</style>
