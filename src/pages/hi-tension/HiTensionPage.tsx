@@ -1183,6 +1183,7 @@ export default function HiTensionPage() {
             style={{
               flex: 1,
               position: "relative",
+              isolation: "isolate", // 子の z-index を安定させる（✋履歴=2 / 中断=1 / タップ✋・免責=3）
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -1200,7 +1201,7 @@ export default function HiTensionPage() {
             />
 
             {videoEnded ? (
-              <div style={{ position: "relative", zIndex: 1, width: "100%", display: "flex", justifyContent: "center" }}>
+              <div style={{ position: "relative", zIndex: 3, width: "100%", display: "flex", justifyContent: "center" }}>
                 <EndCard
                   selfCount={endedSelfCount}
                   totalCount={sessions.reduce((sum, s) => sum + s.bucket_indices.length, 0) + endedSelfCount}
@@ -1219,7 +1220,7 @@ export default function HiTensionPage() {
                   justifyContent: "center",
                   gap: "1rem",
                   minHeight: 120,
-                  zIndex: 1,
+                  zIndex: 3,
                 }}
               >
                 {/* ごほうび：押した回数。押すたび桁が弾んでカウントアップ（音の代わりの手応え）。 */}
@@ -1268,15 +1269,15 @@ export default function HiTensionPage() {
                 width: "100%",
                 maxWidth: 360,
                 position: "relative",
-                zIndex: 1,
                 display: "flex",
                 flexDirection: "column",
                 gap: "1rem",
               }}
             >
-              {/* 中断導線：押した✋は送信せず最初の画面へ戻る */}
+              {/* 中断導線：z-order を✋履歴より下(z:1)にして、✋がボタンの上に被るように。
+                  ✋キャンバスは pointerEvents:none なのでクリックは透過して効く。 */}
               {!videoEnded && (
-                <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                <div style={{ display: "flex", justifyContent: "flex-start", position: "relative", zIndex: 1 }}>
                   <NavButton direction="back" onClick={handleChangeColor}>
                     中断して戻る
                   </NavButton>
@@ -1289,6 +1290,8 @@ export default function HiTensionPage() {
                   color: "#777",
                   textAlign: "center",
                   lineHeight: 1.6,
+                  position: "relative",
+                  zIndex: 3,
                 }}
               >
                 楽曲・映像の著作権は権利者に帰属します。

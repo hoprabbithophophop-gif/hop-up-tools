@@ -69,12 +69,14 @@ function ageScale(playedDate: string): number {
   return 0.2;
 }
 
-// ✋の着地点を収める安全な縦帯（0=領域上端/TOP_MARGIN直下, 1=領域下端）。
-// タップボタンは再生エリア上部にあり TOP_MARGIN で上側を保護済み。下端は「中断して戻る」
-// ボタンの上で止めて、ボタンが✋履歴より下に来るようにする（下端まで広げると履歴がボタンに
-// 被る）。
+// ✋の着地点を収める安全な縦帯（0=領域上端/TOP_MARGIN直下, 1=領域下端＝免責文字の下）。
+// タップボタンは再生エリア上部にあり TOP_MARGIN で上側を保護済みなので、帯を下へ広げても
+// ボタン裏には回り込まない。下端付近(免責文字の上)まで使って、小さい画面(iPhone SE 等)で
+// ✋が一箇所に集中しないよう縦の散らばりを確保する。
+// ※「中断して戻る」ボタンは z-order で✋履歴より下に置く（HiTensionPage 側）ので、下端まで
+// 広げても✋がボタンの上に重なって自然。
 const BAND_TOP = 0.10;
-const BAND_BOT = 0.78;
+const BAND_BOT = 0.92;
 
 // 自分（と相手）の大きい✋の着地点。タップボタンは再生エリア上部にあるので、
 // ここを下寄り(0.75)にして上昇アニメがボタンに重なって隠れないようにする。
@@ -511,6 +513,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         inset: 0,
         pointerEvents: "none",
         overflow: "hidden",
+        zIndex: 2, // 「中断して戻る」(z:1)より上＝✋履歴がボタンに被る。タップ✋/免責は z:3 で前面
       }}
     />
   );
