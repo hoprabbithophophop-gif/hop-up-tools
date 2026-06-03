@@ -58,7 +58,7 @@ export default function RoomMenu({ onJoin, onBack }: Props) {
       {/* 合言葉を入れて集まる（先に入れた人が部屋のホストになる。部屋作成は不要＝
           同じ合言葉を入れた人同士で合流する） */}
       <p style={{ fontSize: "0.8125rem", color: "#777", margin: 0, textAlign: "center", lineHeight: 1.6 }}>
-        同じ合言葉を入れた人と集まれます
+        同じ4桁の英数字を入れた人と集まれます
       </p>
 
       {/* 合言葉で入る */}
@@ -81,7 +81,7 @@ export default function RoomMenu({ onJoin, onBack }: Props) {
           maxLength={ROOM_CODE_LENGTH}
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          placeholder="ABCD"
+          placeholder="例：23AB"
           aria-label="部屋の合言葉"
           style={{
             width: "100%",
