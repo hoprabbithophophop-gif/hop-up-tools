@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { UNIT_ROWS } from "../data";
+import { UNIT_ROWS, findMember } from "../data";
+import HandIcon from "./HandIcon";
 
 interface Props {
   initialSelectedId: string | null;
@@ -18,6 +19,9 @@ export default function MemberSelect({
     document.title = "ハイ！テンション✋ Practice ver. | hop-up-tools";
   }, []);
 
+  // 選択中のメンバーカラー。背景の✋モチーフの着色に使う。
+  const selectedColor = findMember(selectedId)?.color ?? null;
+
   return (
     <div
       style={{
@@ -32,6 +36,7 @@ export default function MemberSelect({
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         animation: "hi-tension-fade-in 180ms ease-out",
         position: "relative",
+        isolation: "isolate", // ✋モチーフ(zIndex:-1)を背景の前・全コンテンツの背面に固定する
       }}
     >
       <span
@@ -127,6 +132,22 @@ export default function MemberSelect({
             })}
           </div>
         ))}
+      </div>
+
+      {/* 背景に薄い✋（このツールの核アイコン）。選んだ色で着色して「自分の色の手」を示唆 */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: "calc(50% + 1.6rem)",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          opacity: selectedColor ? 0.13 : 0.06,
+          pointerEvents: "none",
+          zIndex: -1,
+        }}
+      >
+        <HandIcon size={190} color={selectedColor ?? "#000"} />
       </div>
 
       <div
