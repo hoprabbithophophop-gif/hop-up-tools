@@ -19,6 +19,7 @@ interface VideoForSheet {
   thumbnail_url: string;
   description_short: string;
   published_at?: string;
+  is_short?: boolean | null;
 }
 
 interface Chapter {
@@ -69,6 +70,12 @@ interface Props {
   video: VideoForSheet;
   onClose: () => void;
   mode: SheetMode;
+  /**
+   * 再生中プレイヤーがHOME上部に出ているときの、その高さ（CSS値）。
+   * 指定するとシートはこの高さ分だけ下げて開き、再生中プレイヤーを覆わない
+   * （YouTube埋め込みプレイヤーの前面に視覚要素を出さない規約対応）。
+   */
+  playerTop?: string;
 }
 
 function buildPreviewSrc(item: ChapterQueueItem): string {
@@ -78,13 +85,13 @@ function buildPreviewSrc(item: ChapterQueueItem): string {
   return `https://www.youtube.com/embed/${item.videoId}?start=${start}&autoplay=1&rel=0&controls=1${end}`;
 }
 
-export function VideoChapterSheet({ video, onClose, mode }: Props) {
+export function VideoChapterSheet({ video, onClose, mode, playerTop }: Props) {
   const chapters = useMemo(() => parseChapters(video.description_short), [video.description_short]);
 
   const chapterItems = useMemo<ChapterQueueItem[]>(() => {
     if (chapters.length === 0) return [];
     return buildChapterQueueItems(
-      { video_id: video.video_id, title: video.title, channel_name: video.channel_name, thumbnail_url: video.thumbnail_url, published_at: video.published_at },
+      { video_id: video.video_id, title: video.title, channel_name: video.channel_name, thumbnail_url: video.thumbnail_url, published_at: video.published_at, is_short: video.is_short },
       chapters
     );
   }, [video, chapters]);
@@ -95,6 +102,7 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
     channel_name: video.channel_name,
     thumbnail_url: video.thumbnail_url,
     published_at: video.published_at,
+    is_short: video.is_short,
   }), [video]);
 
   const [previewItem, setPreviewItem] = useState<ChapterQueueItem | null>(null);
@@ -108,6 +116,16 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
     setToast(msg);
     setTimeout(() => setToast(''), 2000);
   }, []);
+
+  // リスト再生中（上部に再生中プレイヤーがある）はプレビューを開かない。
+  // 開くと裏の再生中動画と音が二重になり、プレビュー用の埋め込みプレイヤーも増える。
+  const handlePreview = useCallback((target: ChapterQueueItem) => {
+    if (playerTop) {
+      showToast('リスト再生中はプレビューできません');
+      return;
+    }
+    setPreviewItem(prev => (prev?.id === target.id ? null : target));
+  }, [playerTop, showToast]);
 
   const handleShare = useCallback((label: string, videoId: string, startSeconds: number) => {
     setShareTarget({ label, videoId, startSeconds });
@@ -150,16 +168,19 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col">
-      {/* オーバーレイ */}
+    <div
+      className="fixed left-0 right-0 bottom-0 z-[60] flex flex-col"
+      style={{ top: playerTop ?? 0 }}
+    >
+      {/* オーバーレイ（再生中プレイヤーより下のみを覆う） */}
       <div
         className="absolute inset-0 bg-black/60"
         onClick={onClose}
         aria-hidden="true"
       />
 
-      {/* ヘッダー分のスペーサー */}
-      <div className="shrink-0 h-[60px]" />
+      {/* ヘッダー分のスペーサー（再生中プレイヤーがある時は上端が既に下がっているので不要） */}
+      {!playerTop && <div className="shrink-0 h-[60px]" />}
 
       {/* シートパネル */}
       <div className="w-full max-w-lg mx-auto flex-1 min-h-0">
@@ -221,8 +242,8 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
           </div>
         )}
 
-        {/* ミニプレビュー */}
-        {previewItem && (
+        {/* ミニプレビュー（リスト再生中は出さない） */}
+        {previewItem && !playerTop && (
           <div className="shrink-0 px-4 pt-3 pb-2 bg-white">
             <div className="bg-black overflow-hidden">
               <div className="flex items-center gap-2 px-3 py-1.5">
@@ -261,7 +282,7 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
             mode={mode}
             item={fullVideoItem}
             isFullVideo
-            onPreview={() => setPreviewItem(prev => prev?.id === fullVideoItem.id ? null : fullVideoItem)}
+            onPreview={() => handlePreview(fullVideoItem)}
             isPreviewActive={previewItem?.id === fullVideoItem.id}
             onShare={() => handleShare(video.title, video.video_id, 0)}
           />
@@ -285,7 +306,7 @@ export function VideoChapterSheet({ video, onClose, mode }: Props) {
               mode={mode}
               item={item}
               isFullVideo={false}
-              onPreview={() => setPreviewItem(prev => prev?.id === item.id ? null : item)}
+              onPreview={() => handlePreview(item)}
               isPreviewActive={previewItem?.id === item.id}
               onShare={() => handleShare(item.chapterLabel, item.videoId, item.startSeconds)}
             />
