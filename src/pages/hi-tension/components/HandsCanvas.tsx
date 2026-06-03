@@ -170,9 +170,10 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     sorted.forEach((s, i) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
-      // 奇数行を半セルずらして千鳥に並べ、前列の隙間から後列の✋が覗くようにする
-      // （真後ろで重ならない）。端の✋は画面端で見切れて「画面外にもいる」余地を作る。
-      const brick = (row % 2) * step / 2;
+      // 偶数行（最前列を含む）を半セルずらして千鳥に並べる。最前列の中央が空くので、
+      // 画面中央上部のタップ✋ボタンの真下に履歴✋が来ない（重ならない）。後列の隙間から
+      // 前後の✋が覗き、端の✋は画面端で見切れて「画面外にもいる」余地を作る。
+      const brick = ((row + 1) % 2) * step / 2;
       const xRatio = cols === 1 ? 0.5 : col * step + brick;
       const yRatio = rows === 1
         ? (BAND_TOP + BAND_BOT) / 2
