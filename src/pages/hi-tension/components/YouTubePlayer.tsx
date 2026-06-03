@@ -78,8 +78,13 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   // 再生がすぐ始まるとローディングアニメが見えないため、最低2秒は表示する。
   const [started, setStarted] = useState(false);
   const [minTimeElapsed, setMinTimeElapsed] = useState(false);
+  // 動画切替(入室時の暖機ロード)で「新しい動画が実際に PLAYING になるまで」黒カバーを保持する。
+  // 固定タイマーだと、カバーが外れた時点で iframe がまだ前の動画(本編)の最後のフレームを
+  // 保持していると一瞬見えてしまうため、PLAYING を合図に外す（安全弁つき）。
+  const [loadCovering, setLoadCovering] = useState(false);
   const startedRef = useRef(false);
   const minTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const coverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playerRef = useRef<YT.Player | null>(null);
   const isReadyRef = useRef(false);
   const wantPlayRef = useRef(false);
@@ -155,6 +160,9 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
             onPlayerStateChangeRef.current?.(state);
             if (state === 1 /* PLAYING */) {
               startPolling();
+              // 新しい動画が実際に描画され始めた → 切替カバーを外す
+              setLoadCovering(false);
+              if (coverTimerRef.current) { clearTimeout(coverTimerRef.current); coverTimerRef.current = null; }
             } else if (state === 2 /* PAUSED */ || state === 3 /* BUFFERING */) {
               stopPolling();
             } else if (state === 0 /* ENDED */) {
@@ -180,6 +188,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   useEffect(() => {
     return () => {
       if (minTimerRef.current) clearTimeout(minTimerRef.current);
+      if (coverTimerRef.current) clearTimeout(coverTimerRef.current);
     };
   }, []);
 
@@ -246,15 +255,19 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
       try { (playerRef.current as unknown as { unMute?: () => void })?.unMute?.(); } catch { /* ignore */ }
     },
     loadVideo(id: string, opts?: { startSeconds?: number; endSeconds?: number; cover?: boolean }) {
-      // 初回 play() 同様にローディング最小表示タイマーを開始。
-      // cover 指定時は2回目以降でもカバーを出し直す（前の動画＝本編サムネが切替の隙間に
-      // 一瞬見えるのを防ぐ。入室時の暖機ロードで使う。暖機ループや本編再生では使わない）。
-      if (opts?.cover || !startedRef.current) {
+      // 初回 play() 同様にローディング最小表示タイマーを開始
+      if (!startedRef.current) {
         startedRef.current = true;
         setStarted(true);
-        setMinTimeElapsed(false);
-        if (minTimerRef.current) clearTimeout(minTimerRef.current);
         minTimerRef.current = setTimeout(() => setMinTimeElapsed(true), LOADING_MIN_MS);
+      }
+      // cover 指定（入室時の暖機ロード）：新しい動画が実際に PLAYING になるまで黒カバーを
+      // 保持し、切替の隙間に前の動画(本編サムネ)が一瞬見えるのを防ぐ。万一 PLAYING が
+      // 来なくても 6秒で安全に解除する。暖機ループ・本編再生・ドリフトシークには付けない。
+      if (opts?.cover) {
+        setLoadCovering(true);
+        if (coverTimerRef.current) clearTimeout(coverTimerRef.current);
+        coverTimerRef.current = setTimeout(() => setLoadCovering(false), 6000);
       }
       const p = playerRef.current;
       if (p && isReadyRef.current) {
@@ -281,8 +294,9 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
     },
   }), []);
 
-  // 初回 play() から LOADING_MIN_MS の間、または player が ready になるまで表示
-  const showLoading = !isReady || (started && !minTimeElapsed);
+  // 初回 play() から LOADING_MIN_MS の間、player が ready になるまで、
+  // または入室時の動画切替が PLAYING に達するまで（loadCovering）黒カバーを表示
+  const showLoading = !isReady || (started && !minTimeElapsed) || loadCovering;
 
   return (
     <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", background: "#000" }}>
