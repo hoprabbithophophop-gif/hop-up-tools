@@ -8,6 +8,18 @@ interface Props {
   onChangeColor: () => void;
 }
 
+// X(旧Twitter)のシェア下書きを開く。文面・タグ・URLは hop 指定（勝手に足さない）。
+// API/ログイン不要の Web Intent。URL を独立行で出したいので &url= は使わず本文に含める。
+const SHARE_URL = "https://hop-up-tools.pages.dev/hi-tension";
+function shareToX(count: number) {
+  const text = `ハイ！テンション✋ Practice で\n${count}回ハイ！した🖐️\n#ハイテンションPractice #BEYOOOOONDS\n${SHARE_URL}`;
+  window.open(
+    `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
+    "_blank",
+    "noopener,noreferrer",
+  );
+}
+
 /**
  * 動画完走時に表示する終了カード。
  * ハイ！ボタンの位置を置き換える形で出る(動画はそのまま残る)。
@@ -83,6 +95,27 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
           }}
         >
           もう一度
+        </button>
+        <button
+          type="button"
+          onClick={() => shareToX(selfCount)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.4rem",
+            padding: "0.7rem 1.6rem",
+            background: "#eceef0",
+            color: "#191c1d",
+            border: "none",
+            fontSize: "0.8125rem",
+            fontWeight: 700,
+            letterSpacing: "0.03em",
+            cursor: "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          𝕏 でシェアする
         </button>
         <button
           type="button"
