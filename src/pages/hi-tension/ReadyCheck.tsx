@@ -71,7 +71,7 @@ export default function ReadyCheck({
             )}
             {selfReadied && (
               <p style={{ fontSize: "0.875rem", color: "#474747", margin: 0, textAlign: "center", lineHeight: 1.5 }}>
-                揃うまで待ってね
+                ほかの人を待っています
               </p>
             )}
             <p style={{ fontSize: "0.875rem", color: "#474747", margin: 0 }}>

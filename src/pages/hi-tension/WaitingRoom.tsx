@@ -85,9 +85,9 @@ export default function WaitingRoom({
           満員です（{MAX_PARTICIPANTS}人まで）
         </p>
         <p style={{ fontSize: "0.875rem", color: "#474747", margin: 0, textAlign: "center", lineHeight: 1.6 }}>
-          いま{MAX_PARTICIPANTS}人が待ってます。
+          すでに{MAX_PARTICIPANTS}人が参加しています。
           <br />
-          ひとりで始めるか、最初に戻ってね。
+          ひとりで始めるか、最初に戻ってください。
         </p>
         <button
           type="button"
@@ -279,7 +279,7 @@ export default function WaitingRoom({
             transition: "background 0.12s",
           }}
         >
-          {!isHost ? "せーの待ち" : count >= MAX_PARTICIPANTS ? "せーの！" : `あと${MAX_PARTICIPANTS - count}人待ってね`}
+          {!isHost ? "せーの待ち" : "せーの！"}
         </button>
         {/* 戻るは1つ（最初の画面へ）。合言葉の入れ直しは上の合言葉表示の隣に置いた。 */}
         <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>
