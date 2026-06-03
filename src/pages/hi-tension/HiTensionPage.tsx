@@ -1326,9 +1326,10 @@ export default function HiTensionPage() {
         </div>
       )}
 
-      {/* 合言葉の部屋メニュー */}
+      {/* 合言葉の部屋メニュー。ラッパーにも背景を敷く（RoomMenu のフェードイン中に背後の
+          動画サムネが一瞬透けるのを防ぐ。select 画面のラッパーと同じ扱い）。 */}
       {screen === "room-menu" && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100 }}>
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "#f8f9fa" }}>
           <RoomMenu
             onCreate={handleCreateRoom}
             onJoin={handleJoinRoom}
