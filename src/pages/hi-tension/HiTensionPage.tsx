@@ -1182,7 +1182,9 @@ export default function HiTensionPage() {
           <div
             style={{
               flex: 1,
-              minHeight: 0, // flex子のはみ出しをスクロールに回すため（auto だと縮まずクリップされる）
+              // minHeight:0 は完走後のスクロール用。再生中に効かせると iPhone SE 等で残り高さに
+              // 合わせて中身が圧縮され、丸い✋ボタンが楕円に潰れるため、完走後だけにする。
+              minHeight: videoEnded ? 0 : undefined,
               position: "relative",
               isolation: "isolate", // 子の z-index を安定させる（✋履歴=2 / 中断=1 / タップ✋・免責=3）
               display: "flex",
@@ -1241,6 +1243,7 @@ export default function HiTensionPage() {
                   style={{
                     width: BUTTON_SIZE,
                     height: BUTTON_SIZE,
+                    flexShrink: 0, // 縦が足りない画面でも丸を保つ（楕円に潰れない）
                     borderRadius: "50%",
                     background: member?.color ?? "#000",
                     color: "#fff",
