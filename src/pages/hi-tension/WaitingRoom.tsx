@@ -87,7 +87,7 @@ export default function WaitingRoom({
         <p style={{ fontSize: "0.875rem", color: "#474747", margin: 0, textAlign: "center", lineHeight: 1.6 }}>
           いま{MAX_PARTICIPANTS}人が待ってます。
           <br />
-          ひとりで始めるか、ロビーに戻ってね。
+          ひとりで始めるか、最初に戻ってね。
         </p>
         <button
           type="button"
@@ -110,7 +110,7 @@ export default function WaitingRoom({
         </button>
         <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>
           <NavButton direction="back" onClick={onBackToTop}>
-            ロビーに戻る
+            最初に戻る
           </NavButton>
         </div>
       </div>
@@ -156,7 +156,7 @@ export default function WaitingRoom({
         {roomCode && (
           <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
             <p style={{ fontSize: "0.6875rem", color: "#777", margin: 0, letterSpacing: "0.15em" }}>
-              あいことば
+              合言葉
             </p>
             <p style={{ fontSize: "1.5rem", fontWeight: 900, letterSpacing: "0.25em", margin: "0.1rem 0 0", color: "#000" }}>
               {roomCode}
@@ -280,10 +280,10 @@ export default function WaitingRoom({
         >
           {!isHost ? "せーの待ち" : count >= MAX_PARTICIPANTS ? "せーの！" : `あと${MAX_PARTICIPANTS - count}人待ってね`}
         </button>
-        {/* 戻るは1つ（ロビーへ）。合言葉の入れ直しは上のあいことば表示の隣に置いた。 */}
+        {/* 戻るは1つ（最初の画面へ）。合言葉の入れ直しは上の合言葉表示の隣に置いた。 */}
         <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>
           <NavButton direction="back" onClick={onBackToTop}>
-            ロビーに戻る
+            最初に戻る
           </NavButton>
         </div>
       </div>
