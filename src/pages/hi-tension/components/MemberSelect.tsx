@@ -39,55 +39,103 @@ export default function MemberSelect({
         isolation: "isolate", // ✋モチーフ(zIndex:-1)を背景の前・全コンテンツの背面に固定する
       }}
     >
-      <span
-        style={{
-          position: "absolute",
-          bottom: 4,
-          right: 8,
-          fontSize: "0.5rem",
-          color: "#c6c6c6",
-          letterSpacing: "0.02em",
-          pointerEvents: "none",
-        }}
-      >
-        v.{__COMMIT_SHA__}
-      </span>
+      {__SHOW_VERSION__ && (
+        <span
+          style={{
+            position: "absolute",
+            bottom: 4,
+            right: 8,
+            fontSize: "0.5rem",
+            color: "#c6c6c6",
+            letterSpacing: "0.02em",
+            pointerEvents: "none",
+          }}
+        >
+          v.{__COMMIT_SHA__}
+        </span>
+      )}
+
+      {/* ヘッダー：メインタイトル＋小さな副題（狭い画面でも折り返さない） */}
       <h1
         style={{
-          fontSize: "1.375rem",
+          fontSize: "clamp(1.3rem, 6.5vw, 1.6rem)",
           fontWeight: 700,
           letterSpacing: "-0.02em",
-          margin: "0 0 0.4rem",
+          margin: 0,
           textAlign: "center",
           color: "#000",
-          lineHeight: 1.3,
+          lineHeight: 1.2,
         }}
       >
-        ハイ！テンション✋ Practice ver.
+        ハイ！テンション
       </h1>
       <p
         style={{
-          fontSize: "0.95rem",
-          fontWeight: 500,
-          margin: "0 0 1.2rem",
+          fontSize: "0.8125rem",
+          fontWeight: 600,
+          letterSpacing: "0.04em",
+          margin: "0.3rem 0 0",
           textAlign: "center",
-          color: "#474747",
+          color: "#777",
         }}
       >
-        好きな色は？
+        ✋ Practice ver.
       </p>
 
+      {/* 中央：背景の✋モチーフに重ねて、色選択を縦中央に置く */}
       <div
         style={{
+          flex: 1,
+          width: "100%",
+          position: "relative",
           display: "flex",
           flexDirection: "column",
-          gap: "0.8rem",
           alignItems: "center",
-          width: "100%",
-          maxWidth: 360,
-          marginBottom: "1.4rem",
+          justifyContent: "center",
         }}
       >
+        {/* 背景に薄い✋（このツールの核アイコン）。選んだ色で着色して「自分の色の手」を示唆 */}
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            opacity: selectedColor ? 0.14 : 0.06,
+            pointerEvents: "none",
+            zIndex: -1,
+          }}
+        >
+          <HandIcon size={250} color={selectedColor ?? "#000"} />
+        </div>
+
+        <p
+          style={{
+            fontSize: "0.95rem",
+            fontWeight: 500,
+            margin: "0 0 1rem",
+            textAlign: "center",
+            color: "#474747",
+            position: "relative",
+            zIndex: 1,
+          }}
+        >
+          好きな色は？
+        </p>
+
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.8rem",
+            alignItems: "center",
+            width: "100%",
+            maxWidth: 360,
+            position: "relative",
+            zIndex: 1,
+          }}
+        >
         {UNIT_ROWS.map((row) => (
           <div
             key={row.unit}
@@ -132,27 +180,11 @@ export default function MemberSelect({
             })}
           </div>
         ))}
-      </div>
-
-      {/* 背景に薄い✋（このツールの核アイコン）。選んだ色で着色して「自分の色の手」を示唆 */}
-      <div
-        aria-hidden
-        style={{
-          position: "absolute",
-          top: "calc(50% + 1.6rem)",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
-          opacity: selectedColor ? 0.13 : 0.06,
-          pointerEvents: "none",
-          zIndex: -1,
-        }}
-      >
-        <HandIcon size={190} color={selectedColor ?? "#000"} />
+        </div>
       </div>
 
       <div
         style={{
-          marginTop: "auto",
           marginBottom: "0.5rem",
           width: "100%",
           maxWidth: 360,

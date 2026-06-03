@@ -11,3 +11,5 @@ interface ImportMeta {
 
 // vite.config.ts の define で注入されるビルド時コミットハッシュ
 declare const __COMMIT_SHA__: string;
+// 版数表記を表示してよいか（本番 main デプロイでは false）
+declare const __SHOW_VERSION__: boolean;
