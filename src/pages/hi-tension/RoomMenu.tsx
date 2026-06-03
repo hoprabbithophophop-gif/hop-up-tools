@@ -26,10 +26,8 @@ export default function RoomMenu({ onCreate, onJoin, onBack }: Props) {
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        justifyContent: "center",
         padding: "2rem 1.2rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
-        gap: "1.5rem",
         animation: "hi-tension-fade-in 180ms ease-out",
       }}
     >
@@ -44,6 +42,19 @@ export default function RoomMenu({ onCreate, onJoin, onBack }: Props) {
       >
         合言葉の部屋
       </h2>
+
+      {/* 作る／入る は上のタイトル・下の戻るとの間に余白を取って中央へ（密度を下げる） */}
+      <div
+        style={{
+          flex: 1,
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "1.5rem",
+        }}
+      >
 
       {/* 部屋を作る */}
       <button
@@ -126,8 +137,9 @@ export default function RoomMenu({ onCreate, onJoin, onBack }: Props) {
           入る
         </button>
       </div>
+      </div>
 
-      {/* 戻る（左寄せ） */}
+      {/* 戻る（左寄せ・最下部） */}
       <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>
         <NavButton direction="back" onClick={onBack}>
           戻る
