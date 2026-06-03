@@ -135,7 +135,7 @@ export default function WaitingRoom({
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: "1rem",
+        gap: "0.7rem",
         padding: "1rem 1.2rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         animation: "hi-tension-fade-in 180ms ease-out",
@@ -144,10 +144,10 @@ export default function WaitingRoom({
       <style>{`
         @keyframes dot-bounce {
           0%   { transform: translateY(0) scale(1); }
-          20%  { transform: translateY(-22px) scale(0.93); }
-          48%  { transform: translateY(-22px) scale(0.93); }
+          20%  { transform: translateY(-16px) scale(0.93); }
+          48%  { transform: translateY(-16px) scale(0.93); }
           72%  { transform: translateY(0) scale(1.06); }
-          88%  { transform: translateY(-7px) scale(1); }
+          88%  { transform: translateY(-5px) scale(1); }
           100% { transform: translateY(0) scale(1); }
         }
       `}</style>
@@ -203,8 +203,9 @@ export default function WaitingRoom({
         )}
       </div>
 
-      {/* 中央：✋ボタン + 参加者ドット（タップでピョンピョン、お互いに挨拶する仕掛け） */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.6rem" }}>
+      {/* 中央：✋ボタン + 参加者ドット（タップでピョンピョン、お互いに挨拶する仕掛け）。
+          ドットは跳ねた時に上の✋へ被らないよう、間に跳躍ぶんの余白を確保する。 */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem" }}>
         <button
           type="button"
           onClick={handleHandTap}
@@ -212,7 +213,7 @@ export default function WaitingRoom({
             background: "none",
             border: "none",
             cursor: "pointer",
-            padding: "0.35rem",
+            padding: "0.3rem",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -220,7 +221,7 @@ export default function WaitingRoom({
             WebkitTapHighlightColor: "transparent",
           }}
         >
-          <HandIcon size={48} color="#191c1d" />
+          <HandIcon size={44} color="#191c1d" />
         </button>
         <div
           style={{
@@ -229,6 +230,7 @@ export default function WaitingRoom({
             justifyContent: "center",
             gap: "0.75rem",
             minHeight: DOT_SIZE,
+            marginTop: "1.25rem", // ドットの跳躍(22px)が上の✋に被らないための余白
           }}
         >
           {participants.map((p) => {
