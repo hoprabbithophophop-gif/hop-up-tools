@@ -69,12 +69,12 @@ function ageScale(playedDate: string): number {
   return 0.2;
 }
 
-// ✋の着地点を収める安全な縦帯（0=領域上端/TOP_MARGIN直下, 1=領域下端＝免責文字の下）。
-// タップボタンは再生エリア上部にあり TOP_MARGIN で上側を保護済みなので、帯を下へ広げても
-// ボタン裏には回り込まない。下端付近(免責文字の上)まで使って、小さい画面(iPhone SE 等)で
-// ✋が一箇所に集中しないよう縦の散らばりを確保する。
+// ✋の着地点を収める安全な縦帯（0=領域上端/TOP_MARGIN直下, 1=領域下端）。
+// タップボタンは再生エリア上部にあり TOP_MARGIN で上側を保護済み。下端は「中断して戻る」
+// ボタンの上で止めて、ボタンが✋履歴より下に来るようにする（下端まで広げると履歴がボタンに
+// 被る）。
 const BAND_TOP = 0.10;
-const BAND_BOT = 0.92;
+const BAND_BOT = 0.78;
 
 // 自分（と相手）の大きい✋の着地点。タップボタンは再生エリア上部にあるので、
 // ここを下寄り(0.75)にして上昇アニメがボタンに重なって隠れないようにする。
@@ -162,9 +162,9 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       return (x ^ (x >>> 16)) >>> 0;
     };
     const sorted = [...sessions].sort((a, b) => mix(a.session_hash) - mix(b.session_hash));
-    // 行を多めにして「奥行きのある群衆」に。列が増えると縦帯の中で行間が✋サイズより
-    // 詰まり、前後の✋が重なって観客席のように見える（人数が多いほど密になる）。
-    const cols = Math.max(1, Math.min(n, Math.ceil(Math.sqrt(n * 0.8))));
+    // 横長になるよう列を多めに（縦帯が狭いので）。行数を抑えることで、奇数行を半セル
+    // ずらす千鳥が「偶数行どうし・奇数行どうしが揃う」状態に陥らず、互い違いが効く。
+    const cols = Math.max(1, Math.min(n, Math.ceil(Math.sqrt(n * 2.2))));
     const rows = Math.max(1, Math.ceil(n / cols));
     const step = cols > 1 ? 1 / (cols - 1) : 0; // 列間隔（端の✋が画面端で半分見切れる 0..1）
     sorted.forEach((s, i) => {
