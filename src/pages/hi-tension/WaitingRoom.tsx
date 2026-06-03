@@ -134,7 +134,6 @@ export default function WaitingRoom({
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        justifyContent: "space-evenly",
         padding: "1rem 1.2rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         animation: "hi-tension-fade-in 180ms ease-out",
@@ -150,6 +149,20 @@ export default function WaitingRoom({
           100% { transform: translateY(0) scale(1); }
         }
       `}</style>
+
+      {/* 合言葉・参加者は動画下の領域の縦中央にまとめる（space-evenly の間延び解消）。
+          せーの／最初に戻る は下部に残して親指リーチを保つ。 */}
+      <div
+        style={{
+          flex: 1,
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "1.8rem",
+        }}
+      >
 
       {/* 上部：合言葉と人数 */}
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem" }}>
@@ -256,8 +269,9 @@ export default function WaitingRoom({
           {`${count}/${MAX_PARTICIPANTS}人`}
         </p>
       </div>
+      </div>
 
-      {/* 下部：せーのボタン + サブ導線 */}
+      {/* 下部：せーのボタン + サブ導線（最下部キープ） */}
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem", width: "100%" }}>
         <button
           type="button"
