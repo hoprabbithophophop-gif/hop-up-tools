@@ -39,6 +39,12 @@ export default function MemberSelect({
         isolation: "isolate", // ✋モチーフ(zIndex:-1)を背景の前・全コンテンツの背面に固定する
       }}
     >
+      <style>{`
+        @keyframes hi-tension-hand-pop {
+          0%   { transform: translate(-50%, -50%) scale(0.93); }
+          100% { transform: translate(-50%, -50%) scale(1); }
+        }
+      `}</style>
       {__SHOW_VERSION__ && (
         <span
           style={{
@@ -94,20 +100,23 @@ export default function MemberSelect({
           justifyContent: "center",
         }}
       >
-        {/* 背景に薄い✋（このツールの核アイコン）。選んだ色で着色して「自分の色の手」を示唆 */}
+        {/* 背景に画面いっぱいの✋（このツールの核アイコン）。選んだ色で着色して「自分の色の手」を示唆。
+            色を変えるたび key が変わって再マウント→小さく跳ねる演出が走る。 */}
         <div
+          key={selectedId ?? "none"}
           aria-hidden
           style={{
             position: "absolute",
             top: "50%",
             left: "50%",
             transform: "translate(-50%, -50%)",
-            opacity: selectedColor ? 0.14 : 0.06,
+            opacity: selectedColor ? 0.13 : 0.06,
             pointerEvents: "none",
             zIndex: -1,
+            animation: "hi-tension-hand-pop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1)",
           }}
         >
-          <HandIcon size={250} color={selectedColor ?? "#000"} />
+          <HandIcon size="min(122vw, 84vh)" color={selectedColor ?? "#000"} />
         </div>
 
         <p

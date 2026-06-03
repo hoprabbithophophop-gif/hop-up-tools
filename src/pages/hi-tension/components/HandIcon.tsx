@@ -3,7 +3,8 @@
 import { faHand } from "@fortawesome/free-solid-svg-icons";
 
 interface Props {
-  size: number;
+  /** px 数値、または "min(118vw, 82vh)" のような CSS 長さ文字列 */
+  size: number | string;
   color: string;
 }
 
