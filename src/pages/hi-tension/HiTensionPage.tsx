@@ -18,6 +18,7 @@ import {
 import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
 import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, generateRoomCode, type LiveDriftReport, type LiveTap } from "./useHiTensionRealtime";
 import EndCard from "./components/EndCard";
+import BouncyNumber from "./components/BouncyNumber";
 import HandIcon from "./components/HandIcon";
 import { getSupabase } from "@/lib/supabase";
 
@@ -175,6 +176,8 @@ export default function HiTensionPage() {
   const [isPressed, setIsPressed] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
   const [endedSelfCount, setEndedSelfCount] = useState(0);
+  // play 中に押した回数（ごほうび表示用。submit は timestampsRef を使うので別系統）。
+  const [selfPressCount, setSelfPressCount] = useState(0);
   const [isRealtimePlay, setIsRealtimePlay] = useState(false);
   const [bouncingSessionId, setBouncingSessionId] = useState<string | null>(null);
   // 部屋コード。null = グローバル部屋、文字列 = 合言葉の専用部屋
@@ -837,6 +840,7 @@ export default function HiTensionPage() {
     soloModeRef.current = false; // 連携終了→ソロのフラグを次の再生に持ち越さない
     setVideoEnded(false);
     setEndedSelfCount(0);
+    setSelfPressCount(0);
   };
 
   // ひとりで始める
@@ -1093,6 +1097,7 @@ export default function HiTensionPage() {
     // 抽象クロック基準だと映像との定常ズレ(約1秒)が✋に出るため。
     const t = currentTimeRef.current;
     timestampsRef.current.push(t);
+    setSelfPressCount((c) => c + 1); // ごほうび表示のカウントアップ（押すたび弾む）
     console.log(`[hi-tension] HI! @ ${t.toFixed(2)}s`);
     canvasRef.current?.spawnSelf();
     if (isRealtimePlayRef.current && !soloModeRef.current) broadcastTap(t);
@@ -1204,6 +1209,37 @@ export default function HiTensionPage() {
               onPixiEvent={(event, detail) => logHiEvent(anonSessionId, event, detail)}
             />
 
+            {/* 中断導線：動画の左上に控えめな戻る。押した✋は送信せず最初の画面へ戻る。 */}
+            {!videoEnded && (
+              <button
+                type="button"
+                onClick={handleChangeColor}
+                aria-label="最初に戻る"
+                style={{
+                  position: "fixed",
+                  top: 8,
+                  left: 8,
+                  zIndex: 250,
+                  width: 38,
+                  height: 38,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "rgba(0,0,0,0.45)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "50%",
+                  fontSize: "1.1rem",
+                  lineHeight: 1,
+                  cursor: "pointer",
+                  touchAction: "manipulation",
+                  WebkitTapHighlightColor: "transparent",
+                }}
+              >
+                ←
+              </button>
+            )}
+
             {videoEnded ? (
               <div style={{ position: "relative", zIndex: 1, width: "100%", display: "flex", justifyContent: "center" }}>
                 <EndCard
@@ -1219,12 +1255,21 @@ export default function HiTensionPage() {
                 style={{
                   position: "relative",
                   display: "flex",
+                  flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
+                  gap: "1rem",
                   minHeight: 120,
                   zIndex: 1,
                 }}
               >
+                {/* ごほうび：押した回数。押すたび桁が弾んでカウントアップ（音の代わりの手応え）。 */}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.15rem" }}>
+                  <span style={{ fontSize: "0.625rem", fontWeight: 700, letterSpacing: "0.12em", color: "#777" }}>
+                    ハイ！
+                  </span>
+                  <BouncyNumber value={selfPressCount} color={member?.color ?? "#000"} size="1.75rem" />
+                </div>
                 <button
                   type="button"
                   onPointerDown={handlePressStart}
