@@ -1,4 +1,19 @@
+import type { CSSProperties } from "react";
 import BouncyNumber from "./BouncyNumber";
+
+// 完走後の3アクション共通のボタン形。横幅(100%)・余白・字を揃え、色だけで主役/副次を分ける。
+const baseBtnStyle: CSSProperties = {
+  width: "100%",
+  padding: "0.85rem",
+  border: "none",
+  fontSize: "0.875rem",
+  fontWeight: 700,
+  letterSpacing: "0.05em",
+  cursor: "pointer",
+  fontFamily: "inherit",
+};
+const primaryBtnStyle: CSSProperties = { ...baseBtnStyle, background: "#000", color: "#fff" };
+const secondaryBtnStyle: CSSProperties = { ...baseBtnStyle, background: "#eceef0", color: "#191c1d" };
 
 interface Props {
   selfCount: number;
@@ -79,60 +94,21 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
           width: "100%",
         }}
       >
-        <button
-          type="button"
-          onClick={onReplay}
-          style={{
-            padding: "0.8rem 2.4rem",
-            background: "#000",
-            color: "#fff",
-            border: "none",
-            fontSize: "0.875rem",
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-            textTransform: "uppercase",
-            cursor: "pointer",
-          }}
-        >
+        {/* 3アクションは横幅を揃えた同形ボタンに統一（テキストリンクは廃止）。
+            ツール内で続ける動作（もう一度・別の色にする）をまとめ、外向き動作（シェア）は
+            一行空けて分ける。主役の「もう一度」だけ黒、他は灰色で段差を付ける。 */}
+        <button type="button" onClick={onReplay} style={primaryBtnStyle}>
           もう一度
+        </button>
+        <button type="button" onClick={onChangeColor} style={secondaryBtnStyle}>
+          別の色にする
         </button>
         <button
           type="button"
           onClick={() => shareToX(selfCount)}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "0.4rem",
-            padding: "0.7rem 1.6rem",
-            background: "#eceef0",
-            color: "#191c1d",
-            border: "none",
-            fontSize: "0.8125rem",
-            fontWeight: 700,
-            letterSpacing: "0.03em",
-            cursor: "pointer",
-            fontFamily: "inherit",
-          }}
+          style={{ ...secondaryBtnStyle, marginTop: "1.2rem" }}
         >
           𝕏 でシェアする
-        </button>
-        <button
-          type="button"
-          onClick={onChangeColor}
-          style={{
-            padding: "0.4rem 0.8rem",
-            background: "transparent",
-            color: "#474747",
-            border: "none",
-            fontSize: "0.8125rem",
-            fontWeight: 500,
-            textDecoration: "underline",
-            textUnderlineOffset: "0.2rem",
-            cursor: "pointer",
-          }}
-        >
-          別の色にする
         </button>
       </div>
     </div>
