@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import HandIcon from "./components/HandIcon";
 import NavButton from "./components/NavButton";
 import { findMember } from "./data";
@@ -24,8 +24,6 @@ interface Props {
    *  動画ラッパー縮小時に動画と密着させるため、HiTensionPage が計算して渡す。 */
   topOffset?: string;
 }
-
-const DOT_SIZE = 14;
 
 export default function WaitingRoom({
   participants,
@@ -61,6 +59,9 @@ export default function WaitingRoom({
   const count = participants.length;
   // せーのは2人(MAX_PARTICIPANTS)揃ってから。1人で押すと相手が合流できないまま進んで詰むため。
   const canSeno = isHost && connected && count >= MAX_PARTICIPANTS;
+  // ✋の跳躍幅は動画下の余白(高さ)に比例。狭い実機では小さく、広い画面では大きく跳ねる
+  // （上の合言葉に被らない範囲に収める）。CSS変数 --hop でキーフレームへ渡す。
+  const hopHeight = `clamp(14px, calc((100dvh - ${topOffset ?? "56.25vw"}) * 0.08), 44px)`;
 
   // あふれ（3人目以降）: 満員パネルを表示。スタートには参加できない。
   if (isOverflow) {
@@ -135,19 +136,19 @@ export default function WaitingRoom({
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: "0.7rem",
+        gap: "0.55rem",
         padding: "1rem 1.2rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         animation: "hi-tension-fade-in 180ms ease-out",
       }}
     >
       <style>{`
-        @keyframes dot-bounce {
+        @keyframes hand-hop {
           0%   { transform: translateY(0) scale(1); }
-          20%  { transform: translateY(-16px) scale(0.93); }
-          48%  { transform: translateY(-16px) scale(0.93); }
-          72%  { transform: translateY(0) scale(1.06); }
-          88%  { transform: translateY(-5px) scale(1); }
+          12%  { transform: translateY(0) scaleX(1.08) scaleY(0.86); }
+          40%  { transform: translateY(calc(-1 * var(--hop, 32px))) scale(1); }
+          60%  { transform: translateY(calc(-1 * var(--hop, 32px))) scale(1); }
+          84%  { transform: translateY(0) scaleX(1.05) scaleY(0.95); }
           100% { transform: translateY(0) scale(1); }
         }
       `}</style>
@@ -203,55 +204,53 @@ export default function WaitingRoom({
         )}
       </div>
 
-      {/* 中央：✋ボタン + 参加者ドット（タップでピョンピョン、お互いに挨拶する仕掛け）。
-          ドットは跳ねた時に上の✋へ被らないよう、間に跳躍ぶんの余白を確保する。 */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem" }}>
-        <button
-          type="button"
-          onClick={handleHandTap}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: "0.3rem",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            touchAction: "manipulation",
-            WebkitTapHighlightColor: "transparent",
-          }}
-        >
-          <HandIcon size={44} color="#191c1d" />
-        </button>
+      {/* 中央：参加者の✋を横一列に。自分のをタップすると本編と同じ「ぴょこっと跳ね上がる」
+          動きで挨拶し、相手にも伝わって相手の✋も跳ねる。ゲストが入ると隣に増える。
+          跳躍幅は動画下の余白(高さ)に比例（CSS変数 --hop）＝上の合言葉に被らない範囲で。 */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.45rem" }}>
         <div
           style={{
             display: "flex",
-            flexWrap: "wrap",
             justifyContent: "center",
-            gap: "0.75rem",
-            minHeight: DOT_SIZE,
-            marginTop: "1.25rem", // ドットの跳躍(22px)が上の✋に被らないための余白
-          }}
+            alignItems: "flex-end",
+            gap: "1.1rem",
+            marginTop: hopHeight,
+            "--hop": hopHeight,
+          } as CSSProperties}
         >
           {participants.map((p) => {
             const member = findMember(p.memberId);
             const color = member?.color ?? "#ccc";
             const isSelf = p.sessionId === mySessionId;
             const isBouncing = isSelf ? selfBouncing : bouncingSessionId === p.sessionId;
-            return (
-              <div
+            const handStyle: CSSProperties = {
+              transformOrigin: "bottom center",
+              animation: isBouncing ? "hand-hop 0.5s cubic-bezier(0.34,1.56,0.64,1)" : "none",
+              lineHeight: 0,
+            };
+            const icon = <HandIcon size={isSelf ? 46 : 40} color={color} />;
+            return isSelf ? (
+              <button
                 key={p.sessionId}
+                type="button"
+                onClick={handleHandTap}
+                aria-label="挨拶する"
                 style={{
-                  width: DOT_SIZE,
-                  height: DOT_SIZE,
-                  borderRadius: "50%",
-                  background: color,
-                  boxShadow: isSelf
-                    ? `0 0 0 3px #f8f9fa, 0 0 0 5px ${color}`
-                    : "0 0 0 1px rgba(0,0,0,0.08)",
-                  animation: isBouncing ? "dot-bounce 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards" : "none",
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  touchAction: "manipulation",
+                  WebkitTapHighlightColor: "transparent",
+                  ...handStyle,
                 }}
-              />
+              >
+                {icon}
+              </button>
+            ) : (
+              <div key={p.sessionId} aria-hidden style={handStyle}>
+                {icon}
+              </div>
             );
           })}
         </div>
