@@ -81,7 +81,7 @@ export default function RoomMenu({ onJoin, onBack }: Props) {
           maxLength={ROOM_CODE_LENGTH}
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          placeholder="合言葉"
+          placeholder="ABCD"
           aria-label="部屋の合言葉"
           style={{
             width: "100%",
