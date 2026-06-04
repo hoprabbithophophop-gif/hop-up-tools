@@ -12,7 +12,7 @@ import {
 // import そのものに副作用があるので、pixi.js の他 import より前に置く。
 import "pixi.js/unsafe-eval";
 import { Application, Container, Sprite, Texture, Ticker } from "pixi.js";
-import { getHandTexture, seatFromHash } from "../handTexture";
+import { getHandTexture, getHandOutlineTexture, seatFromHash } from "../handTexture";
 import { findMember } from "../data";
 import type { HiSession } from "../api";
 
@@ -36,7 +36,7 @@ interface Props {
 type BucketEntry = { session: HiSession; count: number };
 
 const BASE_SIZE = 60;
-const SELF_SIZE = 72; // 仕様5.5: 自分は他人の約20%大きく
+const SELF_SIZE = 84; // 自分は群衆より明確に大きく（埋もれ防止。白フチも併用）
 const NON_TODAY_ALPHA = 0.4;
 // 跳躍してもキャンバス上端(プレイヤー直下)で✋が見切れないための上余白。
 // 上端(動画直下)に確保する余白。小さくするほど✋の着地帯が上へ広がり、跳躍ピークが
@@ -95,6 +95,9 @@ const BAND_BOT = 1.0;
 // ここを下寄り(0.75)にして上昇アニメがボタンに重なって隠れないようにする。
 // （履歴✋は小さいので帯の中＝多少ボタン寄りでも問題ない）
 const SELF_Y = 0.75;
+// ソロ時はxRatio中央＝タップボタン真下になるため、TOP_MARGIN短縮後はボタン裏に寄る。
+// ボタンの下に抜けるよう更に下げて、自分✋(大＋白フチ)がちゃんと見えるようにする。
+const SELF_Y_SOLO = 0.88;
 
 /**
  * 参加順インデックスから✋の位置を決める（リアルタイムセッション用・上限2人）。
@@ -128,6 +131,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   const appRef = useRef<Application | null>(null);
   const textureRef = useRef<Texture | null>(null);
   const layerRef = useRef<Container | null>(null);
+  // 自分の✋専用の最前面レイヤー。履歴✋(layer)より上に置き、後から湧く群衆✋に被られないようにする。
+  const selfLayerRef = useRef<Container | null>(null);
   const lastBucketRef = useRef<number>(-1);
   const currentTimeRef = useRef<number>(0);
   const liveQueueRef = useRef<QueuedLiveTap[]>([]);
@@ -245,10 +250,14 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       container.appendChild(app.canvas);
       const layer = new Container();
       app.stage.addChild(layer);
+      // 自分の✋は別レイヤーに分け、群衆(layer)の後＝最前面に重ねる。
+      const selfLayer = new Container();
+      app.stage.addChild(selfLayer);
 
       appRef.current = app;
       textureRef.current = texture;
       layerRef.current = layer;
+      selfLayerRef.current = selfLayer;
       canvasEl = app.canvas as HTMLCanvasElement;
 
       // WebGL コンテキストロスト復旧（Android 等の GPU 圧迫時に発生しやすい）
@@ -278,6 +287,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       appRef.current = null;
       textureRef.current = null;
       layerRef.current = null;
+      selfLayerRef.current = null;
       try { a?.destroy(true, { children: true }); } catch { /* ignore */ }
     };
   }, [reinitCount]);
@@ -296,32 +306,58 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     const texture = textureRef.current;
     const layer = layerRef.current;
     if (!app || !texture || !layer) return;
+    // 自分の✋は最前面レイヤーへ。群衆(layer)に被られず常に一番上に出る。
+    const targetLayer = params.isSelf ? (selfLayerRef.current ?? layer) : layer;
 
     const w = app.screen.width;
     const h = app.screen.height;
     if (w === 0 || h === 0) return;
 
-    const sprite = new Sprite(texture);
-    sprite.anchor.set(0.5, 1.0); // 下端中央(着地地点を yRatio に固定)
-    // 画面サイズ × 累計セッション数 × 日付経過に応じて✋を縮小(自分も同率なので「自分は1.2倍」は維持)
+    // 画面サイズ × 累計セッション数 × 日付経過に応じて✋を縮小(自分も同率なので「自分は約20%大きい」は維持)
     const viewK = viewportSizeK(w, h);
     const crowdK = crowdScale(sessionsRef.current.length);
     const ageK = params.playedDate ? ageScale(params.playedDate) : 1.0;
     const targetSize = (params.isSelf ? SELF_SIZE : BASE_SIZE) * viewK * crowdK * ageK;
     const texMax = Math.max(texture.width, texture.height) || 1;
-    sprite.scale.set(targetSize / texMax);
-    sprite.tint = hexToTint(params.color);
+    const spriteScale = targetSize / texMax;
+    const colorTint = hexToTint(params.color);
     const baseAlpha = params.isToday ? 1.0 : NON_TODAY_ALPHA;
-    sprite.alpha = baseAlpha;
+
+    // node = 動かす対象。他人は単一スプライト。自分の✋だけは群衆に埋もれないよう白フチを付ける：
+    // 事前に焼いた白フチ版テクスチャ(1枚)を背面に、色付き本体(1枚)を前面に置いた Container。
+    // 実行時の重ね描き(オーバードロー)が背面1枚で済むので軽い。
+    // 位置/スケール/αのアニメは node に対して共通で回す（自分は基準スケール1）。
+    let node: Sprite | Container;
+    if (params.isSelf) {
+      const container = new Container();
+      const outlineTex = getHandOutlineTexture();
+      const outline = new Sprite(outlineTex.texture);
+      outline.anchor.set(outlineTex.anchorX, outlineTex.anchorY); // 中身の手を本体とぴったり重ねる
+      outline.scale.set(spriteScale);
+      container.addChild(outline);
+      const fg = new Sprite(texture);
+      fg.anchor.set(0.5, 1.0);
+      fg.scale.set(spriteScale);
+      fg.tint = colorTint;
+      container.addChild(fg);
+      node = container;
+    } else {
+      const sprite = new Sprite(texture);
+      sprite.anchor.set(0.5, 1.0); // 下端中央(着地地点を yRatio に固定)
+      sprite.scale.set(spriteScale);
+      sprite.tint = colorTint;
+      node = sprite;
+    }
+    node.alpha = baseAlpha;
 
     // 上端に TOP_MARGIN 分の余白を確保した残り領域に着地点を配置する。
     // これで yRatio が小さい(=上寄りの)席でも、跳躍が上端で見切れない。
     const usableH = Math.max(1, h - TOP_MARGIN);
     const baselineY = TOP_MARGIN + params.yRatio * usableH;
-    sprite.x = params.xRatio * w;
-    sprite.y = baselineY;
+    node.x = params.xRatio * w;
+    node.y = baselineY;
 
-    layer.addChild(sprite);
+    targetLayer.addChild(node);
 
     // 溜め(squash) → 上昇 → 軽い滞空 → 下降しながらフェードアウト（二段ジャンプなし）。
     // タップした瞬間に一瞬グッと縮んでから勢いよく上がる「予備動作」で手応えを出し、
@@ -333,7 +369,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     const holdDur = 80;           // 滞空: 頂点で軽く粘る
     const downFadeDur = 180;      // 下降しながらフェードアウト
     const SQUASH_SCALE = 0.85;    // 溜め時の最小スケール倍率
-    const baseScale = sprite.scale.x; // spawn 時に設定済みのスケールを基準にする
+    const baseScale = node.scale.x; // spawn 時に設定済みのスケールを基準にする（自分=1, 他人=spriteScale）
 
     let phase: "squash" | "up" | "hold" | "downfade" | "done" = "squash";
     let phaseStart = 0;
@@ -349,9 +385,9 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
           if (local < squashDur) {
             // baseScale → baseScale*SQUASH_SCALE へ縮む（タップの溜め）
             const k = local / squashDur;
-            sprite.scale.set(baseScale * (1 - (1 - SQUASH_SCALE) * k));
+            node.scale.set(baseScale * (1 - (1 - SQUASH_SCALE) * k));
           } else {
-            sprite.scale.set(baseScale * SQUASH_SCALE);
+            node.scale.set(baseScale * SQUASH_SCALE);
             phaseStart = totalMs;
             phase = "up";
           }
@@ -360,12 +396,12 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         case "up": {
           if (local < upDur) {
             const k = easeOutCubic(local / upDur);
-            sprite.y = baselineY - jumpHeight * k;
+            node.y = baselineY - jumpHeight * k;
             // 縮んだスケールを上昇とともに通常へ戻す（伸び＝stretch感）
-            sprite.scale.set(baseScale * (SQUASH_SCALE + (1 - SQUASH_SCALE) * k));
+            node.scale.set(baseScale * (SQUASH_SCALE + (1 - SQUASH_SCALE) * k));
           } else {
-            sprite.y = baselineY - jumpHeight;
-            sprite.scale.set(baseScale);
+            node.y = baselineY - jumpHeight;
+            node.scale.set(baseScale);
             phaseStart = totalMs;
             phase = "hold";
           }
@@ -383,8 +419,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
             const k = local / downFadeDur;
             // 頂点(baselineY - jumpHeight)から元の baselineY へ落としつつ消す。
             // 落下は easeIn(k*k)で「重力で加速して落ちる」感、フェードは線形。
-            sprite.y = baselineY - jumpHeight * (1 - k * k);
-            sprite.alpha = baseAlpha * (1 - k);
+            node.y = baselineY - jumpHeight * (1 - k * k);
+            node.alpha = baseAlpha * (1 - k);
           } else {
             phase = "done";
           }
@@ -394,7 +430,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
 
       if (phase === "done") {
         app.ticker.remove(onTick);
-        try { sprite.destroy(); } catch { /* ignore */ }
+        try { node.destroy({ children: true }); } catch { /* ignore */ }
       }
     };
 
@@ -432,7 +468,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       const { xRatio, yRatio } =
         seatIdx != null && seatIdx >= 0
           ? seatIndexToPosition(seatIdx)
-          : { xRatio: 0.5, yRatio: SELF_Y };
+          : { xRatio: 0.5, yRatio: SELF_Y_SOLO };
       spawnHand({
         xRatio, yRatio,
         color: member.color,

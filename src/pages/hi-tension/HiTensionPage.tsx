@@ -19,6 +19,7 @@ import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
 import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, type LiveDriftReport, type LiveTap } from "./useHiTensionRealtime";
 import EndCard from "./components/EndCard";
 import BouncyNumber from "./components/BouncyNumber";
+import FpsMeter from "./components/FpsMeter";
 import HandIcon from "./components/HandIcon";
 import NavButton from "./components/NavButton";
 import { getSupabase } from "@/lib/supabase";
@@ -1120,6 +1121,9 @@ export default function HiTensionPage() {
           to   { opacity: 1; }
         }
       `}</style>
+
+      {/* FPS計測（開発モード or ?hidebug=1 のみ。本番ビルドには出ない）。混雑時の最低fpsを測る用 */}
+      {(import.meta.env.DEV || HI_DEBUG) && <FpsMeter />}
 
       {/* 同期デバッグ表示（?hidebug=1 の時だけ。本番では出さない） */}
       {HI_DEBUG && debugInfo && (

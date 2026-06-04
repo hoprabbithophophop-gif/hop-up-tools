@@ -13,12 +13,16 @@ export default function BouncyNumber({ value, color, size = "3rem" }: Props) {
   const digits = value.toLocaleString().split("");
   return (
     <>
+      {/* opacity は常に1（透明から登場はしない）。連打で一桁目の値が変わるたび key が変わって
+          再マウント→アニメ再生されるが、透明を経由しないので「消える」ことがない。スケールの
+          弾みだけで手応えを出す。桁ごとの遅延も撤去（長い数字で一桁目の遅延が大きくなり、連打時に
+          ずっと縮んだ状態で固まるのを防ぐ）。 */}
       <style>{`
         @keyframes hi-tension-digit-bounce {
-          0%   { transform: translateY(28px) scale(0.4); opacity: 0; }
-          55%  { transform: translateY(-8px) scale(1.18); opacity: 1; }
-          78%  { transform: translateY(2px) scale(0.95); opacity: 1; }
-          100% { transform: translateY(0) scale(1); opacity: 1; }
+          0%   { transform: translateY(8px) scale(0.6); }
+          55%  { transform: translateY(-7px) scale(1.2); }
+          78%  { transform: translateY(2px) scale(0.95); }
+          100% { transform: translateY(0) scale(1); }
         }
       `}</style>
       <div
@@ -36,8 +40,7 @@ export default function BouncyNumber({ value, color, size = "3rem" }: Props) {
             key={`${i}-${d}`}
             style={{
               display: "inline-block",
-              animation: "hi-tension-digit-bounce 0.5s both",
-              animationDelay: `${i * 0.08}s`,
+              animation: "hi-tension-digit-bounce 0.42s both",
               animationTimingFunction: "cubic-bezier(0.34, 1.56, 0.64, 1)",
             }}
           >

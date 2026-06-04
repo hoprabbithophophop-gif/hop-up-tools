@@ -4,6 +4,7 @@ import { faHand } from "@fortawesome/free-solid-svg-icons";
 import { Texture } from "pixi.js";
 
 let cachedTexture: Texture | null = null;
+let cachedOutline: { texture: Texture; anchorX: number; anchorY: number } | null = null;
 
 /**
  * FA hand アイコンのパスを Canvas に Path2D で直接描画し、PIXI.Texture にする。
@@ -34,6 +35,53 @@ export function getHandTexture(): Texture {
 
   cachedTexture = Texture.from(canvas);
   return cachedTexture;
+}
+
+/**
+ * 白フチ版の✋テクスチャ（1回だけ生成してキャッシュ）。
+ * 同じ FA hand パスを「白の太いストローク＋白塗り」で描くと、シルエットが一様に膨らんだ
+ * 白い手＝縁取りになる。自分の✋は「これを背面に1枚＋色付き本体を前面に1枚」の計2枚で表現でき、
+ * 実行時に白スプライトを何枚も重ねる(重い・オーバードロー)必要がなくなる。
+ * ストロークが見切れないようキャンバスに余白(pad)を取るため、本体と中身を揃える anchor も返す。
+ */
+export function getHandOutlineTexture(): { texture: Texture; anchorX: number; anchorY: number } {
+  if (cachedOutline) return cachedOutline;
+
+  const [iconW, iconH, , , pathData] = faHand.icon;
+  const path = Array.isArray(pathData) ? pathData.join(" ") : pathData;
+
+  const renderSize = 256;
+  const scale = renderSize / Math.max(iconW, iconH);
+  const w = Math.max(1, Math.round(iconW * scale));
+  const h = Math.max(1, Math.round(iconH * scale));
+
+  const strokeIcon = 110; // フチ太さ(アイコン座標系)。round 継ぎで滑らかに膨らませる
+  const pad = Math.ceil((strokeIcon * scale) / 2) + 2; // ストロークがキャンバス外に見切れないための余白(px)
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w + pad * 2;
+  canvas.height = h + pad * 2;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2d context not available");
+
+  ctx.translate(pad, pad);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = strokeIcon;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  const p = new Path2D(path);
+  ctx.stroke(p);
+  ctx.fill(p);
+
+  cachedOutline = {
+    texture: Texture.from(canvas),
+    // 中身(手)の下端中央が、色付き本体(anchor 0.5,1.0)とぴったり重なるよう anchor を逆算
+    anchorX: (pad + w / 2) / (w + pad * 2),
+    anchorY: (pad + h) / (h + pad * 2),
+  };
+  return cachedOutline;
 }
 
 /**
