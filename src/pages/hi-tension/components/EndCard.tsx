@@ -27,7 +27,7 @@ interface Props {
 // API/ログイン不要の Web Intent。URL を独立行で出したいので &url= は使わず本文に含める。
 const SHARE_URL = "https://hop-up-tools.pages.dev/hi-tension";
 function shareToX(count: number) {
-  const text = `ハイ！テンション✋ Practice で\n${count}回ハイ！した🖐️\n#ハイテンションPractice #BEYOOOOONDS\n${SHARE_URL}`;
+  const text = `ハイ！テンション✋ Practice で\n${count}回ハイ！した🖐️\n#ハイテンションPractice\n${SHARE_URL}`;
   window.open(
     `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
     "_blank",
