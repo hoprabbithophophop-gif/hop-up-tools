@@ -62,7 +62,9 @@ const HI_DEBUG: boolean = (() => {
 })();
 
 function logHiEvent(sessionId: string, event: string, detail?: string) {
-  // 軽いイベントログは本番でも常時収集（重い同期ログ・画面表示だけ HI_DEBUG で制御）。
+  // 同期が安定したため、本番では診断ログ(hi_event_debug)を書かない（容量肥大の主因だった）。
+  // 不具合調査が必要になったら URL に ?hidebug=1 を付ければ従来通りこのログも収集できる。
+  if (!HI_DEBUG) return;
   // ログ送信は失敗してもアプリ本体を絶対に巻き込まない（getSupabase が env 不備で throw する等）。
   try {
     getSupabase().from("hi_event_debug").insert({
