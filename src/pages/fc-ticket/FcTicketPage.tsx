@@ -2759,13 +2759,19 @@ function SubscribeScreen({
         </div>
 
         {!publishedUrls ? (
-          <button
-            onClick={() => handlePublish()}
-            disabled={publishing || includedCount === 0}
-            className="bg-primary text-on-primary-fixed px-8 py-4 text-sm font-bold uppercase tracking-[0.2em] hover:bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-          >
-            {publishing ? "発行中…" : "URLを発行する"}
-          </button>
+          <div className="space-y-3">
+            <button
+              onClick={() => handlePublish()}
+              disabled={publishing || includedCount === 0}
+              className="bg-primary text-on-primary-fixed px-8 py-4 text-sm font-bold uppercase tracking-[0.2em] hover:bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {publishing ? "発行中…" : "URLを発行する"}
+            </button>
+            {/* 操作の瞬間の一言（段階表示） */}
+            <p className="text-xs text-on-surface-variant">
+              登録すると、選んだ締切がカレンダーに自動で並びます。新しい締切も自動で追加されます。
+            </p>
+          </div>
         ) : (
           <div className="space-y-4">
             {/* 主役：カレンダーに追加（この端末で購読登録） */}
@@ -2810,7 +2816,7 @@ function SubscribeScreen({
       <section className="mb-8">
         <details className="group">
           <summary className="flex items-center justify-between border-b border-outline-variant/30 pb-2 cursor-pointer list-none select-none">
-            <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">はじめての方へ・注意事項</h3>
+            <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">このツールについて</h3>
             <span className="material-symbols-outlined text-base text-outline transition-transform group-open:rotate-180">expand_more</span>
           </summary>
           <ul className="text-xs text-on-surface-variant space-y-2 list-disc list-inside mt-4">
