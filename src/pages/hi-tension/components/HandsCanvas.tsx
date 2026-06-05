@@ -35,7 +35,7 @@ interface Props {
 // バケットインデックスに紐づく「(セッション, このバケットでの押下回数)」
 type BucketEntry = { session: HiSession; count: number };
 
-const BASE_SIZE = 72;
+const BASE_SIZE = 84;
 const SELF_SIZE = 84; // 自分は群衆より明確に大きく（埋もれ防止。白フチも併用）
 const NON_TODAY_ALPHA = 0.4;
 // 跳躍してもキャンバス上端(プレイヤー直下)で✋が見切れないための上余白。
@@ -206,7 +206,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     // 隠れる）、奥(上=HORIZON付近)ほど小さく密。床の席を遠近投影し、画面内の席だけスロット化。
     const Z_NEAR = 1.0, Z_FAR = 8.0;    // 視点からの距離。比が大きいほど遠近が強い
     const FRONT_SCALE = 4.2;            // 最前列の✋サイズ倍率（手前で視界が半分以上隠れる狙い）
-    const LATERAL = 0.34;               // 横の広がり（小さいほど視野が狭い＝席が中央寄り）
+    const LATERAL = 0.30;               // 横の広がり（小さいほど列が詰まる＝千鳥の食い込み強）
     const ROWS = 16;
     const centerSlots: Slot[] = [];
     for (let r = 0; r < ROWS; r++) {
@@ -227,12 +227,12 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     // ── サイド席：左右の上部だけ。画面端に直角辺を接した小さな直角三角形（各約10席）──
     // 頂点(上=奥/ステージ側)→下へ向かって広がる。センター(HORIZONより下)へは降ろさない。
     // ✋は内/外の向き(親指の向き)を変える＝rotationで表現（実物のFA✋で最終調整）。大きさ一定。
-    const SIDE_SIZE = 0.5;
-    const SIDE_ROWS = 4;          // 1+2+3+4 = 約10席
+    const SIDE_SIZE = 0.62;
+    const SIDE_ROWS = 5;          // 1+2+3+4+5 = 約15席（1列追加）
     const SIDE_X0 = 0.02;         // 画面端の列
-    const SIDE_DX = 0.05;         // 横間隔
-    const SIDE_Y0 = 0.07;         // 頂点(上)
-    const SIDE_DY = 0.072;        // 段間隔
+    const SIDE_DX = 0.044;        // 横間隔（詰める）
+    const SIDE_Y0 = 0.06;         // 頂点(上)
+    const SIDE_DY = 0.062;        // 段間隔（詰める）
     // z軸ヨー角(rad)。FAの✋は親指が左。左席は親指を奥へ(−=小さく)、右席は親指を手前へ(＋=大きく)。
     const SIDE_YAW = 0.95;
     const sideSlots: Slot[] = [];
@@ -268,8 +268,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         });
       });
     };
-    // サイドは席数（約10席×2）が上限。あふれた分はセンターへ。
-    const sideCount = Math.min(sideSlots.length, Math.round(n * 0.18));
+    // サイドへ回す人数（席は約15/側だが、同時タップで埋まるよう人数は多めに割り当て＝重なり可）。
+    const sideCount = sideSlots.length > 0 ? Math.round(n * 0.18) : 0;
     assign(sorted.slice(0, sideCount), sideSlots, 0x5e);
     assign(sorted.slice(sideCount), centerSlots, 0x0c);
 
