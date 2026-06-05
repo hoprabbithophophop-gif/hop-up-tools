@@ -2806,18 +2806,21 @@ function SubscribeScreen({
         )}
       </section>
 
-      {/* 注意事項 */}
+      {/* 注意事項（普段は畳んでおく＝知りたい人だけ開く） */}
       <section className="mb-8">
-        <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
-          <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">注意事項</h3>
-        </div>
-        <ul className="text-xs text-on-surface-variant space-y-2 list-disc list-inside">
-          <li>このツールは締切を忘れないためのリマインダーです。予定にチェックを付けても、公演への申込・入金は完了しません。申込は各公式ページで行ってください。</li>
-          <li>入力した申込状況や登録内容はお使いの端末内に保存され、運営が収集・分析することはありません。（購読URLを発行した場合のみ、選んだ予定がURL先に保管されます）</li>
-          <li>チェックを変えると自動で保存されます。カレンダーアプリに反映されるまで最大数時間かかります（すぐ反映したい時は画面を下に引っ張って更新）。</li>
-          <li>カレンダーアプリによっては読み取り専用で表示されます（編集できません）。</li>
-          <li>URLを知っている人は誰でも予定の内容を見られます。流出させないでください。</li>
-        </ul>
+        <details className="group">
+          <summary className="flex items-center justify-between border-b border-outline-variant/30 pb-2 cursor-pointer list-none select-none">
+            <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">はじめての方へ・注意事項</h3>
+            <span className="material-symbols-outlined text-base text-outline transition-transform group-open:rotate-180">expand_more</span>
+          </summary>
+          <ul className="text-xs text-on-surface-variant space-y-2 list-disc list-inside mt-4">
+            <li>このツールは締切を忘れないためのリマインダーです。予定にチェックを付けても、公演への申込・入金は完了しません。申込は各公式ページで行ってください。</li>
+            <li>入力した申込状況や登録内容はお使いの端末内に保存され、運営が収集・分析することはありません。（購読URLを発行した場合のみ、選んだ予定がURL先に保管されます）</li>
+            <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切は自動で追加、終わった予定は自動で整理されます（反映まで最大数時間。すぐ反映したい時は画面を下に引っ張って更新）。含まれるのは予定だけで、お名前・ログイン・支払いの情報は入りません。</li>
+            <li>カレンダーアプリによっては読み取り専用で表示されます（編集できません）。</li>
+            <li>このリンクはあなた専用です。保存した予定が入っているので、他の人には共有しないでください。</li>
+          </ul>
+        </details>
       </section>
 
       {/* URL無効化 */}
