@@ -11,7 +11,7 @@ import {
 // `pixi.js/unsafe-eval` を side-effect import すると eval を使わない別実装に切り替わる。
 // import そのものに副作用があるので、pixi.js の他 import より前に置く。
 import "pixi.js/unsafe-eval";
-import { Application, Container, Sprite, Texture, Ticker } from "pixi.js";
+import { Application, Container, PerspectiveMesh, Sprite, Texture, Ticker } from "pixi.js";
 import { getHandTexture, getHandOutlineTexture, seatFromHash } from "../handTexture";
 import { findMember } from "../data";
 import type { HiSession } from "../api";
@@ -166,12 +166,15 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     return map;
   }, [sessions]);
 
-  // セッション → ✋の配置(千鳥グリッド)。並び順は毎プレイ(selfSeatHash)で変え、色と位置を
-  // 固定で結びつけない（同じ色が毎回端で見切れるのを防ぐ）。同一プレイ中は安定なので再生中に
-  // ✋がワープすることはない。安全帯 BAND_TOP〜BAND_BOT に収め、上部のタップボタン裏を避ける。
-  const sessionLayout = useMemo<Map<number, { xRatio: number; yRatio: number }>>(() => {
+  // セッション → ✋の配置（横アリ風・両サイドV字スタンド）。
+  // 動画(=ステージ)を上に見立て、左右のスタンドが内側に傾いて中央を囲む配置にする。
+  // 奥(上=ステージ際)ほど小さく(depthK)、手前(下)ほど大きく見せて疑似的な奥行きを出す。
+  // 中央下はアリーナ席として少しだけ✋を置く。並び順は毎プレイ(selfSeatHash)で席替えし、
+  // 色と位置を固定で結びつけない。同一プレイ中は安定なので再生中に✋がワープしない。
+  // 安全帯 BAND_TOP〜BAND_BOT に収め、上部のタップボタン裏は中央を空けることで避ける。
+  const sessionLayout = useMemo<Map<number, { xRatio: number; yRatio: number; depthK: number; rotation: number }>>(() => {
     const n = sessions.length;
-    const map = new Map<number, { xRatio: number; yRatio: number }>();
+    const map = new Map<number, { xRatio: number; yRatio: number; depthK: number; rotation: number }>();
     if (n === 0) return map;
     // selfSeatHash を種に session_hash を撹拌して並べ替える（毎プレイで席替え）。
     const seed = selfSeatHash >>> 0;
@@ -181,25 +184,95 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       x = Math.imul(x ^ (x >>> 13), 3266489909) >>> 0;
       return (x ^ (x >>> 16)) >>> 0;
     };
+    // session_hash から決定的な擬似乱数 [0,1)（格子を少し崩すジッター用。毎プレイ変わる）。
+    const rand01 = (h: number, salt: number) => {
+      let x = (h ^ salt ^ seed) >>> 0;
+      x = Math.imul(x ^ (x >>> 15), 2246822507) >>> 0;
+      x = Math.imul(x ^ (x >>> 13), 3266489909) >>> 0;
+      return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+    };
     const sorted = [...sessions].sort((a, b) => mix(a.session_hash) - mix(b.session_hash));
-    // 横長になるよう列を多めに（縦帯が狭いので）。行数を抑えることで、奇数行を半セル
-    // ずらす千鳥が「偶数行どうし・奇数行どうしが揃う」状態に陥らず、互い違いが効く。
-    const cols = Math.max(1, Math.min(n, Math.ceil(Math.sqrt(n * 3.5))));
-    const rows = Math.max(1, Math.ceil(n / cols));
-    const step = cols > 1 ? 1 / (cols - 1) : 0; // 列間隔（端の✋が画面端で半分見切れる 0..1）
-    sorted.forEach((s, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      // 偶数行（最前列を含む）を半セルずらして千鳥に並べる。最前列の中央が空くので、
-      // 画面中央上部のタップ✋ボタンの真下に履歴✋が来ない（重ならない）。後列の隙間から
-      // 前後の✋が覗き、端の✋は画面端で見切れて「画面外にもいる」余地を作る。
-      const brick = ((row + 1) % 2) * step / 2;
-      const xRatio = cols === 1 ? 0.5 : col * step + brick;
-      const yRatio = rows === 1
-        ? (BAND_TOP + BAND_BOT) / 2
-        : BAND_TOP + ((row + 0.5) / rows) * (BAND_BOT - BAND_TOP); // 帯の中で行も等間隔
-      map.set(s.session_hash, { xRatio, yRatio });
-    });
+    const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+    type Slot = { xRatio: number; yRatio: number; depthK: number; rotation?: number };
+    // この線より上＝サイドスタンド(奥/高い)、下＝センターフロア。縦で場所を分けて重ねない。
+    const HORIZON = 0.32;
+    // 1/z 補間で縦位置（手前=下=yBot、奥=上=yTop、手前ほど縦に広い）。
+    const projY = (z: number, zNear: number, zFar: number, yTop: number, yBot: number) =>
+      yTop + (yBot - yTop) * ((1 / z - 1 / zFar) / (1 / zNear - 1 / zFar));
+
+    // ── センター席：中央フロア。HORIZON より下に強い一点透視で配置 ──
+    // 人の視野は広くないので横へは大きく広げず、手前(下)の人ほど巨大（最前列で視界が半分ほど
+    // 隠れる）、奥(上=HORIZON付近)ほど小さく密。床の席を遠近投影し、画面内の席だけスロット化。
+    const Z_NEAR = 1.0, Z_FAR = 12.0;   // 視点からの距離。比が大きいほど遠近が強い
+    const FRONT_SCALE = 3.2;            // 最前列の✋サイズ倍率（手前で視界が半分隠れる狙い）
+    const LATERAL = 0.34;               // 横の広がり（小さいほど視野が狭い＝席が中央寄り）
+    const ROWS = 14;
+    const centerSlots: Slot[] = [];
+    for (let r = 0; r < ROWS; r++) {
+      const t = r / (ROWS - 1);   // 0=最前(手前) 1=最奥(HORIZON側)
+      const z = Z_NEAR + (Z_FAR - Z_NEAR) * t;
+      const yRatio = projY(z, Z_NEAR, Z_FAR, HORIZON, BAND_BOT);
+      const depthK = (Z_NEAR / z) * FRONT_SCALE;
+      const pitch = LATERAL / z;                     // 手前ほど席間隔が広い＝1段に入る人が少ない
+      const maxCols = Math.max(0, Math.floor(0.46 / pitch));
+      const rowBrick = (r % 2) * pitch * 0.5;        // 段ごとに半ピッチずらす千鳥
+      for (let cc = -maxCols; cc <= maxCols; cc++) {
+        const xRatio = 0.5 + cc * pitch + rowBrick;
+        if (xRatio < 0.03 || xRatio > 0.97) continue;
+        centerSlots.push({ xRatio, yRatio, depthK });
+      }
+    }
+
+    // ── サイド席：左右の上部だけ。画面端に直角辺を接した小さな直角三角形（各約10席）──
+    // 頂点(上=奥/ステージ側)→下へ向かって広がる。センター(HORIZONより下)へは降ろさない。
+    // ✋は内/外の向き(親指の向き)を変える＝rotationで表現（実物のFA✋で最終調整）。大きさ一定。
+    const SIDE_SIZE = 0.5;
+    const SIDE_ROWS = 4;          // 1+2+3+4 = 約10席
+    const SIDE_X0 = 0.02;         // 画面端の列
+    const SIDE_DX = 0.05;         // 横間隔
+    const SIDE_Y0 = 0.07;         // 頂点(上)
+    const SIDE_DY = 0.072;        // 段間隔
+    // z軸ヨー角(rad)。FAの✋は親指が左。左席は親指を奥へ(−=小さく)、右席は親指を手前へ(＋=大きく)。
+    const SIDE_YAW = 0.95;
+    const sideSlots: Slot[] = [];
+    for (let i = 0; i < SIDE_ROWS; i++) {
+      const yy = SIDE_Y0 + i * SIDE_DY;
+      for (let j = 0; j <= i; j++) {
+        const xx = SIDE_X0 + j * SIDE_DX;
+        sideSlots.push({ xRatio: xx, yRatio: yy, depthK: SIDE_SIZE, rotation: -SIDE_YAW });     // 左席
+        sideSlots.push({ xRatio: 1 - xx, yRatio: yy, depthK: SIDE_SIZE, rotation: SIDE_YAW });  // 右席
+      }
+    }
+
+    if (centerSlots.length === 0 && sideSlots.length === 0) return map;
+
+    // セッションをスロットへ割り当て（シードで安定シャッフルし奥行き・色を散らす）。
+    // セッション数>スロット数なら重なり、少なければ間引き（どちらも自然な群衆になる）。
+    const assign = (arr: typeof sorted, slotArr: Slot[], salt: number) => {
+      if (slotArr.length === 0) return;
+      const ord = slotArr.map((_, idx) => idx).sort((a, b) => {
+        const ha = (Math.imul(a + 1, 2654435761) ^ seed ^ salt) >>> 0;
+        const hb = (Math.imul(b + 1, 2654435761) ^ seed ^ salt) >>> 0;
+        return ha - hb;
+      });
+      arr.forEach((s, i) => {
+        const slot = slotArr[ord[i % slotArr.length]];
+        const jx = (rand01(s.session_hash, 0x11) - 0.5) * 0.018;
+        const jy = (rand01(s.session_hash, 0x22) - 0.5) * 0.010;
+        map.set(s.session_hash, {
+          xRatio: clamp01(slot.xRatio + jx),
+          yRatio: clamp01(slot.yRatio + jy),
+          depthK: slot.depthK,
+          rotation: slot.rotation ?? 0,
+        });
+      });
+    };
+    // サイドは席数（約10席×2）が上限。あふれた分はセンターへ。
+    const sideCount = Math.min(sideSlots.length, Math.round(n * 0.18));
+    assign(sorted.slice(0, sideCount), sideSlots, 0x5e);
+    assign(sorted.slice(sideCount), centerSlots, 0x0c);
+
     return map;
   }, [sessions, selfSeatHash]);
 
@@ -301,6 +374,10 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     playedDate?: string;
     /** アニメをこの ms 分だけ先に進めてスポーンする（遅延した他人の✋の補正） */
     animationOffsetMs?: number;
+    /** 客席の奥行きに応じた縮小倍率（奥=小さい）。未指定=1.0（リアルタイム/自分✋は等倍）。 */
+    depthK?: number;
+    /** ✋の傾き(rad)。サイド席を内向きに見せる用。未指定=0（正面）。 */
+    rotation?: number;
   }) {
     const app = appRef.current;
     const texture = textureRef.current;
@@ -317,7 +394,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     const viewK = viewportSizeK(w, h);
     const crowdK = crowdScale(sessionsRef.current.length);
     const ageK = params.playedDate ? ageScale(params.playedDate) : 1.0;
-    const targetSize = (params.isSelf ? SELF_SIZE : BASE_SIZE) * viewK * crowdK * ageK;
+    const depthK = params.depthK ?? 1.0;
+    const targetSize = (params.isSelf ? SELF_SIZE : BASE_SIZE) * viewK * crowdK * ageK * depthK;
     const texMax = Math.max(texture.width, texture.height) || 1;
     const spriteScale = targetSize / texMax;
     const colorTint = hexToTint(params.color);
@@ -327,6 +405,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     // 事前に焼いた白フチ版テクスチャ(1枚)を背面に、色付き本体(1枚)を前面に置いた Container。
     // 実行時の重ね描き(オーバードロー)が背面1枚で済むので軽い。
     // 位置/スケール/αのアニメは node に対して共通で回す（自分は基準スケール1）。
+    const yaw = params.rotation ?? 0;
     let node: Sprite | Container;
     if (params.isSelf) {
       const container = new Container();
@@ -341,6 +420,28 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       fg.tint = colorTint;
       container.addChild(fg);
       node = container;
+    } else if (Math.abs(yaw) > 0.001) {
+      // サイド席：板を縦軸(z軸)まわりに3D回転→透視投影した台形に✋テクスチャをマッピング。
+      // 奥側(ステージ寄り)の辺が短く・手前の辺が長くなり「内を向く」。親指の大小も自然に出る。
+      const dispW = texture.width * spriteScale;
+      const dispH = texture.height * spriteScale;
+      const D = dispW * 1.3;               // 透視距離（小さいほど台形が強い）
+      const cs = Math.cos(yaw), sn = Math.sin(yaw);
+      // ローカル四隅(中心基準)を投影し、手首(下端中央)を原点(0,0)に合わせる
+      const proj = (px: number, py: number): [number, number] => {
+        const s = D / (D + px * sn);
+        return [-(px * cs * s), py * s - dispH / 2]; // x反転=左右ミラー（親指を反対側へ）
+      };
+      const [x0, y0] = proj(-dispW / 2, -dispH / 2); // 上左
+      const [x1, y1] = proj(dispW / 2, -dispH / 2);  // 上右
+      const [x2, y2] = proj(dispW / 2, dispH / 2);   // 下右
+      const [x3, y3] = proj(-dispW / 2, dispH / 2);  // 下左
+      const mesh = new PerspectiveMesh({
+        texture, verticesX: 8, verticesY: 8,
+        x0, y0, x1, y1, x2, y2, x3, y3,
+      });
+      mesh.tint = colorTint;
+      node = mesh;
     } else {
       const sprite = new Sprite(texture);
       sprite.anchor.set(0.5, 1.0); // 下端中央(着地地点を yRatio に固定)
@@ -443,10 +544,10 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     for (const { session, count } of entries) {
       const member = findMember(session.member_id);
       if (!member) continue;
-      const { xRatio, yRatio } = sessionLayout.get(session.session_hash) ?? seatFromHash(session.session_hash);
+      const pos = sessionLayout.get(session.session_hash) ?? { ...seatFromHash(session.session_hash), depthK: 1, rotation: 0 };
       for (let i = 0; i < count; i++) {
         spawnHand({
-          xRatio, yRatio,
+          xRatio: pos.xRatio, yRatio: pos.yRatio, depthK: pos.depthK, rotation: pos.rotation,
           color: member.color,
           isSelf: false,
           isToday: session.is_today,
