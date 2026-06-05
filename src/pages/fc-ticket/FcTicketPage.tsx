@@ -2625,11 +2625,11 @@ function SubscribeScreen({
       {/* 自動保存トースト：フッターナビの上に固定表示（スクロール位置に関係なく必ず見える） */}
       {saveState !== "idle" && (
         <div
-          className="fixed left-1/2 -translate-x-1/2 bottom-24 z-[60] px-4 py-2 bg-primary text-on-primary-fixed text-[0.6875rem] font-bold uppercase tracking-widest pointer-events-none inline-flex items-center gap-1.5"
-          style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.18)" }}
+          className="fixed left-1/2 -translate-x-1/2 bottom-24 z-[60] px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest pointer-events-none inline-flex items-center gap-1.5"
+          style={{ background: "#ffffff", color: "#777", border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 8px rgba(0,0,0,0.10)" }}
           aria-live="polite"
         >
-          <span className="material-symbols-outlined text-sm">{saveState === "saving" ? "cloud_sync" : "cloud_done"}</span>
+          <span className="material-symbols-outlined text-sm" style={{ color: "#bbb" }}>{saveState === "saving" ? "cloud_sync" : "cloud_done"}</span>
           {saveState === "saving" ? "保存中…" : "保存しました"}
         </div>
       )}
