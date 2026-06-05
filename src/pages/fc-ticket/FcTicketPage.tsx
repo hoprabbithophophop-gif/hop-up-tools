@@ -2622,6 +2622,17 @@ function SubscribeScreen({
 
   return (
     <main className="pt-8 pb-32 px-6 max-w-4xl mx-auto">
+      {/* 自動保存トースト：フッターナビの上に固定表示（スクロール位置に関係なく必ず見える） */}
+      {saveState !== "idle" && (
+        <div
+          className="fixed left-1/2 -translate-x-1/2 bottom-24 z-[60] px-4 py-2 bg-primary text-on-primary-fixed text-[0.6875rem] font-bold uppercase tracking-widest pointer-events-none inline-flex items-center gap-1.5"
+          style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.18)" }}
+          aria-live="polite"
+        >
+          <span className="material-symbols-outlined text-sm">{saveState === "saving" ? "cloud_sync" : "cloud_done"}</span>
+          {saveState === "saving" ? "保存中…" : "保存しました"}
+        </div>
+      )}
       <div className="mb-8">
         <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">Section</span>
         <h2 className="text-5xl font-extrabold tracking-tighter leading-none mt-2">
@@ -2765,19 +2776,14 @@ function SubscribeScreen({
               <span className="material-symbols-outlined text-base">calendar_add_on</span>
               カレンダーに追加
             </a>
-            {/* 脇役：コピー（別端末用）＋ 自動保存の状態 */}
-            <div className="flex items-center justify-between gap-3">
-              <button
-                onClick={handleCopy}
-                className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer inline-flex items-center gap-1"
-              >
-                <span className="material-symbols-outlined text-sm">content_copy</span>
-                {copied ? "コピーしました" : "URLをコピー"}
-              </button>
-              <span className="text-[0.6875rem] text-outline" aria-live="polite">
-                {saveState === "saving" ? "保存中…" : saveState === "saved" ? "保存しました" : ""}
-              </span>
-            </div>
+            {/* 脇役：コピー（別端末用） */}
+            <button
+              onClick={handleCopy}
+              className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer inline-flex items-center gap-1"
+            >
+              <span className="material-symbols-outlined text-sm">content_copy</span>
+              {copied ? "コピーしました" : "URLをコピー"}
+            </button>
             {/* 発行完了直後の応援（C） */}
             <div className="pt-4 border-t border-outline-variant/30">
               <p className="text-sm text-on-surface-variant mb-3">
