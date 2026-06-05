@@ -205,7 +205,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     // 人の視野は広くないので横へは大きく広げず、手前(下)の人ほど巨大（最前列で視界が半分ほど
     // 隠れる）、奥(上=HORIZON付近)ほど小さく密。床の席を遠近投影し、画面内の席だけスロット化。
     const Z_NEAR = 1.0, Z_FAR = 8.0;    // 視点からの距離。比が大きいほど遠近が強い
-    const FRONT_SCALE = 3.2;            // 最前列の✋サイズ倍率（手前で視界が半分隠れる狙い）
+    const FRONT_SCALE = 4.2;            // 最前列の✋サイズ倍率（手前で視界が半分以上隠れる狙い）
     const LATERAL = 0.34;               // 横の広がり（小さいほど視野が狭い＝席が中央寄り）
     const ROWS = 16;
     const centerSlots: Slot[] = [];
