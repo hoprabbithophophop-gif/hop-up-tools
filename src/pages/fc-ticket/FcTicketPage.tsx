@@ -2034,7 +2034,7 @@ const isMonthStart = d.getDate() === 1;
                       // 購読URL発行済み → 自動で配信されるので単発登録は出さない（二重登録防止）
                       <div className="flex items-center gap-3 px-4 py-3 bg-surface-container-high border-l-2 flex-wrap" style={{ borderColor: "#000000" }}>
                         <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "#000000" }}>check_circle</span>
-                        <span className="text-xs font-bold flex-1">この予定は購読URLに追加されました。「URLを更新」で配信されます。</span>
+                        <span className="text-xs font-bold flex-1">この予定は購読URLに追加されました（自動で配信されます）。</span>
                         <button
                           onClick={() => setPendingCalendarUid(null)}
                           className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer transition-colors"
@@ -2369,6 +2369,10 @@ function SubscribeScreen({
   const [error, setError] = useState<string | null>(null);
   const [publishedUrls, setPublishedUrls] = useState<SubscriptionUrls | null>(() => slug ? subscriptionUrls(slug) : null);
   const [copied, setCopied] = useState(false);
+  // 自動保存（発行済みなら選択変更をdebounce 2sでサーバ反映。差分スキップ＋離脱時保存）
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const lastSavedSigRef = useRef<string | null>(null);
+  const saveTimerRef = useRef<number | null>(null);
 
   // 初回マウント時、保存済みincludedが無い場合だけ自動デフォルト計算
   useEffect(() => {
@@ -2432,6 +2436,52 @@ function SubscribeScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchResults, initialized, allDeadlines]);
 
+  // ── 自動保存（発行済みのみ・debounce 2s・差分スキップ・離脱時flush） ──
+  // タイマー/リスナーから最新値を読むためのref（毎レンダーで更新）
+  const includedRef = useRef(includedIds); includedRef.current = includedIds;
+  const retentionRef = useRef(retention); retentionRef.current = retention;
+  const slugRef = useRef(slug); slugRef.current = slug;
+  const allDeadlinesRef = useRef(allDeadlines); allDeadlinesRef.current = allDeadlines;
+  function selectionSig(ids: Set<string>, ret: RetentionMode): string {
+    return [...ids].sort().join(",") + "|" + ret;
+  }
+  // 初期化後、現在の状態を「保存済み」とみなす（タブを開いただけでは発行しない）
+  useEffect(() => {
+    if (initialized && lastSavedSigRef.current === null) {
+      lastSavedSigRef.current = selectionSig(includedIds, retention);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialized]);
+  // 変更をdebounce 2sで自動発行（前回保存と差分があるときだけ）
+  useEffect(() => {
+    if (!initialized || !slug || lastSavedSigRef.current === null) return;
+    if (selectionSig(includedIds, retention) === lastSavedSigRef.current) return; // 差分なし→何もしない
+    setSaveState("saving");
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => { void handlePublish({ silent: true }); }, 2000);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [includedIds, retention, initialized, slug]);
+  // 離脱時（タブ移動/ページ非表示/閉じる）に保留中の変更を即発行
+  useEffect(() => {
+    function flush() {
+      if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+      const ids = includedRef.current, ret = retentionRef.current;
+      if (slugRef.current && ids.size > 0 && selectionSig(ids, ret) !== lastSavedSigRef.current) {
+        void handlePublish({ silent: true });
+      }
+    }
+    const onHide = () => { if (document.visibilityState === "hidden") flush(); };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onHide);
+      flush(); // アンマウント＝Subscribeタブから離脱
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function toggleDeadline(id: string) {
     const next = new Set(includedIds);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -2457,8 +2507,7 @@ function SubscribeScreen({
   function persistRetention(mode: RetentionMode) {
     setRetention(mode);
     try { localStorage.setItem("fc-sub-retention", mode); } catch { /* ignore */ }
-    // 発行済みなら保持期限の変更をサーバ側マニフェストに即時反映（再アップロード）
-    if (slug && includedIds.size > 0) handlePublish(mode);
+    // 発行済みなら自動保存effectがdebounceでサーバ反映する（ここでは即時発行しない）
   }
 
   const now = new Date();
@@ -2488,13 +2537,23 @@ function SubscribeScreen({
   const activeGroups = groupDeadlinesByEvent(activeDeadlines);
   const completedGroups = groupDeadlinesByEvent(completedDeadlines);
 
-  async function handlePublish(retentionArg?: RetentionMode) {
+  async function handlePublish(opts?: { silent?: boolean }) {
+    const silent = opts?.silent ?? false;
+    // 最新値はrefから（タイマー/離脱リスナー経由でも正しく読む）
+    const ids = includedRef.current;
+    const ret = retentionRef.current;
+    const sl = slugRef.current;
+    const deadlines = allDeadlinesRef.current;
+    if (ids.size === 0) {
+      if (!silent) setError("配信する予定が1つも選択されていません。");
+      return;
+    }
     setError(null);
-    setPublishing(true);
+    if (silent) setSaveState("saving"); else setPublishing(true);
     try {
-      const useSlug = slug ?? generateSubscriptionSlug();
-      const events: IcsEvent[] = [...includedIds]
-        .map((id) => allDeadlines.find((dl) => dl.id === id))
+      const useSlug = sl ?? generateSubscriptionSlug();
+      const events: IcsEvent[] = [...ids]
+        .map((id) => deadlines.find((dl) => dl.id === id))
         .filter((dl): dl is Deadline => !!dl)
         .map((dl) => {
           const at = new Date(dl.deadline_at);
@@ -2510,21 +2569,26 @@ function SubscribeScreen({
           };
         });
       if (events.length === 0) {
-        setError("配信する予定が1つも選択されていません。");
-        setPublishing(false);
+        if (!silent) setError("配信する予定が1つも選択されていません。");
         return;
       }
       const ics = generateMultiIcs(events);
-      const urls = await uploadSubscriptionIcs(useSlug, ics, events, retentionArg ?? retention);
-      if (!slug) {
+      const urls = await uploadSubscriptionIcs(useSlug, ics, events, ret);
+      if (!sl) {
         setSlug(useSlug);
         try { localStorage.setItem("fc-sub-slug", useSlug); } catch { /* ignore */ }
       }
       setPublishedUrls(urls);
+      lastSavedSigRef.current = selectionSig(ids, ret); // 保存済みシグネチャ更新（差分スキップ用）
+      if (silent) {
+        setSaveState("saved");
+        window.setTimeout(() => setSaveState((s) => (s === "saved" ? "idle" : s)), 2000);
+      }
     } catch (e) {
-      setError("URLの発行に失敗しました: " + (e instanceof Error ? e.message : String(e)));
+      if (!silent) setError("URLの発行に失敗しました: " + (e instanceof Error ? e.message : String(e)));
+      else setSaveState("idle");
     } finally {
-      setPublishing(false);
+      if (!silent) setPublishing(false);
     }
   }
 
@@ -2693,30 +2757,26 @@ function SubscribeScreen({
           </button>
         ) : (
           <div className="space-y-4">
-            <div className="bg-surface-container-low p-4 text-xs font-mono break-all">
-              {publishedUrls.https}
-            </div>
-            <div className="flex flex-wrap gap-2">
+            {/* 主役：カレンダーに追加（この端末で購読登録） */}
+            <a
+              href={publishedUrls.webcal}
+              className="bg-primary text-on-primary-fixed w-full px-6 py-4 text-sm font-bold uppercase tracking-[0.2em] hover:bg-secondary transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
+            >
+              <span className="material-symbols-outlined text-base">calendar_add_on</span>
+              カレンダーに追加
+            </a>
+            {/* 脇役：コピー（別端末用）＋ 自動保存の状態 */}
+            <div className="flex items-center justify-between gap-3">
               <button
                 onClick={handleCopy}
-                className="bg-primary text-on-primary-fixed px-6 py-3 text-xs font-bold uppercase tracking-widest hover:bg-secondary transition-colors cursor-pointer"
+                className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer inline-flex items-center gap-1"
               >
-                {copied ? "コピー済み" : "URLをコピー"}
+                <span className="material-symbols-outlined text-sm">content_copy</span>
+                {copied ? "コピーしました" : "URLをコピー"}
               </button>
-              <a
-                href={publishedUrls.webcal}
-                className="bg-surface-container text-on-surface px-6 py-3 text-xs font-bold uppercase tracking-widest hover:bg-surface-container-high transition-colors cursor-pointer inline-flex items-center gap-2"
-              >
-                <span className="material-symbols-outlined text-sm">phone_iphone</span>
-                カレンダーアプリで開く
-              </a>
-              <button
-                onClick={() => handlePublish()}
-                disabled={publishing}
-                className="bg-surface-container text-on-surface px-6 py-3 text-xs font-bold uppercase tracking-widest hover:bg-surface-container-high transition-colors cursor-pointer disabled:opacity-30"
-              >
-                {publishing ? "更新中…" : "URLを更新"}
-              </button>
+              <span className="text-[0.6875rem] text-outline" aria-live="polite">
+                {saveState === "saving" ? "保存中…" : saveState === "saved" ? "保存しました" : ""}
+              </span>
             </div>
             {/* 発行完了直後の応援（C） */}
             <div className="pt-4 border-t border-outline-variant/30">
@@ -2748,7 +2808,7 @@ function SubscribeScreen({
         <ul className="text-xs text-on-surface-variant space-y-2 list-disc list-inside">
           <li>このツールは締切を忘れないためのリマインダーです。予定にチェックを付けても、公演への申込・入金は完了しません。申込は各公式ページで行ってください。</li>
           <li>入力した申込状況や登録内容はお使いの端末内に保存され、運営が収集・分析することはありません。（購読URLを発行した場合のみ、選んだ予定がURL先に保管されます）</li>
-          <li>チェックを変えたら「URLを更新」を押してください。カレンダーアプリに反映されるまで最大数時間かかります（すぐ反映したい時は画面を下に引っ張って更新）。</li>
+          <li>チェックを変えると自動で保存されます。カレンダーアプリに反映されるまで最大数時間かかります（すぐ反映したい時は画面を下に引っ張って更新）。</li>
           <li>カレンダーアプリによっては読み取り専用で表示されます（編集できません）。</li>
           <li>URLを知っている人は誰でも予定の内容を見られます。流出させないでください。</li>
         </ul>
