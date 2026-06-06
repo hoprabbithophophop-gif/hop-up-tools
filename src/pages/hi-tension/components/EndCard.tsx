@@ -21,13 +21,17 @@ interface Props {
   memberColor: string;
   onReplay: () => void;
   onChangeColor: () => void;
+  /** 西田汐里さんバースデー表示。ラベル/総数(今日のみ)/シェア文を祝い仕様に。 */
+  birthday?: boolean;
 }
 
 // X(旧Twitter)のシェア下書きを開く。文面・タグ・URLは hop 指定（勝手に足さない）。
 // API/ログイン不要の Web Intent。URL を独立行で出したいので &url= は使わず本文に含める。
 const SHARE_URL = "https://hop-up-tools.pages.dev/hi-tension";
-function shareToX(count: number) {
-  const text = `ハイ！テンション✋ Practice で\n${count}回ハイ！した🖐️\n#ハイテンションPractice\n${SHARE_URL}`;
+function shareToX(count: number, birthday: boolean) {
+  const text = birthday
+    ? `西田汐里さん おたんじょうびおめでとう🎂🩷\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`
+    : `ハイ！テンション✋ Practice で\n${count}回ハイ！した🖐️\n#ハイテンションPractice\n${SHARE_URL}`;
   window.open(
     `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
     "_blank",
@@ -39,7 +43,15 @@ function shareToX(count: number) {
  * 動画完走時に表示する終了カード。
  * ハイ！ボタンの位置を置き換える形で出る(動画はそのまま残る)。
  */
-export default function EndCard({ selfCount, totalCount, memberColor, onReplay, onChangeColor }: Props) {
+export default function EndCard({ selfCount, totalCount, memberColor, onReplay, onChangeColor, birthday = false }: Props) {
+  const labelStyle: CSSProperties = {
+    fontSize: "0.6875rem",
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.1em",
+    color: "#777",
+    margin: "0 0 0.4rem",
+  };
   return (
     <div
       style={{
@@ -52,35 +64,18 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
         padding: "0.4rem 0.4rem",
       }}
     >
-      <div style={{ textAlign: "center" }}>
-        <p
-          style={{
-            fontSize: "0.6875rem",
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.1em",
-            color: "#777",
-            margin: "0 0 0.4rem",
-          }}
-        >
-          あなたのハイ！
+      {birthday && (
+        <p style={{ margin: 0, fontSize: "0.95rem", fontWeight: 800, textAlign: "center", color: memberColor }}>
+          西田汐里さん おたんじょうび おめでとう🎂🩷
         </p>
+      )}
+      <div style={{ textAlign: "center" }}>
+        <p style={labelStyle}>{birthday ? "西田汐里さんへ挙げた✋" : "あなたのハイ！"}</p>
         <BouncyNumber value={selfCount} color={memberColor} size="3rem" />
       </div>
 
       <div style={{ textAlign: "center" }}>
-        <p
-          style={{
-            fontSize: "0.6875rem",
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.1em",
-            color: "#777",
-            margin: "0 0 0.4rem",
-          }}
-        >
-          歴代累計
-        </p>
+        <p style={labelStyle}>{birthday ? "今日 お祝いに挙がった✋の総数" : "歴代累計"}</p>
         <BouncyNumber value={totalCount} color={memberColor} size="2.25rem" />
       </div>
 
@@ -105,7 +100,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
         </button>
         <button
           type="button"
-          onClick={() => shareToX(selfCount)}
+          onClick={() => shareToX(selfCount, birthday)}
           style={{ ...secondaryBtnStyle, marginTop: "1.2rem" }}
         >
           𝕏 でシェアする

@@ -1,18 +1,27 @@
 import { useState, useEffect } from "react";
 import { UNIT_ROWS, findMember } from "../data";
 import HandIcon from "./HandIcon";
-import { isNishidaBirthday, NISHIDA_COLOR } from "../birthday";
+import { NISHIDA_COLOR } from "../birthday";
 
 interface Props {
   initialSelectedId: string | null;
   onConfirm: (memberId: string) => void;
   onOpenRoomMenu: (memberId: string) => void;
+  /** 西田汐里さんバースデー開催中か（トグルの表示有無）。 */
+  birthdayActive?: boolean;
+  /** お祝い表示ON（色をピンクに）。トグルで切替。 */
+  birthdayOn?: boolean;
+  /** お祝い表示のON/OFF切替。 */
+  onToggleBirthday?: () => void;
 }
 
 export default function MemberSelect({
   initialSelectedId,
   onConfirm,
   onOpenRoomMenu,
+  birthdayActive = false,
+  birthdayOn = false,
+  onToggleBirthday,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
 
@@ -20,8 +29,8 @@ export default function MemberSelect({
     document.title = "ハイ！テンション✋ Practice ver. | hop-up-tools";
   }, []);
 
-  // 西田汐里さん バースデースペシャル（6/7）：入口の色を全て nishida ピンクに見せる。
-  const bday = isNishidaBirthday();
+  // 西田汐里さん バースデースペシャル（6/7）：お祝い表示ONのとき入口の色を全て nishida ピンクに。
+  const bday = birthdayOn;
   // 選択中のメンバーカラー。背景の✋モチーフの着色に使う。誕生日中は全色 nishida ピンク。
   const selectedColor = bday ? NISHIDA_COLOR : (findMember(selectedId)?.color ?? null);
   // 各スウォッチ/アクセントの表示色（配置はそのまま、見た目だけ統一）。
@@ -108,6 +117,26 @@ export default function MemberSelect({
         >
           〜西田汐里さんバースデースペシャル〜
         </p>
+      )}
+      {birthdayActive && onToggleBirthday && (
+        <button
+          type="button"
+          onClick={onToggleBirthday}
+          style={{
+            margin: "0.4rem 0 0",
+            padding: "0.2rem 0.6rem",
+            background: "transparent",
+            border: `1px solid ${bday ? "#c6c6c6" : NISHIDA_COLOR}`,
+            borderRadius: 999,
+            color: bday ? "#777" : NISHIDA_COLOR,
+            fontSize: "0.6875rem",
+            fontWeight: 600,
+            cursor: "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          {bday ? "通常の色で表示する" : "🩷 バースデー仕様で表示する"}
+        </button>
       )}
 
       {/* 中央：背景の✋モチーフに重ねて、色選択を縦中央に置く */}
@@ -242,7 +271,7 @@ export default function MemberSelect({
             transition: "background 0.12s",
           }}
         >
-          ひとりではじめる
+          {bday ? "今こそ手を挙げたい" : "ひとりではじめる"}
         </button>
 
         {/* 合言葉の部屋（コードで集まる） */}

@@ -22,7 +22,7 @@ import BouncyNumber from "./components/BouncyNumber";
 import FpsMeter from "./components/FpsMeter";
 import HandIcon from "./components/HandIcon";
 import NavButton from "./components/NavButton";
-import { isNishidaBirthday, NISHIDA_COLOR } from "./birthday";
+import { isNishidaBirthday, NISHIDA_COLOR, readBirthdayDisplayPref, writeBirthdayDisplayPref } from "./birthday";
 import { getSupabase } from "@/lib/supabase";
 
 // 同期デバッグ用のデバイス判定（後で削除）
@@ -1114,6 +1114,16 @@ export default function HiTensionPage() {
 
   const member = findMember(memberId);
 
+  // 西田汐里さんバースデー：日付(or ?nishida)で開催中か＝birthdayActive。
+  // ユーザーは入口のトグルで「通常表示」に切替可（birthdayDisplay）。色は birthdayDisplay に従う。
+  const birthdayActive = isNishidaBirthday();
+  const [birthdayDisplay, setBirthdayDisplay] = useState(() => birthdayActive && readBirthdayDisplayPref());
+  const toggleBirthdayDisplay = () => {
+    const next = !birthdayDisplay;
+    setBirthdayDisplay(next);
+    writeBirthdayDisplayPref(next);
+  };
+
   return (
     <>
       <style>{`
@@ -1242,7 +1252,7 @@ export default function HiTensionPage() {
               selfSeatHash={seatHash}
               selfSeatIndex={isRealtimePlay ? playSeatIndex : -1}
               enableSides={detectDevice() === "other"}
-              overrideColor={isNishidaBirthday() ? NISHIDA_COLOR : undefined}
+              overrideColor={birthdayDisplay ? NISHIDA_COLOR : undefined}
               onPixiEvent={(event, detail) => logHiEvent(anonSessionId, event, detail)}
             />
 
@@ -1250,8 +1260,13 @@ export default function HiTensionPage() {
               <div style={{ position: "relative", zIndex: 3, width: "100%", display: "flex", justifyContent: "center" }}>
                 <EndCard
                   selfCount={endedSelfCount}
-                  totalCount={sessions.reduce((sum, s) => sum + s.bucket_indices.length, 0) + endedSelfCount}
-                  memberColor={(isNishidaBirthday() ? NISHIDA_COLOR : member?.color) ?? "#000"}
+                  totalCount={
+                    (birthdayDisplay
+                      ? sessions.filter((s) => s.is_today).reduce((sum, s) => sum + s.bucket_indices.length, 0)
+                      : sessions.reduce((sum, s) => sum + s.bucket_indices.length, 0)) + endedSelfCount
+                  }
+                  memberColor={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"}
+                  birthday={birthdayDisplay}
                   onReplay={handleReplay}
                   onChangeColor={handleChangeColor}
                 />
@@ -1270,7 +1285,7 @@ export default function HiTensionPage() {
                 }}
               >
                 {/* ごほうび：押した回数。押すたび桁が弾んでカウントアップ（音の代わりの手応え）。 */}
-                <BouncyNumber value={selfPressCount} color={(isNishidaBirthday() ? NISHIDA_COLOR : member?.color) ?? "#000"} size="2rem" />
+                <BouncyNumber value={selfPressCount} color={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"} size="2rem" />
                 <button
                   type="button"
                   onPointerDown={handlePressStart}
@@ -1283,7 +1298,7 @@ export default function HiTensionPage() {
                     height: BUTTON_SIZE,
                     flexShrink: 0, // 縦が足りない画面でも丸を保つ（楕円に潰れない）
                     borderRadius: "50%",
-                    background: (isNishidaBirthday() ? NISHIDA_COLOR : member?.color) ?? "#000",
+                    background: (birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000",
                     color: "#fff",
                     border: "none",
                     cursor: "pointer",
@@ -1362,6 +1377,9 @@ export default function HiTensionPage() {
             initialSelectedId={memberId}
             onConfirm={handleConfirm}
             onOpenRoomMenu={handleOpenRoomMenu}
+            birthdayActive={birthdayActive}
+            birthdayOn={birthdayDisplay}
+            onToggleBirthday={toggleBirthdayDisplay}
           />
         </div>
       )}

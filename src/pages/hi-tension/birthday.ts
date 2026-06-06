@@ -17,3 +17,21 @@ export function isNishidaBirthday(): boolean {
   const d = new Date();
   return d.getMonth() === 5 && d.getDate() === 7; // getMonth: 0始まり → 5 = 6月
 }
+
+// ユーザーの表示選択：誕生日中でも「通常表示」に切り替えられる（推しの色で遊びたい人向け）。
+// 既定はお祝い表示ON。localStorage に "off" を保存している間だけ通常表示。
+const DISPLAY_PREF_KEY = "nishida_display";
+export function readBirthdayDisplayPref(): boolean {
+  try {
+    return localStorage.getItem(DISPLAY_PREF_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+export function writeBirthdayDisplayPref(on: boolean): void {
+  try {
+    localStorage.setItem(DISPLAY_PREF_KEY, on ? "on" : "off");
+  } catch {
+    /* 権限なし等は無視 */
+  }
+}
