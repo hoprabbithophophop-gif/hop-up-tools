@@ -1251,7 +1251,7 @@ export default function HiTensionPage() {
                 <EndCard
                   selfCount={endedSelfCount}
                   totalCount={sessions.reduce((sum, s) => sum + s.bucket_indices.length, 0) + endedSelfCount}
-                  memberColor={member?.color ?? "#000"}
+                  memberColor={(isNishidaBirthday() ? NISHIDA_COLOR : member?.color) ?? "#000"}
                   onReplay={handleReplay}
                   onChangeColor={handleChangeColor}
                 />
