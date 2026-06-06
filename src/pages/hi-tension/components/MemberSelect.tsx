@@ -231,7 +231,7 @@ export default function MemberSelect({
           style={{
             width: "100%",
             padding: "1rem",
-            background: selectedId ? (bday ? NISHIDA_COLOR : "#000") : "#c6c6c6",
+            background: selectedId ? "#000" : "#c6c6c6",
             color: "#fff",
             border: "none",
             fontSize: "0.875rem",
@@ -253,7 +253,7 @@ export default function MemberSelect({
           style={{
             width: "100%",
             padding: "1rem",
-            background: selectedId ? (bday ? NISHIDA_COLOR : "#000") : "#c6c6c6",
+            background: selectedId ? "#000" : "#c6c6c6",
             color: "#fff",
             border: "none",
             fontSize: "0.875rem",
