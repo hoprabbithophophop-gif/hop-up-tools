@@ -194,23 +194,41 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     const sorted = [...sessions].sort((a, b) => mix(a.session_hash) - mix(b.session_hash));
     const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
-    type Slot = { xRatio: number; yRatio: number; depthK: number; rotation?: number };
-    // この線より上＝サイドスタンド(奥/高い)、下＝センターフロア。縦で場所を分けて重ねない。
+    type Slot = { xRatio: number; yRatio: number; depthK: number; rotation: number; spread: number };
+    // この線より上＝サイドスタンド、下＝センターフロア。
     const HORIZON = 0.32;
     // 1/z 補間で縦位置（手前=下=yBot、奥=上=yTop、手前ほど縦に広い）。
     const projY = (z: number, zNear: number, zFar: number, yTop: number, yBot: number) =>
       yTop + (yBot - yTop) * ((1 / z - 1 / zFar) / (1 / zNear - 1 / zFar));
-
-    // ── センター席：中央フロア。HORIZON より下に強い一点透視で配置 ──
-    // 人の視野は広くないので横へは大きく広げず、手前(下)の人ほど巨大（最前列で視界が半分ほど
-    // 隠れる）、奥(上=HORIZON付近)ほど小さく密。床の席を遠近投影し、画面内の席だけスロット化。
     const Z_NEAR = 1.0, Z_FAR = 8.0;    // 視点からの距離。比が大きいほど遠近が強い
-    const FRONT_SCALE = 4.2;            // 最前列の✋サイズ倍率（手前で視界が半分以上隠れる狙い）
-    const LATERAL = 0.30;               // 横の広がり（小さいほど列が詰まる＝千鳥の食い込み強）
-    const ROWS = 16;
+    const FRONT_SCALE = 4.2;            // 最前列の✋サイズ倍率（手前で視界が半分以上隠れる）
+
+    // ★ スロット幾何は人数に依存しない固定配置（セッションが増えても席数・描画は一定＝軽い。
+    //   ✋は「今そのバケットで叩いた人」だけ湧くので、人が増えれば自然に密になる）。
+    //   同じスロットに複数人が乗っても、各自ハッシュで決まる固有オフセット(間隔spreadに比例)で
+    //   散らすので、同座標スタックが起きず隙間も埋まる。
+
+    // ── サイド席：左右上部の直角三角形スロット。ヨー＋左右ミラーで内向き ──
+    const SIDE_SIZE = 0.6;        // 一定サイズ（遠いので差なし）
+    const SIDE_ROWS = 6;          // 1+..+6 = 21席/側
+    const SIDE_X0 = 0.015, SIDE_DX = 0.038; // 横（詰める）
+    const SIDE_Y0 = 0.05, SIDE_DY = 0.046;  // 縦（上部に収める）
+    const SIDE_YAW = 0.95;        // z軸ヨー角(rad)
+    const sideSlots: Slot[] = [];
+    for (let i = 0; i < SIDE_ROWS; i++) {
+      const yy = SIDE_Y0 + i * SIDE_DY;
+      for (let j = 0; j <= i; j++) {
+        const xx = SIDE_X0 + j * SIDE_DX;
+        sideSlots.push({ xRatio: xx, yRatio: yy, depthK: SIDE_SIZE, rotation: -SIDE_YAW, spread: SIDE_DX });     // 左席
+        sideSlots.push({ xRatio: 1 - xx, yRatio: yy, depthK: SIDE_SIZE, rotation: SIDE_YAW, spread: SIDE_DX });  // 右席
+      }
+    }
+
+    // ── センター席：前は席少・奥は席多の透視スロット（HORIZONより下、固定）──
+    const LATERAL = 0.30, ROWS = 16;
     const centerSlots: Slot[] = [];
     for (let r = 0; r < ROWS; r++) {
-      const t = r / (ROWS - 1);   // 0=最前(手前) 1=最奥(HORIZON側)
+      const t = r / (ROWS - 1);
       const z = Z_NEAR + (Z_FAR - Z_NEAR) * t;
       const yRatio = projY(z, Z_NEAR, Z_FAR, HORIZON, BAND_BOT);
       const depthK = (Z_NEAR / z) * FRONT_SCALE;
@@ -220,35 +238,13 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       for (let cc = -maxCols; cc <= maxCols; cc++) {
         const xRatio = 0.5 + cc * pitch + rowBrick;
         if (xRatio < 0.03 || xRatio > 0.97) continue;
-        centerSlots.push({ xRatio, yRatio, depthK });
-      }
-    }
-
-    // ── サイド席：左右の上部だけ。画面端に直角辺を接した小さな直角三角形（各約10席）──
-    // 頂点(上=奥/ステージ側)→下へ向かって広がる。センター(HORIZONより下)へは降ろさない。
-    // ✋は内/外の向き(親指の向き)を変える＝rotationで表現（実物のFA✋で最終調整）。大きさ一定。
-    const SIDE_SIZE = 0.62;
-    const SIDE_ROWS = 5;          // 1+2+3+4+5 = 約15席（1列追加）
-    const SIDE_X0 = 0.02;         // 画面端の列
-    const SIDE_DX = 0.044;        // 横間隔（詰める）
-    const SIDE_Y0 = 0.06;         // 頂点(上)
-    const SIDE_DY = 0.062;        // 段間隔（詰める）
-    // z軸ヨー角(rad)。FAの✋は親指が左。左席は親指を奥へ(−=小さく)、右席は親指を手前へ(＋=大きく)。
-    const SIDE_YAW = 0.95;
-    const sideSlots: Slot[] = [];
-    for (let i = 0; i < SIDE_ROWS; i++) {
-      const yy = SIDE_Y0 + i * SIDE_DY;
-      for (let j = 0; j <= i; j++) {
-        const xx = SIDE_X0 + j * SIDE_DX;
-        sideSlots.push({ xRatio: xx, yRatio: yy, depthK: SIDE_SIZE, rotation: -SIDE_YAW });     // 左席
-        sideSlots.push({ xRatio: 1 - xx, yRatio: yy, depthK: SIDE_SIZE, rotation: SIDE_YAW });  // 右席
+        centerSlots.push({ xRatio, yRatio, depthK, rotation: 0, spread: pitch });
       }
     }
 
     if (centerSlots.length === 0 && sideSlots.length === 0) return map;
 
-    // セッションをスロットへ割り当て（シードで安定シャッフルし奥行き・色を散らす）。
-    // セッション数>スロット数なら重なり、少なければ間引き（どちらも自然な群衆になる）。
+    // 循環割り当て＋間隔比例ジッター（同一スロットに複数人乗っても座標が散って重ならない）。
     const assign = (arr: typeof sorted, slotArr: Slot[], salt: number) => {
       if (slotArr.length === 0) return;
       const ord = slotArr.map((_, idx) => idx).sort((a, b) => {
@@ -258,18 +254,17 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       });
       arr.forEach((s, i) => {
         const slot = slotArr[ord[i % slotArr.length]];
-        const jx = (rand01(s.session_hash, 0x11) - 0.5) * 0.018;
-        const jy = (rand01(s.session_hash, 0x22) - 0.5) * 0.010;
+        const jx = (rand01(s.session_hash, 0x11) - 0.5) * slot.spread * 0.9; // 間隔に比例して散らす
+        const jy = (rand01(s.session_hash, 0x22) - 0.5) * 0.016;
         map.set(s.session_hash, {
           xRatio: clamp01(slot.xRatio + jx),
           yRatio: clamp01(slot.yRatio + jy),
           depthK: slot.depthK,
-          rotation: slot.rotation ?? 0,
+          rotation: slot.rotation,
         });
       });
     };
-    // サイドへ回す人数（席は約15/側だが、同時タップで埋まるよう人数は多めに割り当て＝重なり可）。
-    const sideCount = sideSlots.length > 0 ? Math.round(n * 0.18) : 0;
+    const sideCount = sideSlots.length > 0 ? Math.round(n * 0.16) : 0;
     assign(sorted.slice(0, sideCount), sideSlots, 0x5e);
     assign(sorted.slice(sideCount), centerSlots, 0x0c);
 
