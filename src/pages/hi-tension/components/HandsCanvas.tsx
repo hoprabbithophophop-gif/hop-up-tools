@@ -28,6 +28,8 @@ interface Props {
   selfSeatHash: number;
   /** リアルタイム再生中の自分の席番号（0始まり）。横一列の整列位置に使う。ソロ時は -1 */
   selfSeatIndex?: number;
+  /** サイド席（左右スタンド）を出すか。PC（動画が小さく横が空く）でのみ true 想定。スマホは false。 */
+  enableSides?: boolean;
   /** 診断用: Pixi/WebGL 関連イベントを親に通知（後で削除） */
   onPixiEvent?: (event: string, detail?: string) => void;
 }
@@ -124,7 +126,7 @@ function easeOutCubic(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, onPixiEvent },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, onPixiEvent },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -195,8 +197,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
     type Slot = { xRatio: number; yRatio: number; depthK: number; rotation: number; spread: number };
-    // この線より上＝サイドスタンド、下＝センターフロア。
-    const HORIZON = 0.32;
+    // サイド有り(PC)＝この線より上はサイド用に空ける。サイド無し(スマホ)＝センターを上まで詰めて全面化。
+    const HORIZON = enableSides ? 0.32 : 0.06;
     // 最前列の着地点は画面下端(1.0)より下＝最大の✋は下半分が画面外（飛んでも視界を全部塞がない）。
     const CENTER_BOT = 1.35;
     // 1/z 補間で縦位置（手前=下=yBot、奥=上=yTop、手前ほど縦に広い）。
@@ -267,12 +269,13 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         });
       });
     };
-    const sideCount = sideSlots.length > 0 ? Math.round(n * 0.10) : 0; // サイド控えめ＝センターに多く回す
+    // サイドは PC のみ（スマホは enableSides=false で全員センター＝狭い画面が密になる）。
+    const sideCount = (enableSides && sideSlots.length > 0) ? Math.round(n * 0.10) : 0;
     assign(sorted.slice(0, sideCount), sideSlots, 0x5e);
     assign(sorted.slice(sideCount), centerSlots, 0x0c);
 
     return map;
-  }, [sessions, selfSeatHash]);
+  }, [sessions, selfSeatHash, enableSides]);
 
   // 最新の props を ref に反映(imperative メソッドの中で参照する用)
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);

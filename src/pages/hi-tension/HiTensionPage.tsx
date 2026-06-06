@@ -1235,6 +1235,7 @@ export default function HiTensionPage() {
               selfMemberId={memberId}
               selfSeatHash={seatHash}
               selfSeatIndex={isRealtimePlay ? playSeatIndex : -1}
+              enableSides={detectDevice() === "other"}
               onPixiEvent={(event, detail) => logHiEvent(anonSessionId, event, detail)}
             />
 
