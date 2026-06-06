@@ -2225,7 +2225,8 @@ function eventLeadTrigger(key: string): string | null {
 }
 
 // 種類＋状況 → 通知(VALARM)配列。発行時に1回だけ算出して events に焼く（生成側は描画のみ）。
-function alarmsForDeadline(type: string, isFirstShowOfDay: boolean, leadTrigger: string | null): IcsAlarm[] {
+// isAttending=実際に行く公演か（当選/入金済）。出発通知は行く公演にだけ出す。
+function alarmsForDeadline(type: string, isFirstShowOfDay: boolean, leadTrigger: string | null, isAttending: boolean): IcsAlarm[] {
   switch (type) {
     case "apply_end":
       return [{ trigger: "-P1D", description: "明日が申込締切です" }, { trigger: "-PT1H", description: "まもなく申込締切です" }];
@@ -2243,8 +2244,8 @@ function alarmsForDeadline(type: string, isFirstShowOfDay: boolean, leadTrigger:
     case "payment_start":
       return [{ trigger: "-PT1H", description: "まもなく入金開始です" }];
     case "event":
-      // 公演＝出発通知。その日の最初の公演だけ・ユーザー設定のリードタイムで1本。
-      if (!isFirstShowOfDay || !leadTrigger) return [];
+      // 公演＝出発通知。行く公演(当選/入金済)・その日の最初・リードタイム設定ありの時だけ1本。
+      if (!isAttending || !isFirstShowOfDay || !leadTrigger) return [];
       return [{ trigger: leadTrigger, description: "そろそろお出かけの時間です（本日公演）" }];
     default:
       return [{ trigger: "-P1D", description: "明日が締切です" }, { trigger: "-PT1H", description: "まもなく締切です" }];
@@ -2509,6 +2510,8 @@ function SubscribeScreen({
   const slugRef = useRef(slug); slugRef.current = slug;
   const allDeadlinesRef = useRef(allDeadlines); allDeadlinesRef.current = allDeadlines;
   const eventLeadRef = useRef(eventLead); eventLeadRef.current = eventLead;
+  const matchResultsRef = useRef(matchResults); matchResultsRef.current = matchResults;
+  const paidRef = useRef(paid); paidRef.current = paid;
   function selectionSig(ids: Set<string>, ret: RetentionMode): string {
     return [...ids].sort().join(",") + "|" + ret + "|" + eventLeadRef.current;
   }
@@ -2651,6 +2654,16 @@ function SubscribeScreen({
       }
       const firstEventIds = new Set(firstEventByDate.values());
       const leadTrigger = eventLeadTrigger(eventLeadRef.current);
+      // 「実際に行く公演」判定（当選 or 入金済）。出発通知はここだけに出す。
+      const statusByUid = new Map<string, string>();
+      for (const r of matchResultsRef.current) for (const m of r.matched) statusByUid.set(m.uid, r.parsed.status);
+      const paidSetNow = new Set(paidRef.current);
+      const isAttending = (uid: string) => {
+        const st = statusByUid.get(uid) ?? "";
+        return paidSetNow.has(uid) || st.includes("入金済") || (st.includes("当選") && !st.includes("当選取消"));
+      };
+      // 予定メモから設定にすぐ飛べるリンク（webに飛ぶ手間を短縮）
+      const settingsUrl = "https://hop-up-tools.pages.dev/fc-ticket?tab=subscribe";
       const events: IcsEvent[] = chosen.map((dl) => {
         const at = new Date(dl.deadline_at);
         // 公演(event)は「開演〜2時間」の予定として扱う。締切類は「締切の1時間前〜締切」。
@@ -2658,12 +2671,12 @@ function SubscribeScreen({
         return {
           uid: dl.id + "@hop-up-tools",
           summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
-          description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
+          description: dl.fc_news.title + "\n" + dl.fc_news.detail_url + "\n\n通知の変更: " + settingsUrl,
           dtstart: isEvent ? at : new Date(at.getTime() - 3600000),
           dtend: isEvent ? new Date(at.getTime() + 7200000) : at,
           location: dl.location ?? undefined,
           // 通知は発行時に算出して焼き込む（生成側・regenは描画のみ）
-          alarms: alarmsForDeadline(dl.type, isEvent && firstEventIds.has(dl.id), leadTrigger),
+          alarms: alarmsForDeadline(dl.type, isEvent && firstEventIds.has(dl.id), leadTrigger, isAttending(dl.news_uid)),
         };
       });
       if (events.length === 0) {
