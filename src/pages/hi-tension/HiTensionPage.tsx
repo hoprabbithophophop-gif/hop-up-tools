@@ -1164,11 +1164,13 @@ export default function HiTensionPage() {
             PC ブラウザのデコード負荷が下がる（rate≈1.0 維持＝同期破綻防止）。
             iOS/Android はモバイルの縦画面いっぱいで従来通り。 */}
         <div
-          style={
-            detectDevice() === "other"
+          style={{
+            position: "relative",
+            zIndex: 2, // ✋キャンバスより前面＝跳ねた✋の先が動画の裏に隠れる（動画の延長感）
+            ...(detectDevice() === "other"
               ? { width: PC_VIDEO_WIDTH, maxWidth: "100%", margin: "0 auto" }
-              : undefined
-          }
+              : {}),
+          }}
         >
           <YouTubePlayer
             ref={playerApiRef}
@@ -1192,6 +1194,10 @@ export default function HiTensionPage() {
               // 合わせて中身が圧縮され、丸い✋ボタンが楕円に潰れるため、完走後だけにする。
               minHeight: videoEnded ? 0 : undefined,
               position: "relative",
+              // 再生中はキャンバスを動画の下端に少し潜らせ(動画 z:2 が前面)、跳ねた✋の先が
+              // 動画の裏にチラッと隠れて「動画の延長」に見せる。完走後は通常配置。
+              marginTop: videoEnded ? undefined : -40,
+              zIndex: 1,
               isolation: "isolate", // 子の z-index を安定させる（✋履歴=2 / 中断=1 / タップ✋・免責=3）
               // 再生中は「客電落ち」の暗いアリーナ。完走後(EndCard)は明るいままにしたいので !videoEnded のみ。
               background: videoEnded
