@@ -1,3 +1,8 @@
+export interface IcsAlarm {
+  trigger: string;      // 例: "-P1D"(前日), "-PT1H"(1時間前), "-PT3H"(3時間前)
+  description: string;  // 通知文言
+}
+
 export interface IcsEvent {
   uid: string;
   summary: string;
@@ -5,10 +10,30 @@ export interface IcsEvent {
   dtstart: Date;
   dtend: Date;
   location?: string | null;
+  // 通知。未指定→締切系デフォルト(前日+1h)でフォールバック。空配列[]→通知なし。
+  alarms?: IcsAlarm[];
 }
 
 function formatIcsDate(d: Date): string {
   return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+
+// 旧データ(alarms無し)互換のデフォルト通知＝従来どおり前日＋1時間前の締切リマインダー
+const DEFAULT_ALARMS: IcsAlarm[] = [
+  { trigger: "-P1D", description: "明日が締切です" },
+  { trigger: "-PT1H", description: "1時間後が締切です" },
+];
+
+// VALARM行を生成。undefined→デフォルト、[]→通知なし。
+export function renderAlarms(alarms?: IcsAlarm[]): string[] {
+  const list = alarms ?? DEFAULT_ALARMS;
+  return list.flatMap((a) => [
+    "BEGIN:VALARM",
+    `TRIGGER:${a.trigger}`,
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${a.description.replace(/\n/g, "\\n")}`,
+    "END:VALARM",
+  ]);
 }
 
 /**
@@ -45,16 +70,7 @@ export function generateIcs(event: IcsEvent): string {
     `SUMMARY:${event.summary}`,
     `DESCRIPTION:${event.description.replace(/\n/g, "\\n")}`,
     ...(event.location ? [`LOCATION:${event.location}`] : []),
-    "BEGIN:VALARM",
-    "TRIGGER:-P1D",
-    "ACTION:DISPLAY",
-    "DESCRIPTION:明日が締切です",
-    "END:VALARM",
-    "BEGIN:VALARM",
-    "TRIGGER:-PT1H",
-    "ACTION:DISPLAY",
-    "DESCRIPTION:1時間後が締切です",
-    "END:VALARM",
+    ...renderAlarms(event.alarms),
     "END:VEVENT",
     "END:VCALENDAR",
   ].join("\r\n");
@@ -116,16 +132,7 @@ export function generateMultiIcs(events: IcsEvent[]): string {
       `SUMMARY:${event.summary}`,
       `DESCRIPTION:${event.description.replace(/\n/g, "\\n")}`,
       ...(event.location ? [`LOCATION:${event.location}`] : []),
-      "BEGIN:VALARM",
-      "TRIGGER:-P1D",
-      "ACTION:DISPLAY",
-      "DESCRIPTION:明日が締切です",
-      "END:VALARM",
-      "BEGIN:VALARM",
-      "TRIGGER:-PT1H",
-      "ACTION:DISPLAY",
-      "DESCRIPTION:1時間後が締切です",
-      "END:VALARM",
+      ...renderAlarms(event.alarms),
       "END:VEVENT",
     ];
   });

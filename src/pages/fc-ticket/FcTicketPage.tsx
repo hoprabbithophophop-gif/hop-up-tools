@@ -15,6 +15,7 @@ import {
   generateSubscriptionSlug,
   cleanFcTitle,
   type IcsEvent,
+  type IcsAlarm,
 } from "../../lib/ics";
 import {
   uploadSubscriptionIcs,
@@ -353,6 +354,7 @@ export default function FcTicketPage() {
               watchlist={watchlist}
               onWatchlistChange={setWatchlist}
               applied={applied}
+              onAppliedChange={setApplied}
               paid={paid}
             />
           )}
@@ -2207,6 +2209,48 @@ const SUBSCRIPTION_TYPES_TO_SUBSCRIBE = ["apply_start", "apply_end", "result", "
 // 推しを登録していれば自動チェックする「申込前に動く」種別
 const FAVORITE_ACTIONABLE_TYPES = ["apply_start", "apply_end", "sale_start", "sale_end", "event", "goods_sale_end"];
 
+// 申込「確定」状態（もう申込締切の通知は要らない）を表すstatusキーワード
+const APPLIED_STATUS_KEYWORDS = ["申込済", "当選", "落選", "入金済", "入金待ち", "当選取消"];
+
+// 公演の出発通知リードタイム（ユーザー設定）。trigger=null は通知なし。
+const EVENT_LEAD_OPTIONS: { key: string; label: string; trigger: string | null }[] = [
+  { key: "P1D",  label: "前日", trigger: "-P1D" },
+  { key: "PT3H", label: "3時間前", trigger: "-PT3H" },
+  { key: "PT2H", label: "2時間前", trigger: "-PT2H" },
+  { key: "PT1H", label: "1時間前", trigger: "-PT1H" },
+  { key: "none", label: "通知なし", trigger: null },
+];
+function eventLeadTrigger(key: string): string | null {
+  return (EVENT_LEAD_OPTIONS.find((o) => o.key === key) ?? EVENT_LEAD_OPTIONS[1]).trigger;
+}
+
+// 種類＋状況 → 通知(VALARM)配列。発行時に1回だけ算出して events に焼く（生成側は描画のみ）。
+function alarmsForDeadline(type: string, isFirstShowOfDay: boolean, leadTrigger: string | null): IcsAlarm[] {
+  switch (type) {
+    case "apply_end":
+      return [{ trigger: "-P1D", description: "明日が申込締切です" }, { trigger: "-PT1H", description: "まもなく申込締切です" }];
+    case "payment":
+      return [{ trigger: "-P1D", description: "明日が入金締切です" }, { trigger: "-PT1H", description: "まもなく入金締切です" }];
+    case "sale_end":
+    case "goods_sale_end":
+      return [{ trigger: "-P1D", description: "明日がグッズ締切です" }];
+    case "result":
+      return [{ trigger: "-P1D", description: "明日 当落発表です" }];
+    case "apply_start":
+      return [{ trigger: "-PT1H", description: "まもなく申込開始です" }];
+    case "sale_start":
+      return [{ trigger: "-PT1H", description: "まもなくグッズ販売開始です" }];
+    case "payment_start":
+      return [{ trigger: "-PT1H", description: "まもなく入金開始です" }];
+    case "event":
+      // 公演＝出発通知。その日の最初の公演だけ・ユーザー設定のリードタイムで1本。
+      if (!isFirstShowOfDay || !leadTrigger) return [];
+      return [{ trigger: leadTrigger, description: "そろそろお出かけの時間です（本日公演）" }];
+    default:
+      return [{ trigger: "-P1D", description: "明日が締切です" }, { trigger: "-PT1H", description: "まもなく締切です" }];
+  }
+}
+
 // ─── 推し（favorites）によるタイトル自動マッチ ────────────────
 // ③全体イベント用キーワード（全グループ出演 → 推しがいれば該当）
 const WHOLE_EVENT_KEYWORDS = ["ハロ！コン", "ハロコン", "ひなフェス", "Hello! Project 20", "ハロー！プロジェクト 20"];
@@ -2278,10 +2322,18 @@ function computeDefaultIncluded(
   // 部や当落で出し分けず、この公演グループの「これから来る予定」は全部チェックする方針。
   // （過去の締切は下の時間フィルタで自然に除外されるので、入金済の人に過ぎた申込締切が出る等は起きない）
   const involvedGroups = new Set<string>();
+  // 申込が確定した news_uid（申込締切の通知はもう不要）／入金済の news_uid（入金締切も不要）。
+  // ※ news_uid 単位で判定。グループ単位で消すと二次募集・別部を巻き込むのでNG。
+  const appliedUids = new Set<string>();
+  const paidUids = new Set<string>();
   for (const dl of deadlines) {
-    if (statusByNewsUid.has(dl.news_uid) || appliedSet.has(dl.news_uid) || paidSet.has(dl.news_uid)) {
-      involvedGroups.add(eventGroupKey(dl.fc_news.title));
+    const st = statusByNewsUid.get(dl.news_uid) ?? "";
+    const involved = statusByNewsUid.has(dl.news_uid) || appliedSet.has(dl.news_uid) || paidSet.has(dl.news_uid);
+    if (involved) involvedGroups.add(eventGroupKey(dl.fc_news.title));
+    if (appliedSet.has(dl.news_uid) || paidSet.has(dl.news_uid) || APPLIED_STATUS_KEYWORDS.some((k) => st.includes(k))) {
+      appliedUids.add(dl.news_uid);
     }
+    if (paidSet.has(dl.news_uid) || st.includes("入金済")) paidUids.add(dl.news_uid);
   }
 
   const included = new Set<string>();
@@ -2291,6 +2343,8 @@ function computeDefaultIncluded(
 
     // 関わる公演 = 二次/追加受付・公演予定・グッズ含め、未来の予定を全部ON
     if (involvedGroups.has(eventGroupKey(dl.fc_news.title))) {
+      if (dl.type === "apply_end" && appliedUids.has(dl.news_uid)) continue; // 申込済→申込締切は配信しない
+      if (dl.type === "payment" && paidUids.has(dl.news_uid)) continue;      // 入金済→入金締切は配信しない
       included.add(dl.id);
       continue;
     }
@@ -2322,6 +2376,7 @@ function SubscribeScreen({
   watchlist,
   onWatchlistChange,
   applied,
+  onAppliedChange,
   paid,
 }: {
   allDeadlines: Deadline[];
@@ -2329,6 +2384,7 @@ function SubscribeScreen({
   watchlist: string[];
   onWatchlistChange: (uids: string[]) => void;
   applied: string[];
+  onAppliedChange: (uids: string[]) => void;
   paid: string[];
 }) {
   const watchlistSet = useMemo(() => new Set(watchlist), [watchlist]);
@@ -2344,6 +2400,10 @@ function SubscribeScreen({
       if (v === "after-event-1m" || v === "6m" || v === "forever") return v;
     } catch { /* ignore */ }
     return "after-event-1m";
+  });
+  // 公演の出発通知リードタイム（前日/3時間前/.../通知なし）
+  const [eventLead, setEventLead] = useState<string>(() => {
+    try { return localStorage.getItem("fc-sub-event-lead") ?? "PT3H"; } catch { return "PT3H"; }
   });
   const [includedIds, setIncludedIds] = useState<Set<string>>(() => {
     try {
@@ -2419,6 +2479,10 @@ function SubscribeScreen({
     if (!initialized) return;
     if (matchResults.length === 0) return;
     const matchedUids = new Set(matchResults.flatMap((r) => r.matched.map((m) => m.uid)));
+    const statusByUid = new Map<string, string>();
+    for (const r of matchResults) for (const m of r.matched) statusByUid.set(m.uid, r.parsed.status);
+    const isApplied = (uid: string) => appliedSet.has(uid) || paidSet.has(uid) || APPLIED_STATUS_KEYWORDS.some((k) => (statusByUid.get(uid) ?? "").includes(k));
+    const isPaid = (uid: string) => paidSet.has(uid) || (statusByUid.get(uid) ?? "").includes("入金済");
     const involved = new Set<string>();
     for (const dl of allDeadlines) {
       if (matchedUids.has(dl.news_uid)) involved.add(eventGroupKey(dl.fc_news.title));
@@ -2430,6 +2494,8 @@ function SubscribeScreen({
       if (new Date(dl.deadline_at) < now) continue;
       if (!SUBSCRIPTION_TYPES_TO_SUBSCRIBE.includes(dl.type)) continue;
       if (includedIds.has(dl.id)) continue;
+      if (dl.type === "apply_end" && isApplied(dl.news_uid)) continue; // 申込済→申込締切は再追加しない
+      if (dl.type === "payment" && isPaid(dl.news_uid)) continue;      // 入金済→入金締切は再追加しない
       if (involved.has(eventGroupKey(dl.fc_news.title))) toAdd.push(dl.id);
     }
     if (toAdd.length > 0) persistIncluded(new Set([...includedIds, ...toAdd]));
@@ -2442,8 +2508,9 @@ function SubscribeScreen({
   const retentionRef = useRef(retention); retentionRef.current = retention;
   const slugRef = useRef(slug); slugRef.current = slug;
   const allDeadlinesRef = useRef(allDeadlines); allDeadlinesRef.current = allDeadlines;
+  const eventLeadRef = useRef(eventLead); eventLeadRef.current = eventLead;
   function selectionSig(ids: Set<string>, ret: RetentionMode): string {
-    return [...ids].sort().join(",") + "|" + ret;
+    return [...ids].sort().join(",") + "|" + ret + "|" + eventLeadRef.current;
   }
   // 初期化後、現在の状態を「保存済み」とみなす（タブを開いただけでは発行しない）
   useEffect(() => {
@@ -2461,7 +2528,7 @@ function SubscribeScreen({
     saveTimerRef.current = window.setTimeout(() => { void handlePublish({ silent: true }); }, 2000);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includedIds, retention, initialized, slug]);
+  }, [includedIds, retention, eventLead, initialized, slug]);
   // 離脱時（タブ移動/ページ非表示/閉じる）に保留中の変更を即発行
   useEffect(() => {
     function flush() {
@@ -2510,6 +2577,22 @@ function SubscribeScreen({
     // 発行済みなら自動保存effectがdebounceでサーバ反映する（ここでは即時発行しない）
   }
 
+  function persistEventLead(key: string) {
+    setEventLead(key);
+    try { localStorage.setItem("fc-sub-event-lead", key); } catch { /* ignore */ }
+    // 反映は自動保存effectがdebounceで行う
+  }
+
+  // 申込締切の行で「申込んだ」＝申込済を記録＋その申込締切を配信から外す（自動保存で反映）
+  function markApplied(dl: Deadline) {
+    if (!appliedSet.has(dl.news_uid)) onAppliedChange([...applied, dl.news_uid]);
+    if (includedIds.has(dl.id)) {
+      const next = new Set(includedIds);
+      next.delete(dl.id);
+      persistIncluded(next);
+    }
+  }
+
   const now = new Date();
   const futureDeadlines = allDeadlines
     .filter((dl) => SUBSCRIPTION_TYPES_TO_SUBSCRIBE.includes(dl.type))
@@ -2552,22 +2635,37 @@ function SubscribeScreen({
     if (silent) setSaveState("saving"); else setPublishing(true);
     try {
       const useSlug = sl ?? generateSubscriptionSlug();
-      const events: IcsEvent[] = [...ids]
+      const chosen = [...ids]
         .map((id) => deadlines.find((dl) => dl.id === id))
-        .filter((dl): dl is Deadline => !!dl)
-        .map((dl) => {
-          const at = new Date(dl.deadline_at);
-          // 公演(event)は「開演〜2時間」の予定として扱う。締切類は「締切の1時間前〜締切」。
-          const isEvent = dl.type === "event";
-          return {
-            uid: dl.id + "@hop-up-tools",
-            summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
-            description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
-            dtstart: isEvent ? at : new Date(at.getTime() - 3600000),
-            dtend: isEvent ? new Date(at.getTime() + 7200000) : at,
-            location: dl.location ?? undefined,
-          };
-        });
+        .filter((dl): dl is Deadline => !!dl);
+      // 同日の公演のうち「最も早い1件」を出発通知の対象に（2部以降は会場に居るので通知なし）
+      const firstEventByDate = new Map<string, string>(); // 日付キー → 最早の event の dl.id
+      for (const dl of chosen) {
+        if (dl.type !== "event") continue;
+        const d = new Date(dl.deadline_at);
+        const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+        const cur = firstEventByDate.get(key);
+        if (!cur || new Date(dl.deadline_at) < new Date(chosen.find((x) => x.id === cur)!.deadline_at)) {
+          firstEventByDate.set(key, dl.id);
+        }
+      }
+      const firstEventIds = new Set(firstEventByDate.values());
+      const leadTrigger = eventLeadTrigger(eventLeadRef.current);
+      const events: IcsEvent[] = chosen.map((dl) => {
+        const at = new Date(dl.deadline_at);
+        // 公演(event)は「開演〜2時間」の予定として扱う。締切類は「締切の1時間前〜締切」。
+        const isEvent = dl.type === "event";
+        return {
+          uid: dl.id + "@hop-up-tools",
+          summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
+          description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
+          dtstart: isEvent ? at : new Date(at.getTime() - 3600000),
+          dtend: isEvent ? new Date(at.getTime() + 7200000) : at,
+          location: dl.location ?? undefined,
+          // 通知は発行時に算出して焼き込む（生成側・regenは描画のみ）
+          alarms: alarmsForDeadline(dl.type, isEvent && firstEventIds.has(dl.id), leadTrigger),
+        };
+      });
       if (events.length === 0) {
         if (!silent) setError("配信する予定が1つも選択されていません。");
         return;
@@ -2689,6 +2787,7 @@ function SubscribeScreen({
                       onToggle={() => toggleDeadline(dl.id)}
                       statusBadge={statusBadgeFor(dl.news_uid, matchResults, appliedSet, paidSet)}
                       hideTitle
+                      onMarkApplied={dl.type === "apply_end" && !appliedSet.has(dl.news_uid) ? () => markApplied(dl) : undefined}
                     />
                   ))}
                 </div>
@@ -2731,6 +2830,25 @@ function SubscribeScreen({
             )}
           </div>
         )}
+      </section>
+
+      {/* 公演の通知タイミング（出発の目安） */}
+      <section className="mb-8">
+        <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
+          <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">公演の通知</h3>
+        </div>
+        <select
+          value={eventLead}
+          onChange={(e) => persistEventLead(e.target.value)}
+          className="w-full md:w-auto bg-surface-container-low border border-outline-variant/30 px-4 py-2 text-sm cursor-pointer"
+        >
+          {EVENT_LEAD_OPTIONS.map((o) => (
+            <option key={o.key} value={o.key}>{o.label === "通知なし" ? "通知なし" : `公演の${o.label}`}</option>
+          ))}
+        </select>
+        <p className="text-[0.6875rem] text-outline mt-2">
+          ※ 出発の目安に通知します。会場までの距離・準備時間に合わせて選んでください。同じ日に2部以上ある時は、最初の公演にだけ通知します。
+        </p>
       </section>
 
       {/* 保持期限セレクト */}
@@ -2873,12 +2991,14 @@ function DeadlineCheckRow({
   onToggle,
   statusBadge,
   hideTitle = false,
+  onMarkApplied,
 }: {
   dl: Deadline;
   checked: boolean;
   onToggle: () => void;
   statusBadge: { label: string; tone: "primary" | "muted" | "danger" } | null;
   hideTitle?: boolean;
+  onMarkApplied?: () => void;
 }) {
   const deadline = new Date(dl.deadline_at);
   const dateStr = deadline.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
@@ -2912,6 +3032,14 @@ function DeadlineCheckRow({
         </div>
         {!hideTitle && (
           <p className="text-xs text-on-surface-variant truncate">{dl.fc_news.title}</p>
+        )}
+        {onMarkApplied && (
+          <button
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onMarkApplied(); }}
+            className="mt-1 text-[0.625rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer"
+          >
+            申込んだ → この通知を消す
+          </button>
         )}
       </div>
     </label>
