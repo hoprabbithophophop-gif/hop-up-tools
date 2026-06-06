@@ -197,10 +197,12 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     type Slot = { xRatio: number; yRatio: number; depthK: number; rotation: number; spread: number };
     // この線より上＝サイドスタンド、下＝センターフロア。
     const HORIZON = 0.32;
+    // 最前列の着地点は画面下端(1.0)より下＝最大の✋は下半分が画面外（飛んでも視界を全部塞がない）。
+    const CENTER_BOT = 1.35;
     // 1/z 補間で縦位置（手前=下=yBot、奥=上=yTop、手前ほど縦に広い）。
     const projY = (z: number, zNear: number, zFar: number, yTop: number, yBot: number) =>
       yTop + (yBot - yTop) * ((1 / z - 1 / zFar) / (1 / zNear - 1 / zFar));
-    const Z_NEAR = 1.0, Z_FAR = 8.0;    // 視点からの距離。比が大きいほど遠近が強い
+    const Z_NEAR = 1.0, Z_FAR = 6.0;    // 視点からの距離。比が大きいほど遠近が強い（小さめ=奥を底上げ）
     const FRONT_SCALE = 4.2;            // 最前列の✋サイズ倍率（手前で視界が半分以上隠れる）
 
     // ★ スロット幾何は人数に依存しない固定配置（セッションが増えても席数・描画は一定＝軽い。
@@ -225,19 +227,19 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     }
 
     // ── センター席：前は席少・奥は席多の透視スロット（HORIZONより下、固定）──
-    const LATERAL = 0.30, ROWS = 16;
+    const LATERAL = 0.24, ROWS = 20;               // 列を詰め段数を増やして間を詰める
     const centerSlots: Slot[] = [];
     for (let r = 0; r < ROWS; r++) {
       const t = r / (ROWS - 1);
       const z = Z_NEAR + (Z_FAR - Z_NEAR) * t;
-      const yRatio = projY(z, Z_NEAR, Z_FAR, HORIZON, BAND_BOT);
+      const yRatio = projY(z, Z_NEAR, Z_FAR, HORIZON, CENTER_BOT);
       const depthK = (Z_NEAR / z) * FRONT_SCALE;
       const pitch = LATERAL / z;                     // 手前ほど席間隔が広い＝1段に入る人が少ない
-      const maxCols = Math.max(0, Math.floor(0.46 / pitch));
+      const maxCols = Math.max(0, Math.floor(0.54 / pitch)); // 端まで＋少しはみ出す
       const rowBrick = (r % 2) * pitch * 0.5;        // 段ごとに半ピッチずらす千鳥
       for (let cc = -maxCols; cc <= maxCols; cc++) {
         const xRatio = 0.5 + cc * pitch + rowBrick;
-        if (xRatio < 0.03 || xRatio > 0.97) continue;
+        if (xRatio < -0.05 || xRatio > 1.05) continue; // 画面端で見切れる✋を残す
         centerSlots.push({ xRatio, yRatio, depthK, rotation: 0, spread: pitch });
       }
     }
@@ -254,11 +256,12 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       });
       arr.forEach((s, i) => {
         const slot = slotArr[ord[i % slotArr.length]];
-        const jx = (rand01(s.session_hash, 0x11) - 0.5) * slot.spread * 0.9; // 間隔に比例して散らす
+        const jx = (rand01(s.session_hash, 0x11) - 0.5) * slot.spread * 0.5; // 間隔比例で散らす(千鳥は残す)
         const jy = (rand01(s.session_hash, 0x22) - 0.5) * 0.016;
+        // 画面端の見切れ・下端のはみ出しを許すため 0〜1 に丸めない（緩い範囲で安全のみ確保）。
         map.set(s.session_hash, {
-          xRatio: clamp01(slot.xRatio + jx),
-          yRatio: clamp01(slot.yRatio + jy),
+          xRatio: Math.max(-0.1, Math.min(1.1, slot.xRatio + jx)),
+          yRatio: Math.max(-0.1, Math.min(1.5, slot.yRatio + jy)),
           depthK: slot.depthK,
           rotation: slot.rotation,
         });
