@@ -232,7 +232,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     }
 
     // ── センター席：前は席少・奥は席多の透視スロット（HORIZONより下、固定）──
-    const LATERAL = 0.20, ROWS = 20;               // 列を詰め段数を増やして間を詰める
+    const LATERAL = 0.18, ROWS = 22;               // 列を詰め段数を増やして間を詰める
     const centerSlots: Slot[] = [];
     for (let r = 0; r < ROWS; r++) {
       const t = r / (ROWS - 1);
@@ -240,11 +240,11 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       const yRatio = projY(z, Z_NEAR, Z_FAR, HORIZON, CENTER_BOT);
       const depthK = (Z_NEAR / z) * FRONT_SCALE;
       const pitch = LATERAL / z;                     // 手前ほど席間隔が広い＝1段に入る人が少ない
-      const maxCols = Math.max(0, Math.floor(0.62 / pitch)); // 下段は画面端＝隅(ボタン付近)まで届く
+      const maxCols = Math.max(0, Math.floor(0.80 / pitch)); // 下段の隅(ボタン付近)まで届かせる
       const rowBrick = ((r % 2) ? 0.25 : -0.25) * pitch; // 段ごと±1/4ピッチ＝左右対称の千鳥(片側の空白を防ぐ)
       for (let cc = -maxCols; cc <= maxCols; cc++) {
         const xRatio = 0.5 + cc * pitch + rowBrick;
-        if (xRatio < -0.08 || xRatio > 1.08) continue; // 画面端で見切れる✋を残す
+        if (xRatio < -0.15 || xRatio > 1.15) continue; // 画面端で見切れる✋を残す（隅まで埋める）
         centerSlots.push({ xRatio, yRatio, depthK, rotation: 0, spread: pitch });
       }
     }
