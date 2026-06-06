@@ -1270,7 +1270,7 @@ export default function HiTensionPage() {
                 }}
               >
                 {/* ごほうび：押した回数。押すたび桁が弾んでカウントアップ（音の代わりの手応え）。 */}
-                <BouncyNumber value={selfPressCount} color={member?.color ?? "#000"} size="2rem" />
+                <BouncyNumber value={selfPressCount} color={(isNishidaBirthday() ? NISHIDA_COLOR : member?.color) ?? "#000"} size="2rem" />
                 <button
                   type="button"
                   onPointerDown={handlePressStart}
@@ -1283,7 +1283,7 @@ export default function HiTensionPage() {
                     height: BUTTON_SIZE,
                     flexShrink: 0, // 縦が足りない画面でも丸を保つ（楕円に潰れない）
                     borderRadius: "50%",
-                    background: member?.color ?? "#000",
+                    background: (isNishidaBirthday() ? NISHIDA_COLOR : member?.color) ?? "#000",
                     color: "#fff",
                     border: "none",
                     cursor: "pointer",
