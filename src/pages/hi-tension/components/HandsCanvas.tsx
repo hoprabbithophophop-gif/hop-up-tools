@@ -39,6 +39,9 @@ type BucketEntry = { session: HiSession; count: number };
 
 const BASE_SIZE = 84;
 const SELF_SIZE = 84; // 自分は群衆より明確に大きく（埋もれ防止。白フチも併用）
+// 自分=最前列の「あなた」。手前の客席と同等＋αに見えるよう前列相当の遠近倍率を与える
+// （これが無いと depthK=1 で巨大な手前✋の半分以下になり違和感が出る）。
+const SELF_DEPTH = 3.3;
 const NON_TODAY_ALPHA = 0.4;
 // 跳躍してもキャンバス上端(プレイヤー直下)で✋が見切れないための上余白。
 // 上端(動画直下)に確保する余白。小さくするほど✋の着地帯が上へ広がり、跳躍ピークが
@@ -576,6 +579,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         color: member.color,
         isSelf: true,
         isToday: true,
+        depthK: SELF_DEPTH,
       });
     },
     receiveLiveTap(memberId: string, seatIndex: number, videoTime: number, lagMs: number) {
@@ -662,7 +666,12 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       ref={containerRef}
       style={{
         position: "absolute",
-        inset: 0,
+        // 上端を動画下に40px潜らせる（このキャンバスだけ。カウント数字/ボタンの位置は動かさない）。
+        // 動画は前面(z:2)なので、最上段の✋がジャンプした先っぽだけ動画の裏に隠れる＝動画の延長感。
+        top: -40,
+        left: 0,
+        right: 0,
+        bottom: 0,
         pointerEvents: "none",
         overflow: "hidden",
         zIndex: 2, // 「中断して戻る」(z:1)より上＝✋履歴がボタンに被る。タップ✋/免責は z:3 で前面
