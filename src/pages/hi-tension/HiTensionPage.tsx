@@ -1193,6 +1193,10 @@ export default function HiTensionPage() {
               minHeight: videoEnded ? 0 : undefined,
               position: "relative",
               isolation: "isolate", // 子の z-index を安定させる（✋履歴=2 / 中断=1 / タップ✋・免責=3）
+              // 再生中は「客電落ち」の暗いアリーナ。完走後(EndCard)は明るいままにしたいので !videoEnded のみ。
+              background: videoEnded
+                ? undefined
+                : "radial-gradient(150% 85% at 50% -8%, #1b2030 0%, #0e1016 48%, #07080c 100%)",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -1204,6 +1208,26 @@ export default function HiTensionPage() {
               padding: videoEnded ? "1.2rem 1.2rem 2rem" : "2.4rem 1.2rem 2rem",
             }}
           >
+            {/* ステージ照明：上から差す光がゆっくり明滅して「たまに照らされる」。✋(z:2)の背面(z:0)。 */}
+            {!videoEnded && (
+              <>
+                <style>{`@keyframes hopStageLight{0%,100%{opacity:0.2}40%{opacity:0.75}65%{opacity:0.35}}`}</style>
+                <div
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 0,
+                    pointerEvents: "none",
+                    background:
+                      "radial-gradient(95% 55% at 50% -4%, rgba(120,160,255,0.30), rgba(190,120,255,0.10) 42%, transparent 70%)",
+                    mixBlendMode: "screen",
+                    animation: "hopStageLight 10s ease-in-out infinite",
+                  }}
+                />
+              </>
+            )}
+
             <HandsCanvas
               key={seatHash}
               ref={canvasRef}
@@ -1293,7 +1317,7 @@ export default function HiTensionPage() {
                   ✋キャンバスは pointerEvents:none なのでクリックは透過して効く。 */}
               {!videoEnded && (
                 <div style={{ display: "flex", justifyContent: "flex-start", position: "relative", zIndex: 1 }}>
-                  <NavButton direction="back" onClick={handleChangeColor}>
+                  <NavButton direction="back" onClick={handleChangeColor} background="#00873e" color="#fff">
                     中断して戻る
                   </NavButton>
                 </div>

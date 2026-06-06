@@ -213,8 +213,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     // ── サイド席：左右上部の直角三角形スロット。ヨー＋左右ミラーで内向き ──
     const SIDE_SIZE = 0.6;        // 一定サイズ（遠いので差なし）
     const SIDE_ROWS = 6;          // 1+..+6 = 21席/側
-    const SIDE_X0 = 0.015, SIDE_DX = 0.038; // 横（詰める）
-    const SIDE_Y0 = 0.05, SIDE_DY = 0.046;  // 縦（上部に収める）
+    const SIDE_X0 = 0.012, SIDE_DX = 0.032; // 横（さらに詰める）
+    const SIDE_Y0 = 0.05, SIDE_DY = 0.043;  // 縦（上部に収める）
     const SIDE_YAW = 0.95;        // z軸ヨー角(rad)
     const sideSlots: Slot[] = [];
     for (let i = 0; i < SIDE_ROWS; i++) {
@@ -236,7 +236,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       const depthK = (Z_NEAR / z) * FRONT_SCALE;
       const pitch = LATERAL / z;                     // 手前ほど席間隔が広い＝1段に入る人が少ない
       const maxCols = Math.max(0, Math.floor(0.54 / pitch)); // 端まで＋少しはみ出す
-      const rowBrick = (r % 2) * pitch * 0.5;        // 段ごとに半ピッチずらす千鳥
+      const rowBrick = ((r % 2) ? 0.25 : -0.25) * pitch; // 段ごと±1/4ピッチ＝左右対称の千鳥(片側の空白を防ぐ)
       for (let cc = -maxCols; cc <= maxCols; cc++) {
         const xRatio = 0.5 + cc * pitch + rowBrick;
         if (xRatio < -0.05 || xRatio > 1.05) continue; // 画面端で見切れる✋を残す
@@ -267,7 +267,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         });
       });
     };
-    const sideCount = sideSlots.length > 0 ? Math.round(n * 0.16) : 0;
+    const sideCount = sideSlots.length > 0 ? Math.round(n * 0.10) : 0; // サイド控えめ＝センターに多く回す
     assign(sorted.slice(0, sideCount), sideSlots, 0x5e);
     assign(sorted.slice(sideCount), centerSlots, 0x0c);
 
