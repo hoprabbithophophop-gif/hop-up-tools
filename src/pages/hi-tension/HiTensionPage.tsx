@@ -1285,9 +1285,10 @@ export default function HiTensionPage() {
                     color: "#fff",
                     border: "none",
                     cursor: "pointer",
+                    // 暗いアリーナ背景＋濃いメンカラでも埋もれないよう白リングで縁取り。
                     boxShadow: isPressed
-                      ? "0 0 0 1px rgba(0,0,0,0.12), 0 0 0 8px rgba(0,0,0,0.06)"
-                      : "0 0 0 1px rgba(0,0,0,0.08)",
+                      ? "0 0 0 3px rgba(255,255,255,0.92), 0 0 0 11px rgba(255,255,255,0.14)"
+                      : "0 0 0 3px rgba(255,255,255,0.92), 0 6px 20px rgba(0,0,0,0.4)",
                     transform: isPressed ? "scale(0.92)" : "scale(1)",
                     transition: "transform 0.12s, box-shadow 0.12s",
                     touchAction: "manipulation",

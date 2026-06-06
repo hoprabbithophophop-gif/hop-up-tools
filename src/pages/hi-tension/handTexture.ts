@@ -55,7 +55,7 @@ export function getHandOutlineTexture(): { texture: Texture; anchorX: number; an
   const w = Math.max(1, Math.round(iconW * scale));
   const h = Math.max(1, Math.round(iconH * scale));
 
-  const strokeIcon = 110; // フチ太さ(アイコン座標系)。round 継ぎで滑らかに膨らませる
+  const strokeIcon = 65; // フチ太さ(アイコン座標系)。自分✋が大きくなったぶん細めに（太すぎ防止）
   const pad = Math.ceil((strokeIcon * scale) / 2) + 2; // ストロークがキャンバス外に見切れないための余白(px)
 
   const canvas = document.createElement("canvas");

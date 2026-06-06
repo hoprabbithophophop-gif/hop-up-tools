@@ -33,6 +33,9 @@ export default function BouncyNumber({ value, color, size = "3rem" }: Props) {
           letterSpacing: "-0.02em",
           color,
           lineHeight: 1,
+          // 暗いアリーナ背景＋濃いメンカラ(紫/緑等)でも埋もれないよう白で縁取り＋軽い影。
+          textShadow:
+            "1px 1px 0 rgba(255,255,255,0.95), -1px 1px 0 rgba(255,255,255,0.95), 1px -1px 0 rgba(255,255,255,0.95), -1px -1px 0 rgba(255,255,255,0.95), 0 2px 6px rgba(0,0,0,0.45)",
         }}
       >
         {digits.map((d, i) => (
