@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { UNIT_ROWS, findMember } from "../data";
 import HandIcon from "./HandIcon";
+import { isNishidaBirthday, NISHIDA_COLOR } from "../birthday";
 
 interface Props {
   initialSelectedId: string | null;
@@ -19,8 +20,12 @@ export default function MemberSelect({
     document.title = "ハイ！テンション✋ Practice ver. | hop-up-tools";
   }, []);
 
-  // 選択中のメンバーカラー。背景の✋モチーフの着色に使う。
-  const selectedColor = findMember(selectedId)?.color ?? null;
+  // 西田汐里さん バースデースペシャル（6/7）：入口の色を全て nishida ピンクに見せる。
+  const bday = isNishidaBirthday();
+  // 選択中のメンバーカラー。背景の✋モチーフの着色に使う。誕生日中は全色 nishida ピンク。
+  const selectedColor = bday ? NISHIDA_COLOR : (findMember(selectedId)?.color ?? null);
+  // 各スウォッチ/アクセントの表示色（配置はそのまま、見た目だけ統一）。
+  const tint = (c: string) => (bday ? NISHIDA_COLOR : c);
 
   return (
     <div
@@ -90,6 +95,20 @@ export default function MemberSelect({
       >
         ✋ Practice ver.
       </p>
+      {bday && (
+        <p
+          style={{
+            fontSize: "0.75rem",
+            fontWeight: 700,
+            letterSpacing: "0.02em",
+            margin: "0.25rem 0 0",
+            textAlign: "center",
+            color: NISHIDA_COLOR,
+          }}
+        >
+          〜西田汐里さんバースデースペシャル〜
+        </p>
+      )}
 
       {/* 中央：背景の✋モチーフに重ねて、色選択を縦中央に置く */}
       <div
@@ -119,7 +138,7 @@ export default function MemberSelect({
             animation: "hi-tension-hand-pop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1)",
           }}
         >
-          <HandIcon size="min(122vw, 84vh)" color={selectedColor ?? "#000"} />
+          <HandIcon size="min(122vw, 84vh)" color={selectedColor ?? (bday ? NISHIDA_COLOR : "#000")} />
         </div>
 
         <p
@@ -176,11 +195,11 @@ export default function MemberSelect({
                     width: baseSize,
                     height: baseSize,
                     borderRadius: "50%",
-                    background: m.color,
+                    background: tint(m.color),
                     border: "none",
                     // リングは box-shadow(レイアウトに影響しない)で表現
                     boxShadow: isSelected
-                      ? `0 0 0 3px #f8f9fa, 0 0 0 5px ${m.color}`
+                      ? `0 0 0 3px #f8f9fa, 0 0 0 5px ${tint(m.color)}`
                       : "0 0 0 1px rgba(0,0,0,0.08)",
                     padding: 0,
                     cursor: "pointer",
@@ -212,7 +231,7 @@ export default function MemberSelect({
           style={{
             width: "100%",
             padding: "1rem",
-            background: selectedId ? "#000" : "#c6c6c6",
+            background: selectedId ? (bday ? NISHIDA_COLOR : "#000") : "#c6c6c6",
             color: "#fff",
             border: "none",
             fontSize: "0.875rem",
@@ -234,7 +253,7 @@ export default function MemberSelect({
           style={{
             width: "100%",
             padding: "1rem",
-            background: selectedId ? "#000" : "#c6c6c6",
+            background: selectedId ? (bday ? NISHIDA_COLOR : "#000") : "#c6c6c6",
             color: "#fff",
             border: "none",
             fontSize: "0.875rem",

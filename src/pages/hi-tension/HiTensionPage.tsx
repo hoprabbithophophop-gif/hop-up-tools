@@ -22,6 +22,7 @@ import BouncyNumber from "./components/BouncyNumber";
 import FpsMeter from "./components/FpsMeter";
 import HandIcon from "./components/HandIcon";
 import NavButton from "./components/NavButton";
+import { isNishidaBirthday, NISHIDA_COLOR } from "./birthday";
 import { getSupabase } from "@/lib/supabase";
 
 // 同期デバッグ用のデバイス判定（後で削除）
@@ -1241,6 +1242,7 @@ export default function HiTensionPage() {
               selfSeatHash={seatHash}
               selfSeatIndex={isRealtimePlay ? playSeatIndex : -1}
               enableSides={detectDevice() === "other"}
+              overrideColor={isNishidaBirthday() ? NISHIDA_COLOR : undefined}
               onPixiEvent={(event, detail) => logHiEvent(anonSessionId, event, detail)}
             />
 

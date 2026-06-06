@@ -30,6 +30,8 @@ interface Props {
   selfSeatIndex?: number;
   /** サイド席（左右スタンド）を出すか。PC（動画が小さく横が空く）でのみ true 想定。スマホは false。 */
   enableSides?: boolean;
+  /** 全✋の色を強制上書き（誕生日モード等）。未指定は各メンバーカラー。 */
+  overrideColor?: string;
   /** 診断用: Pixi/WebGL 関連イベントを親に通知（後で削除） */
   onPixiEvent?: (event: string, detail?: string) => void;
 }
@@ -129,7 +131,7 @@ function easeOutCubic(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, onPixiEvent },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, overrideColor, onPixiEvent },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -146,6 +148,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   const selfSeatHashRef = useRef<number>(selfSeatHash);
   const selfSeatIndexRef = useRef<number | undefined>(selfSeatIndex);
   const onPixiEventRef = useRef<typeof onPixiEvent>(onPixiEvent);
+  const overrideColorRef = useRef<string | undefined>(overrideColor);
+  useEffect(() => { overrideColorRef.current = overrideColor; }, [overrideColor]);
   useEffect(() => { onPixiEventRef.current = onPixiEvent; }, [onPixiEvent]);
   // WebGL コンテキストロスト時の再初期化トリガ（カウンタを増やすと init useEffect が再実行される）
   const [reinitCount, setReinitCount] = useState(0);
@@ -552,7 +556,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       for (let i = 0; i < count; i++) {
         spawnHand({
           xRatio: pos.xRatio, yRatio: pos.yRatio, depthK: pos.depthK, rotation: pos.rotation,
-          color: member.color,
+          color: overrideColorRef.current ?? member.color,
           isSelf: false,
           isToday: session.is_today,
           playedDate: session.played_date,
@@ -576,7 +580,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
           : { xRatio: 0.5, yRatio: SELF_Y_SOLO };
       spawnHand({
         xRatio, yRatio,
-        color: member.color,
+        color: overrideColorRef.current ?? member.color,
         isSelf: true,
         isToday: true,
         depthK: SELF_DEPTH,
@@ -596,7 +600,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         const { xRatio, yRatio } = seatIndexToPosition(seatIndex);
         spawnHand({
           xRatio, yRatio,
-          color: member.color,
+          color: overrideColorRef.current ?? member.color,
           isSelf: false,
           isToday: true,
           playedDate: new Date().toISOString().slice(0, 10),
@@ -628,7 +632,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
               const { xRatio, yRatio } = seatIndexToPosition(tap.seatIndex);
               spawnHand({
                 xRatio, yRatio,
-                color: member.color,
+                color: overrideColorRef.current ?? member.color,
                 isSelf: false,
                 isToday: true,
                 playedDate: new Date().toISOString().slice(0, 10),
