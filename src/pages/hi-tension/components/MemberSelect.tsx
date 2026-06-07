@@ -298,7 +298,7 @@ export default function MemberSelect({
                 cursor: "pointer",
                 fontSize: "1.5rem",
                 lineHeight: 1,
-                padding: "0.3rem 0.9rem",
+                padding: "0.1rem 0.3rem",
                 opacity: 0.9,
               }}
             >
