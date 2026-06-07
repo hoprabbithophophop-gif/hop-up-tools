@@ -9,6 +9,8 @@ export async function submitHiSession(params: {
   memberId: string;
   timestamps: number[];
   anonymousSessionId: string;
+  /** スペシャル仕様(お祝い等)モードで遊んだか。練習勢と分離するためDBに記録する汎用フラグ。 */
+  specialMode?: boolean;
 }): Promise<SubmitResult> {
   const supabase = getSupabase();
   const { data, error } = await supabase.functions.invoke("submit-hi-session", {
@@ -17,6 +19,7 @@ export async function submitHiSession(params: {
       member_id: params.memberId,
       timestamps: params.timestamps,
       anonymous_session_id: params.anonymousSessionId,
+      special_mode: params.specialMode === true,
     },
   });
   if (error) {
@@ -44,13 +47,15 @@ export type HiSession = {
    *  古いビューには無いので optional（無ければ bucket_indices を2倍して近似する）。 */
   bucket_indices_20?: number[];
   played_date: string;
+  /** スペシャル仕様(お祝い等)の席か。練習勢=false。古いビューには無いので optional（未定義=false扱い）。 */
+  special_mode?: boolean;
 };
 
 export async function fetchHiSessions(): Promise<HiSession[]> {
   const supabase = getSupabase();
   const { data, error } = await supabase
     .from("hi_aggregations")
-    .select("session_hash, member_id, is_today, bucket_indices, bucket_indices_20, played_date")
+    .select("session_hash, member_id, is_today, bucket_indices, bucket_indices_20, played_date, special_mode")
     .eq("video_id", VIDEO_ID);
   if (error) {
     console.error("[hi-tension] fetch sessions failed:", error);

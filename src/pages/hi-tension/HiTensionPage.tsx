@@ -1049,6 +1049,7 @@ export default function HiTensionPage() {
       memberId,
       timestamps: timestampsRef.current.slice(),
       anonymousSessionId: anonSessionId,
+      specialMode: birthdayDisplay, // スペシャル(お祝い)モードで遊んだ＝競争勢として記録（練習勢と分離）
     }).then((result) => {
       if (result.ok) { console.log("[hi-tension] session saved."); }
       else { console.warn("[hi-tension] save failed:", result.error); submittedRef.current = false; }
@@ -1123,6 +1124,12 @@ export default function HiTensionPage() {
     setBirthdayDisplay(next);
     writeBirthdayDisplayPref(next);
   };
+  // 練習勢(birthday_mode=false)と お祝い勢(true)で客席・累計を分離。表示モードに合う側だけ見せる。
+  // （履歴のフラグ無し→false＝練習に含む。お祝い勢の大量タップが練習記録を汚さない）
+  const displaySessions = birthdayDisplay
+    ? sessions.filter((s) => s.special_mode)
+    : sessions.filter((s) => !s.special_mode);
+  const displayTotal = displaySessions.reduce((sum, s) => sum + s.bucket_indices.length, 0);
 
   return (
     <>
@@ -1247,7 +1254,7 @@ export default function HiTensionPage() {
             <HandsCanvas
               key={seatHash}
               ref={canvasRef}
-              sessions={sessions}
+              sessions={displaySessions}
               selfMemberId={memberId}
               selfSeatHash={seatHash}
               selfSeatIndex={isRealtimePlay ? playSeatIndex : -1}
@@ -1260,11 +1267,7 @@ export default function HiTensionPage() {
               <div style={{ position: "relative", zIndex: 3, width: "100%", display: "flex", justifyContent: "center" }}>
                 <EndCard
                   selfCount={endedSelfCount}
-                  totalCount={
-                    (birthdayDisplay
-                      ? sessions.filter((s) => s.is_today).reduce((sum, s) => sum + s.bucket_indices.length, 0)
-                      : sessions.reduce((sum, s) => sum + s.bucket_indices.length, 0)) + endedSelfCount
-                  }
+                  totalCount={displayTotal + endedSelfCount}
                   memberColor={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"}
                   birthday={birthdayDisplay}
                   onReplay={handleReplay}
