@@ -181,7 +181,7 @@ export default function MemberSelect({
             zIndex: 1,
           }}
         >
-          好きな色だよね？
+          {bday ? "好きな色だよね？" : "好きな色は？"}
         </p>
 
         <div
