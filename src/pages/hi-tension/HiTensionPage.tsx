@@ -1134,12 +1134,14 @@ export default function HiTensionPage() {
     setBirthdayDisplay(next);
     writeBirthdayDisplayPref(next);
   };
-  // 練習勢(birthday_mode=false)と お祝い勢(true)で客席・累計を分離。表示モードに合う側だけ見せる。
-  // （履歴のフラグ無し→false＝練習に含む。お祝い勢の大量タップが練習記録を汚さない）
-  const displaySessions = birthdayDisplay
+  // 客席：お祝いモードは全員(密・お祝い一色。お祝い勢は練習✋が混ざっても困らない)、
+  // 通常モードは練習勢のみ(special_mode=false。競争勢の大量タップのノイズを除外＝練習がクリーン)。
+  const displaySessions = birthdayDisplay ? sessions : sessions.filter((s) => !s.special_mode);
+  // 累計：お祝い=今日のお祝い参加(special_mode=true)の合計、通常=練習勢の合計。
+  const displayTotal = (birthdayDisplay
     ? sessions.filter((s) => s.special_mode)
-    : sessions.filter((s) => !s.special_mode);
-  const displayTotal = displaySessions.reduce((sum, s) => sum + s.bucket_indices.length, 0);
+    : sessions.filter((s) => !s.special_mode)
+  ).reduce((sum, s) => sum + s.bucket_indices.length, 0);
 
   return (
     <>
@@ -1305,7 +1307,7 @@ export default function HiTensionPage() {
                 {/* 自分の✋：✋ボタン(同グループ内)より前面(z:2)に重ねてDOMでポップ。
                     群衆はpixi(z:2のcanvas)で下、ボタン群(z:3)が上＝自分✋>ボタン>群衆。
                     pointerEvents:none でタップは下のボタンに透過。 */}
-                <style>{`@keyframes hi-self-pop{0%{transform:translate(-50%,6px) scale(0.7);opacity:.95}30%{transform:translate(-50%,-64px) scale(1.06);opacity:1}100%{transform:translate(-50%,-8px) scale(1);opacity:0}}`}</style>
+                <style>{`@keyframes hi-self-pop{0%{transform:translate(-50%,10px) scaleX(1.1) scaleY(0.85);opacity:1}18%{transform:translate(-50%,-12px) scaleX(0.92) scaleY(1.1);opacity:1}55%{transform:translate(-50%,-118px) scale(1);opacity:1}100%{transform:translate(-50%,-40px) scale(0.96);opacity:0}}`}</style>
                 <div aria-hidden style={{ position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none" }}>
                   {selfPops.map((id) => (
                     <div
