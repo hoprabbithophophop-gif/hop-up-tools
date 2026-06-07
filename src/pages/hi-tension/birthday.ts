@@ -5,11 +5,22 @@ export const NISHIDA_COLOR = "#da1884"; // 西田汐里さんのメンバーカ�
 
 export function isNishidaBirthday(): boolean {
   try {
-    // ?nishida を一度でも踏んだら、そのタブのセッション中は記憶しておく。
-    // （入室=play遷移でURLからクエリが外れてもプレビューが続くように。本番には無害）
-    if (new URLSearchParams(window.location.search).has("nishida")) {
+    // プレビュー用パラメータ（本番には無害。付けた本人だけ効く・タブ内で記憶）：
+    //   ?nishida        → 強制ON（お祝い表示の確認）
+    //   ?nishida=off    → 強制OFF（日付が変わった後の"通常日"表示の確認。誕生日中でも素の通常に）
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("nishida")) {
+      const v = params.get("nishida");
+      if (v === "off" || v === "0" || v === "false") {
+        sessionStorage.setItem("nishida_force_off", "1");
+        sessionStorage.removeItem("nishida_preview");
+        return false;
+      }
+      sessionStorage.removeItem("nishida_force_off");
       sessionStorage.setItem("nishida_preview", "1");
+      return true;
     }
+    if (sessionStorage.getItem("nishida_force_off") === "1") return false;
     if (sessionStorage.getItem("nishida_preview") === "1") return true;
   } catch {
     /* SSR/権限なし等は無視 */
