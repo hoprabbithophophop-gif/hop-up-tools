@@ -135,7 +135,7 @@ export default function MemberSelect({
             fontFamily: "inherit",
           }}
         >
-          {bday ? "通常の色で表示する" : "🩷 バースデー仕様で表示する"}
+          {bday ? "通常モードで✋する" : "🩷 スペシャルモードで✋する"}
         </button>
       )}
 

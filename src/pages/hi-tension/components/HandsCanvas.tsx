@@ -32,6 +32,8 @@ interface Props {
   enableSides?: boolean;
   /** 全✋の色を強制上書き（誕生日モード等）。未指定は各メンバーカラー。 */
   overrideColor?: string;
+  /** ✋サイズ算出(crowdScale)に使う人数。客席を分離表示しても全体登録数で安定させる用。未指定=表示中の数。 */
+  scaleCount?: number;
   /** 診断用: Pixi/WebGL 関連イベントを親に通知（後で削除） */
   onPixiEvent?: (event: string, detail?: string) => void;
 }
@@ -131,7 +133,7 @@ function easeOutCubic(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, overrideColor, onPixiEvent },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, overrideColor, scaleCount, onPixiEvent },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -150,6 +152,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   const onPixiEventRef = useRef<typeof onPixiEvent>(onPixiEvent);
   const overrideColorRef = useRef<string | undefined>(overrideColor);
   useEffect(() => { overrideColorRef.current = overrideColor; }, [overrideColor]);
+  const scaleCountRef = useRef<number | undefined>(scaleCount);
+  useEffect(() => { scaleCountRef.current = scaleCount; }, [scaleCount]);
   useEffect(() => { onPixiEventRef.current = onPixiEvent; }, [onPixiEvent]);
   // WebGL コンテキストロスト時の再初期化トリガ（カウンタを増やすと init useEffect が再実行される）
   const [reinitCount, setReinitCount] = useState(0);
@@ -400,7 +404,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
 
     // 画面サイズ × 累計セッション数 × 日付経過に応じて✋を縮小(自分も同率なので「自分は約20%大きい」は維持)
     const viewK = viewportSizeK(w, h);
-    const crowdK = crowdScale(sessionsRef.current.length);
+    const crowdK = crowdScale(scaleCountRef.current ?? sessionsRef.current.length);
     const ageK = params.playedDate ? ageScale(params.playedDate) : 1.0;
     const depthK = params.depthK ?? 1.0;
     const targetSize = (params.isSelf ? SELF_SIZE : BASE_SIZE) * viewK * crowdK * ageK * depthK;

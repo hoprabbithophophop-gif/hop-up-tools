@@ -1260,6 +1260,7 @@ export default function HiTensionPage() {
               selfSeatIndex={isRealtimePlay ? playSeatIndex : -1}
               enableSides={detectDevice() === "other"}
               overrideColor={birthdayDisplay ? NISHIDA_COLOR : undefined}
+              scaleCount={sessions.length}
               onPixiEvent={(event, detail) => logHiEvent(anonSessionId, event, detail)}
             />
 
@@ -1284,11 +1285,13 @@ export default function HiTensionPage() {
                   justifyContent: "center",
                   gap: "1rem",
                   minHeight: 120,
-                  zIndex: 3,
+                  // ここでは stacking context を作らない（中の数字とボタンの z を個別に効かせるため）。
                 }}
               >
-                {/* ごほうび：押した回数。押すたび桁が弾んでカウントアップ（音の代わりの手応え）。 */}
-                <BouncyNumber value={selfPressCount} color={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"} size="2rem" />
+                {/* ごほうび：押した回数。✋(キャンバスz:2)より前面(z:3)に出して数字が隠れないように。 */}
+                <div style={{ position: "relative", zIndex: 3 }}>
+                  <BouncyNumber value={selfPressCount} color={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"} size="2rem" />
+                </div>
                 <button
                   type="button"
                   onPointerDown={handlePressStart}
@@ -1297,6 +1300,10 @@ export default function HiTensionPage() {
                   onPointerCancel={handlePressEnd}
                   onContextMenu={(e) => e.preventDefault()}
                   style={{
+                    // ✋キャンバス(z:2)より下(z:1)＝自分の✋がボタンの上に重なる。
+                    // キャンバスは pointerEvents:none なのでタップは透過してこのボタンに効く（中断ボタンと同じ方式）。
+                    position: "relative",
+                    zIndex: 1,
                     width: BUTTON_SIZE,
                     height: BUTTON_SIZE,
                     flexShrink: 0, // 縦が足りない画面でも丸を保つ（楕円に潰れない）
