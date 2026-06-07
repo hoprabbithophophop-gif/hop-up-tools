@@ -30,7 +30,7 @@ interface Props {
 const SHARE_URL = "https://hop-up-tools.pages.dev/hi-tension";
 function shareToX(count: number, birthday: boolean) {
   const text = birthday
-    ? `西田汐里さん お誕生日おめでとう🎂🩷\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`
+    ? `西田汐里さん お誕生日おめでとう🎂💗\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`
     : `ハイ！テンション✋ Practice で\n${count}回ハイ！した🖐️\n#ハイテンションPractice\n${SHARE_URL}`;
   window.open(
     `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
@@ -66,7 +66,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
     >
       {birthday && (
         <p style={{ margin: 0, fontSize: "0.95rem", fontWeight: 800, textAlign: "center", color: memberColor }}>
-          西田汐里さん お誕生日おめでとう🎂🩷
+          西田汐里さん お誕生日おめでとう🎂💗
         </p>
       )}
       <div style={{ textAlign: "center" }}>

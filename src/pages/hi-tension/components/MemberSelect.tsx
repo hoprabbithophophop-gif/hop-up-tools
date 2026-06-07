@@ -135,7 +135,7 @@ export default function MemberSelect({
             fontFamily: "inherit",
           }}
         >
-          {bday ? "通常モードで✋する" : "🩷 スペシャルモードで✋する"}
+          {bday ? "通常モードで✋する" : "💗 スペシャルモードで✋する"}
         </button>
       )}
 
@@ -181,7 +181,7 @@ export default function MemberSelect({
             zIndex: 1,
           }}
         >
-          好きな色は？
+          好きな色だよね？
         </p>
 
         <div
