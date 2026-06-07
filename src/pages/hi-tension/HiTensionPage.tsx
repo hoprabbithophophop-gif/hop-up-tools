@@ -1134,14 +1134,14 @@ export default function HiTensionPage() {
     setBirthdayDisplay(next);
     writeBirthdayDisplayPref(next);
   };
-  // 客席：お祝いモードは全員(密・お祝い一色。お祝い勢は練習✋が混ざっても困らない)、
-  // 通常モードは練習勢のみ(special_mode=false。競争勢の大量タップのノイズを除外＝練習がクリーン)。
-  const displaySessions = birthdayDisplay ? sessions : sessions.filter((s) => !s.special_mode);
-  // 累計：お祝い=今日のお祝い参加(special_mode=true)の合計、通常=練習勢の合計。
-  const displayTotal = (birthdayDisplay
+  // 客席・累計は登録した人の「目的」で完全分離する（混ぜない）：
+  //   お祝いモード = 今日のお祝いに参加した席だけ(special_mode=true)。練習データは入れない。
+  //   通常モード   = 練習勢の席だけ(special_mode=false)。お祝いの競争タップは入れない。
+  // ※special_mode は 6/7 のお祝いモードでのみ true になる＝実質「今日の分」。TZズレに強い。
+  const displaySessions = birthdayDisplay
     ? sessions.filter((s) => s.special_mode)
-    : sessions.filter((s) => !s.special_mode)
-  ).reduce((sum, s) => sum + s.bucket_indices.length, 0);
+    : sessions.filter((s) => !s.special_mode);
+  const displayTotal = displaySessions.reduce((sum, s) => sum + s.bucket_indices.length, 0);
 
   return (
     <>
@@ -1300,34 +1300,9 @@ export default function HiTensionPage() {
                   zIndex: 3,
                 }}
               >
-                {/* ごほうび：押した回数。✋(自分z:2)より前面(z:3)で常に読める。 */}
-                <div style={{ position: "relative", zIndex: 3 }}>
+                {/* ごほうび：押した回数。✋(自分z:4)より前面(z:5)で常に読める。 */}
+                <div style={{ position: "relative", zIndex: 5 }}>
                   <BouncyNumber value={selfPressCount} color={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"} size="2rem" />
-                </div>
-                {/* 自分の✋：✋ボタン(同グループ内)より前面(z:2)に重ねてDOMでポップ。
-                    群衆はpixi(z:2のcanvas)で下、ボタン群(z:3)が上＝自分✋>ボタン>群衆。
-                    pointerEvents:none でタップは下のボタンに透過。 */}
-                <style>{`@keyframes hi-self-pop{0%{transform:translate(-50%,10px) scaleX(1.1) scaleY(0.85);opacity:1}18%{transform:translate(-50%,-12px) scaleX(0.92) scaleY(1.1);opacity:1}55%{transform:translate(-50%,-118px) scale(1);opacity:1}100%{transform:translate(-50%,-40px) scale(0.96);opacity:0}}`}</style>
-                <div aria-hidden style={{ position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none" }}>
-                  {selfPops.map((id) => (
-                    <div
-                      key={id}
-                      style={{
-                        position: "absolute",
-                        left: "50%",
-                        bottom: 0,
-                        transform: "translate(-50%, 0)",
-                        animation: "hi-self-pop 0.6s ease-out forwards",
-                        filter:
-                          "drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff)",
-                      }}
-                    >
-                      <HandIcon
-                        size={Math.round(BUTTON_SIZE * 1.5)}
-                        color={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"}
-                      />
-                    </div>
-                  ))}
                 </div>
                 <button
                   type="button"
@@ -1365,6 +1340,42 @@ export default function HiTensionPage() {
                   <HandIcon size={Math.round(BUTTON_SIZE * 0.55)} color="#fff" />
                 </button>
               </div>
+            )}
+
+            {/* 自分の✋：再生エリア全体に対して「自然な席の位置」から跳ね上がる（ボタンの真上に貼らない）。
+                ソロ＝中央・やや下(SELF_Y_SOLO 相当=下から12%)、リアルタイム＝自分の席(左右1/3・下から25%)。
+                レイヤーは z:4 で ✋ボタン(z:3)より上＝被っても自分✋が見える。pointerEvents:none でタップは透過。
+                pixiの群衆(canvas z:2)とは別レイヤーなので「自分✋ > ✋ボタン > 群衆✋ > 中断」を満たす。 */}
+            {!videoEnded && selfPops.length > 0 && (
+              <>
+                <style>{`@keyframes hi-self-pop{0%{transform:translate(-50%,10px) scaleX(1.1) scaleY(0.85);opacity:1}18%{transform:translate(-50%,-12px) scaleX(0.9) scaleY(1.12);opacity:1}55%{transform:translate(-50%,-120px) scale(1);opacity:1}100%{transform:translate(-50%,-52px) scale(0.96);opacity:0}}`}</style>
+                <div aria-hidden style={{ position: "absolute", inset: 0, zIndex: 4, pointerEvents: "none", overflow: "hidden" }}>
+                  {(() => {
+                    const seated = isRealtimePlay && playSeatIndex >= 0;
+                    const leftPct = seated ? ((playSeatIndex % 2) + 1) / 3 * 100 : 50;
+                    const bottomPct = seated ? 25 : 12; // SELF_Y(0.75) / SELF_Y_SOLO(0.88) 相当
+                    return selfPops.map((id) => (
+                      <div
+                        key={id}
+                        style={{
+                          position: "absolute",
+                          left: `${leftPct}%`,
+                          bottom: `${bottomPct}%`,
+                          transform: "translate(-50%, 0)",
+                          animation: "hi-self-pop 0.6s ease-out forwards",
+                          filter:
+                            "drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff)",
+                        }}
+                      >
+                        <HandIcon
+                          size={Math.round(BUTTON_SIZE * 1.5)}
+                          color={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"}
+                        />
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </>
             )}
 
             {/* 下部：戻る（他画面と同じく下部左に統一）＋ 著作権表記 */}
