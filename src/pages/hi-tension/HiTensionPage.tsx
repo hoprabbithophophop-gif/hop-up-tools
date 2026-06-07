@@ -183,9 +183,6 @@ export default function HiTensionPage() {
   const [endedSelfCount, setEndedSelfCount] = useState(0);
   // play 中に押した回数（ごほうび表示用。submit は timestampsRef を使うので別系統）。
   const [selfPressCount, setSelfPressCount] = useState(0);
-  // 自分の✋はDOMで出す（✋ボタンより前面・群衆(pixi)より上＝自分✋>ボタン>群衆。2つ目のWebGL不要）。
-  const [selfPops, setSelfPops] = useState<number[]>([]);
-  const selfPopIdRef = useRef(0);
   const [isRealtimePlay, setIsRealtimePlay] = useState(false);
   const [bouncingSessionId, setBouncingSessionId] = useState<string | null>(null);
   // 部屋コード。null = グローバル部屋、文字列 = 合言葉の専用部屋
@@ -1089,13 +1086,6 @@ export default function HiTensionPage() {
     canvasRef.current?.onTimeUpdate(t);
   }, []);
 
-  // 自分の✋を1枚ポップ（DOM）。アニメ後に除去。
-  const popSelfHand = useCallback(() => {
-    const id = ++selfPopIdRef.current;
-    setSelfPops((p) => [...p, id]);
-    setTimeout(() => setSelfPops((p) => p.filter((x) => x !== id)), 650);
-  }, []);
-
   const recordHi = useCallback(() => {
     if (videoEndedRef.current) return;
     // ✋の videoTime は実際の動画位置を使う（受信側 handleTimeUpdate と同じ物差し）。
@@ -1104,9 +1094,9 @@ export default function HiTensionPage() {
     timestampsRef.current.push(t);
     setSelfPressCount((c) => c + 1); // ごほうび表示のカウントアップ（押すたび弾む）
     console.log(`[hi-tension] HI! @ ${t.toFixed(2)}s`);
-    popSelfHand(); // 自分の✋（DOM・✋ボタンより前面）
+    canvasRef.current?.spawnSelf(); // 自分の✋（自分用pixi・✋ボタンより上のキャンバス）
     if (isRealtimePlayRef.current && !soloModeRef.current) broadcastTap(t);
-  }, [broadcastTap, popSelfHand]);
+  }, [broadcastTap]);
 
   const handlePressStart = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -1300,8 +1290,8 @@ export default function HiTensionPage() {
                   zIndex: 3,
                 }}
               >
-                {/* ごほうび：押した回数。✋(自分z:4)より前面(z:5)で常に読める。 */}
-                <div style={{ position: "relative", zIndex: 5 }}>
+                {/* ごほうび：押した回数。✋ボタン群(z:3)内・上部に置く。 */}
+                <div style={{ position: "relative", zIndex: 3 }}>
                   <BouncyNumber value={selfPressCount} color={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"} size="2rem" />
                 </div>
                 <button
@@ -1340,42 +1330,6 @@ export default function HiTensionPage() {
                   <HandIcon size={Math.round(BUTTON_SIZE * 0.55)} color="#fff" />
                 </button>
               </div>
-            )}
-
-            {/* 自分の✋：再生エリア全体に対して「自然な席の位置」から跳ね上がる（ボタンの真上に貼らない）。
-                ソロ＝中央・やや下(SELF_Y_SOLO 相当=下から12%)、リアルタイム＝自分の席(左右1/3・下から25%)。
-                レイヤーは z:4 で ✋ボタン(z:3)より上＝被っても自分✋が見える。pointerEvents:none でタップは透過。
-                pixiの群衆(canvas z:2)とは別レイヤーなので「自分✋ > ✋ボタン > 群衆✋ > 中断」を満たす。 */}
-            {!videoEnded && selfPops.length > 0 && (
-              <>
-                <style>{`@keyframes hi-self-pop{0%{transform:translate(-50%,10px) scaleX(1.1) scaleY(0.85);opacity:1}18%{transform:translate(-50%,-12px) scaleX(0.9) scaleY(1.12);opacity:1}55%{transform:translate(-50%,-120px) scale(1);opacity:1}100%{transform:translate(-50%,-52px) scale(0.96);opacity:0}}`}</style>
-                <div aria-hidden style={{ position: "absolute", inset: 0, zIndex: 4, pointerEvents: "none", overflow: "hidden" }}>
-                  {(() => {
-                    const seated = isRealtimePlay && playSeatIndex >= 0;
-                    const leftPct = seated ? ((playSeatIndex % 2) + 1) / 3 * 100 : 50;
-                    const bottomPct = seated ? 25 : 12; // SELF_Y(0.75) / SELF_Y_SOLO(0.88) 相当
-                    return selfPops.map((id) => (
-                      <div
-                        key={id}
-                        style={{
-                          position: "absolute",
-                          left: `${leftPct}%`,
-                          bottom: `${bottomPct}%`,
-                          transform: "translate(-50%, 0)",
-                          animation: "hi-self-pop 0.6s ease-out forwards",
-                          filter:
-                            "drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff)",
-                        }}
-                      >
-                        <HandIcon
-                          size={Math.round(BUTTON_SIZE * 1.5)}
-                          color={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"}
-                        />
-                      </div>
-                    ));
-                  })()}
-                </div>
-              </>
             )}
 
             {/* 下部：戻る（他画面と同じく下部左に統一）＋ 著作権表記 */}

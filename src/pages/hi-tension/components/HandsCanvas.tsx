@@ -43,9 +43,9 @@ type BucketEntry = { session: HiSession; count: number };
 
 const BASE_SIZE = 84;
 const SELF_SIZE = 84; // 自分は群衆より明確に大きく（埋もれ防止。白フチも併用）
-// 自分=最前列の「あなた」。手前の客席と同等＋αに見えるよう前列相当の遠近倍率を与える
-// （これが無いと depthK=1 で巨大な手前✋の半分以下になり違和感が出る）。
-const SELF_DEPTH = 3.3;
+// 自分=最前列の「あなた」。手前の客席(FRONT_SCALE=4.2)の半分は超える程度に。
+// 大きすぎると視界を塞ぐので 4.2 の約6割で抑える（半分=2.1 以下だと小さすぎて違和感）。
+const SELF_DEPTH = 2.5;
 const NON_TODAY_ALPHA = 0.4;
 // 跳躍してもキャンバス上端(プレイヤー直下)で✋が見切れないための上余白。
 // 上端(動画直下)に確保する余白。小さくするほど✋の着地帯が上へ広がり、跳躍ピークが
@@ -140,8 +140,11 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   const appRef = useRef<Application | null>(null);
   const textureRef = useRef<Texture | null>(null);
   const layerRef = useRef<Container | null>(null);
-  // 自分の✋専用の最前面レイヤー。履歴✋(layer)より上に置き、後から湧く群衆✋に被られないようにする。
-  const selfLayerRef = useRef<Container | null>(null);
+  // 自分の✋は「別のpixiキャンバス」に描く。DOM上でそのキャンバスを✋ボタン(z:3)より上(z:4)に
+  // 重ねることで「自分✋ > ✋ボタン > 群衆✋」を満たす（1枚キャンバスだと自分と群衆が同一zで両立不可）。
+  // 動きは群衆と同じ spawnHand をそのまま使う（CSS等で作り直さない）。
+  const selfContainerRef = useRef<HTMLDivElement>(null);
+  const selfAppRef = useRef<Application | null>(null);
   const lastBucketRef = useRef<number>(-1);
   const currentTimeRef = useRef<number>(0);
   const liveQueueRef = useRef<QueuedLiveTap[]>([]);
@@ -301,51 +304,50 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
 
   useEffect(() => {
     let cancelled = false;
-    let app: Application | null = null;
     let onContextLost: ((e: Event) => void) | null = null;
     let onContextRestored: (() => void) | null = null;
-    let canvasEl: HTMLCanvasElement | null = null;
+    let crowdCanvas: HTMLCanvasElement | null = null;
+    let selfCanvas: HTMLCanvasElement | null = null;
 
     onPixiEventRef.current?.("pixi_init_start", reinitCount > 0 ? `reinit=${reinitCount}` : undefined);
 
     (async () => {
       const container = containerRef.current;
-      if (!container) { onPixiEventRef.current?.("pixi_init_fail", "no container"); return; }
+      const selfContainer = selfContainerRef.current;
+      if (!container || !selfContainer) { onPixiEventRef.current?.("pixi_init_fail", "no container"); return; }
 
       const texture = getHandTexture();
 
-      app = new Application();
+      // 群衆用と自分用、2つの pixi を作る（自分用キャンバスは DOM で✋ボタンより上に重ねる）。
+      const crowdApp = new Application();
+      const selfApp = new Application();
       try {
-        await app.init({
-          resizeTo: container,
-          backgroundAlpha: 0,
-          antialias: true,
-          autoDensity: true,
-          resolution: window.devicePixelRatio || 1,
-        });
+        const opts = { backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 } as const;
+        await crowdApp.init({ resizeTo: container, ...opts });
+        await selfApp.init({ resizeTo: selfContainer, ...opts });
       } catch (e) {
         onPixiEventRef.current?.("pixi_init_fail", e instanceof Error ? e.message : String(e));
         return;
       }
       if (cancelled) {
-        app.destroy(true, { children: true });
+        try { crowdApp.destroy(true, { children: true }); } catch { /* ignore */ }
+        try { selfApp.destroy(true, { children: true }); } catch { /* ignore */ }
         return;
       }
 
-      container.appendChild(app.canvas);
+      container.appendChild(crowdApp.canvas);
+      selfContainer.appendChild(selfApp.canvas);
       const layer = new Container();
-      app.stage.addChild(layer);
-      // 自分の✋は別レイヤーに分け、群衆(layer)の後＝最前面に重ねる。
-      const selfLayer = new Container();
-      app.stage.addChild(selfLayer);
+      crowdApp.stage.addChild(layer);
 
-      appRef.current = app;
+      appRef.current = crowdApp;
+      selfAppRef.current = selfApp;
       textureRef.current = texture;
       layerRef.current = layer;
-      selfLayerRef.current = selfLayer;
-      canvasEl = app.canvas as HTMLCanvasElement;
+      crowdCanvas = crowdApp.canvas as HTMLCanvasElement;
+      selfCanvas = selfApp.canvas as HTMLCanvasElement;
 
-      // WebGL コンテキストロスト復旧（Android 等の GPU 圧迫時に発生しやすい）
+      // WebGL コンテキストロスト復旧（Android 等の GPU 圧迫時に発生しやすい）。両キャンバス共通。
       onContextLost = (e: Event) => {
         e.preventDefault(); // ブラウザにコンテキスト復元の機会を与える
         onPixiEventRef.current?.("webgl_context_lost");
@@ -355,25 +357,33 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         // useEffect を再実行させて Pixi 全体を作り直す
         setReinitCount(c => c + 1);
       };
-      canvasEl.addEventListener("webglcontextlost", onContextLost);
-      canvasEl.addEventListener("webglcontextrestored", onContextRestored);
+      crowdCanvas.addEventListener("webglcontextlost", onContextLost);
+      crowdCanvas.addEventListener("webglcontextrestored", onContextRestored);
+      selfCanvas.addEventListener("webglcontextlost", onContextLost);
+      selfCanvas.addEventListener("webglcontextrestored", onContextRestored);
 
-      const rendererType = (app.renderer as unknown as { type?: number }).type === 1 ? "webgl" : "unknown";
+      const rendererType = (crowdApp.renderer as unknown as { type?: number }).type === 1 ? "webgl" : "unknown";
       onPixiEventRef.current?.("pixi_init_ok", `r=${rendererType}`);
     })();
 
     return () => {
       cancelled = true;
-      const a = appRef.current;
-      if (canvasEl) {
-        if (onContextLost) canvasEl.removeEventListener("webglcontextlost", onContextLost);
-        if (onContextRestored) canvasEl.removeEventListener("webglcontextrestored", onContextRestored);
+      if (crowdCanvas) {
+        if (onContextLost) crowdCanvas.removeEventListener("webglcontextlost", onContextLost);
+        if (onContextRestored) crowdCanvas.removeEventListener("webglcontextrestored", onContextRestored);
       }
+      if (selfCanvas) {
+        if (onContextLost) selfCanvas.removeEventListener("webglcontextlost", onContextLost);
+        if (onContextRestored) selfCanvas.removeEventListener("webglcontextrestored", onContextRestored);
+      }
+      const ca = appRef.current;
+      const sa = selfAppRef.current;
       appRef.current = null;
+      selfAppRef.current = null;
       textureRef.current = null;
       layerRef.current = null;
-      selfLayerRef.current = null;
-      try { a?.destroy(true, { children: true }); } catch { /* ignore */ }
+      try { ca?.destroy(true, { children: true }); } catch { /* ignore */ }
+      try { sa?.destroy(true, { children: true }); } catch { /* ignore */ }
     };
   }, [reinitCount]);
 
@@ -391,12 +401,11 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     /** ✋の傾き(rad)。サイド席を内向きに見せる用。未指定=0（正面）。 */
     rotation?: number;
   }) {
-    const app = appRef.current;
     const texture = textureRef.current;
-    const layer = layerRef.current;
-    if (!app || !texture || !layer) return;
-    // 自分の✋は最前面レイヤーへ。群衆(layer)に被られず常に一番上に出る。
-    const targetLayer = params.isSelf ? (selfLayerRef.current ?? layer) : layer;
+    // 自分✋は自分用pixi(別キャンバス・✋ボタンより上)、群衆は群衆pixiに描く。
+    const app = params.isSelf ? selfAppRef.current : appRef.current;
+    const targetLayer = params.isSelf ? (selfAppRef.current?.stage ?? null) : layerRef.current;
+    if (!app || !texture || !targetLayer) return;
 
     const w = app.screen.width;
     const h = app.screen.height;
@@ -670,21 +679,37 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   }), [bucketIndex, sessionLayout]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        position: "absolute",
-        // 上端を動画下に40px潜らせる（このキャンバスだけ。カウント数字/ボタンの位置は動かさない）。
-        // 動画は前面(z:2)なので、最上段の✋がジャンプした先っぽだけ動画の裏に隠れる＝動画の延長感。
-        top: -40,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        pointerEvents: "none",
-        overflow: "hidden",
-        zIndex: 2, // 「中断して戻る」(z:1)より上＝✋履歴がボタンに被る。タップ✋/免責は z:3 で前面
-      }}
-    />
+    <>
+      {/* 群衆✋キャンバス（z:2）。✋ボタン(z:3)・自分✋(z:4)より下。 */}
+      <div
+        ref={containerRef}
+        style={{
+          position: "absolute",
+          // 上端を動画下に40px潜らせる（このキャンバスだけ。カウント数字/ボタンの位置は動かさない）。
+          // 動画は前面(z:2)なので、最上段の✋がジャンプした先っぽだけ動画の裏に隠れる＝動画の延長感。
+          top: -40,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          pointerEvents: "none",
+          overflow: "hidden",
+          zIndex: 2, // 「中断して戻る」(z:1)より上＝✋履歴がボタンに被る。
+        }}
+      />
+      {/* 自分✋専用キャンバス（z:4）＝✋ボタン(z:3)より上。pointerEvents:none でタップは透過。
+          別pixiにすることで「自分✋ > ✋ボタン > 群衆✋ > 中断」を1枚キャンバスの制約なく満たす。
+          再生エリア全体を覆う（潜り込みの -40 は不要＝自分✋の着地点 yRatio がそのまま対応）。 */}
+      <div
+        ref={selfContainerRef}
+        style={{
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          overflow: "hidden",
+          zIndex: 4,
+        }}
+      />
+    </>
   );
 });
 
