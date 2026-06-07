@@ -9,17 +9,21 @@ export async function submitHiSession(params: {
   memberId: string;
   timestamps: number[];
   anonymousSessionId: string;
-  /** スペシャル仕様(お祝い等)モードで遊んだか。練習勢と分離するためDBに記録する汎用フラグ。 */
-  specialMode?: boolean;
+  /** どのスペシャル回(お祝い等)で遊んだか。通常練習は null。練習勢と分離するためDBに記録する。 */
+  specialEventKey?: string | null;
 }): Promise<SubmitResult> {
   const supabase = getSupabase();
+  const eventKey = params.specialEventKey ?? null;
   const { data, error } = await supabase.functions.invoke("submit-hi-session", {
     body: {
       video_id: VIDEO_ID,
       member_id: params.memberId,
       timestamps: params.timestamps,
       anonymous_session_id: params.anonymousSessionId,
-      special_mode: params.specialMode === true,
+      // 新クライアント＝どの回かをキーで送る。Edge Function が未対応の間は無視される（無害）。
+      special_event_key: eventKey,
+      // 旧来の boolean も併送（後方互換。Edge/DB が special_mode を見続けても壊れない）。
+      special_mode: eventKey != null,
     },
   });
   if (error) {
@@ -49,6 +53,9 @@ export type HiSession = {
   played_date: string;
   /** スペシャル仕様(お祝い等)の席か。練習勢=false。古いビューには無いので optional（未定義=false扱い）。 */
   special_mode?: boolean;
+  /** どのスペシャル回の席か（null=通常練習）。古いビューには無いので optional。
+   *  客席分離は基本これで判定し、未定義なら special_mode にフォールバックする。 */
+  special_event_key?: string | null;
 };
 
 // Supabase/PostgREST は1リクエストの返却行数に上限(既定1000行)がある。
@@ -62,7 +69,7 @@ export async function fetchHiSessions(): Promise<HiSession[]> {
   for (let from = 0; ; from += FETCH_PAGE) {
     const { data, error } = await supabase
       .from("hi_aggregations")
-      .select("session_hash, member_id, is_today, bucket_indices, bucket_indices_20, played_date, special_mode")
+      .select("session_hash, member_id, is_today, bucket_indices, bucket_indices_20, played_date, special_mode, special_event_key")
       .eq("video_id", VIDEO_ID)
       .order("session_hash", { ascending: true }) // セッション毎に一意（並び固定でページ境界がブレない）
       .range(from, from + FETCH_PAGE - 1);
@@ -76,4 +83,42 @@ export async function fetchHiSessions(): Promise<HiSession[]> {
     if (from > 500_000) break;                // 暴走ブレーキ（理論上届かない）
   }
   return all;
+}
+
+/**
+ * 盛り上がりタイムライン（ヒートマップ）の集計をサーバー側RPCで取得する。
+ * 全セッションを落として集計するのではなく、サーバーで時間ビンに畳んだ小さな配列だけ返す
+ * （転送量・読み込みIOを抑える）。eventKey=null は通常練習、文字列はそのスペシャル回。
+ */
+export type HiHeatmap = {
+  /** 各時間ビンの総タップ数（長さ=bin_count）。 */
+  bins: number[];
+  binSeconds: number;
+  totalSessions: number;
+  totalTaps: number;
+};
+
+export async function fetchHiHeatmap(
+  eventKey: string | null,
+  binCount = 256,
+): Promise<HiHeatmap | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.rpc("hi_heatmap", {
+    p_video_id: VIDEO_ID,
+    p_bin_count: binCount,
+    p_event_key: eventKey,
+  });
+  if (error) {
+    console.warn("[hi-tension] heatmap fetch failed:", error.message);
+    return null;
+  }
+  // RPC は1行（table関数）を返す。配列の先頭を取る。
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+  return {
+    bins: (row.bins ?? []) as number[],
+    binSeconds: Number(row.bin_seconds ?? 1),
+    totalSessions: Number(row.total_sessions ?? 0),
+    totalTaps: Number(row.total_taps ?? 0),
+  };
 }

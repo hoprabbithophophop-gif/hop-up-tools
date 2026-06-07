@@ -15,14 +15,22 @@ import {
   setLastSelectedMemberId,
   getOrCreateAnonymousSessionId,
 } from "./storage";
-import { submitHiSession, fetchHiSessions, type HiSession } from "./api";
+import { submitHiSession, fetchHiSessions, fetchHiHeatmap, type HiSession, type HiHeatmap } from "./api";
 import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, type LiveDriftReport, type LiveTap } from "./useHiTensionRealtime";
 import EndCard from "./components/EndCard";
 import BouncyNumber from "./components/BouncyNumber";
 import FpsMeter from "./components/FpsMeter";
 import HandIcon from "./components/HandIcon";
 import NavButton from "./components/NavButton";
-import { isNishidaBirthday, NISHIDA_COLOR, readBirthdayDisplayPref, writeBirthdayDisplayPref } from "./birthday";
+import HeatmapChart from "./components/HeatmapChart";
+import {
+  getActiveSpecialEventKey,
+  getEvent,
+  SPECIAL_EVENTS,
+  readSpecialChoice,
+  writeSpecialChoice,
+  hasPreviewOverride,
+} from "./events";
 import { getSupabase } from "@/lib/supabase";
 
 // 同期デバッグ用のデバイス判定（後で削除）
@@ -1049,7 +1057,7 @@ export default function HiTensionPage() {
       memberId,
       timestamps: timestampsRef.current.slice(),
       anonymousSessionId: anonSessionId,
-      specialMode: birthdayDisplay, // スペシャル(お祝い)モードで遊んだ＝競争勢として記録（練習勢と分離）
+      specialEventKey: selectedEventKey, // どのスペシャル回で遊んだか（null=通常練習）。練習勢と分離して記録
     }).then((result) => {
       if (result.ok) { console.log("[hi-tension] session saved."); }
       else { console.warn("[hi-tension] save failed:", result.error); submittedRef.current = false; }
@@ -1115,23 +1123,53 @@ export default function HiTensionPage() {
 
   const member = findMember(memberId);
 
-  // 西田汐里さんバースデー：日付(or ?nishida)で開催中か＝birthdayActive。
-  // ユーザーは入口のトグルで「通常表示」に切替可（birthdayDisplay）。色は birthdayDisplay に従う。
-  const birthdayActive = isNishidaBirthday();
-  const [birthdayDisplay, setBirthdayDisplay] = useState(() => birthdayActive && readBirthdayDisplayPref());
-  const toggleBirthdayDisplay = () => {
-    const next = !birthdayDisplay;
-    setBirthdayDisplay(next);
-    writeBirthdayDisplayPref(next);
+  // スペシャル回（お祝い等）：開催期間 or ?special / ?nishida プレビューで「今アクティブな回」を判定。
+  const activeEventKey = getActiveSpecialEventKey();
+  // ユーザーが今見ているモード。通常⇔各回を💗チップで行き来でき、選択はリロード後も覚える。
+  // プレビュー（?special=）が効いている時はそれを最優先。
+  const [selectedEventKey, setSelectedEventKey] = useState<string | null>(() =>
+    hasPreviewOverride() ? activeEventKey : readSpecialChoice(activeEventKey),
+  );
+  const selectEvent = (key: string | null) => {
+    setSelectedEventKey(key);
+    writeSpecialChoice(key);
   };
+  const selectedEvent = getEvent(selectedEventKey);
+  const eventColor = selectedEvent?.color ?? null;
+  // 入口/再生中の主役色：スペシャル回中は回の色、通常はメンバーカラー。
+  const accentColor = (eventColor ?? member?.color) ?? "#000";
+
+  // 盛り上がりタイムライン（ヒートマップ）。表示中のモード(回)に対してサーバー集計を取得。
+  const [heatmap, setHeatmap] = useState<HiHeatmap | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchHiHeatmap(selectedEventKey).then((h) => { if (alive) setHeatmap(h); });
+    return () => { alive = false; };
+  }, [selectedEventKey]);
+
   // 客席・累計は登録した人の「目的」で完全分離する（混ぜない）：
-  //   お祝いモード = 今日のお祝いに参加した席だけ(special_mode=true)。練習データは入れない。
-  //   通常モード   = 練習勢の席だけ(special_mode=false)。お祝いの競争タップは入れない。
-  // ※special_mode は 6/7 のお祝いモードでのみ true になる＝実質「今日の分」。TZズレに強い。
-  const displaySessions = birthdayDisplay
-    ? sessions.filter((s) => s.special_mode)
-    : sessions.filter((s) => !s.special_mode);
+  //   スペシャル回モード = その回に参加した席だけ(special_event_key 一致)。練習データは入れない。
+  //   通常モード         = 練習勢の席だけ(キー無し)。お祝いの競争タップは入れない。
+  // ※古いビューに special_event_key が無い場合は special_mode にフォールバック（後方互換）。
+  const sessionEventKey = (s: HiSession): string | null =>
+    s.special_event_key !== undefined ? s.special_event_key : (s.special_mode ? "nishida_bd_2026" : null);
+  const displaySessions = selectedEventKey
+    ? sessions.filter((s) => sessionEventKey(s) === selectedEventKey)
+    : sessions.filter((s) => sessionEventKey(s) == null);
   const displayTotal = displaySessions.reduce((sum, s) => sum + s.bucket_indices.length, 0);
+
+  // EndCard 用：取得済み bins に「自分の今回のタップ」を足して即時反映（再フェッチ不要）。
+  const endCardHeatmap = videoEnded && heatmap && heatmap.bins.length > 0
+    ? (() => {
+        const bins = heatmap.bins.slice();
+        const bs = heatmap.binSeconds || 1;
+        for (const t of timestampsRef.current) {
+          const i = Math.floor(t / bs);
+          if (i >= 0 && i < bins.length) bins[i] += 1;
+        }
+        return { bins, binSeconds: heatmap.binSeconds };
+      })()
+    : heatmap;
 
   return (
     <>
@@ -1261,18 +1299,37 @@ export default function HiTensionPage() {
               selfSeatHash={seatHash}
               selfSeatIndex={isRealtimePlay ? playSeatIndex : -1}
               enableSides={detectDevice() === "other"}
-              overrideColor={birthdayDisplay ? NISHIDA_COLOR : undefined}
+              overrideColor={eventColor ?? undefined}
               scaleCount={sessions.length}
               onPixiEvent={(event, detail) => logHiEvent(anonSessionId, event, detail)}
             />
+
+            {/* 再生中の盛り上がりタイムライン：動画のすぐ下にうっすら＋現在位置の白線。
+                親を再レンダーさせず liveTimeRef(=currentTimeRef) を rAF で読んで線だけ動かす。 */}
+            {!videoEnded && heatmap && heatmap.bins.length > 0 && (
+              <div
+                aria-hidden
+                style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 2, pointerEvents: "none", padding: "0 0.6rem", display: "flex", justifyContent: "center" }}
+              >
+                <HeatmapChart
+                  bins={heatmap.bins}
+                  binSeconds={heatmap.binSeconds}
+                  color={accentColor}
+                  liveTimeRef={currentTimeRef}
+                  height={40}
+                  faint
+                />
+              </div>
+            )}
 
             {videoEnded ? (
               <div style={{ position: "relative", zIndex: 3, width: "100%", display: "flex", justifyContent: "center" }}>
                 <EndCard
                   selfCount={endedSelfCount}
                   totalCount={displayTotal + endedSelfCount}
-                  memberColor={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"}
-                  birthday={birthdayDisplay}
+                  memberColor={accentColor}
+                  event={selectedEvent}
+                  heatmap={endCardHeatmap}
                   onReplay={handleReplay}
                   onChangeColor={handleChangeColor}
                 />
@@ -1292,7 +1349,7 @@ export default function HiTensionPage() {
               >
                 {/* ごほうび：押した回数。✋ボタン群(z:3)内・上部に置く。 */}
                 <div style={{ position: "relative", zIndex: 3 }}>
-                  <BouncyNumber value={selfPressCount} color={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"} size="2rem" />
+                  <BouncyNumber value={selfPressCount} color={accentColor} size="2rem" />
                 </div>
                 <button
                   type="button"
@@ -1306,7 +1363,7 @@ export default function HiTensionPage() {
                     height: BUTTON_SIZE,
                     flexShrink: 0, // 縦が足りない画面でも丸を保つ（楕円に潰れない）
                     borderRadius: "50%",
-                    background: (birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000",
+                    background: accentColor,
                     color: "#fff",
                     border: "none",
                     cursor: "pointer",
@@ -1385,9 +1442,10 @@ export default function HiTensionPage() {
             initialSelectedId={memberId}
             onConfirm={handleConfirm}
             onOpenRoomMenu={handleOpenRoomMenu}
-            birthdayActive={birthdayActive}
-            birthdayOn={birthdayDisplay}
-            onToggleBirthday={toggleBirthdayDisplay}
+            events={SPECIAL_EVENTS}
+            activeEventKey={activeEventKey}
+            selectedEventKey={selectedEventKey}
+            onSelectEvent={selectEvent}
           />
         </div>
       )}

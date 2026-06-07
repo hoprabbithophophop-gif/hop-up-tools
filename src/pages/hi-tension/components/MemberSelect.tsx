@@ -1,40 +1,65 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
 import { UNIT_ROWS, findMember } from "../data";
 import HandIcon from "./HandIcon";
-import { NISHIDA_COLOR } from "../birthday";
+import type { SpecialEvent } from "../events";
+
+// スペシャル回ドロップダウンの1項目の見た目（選択中は淡くハイライト）。
+function menuItemStyle(active: boolean): CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    padding: "0.45rem 0.6rem",
+    background: active ? "#f1f3f5" : "transparent",
+    border: "none",
+    borderRadius: 7,
+    color: "#191c1d",
+    fontSize: "0.75rem",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    width: "100%",
+  };
+}
 
 interface Props {
   initialSelectedId: string | null;
   onConfirm: (memberId: string) => void;
   onOpenRoomMenu: (memberId: string) => void;
-  /** 西田汐里さんバースデー開催中か（トグルの表示有無）。 */
-  birthdayActive?: boolean;
-  /** お祝い表示ON（色をピンクに）。トグルで切替。 */
-  birthdayOn?: boolean;
-  /** お祝い表示のON/OFF切替。 */
-  onToggleBirthday?: () => void;
+  /** 並べられる全スペシャル回（過去含む）。 */
+  events?: readonly SpecialEvent[];
+  /** 今開催中の回キー（無ければ null）。「開催中」バッジ用。 */
+  activeEventKey?: string | null;
+  /** 今表示中の回キー（null=通常練習）。色・文言がこの回仕様になる。 */
+  selectedEventKey?: string | null;
+  /** 表示する回を選ぶ（null=通常練習に戻す）。 */
+  onSelectEvent?: (key: string | null) => void;
 }
 
 export default function MemberSelect({
   initialSelectedId,
   onConfirm,
   onOpenRoomMenu,
-  birthdayActive = false,
-  birthdayOn = false,
-  onToggleBirthday,
+  events = [],
+  activeEventKey = null,
+  selectedEventKey = null,
+  onSelectEvent,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
+  const [eventMenuOpen, setEventMenuOpen] = useState(false);
 
   useEffect(() => {
     document.title = "ハイ！テンション✋ Practice ver. | hop-up-tools";
   }, []);
 
-  // 西田汐里さん バースデースペシャル（6/7）：お祝い表示ONのとき入口の色を全て nishida ピンクに。
-  const bday = birthdayOn;
-  // 選択中のメンバーカラー。背景の✋モチーフの着色に使う。誕生日中は全色 nishida ピンク。
-  const selectedColor = bday ? NISHIDA_COLOR : (findMember(selectedId)?.color ?? null);
+  // 表示中のスペシャル回（お祝い等）。選ばれていれば入口の色・文言をその回仕様にする。
+  const selectedEvent = events.find((e) => e.key === selectedEventKey) ?? null;
+  const isSpecial = selectedEvent != null;
+  const eventColor = selectedEvent?.color ?? null;
+  // 選択中のメンバーカラー。背景の✋モチーフの着色に使う。スペシャル回中は回の色に統一。
+  const selectedColor = isSpecial ? eventColor : (findMember(selectedId)?.color ?? null);
   // 各スウォッチ/アクセントの表示色（配置はそのまま、見た目だけ統一）。
-  const tint = (c: string) => (bday ? NISHIDA_COLOR : c);
+  const tint = (c: string) => (isSpecial && eventColor ? eventColor : c);
 
   return (
     <div
@@ -104,7 +129,7 @@ export default function MemberSelect({
       >
         ✋ Practice ver.
       </p>
-      {bday && (
+      {isSpecial && (
         <p
           style={{
             fontSize: "0.75rem",
@@ -112,31 +137,81 @@ export default function MemberSelect({
             letterSpacing: "0.02em",
             margin: "0.25rem 0 0",
             textAlign: "center",
-            color: NISHIDA_COLOR,
+            color: eventColor ?? "#777",
           }}
         >
-          〜西田汐里さんバースデースペシャル〜
+          〜{selectedEvent.title}〜
         </p>
       )}
-      {birthdayActive && onToggleBirthday && (
-        <button
-          type="button"
-          onClick={onToggleBirthday}
-          style={{
-            margin: "0.4rem 0 0",
-            padding: "0.2rem 0.6rem",
-            background: "transparent",
-            border: `1px solid ${bday ? "#c6c6c6" : NISHIDA_COLOR}`,
-            borderRadius: 999,
-            color: bday ? "#777" : NISHIDA_COLOR,
-            fontSize: "0.6875rem",
-            fontWeight: 600,
-            cursor: "pointer",
-            fontFamily: "inherit",
-          }}
-        >
-          {bday ? "通常モードで✋する" : "💗 スペシャルモードで✋する"}
-        </button>
+
+      {/* スペシャル回への常設💗入口。普段は控えめなチップ。押すと回（過去含む）と通常を行き来できる。
+          回が1つでも複数でも同じUIで並ぶ。普段の画面は静かに保ち、特別感を消さない。 */}
+      {onSelectEvent && events.length > 0 && (
+        <div style={{ position: "relative", margin: "0.4rem 0 0", display: "flex", justifyContent: "center" }}>
+          <button
+            type="button"
+            onClick={() => setEventMenuOpen((o) => !o)}
+            style={{
+              padding: "0.2rem 0.7rem",
+              background: isSpecial && eventColor ? eventColor : "transparent",
+              border: `1px solid ${isSpecial && eventColor ? eventColor : "#c6c6c6"}`,
+              borderRadius: 999,
+              color: isSpecial ? "#fff" : "#999",
+              fontSize: "0.6875rem",
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            {isSpecial ? `${selectedEvent.shortTitle} ▾` : "💗 スペシャル回 ▾"}
+          </button>
+
+          {eventMenuOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 0.3rem)",
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 5,
+                background: "#fff",
+                border: "1px solid #e0e0e0",
+                borderRadius: 10,
+                boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
+                padding: "0.3rem",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.15rem",
+                minWidth: 200,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => { onSelectEvent(null); setEventMenuOpen(false); }}
+                style={menuItemStyle(!isSpecial)}
+              >
+                <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#c6c6c6", flexShrink: 0 }} />
+                <span style={{ flex: 1, textAlign: "left" }}>通常モード（練習）</span>
+                {!isSpecial && <span aria-hidden>✓</span>}
+              </button>
+              {events.map((e) => (
+                <button
+                  key={e.key}
+                  type="button"
+                  onClick={() => { onSelectEvent(e.key); setEventMenuOpen(false); }}
+                  style={menuItemStyle(e.key === selectedEventKey)}
+                >
+                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: e.color, flexShrink: 0 }} />
+                  <span style={{ flex: 1, textAlign: "left" }}>{e.shortTitle}</span>
+                  {e.key === activeEventKey && (
+                    <span style={{ fontSize: "0.5625rem", color: e.color, fontWeight: 700 }}>開催中</span>
+                  )}
+                  {e.key === selectedEventKey && <span aria-hidden>✓</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* 中央：背景の✋モチーフに重ねて、色選択を縦中央に置く */}
@@ -167,7 +242,7 @@ export default function MemberSelect({
             animation: "hi-tension-hand-pop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1)",
           }}
         >
-          <HandIcon size="min(122vw, 84vh)" color={selectedColor ?? (bday ? NISHIDA_COLOR : "#000")} />
+          <HandIcon size="min(122vw, 84vh)" color={selectedColor ?? (isSpecial && eventColor ? eventColor : "#000")} />
         </div>
 
         <p
@@ -181,7 +256,7 @@ export default function MemberSelect({
             zIndex: 1,
           }}
         >
-          {bday ? "好きな色だよね？" : "好きな色は？"}
+          {isSpecial ? "好きな色だよね？" : "好きな色は？"}
         </p>
 
         <div
@@ -271,7 +346,7 @@ export default function MemberSelect({
             transition: "background 0.12s",
           }}
         >
-          {bday ? "今こそ手を挙げたい！！！！！" : "ひとりではじめる"}
+          {isSpecial ? "今こそ手を挙げたい！！！！！" : "ひとりではじめる"}
         </button>
 
         {/* 合言葉の部屋（コードで集まる） */}

@@ -1,5 +1,7 @@
 import type { CSSProperties } from "react";
 import BouncyNumber from "./BouncyNumber";
+import HeatmapChart from "./HeatmapChart";
+import type { SpecialEvent } from "../events";
 
 // 完走後の3アクション共通のボタン形。横幅(100%)・余白・字を揃え、色だけで主役/副次を分ける。
 const baseBtnStyle: CSSProperties = {
@@ -21,16 +23,18 @@ interface Props {
   memberColor: string;
   onReplay: () => void;
   onChangeColor: () => void;
-  /** 西田汐里さんバースデー表示。ラベル/総数(今日のみ)/シェア文を祝い仕様に。 */
-  birthday?: boolean;
+  /** スペシャル回（お祝い等）。指定時はラベル/総数/シェア文/祝い文を回の仕様に。null=通常練習。 */
+  event?: SpecialEvent | null;
+  /** 盛り上がりタイムライン（自分の今回分を加算済みの bins）。 */
+  heatmap?: { bins: number[]; binSeconds: number } | null;
 }
 
 // X(旧Twitter)のシェア下書きを開く。文面・タグ・URLは hop 指定（勝手に足さない）。
 // API/ログイン不要の Web Intent。URL を独立行で出したいので &url= は使わず本文に含める。
 const SHARE_URL = "https://hop-up-tools.pages.dev/hi-tension";
-function shareToX(count: number, birthday: boolean) {
-  const text = birthday
-    ? `西田汐里さん お誕生日おめでとう🎂💗\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`
+function shareToX(count: number, event: SpecialEvent | null) {
+  const text = event
+    ? event.shareText(count)
     : `ハイ！テンション✋ Practice で\n${count}回ハイ！した🖐️\n#ハイテンションPractice\n${SHARE_URL}`;
   window.open(
     `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
@@ -43,7 +47,8 @@ function shareToX(count: number, birthday: boolean) {
  * 動画完走時に表示する終了カード。
  * ハイ！ボタンの位置を置き換える形で出る(動画はそのまま残る)。
  */
-export default function EndCard({ selfCount, totalCount, memberColor, onReplay, onChangeColor, birthday = false }: Props) {
+export default function EndCard({ selfCount, totalCount, memberColor, onReplay, onChangeColor, event = null, heatmap = null }: Props) {
+  const isSpecial = event != null;
   const labelStyle: CSSProperties = {
     fontSize: "0.6875rem",
     fontWeight: 700,
@@ -64,20 +69,31 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
         padding: "0.4rem 0.4rem",
       }}
     >
-      {birthday && (
+      {isSpecial && event.endCardCongrats && (
         <p style={{ margin: 0, fontSize: "0.95rem", fontWeight: 800, textAlign: "center", color: memberColor }}>
-          西田汐里さん お誕生日おめでとう🎂💗
+          {event.endCardCongrats}
         </p>
       )}
       <div style={{ textAlign: "center" }}>
-        <p style={labelStyle}>{birthday ? "西田汐里さんへ挙げた✋" : "あなたのハイ！"}</p>
+        <p style={labelStyle}>{isSpecial ? "お祝いに挙げた✋" : "あなたのハイ！"}</p>
         <BouncyNumber value={selfCount} color={memberColor} size="3rem" />
       </div>
 
       <div style={{ textAlign: "center" }}>
-        <p style={labelStyle}>{birthday ? "今日 お祝いに挙がった✋の総数" : "歴代累計"}</p>
+        <p style={labelStyle}>{isSpecial ? "お祝いに挙がった✋の総数" : "歴代累計"}</p>
         <BouncyNumber value={totalCount} color={memberColor} size="2.25rem" />
       </div>
+
+      {/* 盛り上がりタイムライン（みんながどこで一斉に✋したか）。データが無ければ自動で非表示。 */}
+      {heatmap && heatmap.bins.length > 0 && (
+        <HeatmapChart
+          bins={heatmap.bins}
+          binSeconds={heatmap.binSeconds}
+          color={memberColor}
+          height={60}
+          label="みんなの盛り上がり"
+        />
+      )}
 
       <div
         style={{
@@ -100,7 +116,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
         </button>
         <button
           type="button"
-          onClick={() => shareToX(selfCount, birthday)}
+          onClick={() => shareToX(selfCount, event)}
           style={{ ...secondaryBtnStyle, marginTop: "1.2rem" }}
         >
           𝕏 でシェアする

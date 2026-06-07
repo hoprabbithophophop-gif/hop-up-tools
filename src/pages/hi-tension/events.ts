@@ -1,0 +1,148 @@
+// スペシャル回（お祝い等）の定義と判定。
+//
+// 設計方針：スペシャル回の「定義」（色・名前・期間・対象メンバー）はこのフロント静的configが
+// 単一の真実源。DBに刻むのは which-event を表す文字列 special_event_key だけ（無料枠でDB読みを
+// 増やさないため）。回が頻繁に増えるようになったらDBテーブル化を検討する。
+//
+// kind: "birthday"=個人企画(各メンバー1回・公平)／"group"=グループ企画(横アリ等・個人を贔屓しない)。
+
+const SHARE_URL = "https://hop-up-tools.pages.dev/hi-tension";
+
+export type SpecialEventKind = "birthday" | "group";
+
+export type SpecialEvent = {
+  /** DBの hi_sessions.special_event_key に保存される一意キー。 */
+  key: string;
+  /** 入口の副題などに出すフル表記。 */
+  title: string;
+  /** 💗チップ・回リストに出す短い表記。 */
+  shortTitle: string;
+  /** この回のテーマカラー（✋/数字/ボタン/EndCardの着色）。 */
+  color: string;
+  /** 対象メンバーID（data.ts の id）。 */
+  targetMemberId: string;
+  kind: SpecialEventKind;
+  /** 開催期間（JSTオフセット付きISO）。start<=now<end でアクティブ。 */
+  start: string;
+  end: string;
+  /** EndCard上部の祝い文（空なら出さない）。 */
+  endCardCongrats: string;
+  /** Xシェアの本文（タグ・URL込み。文面はhop指定、勝手に足さない）。 */
+  shareText: (count: number) => string;
+};
+
+export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
+  {
+    key: "nishida_bd_2026",
+    title: "西田汐里さんバースデースペシャル",
+    shortTitle: "西田汐里さん💗",
+    color: "#da1884",
+    targetMemberId: "nishida",
+    kind: "birthday",
+    start: "2026-06-07T00:00:00+09:00",
+    end: "2026-06-08T00:00:00+09:00",
+    endCardCongrats: "西田汐里さん お誕生日おめでとう🎂💗",
+    shareText: (count: number) =>
+      `西田汐里さん お誕生日おめでとう🎂💗\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
+  },
+];
+
+export function getEvent(key: string | null | undefined): SpecialEvent | null {
+  if (!key) return null;
+  return SPECIAL_EVENTS.find((e) => e.key === key) ?? null;
+}
+
+// ―― プレビュー（本番に無害・付けた本人のタブだけ効く）――
+//   ?special=<key>  → そのスペシャル回を強制ON
+//   ?special=off    → 強制OFF（開催中でも素の通常表示を確認）
+//   旧 ?nishida / ?nishida=off は当面エイリアスとして残す（既存の共有リンク互換）。
+const PREVIEW_KEY = "hi_special_preview"; // sessionStorage: スペシャル回キー
+const PREVIEW_OFF = "hi_special_force_off"; // sessionStorage: "1" で強制OFF
+
+type Preview = { key?: string; off?: boolean } | null;
+
+function readPreview(): Preview {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    // 新パラメータ ?special=
+    if (params.has("special")) {
+      const v = params.get("special");
+      if (v === "off" || v === "0" || v === "false") {
+        sessionStorage.setItem(PREVIEW_OFF, "1");
+        sessionStorage.removeItem(PREVIEW_KEY);
+        return { off: true };
+      }
+      const key = v && getEvent(v) ? v : SPECIAL_EVENTS[0]?.key;
+      if (key) {
+        sessionStorage.removeItem(PREVIEW_OFF);
+        sessionStorage.setItem(PREVIEW_KEY, key);
+        return { key };
+      }
+    }
+    // 旧エイリアス ?nishida（=nishida_bd_2026）
+    if (params.has("nishida")) {
+      const v = params.get("nishida");
+      if (v === "off" || v === "0" || v === "false") {
+        sessionStorage.setItem(PREVIEW_OFF, "1");
+        sessionStorage.removeItem(PREVIEW_KEY);
+        return { off: true };
+      }
+      sessionStorage.removeItem(PREVIEW_OFF);
+      sessionStorage.setItem(PREVIEW_KEY, "nishida_bd_2026");
+      return { key: "nishida_bd_2026" };
+    }
+    // URLに無ければ sessionStorage の記憶（遷移後も維持）
+    if (sessionStorage.getItem(PREVIEW_OFF) === "1") return { off: true };
+    const stored = sessionStorage.getItem(PREVIEW_KEY);
+    if (stored && getEvent(stored)) return { key: stored };
+  } catch {
+    /* SSR/権限なし等は無視 */
+  }
+  return null;
+}
+
+/** プレビュー（?special / ?nishida）が効いているか。効いていれば保存済みの表示選択より優先する。 */
+export function hasPreviewOverride(): boolean {
+  return readPreview() !== null;
+}
+
+/**
+ * 今アクティブな（=開催中 or プレビューで強制ONの）スペシャル回キーを返す。
+ * 無ければ null（通常練習）。プレビュー > 開催期間 の優先順。
+ */
+export function getActiveSpecialEventKey(now: Date = new Date()): string | null {
+  const preview = readPreview();
+  if (preview) {
+    if (preview.off) return null;
+    if (preview.key) return preview.key;
+  }
+  const t = now.getTime();
+  for (const e of SPECIAL_EVENTS) {
+    if (t >= Date.parse(e.start) && t < Date.parse(e.end)) return e.key;
+  }
+  return null;
+}
+
+// ―― ユーザーの表示選択（どのモードを見ているか）の永続化 ――
+// 通常⇔スペシャル回を自由に行き来でき、リロード後も最後の選択を覚える。
+const CHOICE_KEY = "hi_special_choice"; // localStorage: スペシャル回キー or "none"
+
+/** 保存済みの表示選択。未保存なら fallback（通常はアクティブ回 or null）。 */
+export function readSpecialChoice(fallback: string | null): string | null {
+  try {
+    const v = localStorage.getItem(CHOICE_KEY);
+    if (v === "none") return null;
+    if (v && getEvent(v)) return v;
+  } catch {
+    /* 権限なし等は無視 */
+  }
+  return fallback;
+}
+
+export function writeSpecialChoice(key: string | null): void {
+  try {
+    localStorage.setItem(CHOICE_KEY, key ?? "none");
+  } catch {
+    /* 権限なし等は無視 */
+  }
+}
