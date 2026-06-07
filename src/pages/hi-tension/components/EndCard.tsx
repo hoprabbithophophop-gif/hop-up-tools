@@ -89,7 +89,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
         <HeatmapChart
           bins={heatmap.bins}
           binSeconds={heatmap.binSeconds}
-          color={memberColor}
+          color="#000000"
           height={60}
           label="みんなの盛り上がり"
         />

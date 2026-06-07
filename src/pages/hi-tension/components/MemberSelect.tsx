@@ -1,26 +1,7 @@
-import { useState, useEffect, type CSSProperties } from "react";
+import { useState, useEffect } from "react";
 import { UNIT_ROWS, findMember } from "../data";
 import HandIcon from "./HandIcon";
 import type { SpecialEvent } from "../events";
-
-// スペシャル回ドロップダウンの1項目の見た目（選択中は淡くハイライト）。
-function menuItemStyle(active: boolean): CSSProperties {
-  return {
-    display: "flex",
-    alignItems: "center",
-    gap: "0.5rem",
-    padding: "0.45rem 0.6rem",
-    background: active ? "#f1f3f5" : "transparent",
-    border: "none",
-    borderRadius: 7,
-    color: "#191c1d",
-    fontSize: "0.75rem",
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: "inherit",
-    width: "100%",
-  };
-}
 
 interface Props {
   initialSelectedId: string | null;
@@ -46,7 +27,6 @@ export default function MemberSelect({
   onSelectEvent,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
-  const [eventMenuOpen, setEventMenuOpen] = useState(false);
 
   useEffect(() => {
     document.title = "ハイ！テンション✋ Practice ver. | hop-up-tools";
@@ -60,6 +40,8 @@ export default function MemberSelect({
   const selectedColor = isSpecial ? eventColor : (findMember(selectedId)?.color ?? null);
   // 各スウォッチ/アクセントの表示色（配置はそのまま、見た目だけ統一）。
   const tint = (c: string) => (isSpecial && eventColor ? eventColor : c);
+  // 💗リンクで参加するスペシャル回：開催中があればそれ、無ければ並びの先頭（今は西田回）。
+  const targetEventKey = activeEventKey ?? events[0]?.key ?? null;
 
   return (
     <div
@@ -144,75 +126,6 @@ export default function MemberSelect({
         </p>
       )}
 
-      {/* スペシャル回への常設💗入口。普段は控えめなチップ。押すと回（過去含む）と通常を行き来できる。
-          回が1つでも複数でも同じUIで並ぶ。普段の画面は静かに保ち、特別感を消さない。 */}
-      {onSelectEvent && events.length > 0 && (
-        <div style={{ position: "relative", margin: "0.4rem 0 0", display: "flex", justifyContent: "center" }}>
-          <button
-            type="button"
-            onClick={() => setEventMenuOpen((o) => !o)}
-            style={{
-              padding: "0.2rem 0.7rem",
-              background: isSpecial && eventColor ? eventColor : "transparent",
-              border: `1px solid ${isSpecial && eventColor ? eventColor : "#c6c6c6"}`,
-              borderRadius: 999,
-              color: isSpecial ? "#fff" : "#999",
-              fontSize: "0.6875rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              fontFamily: "inherit",
-            }}
-          >
-            {isSpecial ? `${selectedEvent.shortTitle} ▾` : "💗 スペシャル回 ▾"}
-          </button>
-
-          {eventMenuOpen && (
-            <div
-              style={{
-                position: "absolute",
-                top: "calc(100% + 0.3rem)",
-                left: "50%",
-                transform: "translateX(-50%)",
-                zIndex: 5,
-                background: "#fff",
-                border: "1px solid #e0e0e0",
-                borderRadius: 10,
-                boxShadow: "0 6px 24px rgba(0,0,0,0.12)",
-                padding: "0.3rem",
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.15rem",
-                minWidth: 200,
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => { onSelectEvent(null); setEventMenuOpen(false); }}
-                style={menuItemStyle(!isSpecial)}
-              >
-                <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#c6c6c6", flexShrink: 0 }} />
-                <span style={{ flex: 1, textAlign: "left" }}>通常モード（練習）</span>
-                {!isSpecial && <span aria-hidden>✓</span>}
-              </button>
-              {events.map((e) => (
-                <button
-                  key={e.key}
-                  type="button"
-                  onClick={() => { onSelectEvent(e.key); setEventMenuOpen(false); }}
-                  style={menuItemStyle(e.key === selectedEventKey)}
-                >
-                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: e.color, flexShrink: 0 }} />
-                  <span style={{ flex: 1, textAlign: "left" }}>{e.shortTitle}</span>
-                  {e.key === activeEventKey && (
-                    <span style={{ fontSize: "0.5625rem", color: e.color, fontWeight: 700 }}>開催中</span>
-                  )}
-                  {e.key === selectedEventKey && <span aria-hidden>✓</span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* 中央：背景の✋モチーフに重ねて、色選択を縦中央に置く */}
       <div
@@ -370,6 +283,29 @@ export default function MemberSelect({
         >
           合言葉の部屋へ
         </button>
+
+        {/* スペシャル回の出入り口。メニューやトグルではなく、絵文字ひとつの控えめなリンク。
+            通常時=💗（お祝いに参加）／スペシャル回中=✋（通常練習に戻る）。 */}
+        {onSelectEvent && targetEventKey && (
+          <div style={{ display: "flex", justifyContent: "center", marginTop: "0.1rem" }}>
+            <button
+              type="button"
+              aria-label={isSpecial ? "通常モードに戻る" : "スペシャル回に参加する"}
+              onClick={() => onSelectEvent(isSpecial ? null : targetEventKey)}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                fontSize: "1.5rem",
+                lineHeight: 1,
+                padding: "0.3rem 0.9rem",
+                opacity: 0.9,
+              }}
+            >
+              {isSpecial ? "✋" : "💗"}
+            </button>
+          </div>
+        )}
       </div>
 
     </div>

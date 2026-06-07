@@ -1314,7 +1314,7 @@ export default function HiTensionPage() {
                 <HeatmapChart
                   bins={heatmap.bins}
                   binSeconds={heatmap.binSeconds}
-                  color={accentColor}
+                  color="#ffffff"
                   liveTimeRef={currentTimeRef}
                   height={40}
                   faint
