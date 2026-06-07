@@ -183,6 +183,9 @@ export default function HiTensionPage() {
   const [endedSelfCount, setEndedSelfCount] = useState(0);
   // play 中に押した回数（ごほうび表示用。submit は timestampsRef を使うので別系統）。
   const [selfPressCount, setSelfPressCount] = useState(0);
+  // 自分の✋はDOMで出す（✋ボタンより前面・群衆(pixi)より上＝自分✋>ボタン>群衆。2つ目のWebGL不要）。
+  const [selfPops, setSelfPops] = useState<number[]>([]);
+  const selfPopIdRef = useRef(0);
   const [isRealtimePlay, setIsRealtimePlay] = useState(false);
   const [bouncingSessionId, setBouncingSessionId] = useState<string | null>(null);
   // 部屋コード。null = グローバル部屋、文字列 = 合言葉の専用部屋
@@ -1086,6 +1089,13 @@ export default function HiTensionPage() {
     canvasRef.current?.onTimeUpdate(t);
   }, []);
 
+  // 自分の✋を1枚ポップ（DOM）。アニメ後に除去。
+  const popSelfHand = useCallback(() => {
+    const id = ++selfPopIdRef.current;
+    setSelfPops((p) => [...p, id]);
+    setTimeout(() => setSelfPops((p) => p.filter((x) => x !== id)), 650);
+  }, []);
+
   const recordHi = useCallback(() => {
     if (videoEndedRef.current) return;
     // ✋の videoTime は実際の動画位置を使う（受信側 handleTimeUpdate と同じ物差し）。
@@ -1094,9 +1104,9 @@ export default function HiTensionPage() {
     timestampsRef.current.push(t);
     setSelfPressCount((c) => c + 1); // ごほうび表示のカウントアップ（押すたび弾む）
     console.log(`[hi-tension] HI! @ ${t.toFixed(2)}s`);
-    canvasRef.current?.spawnSelf();
+    popSelfHand(); // 自分の✋（DOM・✋ボタンより前面）
     if (isRealtimePlayRef.current && !soloModeRef.current) broadcastTap(t);
-  }, [broadcastTap]);
+  }, [broadcastTap, popSelfHand]);
 
   const handlePressStart = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -1285,12 +1295,37 @@ export default function HiTensionPage() {
                   justifyContent: "center",
                   gap: "1rem",
                   minHeight: 120,
-                  // ここでは stacking context を作らない（中の数字とボタンの z を個別に効かせるため）。
+                  zIndex: 3,
                 }}
               >
-                {/* ごほうび：押した回数。✋(キャンバスz:2)より前面(z:3)に出して数字が隠れないように。 */}
+                {/* ごほうび：押した回数。✋(自分z:2)より前面(z:3)で常に読める。 */}
                 <div style={{ position: "relative", zIndex: 3 }}>
                   <BouncyNumber value={selfPressCount} color={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"} size="2rem" />
+                </div>
+                {/* 自分の✋：✋ボタン(同グループ内)より前面(z:2)に重ねてDOMでポップ。
+                    群衆はpixi(z:2のcanvas)で下、ボタン群(z:3)が上＝自分✋>ボタン>群衆。
+                    pointerEvents:none でタップは下のボタンに透過。 */}
+                <style>{`@keyframes hi-self-pop{0%{transform:translate(-50%,6px) scale(0.7);opacity:.95}30%{transform:translate(-50%,-64px) scale(1.06);opacity:1}100%{transform:translate(-50%,-8px) scale(1);opacity:0}}`}</style>
+                <div aria-hidden style={{ position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none" }}>
+                  {selfPops.map((id) => (
+                    <div
+                      key={id}
+                      style={{
+                        position: "absolute",
+                        left: "50%",
+                        bottom: 0,
+                        transform: "translate(-50%, 0)",
+                        animation: "hi-self-pop 0.6s ease-out forwards",
+                        filter:
+                          "drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff)",
+                      }}
+                    >
+                      <HandIcon
+                        size={Math.round(BUTTON_SIZE * 1.5)}
+                        color={(birthdayDisplay ? NISHIDA_COLOR : member?.color) ?? "#000"}
+                      />
+                    </div>
+                  ))}
                 </div>
                 <button
                   type="button"
@@ -1300,10 +1335,6 @@ export default function HiTensionPage() {
                   onPointerCancel={handlePressEnd}
                   onContextMenu={(e) => e.preventDefault()}
                   style={{
-                    // ✋キャンバス(z:2)より下(z:1)＝自分の✋がボタンの上に重なる。
-                    // キャンバスは pointerEvents:none なのでタップは透過してこのボタンに効く（中断ボタンと同じ方式）。
-                    position: "relative",
-                    zIndex: 1,
                     width: BUTTON_SIZE,
                     height: BUTTON_SIZE,
                     flexShrink: 0, // 縦が足りない画面でも丸を保つ（楕円に潰れない）

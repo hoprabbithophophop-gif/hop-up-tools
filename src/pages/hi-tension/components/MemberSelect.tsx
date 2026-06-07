@@ -271,7 +271,7 @@ export default function MemberSelect({
             transition: "background 0.12s",
           }}
         >
-          {bday ? "今こそ手を挙げたい" : "ひとりではじめる"}
+          {bday ? "今こそ手を挙げたい！！！！！" : "ひとりではじめる"}
         </button>
 
         {/* 合言葉の部屋（コードで集まる） */}
