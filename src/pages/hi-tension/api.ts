@@ -51,15 +51,29 @@ export type HiSession = {
   special_mode?: boolean;
 };
 
+// Supabase/PostgREST は1リクエストの返却行数に上限(既定1000行)がある。
+// 並び順を指定せず取ると、総数が1000行を超えた時点で「返る1000行」が毎回入れ替わり、
+// 客席の欠落や累計の増減（お祝い総数がフェッチごとに変動）が起きる。
+// → session_hash で並びを固定し、1000行ずつ range でページングして全件取得する。
+const FETCH_PAGE = 1000;
 export async function fetchHiSessions(): Promise<HiSession[]> {
   const supabase = getSupabase();
-  const { data, error } = await supabase
-    .from("hi_aggregations")
-    .select("session_hash, member_id, is_today, bucket_indices, bucket_indices_20, played_date, special_mode")
-    .eq("video_id", VIDEO_ID);
-  if (error) {
-    console.error("[hi-tension] fetch sessions failed:", error);
-    return [];
+  const all: HiSession[] = [];
+  for (let from = 0; ; from += FETCH_PAGE) {
+    const { data, error } = await supabase
+      .from("hi_aggregations")
+      .select("session_hash, member_id, is_today, bucket_indices, bucket_indices_20, played_date, special_mode")
+      .eq("video_id", VIDEO_ID)
+      .order("session_hash", { ascending: true }) // セッション毎に一意（並び固定でページ境界がブレない）
+      .range(from, from + FETCH_PAGE - 1);
+    if (error) {
+      console.error("[hi-tension] fetch sessions failed:", error);
+      return all; // 途中まで取れた分は活かす（全滅させない）
+    }
+    const rows = (data ?? []) as HiSession[];
+    all.push(...rows);
+    if (rows.length < FETCH_PAGE) break;      // 最終ページ
+    if (from > 500_000) break;                // 暴走ブレーキ（理論上届かない）
   }
-  return (data ?? []) as HiSession[];
+  return all;
 }
