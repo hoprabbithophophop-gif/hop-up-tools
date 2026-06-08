@@ -27,6 +27,8 @@ interface Props {
   event?: SpecialEvent | null;
   /** 盛り上がりタイムライン（自分の今回分を加算済みの bins）。 */
   heatmap?: { bins: number[]; binSeconds: number } | null;
+  /** 期限切れスペシャル回の閲覧専用表示。自分のカウント/シェアを出さず、総数とヒートマップだけ見せる。 */
+  viewOnly?: boolean;
 }
 
 // X(旧Twitter)のシェア下書きを開く。文面・タグ・URLは hop 指定（勝手に足さない）。
@@ -47,7 +49,7 @@ function shareToX(count: number, event: SpecialEvent | null) {
  * 動画完走時に表示する終了カード。
  * ハイ！ボタンの位置を置き換える形で出る(動画はそのまま残る)。
  */
-export default function EndCard({ selfCount, totalCount, memberColor, onReplay, onChangeColor, event = null, heatmap = null }: Props) {
+export default function EndCard({ selfCount, totalCount, memberColor, onReplay, onChangeColor, event = null, heatmap = null, viewOnly = false }: Props) {
   const isSpecial = event != null;
   const labelStyle: CSSProperties = {
     fontSize: "0.6875rem",
@@ -74,10 +76,12 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
           {event.endCardCongrats}
         </p>
       )}
-      <div style={{ textAlign: "center" }}>
-        <p style={labelStyle}>{isSpecial ? "お祝いに挙げた✋" : "あなたのハイ！"}</p>
-        <BouncyNumber value={selfCount} color={memberColor} size="3rem" />
-      </div>
+      {!viewOnly && (
+        <div style={{ textAlign: "center" }}>
+          <p style={labelStyle}>{isSpecial ? "お祝いに挙げた✋" : "あなたのハイ！"}</p>
+          <BouncyNumber value={selfCount} color={memberColor} size="3rem" />
+        </div>
+      )}
 
       <div style={{ textAlign: "center" }}>
         <p style={labelStyle}>{isSpecial ? "お祝いに挙がった✋の総数" : "歴代累計"}</p>
@@ -114,13 +118,15 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
         <button type="button" onClick={onChangeColor} style={secondaryBtnStyle}>
           別の色にする
         </button>
-        <button
-          type="button"
-          onClick={() => shareToX(selfCount, event)}
-          style={{ ...secondaryBtnStyle, marginTop: "1.2rem" }}
-        >
-          𝕏 でシェアする
-        </button>
+        {!viewOnly && (
+          <button
+            type="button"
+            onClick={() => shareToX(selfCount, event)}
+            style={{ ...secondaryBtnStyle, marginTop: "1.2rem" }}
+          >
+            𝕏 でシェアする
+          </button>
+        )}
       </div>
     </div>
   );

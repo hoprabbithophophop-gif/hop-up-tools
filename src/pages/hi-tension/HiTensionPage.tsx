@@ -25,8 +25,9 @@ import NavButton from "./components/NavButton";
 import HeatmapChart from "./components/HeatmapChart";
 import {
   getActiveSpecialEventKey,
-  getJoinableEventKey,
+  getViewableEventKey,
   isEventKeyJoinable,
+  isEventKeyViewable,
   getEvent,
   SPECIAL_EVENTS,
   readStoredChoice,
@@ -1127,16 +1128,16 @@ export default function HiTensionPage() {
 
   // スペシャル回（お祝い等）：開催期間 or ?special / ?nishida プレビューで「今アクティブな回」を判定。
   const activeEventKey = getActiveSpecialEventKey();
-  // 💗リンクで参加できる回（期限内）。無ければ null＝リンクを出さない。
-  const joinableTargetKey = getJoinableEventKey();
+  // 💗リンクで入れる回（開始済み・先頭）。期限切れでも閲覧専用で入れる。無ければ null＝リンク非表示。
+  const viewTargetKey = getViewableEventKey();
   // ユーザーが今見ているモード。通常⇔各回を💗リンクで行き来でき、選択はリロード後も覚える。
-  // プレビュー（?special=）最優先。期限切れの保存選択は通常に戻す（参加期限を過ぎた回は表示しない）。
+  // プレビュー（?special=）最優先。開始前の回は通常に戻す（開始済みなら期限切れでも閲覧で残す）。
   const [selectedEventKey, setSelectedEventKey] = useState<string | null>(() => {
     if (hasPreviewOverride()) return activeEventKey;
     const raw = readStoredChoice();
     if (raw === null) return null;                                       // 通常を明示選択
-    if (typeof raw === "string" && isEventKeyJoinable(raw)) return raw;  // まだ参加可の回
-    return activeEventKey;                                                // 未設定 or 期限切れ → その日の主役(無ければnull)
+    if (typeof raw === "string" && isEventKeyViewable(raw)) return raw;  // 開始済みの回（期限切れでも閲覧）
+    return activeEventKey;                                                // 未設定 or 開始前 → その日の主役(無ければnull)
   });
   const selectEvent = (key: string | null) => {
     setSelectedEventKey(key);
@@ -1146,6 +1147,8 @@ export default function HiTensionPage() {
   const eventColor = selectedEvent?.color ?? null;
   // 入口/再生中の主役色：スペシャル回中は回の色、通常はメンバーカラー。
   const accentColor = (eventColor ?? member?.color) ?? "#000";
+  // 期限切れスペシャル回＝閲覧専用：✋ボタン非表示・保存なし・客席は満員凍結で「見守るだけ」。
+  const viewOnlySpecial = selectedEventKey != null && !isEventKeyJoinable(selectedEventKey);
 
   // 盛り上がりタイムライン（ヒートマップ）。表示中のモード(回)に対してサーバー集計を取得。
   const [heatmap, setHeatmap] = useState<HiHeatmap | null>(null);
@@ -1309,6 +1312,7 @@ export default function HiTensionPage() {
               enableSides={detectDevice() === "other"}
               overrideColor={eventColor ?? undefined}
               scaleCount={sessions.length}
+              freezeAge={selectedEventKey != null}
               onPixiEvent={(event, detail) => logHiEvent(anonSessionId, event, detail)}
             />
 
@@ -1338,10 +1342,14 @@ export default function HiTensionPage() {
                   memberColor={accentColor}
                   event={selectedEvent}
                   heatmap={endCardHeatmap}
+                  viewOnly={viewOnlySpecial}
                   onReplay={handleReplay}
                   onChangeColor={handleChangeColor}
                 />
               </div>
+            ) : viewOnlySpecial ? (
+              // 期限切れスペシャル回＝閲覧専用：✋ボタンを出さないだけ（文言は足さない）。高さだけ確保。
+              <div style={{ minHeight: 120 }} />
             ) : (
               <div
                 style={{
@@ -1451,7 +1459,8 @@ export default function HiTensionPage() {
             onConfirm={handleConfirm}
             onOpenRoomMenu={handleOpenRoomMenu}
             events={SPECIAL_EVENTS}
-            joinTargetKey={joinableTargetKey}
+            viewTargetKey={viewTargetKey}
+            viewOnly={viewOnlySpecial}
             selectedEventKey={selectedEventKey}
             onSelectEvent={selectEvent}
           />

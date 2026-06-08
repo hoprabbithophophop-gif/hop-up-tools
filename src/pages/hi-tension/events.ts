@@ -145,6 +145,21 @@ export function getJoinableEventKey(now: Date = new Date()): string | null {
   return null;
 }
 
+/** その回が今 💗 から「閲覧」できるか（start <= now）。期限後も閲覧専用で残す。 */
+export function isEventKeyViewable(key: string | null | undefined, now: Date = new Date()): boolean {
+  const e = getEvent(key);
+  if (!e) return false;
+  return now.getTime() >= Date.parse(e.start);
+}
+
+/** 💗リンクで入れる回（並びの先頭・開始済み）のキー。期限切れでも閲覧専用で入れる。無ければ null。 */
+export function getViewableEventKey(now: Date = new Date()): string | null {
+  for (const e of SPECIAL_EVENTS) {
+    if (isEventKeyViewable(e.key, now)) return e.key;
+  }
+  return null;
+}
+
 // ―― ユーザーの表示選択（どのモードを見ているか）の永続化 ――
 // 通常⇔スペシャル回を自由に行き来でき、リロード後も最後の選択を覚える。
 const CHOICE_KEY = "hi_special_choice"; // localStorage: スペシャル回キー or "none"

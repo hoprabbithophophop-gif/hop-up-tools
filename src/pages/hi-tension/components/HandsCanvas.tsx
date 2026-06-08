@@ -34,6 +34,8 @@ interface Props {
   overrideColor?: string;
   /** ✋サイズ算出(crowdScale)に使う人数。客席を分離表示しても全体登録数で安定させる用。未指定=表示中の数。 */
   scaleCount?: number;
+  /** ✋の経日減衰(ageScale)を無効化。スペシャル回の客席を「満員のまま」凍結表示する用。 */
+  freezeAge?: boolean;
   /** 診断用: Pixi/WebGL 関連イベントを親に通知（後で削除） */
   onPixiEvent?: (event: string, detail?: string) => void;
 }
@@ -133,7 +135,7 @@ function easeOutCubic(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, overrideColor, scaleCount, onPixiEvent },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, overrideColor, scaleCount, freezeAge = false, onPixiEvent },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -155,6 +157,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   const onPixiEventRef = useRef<typeof onPixiEvent>(onPixiEvent);
   const overrideColorRef = useRef<string | undefined>(overrideColor);
   useEffect(() => { overrideColorRef.current = overrideColor; }, [overrideColor]);
+  const freezeAgeRef = useRef<boolean>(freezeAge);
+  useEffect(() => { freezeAgeRef.current = freezeAge; }, [freezeAge]);
   const scaleCountRef = useRef<number | undefined>(scaleCount);
   useEffect(() => { scaleCountRef.current = scaleCount; }, [scaleCount]);
   useEffect(() => { onPixiEventRef.current = onPixiEvent; }, [onPixiEvent]);
@@ -414,7 +418,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     // 画面サイズ × 累計セッション数 × 日付経過に応じて✋を縮小(自分も同率なので「自分は約20%大きい」は維持)
     const viewK = viewportSizeK(w, h);
     const crowdK = crowdScale(scaleCountRef.current ?? sessionsRef.current.length);
-    const ageK = params.playedDate ? ageScale(params.playedDate) : 1.0;
+    const ageK = (freezeAgeRef.current || !params.playedDate) ? 1.0 : ageScale(params.playedDate);
     const depthK = params.depthK ?? 1.0;
     const targetSize = (params.isSelf ? SELF_SIZE : BASE_SIZE) * viewK * crowdK * ageK * depthK;
     const texMax = Math.max(texture.width, texture.height) || 1;

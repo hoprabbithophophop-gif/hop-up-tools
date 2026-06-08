@@ -9,8 +9,10 @@ interface Props {
   onOpenRoomMenu: (memberId: string) => void;
   /** 並べられる全スペシャル回（過去含む）。色・文言の参照用。 */
   events?: readonly SpecialEvent[];
-  /** 💗リンクで参加できる回（期限内）のキー。null なら💗リンクを出さない。 */
-  joinTargetKey?: string | null;
+  /** 💗リンクで入れる回（開始済み・期限切れでも閲覧）のキー。null なら💗リンクを出さない。 */
+  viewTargetKey?: string | null;
+  /** 表示中のスペシャル回が期限切れ＝閲覧専用か（開始ボタン文言を変える）。 */
+  viewOnly?: boolean;
   /** 今表示中の回キー（null=通常練習）。色・文言がこの回仕様になる。 */
   selectedEventKey?: string | null;
   /** 表示する回を選ぶ（null=通常練習に戻す）。 */
@@ -22,7 +24,8 @@ export default function MemberSelect({
   onConfirm,
   onOpenRoomMenu,
   events = [],
-  joinTargetKey = null,
+  viewTargetKey = null,
+  viewOnly = false,
   selectedEventKey = null,
   onSelectEvent,
 }: Props) {
@@ -257,7 +260,7 @@ export default function MemberSelect({
             transition: "background 0.12s",
           }}
         >
-          {isSpecial ? "今こそ手を挙げたい！！！！！" : "ひとりではじめる"}
+          {isSpecial ? (viewOnly ? "盛り上がりを見る" : "今こそ手を挙げたい！！！！！") : "ひとりではじめる"}
         </button>
 
         {/* 合言葉の部屋（コードで集まる） */}
@@ -284,12 +287,12 @@ export default function MemberSelect({
 
         {/* スペシャル回の出入り口。メニューやトグルではなく、絵文字ひとつの控えめなリンク。
             通常時=💗（お祝いに参加・期限内のみ）／スペシャル回中=✋（通常練習に戻る・常に出す）。 */}
-        {onSelectEvent && (isSpecial || joinTargetKey) && (
+        {onSelectEvent && (isSpecial || viewTargetKey) && (
           <div style={{ display: "flex", justifyContent: "center", marginTop: "0.1rem" }}>
             <button
               type="button"
-              aria-label={isSpecial ? "通常モードに戻る" : "スペシャル回に参加する"}
-              onClick={() => onSelectEvent(isSpecial ? null : joinTargetKey)}
+              aria-label={isSpecial ? "通常モードに戻る" : "スペシャル回を見る"}
+              onClick={() => onSelectEvent(isSpecial ? null : viewTargetKey)}
               style={{
                 background: "none",
                 border: "none",
