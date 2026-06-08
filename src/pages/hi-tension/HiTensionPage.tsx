@@ -1080,14 +1080,6 @@ export default function HiTensionPage() {
     setScreen("select");
   };
 
-  const handleReplay = () => {
-    playerApiRef.current?.replay(); // gesture スコープ内
-    resetPlayState();
-    setIsPressed(false);
-    setSeatHash(newSeatHash());
-    fetchHiSessions().then(setSessions);
-  };
-
   const handleTimeUpdate = useCallback((t: number) => {
     currentTimeRef.current = t;
     // ✋の物差しは「実際の動画位置(t)」をそのまま使う。recordHi(送信側)も同じ。
@@ -1330,7 +1322,7 @@ export default function HiTensionPage() {
                   color={eventColor ?? "#ffffff"}
                   liveTimeRef={currentTimeRef}
                   windowSeconds={10}
-                  height={80}
+                  height="clamp(44px, 8dvh, 84px)"
                   faint
                 />
               </div>
@@ -1345,9 +1337,7 @@ export default function HiTensionPage() {
                   event={selectedEvent}
                   heatmap={endCardHeatmap}
                   viewOnly={viewOnlySpecial}
-                  onReplay={handleReplay}
                   onChangeColor={handleChangeColor}
-                  onBackToNormal={() => { selectEvent(null); handleChangeColor(); }}
                 />
               </div>
             ) : viewOnlySpecial ? (

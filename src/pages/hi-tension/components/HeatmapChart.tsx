@@ -1,18 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 interface Props {
-  /** 各時間ビンの総タップ数。長さ=ビン数（既定256＝1秒刻み）。 */
+  /** 各時間ビンの総タップ数。長さ=ビン数。 */
   bins: number[];
   /** 1ビンあたりの秒数（横軸→秒の換算。RPCの bin_seconds）。 */
   binSeconds: number;
-  /** 線・塗りの色（メンバーカラー or スペシャル回の色）。 */
+  /** 線・塗りの色（メンバーカラー or スペシャル回の色 / 通常は白・黒）。 */
   color: string;
-  /** 再生中の現在位置（秒）。指定すると縦線を出す（静的）。 */
-  currentTime?: number;
-  /** 再生中の現在位置を毎フレーム読むref。指定すると親を再レンダーせず縦線だけ動かす。 */
+  /** 再生中の現在位置を毎フレーム読むref。windowSeconds と併用で「中央固定＋波形スクロール」。 */
   liveTimeRef?: { current: number };
-  /** SVGの高さ(px)。既定56。 */
-  height?: number;
+  /** SVGの高さ。px数 or CSS文字列（例 "clamp(46px,8.5dvh,84px)"）。 */
+  height?: number | string;
   /** 再生中の動画下に薄く敷く用。淡くする。 */
   faint?: boolean;
   /** 見出しラベル（完走後EndCard用）。faint時は出さない。 */
@@ -22,13 +20,16 @@ interface Props {
   windowSeconds?: number;
 }
 
+const H = 100;
+const PAD = 2;
+
 // 盛り上がりタイムライン。全員のタップを時間ビンに集計した山グラフ（YouTube「よく見られてるとこ」風）。
-// 純SVG（群衆✋のPixiとは別系統）。静的描画なので軽量。
+// 純SVG（群衆✋のPixiとは別系統）。本編中のスクロールは CSS transform を ref に直接書いて滑らかに動かす
+// （viewBox 再描画＆毎フレームの React 再レンダーを避ける）。
 export default function HeatmapChart({
   bins,
   binSeconds,
   color,
-  currentTime,
   liveTimeRef,
   height = 56,
   faint = false,
@@ -36,64 +37,114 @@ export default function HeatmapChart({
   windowSeconds,
 }: Props) {
   const n = bins.length;
-  const max = useMemo(() => bins.reduce((m, v) => (v > m ? v : m), 0), [bins]);
 
-  // ライブ縦線：liveTimeRef があれば rAF で自分の中だけ再レンダー（親は触らない）。
-  const [liveSec, setLiveSec] = useState(0);
-  const rafRef = useRef(0);
-  useEffect(() => {
-    if (!liveTimeRef) return;
-    let mounted = true;
-    const tick = () => {
-      if (!mounted) return;
-      setLiveSec(liveTimeRef.current);
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => { mounted = false; cancelAnimationFrame(rafRef.current); };
-  }, [liveTimeRef]);
+  // 軽い平滑化（3点加重平均）で波形をなめらかに。
+  const smoothed = useMemo(() => {
+    if (n < 3) return bins;
+    return bins.map((_, i) => {
+      const a = bins[i - 1] ?? bins[i];
+      const b = bins[i];
+      const c = bins[i + 1] ?? bins[i];
+      return (a + 2 * b + c) / 4;
+    });
+  }, [bins, n]);
 
-  const H = 100;
-  const pad = 2;
+  // 全体表示(EndCard・windowSeconds未指定)はビンが多いとバーコード状になるので ~256 に間引き(平均)。
+  // 本編の窓ズーム(scrolling)は細かいまま使う。
+  const displayBins = useMemo(() => {
+    if (windowSeconds || n <= 320) return smoothed;
+    const target = 256;
+    const group = Math.ceil(n / target);
+    const out: number[] = [];
+    for (let i = 0; i < n; i += group) {
+      let s = 0, c = 0;
+      for (let j = i; j < i + group && j < n; j++) { s += smoothed[j]; c++; }
+      out.push(c ? s / c : 0);
+    }
+    return out;
+  }, [smoothed, n, windowSeconds]);
+  const dN = displayBins.length;
 
-  // 全体の山パス（bin座標 x=0..n）。1回だけ計算し、フレーム毎は viewBox だけ動かす＝滑らか＆軽量。
+  const max = useMemo(() => displayBins.reduce((m, v) => (v > m ? v : m), 0), [displayBins]);
+
+  // 山パス（bin座標 x=0..dN）。1回だけ計算（スクロールは transform で動かす）。
   const { linePath, areaPath } = useMemo(() => {
     const m = max || 1;
-    const pts = bins.map((v, i) => {
+    const pts = displayBins.map((v, i) => {
       const x = i + 0.5;
-      const y = H - pad - (v / m) * (H - pad);
+      const y = H - PAD - (v / m) * (H - PAD);
       return `${x.toFixed(2)},${y.toFixed(2)}`;
     });
     return {
       linePath: `M${pts.join(" L")}`,
-      areaPath: `M0,${H} L${pts.join(" L")} L${n},${H} Z`,
+      areaPath: `M0,${H} L${pts.join(" L")} L${dN},${H} Z`,
     };
-  }, [bins, max, n]);
+  }, [displayBins, max, dN]);
+
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const headRef = useRef<HTMLDivElement | null>(null);
+
+  // 本編中（windowSeconds + liveTimeRef）＝中央固定プレイヘッド＋波形スクロール。
+  // 毎フレーム ref に直接 transform/left を書く（React state を介さない＝再レンダー無し）。
+  const scrolling = !!(liveTimeRef && windowSeconds && windowSeconds > 0 && binSeconds > 0);
+  useEffect(() => {
+    if (!scrolling || !liveTimeRef) return;
+    const total = n * binSeconds;
+    const span = Math.min(total, windowSeconds as number);
+    const visBins = span / binSeconds;
+    let raf = 0;
+    const tick = () => {
+      const t = liveTimeRef.current;
+      // viewStart を [0, total-可視幅] にクランプ＝前半は左→中央、中盤は中央固定、終端は中央→右端。
+      const viewStartSec = Math.max(0, Math.min(Math.max(0, total - span), t - span / 2));
+      const viewX0bin = viewStartSec / binSeconds;
+      const headXbin = t / binSeconds;
+      if (trackRef.current) {
+        trackRef.current.style.transform = `translateX(${(-(viewX0bin / n) * 100).toFixed(3)}%)`;
+      }
+      if (headRef.current) {
+        headRef.current.style.left = `${(((headXbin - viewX0bin) / visBins) * 100).toFixed(3)}%`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [scrolling, liveTimeRef, windowSeconds, binSeconds, n]);
 
   // データが無い（移行前・取得失敗・全0）なら何も描かない。
   if (n === 0 || max === 0) return null;
 
-  const headSec = liveTimeRef ? liveSec : (currentTime ?? null);
-  const total = n * binSeconds;
+  const visBins = scrolling ? Math.min(n, (windowSeconds as number) / binSeconds) : n;
+  const gid = `hi-heat-${Math.round(max)}-${n}-${faint ? "f" : "s"}`;
 
-  // 既定（EndCard等・windowSeconds未指定）＝曲全体を表示・スクロールなし。
-  let viewX0 = 0;
-  let viewW = n;
-  let headX: number | null = headSec != null && binSeconds > 0 ? headSec / binSeconds : null;
+  const svg = (
+    <svg
+      viewBox={`0 0 ${dN} ${H}`}
+      width="100%"
+      height="100%"
+      preserveAspectRatio="none"
+      aria-hidden
+      style={{ display: "block" }}
+    >
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={faint ? 0.55 : 0.75} />
+          <stop offset="100%" stopColor={color} stopOpacity={faint ? 0.1 : 0.12} />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill={`url(#${gid})`} stroke="none" />
+      <path
+        d={linePath}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.6}
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
 
-  // 本編中（windowSeconds 指定）＝可視幅一定で「中央固定プレイヘッド＋波形スクロール」。
-  //   前半: 白バー左→中央（波形は先頭で静止）／中盤: 白バー中央固定・波形が左へスクロール／
-  //   終端: 波形が静止し白バー中央→右端。viewStart を [0, total-可視幅] にクランプすると3フェーズが1式で出る。
-  if (windowSeconds && windowSeconds > 0 && binSeconds > 0) {
-    viewW = Math.min(n, Math.max(1, windowSeconds / binSeconds));
-    const spanSec = viewW * binSeconds;
-    const t = headSec ?? 0;
-    const viewStartSec = Math.max(0, Math.min(Math.max(0, total - spanSec), t - spanSec / 2));
-    viewX0 = viewStartSec / binSeconds;
-    headX = t / binSeconds;
-  }
-
-  const gid = `hi-heat-${Math.round(max)}-${n}`;
+  const heightStyle = typeof height === "number" ? `${height}px` : height;
 
   return (
     <div style={{ width: "100%", maxWidth: 360 }}>
@@ -112,42 +163,49 @@ export default function HeatmapChart({
           {label}
         </p>
       )}
-      <svg
-        viewBox={`${viewX0.toFixed(3)} 0 ${viewW} ${H}`}
-        width="100%"
-        height={height}
-        preserveAspectRatio="none"
-        aria-hidden
-        style={{ display: "block", opacity: faint ? 0.7 : 1 }}
-      >
-        <defs>
-          <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity={faint ? 0.55 : 0.75} />
-            <stop offset="100%" stopColor={color} stopOpacity={faint ? 0.1 : 0.12} />
-          </linearGradient>
-        </defs>
-        <path d={areaPath} fill={`url(#${gid})`} stroke="none" />
-        <path
-          d={linePath}
-          fill="none"
-          stroke={color}
-          strokeWidth={1.6}
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-        />
-        {headX != null && (
-          <line
-            x1={headX}
-            y1={0}
-            x2={headX}
-            y2={H}
-            stroke="#fff"
-            strokeWidth={2}
-            vectorEffect="non-scaling-stroke"
-            opacity={0.95}
+      {scrolling ? (
+        // 可視窓（overflow hidden）の中で、全曲ぶんの幅を持つ track を transform で左へ流す。
+        <div
+          style={{
+            position: "relative",
+            width: "100%",
+            height: heightStyle,
+            overflow: "hidden",
+            opacity: faint ? 0.7 : 1,
+          }}
+        >
+          <div
+            ref={trackRef}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              height: "100%",
+              width: `${(dN / visBins) * 100}%`,
+              willChange: "transform",
+            }}
+          >
+            {svg}
+          </div>
+          {/* 中央固定の白いプレイヘッド（位置は ref で毎フレーム更新）。 */}
+          <div
+            ref={headRef}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              height: "100%",
+              width: 2,
+              marginLeft: -1,
+              background: "#fff",
+              opacity: 0.95,
+              willChange: "left",
+            }}
           />
-        )}
-      </svg>
+        </div>
+      ) : (
+        <div style={{ width: "100%", height: heightStyle, opacity: faint ? 0.7 : 1 }}>{svg}</div>
+      )}
     </div>
   );
 }

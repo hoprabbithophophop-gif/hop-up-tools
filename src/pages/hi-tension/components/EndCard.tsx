@@ -21,10 +21,8 @@ interface Props {
   selfCount: number;
   totalCount: number;
   memberColor: string;
-  onReplay: () => void;
+  /** 「最初に戻る」＝選択画面へ戻る。 */
   onChangeColor: () => void;
-  /** スペシャル回で「通常にもどる」導線。指定時はスペシャルEndCardの副ボタンがこれに。 */
-  onBackToNormal?: () => void;
   /** スペシャル回（お祝い等）。指定時はラベル/総数/シェア文/祝い文を回の仕様に。null=通常練習。 */
   event?: SpecialEvent | null;
   /** 盛り上がりタイムライン（自分の今回分を加算済みの bins）。 */
@@ -51,7 +49,7 @@ function shareToX(count: number, event: SpecialEvent | null) {
  * 動画完走時に表示する終了カード。
  * ハイ！ボタンの位置を置き換える形で出る(動画はそのまま残る)。
  */
-export default function EndCard({ selfCount, totalCount, memberColor, onReplay, onChangeColor, onBackToNormal, event = null, heatmap = null, viewOnly = false }: Props) {
+export default function EndCard({ selfCount, totalCount, memberColor, onChangeColor, event = null, heatmap = null, viewOnly = false }: Props) {
   const isSpecial = event != null;
   const labelStyle: CSSProperties = {
     fontSize: "0.6875rem",
@@ -111,18 +109,9 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
           width: "100%",
         }}
       >
-        {/* 3アクションは横幅を揃えた同形ボタンに統一（テキストリンクは廃止）。
-            ツール内で続ける動作（もう一度・別の色にする）をまとめ、外向き動作（シェア）は
-            一行空けて分ける。主役の「もう一度」だけ黒、他は灰色で段差を付ける。 */}
-        <button type="button" onClick={onReplay} style={primaryBtnStyle}>
-          もう一度
-        </button>
-        <button
-          type="button"
-          onClick={isSpecial && onBackToNormal ? onBackToNormal : onChangeColor}
-          style={secondaryBtnStyle}
-        >
-          {isSpecial ? "通常にもどる" : "別の色にする"}
+        {/* 「最初に戻る」1本に統一（もう一度/別の色にする/通常にもどるを廃止）。外向きのシェアは一行空けて分ける。 */}
+        <button type="button" onClick={onChangeColor} style={primaryBtnStyle}>
+          最初に戻る
         </button>
         {!viewOnly && (
           <button
