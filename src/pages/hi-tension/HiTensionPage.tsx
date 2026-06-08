@@ -1154,7 +1154,8 @@ export default function HiTensionPage() {
   const [heatmap, setHeatmap] = useState<HiHeatmap | null>(null);
   useEffect(() => {
     let alive = true;
-    fetchHiHeatmap(selectedEventKey).then((h) => { if (alive) setHeatmap(h); });
+    // 本編中の5秒窓ズームを細かく見せるため 0.2秒刻み(1280ビン)で取得。EndCardの全体表示にも流用。
+    fetchHiHeatmap(selectedEventKey, 1280).then((h) => { if (alive) setHeatmap(h); });
     return () => { alive = false; };
   }, [selectedEventKey]);
 
@@ -1321,14 +1322,15 @@ export default function HiTensionPage() {
             {!videoEnded && heatmap && heatmap.bins.length > 0 && (
               <div
                 aria-hidden
-                style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 2, pointerEvents: "none", padding: "0 0.6rem", display: "flex", justifyContent: "center" }}
+                style={{ position: "relative", zIndex: 2, pointerEvents: "none", padding: "0.4rem 0.6rem 0", display: "flex", justifyContent: "center", width: "100%" }}
               >
                 <HeatmapChart
                   bins={heatmap.bins}
                   binSeconds={heatmap.binSeconds}
                   color={eventColor ?? "#ffffff"}
                   liveTimeRef={currentTimeRef}
-                  height={40}
+                  windowSeconds={5}
+                  height={80}
                   faint
                 />
               </div>
