@@ -1322,7 +1322,7 @@ export default function HiTensionPage() {
                   binSeconds={heatmap.binSeconds}
                   color={eventColor ?? "#ffffff"}
                   liveTimeRef={currentTimeRef}
-                  windowSeconds={10}
+                  windowSeconds={20}
                   height="clamp(44px, 8dvh, 84px)"
                   faint
                 />
