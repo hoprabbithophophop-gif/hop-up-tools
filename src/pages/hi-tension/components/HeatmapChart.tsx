@@ -17,8 +17,8 @@ interface Props {
   faint?: boolean;
   /** 見出しラベル（完走後EndCard用）。faint時は出さない。 */
   label?: string;
-  /** 指定時：現在地が属する windowSeconds 秒ブロックだけをズーム表示し、windowSeconds 秒ごとに次へページ送り。
-   *  本編中の拡大表示用（EndCardは未指定＝曲全体）。 */
+  /** 指定時：可視幅を windowSeconds 秒に固定し「中央固定プレイヘッド＋波形スクロール」表示。
+   *  本編中の拡大表示用（EndCardは未指定＝曲全体・スクロールなし）。 */
   windowSeconds?: number;
 }
 
@@ -53,47 +53,47 @@ export default function HeatmapChart({
     return () => { mounted = false; cancelAnimationFrame(rafRef.current); };
   }, [liveTimeRef]);
 
+  const H = 100;
+  const pad = 2;
+
+  // 全体の山パス（bin座標 x=0..n）。1回だけ計算し、フレーム毎は viewBox だけ動かす＝滑らか＆軽量。
+  const { linePath, areaPath } = useMemo(() => {
+    const m = max || 1;
+    const pts = bins.map((v, i) => {
+      const x = i + 0.5;
+      const y = H - pad - (v / m) * (H - pad);
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    });
+    return {
+      linePath: `M${pts.join(" L")}`,
+      areaPath: `M0,${H} L${pts.join(" L")} L${n},${H} Z`,
+    };
+  }, [bins, max, n]);
+
   // データが無い（移行前・取得失敗・全0）なら何も描かない。
   if (n === 0 || max === 0) return null;
 
   const headSec = liveTimeRef ? liveSec : (currentTime ?? null);
+  const total = n * binSeconds;
 
-  // 表示区間（窓）。windowSeconds 指定時は現在地が属する windowSeconds 秒ブロックだけをズームし、
-  // windowSeconds 秒ごとに次のブロックへページ送り（連続スクロールではなくカクッと切替）。
-  let viewBins = bins;
-  let viewStartSec = 0;
-  let viewSpanSec = n * binSeconds;
-  if (windowSeconds && windowSeconds > 0 && headSec != null && binSeconds > 0) {
-    const ws = Math.max(0, Math.floor(headSec / windowSeconds) * windowSeconds);
-    const startBin = Math.min(n - 1, Math.max(0, Math.round(ws / binSeconds)));
-    const endBin = Math.min(n, startBin + Math.max(1, Math.round(windowSeconds / binSeconds)));
-    viewBins = bins.slice(startBin, endBin);
-    viewStartSec = ws;
-    viewSpanSec = windowSeconds;
+  // 既定（EndCard等・windowSeconds未指定）＝曲全体を表示・スクロールなし。
+  let viewX0 = 0;
+  let viewW = n;
+  let headX: number | null = headSec != null && binSeconds > 0 ? headSec / binSeconds : null;
+
+  // 本編中（windowSeconds 指定）＝可視幅一定で「中央固定プレイヘッド＋波形スクロール」。
+  //   前半: 白バー左→中央（波形は先頭で静止）／中盤: 白バー中央固定・波形が左へスクロール／
+  //   終端: 波形が静止し白バー中央→右端。viewStart を [0, total-可視幅] にクランプすると3フェーズが1式で出る。
+  if (windowSeconds && windowSeconds > 0 && binSeconds > 0) {
+    viewW = Math.min(n, Math.max(1, windowSeconds / binSeconds));
+    const spanSec = viewW * binSeconds;
+    const t = headSec ?? 0;
+    const viewStartSec = Math.max(0, Math.min(Math.max(0, total - spanSec), t - spanSec / 2));
+    viewX0 = viewStartSec / binSeconds;
+    headX = t / binSeconds;
   }
-  const vN = viewBins.length;
-  if (vN === 0) return null;
 
-  const W = vN; // viewBox幅＝表示ビン数（preserveAspectRatio none で横いっぱいに引き伸ばす）
-  const H = 100;
-  const pad = 2;
-
-  // 山の頂点列。高さは「全体の最大値」で正規化＝窓を切り替えても高さの意味が一定。
-  const pts = viewBins.map((v, i) => {
-    const x = i + 0.5;
-    const y = H - pad - (v / max) * (H - pad);
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
-  });
-  const linePath = `M${pts.join(" L")}`;
-  const areaPath = `M0,${H} L${pts.join(" L")} L${W},${H} Z`;
-
-  // 現在位置の縦線。窓表示中は窓内の進捗、全体表示中は曲全体の位置。
-  const cx =
-    headSec != null && viewSpanSec > 0
-      ? Math.max(0, Math.min(W, ((headSec - viewStartSec) / viewSpanSec) * W))
-      : null;
-
-  const gid = `hi-heat-${Math.round(max)}-${vN}`;
+  const gid = `hi-heat-${Math.round(max)}-${n}`;
 
   return (
     <div style={{ width: "100%", maxWidth: 360 }}>
@@ -113,7 +113,7 @@ export default function HeatmapChart({
         </p>
       )}
       <svg
-        viewBox={`0 0 ${W} ${H}`}
+        viewBox={`${viewX0.toFixed(3)} 0 ${viewW} ${H}`}
         width="100%"
         height={height}
         preserveAspectRatio="none"
@@ -135,11 +135,11 @@ export default function HeatmapChart({
           strokeLinejoin="round"
           vectorEffect="non-scaling-stroke"
         />
-        {cx != null && (
+        {headX != null && (
           <line
-            x1={cx}
+            x1={headX}
             y1={0}
-            x2={cx}
+            x2={headX}
             y2={H}
             stroke="#fff"
             strokeWidth={2}
