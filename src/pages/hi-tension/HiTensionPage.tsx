@@ -1345,6 +1345,7 @@ export default function HiTensionPage() {
                   viewOnly={viewOnlySpecial}
                   onReplay={handleReplay}
                   onChangeColor={handleChangeColor}
+                  onBackToNormal={() => { selectEvent(null); handleChangeColor(); }}
                 />
               </div>
             ) : viewOnlySpecial ? (

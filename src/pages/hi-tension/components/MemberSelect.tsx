@@ -43,6 +43,9 @@ export default function MemberSelect({
   const selectedColor = isSpecial ? eventColor : (findMember(selectedId)?.color ?? null);
   // 各スウォッチ/アクセントの表示色（配置はそのまま、見た目だけ統一）。
   const tint = (c: string) => (isSpecial && eventColor ? eventColor : c);
+  // スペシャル回は色選択をまとめる：主役1人として参加（memberId=主役のid）。通常は選んだ色のメンバー。
+  const specialMemberId = selectedEvent?.targetMemberId ?? null;
+  const effectiveSelectedId = isSpecial ? specialMemberId : selectedId;
 
   return (
     <div
@@ -185,50 +188,66 @@ export default function MemberSelect({
             zIndex: 1,
           }}
         >
-        {UNIT_ROWS.map((row) => (
-          <div
-            key={row.unit}
-            style={{
-              display: "flex",
-              gap: "1rem",
-              justifyContent: "center",
-              flexWrap: "nowrap",
-            }}
-          >
-            {row.members.map((m) => {
-              const isSelected = selectedId === m.id;
-              // 画面の高さに応じて 44〜56px の範囲で自動調整。
-              // 大画面では押しやすい 56px、iPhone SE 1st gen 等では HIG 最低の 44px。
-              const baseSize = "clamp(44px, 7.5dvh, 56px)";
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  aria-label={`color ${m.color}`}
-                  aria-pressed={isSelected}
-                  onClick={() => setSelectedId(m.id)}
-                  style={{
-                    // 選択時は transform: scale で拡大するだけなので、
-                    // 行の高さも他の丸の位置も動かない。
-                    width: baseSize,
-                    height: baseSize,
-                    borderRadius: "50%",
-                    background: tint(m.color),
-                    border: "none",
-                    // リングは box-shadow(レイアウトに影響しない)で表現
-                    boxShadow: isSelected
-                      ? `0 0 0 3px #f8f9fa, 0 0 0 5px ${tint(m.color)}`
-                      : "0 0 0 1px rgba(0,0,0,0.08)",
-                    padding: 0,
-                    cursor: "pointer",
-                    transform: isSelected ? "scale(1.2)" : "scale(1)",
-                    transition: "transform 0.18s, box-shadow 0.18s",
-                  }}
-                />
-              );
-            })}
+        {isSpecial ? (
+          // スペシャル回は色選択をまとめる：主役色1個だけ中央に（全員その回の主役として参加）。
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <div
+              aria-hidden
+              style={{
+                width: "clamp(56px, 10dvh, 72px)",
+                height: "clamp(56px, 10dvh, 72px)",
+                borderRadius: "50%",
+                background: eventColor ?? "#000",
+                boxShadow: `0 0 0 3px #f8f9fa, 0 0 0 5px ${eventColor ?? "#000"}`,
+              }}
+            />
           </div>
-        ))}
+        ) : (
+          UNIT_ROWS.map((row) => (
+            <div
+              key={row.unit}
+              style={{
+                display: "flex",
+                gap: "1rem",
+                justifyContent: "center",
+                flexWrap: "nowrap",
+              }}
+            >
+              {row.members.map((m) => {
+                const isSelected = selectedId === m.id;
+                // 画面の高さに応じて 44〜56px の範囲で自動調整。
+                // 大画面では押しやすい 56px、iPhone SE 1st gen 等では HIG 最低の 44px。
+                const baseSize = "clamp(44px, 7.5dvh, 56px)";
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    aria-label={`color ${m.color}`}
+                    aria-pressed={isSelected}
+                    onClick={() => setSelectedId(m.id)}
+                    style={{
+                      // 選択時は transform: scale で拡大するだけなので、
+                      // 行の高さも他の丸の位置も動かない。
+                      width: baseSize,
+                      height: baseSize,
+                      borderRadius: "50%",
+                      background: tint(m.color),
+                      border: "none",
+                      // リングは box-shadow(レイアウトに影響しない)で表現
+                      boxShadow: isSelected
+                        ? `0 0 0 3px #f8f9fa, 0 0 0 5px ${tint(m.color)}`
+                        : "0 0 0 1px rgba(0,0,0,0.08)",
+                      padding: 0,
+                      cursor: "pointer",
+                      transform: isSelected ? "scale(1.2)" : "scale(1)",
+                      transition: "transform 0.18s, box-shadow 0.18s",
+                    }}
+                  />
+                );
+              })}
+            </div>
+          ))
+        )}
         </div>
       </div>
 
@@ -244,19 +263,19 @@ export default function MemberSelect({
       >
         <button
           type="button"
-          disabled={!selectedId}
-          onClick={() => selectedId && onConfirm(selectedId)}
+          disabled={!effectiveSelectedId}
+          onClick={() => effectiveSelectedId && onConfirm(effectiveSelectedId)}
           style={{
             width: "100%",
             padding: "1rem",
-            background: selectedId ? "#000" : "#c6c6c6",
+            background: effectiveSelectedId ? "#000" : "#c6c6c6",
             color: "#fff",
             border: "none",
             fontSize: "0.875rem",
             fontWeight: 700,
             letterSpacing: "0.05em",
             textTransform: "uppercase",
-            cursor: selectedId ? "pointer" : "not-allowed",
+            cursor: effectiveSelectedId ? "pointer" : "not-allowed",
             transition: "background 0.12s",
           }}
         >
@@ -266,19 +285,19 @@ export default function MemberSelect({
         {/* 合言葉の部屋（コードで集まる） */}
         <button
           type="button"
-          disabled={!selectedId}
-          onClick={() => selectedId && onOpenRoomMenu(selectedId)}
+          disabled={!effectiveSelectedId}
+          onClick={() => effectiveSelectedId && onOpenRoomMenu(effectiveSelectedId)}
           style={{
             width: "100%",
             padding: "1rem",
-            background: selectedId ? "#000" : "#c6c6c6",
+            background: effectiveSelectedId ? "#000" : "#c6c6c6",
             color: "#fff",
             border: "none",
             fontSize: "0.875rem",
             fontWeight: 700,
             letterSpacing: "0.05em",
             textTransform: "uppercase",
-            cursor: selectedId ? "pointer" : "not-allowed",
+            cursor: effectiveSelectedId ? "pointer" : "not-allowed",
             transition: "background 0.12s",
           }}
         >

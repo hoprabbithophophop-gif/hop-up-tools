@@ -23,6 +23,8 @@ interface Props {
   memberColor: string;
   onReplay: () => void;
   onChangeColor: () => void;
+  /** スペシャル回で「通常にもどる」導線。指定時はスペシャルEndCardの副ボタンがこれに。 */
+  onBackToNormal?: () => void;
   /** スペシャル回（お祝い等）。指定時はラベル/総数/シェア文/祝い文を回の仕様に。null=通常練習。 */
   event?: SpecialEvent | null;
   /** 盛り上がりタイムライン（自分の今回分を加算済みの bins）。 */
@@ -49,7 +51,7 @@ function shareToX(count: number, event: SpecialEvent | null) {
  * 動画完走時に表示する終了カード。
  * ハイ！ボタンの位置を置き換える形で出る(動画はそのまま残る)。
  */
-export default function EndCard({ selfCount, totalCount, memberColor, onReplay, onChangeColor, event = null, heatmap = null, viewOnly = false }: Props) {
+export default function EndCard({ selfCount, totalCount, memberColor, onReplay, onChangeColor, onBackToNormal, event = null, heatmap = null, viewOnly = false }: Props) {
   const isSpecial = event != null;
   const labelStyle: CSSProperties = {
     fontSize: "0.6875rem",
@@ -115,8 +117,12 @@ export default function EndCard({ selfCount, totalCount, memberColor, onReplay, 
         <button type="button" onClick={onReplay} style={primaryBtnStyle}>
           もう一度
         </button>
-        <button type="button" onClick={onChangeColor} style={secondaryBtnStyle}>
-          別の色にする
+        <button
+          type="button"
+          onClick={isSpecial && onBackToNormal ? onBackToNormal : onChangeColor}
+          style={secondaryBtnStyle}
+        >
+          {isSpecial ? "通常にもどる" : "別の色にする"}
         </button>
         {!viewOnly && (
           <button
