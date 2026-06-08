@@ -25,9 +25,11 @@ import NavButton from "./components/NavButton";
 import HeatmapChart from "./components/HeatmapChart";
 import {
   getActiveSpecialEventKey,
+  getJoinableEventKey,
+  isEventKeyJoinable,
   getEvent,
   SPECIAL_EVENTS,
-  readSpecialChoice,
+  readStoredChoice,
   writeSpecialChoice,
   hasPreviewOverride,
 } from "./events";
@@ -1125,11 +1127,17 @@ export default function HiTensionPage() {
 
   // スペシャル回（お祝い等）：開催期間 or ?special / ?nishida プレビューで「今アクティブな回」を判定。
   const activeEventKey = getActiveSpecialEventKey();
-  // ユーザーが今見ているモード。通常⇔各回を💗チップで行き来でき、選択はリロード後も覚える。
-  // プレビュー（?special=）が効いている時はそれを最優先。
-  const [selectedEventKey, setSelectedEventKey] = useState<string | null>(() =>
-    hasPreviewOverride() ? activeEventKey : readSpecialChoice(activeEventKey),
-  );
+  // 💗リンクで参加できる回（期限内）。無ければ null＝リンクを出さない。
+  const joinableTargetKey = getJoinableEventKey();
+  // ユーザーが今見ているモード。通常⇔各回を💗リンクで行き来でき、選択はリロード後も覚える。
+  // プレビュー（?special=）最優先。期限切れの保存選択は通常に戻す（参加期限を過ぎた回は表示しない）。
+  const [selectedEventKey, setSelectedEventKey] = useState<string | null>(() => {
+    if (hasPreviewOverride()) return activeEventKey;
+    const raw = readStoredChoice();
+    if (raw === null) return null;                                       // 通常を明示選択
+    if (typeof raw === "string" && isEventKeyJoinable(raw)) return raw;  // まだ参加可の回
+    return activeEventKey;                                                // 未設定 or 期限切れ → その日の主役(無ければnull)
+  });
   const selectEvent = (key: string | null) => {
     setSelectedEventKey(key);
     writeSpecialChoice(key);
@@ -1314,7 +1322,7 @@ export default function HiTensionPage() {
                 <HeatmapChart
                   bins={heatmap.bins}
                   binSeconds={heatmap.binSeconds}
-                  color="#ffffff"
+                  color={eventColor ?? "#ffffff"}
                   liveTimeRef={currentTimeRef}
                   height={40}
                   faint
@@ -1443,7 +1451,7 @@ export default function HiTensionPage() {
             onConfirm={handleConfirm}
             onOpenRoomMenu={handleOpenRoomMenu}
             events={SPECIAL_EVENTS}
-            activeEventKey={activeEventKey}
+            joinTargetKey={joinableTargetKey}
             selectedEventKey={selectedEventKey}
             onSelectEvent={selectEvent}
           />

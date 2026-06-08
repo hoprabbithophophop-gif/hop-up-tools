@@ -22,9 +22,11 @@ export type SpecialEvent = {
   /** 対象メンバーID（data.ts の id）。 */
   targetMemberId: string;
   kind: SpecialEventKind;
-  /** 開催期間（JSTオフセット付きISO）。start<=now<end でアクティブ。 */
+  /** 開催期間（JSTオフセット付きISO）。start<=now<end で自動ON（その日の主役表示）。 */
   start: string;
   end: string;
+  /** 💗リンクから参加できる最終期限（JSTオフセット付きISO・排他）。省略=ずっと参加可。 */
+  joinableUntil?: string;
   /** EndCard上部の祝い文（空なら出さない）。 */
   endCardCongrats: string;
   /** Xシェアの本文（タグ・URL込み。文面はhop指定、勝手に足さない）。 */
@@ -41,6 +43,8 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
     kind: "birthday",
     start: "2026-06-07T00:00:00+09:00",
     end: "2026-06-08T00:00:00+09:00",
+    // バースデーメッセージカードの締切（翌月15日）に合わせ、7/15いっぱいまで参加可。
+    joinableUntil: "2026-07-16T00:00:00+09:00",
     endCardCongrats: "西田汐里さん お誕生日おめでとう🎂💗",
     shareText: (count: number) =>
       `西田汐里さん お誕生日おめでとう🎂💗\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
@@ -123,20 +127,39 @@ export function getActiveSpecialEventKey(now: Date = new Date()): string | null 
   return null;
 }
 
+/** その回が今 💗 から参加できるか（start <= now < joinableUntil）。joinableUntil 省略は無期限。 */
+export function isEventKeyJoinable(key: string | null | undefined, now: Date = new Date()): boolean {
+  const e = getEvent(key);
+  if (!e) return false;
+  const t = now.getTime();
+  if (t < Date.parse(e.start)) return false;
+  if (e.joinableUntil && t >= Date.parse(e.joinableUntil)) return false;
+  return true;
+}
+
+/** 💗リンクで参加できる回（並びの先頭）のキー。無ければ null（リンクを出さない）。 */
+export function getJoinableEventKey(now: Date = new Date()): string | null {
+  for (const e of SPECIAL_EVENTS) {
+    if (isEventKeyJoinable(e.key, now)) return e.key;
+  }
+  return null;
+}
+
 // ―― ユーザーの表示選択（どのモードを見ているか）の永続化 ――
 // 通常⇔スペシャル回を自由に行き来でき、リロード後も最後の選択を覚える。
 const CHOICE_KEY = "hi_special_choice"; // localStorage: スペシャル回キー or "none"
 
-/** 保存済みの表示選択。未保存なら fallback（通常はアクティブ回 or null）。 */
-export function readSpecialChoice(fallback: string | null): string | null {
+/** 保存済みの表示選択。undefined=未設定 / null=通常を明示選択 / string=回キー。 */
+export function readStoredChoice(): string | null | undefined {
   try {
     const v = localStorage.getItem(CHOICE_KEY);
-    if (v === "none") return null;
-    if (v && getEvent(v)) return v;
+    if (v === null) return undefined; // 未設定
+    if (v === "none") return null;    // 通常を明示
+    if (getEvent(v)) return v;        // 回キー
   } catch {
     /* 権限なし等は無視 */
   }
-  return fallback;
+  return undefined;
 }
 
 export function writeSpecialChoice(key: string | null): void {

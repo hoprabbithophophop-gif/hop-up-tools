@@ -7,10 +7,10 @@ interface Props {
   initialSelectedId: string | null;
   onConfirm: (memberId: string) => void;
   onOpenRoomMenu: (memberId: string) => void;
-  /** 並べられる全スペシャル回（過去含む）。 */
+  /** 並べられる全スペシャル回（過去含む）。色・文言の参照用。 */
   events?: readonly SpecialEvent[];
-  /** 今開催中の回キー（無ければ null）。「開催中」バッジ用。 */
-  activeEventKey?: string | null;
+  /** 💗リンクで参加できる回（期限内）のキー。null なら💗リンクを出さない。 */
+  joinTargetKey?: string | null;
   /** 今表示中の回キー（null=通常練習）。色・文言がこの回仕様になる。 */
   selectedEventKey?: string | null;
   /** 表示する回を選ぶ（null=通常練習に戻す）。 */
@@ -22,7 +22,7 @@ export default function MemberSelect({
   onConfirm,
   onOpenRoomMenu,
   events = [],
-  activeEventKey = null,
+  joinTargetKey = null,
   selectedEventKey = null,
   onSelectEvent,
 }: Props) {
@@ -40,8 +40,6 @@ export default function MemberSelect({
   const selectedColor = isSpecial ? eventColor : (findMember(selectedId)?.color ?? null);
   // 各スウォッチ/アクセントの表示色（配置はそのまま、見た目だけ統一）。
   const tint = (c: string) => (isSpecial && eventColor ? eventColor : c);
-  // 💗リンクで参加するスペシャル回：開催中があればそれ、無ければ並びの先頭（今は西田回）。
-  const targetEventKey = activeEventKey ?? events[0]?.key ?? null;
 
   return (
     <div
@@ -285,13 +283,13 @@ export default function MemberSelect({
         </button>
 
         {/* スペシャル回の出入り口。メニューやトグルではなく、絵文字ひとつの控えめなリンク。
-            通常時=💗（お祝いに参加）／スペシャル回中=✋（通常練習に戻る）。 */}
-        {onSelectEvent && targetEventKey && (
+            通常時=💗（お祝いに参加・期限内のみ）／スペシャル回中=✋（通常練習に戻る・常に出す）。 */}
+        {onSelectEvent && (isSpecial || joinTargetKey) && (
           <div style={{ display: "flex", justifyContent: "center", marginTop: "0.1rem" }}>
             <button
               type="button"
               aria-label={isSpecial ? "通常モードに戻る" : "スペシャル回に参加する"}
-              onClick={() => onSelectEvent(isSpecial ? null : targetEventKey)}
+              onClick={() => onSelectEvent(isSpecial ? null : joinTargetKey)}
               style={{
                 background: "none",
                 border: "none",
