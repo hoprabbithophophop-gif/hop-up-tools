@@ -17,9 +17,9 @@ interface Props {
   faint?: boolean;
 }
 
-// 本編中の盛り上がりタイムライン（Canvas）。可視範囲だけを毎フレーム描き直すので軽く、
-// SVGの巨大トラックを transform する方式のような再ラスタライズが起きない＝群衆(Pixi)に干渉せず滑らか。
+// 本編中の盛り上がりタイムライン（Canvas）。可視範囲だけを毎フレーム描き直すので軽く、群衆(Pixi)に干渉せず滑らか。
 // 動き：前半=白バー左→中央／中盤=白バー中央固定で波形が左へ流れる／終端=波形静止で白バー中央→右端。
+// ビート毎のピーク（約0.37秒間隔）をハッキリ見せるため平滑化せず、細かいビン(0.1秒)をそのまま描く。
 export default function LiveHeatmap({
   bins,
   binSeconds,
@@ -31,22 +31,15 @@ export default function LiveHeatmap({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // 軽い平滑化＋正規化用の最大値。
-  const { smoothed, max } = useMemo(() => {
-    const n = bins.length;
-    const s = n < 3
-      ? bins.slice()
-      : bins.map((_, i) => ((bins[i - 1] ?? bins[i]) + 2 * bins[i] + (bins[i + 1] ?? bins[i])) / 4);
-    return { smoothed: s, max: s.reduce((m, v) => (v > m ? v : m), 0) };
-  }, [bins]);
+  const max = useMemo(() => bins.reduce((m, v) => (v > m ? v : m), 0), [bins]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || smoothed.length === 0 || max === 0 || binSeconds <= 0) return;
+    if (!canvas || bins.length === 0 || max === 0 || binSeconds <= 0) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const n = smoothed.length;
+    const n = bins.length;
     const total = n * binSeconds;
     const span = Math.min(total, windowSeconds);
     const m = max || 1;
@@ -80,7 +73,7 @@ export default function LiveHeatmap({
       // 塗り（縦グラデーション）
       ctx.beginPath();
       ctx.moveTo(xOf((b0 + 0.5) * binSeconds), ch);
-      for (let i = b0; i <= b1; i++) ctx.lineTo(xOf((i + 0.5) * binSeconds), yOf(smoothed[i]));
+      for (let i = b0; i <= b1; i++) ctx.lineTo(xOf((i + 0.5) * binSeconds), yOf(bins[i]));
       ctx.lineTo(xOf((b1 + 0.5) * binSeconds), ch);
       ctx.closePath();
       const grad = ctx.createLinearGradient(0, 0, 0, ch);
@@ -93,7 +86,7 @@ export default function LiveHeatmap({
       ctx.beginPath();
       for (let i = b0; i <= b1; i++) {
         const x = xOf((i + 0.5) * binSeconds);
-        const y = yOf(smoothed[i]);
+        const y = yOf(bins[i]);
         if (i === b0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
       ctx.strokeStyle = color;
@@ -118,9 +111,9 @@ export default function LiveHeatmap({
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
     };
-  }, [smoothed, max, binSeconds, windowSeconds, color, faint, liveTimeRef]);
+  }, [bins, max, binSeconds, windowSeconds, color, faint, liveTimeRef]);
 
-  if (smoothed.length === 0 || max === 0) return null;
+  if (bins.length === 0 || max === 0) return null;
 
   const heightStyle = typeof height === "number" ? `${height}px` : height;
   return (

@@ -1147,8 +1147,8 @@ export default function HiTensionPage() {
   const [heatmap, setHeatmap] = useState<HiHeatmap | null>(null);
   useEffect(() => {
     let alive = true;
-    // 本編中の5秒窓ズームを細かく見せるため 0.2秒刻み(1280ビン)で取得。EndCardの全体表示にも流用。
-    fetchHiHeatmap(selectedEventKey, 1280).then((h) => { if (alive) setHeatmap(h); });
+    // ビート毎のピーク(約0.37秒間隔)を分離して見せるため 0.1秒刻み(2560ビン)で取得。EndCardは内部で間引く。
+    fetchHiHeatmap(selectedEventKey, 2560).then((h) => { if (alive) setHeatmap(h); });
     return () => { alive = false; };
   }, [selectedEventKey]);
 
@@ -1322,7 +1322,7 @@ export default function HiTensionPage() {
                   binSeconds={heatmap.binSeconds}
                   color={eventColor ?? "#ffffff"}
                   liveTimeRef={currentTimeRef}
-                  windowSeconds={20}
+                  windowSeconds={10}
                   height="clamp(44px, 8dvh, 84px)"
                   faint
                 />
