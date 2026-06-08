@@ -30,6 +30,8 @@ export default function MemberSelect({
   onSelectEvent,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
+  // 色タップごとに +1。背景✋の key に混ぜて「同じ色を選び直しても」再マウント→ポップさせる。
+  const [popTick, setPopTick] = useState(0);
 
   useEffect(() => {
     document.title = "ハイ！テンション✋ Practice ver. | hop-up-tools";
@@ -115,20 +117,20 @@ export default function MemberSelect({
       >
         ✋ Practice ver.
       </p>
-      {isSpecial && (
-        <p
-          style={{
-            fontSize: "0.75rem",
-            fontWeight: 700,
-            letterSpacing: "0.02em",
-            margin: "0.25rem 0 0",
-            textAlign: "center",
-            color: eventColor ?? "#777",
-          }}
-        >
-          〜{selectedEvent.title}〜
-        </p>
-      )}
+      {/* 副題の行は通常/スペシャルで常に確保（高さ固定）＝切替時に背景✋が上下しない。 */}
+      <p
+        style={{
+          fontSize: "0.75rem",
+          fontWeight: 700,
+          letterSpacing: "0.02em",
+          margin: "0.25rem 0 0",
+          minHeight: "1.05rem",
+          textAlign: "center",
+          color: eventColor ?? "#777",
+        }}
+      >
+        {isSpecial ? `〜${selectedEvent.title}〜` : ""}
+      </p>
 
 
       {/* 中央：背景の✋モチーフに重ねて、色選択を縦中央に置く */}
@@ -146,7 +148,7 @@ export default function MemberSelect({
         {/* 背景に画面いっぱいの✋（このツールの核アイコン）。選んだ色で着色して「自分の色の手」を示唆。
             色を変えるたび key が変わって再マウント→小さく跳ねる演出が走る。 */}
         <div
-          key={selectedId ?? "none"}
+          key={`${selectedId ?? "none"}-${popTick}`}
           aria-hidden
           style={{
             position: "absolute",
@@ -190,14 +192,20 @@ export default function MemberSelect({
         >
         {isSpecial ? (
           // スペシャル回は色選択をまとめる：主役色1個だけ中央に（全員その回の主役として参加）。
+          // タップで背景✋がポップ（通常の色選び直しと同じ手触り）。
           <div style={{ display: "flex", justifyContent: "center" }}>
-            <div
-              aria-hidden
+            <button
+              type="button"
+              aria-label="主役の色"
+              onClick={() => setPopTick((t) => t + 1)}
               style={{
                 width: "clamp(56px, 10dvh, 72px)",
                 height: "clamp(56px, 10dvh, 72px)",
                 borderRadius: "50%",
                 background: eventColor ?? "#000",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
                 boxShadow: `0 0 0 3px #f8f9fa, 0 0 0 5px ${eventColor ?? "#000"}`,
               }}
             />
@@ -224,7 +232,7 @@ export default function MemberSelect({
                     type="button"
                     aria-label={`color ${m.color}`}
                     aria-pressed={isSelected}
-                    onClick={() => setSelectedId(m.id)}
+                    onClick={() => { setSelectedId(m.id); setPopTick((t) => t + 1); }}
                     style={{
                       // 選択時は transform: scale で拡大するだけなので、
                       // 行の高さも他の丸の位置も動かない。
