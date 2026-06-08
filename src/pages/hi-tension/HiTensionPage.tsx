@@ -23,6 +23,7 @@ import FpsMeter from "./components/FpsMeter";
 import HandIcon from "./components/HandIcon";
 import NavButton from "./components/NavButton";
 import HeatmapChart from "./components/HeatmapChart";
+import LiveHeatmap from "./components/LiveHeatmap";
 import {
   getActiveSpecialEventKey,
   getViewableEventKey,
@@ -1316,12 +1317,12 @@ export default function HiTensionPage() {
                 aria-hidden
                 style={{ position: "relative", zIndex: 2, pointerEvents: "none", padding: "0.4rem 0.6rem 0", display: "flex", justifyContent: "center", width: "100%" }}
               >
-                <HeatmapChart
+                <LiveHeatmap
                   bins={heatmap.bins}
                   binSeconds={heatmap.binSeconds}
                   color={eventColor ?? "#ffffff"}
                   liveTimeRef={currentTimeRef}
-                  windowSeconds={10}
+                  windowSeconds={5}
                   height="clamp(44px, 8dvh, 84px)"
                   faint
                 />
