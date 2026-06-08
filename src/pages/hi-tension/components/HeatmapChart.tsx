@@ -93,9 +93,6 @@ export default function HeatmapChart({
       ? Math.max(0, Math.min(W, ((headSec - viewStartSec) / viewSpanSec) * W))
       : null;
 
-  const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-  const rangeLabel = windowSeconds ? `${fmtTime(viewStartSec)} – ${fmtTime(viewStartSec + viewSpanSec)}` : null;
-
   const gid = `hi-heat-${Math.round(max)}-${vN}`;
 
   return (
@@ -151,21 +148,6 @@ export default function HeatmapChart({
           />
         )}
       </svg>
-      {rangeLabel && (
-        <p
-          style={{
-            margin: "0.15rem 0 0",
-            fontSize: "0.625rem",
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-            color: "#fff",
-            textAlign: "center",
-            textShadow: "0 1px 2px rgba(0,0,0,0.6)",
-          }}
-        >
-          {rangeLabel}
-        </p>
-      )}
     </div>
   );
 }

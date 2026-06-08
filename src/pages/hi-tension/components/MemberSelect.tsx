@@ -3,6 +3,10 @@ import { UNIT_ROWS, findMember } from "../data";
 import HandIcon from "./HandIcon";
 import type { SpecialEvent } from "../events";
 
+// 合言葉の部屋（リアルタイム同期）は実利用がほぼ無く（YouTube同期の制約で2人まで）入口を非表示に。
+// コードは温存（useHiTensionRealtime / room-menu / waiting / ready-check）＝復活可。完全撤去は別タスク。
+const ROOM_ENABLED = false;
+
 interface Props {
   initialSelectedId: string | null;
   onConfirm: (memberId: string) => void;
@@ -290,27 +294,29 @@ export default function MemberSelect({
           {isSpecial ? (viewOnly ? "盛り上がりを見る" : "今こそ手を挙げたい！！！！！") : "ひとりではじめる"}
         </button>
 
-        {/* 合言葉の部屋（コードで集まる） */}
-        <button
-          type="button"
-          disabled={!effectiveSelectedId}
-          onClick={() => effectiveSelectedId && onOpenRoomMenu(effectiveSelectedId)}
-          style={{
-            width: "100%",
-            padding: "1rem",
-            background: effectiveSelectedId ? "#000" : "#c6c6c6",
-            color: "#fff",
-            border: "none",
-            fontSize: "0.875rem",
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-            textTransform: "uppercase",
-            cursor: effectiveSelectedId ? "pointer" : "not-allowed",
-            transition: "background 0.12s",
-          }}
-        >
-          合言葉の部屋へ
-        </button>
+        {/* 合言葉の部屋（コードで集まる）。ROOM_ENABLED=false で当面非表示。 */}
+        {ROOM_ENABLED && (
+          <button
+            type="button"
+            disabled={!effectiveSelectedId}
+            onClick={() => effectiveSelectedId && onOpenRoomMenu(effectiveSelectedId)}
+            style={{
+              width: "100%",
+              padding: "1rem",
+              background: effectiveSelectedId ? "#000" : "#c6c6c6",
+              color: "#fff",
+              border: "none",
+              fontSize: "0.875rem",
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+              textTransform: "uppercase",
+              cursor: effectiveSelectedId ? "pointer" : "not-allowed",
+              transition: "background 0.12s",
+            }}
+          >
+            合言葉の部屋へ
+          </button>
+        )}
 
         {/* スペシャル回の出入り口。メニューやトグルではなく、絵文字ひとつの控えめなリンク。
             通常時=💗（お祝いに参加・期限内のみ）／スペシャル回中=✋（通常練習に戻る・常に出す）。 */}
