@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { UNIT_ROWS, findMember } from "../data";
+import type { PracticeVideo } from "../data";
 import HandIcon from "./HandIcon";
 import type { SpecialEvent } from "../events";
 
@@ -21,6 +22,14 @@ interface Props {
   selectedEventKey?: string | null;
   /** 表示する回を選ぶ（null=通常練習に戻す）。 */
   onSelectEvent?: (key: string | null) => void;
+  /** 表示設定シートを開く（歯車）。 */
+  onOpenSettings?: () => void;
+  /** 練習できる映像の一覧。2本以上で映像切替トグルを出す（1本なら出さない）。 */
+  videos?: readonly PracticeVideo[];
+  /** 選択中の映像 id。 */
+  videoId?: string;
+  /** 映像を切り替える。 */
+  onSelectVideo?: (id: string) => void;
 }
 
 export default function MemberSelect({
@@ -32,6 +41,10 @@ export default function MemberSelect({
   viewOnly = false,
   selectedEventKey = null,
   onSelectEvent,
+  onOpenSettings,
+  videos = [],
+  videoId,
+  onSelectVideo,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   // 色タップごとに +1。背景✋の key に混ぜて「同じ色を選び直しても」再マウント→ポップさせる。
@@ -95,6 +108,30 @@ export default function MemberSelect({
         </span>
       )}
 
+      {/* 表示設定を開く歯車。右上に控えめに（背景✋より前面）。 */}
+      {onOpenSettings && (
+        <button
+          type="button"
+          aria-label="表示設定"
+          onClick={onOpenSettings}
+          style={{
+            position: "absolute",
+            top: 10,
+            right: 10,
+            zIndex: 2,
+            background: "none",
+            border: "none",
+            fontSize: "1.25rem",
+            lineHeight: 1,
+            color: "#9aa0a6",
+            cursor: "pointer",
+            padding: "0.3rem",
+          }}
+        >
+          ⚙
+        </button>
+      )}
+
       {/* ヘッダー：メインタイトル＋小さな副題（狭い画面でも折り返さない） */}
       <h1
         style={{
@@ -135,6 +172,44 @@ export default function MemberSelect({
       >
         {isSpecial ? `〜${selectedEvent.title}〜` : ""}
       </p>
+
+      {/* 映像切替：練習映像が2本以上ある時だけ出す（LIVE / MV）。各映像は別々の✋プールを持つ。 */}
+      {videos.length > 1 && onSelectVideo && (
+        <div
+          style={{
+            display: "flex",
+            gap: "0.4rem",
+            marginTop: "0.7rem",
+            position: "relative",
+            zIndex: 1,
+          }}
+        >
+          {videos.map((v) => {
+            const active = v.id === videoId;
+            return (
+              <button
+                key={v.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => onSelectVideo(v.id)}
+                style={{
+                  padding: "0.35rem 0.9rem",
+                  border: "none",
+                  background: active ? "#000" : "#eceef0",
+                  color: active ? "#fff" : "#474747",
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  letterSpacing: "0.02em",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                {v.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
 
       {/* 中央：背景の✋モチーフに重ねて、色選択を縦中央に置く */}

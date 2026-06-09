@@ -36,6 +36,8 @@ interface Props {
   scaleCount?: number;
   /** ✋の経日減衰(ageScale)を無効化。スペシャル回の客席を「満員のまま」凍結表示する用。 */
   freezeAge?: boolean;
+  /** 動き軽減：✋の跳ねる演出（squash→jump→fade）を止め、その場で出して静かに消す（軽量・酔い対策）。 */
+  reduceMotion?: boolean;
   /** 診断用: Pixi/WebGL 関連イベントを親に通知（後で削除） */
   onPixiEvent?: (event: string, detail?: string) => void;
 }
@@ -135,7 +137,7 @@ function easeOutCubic(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, overrideColor, scaleCount, freezeAge = false, onPixiEvent },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -159,6 +161,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   useEffect(() => { overrideColorRef.current = overrideColor; }, [overrideColor]);
   const freezeAgeRef = useRef<boolean>(freezeAge);
   useEffect(() => { freezeAgeRef.current = freezeAge; }, [freezeAge]);
+  const reduceMotionRef = useRef<boolean>(reduceMotion);
+  useEffect(() => { reduceMotionRef.current = reduceMotion; }, [reduceMotion]);
   const scaleCountRef = useRef<number | undefined>(scaleCount);
   useEffect(() => { scaleCountRef.current = scaleCount; }, [scaleCount]);
   useEffect(() => { onPixiEventRef.current = onPixiEvent; }, [onPixiEvent]);
@@ -496,6 +500,29 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     const downFadeDur = 180;      // 下降しながらフェードアウト
     const SQUASH_SCALE = 0.85;    // 溜め時の最小スケール倍率
     const baseScale = node.scale.x; // spawn 時に設定済みのスケールを基準にする（自分=1, 他人=spriteScale）
+
+    // 動き軽減：跳ね・溜めを一切せず、その場に出して少し留めて静かに消すだけ。
+    // 揺れる演出が無いぶん軽く（scale更新も無し）、酔い・感覚過敏にもやさしい。✋自体は出る＝密度は保つ。
+    if (reduceMotionRef.current) {
+      node.scale.set(baseScale);
+      node.alpha = baseAlpha;
+      const holdMs = 250;          // 出てから留まる時間
+      const fadeMs = 200;          // 静かに消える時間
+      let t = params.animationOffsetMs ?? 0;
+      const onTickStatic = (ticker: Ticker) => {
+        t += ticker.deltaMS;
+        if (t > holdMs) {
+          const k = Math.min(1, (t - holdMs) / fadeMs);
+          node.alpha = baseAlpha * (1 - k);
+          if (k >= 1) {
+            app.ticker.remove(onTickStatic);
+            try { node.destroy({ children: true }); } catch { /* ignore */ }
+          }
+        }
+      };
+      app.ticker.add(onTickStatic);
+      return;
+    }
 
     let phase: "squash" | "up" | "hold" | "downfade" | "done" = "squash";
     let phaseStart = 0;

@@ -1,4 +1,20 @@
-export const VIDEO_ID = "mn1wkO0Ysbw";
+/**
+ * 練習できる映像。各映像は video_id ごとに独立した✋プール／ヒートマップを持つ
+ *（曲が同じでも編集＝タップ時刻が違うのでデータは混ぜない）。
+ * 配列が2本以上になると入口に映像切替トグルが出る（1本の間は出さない）。
+ * Phase 2: 公式MV公開後、埋め込み可否を確認してから { id, label:"MV" } を追加する。
+ */
+export type PracticeVideo = {
+  id: string;
+  label: string;
+};
+
+export const PRACTICE_VIDEOS: readonly PracticeVideo[] = [
+  { id: "mn1wkO0Ysbw", label: "LIVE映像" },
+] as const;
+
+/** 既定（1本目）の video_id。api.ts 等の引数デフォルトに使う＝従来挙動を維持。 */
+export const VIDEO_ID = PRACTICE_VIDEOS[0].id;
 // 待機室で muted 再生してネットワーク/プレイヤー/CDN接続を暖機する別動画。
 // 別URLで完全独立に暖機しつつ、公式 views にも追加貢献。
 // https://www.youtube.com/watch?v=vsD2lApG9yc の 0:20〜1:22（62秒分）。

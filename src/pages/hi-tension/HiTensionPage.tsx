@@ -6,7 +6,7 @@ import HandsCanvas, { type HandsCanvasApi } from "./components/HandsCanvas";
 import WaitingRoom from "./WaitingRoom";
 import RoomMenu from "./RoomMenu";
 import ReadyCheck from "./ReadyCheck";
-import { VIDEO_ID, WARMUP_VIDEO_ID, WARMUP_VIDEO_START, WARMUP_VIDEO_END, findMember } from "./data";
+import { PRACTICE_VIDEOS, WARMUP_VIDEO_ID, WARMUP_VIDEO_START, WARMUP_VIDEO_END, findMember } from "./data";
 
 // 待機室で暖機再生する warmup クリップの YouTube 再生オプション
 const WARMUP_LOAD_OPTS = { startSeconds: WARMUP_VIDEO_START, endSeconds: WARMUP_VIDEO_END };
@@ -14,7 +14,11 @@ import {
   getLastSelectedMemberId,
   setLastSelectedMemberId,
   getOrCreateAnonymousSessionId,
+  getHiSettings,
+  setHiSettings,
+  type HiSettings,
 } from "./storage";
+import SettingsSheet from "./components/SettingsSheet";
 import { submitHiSession, fetchHiSessions, fetchHiHeatmap, type HiSession, type HiHeatmap } from "./api";
 import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, type LiveDriftReport, type LiveTap } from "./useHiTensionRealtime";
 import EndCard from "./components/EndCard";
@@ -189,6 +193,15 @@ export default function HiTensionPage() {
   const [screen, setScreen] = useState<Screen>("select");
   const [memberId, setMemberId] = useState<string | null>(() => getLastSelectedMemberId());
   const [sessions, setSessions] = useState<HiSession[]>([]);
+  // 表示設定（群衆量・ヒートマップ・動き軽減）。既定は今までの見え方。入口の歯車から変更＝localStorageへ。
+  const [settings, setSettingsState] = useState<HiSettings>(() => getHiSettings());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const updateSettings = (next: HiSettings) => { setSettingsState(next); setHiSettings(next); };
+  // 練習する映像。今は LIVE 1本（PRACTICE_VIDEOS[0]）。Phase 2 で MV が増えると入口にトグルが出る。
+  const [videoId, setVideoId] = useState<string>(() => PRACTICE_VIDEOS[0].id);
+  // loadVideo を呼ぶコールバック群はクロージャで videoId が古くなるため、最新値を ref で持つ。
+  const videoIdRef = useRef(videoId);
+  useEffect(() => { videoIdRef.current = videoId; }, [videoId]);
   const [seatHash, setSeatHash] = useState<number>(0);
   const [isPressed, setIsPressed] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
@@ -673,7 +686,7 @@ export default function HiTensionPage() {
       // loadVideo 前に明示的に 1.0 へ戻す。
       playerApiRef.current?.setPlaybackRate(1.0);
       playerApiRef.current?.unMute();
-      playerApiRef.current?.loadVideo(VIDEO_ID);
+      playerApiRef.current?.loadVideo(videoIdRef.current);
       // PC（other）はデコード余力が乏しく rate≈0.97 になりがちで同期破綻の主因。
       // 低解像度を明示要求して負荷を激減させる（240p で画素数 約 1/12）。
       // iframe サイズ縮小（ステージモニター化）と併用すると確実性 UP。
@@ -827,12 +840,15 @@ export default function HiTensionPage() {
   const isOverflow = mySeatIndex >= MAX_PARTICIPANTS;
 
   useEffect(() => {
-    fetchHiSessions().then((data) => {
+    let alive = true;
+    fetchHiSessions(videoId).then((data) => {
+      if (!alive) return;
       setSessions(data);
       const totalHi = data.reduce((sum, s) => sum + s.bucket_indices.length, 0);
       console.log(`[hi-tension] loaded ${data.length} sessions, ${totalHi} hi total`);
     });
-  }, []);
+    return () => { alive = false; };
+  }, [videoId]);
 
   useEffect(() => {
     return () => {
@@ -866,7 +882,7 @@ export default function HiTensionPage() {
     logHiEvent(anonSessionId, "play_called", "confirm");
     isWarmupRef.current = false;
     playerApiRef.current?.unMute();
-    playerApiRef.current?.loadVideo(VIDEO_ID); // warmup が乗ってる可能性があるので明示的に本番動画をロード
+    playerApiRef.current?.loadVideo(videoIdRef.current); // warmup が乗ってる可能性があるので明示的に本番動画をロード
     setMemberId(id);
     setLastSelectedMemberId(id);
     setSeatHash(newSeatHash());
@@ -999,7 +1015,7 @@ export default function HiTensionPage() {
     logHiEvent(anonSessionId, "play_called", "solo");
     isWarmupRef.current = false;
     playerApiRef.current?.unMute();
-    playerApiRef.current?.loadVideo(VIDEO_ID);
+    playerApiRef.current?.loadVideo(videoIdRef.current);
     resetPlayState();
     setPlaySeatIndex(-1);
     setIsRealtimePlay(false);
@@ -1062,6 +1078,7 @@ export default function HiTensionPage() {
       timestamps: timestampsRef.current.slice(),
       anonymousSessionId: anonSessionId,
       specialEventKey: selectedEventKey, // どのスペシャル回で遊んだか（null=通常練習）。練習勢と分離して記録
+      videoId, // どの練習映像か（映像ごとに✋プールを分ける）
     }).then((result) => {
       if (result.ok) { console.log("[hi-tension] session saved."); }
       else { console.warn("[hi-tension] save failed:", result.error); submittedRef.current = false; }
@@ -1143,14 +1160,19 @@ export default function HiTensionPage() {
   // 期限切れスペシャル回＝閲覧専用：✋ボタン非表示・保存なし・客席は満員凍結で「見守るだけ」。
   const viewOnlySpecial = selectedEventKey != null && !isEventKeyJoinable(selectedEventKey);
 
-  // 盛り上がりタイムライン（ヒートマップ）。表示中のモード(回)に対してサーバー集計を取得。
+  // ヒートマップを出すか。ユーザー設定でオフにできるが、閲覧専用スペシャル回は主役の見せ場なので常に出す。
+  const showHeatmap = settings.heatmap || viewOnlySpecial;
+
+  // 盛り上がりタイムライン（ヒートマップ）。表示中のモード(回)・映像に対してサーバー集計を取得。
+  // 非表示設定なら取得自体をスキップ（通信・IOを節約＝軽量化）。
   const [heatmap, setHeatmap] = useState<HiHeatmap | null>(null);
   useEffect(() => {
+    if (!showHeatmap) { setHeatmap(null); return; }
     let alive = true;
     // ビート毎のピーク(約0.37秒間隔)を分離して見せるため 0.1秒刻み(2560ビン)で取得。EndCardは内部で間引く。
-    fetchHiHeatmap(selectedEventKey, 2560).then((h) => { if (alive) setHeatmap(h); });
+    fetchHiHeatmap(selectedEventKey, 2560, videoId).then((h) => { if (alive) setHeatmap(h); });
     return () => { alive = false; };
-  }, [selectedEventKey]);
+  }, [selectedEventKey, videoId, showHeatmap]);
 
   // 客席・累計は登録した人の「目的」で完全分離する（混ぜない）：
   //   スペシャル回モード = その回に参加した席だけ(special_event_key 一致)。練習データは入れない。
@@ -1162,6 +1184,22 @@ export default function HiTensionPage() {
     ? sessions.filter((s) => sessionEventKey(s) === selectedEventKey)
     : sessions.filter((s) => sessionEventKey(s) == null);
   const displayTotal = displaySessions.reduce((sum, s) => sum + s.bucket_indices.length, 0);
+
+  // 群衆量設定を HandsCanvas に渡す席に反映：
+  //   self  = 自分だけ（みんなの✋を出さない＝1人イメトレ）
+  //   light = 控えめ（上限まで・今日のぶんを優先して残す）
+  //   full  = 全部（既定）
+  // ✋サイズは scaleCount(全登録数)で安定させるので、減らしても✋が小さくなることはない。
+  const CROWD_LIGHT_CAP = 120;
+  const crowdSessions =
+    settings.crowd === "self"
+      ? []
+      : settings.crowd === "full" || displaySessions.length <= CROWD_LIGHT_CAP
+        ? displaySessions
+        : [
+            ...displaySessions.filter((s) => s.is_today),
+            ...displaySessions.filter((s) => !s.is_today),
+          ].slice(0, CROWD_LIGHT_CAP);
 
   // EndCard 用：取得済み bins に「自分の今回のタップ」を足して即時反映（再フェッチ不要）。
   const endCardHeatmap = videoEnded && heatmap && heatmap.bins.length > 0
@@ -1237,7 +1275,7 @@ export default function HiTensionPage() {
         >
           <YouTubePlayer
             ref={playerApiRef}
-            videoId={VIDEO_ID}
+            videoId={videoId}
             onEnded={handleVideoEnded}
             onTimeUpdate={handleTimeUpdate}
             onPlayerStateChange={handlePlayerStateChange}
@@ -1290,7 +1328,10 @@ export default function HiTensionPage() {
                     background:
                       "radial-gradient(95% 55% at 50% -4%, rgba(120,160,255,0.30), rgba(190,120,255,0.10) 42%, transparent 70%)",
                     mixBlendMode: "screen",
-                    animation: "hopStageLight 10s ease-in-out infinite",
+                    // 動き軽減時は明滅させず、控えめな一定の明るさで止める。
+                    ...(settings.reduceMotion
+                      ? { opacity: 0.35 }
+                      : { animation: "hopStageLight 10s ease-in-out infinite" }),
                   }}
                 />
               </>
@@ -1299,7 +1340,7 @@ export default function HiTensionPage() {
             <HandsCanvas
               key={seatHash}
               ref={canvasRef}
-              sessions={displaySessions}
+              sessions={crowdSessions}
               selfMemberId={memberId}
               selfSeatHash={seatHash}
               selfSeatIndex={isRealtimePlay ? playSeatIndex : -1}
@@ -1307,6 +1348,7 @@ export default function HiTensionPage() {
               overrideColor={eventColor ?? undefined}
               scaleCount={sessions.length}
               freezeAge={selectedEventKey != null}
+              reduceMotion={settings.reduceMotion}
               onPixiEvent={(event, detail) => logHiEvent(anonSessionId, event, detail)}
             />
 
@@ -1338,6 +1380,7 @@ export default function HiTensionPage() {
                   event={selectedEvent}
                   heatmap={endCardHeatmap}
                   viewOnly={viewOnlySpecial}
+                  videoId={videoId}
                   onChangeColor={handleChangeColor}
                 />
               </div>
@@ -1421,6 +1464,25 @@ export default function HiTensionPage() {
                   </NavButton>
                 </div>
               )}
+              {/* 元の映像を YouTube で開く（再生中のみ。完走後は EndCard 側に出る＝重複させない）。 */}
+              {!videoEnded && (
+                <div style={{ display: "flex", justifyContent: "center", position: "relative", zIndex: 3 }}>
+                  <a
+                    href={`https://youtu.be/${videoId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      fontSize: "0.6875rem",
+                      fontWeight: 600,
+                      color: "#9aa0a6",
+                      textDecoration: "underline",
+                      textUnderlineOffset: "0.2rem",
+                    }}
+                  >
+                    ▶ YouTubeで元の映像を見る
+                  </a>
+                </div>
+              )}
               <p
                 style={{
                   margin: 0,
@@ -1457,8 +1519,21 @@ export default function HiTensionPage() {
             viewOnly={viewOnlySpecial}
             selectedEventKey={selectedEventKey}
             onSelectEvent={selectEvent}
+            onOpenSettings={() => setSettingsOpen(true)}
+            videos={PRACTICE_VIDEOS}
+            videoId={videoId}
+            onSelectVideo={setVideoId}
           />
         </div>
+      )}
+
+      {/* 表示設定シート（入口の歯車から開く。最前面でオーバーレイ） */}
+      {settingsOpen && (
+        <SettingsSheet
+          settings={settings}
+          onChange={updateSettings}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
 
       {/* 合言葉の部屋メニュー。ラッパーにも背景を敷く（RoomMenu のフェードイン中に背後の

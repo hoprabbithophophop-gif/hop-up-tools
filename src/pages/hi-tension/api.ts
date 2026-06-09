@@ -11,12 +11,14 @@ export async function submitHiSession(params: {
   anonymousSessionId: string;
   /** どのスペシャル回(お祝い等)で遊んだか。通常練習は null。練習勢と分離するためDBに記録する。 */
   specialEventKey?: string | null;
+  /** どの練習映像か。省略時は既定のLIVE映像。映像ごとに✋プールを分けるため記録する。 */
+  videoId?: string;
 }): Promise<SubmitResult> {
   const supabase = getSupabase();
   const eventKey = params.specialEventKey ?? null;
   const { data, error } = await supabase.functions.invoke("submit-hi-session", {
     body: {
-      video_id: VIDEO_ID,
+      video_id: params.videoId ?? VIDEO_ID,
       member_id: params.memberId,
       timestamps: params.timestamps,
       anonymous_session_id: params.anonymousSessionId,
@@ -63,14 +65,14 @@ export type HiSession = {
 // 客席の欠落や累計の増減（お祝い総数がフェッチごとに変動）が起きる。
 // → session_hash で並びを固定し、1000行ずつ range でページングして全件取得する。
 const FETCH_PAGE = 1000;
-export async function fetchHiSessions(): Promise<HiSession[]> {
+export async function fetchHiSessions(videoId: string = VIDEO_ID): Promise<HiSession[]> {
   const supabase = getSupabase();
   const all: HiSession[] = [];
   for (let from = 0; ; from += FETCH_PAGE) {
     const { data, error } = await supabase
       .from("hi_aggregations")
       .select("session_hash, member_id, is_today, bucket_indices, bucket_indices_20, played_date, special_mode, special_event_key")
-      .eq("video_id", VIDEO_ID)
+      .eq("video_id", videoId)
       .order("session_hash", { ascending: true }) // セッション毎に一意（並び固定でページ境界がブレない）
       .range(from, from + FETCH_PAGE - 1);
     if (error) {
@@ -101,10 +103,11 @@ export type HiHeatmap = {
 export async function fetchHiHeatmap(
   eventKey: string | null,
   binCount = 256,
+  videoId: string = VIDEO_ID,
 ): Promise<HiHeatmap | null> {
   const supabase = getSupabase();
   const { data, error } = await supabase.rpc("hi_heatmap", {
-    p_video_id: VIDEO_ID,
+    p_video_id: videoId,
     p_bin_count: binCount,
     p_event_key: eventKey,
   });

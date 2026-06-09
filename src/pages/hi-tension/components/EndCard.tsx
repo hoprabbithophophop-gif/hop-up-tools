@@ -29,6 +29,8 @@ interface Props {
   heatmap?: { bins: number[]; binSeconds: number } | null;
   /** 期限切れスペシャル回の閲覧専用表示。自分のカウント/シェアを出さず、総数とヒートマップだけ見せる。 */
   viewOnly?: boolean;
+  /** 練習に使った映像の YouTube id。元動画リンクの生成に使う。 */
+  videoId?: string;
 }
 
 // X(旧Twitter)のシェア下書きを開く。文面・タグ・URLは hop 指定（勝手に足さない）。
@@ -49,7 +51,7 @@ function shareToX(count: number, event: SpecialEvent | null) {
  * 動画完走時に表示する終了カード。
  * ハイ！ボタンの位置を置き換える形で出る(動画はそのまま残る)。
  */
-export default function EndCard({ selfCount, totalCount, memberColor, onChangeColor, event = null, heatmap = null, viewOnly = false }: Props) {
+export default function EndCard({ selfCount, totalCount, memberColor, onChangeColor, event = null, heatmap = null, viewOnly = false, videoId }: Props) {
   const isSpecial = event != null;
   const labelStyle: CSSProperties = {
     fontSize: "0.6875rem",
@@ -121,6 +123,25 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
           >
             𝕏 でシェアする
           </button>
+        )}
+
+        {/* 元の映像を YouTube で開く（プレイヤーの外＝規約OK）。別タブ。 */}
+        {videoId && (
+          <a
+            href={`https://youtu.be/${videoId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              marginTop: "0.4rem",
+              fontSize: "0.75rem",
+              fontWeight: 600,
+              color: "#777",
+              textDecoration: "underline",
+              textUnderlineOffset: "0.2rem",
+            }}
+          >
+            ▶ YouTubeで元の映像を見る
+          </a>
         )}
       </div>
     </div>
