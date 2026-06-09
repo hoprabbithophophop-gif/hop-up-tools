@@ -88,7 +88,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 50,
+        zIndex: 200, // 入口(select)ラッパーの zIndex:100 より前面に出す（裏に隠れて開かないのを防ぐ）
         background: "rgba(0,0,0,0.45)",
         display: "flex",
         alignItems: "center",
