@@ -1152,6 +1152,7 @@ export default function HiTensionPage() {
   const selectEvent = (key: string | null) => {
     setSelectedEventKey(key);
     writeSpecialChoice(key);
+    if (key != null) setVideoId(PRACTICE_VIDEOS[0].id);
   };
   const selectedEvent = getEvent(selectedEventKey);
   const eventColor = selectedEvent?.color ?? null;

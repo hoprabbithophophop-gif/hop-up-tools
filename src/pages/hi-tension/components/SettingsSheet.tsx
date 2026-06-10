@@ -111,9 +111,8 @@ export default function SettingsSheet({
 
   // スペシャル回：今その回中か／入れる回があるか。
   const isSpecial = selectedEventKey != null && events.some((e) => e.key === selectedEventKey);
-  const targetEvent = events.find((e) => e.key === (isSpecial ? selectedEventKey : viewTargetKey)) ?? null;
   const showSpecial = onSelectEvent != null && (isSpecial || viewTargetKey != null);
-  const showVideo = videos.length > 1 && onSelectVideo != null && videoId != null;
+  const showVideo = videos.length > 1 && onSelectVideo != null && videoId != null && !isSpecial;
 
   return (
     <div
@@ -184,31 +183,7 @@ export default function SettingsSheet({
           </div>
         )}
 
-        {showSpecial && (
-          <div>
-            <p style={rowLabelStyle}>スペシャル回</p>
-            <button
-              type="button"
-              onClick={() => onSelectEvent!(isSpecial ? null : viewTargetKey)}
-              style={{
-                width: "100%",
-                padding: "0.7rem 0.3rem",
-                border: "none",
-                background: isSpecial ? "#000" : (targetEvent?.color ?? "#eceef0"),
-                color: isSpecial || targetEvent?.color ? "#fff" : "#191c1d",
-                fontSize: "0.8125rem",
-                fontWeight: 700,
-                letterSpacing: "0.02em",
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-            >
-              {isSpecial ? "✋ 通常モードに戻る" : "💗 スペシャル回を見る"}
-            </button>
-          </div>
-        )}
-
-        {(showVideo || showSpecial) && <div style={dividerStyle} />}
+        {showVideo && <div style={dividerStyle} />}
 
         {/* プリセット */}
         <div>
@@ -321,6 +296,27 @@ export default function SettingsSheet({
         >
           閉じる
         </button>
+
+        {showSpecial && (
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <button
+              type="button"
+              aria-label={isSpecial ? "通常モードに戻る" : "スペシャル回を見る"}
+              onClick={() => onSelectEvent!(isSpecial ? null : viewTargetKey)}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                fontSize: "1.5rem",
+                lineHeight: 1,
+                padding: "0.1rem 0.3rem",
+                opacity: 0.9,
+              }}
+            >
+              {isSpecial ? "✋" : "💗"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
