@@ -160,7 +160,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
         {/* 中央：動画の真下のヒートマップ（幅は HiTensionPage の完走後動画と同じ式で揃える） */}
         <div
           style={{
-            width: "min(60vw, calc(40vh * 16 / 9))",
+            width: "min(60vw, calc(40dvh * 16 / 9))",
             margin: "0 auto",
             display: "flex",
             flexDirection: "column",

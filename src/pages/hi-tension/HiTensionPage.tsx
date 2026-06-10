@@ -1289,10 +1289,10 @@ export default function HiTensionPage() {
                   // 横（再生中）：動画を中央上に大きく（高さ基準60vh＝主役）。幅は高さ×16/9 で逆算し、
                   // 画面幅を超えないよう min でガード。左右に空く三角ゾーンがサイド席になる。
                   position: "absolute",
-                  top: "1.5vh",
+                  top: "1.5dvh",
                   left: "50%",
                   transform: "translateX(-50%)",
-                  width: "min(94vw, calc(60vh * 16 / 9))",
+                  width: "min(94vw, calc(60dvh * 16 / 9))",
                   zIndex: 2, // ✋キャンバス(=play-area z:1)より前面＝✋は動画の裏へ回る（規約OK）
                 }
               : isLandscape && screen === "play"
@@ -1303,7 +1303,7 @@ export default function HiTensionPage() {
                     // 40vh＝iPhone SE初代の横(568×320)でも左右ブロックが動画に被らない上限。
                     position: "relative",
                     zIndex: 2,
-                    width: "min(60vw, calc(40vh * 16 / 9))",
+                    width: "min(60vw, calc(40dvh * 16 / 9))",
                     margin: "0 auto",
                   }
                 : {
@@ -1418,10 +1418,10 @@ export default function HiTensionPage() {
                     ? {
                         // 横：動画(高さ60vh+上1.5vh)のすぐ下に、動画幅と揃えて中央に。
                         position: "absolute",
-                        top: "62vh",
+                        top: "62dvh",
                         left: "50%",
                         transform: "translateX(-50%)",
-                        width: "min(80vw, calc(60vh * 16 / 9))",
+                        width: "min(80vw, calc(60dvh * 16 / 9))",
                         zIndex: 2,
                         pointerEvents: "none",
                         display: "flex",
@@ -1468,8 +1468,8 @@ export default function HiTensionPage() {
                     ? {
                         // 横：ハイ！ボタンは右下に。ごほうびの数字はその真上に積む。
                         position: "absolute",
-                        right: "3.5vh",
-                        bottom: "3.5vh",
+                        right: "3.5dvh",
+                        bottom: "3.5dvh",
                         display: "flex",
                         flexDirection: "column",
                         alignItems: "center",
@@ -1539,8 +1539,8 @@ export default function HiTensionPage() {
                       // 中断(z:1)/著作権(z:3) を play-area 基準で従来どおり効かせる（✋は中断に被る）。
                       // 完走後は縦と同じ通常フロー（カードの下）＝EndCard に重ならない。
                       position: "absolute",
-                      left: "3vh",
-                      bottom: "2.5vh",
+                      left: "3dvh",
+                      bottom: "2.5dvh",
                       width: "auto",
                       maxWidth: "46vw",
                       display: "flex",
