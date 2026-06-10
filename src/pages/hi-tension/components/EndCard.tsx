@@ -128,6 +128,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
         <span style={{ position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)", fontSize: "0.625rem", fontWeight: 600, color: "#9aa0a6" }}>
           おそい
         </span>
+        {/* 半透明＋乗算＝重なったところが濃くなる（密度が濃さで読める）。縦の3段は重なり回避のみで意味なし。 */}
         {beatOffsets.map((o, i) => (
           <span
             key={i}
@@ -140,8 +141,8 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
               margin: "-3px 0 0 -3px",
               borderRadius: "50%",
               background: memberColor,
-              boxShadow: "0 0 0 1px #fff",
-              opacity: 0.9,
+              opacity: 0.45,
+              mixBlendMode: "multiply",
             }}
           />
         ))}
