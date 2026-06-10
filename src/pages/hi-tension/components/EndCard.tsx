@@ -31,6 +31,8 @@ interface Props {
   viewOnly?: boolean;
   /** 練習に使った映像の YouTube id。元動画リンクの生成に使う。 */
   videoId?: string;
+  /** 横向き。低い画面でもスクロール無しで収まるよう、縦積みを「数字+ヒートマップの行／ボタンの行」に組み替える。 */
+  landscape?: boolean;
 }
 
 // X(旧Twitter)のシェア下書きを開く。文面・タグ・URLは hop 指定（勝手に足さない）。
@@ -77,7 +79,7 @@ function shareToX(count: number, event: SpecialEvent | null, videoId?: string) {
  * 動画完走時に表示する終了カード。
  * ハイ！ボタンの位置を置き換える形で出る(動画はそのまま残る)。
  */
-export default function EndCard({ selfCount, totalCount, memberColor, onChangeColor, event = null, heatmap = null, viewOnly = false, videoId }: Props) {
+export default function EndCard({ selfCount, totalCount, memberColor, onChangeColor, event = null, heatmap = null, viewOnly = false, videoId, landscape = false }: Props) {
   const isSpecial = event != null;
   const labelStyle: CSSProperties = {
     fontSize: "0.6875rem",
@@ -87,6 +89,85 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
     color: "#777",
     margin: "0 0 0.4rem",
   };
+
+  // 横向き：縦の1列だと低い画面(横のiPhone SE=320px)で収まらないため、スクロール無しで
+  // 完結するよう「数字＋ヒートマップを横一列」「ボタン類を横一列」の2行に組み替える。
+  // 文言・ボタンの種類・順序は縦と同一（並べ方だけ変える）。
+  if (landscape) {
+    return (
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 720,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: "0.7rem",
+          padding: "0.2rem 0.4rem",
+        }}
+      >
+        {isSpecial && event.endCardCongrats && (
+          <p style={{ margin: 0, fontSize: "0.9rem", fontWeight: 800, textAlign: "center", color: memberColor }}>
+            {event.endCardCongrats}
+          </p>
+        )}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "1.8rem", width: "100%" }}>
+          {!viewOnly && (
+            <div style={{ textAlign: "center" }}>
+              <p style={labelStyle}>{isSpecial ? "お祝いに挙げた✋" : "あなたのハイ！"}</p>
+              <BouncyNumber value={selfCount} color={memberColor} size="2.4rem" />
+            </div>
+          )}
+          <div style={{ textAlign: "center" }}>
+            <p style={labelStyle}>{isSpecial ? "お祝いに挙がった✋の総数" : "歴代累計"}</p>
+            <BouncyNumber value={totalCount} color={memberColor} size="2rem" />
+          </div>
+          {heatmap && heatmap.bins.length > 0 && (
+            <div style={{ flex: "0 1 240px", minWidth: 160 }}>
+              <HeatmapChart
+                bins={heatmap.bins}
+                binSeconds={heatmap.binSeconds}
+                color={isSpecial ? memberColor : "#000000"}
+                height={44}
+                label="みんなの盛り上がり"
+              />
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.8rem", flexWrap: "wrap" }}>
+          <button type="button" onClick={onChangeColor} style={{ ...primaryBtnStyle, width: "auto", padding: "0.7rem 1.6rem" }}>
+            最初に戻る
+          </button>
+          {!viewOnly && (
+            <button
+              type="button"
+              onClick={() => shareToX(selfCount, event, videoId)}
+              style={{ ...secondaryBtnStyle, width: "auto", padding: "0.7rem 1.6rem" }}
+            >
+              𝕏 でシェアする
+            </button>
+          )}
+          {videoId && (
+            <a
+              href={`https://youtu.be/${videoId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                color: "#777",
+                textDecoration: "underline",
+                textUnderlineOffset: "0.2rem",
+              }}
+            >
+              ▶ YouTubeで元の映像を見る
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{

@@ -1302,11 +1302,11 @@ export default function HiTensionPage() {
                 }
               : isLandscape && screen === "play"
                 ? {
-                    // 横（完走後）：縦と同じ「動画が上・カードが下」の縦積みフローに戻す。
-                    // 横の低い画面では EndCard が収まらないため、スクロールで全部届く構成にする。
+                    // 横（完走後）：動画を40vhに縮めて上に残し、下に横組みEndCard＝
+                    // スクロール無しで1画面に収める（EndCard 側の landscape レイアウトとセット）。
                     position: "relative",
                     zIndex: 2,
-                    width: "min(94vw, calc(60vh * 16 / 9))",
+                    width: "min(94vw, calc(40vh * 16 / 9))",
                     margin: "0 auto",
                   }
                 : {
@@ -1363,9 +1363,10 @@ export default function HiTensionPage() {
               // 再生中はタップボタンを動かしたくないのでスクロールさせない。
               overflowY: videoEnded ? "auto" : undefined,
               WebkitOverflowScrolling: "touch",
-              // 横の再生中は子を絶対配置するのでパディング不要（完走後は EndCard 用に確保）。
+              // 横の再生中は子を絶対配置するのでパディング不要。完走後は EndCard 用に確保
+              // （横は1画面に収めるため上下を詰める）。
               padding: videoEnded
-                ? "1.2rem 1.2rem 2rem"
+                ? (isLandscape ? "0.4rem 1rem 0.4rem" : "1.2rem 1.2rem 2rem")
                 : isLandscape
                   ? 0
                   : "2.4rem 1.2rem 2rem",
@@ -1454,6 +1455,7 @@ export default function HiTensionPage() {
                   heatmap={endCardHeatmap}
                   viewOnly={viewOnlySpecial}
                   videoId={videoId}
+                  landscape={isLandscape}
                   onChangeColor={handleChangeColor}
                 />
               </div>
@@ -1548,9 +1550,10 @@ export default function HiTensionPage() {
                     }
                   : {
                       marginTop: "auto",
-                      paddingTop: "2.4rem",
+                      // 横の完走後は1画面に収めるため上の余白を詰める
+                      paddingTop: isLandscape ? "0.3rem" : "2.4rem",
                       width: "100%",
-                      maxWidth: 360,
+                      maxWidth: isLandscape ? 720 : 360,
                       position: "relative",
                       display: "flex",
                       flexDirection: "column",
