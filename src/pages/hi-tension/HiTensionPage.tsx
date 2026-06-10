@@ -1302,11 +1302,13 @@ export default function HiTensionPage() {
                 }
               : isLandscape && screen === "play"
                 ? {
-                    // 横（完走後）：動画を40vhに縮めて上に残し、下に横組みEndCard＝
-                    // スクロール無しで1画面に収める（EndCard 側の landscape レイアウトとセット）。
+                    // 横（完走後）：動画を40vhに縮めて上中央。直下にヒートマップ、左右の帯に
+                    // 数字/ボタン（EndCard 側の landscape 3ブロックとセット）。幅の式は
+                    // EndCard のヒートマップと同一にして時間軸をぴったり揃える。
+                    // 40vh＝iPhone SE初代の横(568×320)でも左右ブロックが動画に被らない上限。
                     position: "relative",
                     zIndex: 2,
-                    width: "min(94vw, calc(40vh * 16 / 9))",
+                    width: "min(60vw, calc(40vh * 16 / 9))",
                     margin: "0 auto",
                   }
                 : {

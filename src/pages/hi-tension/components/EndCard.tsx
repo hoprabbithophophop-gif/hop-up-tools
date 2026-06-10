@@ -90,59 +90,85 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
     margin: "0 0 0.4rem",
   };
 
-  // 横向き：縦の1列だと低い画面(横のiPhone SE=320px)で収まらないため、スクロール無しで
-  // 完結するよう「数字＋ヒートマップを横一列」「ボタン類を横一列」の2行に組み替える。
-  // 文言・ボタンの種類・順序は縦と同一（並べ方だけ変える）。
+  // 横向き：スクロール無しの3ブロック構成（hop指定）。
+  //   中央＝ヒートマップを動画の真下に（幅も動画と揃える＝波形のx軸が動画の時間軸と対応して読める）
+  //   左＝数字を縦並び ／ 右＝ボタンを縦並び（動画の左右に空く帯を使う。position:fixed で
+  //   画面の縦中央に置く＝ページのフローに依存しない）。文言・ボタンの種類・順序は縦と同一。
   if (landscape) {
     return (
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 720,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: "0.7rem",
-          padding: "0.2rem 0.4rem",
-        }}
-      >
-        {isSpecial && event.endCardCongrats && (
-          <p style={{ margin: 0, fontSize: "0.9rem", fontWeight: 800, textAlign: "center", color: memberColor }}>
-            {event.endCardCongrats}
-          </p>
-        )}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "1.8rem", width: "100%" }}>
+      <>
+        {/* 中央：動画の真下のヒートマップ（幅は HiTensionPage の完走後動画と同じ式で揃える） */}
+        <div
+          style={{
+            width: "min(60vw, calc(40vh * 16 / 9))",
+            margin: "0 auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.4rem",
+          }}
+        >
+          {isSpecial && event.endCardCongrats && (
+            <p style={{ margin: 0, fontSize: "0.9rem", fontWeight: 800, textAlign: "center", color: memberColor }}>
+              {event.endCardCongrats}
+            </p>
+          )}
+          {heatmap && heatmap.bins.length > 0 && (
+            <HeatmapChart
+              bins={heatmap.bins}
+              binSeconds={heatmap.binSeconds}
+              color={isSpecial ? memberColor : "#000000"}
+              height={44}
+              label="みんなの盛り上がり"
+            />
+          )}
+        </div>
+
+        {/* 左：数字ブロック（画面左端・縦中央） */}
+        <div
+          style={{
+            position: "fixed",
+            left: "2vw",
+            top: "50%",
+            transform: "translateY(-50%)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.9rem",
+            textAlign: "center",
+          }}
+        >
           {!viewOnly && (
-            <div style={{ textAlign: "center" }}>
+            <div>
               <p style={labelStyle}>{isSpecial ? "お祝いに挙げた✋" : "あなたのハイ！"}</p>
               <BouncyNumber value={selfCount} color={memberColor} size="2.4rem" />
             </div>
           )}
-          <div style={{ textAlign: "center" }}>
+          <div>
             <p style={labelStyle}>{isSpecial ? "お祝いに挙がった✋の総数" : "歴代累計"}</p>
-            <BouncyNumber value={totalCount} color={memberColor} size="2rem" />
+            <BouncyNumber value={totalCount} color={memberColor} size="1.8rem" />
           </div>
-          {heatmap && heatmap.bins.length > 0 && (
-            <div style={{ flex: "0 1 240px", minWidth: 160 }}>
-              <HeatmapChart
-                bins={heatmap.bins}
-                binSeconds={heatmap.binSeconds}
-                color={isSpecial ? memberColor : "#000000"}
-                height={44}
-                label="みんなの盛り上がり"
-              />
-            </div>
-          )}
         </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.8rem", flexWrap: "wrap" }}>
-          <button type="button" onClick={onChangeColor} style={{ ...primaryBtnStyle, width: "auto", padding: "0.7rem 1.6rem" }}>
+
+        {/* 右：ボタンブロック（画面右端・縦中央） */}
+        <div
+          style={{
+            position: "fixed",
+            right: "2vw",
+            top: "50%",
+            transform: "translateY(-50%)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "stretch",
+            gap: "0.7rem",
+          }}
+        >
+          <button type="button" onClick={onChangeColor} style={{ ...primaryBtnStyle, width: "auto", padding: "0.65rem 1.2rem" }}>
             最初に戻る
           </button>
           {!viewOnly && (
             <button
               type="button"
               onClick={() => shareToX(selfCount, event, videoId)}
-              style={{ ...secondaryBtnStyle, width: "auto", padding: "0.7rem 1.6rem" }}
+              style={{ ...secondaryBtnStyle, width: "auto", padding: "0.65rem 1.2rem" }}
             >
               𝕏 でシェアする
             </button>
@@ -153,18 +179,20 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
               target="_blank"
               rel="noopener noreferrer"
               style={{
-                fontSize: "0.75rem",
+                // 0.6875rem＝SE初代の横で右ブロックがヒートマップに被らない幅に収める
+                fontSize: "0.6875rem",
                 fontWeight: 600,
                 color: "#777",
                 textDecoration: "underline",
                 textUnderlineOffset: "0.2rem",
+                textAlign: "center",
               }}
             >
               ▶ YouTubeで元の映像を見る
             </a>
           )}
         </div>
-      </div>
+      </>
     );
   }
 
