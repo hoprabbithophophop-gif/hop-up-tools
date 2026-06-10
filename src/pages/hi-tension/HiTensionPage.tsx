@@ -1116,7 +1116,16 @@ export default function HiTensionPage() {
     setScreen("select");
   };
 
+  // タップ時刻の精密化アンカー。動画位置のポーリングは100ms刻み＋YouTube側の時刻更新にも
+  // 粒度があるため、そのまま使うとタップ時刻に0〜100ms超のランダム遅れが乗る
+  // （リズム判定で全タップが散らばって見えた主因。実データのσ≈91ms）。
+  // 「ポーリング値が変わった瞬間」の(動画時刻, 実時刻)を覚え、タップ時は経過実時間で外挿する。
+  const timeAnchorRef = useRef<{ media: number; wall: number } | null>(null);
+
   const handleTimeUpdate = useCallback((t: number) => {
+    if (t !== currentTimeRef.current) {
+      timeAnchorRef.current = { media: t, wall: performance.now() };
+    }
     currentTimeRef.current = t;
     // ✋の物差しは「実際の動画位置(t)」をそのまま使う。recordHi(送信側)も同じ。
     // 2台の動画は pause-and-wait でお互いほぼ揃っている一方、抽象クロックは起動時の
@@ -1129,7 +1138,12 @@ export default function HiTensionPage() {
     if (videoEndedRef.current) return;
     // ✋の videoTime は実際の動画位置を使う（受信側 handleTimeUpdate と同じ物差し）。
     // 抽象クロック基準だと映像との定常ズレ(約1秒)が✋に出るため。
-    const t = currentTimeRef.current;
+    // アンカーからの外挿で精密化（ポーリング間の遅れを除去）。一時停止等でポーリングが
+    // 止まっている間に外挿が暴走しないよう 0.25s で頭打ち。アンカー未確立時は従来値。
+    const anchor = timeAnchorRef.current;
+    const t = anchor
+      ? anchor.media + Math.min((performance.now() - anchor.wall) / 1000, 0.25)
+      : currentTimeRef.current;
     timestampsRef.current.push(t);
     setSelfPressCount((c) => c + 1); // ごほうび表示のカウントアップ（押すたび弾む）
     console.log(`[hi-tension] HI! @ ${t.toFixed(2)}s`);
