@@ -5,6 +5,7 @@ import FavoritePicker, { type Favorites } from "./FavoritePicker";
 import MemberFilterInput from "./MemberFilterInput";
 import { OG_MEMBERS, OG_GROUP_LABEL } from "@/data/ogMembers";
 import { eventGroupKey } from "@/lib/eventGrouping";
+import { loadVenueGeo, geoForLocation } from "@/lib/venueGeo";
 import { getSupabase } from "../../lib/supabase";
 import {
   generateIcs,
@@ -254,6 +255,8 @@ export default function FcTicketPage() {
         .select("product_url, product_name, event_name, sale_end_at")
         .not("sale_end_at", "is", null)
         .gte("sale_end_at", new Date(Date.now() - 7 * 86400000).toISOString()),
+      // 会場名→座標の辞書（カレンダー予定の地図タップ用）。描画前に揃えておく
+      loadVenueGeo(sb),
     ]).then(([newsRes, dlRes, goodsRes]) => {
       if (newsRes.data) setAllNews(newsRes.data as FcNewsRow[]);
       const deadlines = (dlRes.data as Deadline[]) ?? [];
@@ -885,6 +888,7 @@ function DeadlineRow({ dl, paidUp = false, isFirst = false }: { dl: Deadline; pa
     dtstart: isEvent ? deadline : new Date(deadline.getTime() - 3600000),
     dtend: isEvent ? new Date(deadline.getTime() + 7200000) : deadline,
     location: dl.location ?? undefined,
+    geo: geoForLocation(dl.location),
   };
 
   const dateStr = deadline.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
@@ -2158,6 +2162,7 @@ function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
     dtstart: isEvent ? deadline : new Date(deadline.getTime() - 3600000),
     dtend: isEvent ? new Date(deadline.getTime() + 7200000) : deadline,
     location: dl.location ?? undefined,
+    geo: geoForLocation(dl.location),
   };
 
   const timeStr = deadline.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
@@ -2435,6 +2440,20 @@ function SubscribeScreen({
   const lastSavedSigRef = useRef<string | null>(null);
   const saveTimerRef = useRef<number | null>(null);
 
+  // ?focus=<公演キー>: 予定メモの「通知の変更」リンクから該当公演へ直行（スクロール＋一瞬ハイライト）
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [pendingFocus, setPendingFocus] = useState<string | null>(null);
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
+  useEffect(() => {
+    const f = searchParams.get("focus");
+    if (!f) return;
+    setPendingFocus(f);
+    // 消費したらURLから外す（リロード・履歴戻りで毎回スクロールさせない）
+    const next = new URLSearchParams(searchParams);
+    next.delete("focus");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   // 初回マウント時、保存済みincludedが無い場合だけ自動デフォルト計算
   useEffect(() => {
     if (initialized) return;
@@ -2623,6 +2642,23 @@ function SubscribeScreen({
   const activeGroups = groupDeadlinesByEvent(activeDeadlines);
   const completedGroups = groupDeadlinesByEvent(completedDeadlines);
 
+  // pendingFocus の公演が画面に現れたらスクロール＋ハイライト。
+  // 依存配列なし＝毎レンダー後に試行：データ読込前にリンクを開いても、読込完了の再レンダーで自然に発火する。
+  useEffect(() => {
+    if (!pendingFocus) return;
+    if (!showCompleted && completedGroups.some((g) => g.key === pendingFocus)) {
+      setShowCompleted(true); // 完了済み側に居る公演は折りたたみを開いてから（次のレンダーで続き）
+      return;
+    }
+    const el = document.querySelector(`[data-event-group="${CSS.escape(pendingFocus)}"]`);
+    if (!el) return; // まだ描画されていない（該当公演がデータに無い場合は何もしないまま）
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const key = pendingFocus;
+    setHighlightKey(key);
+    setPendingFocus(null);
+    window.setTimeout(() => setHighlightKey((cur) => (cur === key ? null : cur)), 2000);
+  });
+
   async function handlePublish(opts?: { silent?: boolean }) {
     const silent = opts?.silent ?? false;
     // 最新値はrefから（タイマー/離脱リスナー経由でも正しく読む）
@@ -2662,8 +2698,9 @@ function SubscribeScreen({
         const st = statusByUid.get(uid) ?? "";
         return paidSetNow.has(uid) || st.includes("入金済") || (st.includes("当選") && !st.includes("当選取消"));
       };
-      // 予定メモから設定にすぐ飛べるリンク（webに飛ぶ手間を短縮）
-      const settingsUrl = "https://hop-up-tools.pages.dev/fc-ticket?tab=subscribe";
+      // 予定メモから設定にすぐ飛べるリンク（公演キー付き＝開くと該当公演までスクロール）
+      const settingsUrlFor = (title: string) =>
+        "https://hop-up-tools.pages.dev/fc-ticket?tab=subscribe&focus=" + encodeURIComponent(eventGroupKey(title));
       const events: IcsEvent[] = chosen.map((dl) => {
         const at = new Date(dl.deadline_at);
         // 公演(event)は「開演〜2時間」の予定として扱う。締切類は「締切の1時間前〜締切」。
@@ -2671,10 +2708,12 @@ function SubscribeScreen({
         return {
           uid: dl.id + "@hop-up-tools",
           summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
-          description: dl.fc_news.title + "\n" + dl.fc_news.detail_url + "\n\n通知の変更: " + settingsUrl,
+          description: dl.fc_news.title + "\n" + dl.fc_news.detail_url + "\n\n通知の変更: " + settingsUrlFor(dl.fc_news.title),
           dtstart: isEvent ? at : new Date(at.getTime() - 3600000),
           dtend: isEvent ? new Date(at.getTime() + 7200000) : at,
           location: dl.location ?? undefined,
+          // 会場座標も発行時に焼き込む（regenは描画のみ）
+          geo: geoForLocation(dl.location),
           // 通知は発行時に算出して焼き込む（生成側・regenは描画のみ）
           alarms: alarmsForDeadline(dl.type, isEvent && firstEventIds.has(dl.id), leadTrigger, isAttending(dl.news_uid)),
         };
@@ -2774,7 +2813,12 @@ function SubscribeScreen({
           {activeGroups.map((g) => {
             const allChecked = g.deadlines.every((d) => includedIds.has(d.id));
             return (
-              <div key={g.key}>
+              <div
+                key={g.key}
+                data-event-group={g.key}
+                className="-mx-2 px-2 py-1"
+                style={{ background: highlightKey === g.key ? "rgba(0,0,0,0.07)" : "transparent", transition: "background 0.7s ease" }}
+              >
                 <div className="flex items-center gap-2 mb-1">
                   <button
                     onClick={() => toggleGroup(g.deadlines)}
@@ -2820,7 +2864,12 @@ function SubscribeScreen({
             {showCompleted && (
               <div className="mt-2 space-y-4 opacity-60">
                 {completedGroups.map((g) => (
-                  <div key={g.key}>
+                  <div
+                    key={g.key}
+                    data-event-group={g.key}
+                    className="-mx-2 px-2 py-1"
+                    style={{ background: highlightKey === g.key ? "rgba(0,0,0,0.07)" : "transparent", transition: "background 0.7s ease" }}
+                  >
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-sm font-bold leading-snug">{g.key}</span>
                       <span className="text-[0.625rem] text-outline ml-auto flex-shrink-0">{g.deadlines.length}件</span>

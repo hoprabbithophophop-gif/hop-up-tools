@@ -3,6 +3,11 @@ export interface IcsAlarm {
   description: string;  // 通知文言
 }
 
+export interface IcsGeo {
+  lat: number;
+  lon: number;
+}
+
 export interface IcsEvent {
   uid: string;
   summary: string;
@@ -10,6 +15,8 @@ export interface IcsEvent {
   dtstart: Date;
   dtend: Date;
   location?: string | null;
+  // 会場座標。指定時は GEO + Apple構造化位置情報を出力（地図タップ・経路案内が効く）
+  geo?: IcsGeo | null;
   // 通知。未指定→締切系デフォルト(前日+1h)でフォールバック。空配列[]→通知なし。
   alarms?: IcsAlarm[];
 }
@@ -23,6 +30,18 @@ const DEFAULT_ALARMS: IcsAlarm[] = [
   { trigger: "-P1D", description: "明日が締切です" },
   { trigger: "-PT1H", description: "1時間後が締切です" },
 ];
+
+// 会場座標行を生成。GEO(標準) + X-APPLE-STRUCTURED-LOCATION(iOSの地図タップ・経路案内用)
+export function renderGeo(event: Pick<IcsEvent, "geo" | "location">): string[] {
+  const g = event.geo;
+  if (!g) return [];
+  // X-TITLEはパラメータ値なので壊す文字（引用符・改行）を除去して引用符で包む
+  const title = (event.location ?? "").replace(/[",\n\\]/g, " ").replace(/\s+/g, " ").trim();
+  return [
+    `GEO:${g.lat};${g.lon}`,
+    `X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-APPLE-RADIUS=200;X-TITLE="${title}":geo:${g.lat},${g.lon}`,
+  ];
+}
 
 // VALARM行を生成。undefined→デフォルト、[]→通知なし。
 export function renderAlarms(alarms?: IcsAlarm[]): string[] {
@@ -70,6 +89,7 @@ export function generateIcs(event: IcsEvent): string {
     `SUMMARY:${event.summary}`,
     `DESCRIPTION:${event.description.replace(/\n/g, "\\n")}`,
     ...(event.location ? [`LOCATION:${event.location}`] : []),
+    ...renderGeo(event),
     ...renderAlarms(event.alarms),
     "END:VEVENT",
     "END:VCALENDAR",
@@ -132,6 +152,7 @@ export function generateMultiIcs(events: IcsEvent[]): string {
       `SUMMARY:${event.summary}`,
       `DESCRIPTION:${event.description.replace(/\n/g, "\\n")}`,
       ...(event.location ? [`LOCATION:${event.location}`] : []),
+      ...renderGeo(event),
       ...renderAlarms(event.alarms),
       "END:VEVENT",
     ];
