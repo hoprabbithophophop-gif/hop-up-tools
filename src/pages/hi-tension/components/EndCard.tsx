@@ -35,6 +35,8 @@ interface Props {
   landscape?: boolean;
   /** 自分の今回のタップ時刻(秒)。ヒートマップの波の上に推し色ドットで重ねる。 */
   selfTimestamps?: number[];
+  /** 各タップの「最寄りの拍からのズレ」(-0.5..+0.5、負=早い)。null=判定不能（表示しない）。 */
+  beatOffsets?: number[] | null;
 }
 
 // X(旧Twitter)のシェア下書きを開く。文面・タグ・URLは hop 指定（勝手に足さない）。
@@ -81,7 +83,7 @@ function shareToX(count: number, event: SpecialEvent | null, videoId?: string) {
  * 動画完走時に表示する終了カード。
  * ハイ！ボタンの位置を置き換える形で出る(動画はそのまま残る)。
  */
-export default function EndCard({ selfCount, totalCount, memberColor, onChangeColor, event = null, heatmap = null, viewOnly = false, videoId, landscape = false, selfTimestamps }: Props) {
+export default function EndCard({ selfCount, totalCount, memberColor, onChangeColor, event = null, heatmap = null, viewOnly = false, videoId, landscape = false, selfTimestamps, beatOffsets = null }: Props) {
   const isSpecial = event != null;
   const labelStyle: CSSProperties = {
     fontSize: "0.6875rem",
@@ -91,6 +93,52 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
     color: "#777",
     margin: "0 0 0.4rem",
   };
+
+  // チューナー風ストリップ：横軸＝最寄りの拍からのズレ（±半拍）。中央の線＝拍ぴったり。
+  // 自分の各タップを推し色ドットで置く＝0付近に固まっていればリズムに乗れている。
+  // 同じズレのドットが重ならないよう縦は3段を循環。ラベル文言は未確定のため出さない（hopと別途）。
+  const tunerStrip = beatOffsets && beatOffsets.length > 0 && !viewOnly ? (
+    <div
+      aria-hidden
+      style={{
+        width: "100%",
+        position: "relative",
+        height: 26,
+        background: "#eef0f2",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: "50%",
+          top: 0,
+          bottom: 0,
+          width: 2,
+          marginLeft: -1,
+          background: "#191c1d",
+          opacity: 0.5,
+        }}
+      />
+      {beatOffsets.map((o, i) => (
+        <span
+          key={i}
+          style={{
+            position: "absolute",
+            left: `${((0.5 + o) * 100).toFixed(2)}%`,
+            top: `${[28, 52, 76][i % 3]}%`,
+            width: 6,
+            height: 6,
+            margin: "-3px 0 0 -3px",
+            borderRadius: "50%",
+            background: memberColor,
+            boxShadow: "0 0 0 1px #fff",
+            opacity: 0.9,
+          }}
+        />
+      ))}
+    </div>
+  ) : null;
 
   // 横向き：スクロール無しの3ブロック構成（hop指定）。
   //   中央＝ヒートマップを動画の真下に（幅も動画と揃える＝波形のx軸が動画の時間軸と対応して読める）
@@ -126,6 +174,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
               zoomable
             />
           )}
+          {tunerStrip}
         </div>
 
         {/* 左：数字ブロック（画面左端・縦中央） */}
@@ -243,6 +292,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
           zoomable
         />
       )}
+      {tunerStrip}
 
       <div
         style={{

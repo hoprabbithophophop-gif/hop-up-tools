@@ -26,8 +26,8 @@ import BouncyNumber from "./components/BouncyNumber";
 import FpsMeter from "./components/FpsMeter";
 import HandIcon from "./components/HandIcon";
 import NavButton from "./components/NavButton";
-import HeatmapChart from "./components/HeatmapChart";
 import LiveHeatmap from "./components/LiveHeatmap";
+import { analyzeBeatOffsets } from "./rhythm";
 import {
   getActiveSpecialEventKey,
   getViewableEventKey,
@@ -1224,6 +1224,11 @@ export default function HiTensionPage() {
 
   // EndCard のヒートマップ：波は「みんな」のまま渡し、自分の今回分は selfTimestamps の
   // 推し色ドットで重ねて見せる（ビンに足しても 1001→1002 では波形が変わらず見えないため廃止）。
+  // リズム判定：BPM155の拍グリッドに対する各タップのズレ（位相はみんなのタップから自動推定）。
+  const beatOffsets = useMemo(
+    () => (videoEnded ? analyzeBeatOffsets(sessions, timestampsRef.current) : null),
+    [videoEnded, sessions],
+  );
 
   return (
     <>
@@ -1446,6 +1451,7 @@ export default function HiTensionPage() {
                   event={selectedEvent}
                   heatmap={heatmap}
                   selfTimestamps={timestampsRef.current}
+                  beatOffsets={beatOffsets}
                   viewOnly={viewOnlySpecial}
                   videoId={videoId}
                   landscape={isLandscape}
