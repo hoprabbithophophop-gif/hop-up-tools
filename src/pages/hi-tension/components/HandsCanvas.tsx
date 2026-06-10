@@ -30,6 +30,9 @@ interface Props {
   selfSeatIndex?: number;
   /** サイド席（左右スタンド）を出すか。PC（動画が小さく横が空く）でのみ true 想定。スマホは false。 */
   enableSides?: boolean;
+  /** 横画面（アリーナ）レイアウト。動画を中央上(高さ60vh)に置く前提で、左右=縦長サイド席/
+   *  下40vh=フラットなアリーナ席（傾斜なし＝全員同じ目線）にする。動画の裏には席を置かない。 */
+  landscape?: boolean;
   /** 全✋の色を強制上書き（誕生日モード等）。未指定は各メンバーカラー。 */
   overrideColor?: string;
   /** ✋サイズ算出(crowdScale)に使う人数。客席を分離表示しても全体登録数で安定させる用。未指定=表示中の数。 */
@@ -137,7 +140,7 @@ function easeOutCubic(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -163,6 +166,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   useEffect(() => { freezeAgeRef.current = freezeAge; }, [freezeAge]);
   const reduceMotionRef = useRef<boolean>(reduceMotion);
   useEffect(() => { reduceMotionRef.current = reduceMotion; }, [reduceMotion]);
+  const landscapeRef = useRef<boolean>(landscape);
+  useEffect(() => { landscapeRef.current = landscape; }, [landscape]);
   const scaleCountRef = useRef<number | undefined>(scaleCount);
   useEffect(() => { scaleCountRef.current = scaleCount; }, [scaleCount]);
   useEffect(() => { onPixiEventRef.current = onPixiEvent; }, [onPixiEvent]);
@@ -196,9 +201,9 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   // 中央下はアリーナ席として少しだけ✋を置く。並び順は毎プレイ(selfSeatHash)で席替えし、
   // 色と位置を固定で結びつけない。同一プレイ中は安定なので再生中に✋がワープしない。
   // 安全帯 BAND_TOP〜BAND_BOT に収め、上部のタップボタン裏は中央を空けることで避ける。
-  const sessionLayout = useMemo<Map<number, { xRatio: number; yRatio: number; depthK: number; rotation: number }>>(() => {
+  const sessionLayout = useMemo<Map<number, { xRatio: number; yRatio: number; depthK: number; rotation: number; jumpScale?: number }>>(() => {
     const n = sessions.length;
-    const map = new Map<number, { xRatio: number; yRatio: number; depthK: number; rotation: number }>();
+    const map = new Map<number, { xRatio: number; yRatio: number; depthK: number; rotation: number; jumpScale?: number }>();
     if (n === 0) return map;
     // selfSeatHash を種に session_hash を撹拌して並べ替える（毎プレイで席替え）。
     const seed = selfSeatHash >>> 0;
@@ -218,54 +223,112 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     const sorted = [...sessions].sort((a, b) => mix(a.session_hash) - mix(b.session_hash));
     const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
-    type Slot = { xRatio: number; yRatio: number; depthK: number; rotation: number; spread: number };
-    // サイド有り(PC)＝この線より上はサイド用に空ける。サイド無し(スマホ)＝センターを上まで詰めて全面化。
-    const HORIZON = enableSides ? 0.32 : 0.06;
-    // 最前列の着地点は画面下端(1.0)より下＝最大の✋は下半分が画面外（飛んでも視界を全部塞がない）。
-    const CENTER_BOT = 1.35;
-    // 1/z 補間で縦位置（手前=下=yBot、奥=上=yTop、手前ほど縦に広い）。
-    const projY = (z: number, zNear: number, zFar: number, yTop: number, yBot: number) =>
-      yTop + (yBot - yTop) * ((1 / z - 1 / zFar) / (1 / zNear - 1 / zFar));
-    const Z_NEAR = 1.0, Z_FAR = 6.0;    // 視点からの距離。比が大きいほど遠近が強い（小さめ=奥を底上げ）
-    const FRONT_SCALE = 4.2;            // 最前列の✋サイズ倍率（手前で視界が半分以上隠れる）
-
+    // jumpScale: 跳ね量の倍率（80px に掛ける。未指定=1）。アリーナは動画裏に入らないよう抑える。
+    type Slot = { xRatio: number; yRatio: number; depthK: number; rotation: number; spread: number; jumpScale?: number };
     // ★ スロット幾何は人数に依存しない固定配置（セッションが増えても席数・描画は一定＝軽い。
     //   ✋は「今そのバケットで叩いた人」だけ湧くので、人が増えれば自然に密になる）。
     //   同じスロットに複数人が乗っても、各自ハッシュで決まる固有オフセット(間隔spreadに比例)で
     //   散らすので、同座標スタックが起きず隙間も埋まる。
-
-    // ── サイド席：左右上部の直角三角形スロット。ヨー＋左右ミラーで内向き ──
-    const SIDE_SIZE = 0.6;        // 一定サイズ（遠いので差なし）
-    const SIDE_ROWS = 6;          // 1+..+6 = 21席/側
-    const SIDE_X0 = 0.012, SIDE_DX = 0.032; // 横（さらに詰める）
-    const SIDE_Y0 = 0.05, SIDE_DY = 0.043;  // 縦（上部に収める）
-    const SIDE_YAW = 0.95;        // z軸ヨー角(rad)
     const sideSlots: Slot[] = [];
-    for (let i = 0; i < SIDE_ROWS; i++) {
-      const yy = SIDE_Y0 + i * SIDE_DY;
-      for (let j = 0; j <= i; j++) {
-        const xx = SIDE_X0 + j * SIDE_DX;
-        sideSlots.push({ xRatio: xx, yRatio: yy, depthK: SIDE_SIZE, rotation: -SIDE_YAW, spread: SIDE_DX });     // 左席
-        sideSlots.push({ xRatio: 1 - xx, yRatio: yy, depthK: SIDE_SIZE, rotation: SIDE_YAW, spread: SIDE_DX });  // 右席
-      }
-    }
-
-    // ── センター席：前は席少・奥は席多の透視スロット（HORIZONより下、固定）──
-    const LATERAL = 0.18, ROWS = 22;               // 列を詰め段数を増やして間を詰める
     const centerSlots: Slot[] = [];
-    for (let r = 0; r < ROWS; r++) {
-      const t = r / (ROWS - 1);
-      const z = Z_NEAR + (Z_FAR - Z_NEAR) * t;
-      const yRatio = projY(z, Z_NEAR, Z_FAR, HORIZON, CENTER_BOT);
-      const depthK = (Z_NEAR / z) * FRONT_SCALE;
-      const pitch = LATERAL / z;                     // 手前ほど席間隔が広い＝1段に入る人が少ない
-      const maxCols = Math.max(0, Math.floor(0.80 / pitch)); // 下段の隅(ボタン付近)まで届かせる
-      const rowBrick = ((r % 2) ? 0.25 : -0.25) * pitch; // 段ごと±1/4ピッチ＝左右対称の千鳥(片側の空白を防ぐ)
-      for (let cc = -maxCols; cc <= maxCols; cc++) {
-        const xRatio = 0.5 + cc * pitch + rowBrick;
-        if (xRatio < -0.15 || xRatio > 1.15) continue; // 画面端で見切れる✋を残す（隅まで埋める）
-        centerSlots.push({ xRatio, yRatio, depthK, rotation: 0, spread: pitch });
+    let sideRatio: number;       // セッションのうちサイド席へ流す割合（残りはセンター/アリーナ）
+
+    if (landscape) {
+      // ── 横画面（アリーナ）── 実際の横アリ（センター席から見た図）に寄せる。動画＝中央上のステージ、
+      //   その左右に客席スタンドが立ち上がり、手前下に平らなアリーナフロアが奥(ステージ)へ広がる。
+      //   ✋は動画より背面なので、動画の矩形(中央上)に入る位置には置かない（裏に回って消えるのを防ぐ）。
+
+      // ── サイド席（スタンド）── 動画(ステージ)の左右、外端を基準に密に詰めた三角スタンド。
+      //   ✋同士の余白を消すピッチ(SIDE_DX=0.022≒手幅)で隙間なく敷き、上1列→下9列の t² カーブで
+      //   急傾斜の三角。段ごとに半ピッチずらす千鳥で「縦一直線の整列」を崩す。
+      //   外端(画面端)基準なので動画側へは最大でも x≈0.20 まで＝動画(左端≈0.25)の裏に入らない。
+      //   手の傾き(SIDE_YAW)は変えない。
+      const SIDE_YAW = 0.95;
+      const SIDE_ROWS = 11;
+      const SIDE_YTOP = 0.04, SIDE_YBOT = 0.57;  // 上端〜下端（動画の高さを覆う）
+      const SIDE_X0 = 0.012, SIDE_DX = 0.022;    // 外端起点・密ピッチ（余白を残さない）
+      for (let i = 0; i < SIDE_ROWS; i++) {
+        const t = i / (SIDE_ROWS - 1);                 // 0=上(奥/ステージ際) .. 1=下(手前/フロア際)
+        const yy = SIDE_YTOP + (SIDE_YBOT - SIDE_YTOP) * t;
+        const depthK = 0.5 + 0.42 * t;                 // 下ほど大きい（手前）
+        const cols = 2 + Math.round(7 * t * t);        // 上2列 →（下で加速）→ 下9列＝急傾斜の三角
+        const brick = (i % 2) * SIDE_DX * 0.5;         // 段ごと半ピッチずらす千鳥＝縦の整列を崩す
+        for (let j = 0; j < cols; j++) {
+          const xx = SIDE_X0 + brick + j * SIDE_DX;    // 外端から内側へ密に詰める
+          sideSlots.push({ xRatio: xx, yRatio: yy, depthK, rotation: -SIDE_YAW, spread: SIDE_DX });     // 左スタンド
+          sideSlots.push({ xRatio: 1 - xx, yRatio: yy, depthK, rotation: SIDE_YAW, spread: SIDE_DX });  // 右スタンド
+        }
       }
+
+      // ── アリーナ(フロア)席 ── 下のフラットな面。手前=大きめ/奥=小さめのゆるい遠近で奥(動画側)へ広がる。
+      //   フラット床なのでホールのような急な段差はない。跳ねを含めても動画(下端≈0.615)の裏に入らないよう、
+      //   上端を下げ(A_YTOP)＋跳ね量を抑える(A_JUMP)。
+      const projY = (z: number, zNear: number, zFar: number, yTop: number, yBot: number) =>
+        yTop + (yBot - yTop) * ((1 / z - 1 / zFar) / (1 / zNear - 1 / zFar));
+      const A_ZNEAR = 1.0, A_ZFAR = 2.2;   // 遠近の強さ。比2.2＝ゆるい（ホールは6.0で急）
+      const A_FRONT = 1.5;                  // 手前の✋倍率（ホールは4.2で急。フラット床は控えめ）
+      const A_YTOP = 0.77, A_YBOT = 1.0;    // 上端0.77＝跳ねても動画(0.615)の裏に入らない
+      const A_JUMP = 0.55;                  // 跳ね量を55%に抑える（裏回り込み防止＋穏やかな床）
+      const A_LATERAL = 0.085, A_ROWS = 11;
+      for (let r = 0; r < A_ROWS; r++) {
+        const t = r / (A_ROWS - 1);
+        const z = A_ZNEAR + (A_ZFAR - A_ZNEAR) * t;
+        const yy = projY(z, A_ZNEAR, A_ZFAR, A_YTOP, A_YBOT);
+        const depthK = (A_ZNEAR / z) * A_FRONT;
+        const pitch = A_LATERAL / z;                       // 手前ほど席間隔が広い
+        const maxCols = Math.max(1, Math.floor(0.92 / pitch));
+        const rowBrick = ((r % 2) ? 0.25 : -0.25) * pitch; // 段ごと±1/4ピッチの千鳥
+        for (let cc = -maxCols; cc <= maxCols; cc++) {
+          const xx = 0.5 + cc * pitch + rowBrick;
+          if (xx < -0.05 || xx > 1.05) continue;
+          centerSlots.push({ xRatio: xx, yRatio: yy, depthK, rotation: 0, spread: pitch, jumpScale: A_JUMP });
+        }
+      }
+      sideRatio = 0.24;
+    } else {
+      // ── 縦（ホール）── 奥ほど高く小さい透視配置。サイド有り(PC)はセンターを HORIZON より下に。
+      // サイド有り(PC)＝この線より上はサイド用に空ける。サイド無し(スマホ)＝センターを上まで詰めて全面化。
+      const HORIZON = enableSides ? 0.32 : 0.06;
+      // 最前列の着地点は画面下端(1.0)より下＝最大の✋は下半分が画面外（飛んでも視界を全部塞がない）。
+      const CENTER_BOT = 1.35;
+      // 1/z 補間で縦位置（手前=下=yBot、奥=上=yTop、手前ほど縦に広い）。
+      const projY = (z: number, zNear: number, zFar: number, yTop: number, yBot: number) =>
+        yTop + (yBot - yTop) * ((1 / z - 1 / zFar) / (1 / zNear - 1 / zFar));
+      const Z_NEAR = 1.0, Z_FAR = 6.0;    // 視点からの距離。比が大きいほど遠近が強い（小さめ=奥を底上げ）
+      const FRONT_SCALE = 4.2;            // 最前列の✋サイズ倍率（手前で視界が半分以上隠れる）
+
+      // ── サイド席：左右上部の直角三角形スロット。ヨー＋左右ミラーで内向き ──
+      const SIDE_SIZE = 0.6;        // 一定サイズ（遠いので差なし）
+      const SIDE_ROWS = 6;          // 1+..+6 = 21席/側
+      const SIDE_X0 = 0.012, SIDE_DX = 0.032; // 横（さらに詰める）
+      const SIDE_Y0 = 0.05, SIDE_DY = 0.043;  // 縦（上部に収める）
+      const SIDE_YAW = 0.95;        // z軸ヨー角(rad)
+      for (let i = 0; i < SIDE_ROWS; i++) {
+        const yy = SIDE_Y0 + i * SIDE_DY;
+        for (let j = 0; j <= i; j++) {
+          const xx = SIDE_X0 + j * SIDE_DX;
+          sideSlots.push({ xRatio: xx, yRatio: yy, depthK: SIDE_SIZE, rotation: -SIDE_YAW, spread: SIDE_DX });     // 左席
+          sideSlots.push({ xRatio: 1 - xx, yRatio: yy, depthK: SIDE_SIZE, rotation: SIDE_YAW, spread: SIDE_DX });  // 右席
+        }
+      }
+
+      // ── センター席：前は席少・奥は席多の透視スロット（HORIZONより下、固定）──
+      const LATERAL = 0.18, ROWS = 22;               // 列を詰め段数を増やして間を詰める
+      for (let r = 0; r < ROWS; r++) {
+        const t = r / (ROWS - 1);
+        const z = Z_NEAR + (Z_FAR - Z_NEAR) * t;
+        const yRatio = projY(z, Z_NEAR, Z_FAR, HORIZON, CENTER_BOT);
+        const depthK = (Z_NEAR / z) * FRONT_SCALE;
+        const pitch = LATERAL / z;                     // 手前ほど席間隔が広い＝1段に入る人が少ない
+        const maxCols = Math.max(0, Math.floor(0.80 / pitch)); // 下段の隅(ボタン付近)まで届かせる
+        const rowBrick = ((r % 2) ? 0.25 : -0.25) * pitch; // 段ごと±1/4ピッチ＝左右対称の千鳥(片側の空白を防ぐ)
+        for (let cc = -maxCols; cc <= maxCols; cc++) {
+          const xRatio = 0.5 + cc * pitch + rowBrick;
+          if (xRatio < -0.15 || xRatio > 1.15) continue; // 画面端で見切れる✋を残す（隅まで埋める）
+          centerSlots.push({ xRatio, yRatio, depthK, rotation: 0, spread: pitch });
+        }
+      }
+      sideRatio = (enableSides && sideSlots.length > 0) ? 0.10 : 0;
     }
 
     if (centerSlots.length === 0 && sideSlots.length === 0) return map;
@@ -288,16 +351,17 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
           yRatio: Math.max(-0.1, Math.min(1.5, slot.yRatio + jy)),
           depthK: slot.depthK,
           rotation: slot.rotation,
+          jumpScale: slot.jumpScale,
         });
       });
     };
-    // サイドは PC のみ（スマホは enableSides=false で全員センター＝狭い画面が密になる）。
-    const sideCount = (enableSides && sideSlots.length > 0) ? Math.round(n * 0.10) : 0;
+    // sideRatio ぶんをサイド席へ、残りをセンター/アリーナへ（縦PCは10%、横は34%、スマホ縦は0）。
+    const sideCount = sideSlots.length > 0 ? Math.round(n * sideRatio) : 0;
     assign(sorted.slice(0, sideCount), sideSlots, 0x5e);
     assign(sorted.slice(sideCount), centerSlots, 0x0c);
 
     return map;
-  }, [sessions, selfSeatHash, enableSides]);
+  }, [sessions, selfSeatHash, enableSides, landscape]);
 
   // 最新の props を ref に反映(imperative メソッドの中で参照する用)
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
@@ -408,6 +472,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     depthK?: number;
     /** ✋の傾き(rad)。サイド席を内向きに見せる用。未指定=0（正面）。 */
     rotation?: number;
+    /** 跳ね量の倍率（80px に掛ける）。未指定=1。アリーナは動画裏に入らないよう抑える。 */
+    jumpScale?: number;
   }) {
     const texture = textureRef.current;
     // 自分✋は自分用pixi(別キャンバス・✋ボタンより上)、群衆は群衆pixiに描く。
@@ -493,7 +559,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     // タップした瞬間に一瞬グッと縮んでから勢いよく上がる「予備動作」で手応えを出し、
     // 最後は元の位置に落ちながら消えるので、連打しても上に積もって居座らない。
     // 値はすべて固定（揺らさない）。狙った1つの気持ちいいモーションを全✋で再現するため。
-    const jumpHeight = 80;        // 上昇量(px)
+    const jumpHeight = 80 * (params.jumpScale ?? 1);        // 上昇量(px)。アリーナは抑えて動画裏に入れない
     const squashDur = 50;         // 溜め: scale を SQUASH_SCALE まで縮める時間
     const upDur = 220;            // 上昇: しっかり見せる
     const holdDur = 80;           // 滞空: 頂点で軽く粘る
@@ -599,7 +665,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       const pos = sessionLayout.get(session.session_hash) ?? { ...seatFromHash(session.session_hash), depthK: 1, rotation: 0 };
       for (let i = 0; i < count; i++) {
         spawnHand({
-          xRatio: pos.xRatio, yRatio: pos.yRatio, depthK: pos.depthK, rotation: pos.rotation,
+          xRatio: pos.xRatio, yRatio: pos.yRatio, depthK: pos.depthK, rotation: pos.rotation, jumpScale: pos.jumpScale,
           color: overrideColorRef.current ?? member.color,
           isSelf: false,
           isToday: session.is_today,
@@ -616,12 +682,14 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       if (!memberId) return;
       const member = findMember(memberId);
       if (!member) return;
-      // リアルタイム時は席ベースの等間隔、ソロ時は中央・中段（動画/ボタンの裏に出ない）
+      // リアルタイム時は席ベースの等間隔、ソロ時は中段。横ではハイ！ボタン(右下)の近くから挙げる。
       const seatIdx = selfSeatIndexRef.current;
       const { xRatio, yRatio } =
         seatIdx != null && seatIdx >= 0
           ? seatIndexToPosition(seatIdx)
-          : { xRatio: 0.5, yRatio: SELF_Y_SOLO };
+          : landscapeRef.current
+            ? { xRatio: 0.85, yRatio: 0.93 } // 横：右下のボタン付近（アリーナ手前列あたり）で跳ねる
+            : { xRatio: 0.5, yRatio: SELF_Y_SOLO };
       spawnHand({
         xRatio, yRatio,
         color: overrideColorRef.current ?? member.color,

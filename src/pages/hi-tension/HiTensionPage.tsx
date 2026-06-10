@@ -209,6 +209,18 @@ export default function HiTensionPage() {
   const videoIdRef = useRef(videoId);
   useEffect(() => { videoIdRef.current = videoId; }, [videoId]);
   const [seatHash, setSeatHash] = useState<number>(0);
+  // 端末の向き。横（landscape）になったら横レイアウト＋サイド席ONに切り替える。
+  // matchMedia の change を購読して回転に即追従。SSR/未対応環境は false（縦扱い）。
+  const [isLandscape, setIsLandscape] = useState<boolean>(() => {
+    try { return window.matchMedia("(orientation: landscape)").matches; } catch { return false; }
+  });
+  useEffect(() => {
+    let mq: MediaQueryList;
+    try { mq = window.matchMedia("(orientation: landscape)"); } catch { return; }
+    const onChange = (e: MediaQueryListEvent) => setIsLandscape(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
   const [isPressed, setIsPressed] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
   const [endedSelfCount, setEndedSelfCount] = useState(0);
@@ -1267,6 +1279,8 @@ export default function HiTensionPage() {
           fontFamily: "Inter, 'Noto Sans JP', sans-serif",
           display: "flex",
           flexDirection: "column",
+          // 横レイアウトで動画/客席/ボタンを絶対配置するため、その基準点にする（縦には無害）。
+          position: "relative",
         }}
       >
         {/* PC（other）では動画を PC_VIDEO_WIDTH に縮めて「ステージモニター」風に表示。
@@ -1274,13 +1288,26 @@ export default function HiTensionPage() {
             PC ブラウザのデコード負荷が下がる（rate≈1.0 維持＝同期破綻防止）。
             iOS/Android はモバイルの縦画面いっぱいで従来通り。 */}
         <div
-          style={{
-            position: "relative",
-            zIndex: 2, // ✋キャンバスより前面＝跳ねた✋の先が動画の裏に隠れる（動画の延長感）
-            ...(detectDevice() === "other"
-              ? { width: PC_VIDEO_WIDTH, maxWidth: "100%", margin: "0 auto" }
-              : {}),
-          }}
+          style={
+            isLandscape && screen === "play"
+              ? {
+                  // 横：動画を中央上に大きく（高さ基準60vh＝主役）。幅は高さ×16/9 で逆算し、
+                  // 画面幅を超えないよう min でガード。左右に空く三角ゾーンがサイド席になる。
+                  position: "absolute",
+                  top: "1.5vh",
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  width: "min(94vw, calc(60vh * 16 / 9))",
+                  zIndex: 2, // ✋キャンバス(=play-area z:1)より前面＝✋は動画の裏へ回る（規約OK）
+                }
+              : {
+                  position: "relative",
+                  zIndex: 2, // ✋キャンバスより前面＝跳ねた✋の先が動画の裏に隠れる（動画の延長感）
+                  ...(detectDevice() === "other"
+                    ? { width: PC_VIDEO_WIDTH, maxWidth: "100%", margin: "0 auto" }
+                    : {}),
+                }
+          }
         >
           <YouTubePlayer
             ref={playerApiRef}
@@ -1299,11 +1326,18 @@ export default function HiTensionPage() {
         {screen === "play" && (
           <div
             style={{
-              flex: 1,
-              // minHeight:0 は完走後のスクロール用。再生中に効かせると iPhone SE 等で残り高さに
-              // 合わせて中身が圧縮され、丸い✋ボタンが楕円に潰れるため、完走後だけにする。
-              minHeight: videoEnded ? 0 : undefined,
-              position: "relative",
+              // 横：画面全面に敷いて動画の背面(z:1<動画z:2)に回す＝サイド席が動画の左右、
+              //     センター席が動画の下に自然に並ぶ（enableSides の三角ゾーン幾何を流用）。
+              // 縦：従来どおり動画の下に flex で積む。
+              ...(isLandscape
+                ? { position: "absolute", inset: 0 }
+                : {
+                    flex: 1,
+                    // minHeight:0 は完走後のスクロール用。再生中に効かせると iPhone SE 等で残り高さに
+                    // 合わせて中身が圧縮され、丸い✋ボタンが楕円に潰れるため、完走後だけにする。
+                    minHeight: videoEnded ? 0 : undefined,
+                    position: "relative",
+                  }),
               // 動画より背面に置く（z:1 < 動画 z:2）＝中の✋キャンバスが動画の裏へ回り込める。
               // 潜り込みは HandsCanvas 側で top:-40（✋だけ。カウント/ボタンは動かさない）。
               zIndex: 1,
@@ -1320,7 +1354,12 @@ export default function HiTensionPage() {
               // 再生中はタップボタンを動かしたくないのでスクロールさせない。
               overflowY: videoEnded ? "auto" : undefined,
               WebkitOverflowScrolling: "touch",
-              padding: videoEnded ? "1.2rem 1.2rem 2rem" : "2.4rem 1.2rem 2rem",
+              // 横の再生中は子を絶対配置するのでパディング不要（完走後は EndCard 用に確保）。
+              padding: videoEnded
+                ? "1.2rem 1.2rem 2rem"
+                : isLandscape
+                  ? 0
+                  : "2.4rem 1.2rem 2rem",
             }}
           >
             {/* ステージ照明：上から差す光がゆっくり明滅して「たまに照らされる」。✋(z:2)の背面(z:0)。 */}
@@ -1353,7 +1392,8 @@ export default function HiTensionPage() {
               selfMemberId={memberId}
               selfSeatHash={seatHash}
               selfSeatIndex={isRealtimePlay ? playSeatIndex : -1}
-              enableSides={detectDevice() === "other"}
+              enableSides={isLandscape}
+              landscape={isLandscape}
               overrideColor={eventColor ?? undefined}
               scaleCount={sessions.length}
               freezeAge={selectedEventKey != null}
@@ -1366,7 +1406,22 @@ export default function HiTensionPage() {
             {!videoEnded && heatmap && heatmap.bins.length > 0 && (
               <div
                 aria-hidden
-                style={{ position: "relative", zIndex: 2, pointerEvents: "none", padding: "0.4rem 0.6rem 0", display: "flex", justifyContent: "center", width: "100%" }}
+                style={
+                  isLandscape
+                    ? {
+                        // 横：動画(高さ60vh+上1.5vh)のすぐ下に、動画幅と揃えて中央に。
+                        position: "absolute",
+                        top: "62vh",
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        width: "min(80vw, calc(60vh * 16 / 9))",
+                        zIndex: 2,
+                        pointerEvents: "none",
+                        display: "flex",
+                        justifyContent: "center",
+                      }
+                    : { position: "relative", zIndex: 2, pointerEvents: "none", padding: "0.4rem 0.6rem 0", display: "flex", justifyContent: "center", width: "100%" }
+                }
               >
                 <LiveHeatmap
                   bins={heatmap.bins}
@@ -1381,7 +1436,13 @@ export default function HiTensionPage() {
             )}
 
             {videoEnded ? (
-              <div style={{ position: "relative", zIndex: 3, width: "100%", display: "flex", justifyContent: "center" }}>
+              <div
+                style={
+                  isLandscape
+                    ? { position: "absolute", inset: 0, zIndex: 3, display: "flex", alignItems: "center", justifyContent: "center", overflowY: "auto", padding: "1rem" }
+                    : { position: "relative", zIndex: 3, width: "100%", display: "flex", justifyContent: "center" }
+                }
+              >
                 <EndCard
                   selfCount={endedSelfCount}
                   totalCount={displayTotal + endedSelfCount}
@@ -1398,16 +1459,30 @@ export default function HiTensionPage() {
               <div style={{ minHeight: 120 }} />
             ) : (
               <div
-                style={{
-                  position: "relative",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "1rem",
-                  minHeight: 120,
-                  zIndex: 3,
-                }}
+                style={
+                  isLandscape
+                    ? {
+                        // 横：ハイ！ボタンは右下に。ごほうびの数字はその真上に積む。
+                        position: "absolute",
+                        right: "3.5vh",
+                        bottom: "3.5vh",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: "0.5rem",
+                        zIndex: 3,
+                      }
+                    : {
+                        position: "relative",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "1rem",
+                        minHeight: 120,
+                        zIndex: 3,
+                      }
+                }
               >
                 {/* ごほうび：押した回数。✋ボタン群(z:3)内・上部に置く。 */}
                 <div style={{ position: "relative", zIndex: 3 }}>
@@ -1453,16 +1528,31 @@ export default function HiTensionPage() {
 
             {/* 下部：戻る（他画面と同じく下部左に統一）＋ 著作権表記 */}
             <div
-              style={{
-                marginTop: "auto",
-                paddingTop: "2.4rem",
-                width: "100%",
-                maxWidth: 360,
-                position: "relative",
-                display: "flex",
-                flexDirection: "column",
-                gap: "1rem",
-              }}
+              style={
+                isLandscape
+                  ? {
+                      // 横：左下にまとめる（中断ボタン＋著作権）。zIndex は付けず、内側の
+                      // 中断(z:1)/著作権(z:3) を play-area 基準で従来どおり効かせる（✋は中断に被る）。
+                      position: "absolute",
+                      left: "3vh",
+                      bottom: "2.5vh",
+                      width: "auto",
+                      maxWidth: "46vw",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.6rem",
+                    }
+                  : {
+                      marginTop: "auto",
+                      paddingTop: "2.4rem",
+                      width: "100%",
+                      maxWidth: 360,
+                      position: "relative",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "1rem",
+                    }
+              }
             >
               {/* 中断導線：z-order を✋履歴より下(z:1)にして、✋がボタンの上に被るように。
                   ✋キャンバスは pointerEvents:none なのでクリックは透過して効く。 */}
