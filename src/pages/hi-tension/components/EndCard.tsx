@@ -94,49 +94,58 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
     margin: "0 0 0.4rem",
   };
 
-  // チューナー風ストリップ：横軸＝最寄りの拍からのズレ（±半拍）。中央の線＝拍ぴったり。
+  // チューナー風ストリップ：横軸＝最寄りのグリッド線（8分音符）からのズレ（±半分）。中央の線＝ぴったり。
   // 自分の各タップを推し色ドットで置く＝0付近に固まっていればリズムに乗れている。
-  // 同じズレのドットが重ならないよう縦は3段を循環。ラベル文言は未確定のため出さない（hopと別途）。
+  // 同じズレのドットが重ならないよう縦は3段を循環。
   const tunerStrip = beatOffsets && beatOffsets.length > 0 && !viewOnly ? (
-    <div
-      aria-hidden
-      style={{
-        width: "100%",
-        position: "relative",
-        height: 26,
-        background: "#eef0f2",
-        overflow: "hidden",
-      }}
-    >
+    <div style={{ width: "100%" }}>
+      <p style={{ ...labelStyle, textAlign: "center" }}>リズム</p>
       <div
+        aria-hidden
         style={{
-          position: "absolute",
-          left: "50%",
-          top: 0,
-          bottom: 0,
-          width: 2,
-          marginLeft: -1,
-          background: "#191c1d",
-          opacity: 0.5,
+          width: "100%",
+          position: "relative",
+          height: 26,
+          background: "#eef0f2",
+          overflow: "hidden",
         }}
-      />
-      {beatOffsets.map((o, i) => (
-        <span
-          key={i}
+      >
+        <div
           style={{
             position: "absolute",
-            left: `${((0.5 + o) * 100).toFixed(2)}%`,
-            top: `${[28, 52, 76][i % 3]}%`,
-            width: 6,
-            height: 6,
-            margin: "-3px 0 0 -3px",
-            borderRadius: "50%",
-            background: memberColor,
-            boxShadow: "0 0 0 1px #fff",
-            opacity: 0.9,
+            left: "50%",
+            top: 0,
+            bottom: 0,
+            width: 2,
+            marginLeft: -1,
+            background: "#191c1d",
+            opacity: 0.5,
           }}
         />
-      ))}
+        <span style={{ position: "absolute", left: 5, top: "50%", transform: "translateY(-50%)", fontSize: "0.625rem", fontWeight: 600, color: "#9aa0a6" }}>
+          はやい
+        </span>
+        <span style={{ position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)", fontSize: "0.625rem", fontWeight: 600, color: "#9aa0a6" }}>
+          おそい
+        </span>
+        {beatOffsets.map((o, i) => (
+          <span
+            key={i}
+            style={{
+              position: "absolute",
+              left: `${((0.5 + o) * 100).toFixed(2)}%`,
+              top: `${[28, 52, 76][i % 3]}%`,
+              width: 6,
+              height: 6,
+              margin: "-3px 0 0 -3px",
+              borderRadius: "50%",
+              background: memberColor,
+              boxShadow: "0 0 0 1px #fff",
+              opacity: 0.9,
+            }}
+          />
+        ))}
+      </div>
     </div>
   ) : null;
 
