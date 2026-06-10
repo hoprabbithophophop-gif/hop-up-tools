@@ -29,6 +29,18 @@ export default function MemberSelect({
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   // 色タップごとに +1。背景✋の key に混ぜて「同じ色を選び直しても」再マウント→ポップさせる。
   const [popTick, setPopTick] = useState(0);
+  // 横向き（landscape）。縦の「ユニット3段」だと低い画面に収まらず「はじめる」が押せないため、
+  // 横の時は色◯を全員横一列に並べ替え、余白も詰める（本編の横アリと同じ matchMedia 検知）。
+  const [isLandscape, setIsLandscape] = useState<boolean>(() => {
+    try { return window.matchMedia("(orientation: landscape)").matches; } catch { return false; }
+  });
+  useEffect(() => {
+    let mq: MediaQueryList;
+    try { mq = window.matchMedia("(orientation: landscape)"); } catch { return; }
+    const onChange = (e: MediaQueryListEvent) => setIsLandscape(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   useEffect(() => {
     document.title = "ハイ！テンション✋ Practice ver. | hop-up-tools";
@@ -56,7 +68,8 @@ export default function MemberSelect({
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: "1.5rem 1.2rem 1.5rem",
+        // 横向きは縦が約320pxしかない（iPhone SE横）ので上下余白を詰めて全要素を収める。
+        padding: isLandscape ? "0.7rem 1rem 0.7rem" : "1.5rem 1.2rem 1.5rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         animation: "hi-tension-fade-in 180ms ease-out",
         position: "relative",
@@ -188,7 +201,7 @@ export default function MemberSelect({
           style={{
             fontSize: "0.95rem",
             fontWeight: 500,
-            margin: "0 0 1rem",
+            margin: isLandscape ? "0 0 0.6rem" : "0 0 1rem",
             textAlign: "center",
             color: "#474747",
             position: "relative",
@@ -205,7 +218,8 @@ export default function MemberSelect({
             gap: "0.8rem",
             alignItems: "center",
             width: "100%",
-            maxWidth: 360,
+            // 横向きは9個1列ぶんの幅（≈9×52+gap）を許容する
+            maxWidth: isLandscape ? 560 : 360,
             position: "relative",
             zIndex: 1,
           }}
@@ -231,12 +245,16 @@ export default function MemberSelect({
             />
           </div>
         ) : (
-          UNIT_ROWS.map((row) => (
+          // 横向きは全員を1列に（縦の3段だと低い画面で「はじめる」が画面外に出て押せない）。
+          (isLandscape
+            ? [{ unit: "all", members: UNIT_ROWS.flatMap((r) => r.members) }]
+            : UNIT_ROWS
+          ).map((row) => (
             <div
               key={row.unit}
               style={{
                 display: "flex",
-                gap: "1rem",
+                gap: isLandscape ? "0.5rem" : "1rem",
                 justifyContent: "center",
                 flexWrap: "nowrap",
               }}
@@ -245,7 +263,8 @@ export default function MemberSelect({
                 const isSelected = selectedId === m.id;
                 // 画面の高さに応じて 44〜56px の範囲で自動調整。
                 // 大画面では押しやすい 56px、iPhone SE 1st gen 等では HIG 最低の 44px。
-                const baseSize = "clamp(44px, 7.5dvh, 56px)";
+                // 横向きは9個が1列に収まるよう少し小さめ上限（44〜52px）。
+                const baseSize = isLandscape ? "clamp(44px, 14dvh, 52px)" : "clamp(44px, 7.5dvh, 56px)";
                 return (
                   <button
                     key={m.id}
