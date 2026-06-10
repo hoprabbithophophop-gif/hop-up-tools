@@ -33,6 +33,8 @@ interface Props {
   videoId?: string;
   /** 横向き。低い画面でもスクロール無しで収まるよう、縦積みを「数字+ヒートマップの行／ボタンの行」に組み替える。 */
   landscape?: boolean;
+  /** 自分の今回のタップ時刻(秒)。ヒートマップの波の上に推し色ドットで重ねる。 */
+  selfTimestamps?: number[];
 }
 
 // X(旧Twitter)のシェア下書きを開く。文面・タグ・URLは hop 指定（勝手に足さない）。
@@ -79,7 +81,7 @@ function shareToX(count: number, event: SpecialEvent | null, videoId?: string) {
  * 動画完走時に表示する終了カード。
  * ハイ！ボタンの位置を置き換える形で出る(動画はそのまま残る)。
  */
-export default function EndCard({ selfCount, totalCount, memberColor, onChangeColor, event = null, heatmap = null, viewOnly = false, videoId, landscape = false }: Props) {
+export default function EndCard({ selfCount, totalCount, memberColor, onChangeColor, event = null, heatmap = null, viewOnly = false, videoId, landscape = false, selfTimestamps }: Props) {
   const isSpecial = event != null;
   const labelStyle: CSSProperties = {
     fontSize: "0.6875rem",
@@ -119,6 +121,9 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
               color={isSpecial ? memberColor : "#000000"}
               height={44}
               label="みんなの盛り上がり"
+              selfTimestamps={selfTimestamps}
+              selfColor={memberColor}
+              zoomable
             />
           )}
         </div>
@@ -233,6 +238,9 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
           color={isSpecial ? memberColor : "#000000"}
           height={60}
           label="みんなの盛り上がり"
+          selfTimestamps={selfTimestamps}
+          selfColor={memberColor}
+          zoomable
         />
       )}
 

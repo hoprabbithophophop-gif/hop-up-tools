@@ -1222,18 +1222,8 @@ export default function HiTensionPage() {
             ...displaySessions.filter((s) => !s.is_today),
           ].slice(0, CROWD_LIGHT_CAP);
 
-  // EndCard 用：取得済み bins に「自分の今回のタップ」を足して即時反映（再フェッチ不要）。
-  const endCardHeatmap = videoEnded && heatmap && heatmap.bins.length > 0
-    ? (() => {
-        const bins = heatmap.bins.slice();
-        const bs = heatmap.binSeconds || 1;
-        for (const t of timestampsRef.current) {
-          const i = Math.floor(t / bs);
-          if (i >= 0 && i < bins.length) bins[i] += 1;
-        }
-        return { bins, binSeconds: heatmap.binSeconds };
-      })()
-    : heatmap;
+  // EndCard のヒートマップ：波は「みんな」のまま渡し、自分の今回分は selfTimestamps の
+  // 推し色ドットで重ねて見せる（ビンに足しても 1001→1002 では波形が変わらず見えないため廃止）。
 
   return (
     <>
@@ -1454,7 +1444,8 @@ export default function HiTensionPage() {
                   totalCount={displayTotal + endedSelfCount}
                   memberColor={accentColor}
                   event={selectedEvent}
-                  heatmap={endCardHeatmap}
+                  heatmap={heatmap}
+                  selfTimestamps={timestampsRef.current}
                   viewOnly={viewOnlySpecial}
                   videoId={videoId}
                   landscape={isLandscape}
