@@ -2,7 +2,8 @@
  * 練習できる映像。各映像は video_id ごとに独立した✋プール／ヒートマップを持つ
  *（曲が同じでも編集＝タップ時刻が違うのでデータは混ぜない）。
  * 配列が2本以上になると入口に映像切替トグルが出る（1本の間は出さない）。
- * Phase 2: 公式MV公開後、埋め込み可否を確認してから { id, label:"MV" } を追加する。
+ * MV(WU-IF-cLPCY)は 2026-06-10 公開・埋め込み可(playableInEmbed:true)を確認して追加。
+ * ※サーバー側 Edge関数 submit-hi-session の VALID_VIDEO_IDS にも同じ id が必要。
  */
 export type PracticeVideo = {
   id: string;
@@ -11,6 +12,7 @@ export type PracticeVideo = {
 
 export const PRACTICE_VIDEOS: readonly PracticeVideo[] = [
   { id: "mn1wkO0Ysbw", label: "LIVE映像" },
+  { id: "WU-IF-cLPCY", label: "MV" },
 ] as const;
 
 /** 既定（1本目）の video_id。api.ts 等の引数デフォルトに使う＝従来挙動を維持。 */
