@@ -37,19 +37,39 @@ interface Props {
 // API/ログイン不要の Web Intent。URL を独立行で出したいので &url= は使わず本文に含める。
 const SHARE_URL = "https://hop-up-tools.pages.dev/hi-tension";
 const MV_VIDEO_ID = "WU-IF-cLPCY";
-function shareToX(count: number, event: SpecialEvent | null, videoId?: string) {
-  let text: string;
-  if (event) {
-    text = event.shareText(count);
-  } else if (videoId === MV_VIDEO_ID) {
-    text = `ハイ！テンション✋ Practice で\nMV版で${count}回ハイ！した🖐️\n#ハイテンションPractice\nMVはこちら→ https://youtu.be/${MV_VIDEO_ID}\n${SHARE_URL}?v=${MV_VIDEO_ID}`;
-  } else {
-    text = `ハイ！テンション✋ Practice で\n${count}回ハイ！した🖐️\n#ハイテンションPractice\n${SHARE_URL}`;
+const ARENA_AT = Date.UTC(2026, 5, 16, 9, 0, 0); // 2026-06-16 18:00 JST 開演
+function arenaCountdownLine(): string {
+  const diff = ARENA_AT - Date.now();
+  if (diff <= 0) return "";
+  const hour = 3600000, min = 60000, day = 86400000;
+  if (diff < day) {
+    return diff >= hour
+      ? `横浜アリーナまであと${Math.floor(diff / hour)}時間`
+      : `横浜アリーナまであと${Math.max(1, Math.floor(diff / min))}分`;
   }
+  const jstDay = (ms: number) => Math.floor((ms + 9 * hour) / day);
+  return `横浜アリーナまであと${jstDay(ARENA_AT) - jstDay(Date.now())}日`;
+}
+function shareToX(count: number, event: SpecialEvent | null, videoId?: string) {
+  if (event) {
+    window.open(
+      `https://twitter.com/intent/tweet?text=${encodeURIComponent(event.shareText(count))}`,
+      "_blank", "noopener,noreferrer",
+    );
+    return;
+  }
+  const isMv = videoId === MV_VIDEO_ID;
+  const text = [
+    "ハイ！テンション✋ Practice で",
+    isMv ? `MV版で${count}回ハイ！した🖐️` : `${count}回ハイ！した🖐️`,
+    arenaCountdownLine(),
+    "#ハイテンションPractice",
+    `MVはこちら→ https://youtu.be/${MV_VIDEO_ID}`,
+    isMv ? `${SHARE_URL}?v=${MV_VIDEO_ID}` : SHARE_URL,
+  ].filter(Boolean).join("\n");
   window.open(
     `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
-    "_blank",
-    "noopener,noreferrer",
+    "_blank", "noopener,noreferrer",
   );
 }
 
