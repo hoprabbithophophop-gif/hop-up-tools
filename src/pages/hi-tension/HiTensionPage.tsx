@@ -197,8 +197,14 @@ export default function HiTensionPage() {
   const [settings, setSettingsState] = useState<HiSettings>(() => getHiSettings());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const updateSettings = (next: HiSettings) => { setSettingsState(next); setHiSettings(next); };
-  // 練習する映像。今は LIVE 1本（PRACTICE_VIDEOS[0]）。Phase 2 で MV が増えると入口にトグルが出る。
-  const [videoId, setVideoId] = useState<string>(() => PRACTICE_VIDEOS[0].id);
+  // 練習する映像。?v=<id> で指定があればその映像から開始（シェアの「MVで✋」リンク用）。
+  const readVideoIdParam = (): string | null => {
+    try {
+      const v = new URLSearchParams(window.location.search).get("v");
+      return v && PRACTICE_VIDEOS.some((pv) => pv.id === v) ? v : null;
+    } catch { return null; }
+  };
+  const [videoId, setVideoId] = useState<string>(() => readVideoIdParam() ?? PRACTICE_VIDEOS[0].id);
   // loadVideo を呼ぶコールバック群はクロージャで videoId が古くなるため、最新値を ref で持つ。
   const videoIdRef = useRef(videoId);
   useEffect(() => { videoIdRef.current = videoId; }, [videoId]);
@@ -1143,6 +1149,8 @@ export default function HiTensionPage() {
   // ユーザーが今見ているモード。通常⇔各回を💗リンクで行き来でき、選択はリロード後も覚える。
   // プレビュー（?special=）最優先。開始前の回は通常に戻す（開始済みなら期限切れでも閲覧で残す）。
   const [selectedEventKey, setSelectedEventKey] = useState<string | null>(() => {
+    const dv = readVideoIdParam();
+    if (dv && dv !== PRACTICE_VIDEOS[0].id) return null;
     if (hasPreviewOverride()) return activeEventKey;
     const raw = readStoredChoice();
     if (raw === null) return null;                                       // 通常を明示選択

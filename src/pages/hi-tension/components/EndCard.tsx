@@ -36,10 +36,16 @@ interface Props {
 // X(旧Twitter)のシェア下書きを開く。文面・タグ・URLは hop 指定（勝手に足さない）。
 // API/ログイン不要の Web Intent。URL を独立行で出したいので &url= は使わず本文に含める。
 const SHARE_URL = "https://hop-up-tools.pages.dev/hi-tension";
-function shareToX(count: number, event: SpecialEvent | null) {
-  const text = event
-    ? event.shareText(count)
-    : `ハイ！テンション✋ Practice で\n${count}回ハイ！した🖐️\n#ハイテンションPractice\n${SHARE_URL}`;
+const MV_VIDEO_ID = "WU-IF-cLPCY";
+function shareToX(count: number, event: SpecialEvent | null, videoId?: string) {
+  let text: string;
+  if (event) {
+    text = event.shareText(count);
+  } else if (videoId === MV_VIDEO_ID) {
+    text = `ハイ！テンション✋ Practice で\nMV版で${count}回ハイ！した🖐️\n#ハイテンションPractice\nMVはこちら→ https://youtu.be/${MV_VIDEO_ID}\n${SHARE_URL}?v=${MV_VIDEO_ID}`;
+  } else {
+    text = `ハイ！テンション✋ Practice で\n${count}回ハイ！した🖐️\n#ハイテンションPractice\n${SHARE_URL}`;
+  }
   window.open(
     `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
     "_blank",
@@ -118,7 +124,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
         {!viewOnly && (
           <button
             type="button"
-            onClick={() => shareToX(selfCount, event)}
+            onClick={() => shareToX(selfCount, event, videoId)}
             style={{ ...secondaryBtnStyle, marginTop: "1.2rem" }}
           >
             𝕏 でシェアする
