@@ -1,11 +1,25 @@
 import type { CSSProperties } from "react";
 import type { HiSettings, HiCrowdLevel } from "../storage";
 import { DEFAULT_HI_SETTINGS, LIGHT_HI_SETTINGS } from "../storage";
+import type { PracticeVideo } from "../data";
+import type { SpecialEvent } from "../events";
 
 interface Props {
   settings: HiSettings;
   onChange: (next: HiSettings) => void;
   onClose: () => void;
+  /** 練習できる映像。2本以上で映像切替を出す。 */
+  videos?: readonly PracticeVideo[];
+  videoId?: string;
+  onSelectVideo?: (id: string) => void;
+  /** スペシャル回（お祝い等）。色・文言の参照用。 */
+  events?: readonly SpecialEvent[];
+  /** 💗で入れる回（開始済み・先頭）。null なら出入り口を出さない。 */
+  viewTargetKey?: string | null;
+  /** 今表示中の回キー（null=通常練習）。 */
+  selectedEventKey?: string | null;
+  /** 表示する回を選ぶ（null=通常練習に戻す）。 */
+  onSelectEvent?: (key: string | null) => void;
 }
 
 // セグメント選択の1択肢。選択中は黒地・白字、未選択は薄いグレー（入口/EndCardのボタン語彙に合わせる）。
@@ -62,13 +76,29 @@ const rowHintStyle: CSSProperties = {
   margin: "0.35rem 0 0",
   lineHeight: 1.4,
 };
+const dividerStyle: CSSProperties = {
+  height: 1,
+  background: "#e3e6e8",
+  margin: "0.1rem 0",
+};
 
 /**
- * 表示設定シート（ユーザー任意のopt-in）。入口の歯車から開く。
- * 「かるくする/標準」プリセット＋詳細3項目（群衆量・盛り上がり・動き）を全部同じ画面に出す。
+ * 設定シート（ユーザー任意のopt-in）。入口の歯車から開く。
+ * 上段＝モード切替（練習映像 / スペシャル回）、下段＝表示設定（プリセット＋詳細3項目）。
  * 既定（標準）は今までの見え方そのまま。設定は localStorage に保存される（呼び出し側で永続化）。
  */
-export default function SettingsSheet({ settings, onChange, onClose }: Props) {
+export default function SettingsSheet({
+  settings,
+  onChange,
+  onClose,
+  videos = [],
+  videoId,
+  onSelectVideo,
+  events = [],
+  viewTargetKey = null,
+  selectedEventKey = null,
+  onSelectEvent,
+}: Props) {
   const set = (patch: Partial<HiSettings>) => onChange({ ...settings, ...patch });
   const isLight =
     settings.crowd === LIGHT_HI_SETTINGS.crowd &&
@@ -79,11 +109,17 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
     settings.heatmap === DEFAULT_HI_SETTINGS.heatmap &&
     settings.reduceMotion === DEFAULT_HI_SETTINGS.reduceMotion;
 
+  // スペシャル回：今その回中か／入れる回があるか。
+  const isSpecial = selectedEventKey != null && events.some((e) => e.key === selectedEventKey);
+  const targetEvent = events.find((e) => e.key === (isSpecial ? selectedEventKey : viewTargetKey)) ?? null;
+  const showSpecial = onSelectEvent != null && (isSpecial || viewTargetKey != null);
+  const showVideo = videos.length > 1 && onSelectVideo != null && videoId != null;
+
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="表示設定"
+      aria-label="設定"
       onClick={onClose}
       style={{
         position: "fixed",
@@ -116,7 +152,7 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
         {/* ヘッダー */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h2 style={{ fontSize: "0.95rem", fontWeight: 800, margin: 0, letterSpacing: "0.02em" }}>
-            表示設定
+            設定
           </h2>
           <button
             type="button"
@@ -135,6 +171,44 @@ export default function SettingsSheet({ settings, onChange, onClose }: Props) {
             ✕
           </button>
         </div>
+
+        {/* 練習する映像（2本以上のとき） */}
+        {showVideo && (
+          <div>
+            <p style={rowLabelStyle}>映像</p>
+            <Segment<string>
+              options={videos.map((v) => ({ v: v.id, label: v.label }))}
+              value={videoId}
+              onSelect={onSelectVideo}
+            />
+          </div>
+        )}
+
+        {showSpecial && (
+          <div>
+            <p style={rowLabelStyle}>スペシャル回</p>
+            <button
+              type="button"
+              onClick={() => onSelectEvent!(isSpecial ? null : viewTargetKey)}
+              style={{
+                width: "100%",
+                padding: "0.7rem 0.3rem",
+                border: "none",
+                background: isSpecial ? "#000" : (targetEvent?.color ?? "#eceef0"),
+                color: isSpecial || targetEvent?.color ? "#fff" : "#191c1d",
+                fontSize: "0.8125rem",
+                fontWeight: 700,
+                letterSpacing: "0.02em",
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              {isSpecial ? "✋ 通常モードに戻る" : "💗 スペシャル回を見る"}
+            </button>
+          </div>
+        )}
+
+        {(showVideo || showSpecial) && <div style={dividerStyle} />}
 
         {/* プリセット */}
         <div>

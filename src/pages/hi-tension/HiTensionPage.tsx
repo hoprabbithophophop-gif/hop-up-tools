@@ -1515,14 +1515,9 @@ export default function HiTensionPage() {
             onConfirm={handleConfirm}
             onOpenRoomMenu={handleOpenRoomMenu}
             events={SPECIAL_EVENTS}
-            viewTargetKey={viewTargetKey}
             viewOnly={viewOnlySpecial}
             selectedEventKey={selectedEventKey}
-            onSelectEvent={selectEvent}
             onOpenSettings={() => setSettingsOpen(true)}
-            videos={PRACTICE_VIDEOS}
-            videoId={videoId}
-            onSelectVideo={setVideoId}
           />
         </div>
       )}
@@ -1533,6 +1528,13 @@ export default function HiTensionPage() {
           settings={settings}
           onChange={updateSettings}
           onClose={() => setSettingsOpen(false)}
+          videos={PRACTICE_VIDEOS}
+          videoId={videoId}
+          onSelectVideo={setVideoId}
+          events={SPECIAL_EVENTS}
+          viewTargetKey={viewTargetKey}
+          selectedEventKey={selectedEventKey}
+          onSelectEvent={selectEvent}
         />
       )}
 

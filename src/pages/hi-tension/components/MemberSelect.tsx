@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { UNIT_ROWS, findMember } from "../data";
-import type { PracticeVideo } from "../data";
 import HandIcon from "./HandIcon";
 import type { SpecialEvent } from "../events";
 
@@ -12,24 +11,10 @@ interface Props {
   initialSelectedId: string | null;
   onConfirm: (memberId: string) => void;
   onOpenRoomMenu: (memberId: string) => void;
-  /** 並べられる全スペシャル回（過去含む）。色・文言の参照用。 */
   events?: readonly SpecialEvent[];
-  /** 💗リンクで入れる回（開始済み・期限切れでも閲覧）のキー。null なら💗リンクを出さない。 */
-  viewTargetKey?: string | null;
-  /** 表示中のスペシャル回が期限切れ＝閲覧専用か（開始ボタン文言を変える）。 */
   viewOnly?: boolean;
-  /** 今表示中の回キー（null=通常練習）。色・文言がこの回仕様になる。 */
   selectedEventKey?: string | null;
-  /** 表示する回を選ぶ（null=通常練習に戻す）。 */
-  onSelectEvent?: (key: string | null) => void;
-  /** 表示設定シートを開く（歯車）。 */
   onOpenSettings?: () => void;
-  /** 練習できる映像の一覧。2本以上で映像切替トグルを出す（1本なら出さない）。 */
-  videos?: readonly PracticeVideo[];
-  /** 選択中の映像 id。 */
-  videoId?: string;
-  /** 映像を切り替える。 */
-  onSelectVideo?: (id: string) => void;
 }
 
 export default function MemberSelect({
@@ -37,14 +22,9 @@ export default function MemberSelect({
   onConfirm,
   onOpenRoomMenu,
   events = [],
-  viewTargetKey = null,
   viewOnly = false,
   selectedEventKey = null,
-  onSelectEvent,
   onOpenSettings,
-  videos = [],
-  videoId,
-  onSelectVideo,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   // 色タップごとに +1。背景✋の key に混ぜて「同じ色を選び直しても」再マウント→ポップさせる。
@@ -172,45 +152,6 @@ export default function MemberSelect({
       >
         {isSpecial ? `〜${selectedEvent.title}〜` : ""}
       </p>
-
-      {/* 映像切替：練習映像が2本以上ある時だけ出す（LIVE / MV）。各映像は別々の✋プールを持つ。 */}
-      {videos.length > 1 && onSelectVideo && (
-        <div
-          style={{
-            display: "flex",
-            gap: "0.4rem",
-            marginTop: "0.7rem",
-            position: "relative",
-            zIndex: 1,
-          }}
-        >
-          {videos.map((v) => {
-            const active = v.id === videoId;
-            return (
-              <button
-                key={v.id}
-                type="button"
-                aria-pressed={active}
-                onClick={() => onSelectVideo(v.id)}
-                style={{
-                  padding: "0.35rem 0.9rem",
-                  border: "none",
-                  background: active ? "#000" : "#eceef0",
-                  color: active ? "#fff" : "#474747",
-                  fontSize: "0.75rem",
-                  fontWeight: 700,
-                  letterSpacing: "0.02em",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                }}
-              >
-                {v.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
 
       {/* 中央：背景の✋モチーフに重ねて、色選択を縦中央に置く */}
       <div
@@ -393,28 +334,6 @@ export default function MemberSelect({
           </button>
         )}
 
-        {/* スペシャル回の出入り口。メニューやトグルではなく、絵文字ひとつの控えめなリンク。
-            通常時=💗（お祝いに参加・期限内のみ）／スペシャル回中=✋（通常練習に戻る・常に出す）。 */}
-        {onSelectEvent && (isSpecial || viewTargetKey) && (
-          <div style={{ display: "flex", justifyContent: "center", marginTop: "0.1rem" }}>
-            <button
-              type="button"
-              aria-label={isSpecial ? "通常モードに戻る" : "スペシャル回を見る"}
-              onClick={() => onSelectEvent(isSpecial ? null : viewTargetKey)}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                fontSize: "1.5rem",
-                lineHeight: 1,
-                padding: "0.1rem 0.3rem",
-                opacity: 0.9,
-              }}
-            >
-              {isSpecial ? "✋" : "💗"}
-            </button>
-          </div>
-        )}
       </div>
 
     </div>
