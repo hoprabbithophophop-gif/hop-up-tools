@@ -1473,25 +1473,6 @@ export default function HiTensionPage() {
                   </NavButton>
                 </div>
               )}
-              {/* 元の映像を YouTube で開く（再生中のみ。完走後は EndCard 側に出る＝重複させない）。 */}
-              {!videoEnded && (
-                <div style={{ display: "flex", justifyContent: "center", position: "relative", zIndex: 3 }}>
-                  <a
-                    href={`https://youtu.be/${videoId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      fontSize: "0.6875rem",
-                      fontWeight: 600,
-                      color: "#9aa0a6",
-                      textDecoration: "underline",
-                      textUnderlineOffset: "0.2rem",
-                    }}
-                  >
-                    ▶ YouTubeで元の映像を見る
-                  </a>
-                </div>
-              )}
               <p
                 style={{
                   margin: 0,

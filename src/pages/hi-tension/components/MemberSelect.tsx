@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { UNIT_ROWS, findMember } from "../data";
+import { UNIT_ROWS, findMember, PRACTICE_VIDEOS } from "../data";
 import HandIcon from "./HandIcon";
 import type { SpecialEvent } from "../events";
 
@@ -334,6 +334,21 @@ export default function MemberSelect({
           </button>
         )}
 
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "0.55rem", flexWrap: "wrap", marginBottom: "0.3rem", fontSize: "0.6875rem", color: "#9aa0a6" }}>
+        <span>公式動画</span>
+        {PRACTICE_VIDEOS.map((v) => (
+          <a
+            key={v.id}
+            href={`https://youtu.be/${v.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#9aa0a6", fontWeight: 600, textDecoration: "underline", textUnderlineOffset: "0.2rem" }}
+          >
+            ▶ {v.label}
+          </a>
+        ))}
       </div>
 
     </div>
