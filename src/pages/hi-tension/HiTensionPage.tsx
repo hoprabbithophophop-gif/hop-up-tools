@@ -1289,9 +1289,9 @@ export default function HiTensionPage() {
             iOS/Android はモバイルの縦画面いっぱいで従来通り。 */}
         <div
           style={
-            isLandscape && screen === "play"
+            isLandscape && screen === "play" && !videoEnded
               ? {
-                  // 横：動画を中央上に大きく（高さ基準60vh＝主役）。幅は高さ×16/9 で逆算し、
+                  // 横（再生中）：動画を中央上に大きく（高さ基準60vh＝主役）。幅は高さ×16/9 で逆算し、
                   // 画面幅を超えないよう min でガード。左右に空く三角ゾーンがサイド席になる。
                   position: "absolute",
                   top: "1.5vh",
@@ -1300,13 +1300,22 @@ export default function HiTensionPage() {
                   width: "min(94vw, calc(60vh * 16 / 9))",
                   zIndex: 2, // ✋キャンバス(=play-area z:1)より前面＝✋は動画の裏へ回る（規約OK）
                 }
-              : {
-                  position: "relative",
-                  zIndex: 2, // ✋キャンバスより前面＝跳ねた✋の先が動画の裏に隠れる（動画の延長感）
-                  ...(detectDevice() === "other"
-                    ? { width: PC_VIDEO_WIDTH, maxWidth: "100%", margin: "0 auto" }
-                    : {}),
-                }
+              : isLandscape && screen === "play"
+                ? {
+                    // 横（完走後）：縦と同じ「動画が上・カードが下」の縦積みフローに戻す。
+                    // 横の低い画面では EndCard が収まらないため、スクロールで全部届く構成にする。
+                    position: "relative",
+                    zIndex: 2,
+                    width: "min(94vw, calc(60vh * 16 / 9))",
+                    margin: "0 auto",
+                  }
+                : {
+                    position: "relative",
+                    zIndex: 2, // ✋キャンバスより前面＝跳ねた✋の先が動画の裏に隠れる（動画の延長感）
+                    ...(detectDevice() === "other"
+                      ? { width: PC_VIDEO_WIDTH, maxWidth: "100%", margin: "0 auto" }
+                      : {}),
+                  }
           }
         >
           <YouTubePlayer
@@ -1326,10 +1335,10 @@ export default function HiTensionPage() {
         {screen === "play" && (
           <div
             style={{
-              // 横：画面全面に敷いて動画の背面(z:1<動画z:2)に回す＝サイド席が動画の左右、
+              // 横（再生中）：画面全面に敷いて動画の背面(z:1<動画z:2)に回す＝サイド席が動画の左右、
               //     センター席が動画の下に自然に並ぶ（enableSides の三角ゾーン幾何を流用）。
-              // 縦：従来どおり動画の下に flex で積む。
-              ...(isLandscape
+              // 縦・横の完走後：従来どおり動画の下に flex で積む（完走後はスクロールで全部届く）。
+              ...(isLandscape && !videoEnded
                 ? { position: "absolute", inset: 0 }
                 : {
                     flex: 1,
@@ -1436,13 +1445,7 @@ export default function HiTensionPage() {
             )}
 
             {videoEnded ? (
-              <div
-                style={
-                  isLandscape
-                    ? { position: "absolute", inset: 0, zIndex: 3, display: "flex", alignItems: "center", justifyContent: "center", overflowY: "auto", padding: "1rem" }
-                    : { position: "relative", zIndex: 3, width: "100%", display: "flex", justifyContent: "center" }
-                }
-              >
+              <div style={{ position: "relative", zIndex: 3, width: "100%", display: "flex", justifyContent: "center" }}>
                 <EndCard
                   selfCount={endedSelfCount}
                   totalCount={displayTotal + endedSelfCount}
@@ -1529,10 +1532,11 @@ export default function HiTensionPage() {
             {/* 下部：戻る（他画面と同じく下部左に統一）＋ 著作権表記 */}
             <div
               style={
-                isLandscape
+                isLandscape && !videoEnded
                   ? {
-                      // 横：左下にまとめる（中断ボタン＋著作権）。zIndex は付けず、内側の
+                      // 横（再生中）：左下にまとめる（中断ボタン＋著作権）。zIndex は付けず、内側の
                       // 中断(z:1)/著作権(z:3) を play-area 基準で従来どおり効かせる（✋は中断に被る）。
+                      // 完走後は縦と同じ通常フロー（カードの下）＝EndCard に重ならない。
                       position: "absolute",
                       left: "3vh",
                       bottom: "2.5vh",
