@@ -110,6 +110,18 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
           overflow: "hidden",
         }}
       >
+        {/* ±50msゾーン：人間が「ちゃんと乗れてる」ブレの目安（採点ではなく背景の帯だけ）。
+            横軸は8分音符間隔(60/155/2≈193.5ms)の±半分なので、±50ms ≒ 中央±25.8%。 */}
+        <div
+          style={{
+            position: "absolute",
+            left: "24.2%",
+            width: "51.6%",
+            top: 0,
+            bottom: 0,
+            background: "rgba(255,255,255,0.75)",
+          }}
+        />
         <div
           style={{
             position: "absolute",
