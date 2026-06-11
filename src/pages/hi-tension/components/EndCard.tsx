@@ -140,20 +140,22 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
         <span style={{ position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)", fontSize: "0.625rem", fontWeight: 600, color: "#9aa0a6" }}>
           おそい
         </span>
-        {/* 半透明＋乗算＝重なったところが濃くなる（密度が濃さで読める）。縦の3段は重なり回避のみで意味なし。 */}
+        {/* ドットは1段（中央の高さ）に集約＋半透明・乗算＝重なるほど濃く焼ける。
+            密度を「色の濃淡」で読ませる（hop選定。山グラフ案は時間軸の違う
+            「みんなの盛り上がり」と見た目が紛らわしいため不採用）。 */}
         {beatOffsets.map((o, i) => (
           <span
             key={i}
             style={{
               position: "absolute",
               left: `${((0.5 + o) * 100).toFixed(2)}%`,
-              top: `${[28, 52, 76][i % 3]}%`,
-              width: 6,
-              height: 6,
-              margin: "-3px 0 0 -3px",
+              top: "50%",
+              width: 7,
+              height: 7,
+              margin: "-3.5px 0 0 -3.5px",
               borderRadius: "50%",
               background: memberColor,
-              opacity: 0.45,
+              opacity: 0.3,
               mixBlendMode: "multiply",
             }}
           />
