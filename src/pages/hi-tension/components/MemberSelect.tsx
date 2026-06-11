@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { UNIT_ROWS, findMember, PRACTICE_VIDEOS } from "../data";
 import HandIcon from "./HandIcon";
 import type { SpecialEvent } from "../events";
@@ -15,6 +15,8 @@ interface Props {
   viewOnly?: boolean;
   selectedEventKey?: string | null;
   onOpenSettings?: () => void;
+  /** QAモードのトグル（隠しジェスチャー成立時に呼ぶ）。 */
+  onToggleQa?: () => void;
 }
 
 export default function MemberSelect({
@@ -25,6 +27,7 @@ export default function MemberSelect({
   viewOnly = false,
   selectedEventKey = null,
   onOpenSettings,
+  onToggleQa,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   // 色タップごとに +1。背景✋の key に混ぜて「同じ色を選び直しても」再マウント→ポップさせる。
@@ -45,6 +48,29 @@ export default function MemberSelect({
   useEffect(() => {
     document.title = "ハイ！テンション✋ Practice ver. | hop-up-tools";
   }, []);
+
+  // QAモード起動の隠しジェスチャー（hop指定）：nishida⇄eguchi の色を5秒以内に10往復（交互20タップ）。
+  // 実機でURLにパラメータを打つのが面倒なため。成立でトグル（もう一度で解除）。保存はしない。
+  const qaTapsRef = useRef<{ id: string; t: number }[]>([]);
+  const detectQaGesture = (id: string) => {
+    if (id !== "nishida" && id !== "eguchi") {
+      qaTapsRef.current = []; // 別の色を押したら仕切り直し
+      return;
+    }
+    const now = performance.now();
+    const taps = qaTapsRef.current;
+    const last = taps[taps.length - 1];
+    if (last && last.id === id) {
+      qaTapsRef.current = [{ id, t: now }]; // 交互でなければこのタップから数え直し
+      return;
+    }
+    taps.push({ id, t: now });
+    while (taps.length > 0 && now - taps[0].t > 5000) taps.shift(); // 5秒窓の外は捨てる
+    if (taps.length >= 20) {
+      qaTapsRef.current = [];
+      onToggleQa?.();
+    }
+  };
 
   // 表示中のスペシャル回（お祝い等）。選ばれていれば入口の色・文言をその回仕様にする。
   const selectedEvent = events.find((e) => e.key === selectedEventKey) ?? null;
@@ -271,7 +297,7 @@ export default function MemberSelect({
                     type="button"
                     aria-label={`color ${m.color}`}
                     aria-pressed={isSelected}
-                    onClick={() => { setSelectedId(m.id); setPopTick((t) => t + 1); }}
+                    onClick={() => { setSelectedId(m.id); setPopTick((t) => t + 1); detectQaGesture(m.id); }}
                     style={{
                       // 選択時は transform: scale で拡大するだけなので、
                       // 行の高さも他の丸の位置も動かない。

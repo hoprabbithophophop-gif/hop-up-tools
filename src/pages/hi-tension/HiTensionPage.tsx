@@ -197,6 +197,17 @@ export default function HiTensionPage() {
   const [settings, setSettingsState] = useState<HiSettings>(() => getHiSettings());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const updateSettings = (next: HiSettings) => { setSettingsState(next); setHiSettings(next); };
+  // QAモード：このページ読み込み中だけ送信をスキップ（保存しない＝リロードで解除。事故防止のA案）。
+  // 起動は入口の隠しジェスチャー（nishida⇄eguchiを5秒内に10往復）。もう一度で解除。
+  const [qaMode, setQaMode] = useState(false);
+  // 開発サーバーでは常にスキップ（QAタップが本番DBに混ざる事故の再発防止）。
+  // 送信経路そのものを試したい時だけ ?submit=1 で解除できる。
+  const forceSubmit = useMemo(() => {
+    try { return new URLSearchParams(window.location.search).get("submit") === "1"; } catch { return false; }
+  }, []);
+  const skipSubmit = qaMode || (import.meta.env.DEV && !forceSubmit);
+  const skipSubmitRef = useRef(skipSubmit);
+  useEffect(() => { skipSubmitRef.current = skipSubmit; }, [skipSubmit]);
   // 練習する映像。?v=<id> で指定があればその映像から開始（シェアの「MVで✋」リンク用）。
   const readVideoIdParam = (): string | null => {
     try {
@@ -1093,6 +1104,11 @@ export default function HiTensionPage() {
     setVideoEnded(true);
     if (submittedRef.current) return;
     if (!memberId || count === 0) return;
+    // QAモード/開発サーバーでは保存しない（テストタップを本番データに混ぜない）
+    if (skipSubmitRef.current) {
+      console.log("[hi-tension] QA mode: session NOT saved.");
+      return;
+    }
     submittedRef.current = true;
     submitHiSession({
       memberId,
@@ -1261,6 +1277,27 @@ export default function HiTensionPage() {
 
       {/* FPS計測（開発モード or ?hidebug=1 のみ。本番ビルドには出ない）。混雑時の最低fpsを測る用 */}
       {(import.meta.env.DEV || HI_DEBUG) && <FpsMeter />}
+
+      {/* QAモード中の印：このプレイは保存されない、が見える（起動ジェスチャーの手応えも兼ねる）。
+          全画面の上(z:300)・左下。文字は仮置き「QA」（変えたければhopと相談）。 */}
+      {qaMode && (
+        <div
+          aria-hidden
+          style={{
+            position: "fixed",
+            bottom: 4,
+            left: 8,
+            zIndex: 300,
+            fontSize: "0.625rem",
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+            color: "#9aa0a6",
+            pointerEvents: "none",
+          }}
+        >
+          QA
+        </div>
+      )}
 
       {/* 同期デバッグ表示（?hidebug=1 の時だけ。本番では出さない） */}
       {HI_DEBUG && debugInfo && (
@@ -1635,6 +1672,7 @@ export default function HiTensionPage() {
             viewOnly={viewOnlySpecial}
             selectedEventKey={selectedEventKey}
             onOpenSettings={() => setSettingsOpen(true)}
+            onToggleQa={() => setQaMode((v) => !v)}
           />
         </div>
       )}
