@@ -1609,10 +1609,12 @@ export default function HiTensionPage() {
                   zIndex: 3,
                 }}
               >
+                {/* 横は固定改行を外して行数を減らす（Safariのバー表示中でもFAクレジット＝
+                    CC BY 4.0 の表記義務分まで画面内に収める）。文言は同一。 */}
                 楽曲・映像の著作権は権利者に帰属します。
-                <br />
+                {isLandscape ? " " : <br />}
                 権利者からの申し出により直ちに公開を停止します。
-                <br />
+                {isLandscape ? " " : <br />}
                 <span style={{ fontSize: "0.5rem", color: "#999" }}>
                   Hand icon by Font Awesome (CC BY 4.0)
                 </span>
