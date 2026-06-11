@@ -166,17 +166,29 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
 
   // 横向き：スクロール無しの3ブロック構成（hop指定）。
   //   中央＝ヒートマップを動画の真下に（幅も動画と揃える＝波形のx軸が動画の時間軸と対応して読める）
-  //   左＝数字を縦並び ／ 右＝ボタンを縦並び（動画の左右に空く帯。play-area 基準の absolute。
+  //   左＝数字を縦並び ／ 右＝ボタンを縦並び（動画の左右に空く帯の中央。play-area 基準の absolute。
   //   ※position:fixed は iOS Safari のアドレスバー伸縮で位置が狂うことがあるため使わない）。
   //   文言・ボタンの種類・順序は縦と同一。
+  // 中央列（動画・ヒートマップ）の幅。HiTensionPage の完走後動画と同じ式（時間軸をぴったり揃える）。
+  // 左右の帯の幅 = (100% - これ) / 2 ＝数字/ボタンをその帯の真ん中に置くのにも使う。
+  const CENTER_W = "min(calc(100vw - 320px), calc(48dvh * 16 / 9))";
+  const sideBandStyle = (side: "left" | "right"): CSSProperties => ({
+    position: "absolute",
+    zIndex: 3,
+    [side]: 0,
+    top: "50%",
+    transform: "translateY(-50%)",
+    width: `calc((100% - ${CENTER_W}) / 2)`,
+    display: "flex",
+    justifyContent: "center",
+  });
   if (landscape) {
     return (
       <>
-        {/* 中央：動画の真下のヒートマップ（幅は HiTensionPage の完走後動画と同じ式で揃える） */}
+        {/* 中央：動画の真下のヒートマップ */}
         <div
           style={{
-            // 幅は HiTensionPage の完走後動画と同じ式（時間軸をぴったり揃える）
-            width: "min(calc(100vw - 320px), calc(48dvh * 16 / 9))",
+            width: CENTER_W,
             margin: "0 auto",
             display: "flex",
             flexDirection: "column",
@@ -205,46 +217,39 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
           {tunerStrip}
         </div>
 
-        {/* 左：数字ブロック（動画下の帯・左端・縦中央） */}
-        <div
-          style={{
-            position: "absolute",
-            zIndex: 3,
-            left: "2vw",
-            top: "50%",
-            transform: "translateY(-50%)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.9rem",
-            textAlign: "center",
-          }}
-        >
-          {!viewOnly && (
+        {/* 左：数字ブロック（左の帯の真ん中・縦中央） */}
+        <div style={sideBandStyle("left")}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.9rem",
+              textAlign: "center",
+            }}
+          >
+            {!viewOnly && (
+              <div>
+                <p style={labelStyle}>{isSpecial ? "お祝いに挙げた✋" : "あなたのハイ！"}</p>
+                <BouncyNumber value={selfCount} color={memberColor} size="2.4rem" />
+              </div>
+            )}
             <div>
-              <p style={labelStyle}>{isSpecial ? "お祝いに挙げた✋" : "あなたのハイ！"}</p>
-              <BouncyNumber value={selfCount} color={memberColor} size="2.4rem" />
+              <p style={labelStyle}>{isSpecial ? "お祝いに挙がった✋の総数" : "歴代累計"}</p>
+              <BouncyNumber value={totalCount} color={memberColor} size="1.8rem" />
             </div>
-          )}
-          <div>
-            <p style={labelStyle}>{isSpecial ? "お祝いに挙がった✋の総数" : "歴代累計"}</p>
-            <BouncyNumber value={totalCount} color={memberColor} size="1.8rem" />
           </div>
         </div>
 
-        {/* 右：ボタンブロック（動画下の帯・右端・縦中央） */}
-        <div
-          style={{
-            position: "absolute",
-            zIndex: 3,
-            right: "2vw",
-            top: "50%",
-            transform: "translateY(-50%)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "stretch",
-            gap: "0.7rem",
-          }}
-        >
+        {/* 右：ボタンブロック（右の帯の真ん中・縦中央） */}
+        <div style={sideBandStyle("right")}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "stretch",
+              gap: "0.7rem",
+            }}
+          >
           <button type="button" onClick={onChangeColor} style={{ ...primaryBtnStyle, width: "auto", padding: "0.65rem 1.2rem" }}>
             最初に戻る
           </button>
@@ -275,6 +280,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
               ▶ YouTubeで元の映像を見る
             </a>
           )}
+          </div>
         </div>
       </>
     );
