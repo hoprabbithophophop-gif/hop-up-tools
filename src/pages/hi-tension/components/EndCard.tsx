@@ -94,7 +94,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
     margin: "0 0 0.4rem",
   };
 
-  // チューナー風ストリップ：横軸＝最寄りのグリッド線（8分音符）からのズレ（±半分）。中央の線＝ぴったり。
+  // チューナー風ストリップ：横軸＝最寄りの拍（4分音符）からのズレ（±半拍）。中央の線＝ぴったり。
   // 自分の各タップを推し色ドットで置く＝0付近に固まっていればリズムに乗れている。
   // 同じズレのドットが重ならないよう縦は3段を循環。
   const tunerStrip = beatOffsets && beatOffsets.length > 0 && !viewOnly ? (
@@ -111,12 +111,12 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
         }}
       >
         {/* ±50msゾーン：人間が「ちゃんと乗れてる」ブレの目安（採点ではなく背景の帯だけ）。
-            横軸は8分音符間隔(60/155/2≈193.5ms)の±半分なので、±50ms ≒ 中央±25.8%。 */}
+            横軸は拍間隔(60/155≈387ms)の±半分なので、±50ms ≒ 中央±12.9%。 */}
         <div
           style={{
             position: "absolute",
-            left: "24.2%",
-            width: "51.6%",
+            left: "37.1%",
+            width: "25.8%",
             top: 0,
             bottom: 0,
             background: "rgba(255,255,255,0.75)",

@@ -254,6 +254,8 @@ export default function HiTensionPage() {
   const anonSessionId = useMemo(() => getOrCreateAnonymousSessionId(), []);
 
   const timestampsRef = useRef<number[]>([]);
+  // 指で押した瞬間のタップだけ（長押しの自動連打を含まない）。リズム判定の入力用。
+  const manualTimestampsRef = useRef<number[]>([]);
   const currentTimeRef = useRef(0);
   const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -886,6 +888,7 @@ export default function HiTensionPage() {
   // 再生まわりの状態をリセットする
   const resetPlayState = () => {
     timestampsRef.current = [];
+    manualTimestampsRef.current = [];
     submittedRef.current = false;
     videoEndedRef.current = false;
     soloModeRef.current = false; // 連携終了→ソロのフラグを次の再生に持ち越さない
@@ -1134,7 +1137,7 @@ export default function HiTensionPage() {
     canvasRef.current?.onTimeUpdate(t);
   }, []);
 
-  const recordHi = useCallback(() => {
+  const recordHi = useCallback((autoRepeat = false) => {
     if (videoEndedRef.current) return;
     // ✋の videoTime は実際の動画位置を使う（受信側 handleTimeUpdate と同じ物差し）。
     // 抽象クロック基準だと映像との定常ズレ(約1秒)が✋に出るため。
@@ -1145,6 +1148,9 @@ export default function HiTensionPage() {
       ? anchor.media + Math.min((performance.now() - anchor.wall) / 1000, 0.25)
       : currentTimeRef.current;
     timestampsRef.current.push(t);
+    // リズム判定用には「指で押した瞬間」だけを使う。長押しの自動連打(150ms間隔)は
+    // 機械が刻んだ等間隔タップでユーザーのリズムではないため除外（✋・カウント・保存は全タップ）。
+    if (!autoRepeat) manualTimestampsRef.current.push(t);
     setSelfPressCount((c) => c + 1); // ごほうび表示のカウントアップ（押すたび弾む）
     console.log(`[hi-tension] HI! @ ${t.toFixed(2)}s`);
     canvasRef.current?.spawnSelf(); // 自分の✋（自分用pixi・✋ボタンより上のキャンバス）
@@ -1157,7 +1163,7 @@ export default function HiTensionPage() {
     recordHi();
     clearPressTimers();
     holdTimerRef.current = setTimeout(() => {
-      pressIntervalRef.current = setInterval(recordHi, LONG_PRESS_INTERVAL_MS);
+      pressIntervalRef.current = setInterval(() => recordHi(true), LONG_PRESS_INTERVAL_MS);
     }, LONG_PRESS_THRESHOLD_MS);
   };
 
@@ -1240,7 +1246,7 @@ export default function HiTensionPage() {
   // 推し色ドットで重ねて見せる（ビンに足しても 1001→1002 では波形が変わらず見えないため廃止）。
   // リズム判定：BPM155の拍グリッドに対する各タップのズレ（位相はみんなのタップから自動推定）。
   const beatOffsets = useMemo(
-    () => (videoEnded ? analyzeBeatOffsets(sessions, timestampsRef.current) : null),
+    () => (videoEnded ? analyzeBeatOffsets(sessions, manualTimestampsRef.current) : null),
     [videoEnded, sessions],
   );
 
