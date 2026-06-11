@@ -175,11 +175,12 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
         {/* 中央：動画の真下のヒートマップ（幅は HiTensionPage の完走後動画と同じ式で揃える） */}
         <div
           style={{
-            width: "min(60vw, calc(40dvh * 16 / 9))",
+            // 幅は HiTensionPage の完走後動画と同じ式（時間軸をぴったり揃える）
+            width: "min(calc(100vw - 320px), calc(48dvh * 16 / 9))",
             margin: "0 auto",
             display: "flex",
             flexDirection: "column",
-            gap: "0.4rem",
+            gap: "0.65rem", // 盛り上がり・リズムの間に呼吸させる
             position: "relative",
             zIndex: 3,
           }}
@@ -194,7 +195,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
               bins={heatmap.bins}
               binSeconds={heatmap.binSeconds}
               color={isSpecial ? memberColor : "#000000"}
-              height={44}
+              height={40}
               label="みんなの盛り上がり"
               selfTimestamps={selfTimestamps}
               selfColor={memberColor}

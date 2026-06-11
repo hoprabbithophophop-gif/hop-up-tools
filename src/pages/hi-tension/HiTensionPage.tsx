@@ -1317,13 +1317,14 @@ export default function HiTensionPage() {
                 }
               : isLandscape && screen === "play"
                 ? {
-                    // 横（完走後）：動画を40vhに縮めて上中央。直下にヒートマップ、左右の帯に
+                    // 横（完走後）：動画は上中央にできるだけ大きく。直下にヒートマップ、左右の帯に
                     // 数字/ボタン（EndCard 側の landscape 3ブロックとセット）。幅の式は
                     // EndCard のヒートマップと同一にして時間軸をぴったり揃える。
-                    // 40vh＝iPhone SE初代の横(568×320)でも左右ブロックが動画に被らない上限。
+                    // 100vw-320px＝左右ブロック(各≈150px)の幅を必ず確保した上で、
+                    // 高さ48dvh相当を上限に画面に応じて大きくなる（SE横でも被らない）。
                     position: "relative",
                     zIndex: 2,
-                    width: "min(60vw, calc(40dvh * 16 / 9))",
+                    width: "min(calc(100vw - 320px), calc(48dvh * 16 / 9))",
                     margin: "0 auto",
                   }
                 : {
@@ -1383,7 +1384,7 @@ export default function HiTensionPage() {
               // 横の再生中は子を絶対配置するのでパディング不要。完走後は EndCard 用に確保
               // （横は1画面に収めるため上下を詰める）。
               padding: videoEnded
-                ? (isLandscape ? "0.4rem 1rem 0.4rem" : "1.2rem 1.2rem 2rem")
+                ? (isLandscape ? "0.5rem 1rem 0.3rem" : "1.2rem 1.2rem 2rem")
                 : isLandscape
                   ? 0
                   : "2.4rem 1.2rem 2rem",
@@ -1578,7 +1579,7 @@ export default function HiTensionPage() {
                   : {
                       marginTop: "auto",
                       // 横の完走後は1画面に収めるため上の余白を詰める
-                      paddingTop: isLandscape ? "0.3rem" : "2.4rem",
+                      paddingTop: isLandscape ? "0.4rem" : "2.4rem",
                       width: "100%",
                       maxWidth: isLandscape ? 720 : 360,
                       position: "relative",
