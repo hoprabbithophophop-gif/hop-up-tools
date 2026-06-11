@@ -166,8 +166,9 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
 
   // 横向き：スクロール無しの3ブロック構成（hop指定）。
   //   中央＝ヒートマップを動画の真下に（幅も動画と揃える＝波形のx軸が動画の時間軸と対応して読める）
-  //   左＝数字を縦並び ／ 右＝ボタンを縦並び（動画の左右に空く帯を使う。position:fixed で
-  //   画面の縦中央に置く＝ページのフローに依存しない）。文言・ボタンの種類・順序は縦と同一。
+  //   左＝数字を縦並び ／ 右＝ボタンを縦並び（動画の左右に空く帯。play-area 基準の absolute。
+  //   ※position:fixed は iOS Safari のアドレスバー伸縮で位置が狂うことがあるため使わない）。
+  //   文言・ボタンの種類・順序は縦と同一。
   if (landscape) {
     return (
       <>
@@ -179,6 +180,8 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
             display: "flex",
             flexDirection: "column",
             gap: "0.4rem",
+            position: "relative",
+            zIndex: 3,
           }}
         >
           {isSpecial && event.endCardCongrats && (
@@ -201,10 +204,11 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
           {tunerStrip}
         </div>
 
-        {/* 左：数字ブロック（画面左端・縦中央） */}
+        {/* 左：数字ブロック（動画下の帯・左端・縦中央） */}
         <div
           style={{
-            position: "fixed",
+            position: "absolute",
+            zIndex: 3,
             left: "2vw",
             top: "50%",
             transform: "translateY(-50%)",
@@ -226,10 +230,11 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
           </div>
         </div>
 
-        {/* 右：ボタンブロック（画面右端・縦中央） */}
+        {/* 右：ボタンブロック（動画下の帯・右端・縦中央） */}
         <div
           style={{
-            position: "fixed",
+            position: "absolute",
+            zIndex: 3,
             right: "2vw",
             top: "50%",
             transform: "translateY(-50%)",

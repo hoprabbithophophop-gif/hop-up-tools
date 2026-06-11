@@ -1463,7 +1463,15 @@ export default function HiTensionPage() {
             )}
 
             {videoEnded ? (
-              <div style={{ position: "relative", zIndex: 3, width: "100%", display: "flex", justifyContent: "center" }}>
+              // 横はラッパーを無位置にする＝EndCard の左右ブロック(absolute)が play-area 全体を
+              // 基準に置ける（fixed をやめた分。z は EndCard 側の各要素が持つ）。縦は従来どおり。
+              <div
+                style={
+                  isLandscape
+                    ? { width: "100%", display: "flex", justifyContent: "center" }
+                    : { position: "relative", zIndex: 3, width: "100%", display: "flex", justifyContent: "center" }
+                }
+              >
                 <EndCard
                   selfCount={endedSelfCount}
                   totalCount={displayTotal + endedSelfCount}
