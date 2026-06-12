@@ -35,11 +35,22 @@ export const A_STEPS: ChoreoStep[] = [
   trace(["MM", "UR"]), // 16 中央→右上(キメ)
 ];
 
-// 練習に使える動画。defaultAnchorMs = その動画でフレーズ(ステップ1)が始まる時刻。null=未設定。
-export type PracticeVideo = { id: string; label: string; defaultAnchorMs: number | null };
+// 練習に使える動画と、その動画内でパターンAが始まる時刻の一覧。
+// phraseStartsMs はみんなのタップ・ヒートマップ(1156人/36万タップ)と
+// 先頭フレーズ(11.563s)の正規化相互相関で検出し、BPM155の拍グリッドに
+// スナップした値(2026-06-12)。構造=サビごとに2連続(16拍差)×3回。
+// 最後の1箇所のみ相関0.67とやや低い(他は0.82〜0.97)＝要耳確認。
+export type PracticeVideo = { id: string; label: string; phraseStartsMs: number[] };
 export const PRACTICE_VIDEOS: PracticeVideo[] = [
-  { id: "mn1wkO0Ysbw", label: "LIVE映像", defaultAnchorMs: 11563 },
+  {
+    id: "mn1wkO0Ysbw",
+    label: "LIVE映像",
+    phraseStartsMs: [11563, 17757, 95176, 101369, 234531, 240724],
+  },
 ];
+
+// 全出現に一律で掛ける時刻補正(ms)。タップデータ由来のズレを感じたらここで調整。
+export const A_OFFSET_MS = 0;
 
 // 初回に表示する説明文。文言はhopが書く(空文字の間はUIに出ない)。
 export const INTRO_TEXT = "";
