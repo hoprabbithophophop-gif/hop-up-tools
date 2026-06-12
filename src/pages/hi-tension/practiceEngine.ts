@@ -41,8 +41,11 @@ export const TUNING = {
   windowCoef: 0.25,
   /** ウィンドウ拡張の下限(ms)。短いステップを相対的に広めにする */
   windowMinMs: 120,
-  /** ホールド判定でステップ端を免除する割合(ステップ長比) */
-  holdSlackCoef: 0.15,
+  /** ホールド判定で入り側を免除する割合(ステップ長比)＝遅れて到着してもよい幅 */
+  holdSlackStartCoef: 0.2,
+  /** ホールド判定で抜け側を免除する割合(ステップ長比)。
+   *  表示が1拍先行している分、次の動きへ早めに離れるのが自然なので広め */
+  holdSlackEndCoef: 0.4,
   /** 小刻み(wiggle)の既定跨ぎ回数N */
   wiggleDefaultN: 2,
   /** 表示の先行量(拍)。ターゲット表示・ステップ名・チップだけ未来を見せる
@@ -113,15 +116,14 @@ export function buildTimeline(steps: ChoreoStep[], bpm: number, tuning: Tuning):
   for (const s of steps) {
     const len = s.lenBeats * beatMs;
     const ext = Math.max(len * tuning.windowCoef, tuning.windowMinMs);
-    const slack = len * tuning.holdSlackCoef;
     out.push({
       def: s.def,
       startMs: t,
       endMs: t + len,
       winStartMs: t - ext,
       winEndMs: t + len + ext,
-      holdStartMs: t + slack,
-      holdEndMs: t + len - slack,
+      holdStartMs: t + len * tuning.holdSlackStartCoef,
+      holdEndMs: t + len - len * tuning.holdSlackEndCoef,
     });
     t += len;
   }
