@@ -32,6 +32,21 @@ function fmtTime(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+// 動画ごとのタイミング微調整(ms)。耳で合わせた値は後で patterns.ts に焼き込む
+const VIDEO_OFFSET_KEY = "hi_tension:practice_video_offset";
+function loadVideoOffsets(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(VIDEO_OFFSET_KEY);
+    if (raw) {
+      const o = JSON.parse(raw);
+      const out: Record<string, number> = {};
+      for (const k in o) if (typeof o[k] === "number") out[k] = o[k];
+      return out;
+    }
+  } catch { /* ignore */ }
+  return {};
+}
+
 /** 動画内の全パターン出現を時刻順に並べたもの */
 type Occurrence = { pat: number; start: number };
 
@@ -47,8 +62,12 @@ export default function HiTensionPracticePage() {
   const userPtRef = useRef<{ x: number; y: number } | null>(null);
   const zoneRef = useRef<ZoneId | null>(null);
   const lastOccKeyRef = useRef("");
+  const inOccRef = useRef<{ key: string; pat: number; start: number } | null>(null);
+  const resultsRef = useRef<{ pat: number; start: number; ok: number; total: number }[]>([]);
+  const [results, setResults] = useState<{ pat: number; start: number; ok: number; total: number }[]>([]);
 
   const [videoId, setVideoId] = useState(PRACTICE_VIDEOS[0].id);
+  const [videoOffsets, setVideoOffsets] = useState<Record<string, number>>(loadVideoOffsets);
   const [started, setStarted] = useState(false);
   const [rate, setRate] = useState(1);
   const [dispPat, setDispPat] = useState(0);
@@ -63,12 +82,13 @@ export default function HiTensionPracticePage() {
   if (!judgesRef.current) judgesRef.current = timelines.map(t => new ChoreoJudge(t, TUNING));
 
   const occs = useMemo<Occurrence[]>(() => {
+    const extra = videoOffsets[videoId] ?? 0;
     const out: Occurrence[] = [];
     PATTERNS.forEach((p, pi) => {
-      for (const s of p.startsByVideo[videoId] ?? []) out.push({ pat: pi, start: s + OFFSET_MS });
+      for (const s of p.startsByVideo[videoId] ?? []) out.push({ pat: pi, start: s + OFFSET_MS + extra });
     });
     return out.sort((a, b) => a.start - b.start);
-  }, [videoId]);
+  }, [videoId, videoOffsets]);
 
   const startedRef = useRef(started);
   const occsRef = useRef(occs);
@@ -90,6 +110,9 @@ export default function HiTensionPracticePage() {
   const resetJudges = () => {
     judgesRef.current?.forEach(j => j.reset());
     lastOccKeyRef.current = "";
+    inOccRef.current = null;
+    resultsRef.current = [];
+    setResults([]);
   };
 
   const selectVideo = (id: string) => {
@@ -112,6 +135,13 @@ export default function HiTensionPracticePage() {
     p.play();
   };
   const changeRate = (r: number) => { try { playerRef.current?.setPlaybackRate(r); } catch { /* ignore */ } setRate(r); };
+  const nudgeOffset = (delta: number) => {
+    setVideoOffsets(prev => {
+      const next = { ...prev, [videoId]: (prev[videoId] ?? 0) + delta };
+      try { localStorage.setItem(VIDEO_OFFSET_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   // 指の位置
   const ptFrom = (e: React.PointerEvent) => {
@@ -206,6 +236,18 @@ export default function HiTensionPracticePage() {
       const realPhase = startedRef.current ? phaseAt(tMs) : idlePhase;
       const dispPhase = startedRef.current ? phaseAt(tMs + leadMs) : idlePhase;
 
+      // 出現を抜けた瞬間に成績を確定記録(次の出現のリセットで消える前に)
+      const curOccKey = realPhase.kind === "playing" ? `${realPhase.occ.pat}:${realPhase.occ.start}` : null;
+      if (inOccRef.current && inOccRef.current.key !== curOccKey) {
+        const j = judges[inOccRef.current.pat];
+        const ok = j.states.filter(s => s.result === "ok").length;
+        resultsRef.current.push({ pat: inOccRef.current.pat, start: inOccRef.current.start, ok, total: j.states.length });
+        setResults([...resultsRef.current]);
+      }
+      inOccRef.current = realPhase.kind === "playing"
+        ? { key: curOccKey as string, pat: realPhase.occ.pat, start: realPhase.occ.start }
+        : null;
+
       // 出現の切り替わりで判定をリセット(チップもまっさらに)＝リアル時刻基準
       if (realPhase.kind !== "idle") {
         const key = `${realPhase.occ.pat}:${realPhase.occ.start}`;
@@ -215,9 +257,13 @@ export default function HiTensionPracticePage() {
         }
       }
 
-      // 判定はリアル時刻で
+      // 判定はリアル時刻で。カウントイン中も負の相対時刻で回す
+      // (先行表示につられて早めに動き出した指がフレーズ頭のウィンドウに
+      //  入るのを拾う。回さないと1拍目の入りが必ず取りこぼされる)
       if (realPhase.kind === "playing") {
         judges[realPhase.occ.pat].update(realPhase.relMs, zone);
+      } else if (realPhase.kind === "countin") {
+        judges[realPhase.occ.pat].update(tMs - realPhase.occ.start, zone);
       }
 
       // 表示対象パターン(チップ/ステータスに使う)＝先行時刻基準
@@ -352,6 +398,21 @@ export default function HiTensionPracticePage() {
         {!started && (
           <button onClick={start} style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", fontSize: 18, fontWeight: 700, cursor: "pointer", padding: 16 }}>
             {INTRO_TEXT && <span style={{ fontSize: 14, fontWeight: 400, color: "#ccc", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{INTRO_TEXT}</span>}
+            {results.length > 0 && (
+              <span style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", justifyContent: "center", maxWidth: "92%" }}>
+                <span style={{ width: "100%", textAlign: "center", fontSize: 12, fontWeight: 400, color: "#999" }}>今回の結果</span>
+                {results.map((r, i) => {
+                  const nth = results.slice(0, i).filter(x => x.pat === r.pat).length;
+                  const mark = "①②③④⑤⑥⑦⑧⑨"[nth] ?? `${nth + 1}`;
+                  const full = r.ok === r.total;
+                  return (
+                    <span key={i} style={{ fontSize: 14, fontWeight: 700, color: full ? BRIGHT : "#ccc", whiteSpace: "nowrap" }}>
+                      {PATTERNS[r.pat].label.replace("パターン", "")}{mark} {r.ok}/{r.total}
+                    </span>
+                  );
+                })}
+              </span>
+            )}
             <span>▶ 練習スタート</span>
           </button>
         )}
@@ -390,6 +451,16 @@ export default function HiTensionPracticePage() {
         <span style={{ fontSize: 12, color: "#999" }}>速さ</span>
         {[0.5, 0.75, 1].map(r => (<button key={r} style={seg(rate === r)} onClick={() => changeRate(r)}>{r}x</button>))}
         <button style={{ ...btn, marginLeft: "auto" }} onClick={restart}>最初から</button>
+      </div>
+
+      {/* 動画ごとのタイミング微調整(耳合わせ用。値は後でデータに焼き込む) */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "6px 0 0", flex: "0 0 auto" }}>
+        <span style={{ fontSize: 12, color: "#999" }}>タイミング微調整</span>
+        <button style={{ ...btn, fontSize: 12, padding: "4px 10px" }} onClick={() => nudgeOffset(-50)}>-50ms</button>
+        <button style={{ ...btn, fontSize: 12, padding: "4px 10px" }} onClick={() => nudgeOffset(50)}>+50ms</button>
+        <span style={{ fontSize: 12, color: "#666" }}>
+          {(videoOffsets[videoId] ?? 0) > 0 ? "+" : ""}{videoOffsets[videoId] ?? 0}ms
+        </span>
       </div>
     </div>
   );
