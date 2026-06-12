@@ -21,6 +21,15 @@ export type PracticePattern = {
   startsByVideo: Record<string, number[]>;
 };
 
+// LIVE映像(mn1wkO0Ysbw)での出現位置。
+const LIVE_A = [11563, 17757, 95176, 101369, 234531, 240724];
+const LIVE_B = [76595, 82789, 147821, 154015, 215950, 222144];
+
+// MV(WU-IF-cLPCY)はオケが同一音源なので、LIVEの位置＋定数オフセットで仮置き。
+// オフセットはhop耳「MVのパターンA1回目は0:12ちょっと」(LIVE 11.563s)より+500ms仮。
+// ※MV編集差(間奏カット等)があれば後半はズレる＝全箇所要耳確認。
+const MV_OFFSET_MS = 500;
+
 export const PATTERNS: PracticePattern[] = [
   {
     key: "A",
@@ -28,7 +37,8 @@ export const PATTERNS: PracticePattern[] = [
     bpm: A_BPM,
     steps: A_STEPS,
     startsByVideo: {
-      mn1wkO0Ysbw: [11563, 17757, 95176, 101369, 234531, 240724],
+      mn1wkO0Ysbw: LIVE_A,
+      "WU-IF-cLPCY": LIVE_A.map(s => s + MV_OFFSET_MS),
     },
   },
   {
@@ -37,7 +47,8 @@ export const PATTERNS: PracticePattern[] = [
     bpm: B_BPM,
     steps: B_STEPS,
     startsByVideo: {
-      mn1wkO0Ysbw: [76595, 82789, 147821, 154015, 215950, 222144],
+      mn1wkO0Ysbw: LIVE_B,
+      "WU-IF-cLPCY": LIVE_B.map(s => s + MV_OFFSET_MS),
     },
   },
 ];
@@ -46,6 +57,7 @@ export const PATTERNS: PracticePattern[] = [
 export type PracticeVideo = { id: string; label: string };
 export const PRACTICE_VIDEOS: PracticeVideo[] = [
   { id: "mn1wkO0Ysbw", label: "LIVE映像" },
+  { id: "WU-IF-cLPCY", label: "MV" },
 ];
 
 // 全出現に一律で掛ける時刻補正(ms)。タップデータ由来のズレを感じたらここで調整。

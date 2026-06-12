@@ -244,13 +244,24 @@ export default function HiTensionPracticePage() {
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText(`${Math.min(st.crossings, nReq)}/${nReq}`, (ca.x + cb.x) / 2, (ca.y + cb.y) / 2);
         }
-      } else if (phase.kind === "countin" && phase.beatsLeft <= COUNTIN_NUM_BEATS) {
-        // 拍同期カウントイン 5,6,7,8
-        const num = 5 + (COUNTIN_NUM_BEATS - phase.beatsLeft);
-        ctx.fillStyle = "rgba(255,255,255,0.92)";
-        ctx.font = `800 ${Math.min(W, H) * 0.45}px Inter, system-ui, sans-serif`;
-        ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillText(String(num), W / 2, H / 2);
+      } else if (phase.kind === "countin") {
+        // 最初に指を置く位置(次パターンのステップ1の始点)を先に見せる
+        const d0 = PATTERNS[phase.occ.pat].steps[0].def;
+        const startZone: ZoneId = d0.kind === "trace" ? d0.zones[0] : d0.kind === "hold" ? d0.zone : d0.pair[0];
+        fillZone(ctx, W, H, startZone, "rgba(218,24,132,0.35)");
+        strokeZone(ctx, W, H, startZone, PINK, 3 * dpr);
+        const c0 = zoneCenter(startZone, W, H);
+        ctx.beginPath(); ctx.arc(c0.x, c0.y, 14 * dpr, 0, Math.PI * 2);
+        ctx.lineWidth = 3 * dpr; ctx.strokeStyle = "#fff"; ctx.stroke();
+
+        if (phase.beatsLeft <= COUNTIN_NUM_BEATS) {
+          // 拍同期カウントイン 5,6,7,8
+          const num = 5 + (COUNTIN_NUM_BEATS - phase.beatsLeft);
+          ctx.fillStyle = "rgba(255,255,255,0.92)";
+          ctx.font = `800 ${Math.min(W, H) * 0.45}px Inter, system-ui, sans-serif`;
+          ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          ctx.fillText(String(num), W / 2, H / 2);
+        }
       }
 
       // 指ドット
