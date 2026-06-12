@@ -23,9 +23,15 @@ export async function loadVenueGeo(sb: SupabaseClient): Promise<void> {
   }
 }
 
+// 公式記事側の誤字の補正（スクレイパー側にも同じ補正あり）。
+// DBに誤字のまま残っている行でも座標が引けるようにする保険。
+const LOCATION_TYPO_FIX: Record<string, string> = {
+  有楽日町朝ホール: "有楽町朝日ホール",
+};
+
 /** fc_deadlines.location「会場名 （都道府県）」→ 会場名で座標を引く */
 export function geoForLocation(location: string | null | undefined): VenueGeo | null {
   if (!location) return null;
   const name = location.replace(/\s*（[^）]*）\s*$/, "").trim();
-  return venueGeoByName.get(name) ?? null;
+  return venueGeoByName.get(LOCATION_TYPO_FIX[name] ?? name) ?? null;
 }

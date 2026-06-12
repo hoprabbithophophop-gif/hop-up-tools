@@ -10,6 +10,12 @@
 const BASE_URL = 'https://www.upfc.jp/helloproject';
 const LIST_URL = BASE_URL + '/news_list.php?@rst=all';
 
+// 公式記事側の誤字の補正（現物確認済みのもののみ追加する）。
+// 会場名は座標辞書(schedule_venues)と名前で紐付くため、誤字のままだと地図が効かない。
+const VENUE_TYPO_FIX = {
+  '有楽日町朝ホール': '有楽町朝日ホール', // 西田汐里バースデー2026当日券記事(hfJ5WpEN5ZDHGepp)で確認
+};
+
 /** エントリポイント（GAS トリガーはここを指定） */
 function UFmain() {
   const props = PropertiesService.getScriptProperties();
@@ -367,6 +373,11 @@ function fetchDeadlines(article) {
       venue = vm[1]; // 括弧無し会場のフォールバック
     }
     if (venue) venue = venue.replace(/\s+/g, ' ').trim();
+    if (venue) {
+      for (const typo in VENUE_TYPO_FIX) {
+        if (venue.indexOf(typo) >= 0) venue = venue.replace(typo, VENUE_TYPO_FIX[typo]);
+      }
+    }
     deadlines.push({ type: 'event', label: '公演', deadline_at: eventIso, location: venue });
   }
 
