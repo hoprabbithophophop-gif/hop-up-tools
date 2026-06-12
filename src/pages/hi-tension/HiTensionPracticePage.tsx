@@ -10,7 +10,7 @@ import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer
 import { PATTERNS, PRACTICE_VIDEOS, OFFSET_MS, INTRO_TEXT } from "./patterns";
 import {
   TUNING, ChoreoJudge, buildTimeline, phraseLenMs, nextZone, zoneRect, stepText,
-  type ZoneId, type TimedStep,
+  type ZoneId, type TimedStep, type StepResult,
 } from "./practiceEngine";
 
 const PINK = "#da1884";
@@ -32,19 +32,16 @@ function fmtTime(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-// 動画ごとのタイミング微調整(ms)。耳で合わせた値は後で patterns.ts に焼き込む
-const VIDEO_OFFSET_KEY = "hi_tension:practice_video_offset";
-function loadVideoOffsets(): Record<string, number> {
+// 自分の体感ズレ(ms)。動画のズレは patterns.ts に焼き込み済みなので、
+// ここは「見て→反応する速さの個人差」を全動画共通で合わせる値。
+// (旧: 動画ごとのキー hi_tension:practice_video_offset は廃止＝MV+200焼き込み済みのため)
+const MY_OFFSET_KEY = "hi_tension:practice_my_offset";
+function loadMyOffset(): number {
   try {
-    const raw = localStorage.getItem(VIDEO_OFFSET_KEY);
-    if (raw) {
-      const o = JSON.parse(raw);
-      const out: Record<string, number> = {};
-      for (const k in o) if (typeof o[k] === "number") out[k] = o[k];
-      return out;
-    }
+    const v = Number(localStorage.getItem(MY_OFFSET_KEY));
+    return Number.isFinite(v) ? v : 0;
   } catch { /* ignore */ }
-  return {};
+  return 0;
 }
 
 /** 動画内の全パターン出現を時刻順に並べたもの */
@@ -63,11 +60,12 @@ export default function HiTensionPracticePage() {
   const zoneRef = useRef<ZoneId | null>(null);
   const lastOccKeyRef = useRef("");
   const inOccRef = useRef<{ key: string; pat: number; start: number } | null>(null);
-  const resultsRef = useRef<{ pat: number; start: number; ok: number; total: number }[]>([]);
-  const [results, setResults] = useState<{ pat: number; start: number; ok: number; total: number }[]>([]);
+  type OccResult = { pat: number; start: number; ok: number; total: number; steps: StepResult[] };
+  const resultsRef = useRef<OccResult[]>([]);
+  const [results, setResults] = useState<OccResult[]>([]);
 
   const [videoId, setVideoId] = useState(PRACTICE_VIDEOS[0].id);
-  const [videoOffsets, setVideoOffsets] = useState<Record<string, number>>(loadVideoOffsets);
+  const [myOffset, setMyOffset] = useState<number>(loadMyOffset);
   const [started, setStarted] = useState(false);
   const [rate, setRate] = useState(1);
   const [dispPat, setDispPat] = useState(0);
@@ -82,13 +80,16 @@ export default function HiTensionPracticePage() {
   if (!judgesRef.current) judgesRef.current = timelines.map(t => new ChoreoJudge(t, TUNING));
 
   const occs = useMemo<Occurrence[]>(() => {
-    const extra = videoOffsets[videoId] ?? 0;
     const out: Occurrence[] = [];
     PATTERNS.forEach((p, pi) => {
-      for (const s of p.startsByVideo[videoId] ?? []) out.push({ pat: pi, start: s + OFFSET_MS + extra });
+      for (const s of p.startsByVideo[videoId] ?? []) out.push({ pat: pi, start: s + OFFSET_MS + myOffset });
     });
     return out.sort((a, b) => a.start - b.start);
-  }, [videoId, videoOffsets]);
+  }, [videoId, myOffset]);
+
+  // 再生中に微調整すると出現リストが組み直され「出現を抜けた」誤記録が
+  // 走るので、組み直し時は記録中の出現を破棄する(その回の判定はどのみち無効)
+  useEffect(() => { inOccRef.current = null; }, [occs]);
 
   const startedRef = useRef(started);
   const occsRef = useRef(occs);
@@ -136,9 +137,9 @@ export default function HiTensionPracticePage() {
   };
   const changeRate = (r: number) => { try { playerRef.current?.setPlaybackRate(r); } catch { /* ignore */ } setRate(r); };
   const nudgeOffset = (delta: number) => {
-    setVideoOffsets(prev => {
-      const next = { ...prev, [videoId]: (prev[videoId] ?? 0) + delta };
-      try { localStorage.setItem(VIDEO_OFFSET_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    setMyOffset(prev => {
+      const next = prev + delta;
+      try { localStorage.setItem(MY_OFFSET_KEY, String(next)); } catch { /* ignore */ }
       return next;
     });
   };
@@ -241,7 +242,10 @@ export default function HiTensionPracticePage() {
       if (inOccRef.current && inOccRef.current.key !== curOccKey) {
         const j = judges[inOccRef.current.pat];
         const ok = j.states.filter(s => s.result === "ok").length;
-        resultsRef.current.push({ pat: inOccRef.current.pat, start: inOccRef.current.start, ok, total: j.states.length });
+        resultsRef.current.push({
+          pat: inOccRef.current.pat, start: inOccRef.current.start,
+          ok, total: j.states.length, steps: j.states.map(s => s.result),
+        });
         setResults([...resultsRef.current]);
       }
       inOccRef.current = realPhase.kind === "playing"
@@ -383,7 +387,7 @@ export default function HiTensionPracticePage() {
   }
 
   return (
-    <div style={{ height: "100dvh", overflow: "hidden", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto", padding: "8px 12px", color: "#eee", background: "#000", fontFamily: "Inter, system-ui, sans-serif", touchAction: "none" }}>
+    <div onContextMenu={(e) => e.preventDefault()} style={{ height: "100dvh", overflow: "hidden", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto", padding: "8px 12px", color: "#eee", background: "#000", fontFamily: "Inter, system-ui, sans-serif", touchAction: "none", WebkitTouchCallout: "none" }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flex: "0 0 auto" }}>
         <h1 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>振り練習 <span style={{ fontSize: 11, color: "#888" }}>(試作)</span></h1>
         <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
@@ -398,21 +402,6 @@ export default function HiTensionPracticePage() {
         {!started && (
           <button onClick={start} style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", fontSize: 18, fontWeight: 700, cursor: "pointer", padding: 16 }}>
             {INTRO_TEXT && <span style={{ fontSize: 14, fontWeight: 400, color: "#ccc", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{INTRO_TEXT}</span>}
-            {results.length > 0 && (
-              <span style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", justifyContent: "center", maxWidth: "92%" }}>
-                <span style={{ width: "100%", textAlign: "center", fontSize: 12, fontWeight: 400, color: "#999" }}>今回の結果</span>
-                {results.map((r, i) => {
-                  const nth = results.slice(0, i).filter(x => x.pat === r.pat).length;
-                  const mark = "①②③④⑤⑥⑦⑧⑨"[nth] ?? `${nth + 1}`;
-                  const full = r.ok === r.total;
-                  return (
-                    <span key={i} style={{ fontSize: 14, fontWeight: 700, color: full ? BRIGHT : "#ccc", whiteSpace: "nowrap" }}>
-                      {PATTERNS[r.pat].label.replace("パターン", "")}{mark} {r.ok}/{r.total}
-                    </span>
-                  );
-                })}
-              </span>
-            )}
             <span>▶ 練習スタート</span>
           </button>
         )}
@@ -436,14 +425,38 @@ export default function HiTensionPracticePage() {
         })}
       </div>
 
-      {/* タッチパッド(残り高さ全部) */}
+      {/* タッチパッド(残り高さ全部)。長押し/右クリックのメニューは出さない */}
       <div ref={padRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
-        style={{ position: "relative", flex: "1 1 auto", minHeight: 0, background: "#0c0c0c", border: "2px solid #333", borderRadius: 10, touchAction: "none", userSelect: "none", overflow: "hidden" }}>
+        onContextMenu={(e) => e.preventDefault()}
+        style={{ position: "relative", flex: "1 1 auto", minHeight: 0, background: "#0c0c0c", border: "2px solid #333", borderRadius: 10, touchAction: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", overflow: "hidden" }}>
         <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }} />
         <span style={{ position: "absolute", top: 4, left: "50%", transform: "translateX(-50%)", fontSize: 11, color: "#555", pointerEvents: "none" }}>頭の上</span>
         <span style={{ position: "absolute", bottom: 4, left: "50%", transform: "translateX(-50%)", fontSize: 11, color: "#555", pointerEvents: "none" }}>前/下</span>
         <span style={{ position: "absolute", top: "50%", left: 6, transform: "translateY(-50%)", fontSize: 11, color: "#555", pointerEvents: "none" }}>左</span>
         <span style={{ position: "absolute", top: "50%", right: 6, transform: "translateY(-50%)", fontSize: 11, color: "#555", pointerEvents: "none" }}>右</span>
+        {/* 今回の結果(曲が終わったあと、空いてるパッド領域に重ねて表示) */}
+        {!started && results.length > 0 && (
+          <div style={{ position: "absolute", inset: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 8px", alignContent: "center", justifyItems: "center", padding: 12, background: "rgba(0,0,0,0.72)", pointerEvents: "none", overflowY: "auto" }}>
+            <span style={{ gridColumn: "1 / -1", fontSize: 12, color: "#999" }}>今回の結果</span>
+            {results.map((r, i) => {
+              const nth = results.slice(0, i).filter(x => x.pat === r.pat).length;
+              const mark = "①②③④⑤⑥⑦⑧⑨"[nth] ?? `${nth + 1}`;
+              const full = r.ok === r.total;
+              return (
+                <span key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: full ? BRIGHT : "#ccc", whiteSpace: "nowrap" }}>
+                    {PATTERNS[r.pat].label.replace("パターン", "")}{mark} {r.ok}/{r.total}
+                  </span>
+                  <span style={{ display: "flex", gap: 2 }}>
+                    {r.steps.map((res, k) => (
+                      <span key={k} style={{ width: 5, height: 8, borderRadius: 1.5, background: res === "ok" ? PINK : "#3a3a3a" }} />
+                    ))}
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* 操作 */}
@@ -453,13 +466,13 @@ export default function HiTensionPracticePage() {
         <button style={{ ...btn, marginLeft: "auto" }} onClick={restart}>最初から</button>
       </div>
 
-      {/* 動画ごとのタイミング微調整(耳合わせ用。値は後でデータに焼き込む) */}
+      {/* タイミング微調整(自分の体感に合わせる。全動画共通・この端末に保存) */}
       <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "6px 0 0", flex: "0 0 auto" }}>
         <span style={{ fontSize: 12, color: "#999" }}>タイミング微調整</span>
         <button style={{ ...btn, fontSize: 12, padding: "4px 10px" }} onClick={() => nudgeOffset(-50)}>-50ms</button>
         <button style={{ ...btn, fontSize: 12, padding: "4px 10px" }} onClick={() => nudgeOffset(50)}>+50ms</button>
         <span style={{ fontSize: 12, color: "#666" }}>
-          {(videoOffsets[videoId] ?? 0) > 0 ? "+" : ""}{videoOffsets[videoId] ?? 0}ms
+          {myOffset > 0 ? "+" : ""}{myOffset}ms
         </span>
       </div>
     </div>

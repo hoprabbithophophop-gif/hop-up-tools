@@ -210,10 +210,18 @@ export class ChoreoJudge {
 
       switch (s.def.kind) {
         case "trace": {
-          if (st.result === "pending" && entered && !entryConsumed && entered === s.def.zones[st.traceIdx]) {
-            st.traceIdx++;
-            entryConsumed = true;
-            if (st.traceIdx >= s.def.zones.length) st.result = "ok";
+          if (st.result === "pending" && entered && !entryConsumed) {
+            const zs = s.def.zones;
+            if (entered === zs[st.traceIdx]) {
+              st.traceIdx++;
+              entryConsumed = true;
+              if (st.traceIdx >= zs.length) st.result = "ok";
+            } else if (entered === zs[zs.length - 1]) {
+              // 緩判定(hop指定 2026-06-13): 該当の拍に終点ゾーンへ入れたら成功。
+              // 途中のチェックポイントを踏み外していても問わない。
+              st.result = "ok";
+              entryConsumed = true;
+            }
           }
           break;
         }

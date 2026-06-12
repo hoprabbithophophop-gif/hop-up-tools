@@ -25,10 +25,11 @@ export type PracticePattern = {
 const LIVE_A = [11563, 17757, 95176, 101369, 234531, 240724];
 const LIVE_B = [76595, 82789, 147821, 154015, 215950, 222144];
 
-// MV(WU-IF-cLPCY)はオケが同一音源なので、LIVEの位置＋定数オフセットで仮置き。
-// オフセットはhop耳「MVのパターンA1回目は0:12ちょっと」(LIVE 11.563s)より+500ms仮。
-// ※MV編集差(間奏カット等)があれば後半はズレる＝全箇所要耳確認。
-const MV_OFFSET_MS = 500;
+// MV(WU-IF-cLPCY)はオケが同一音源なので、LIVEの位置＋定数オフセット。
+// 仮置き+500msに対しhopが実機の微調整UIで「+200msがちょうど良い」と
+// 確定(2026-06-13)したため +700ms に焼き込み済み。
+// ※MV編集差(間奏カット等)があれば後半はズレる＝後半は要耳確認。
+const MV_OFFSET_MS = 700;
 
 export const PATTERNS: PracticePattern[] = [
   {
