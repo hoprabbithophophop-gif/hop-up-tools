@@ -4,7 +4,7 @@ import UpfcDummyPreview from "./UpfcDummyPreview";
 import FavoritePicker, { type Favorites } from "./FavoritePicker";
 import MemberFilterInput from "./MemberFilterInput";
 import { OG_MEMBERS, OG_GROUP_LABEL } from "@/data/ogMembers";
-import { eventGroupKey } from "@/lib/eventGrouping";
+import { eventGroupKey, dedupeEventTwins } from "@/lib/eventGrouping";
 import { loadVenueGeo, geoForLocation } from "@/lib/venueGeo";
 import { getSupabase } from "../../lib/supabase";
 import {
@@ -1101,8 +1101,9 @@ function CalendarScreen({
   const actionableTypes = new Set(["apply_end", "payment"]);
   const actionableDeadlines = filteredDeadlines.filter((dl) => actionableTypes.has(dl.type));
 
+  // 同一公演の重複event行は1枚のカードに畳む
   const selectedDeadlines = selectedDate
-    ? filteredDeadlines.filter((dl) => isSameDay(new Date(dl.deadline_at), selectedDate))
+    ? dedupeEventTwins(filteredDeadlines.filter((dl) => isSameDay(new Date(dl.deadline_at), selectedDate))).deduped
     : [];
   const selectedActionCount = selectedDate
     ? actionableDeadlines.filter((dl) => isSameDay(new Date(dl.deadline_at), selectedDate)).length
@@ -2571,17 +2572,22 @@ function SubscribeScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // チェックの付け外しは双子セット（畳まれた同一公演の全id）単位で同期させる
   function toggleDeadline(id: string) {
+    const twins = twinIdsOf(id);
+    const anyIn = twins.some((t) => includedIds.has(t));
     const next = new Set(includedIds);
-    if (next.has(id)) next.delete(id); else next.add(id);
+    for (const t of twins) { if (anyIn) next.delete(t); else next.add(t); }
     persistIncluded(next);
   }
 
   // 公演まるごとON/OFF（全部入ってたら全部外す、そうでなければ全部入れる）
   function toggleGroup(dls: Deadline[]) {
-    const allIn = dls.every((d) => includedIds.has(d.id));
+    const allIn = dls.every((d) => twinIdsOf(d.id).some((t) => includedIds.has(t)));
     const next = new Set(includedIds);
-    for (const d of dls) { if (allIn) next.delete(d.id); else next.add(d.id); }
+    for (const d of dls) {
+      for (const t of twinIdsOf(d.id)) { if (allIn) next.delete(t); else next.add(t); }
+    }
     persistIncluded(next);
   }
 
@@ -2589,7 +2595,7 @@ function SubscribeScreen({
   function removeEventFromList(dls: Deadline[]) {
     const uids = new Set(dls.map((d) => d.news_uid));
     onWatchlistChange(watchlist.filter((u) => !uids.has(u)));
-    const ids = new Set(dls.map((d) => d.id));
+    const ids = new Set(dls.flatMap((d) => twinIdsOf(d.id)));
     persistIncluded(new Set([...includedIds].filter((id) => !ids.has(id))));
   }
 
@@ -2616,7 +2622,7 @@ function SubscribeScreen({
   }
 
   const now = new Date();
-  const futureDeadlines = allDeadlines
+  const futureDeadlinesRaw = allDeadlines
     .filter((dl) => SUBSCRIPTION_TYPES_TO_SUBSCRIBE.includes(dl.type))
     .filter((dl) => new Date(dl.deadline_at) >= now)
     .filter((dl) => {
@@ -2630,6 +2636,21 @@ function SubscribeScreen({
       );
     })
     .sort((a, b) => new Date(a.deadline_at).getTime() - new Date(b.deadline_at).getTime());
+
+  // 同一公演の「公演」行が複数のお知らせから生えて二重になるのを畳む（表示は代表1行）
+  const { deduped: futureDeadlines, twinIdsByRepId } = dedupeEventTwins(futureDeadlinesRaw);
+  // 代表id → 双子全id（畳んでいない行は自分だけ）。チェックの判定・操作はこの単位で行う
+  const twinIdsOf = (id: string) => twinIdsByRepId.get(id) ?? [id];
+  const isIncluded = (dl: Deadline) => twinIdsOf(dl.id).some((id) => includedIds.has(id));
+  // ステータスバッジ（当選/入金済等）は双子のどのお知らせ由来でも拾う
+  const dlById = new Map(futureDeadlinesRaw.map((d) => [d.id, d]));
+  const badgeForTwins = (dl: Deadline) => {
+    for (const id of twinIdsOf(dl.id)) {
+      const b = statusBadgeFor(dlById.get(id)?.news_uid ?? dl.news_uid, matchResults, appliedSet, paidSet);
+      if (b) return b;
+    }
+    return null;
+  };
 
   // 完了済み (入金済 or paid) のDeadlineを分離
   const completedDeadlines = futureDeadlines.filter((dl) => {
@@ -2674,9 +2695,11 @@ function SubscribeScreen({
     if (silent) setSaveState("saving"); else setPublishing(true);
     try {
       const useSlug = sl ?? generateSubscriptionSlug();
-      const chosen = [...ids]
+      const chosenRaw = [...ids]
         .map((id) => deadlines.find((dl) => dl.id === id))
         .filter((dl): dl is Deadline => !!dl);
+      // 双子（同一公演の重複event行）は1本だけ配信＝カレンダーに同じ公演が2個並ばない
+      const chosen = dedupeEventTwins(chosenRaw).deduped;
       // 同日の公演のうち「最も早い1件」を出発通知の対象に（2部以降は会場に居るので通知なし）
       const firstEventByDate = new Map<string, string>(); // 日付キー → 最早の event の dl.id
       for (const dl of chosen) {
@@ -2768,7 +2791,8 @@ function SubscribeScreen({
     });
   }
 
-  const includedCount = includedIds.size;
+  // 双子は1公演として数える（＝実際にカレンダーへ配信される予定数と一致させる）
+  const includedCount = dedupeEventTwins(allDeadlines.filter((dl) => includedIds.has(dl.id))).deduped.length;
 
   return (
     <main className="pt-8 pb-32 px-6 max-w-4xl mx-auto">
@@ -2811,7 +2835,7 @@ function SubscribeScreen({
 
         <div className="space-y-4">
           {activeGroups.map((g) => {
-            const allChecked = g.deadlines.every((d) => includedIds.has(d.id));
+            const allChecked = g.deadlines.every((d) => isIncluded(d));
             return (
               <div
                 key={g.key}
@@ -2840,9 +2864,9 @@ function SubscribeScreen({
                     <DeadlineCheckRow
                       key={dl.id}
                       dl={dl}
-                      checked={includedIds.has(dl.id)}
+                      checked={isIncluded(dl)}
                       onToggle={() => toggleDeadline(dl.id)}
-                      statusBadge={statusBadgeFor(dl.news_uid, matchResults, appliedSet, paidSet)}
+                      statusBadge={badgeForTwins(dl)}
                       hideTitle
                       onMarkApplied={dl.type === "apply_end" && !appliedSet.has(dl.news_uid) ? () => markApplied(dl) : undefined}
                     />
@@ -2879,9 +2903,9 @@ function SubscribeScreen({
                         <DeadlineCheckRow
                           key={dl.id}
                           dl={dl}
-                          checked={includedIds.has(dl.id)}
+                          checked={isIncluded(dl)}
                           onToggle={() => toggleDeadline(dl.id)}
-                          statusBadge={statusBadgeFor(dl.news_uid, matchResults, appliedSet, paidSet)}
+                          statusBadge={badgeForTwins(dl)}
                           hideTitle
                         />
                       ))}
