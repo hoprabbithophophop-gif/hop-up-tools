@@ -35,3 +35,12 @@ export function geoForLocation(location: string | null | undefined): VenueGeo | 
   const name = location.replace(/\s*（[^）]*）\s*$/, "").trim();
   return venueGeoByName.get(LOCATION_TYPO_FIX[name] ?? name) ?? null;
 }
+
+/**
+ * 座標が引けない会場の安全網: 会場名のGoogleマップ検索URL。
+ * 予定メモに入れておけば、辞書整備が間に合わない公演でも当日タップで地図検索が開く。
+ */
+export function mapSearchUrl(location: string): string {
+  const q = location.replace(/[（）()]/g, " ").replace(/\s+/g, " ").trim();
+  return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+}

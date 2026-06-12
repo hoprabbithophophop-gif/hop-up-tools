@@ -5,7 +5,7 @@ import FavoritePicker, { type Favorites } from "./FavoritePicker";
 import MemberFilterInput from "./MemberFilterInput";
 import { OG_MEMBERS, OG_GROUP_LABEL } from "@/data/ogMembers";
 import { eventGroupKey, dedupeEventTwins } from "@/lib/eventGrouping";
-import { loadVenueGeo, geoForLocation } from "@/lib/venueGeo";
+import { loadVenueGeo, geoForLocation, mapSearchUrl } from "@/lib/venueGeo";
 import { getSupabase } from "../../lib/supabase";
 import {
   generateIcs,
@@ -881,14 +881,17 @@ function DeadlineRow({ dl, paidUp = false, isFirst = false }: { dl: Deadline; pa
 
   // 公演(event)は「開演〜2時間」の予定として扱う。締切類は「締切の1時間前〜締切」。
   const isEvent = dl.type === "event";
+  // 座標が引けない会場は、当日詰まないように予定メモへ地図検索リンクを入れる
+  const geo = geoForLocation(dl.location);
   const calEvent: IcsEvent = {
     uid: dl.id + "@hop-up-tools",
     summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
-    description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
+    description: dl.fc_news.title + "\n" + dl.fc_news.detail_url +
+      (dl.location && !geo ? "\n地図で探す: " + mapSearchUrl(dl.location) : ""),
     dtstart: isEvent ? deadline : new Date(deadline.getTime() - 3600000),
     dtend: isEvent ? new Date(deadline.getTime() + 7200000) : deadline,
     location: dl.location ?? undefined,
-    geo: geoForLocation(dl.location),
+    geo,
   };
 
   const dateStr = deadline.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
@@ -2156,14 +2159,17 @@ function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
   const isUrgent = diffDays >= 0 && diffDays < 3;
 
   const isEvent = dl.type === "event";
+  // 座標が引けない会場は、当日詰まないように予定メモへ地図検索リンクを入れる
+  const geo = geoForLocation(dl.location);
   const calEvent: IcsEvent = {
     uid: dl.id + "@hop-up-tools",
     summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
-    description: dl.fc_news.title + "\n" + dl.fc_news.detail_url,
+    description: dl.fc_news.title + "\n" + dl.fc_news.detail_url +
+      (dl.location && !geo ? "\n地図で探す: " + mapSearchUrl(dl.location) : ""),
     dtstart: isEvent ? deadline : new Date(deadline.getTime() - 3600000),
     dtend: isEvent ? new Date(deadline.getTime() + 7200000) : deadline,
     location: dl.location ?? undefined,
-    geo: geoForLocation(dl.location),
+    geo,
   };
 
   const timeStr = deadline.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
@@ -2728,15 +2734,19 @@ function SubscribeScreen({
         const at = new Date(dl.deadline_at);
         // 公演(event)は「開演〜2時間」の予定として扱う。締切類は「締切の1時間前〜締切」。
         const isEvent = dl.type === "event";
+        // 会場座標も発行時に焼き込む（regenは描画＋座標の後追い補完のみ）。
+        // 座標が引けない会場は予定メモに地図検索リンク＝当日詰まない安全網
+        const geo = geoForLocation(dl.location);
         return {
           uid: dl.id + "@hop-up-tools",
           summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
-          description: dl.fc_news.title + "\n" + dl.fc_news.detail_url + "\n\n通知の変更: " + settingsUrlFor(dl.fc_news.title),
+          description: dl.fc_news.title + "\n" + dl.fc_news.detail_url +
+            (dl.location && !geo ? "\n地図で探す: " + mapSearchUrl(dl.location) : "") +
+            "\n\n通知の変更: " + settingsUrlFor(dl.fc_news.title),
           dtstart: isEvent ? at : new Date(at.getTime() - 3600000),
           dtend: isEvent ? new Date(at.getTime() + 7200000) : at,
           location: dl.location ?? undefined,
-          // 会場座標も発行時に焼き込む（regenは描画のみ）
-          geo: geoForLocation(dl.location),
+          geo,
           // 通知は発行時に算出して焼き込む（生成側・regenは描画のみ）
           alarms: alarmsForDeadline(dl.type, isEvent && firstEventIds.has(dl.id), leadTrigger, isAttending(dl.news_uid)),
         };
