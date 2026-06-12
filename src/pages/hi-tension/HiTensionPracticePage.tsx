@@ -1,21 +1,21 @@
-// ハイ！テンション 振り練習ドリル(パターンA) — 開発用/試作
+// ハイ！テンション 振り練習ドリル — 開発用/試作
 //
 // 方式: パッドを3×3の9ゾーンに分割し、画面に付けたままなぞる指の
 //       「ゾーン通過列」で判定(practiceEngine.ts)。スワイプ方向判定ではない。
-//       曲は通しで再生し、パターンAの各出現(choreoA.tsのphraseStartsMs)の前に
-//       拍同期のカウントインで予告 → 出現中だけ判定する。
+//       曲は通しで再生し、各パターン(patterns.ts)の出現前に拍同期の
+//       カウントインで予告 → 出現中だけ判定する。
 //       1画面固定レイアウト(スクロールなし)。公開しない隠しルート(/hi-tension/practice)。
 import { useEffect, useMemo, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
-import { A_STEPS, A_BPM, A_OFFSET_MS, PRACTICE_VIDEOS, INTRO_TEXT } from "./choreoA";
+import { PATTERNS, PRACTICE_VIDEOS, OFFSET_MS, INTRO_TEXT } from "./patterns";
 import {
   TUNING, ChoreoJudge, buildTimeline, phraseLenMs, nextZone, zoneRect, stepText,
   type ZoneId, type TimedStep,
 } from "./practiceEngine";
 
 const PINK = "#da1884";
-const GREEN = "rgba(80,220,140,0.95)";
-const BEAT_MS = 60000 / A_BPM;
+/** 正解(ok)の強調色。正解=濃い/不正解=暗い で統一(赤緑は使わない) */
+const BRIGHT = "#ff8ac4";
 /** カウントイン: 予告バナーを出す拍数 / 数字(5,6,7,8)を出す拍数 */
 const COUNTIN_BEATS = 8;
 const COUNTIN_NUM_BEATS = 4;
@@ -32,10 +32,13 @@ function fmtTime(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/** 動画内の全パターン出現を時刻順に並べたもの */
+type Occurrence = { pat: number; start: number };
+
 type Phase =
-  | { kind: "idle"; nextStartMs: number | null }
-  | { kind: "countin"; occ: number; beatsLeft: number }
-  | { kind: "playing"; occ: number; relMs: number };
+  | { kind: "idle"; next: Occurrence | null }
+  | { kind: "countin"; occ: Occurrence; beatsLeft: number }
+  | { kind: "playing"; occ: Occurrence; relMs: number };
 
 export default function HiTensionPracticePage() {
   const playerRef = useRef<YouTubePlayerApi>(null);
@@ -43,28 +46,34 @@ export default function HiTensionPracticePage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const userPtRef = useRef<{ x: number; y: number } | null>(null);
   const zoneRef = useRef<ZoneId | null>(null);
-  const lastOccRef = useRef(-1);
+  const lastOccKeyRef = useRef("");
 
   const [videoId, setVideoId] = useState(PRACTICE_VIDEOS[0].id);
   const [started, setStarted] = useState(false);
   const [rate, setRate] = useState(1);
+  const [dispPat, setDispPat] = useState(0);
   const [stepIdx, setStepIdx] = useState(0);
   const [phaseLabel, setPhaseLabel] = useState<"idle" | "countin" | "playing">("idle");
   const [nextStartMs, setNextStartMs] = useState<number | null>(null);
   const [, setSig] = useState("");
 
-  const video = PRACTICE_VIDEOS.find(v => v.id === videoId) ?? PRACTICE_VIDEOS[0];
-  const starts = useMemo(() => video.phraseStartsMs.map(s => s + A_OFFSET_MS), [video]);
+  const timelines = useMemo(() => PATTERNS.map(p => buildTimeline(p.steps, p.bpm, TUNING)), []);
+  const totals = useMemo(() => PATTERNS.map(p => phraseLenMs(p.steps, p.bpm)), []);
+  const judgesRef = useRef<ChoreoJudge[] | null>(null);
+  if (!judgesRef.current) judgesRef.current = timelines.map(t => new ChoreoJudge(t, TUNING));
 
-  const timeline = useMemo(() => buildTimeline(A_STEPS, A_BPM, TUNING), []);
-  const totalMs = useMemo(() => phraseLenMs(A_STEPS, A_BPM), []);
-  const judgeRef = useRef<ChoreoJudge | null>(null);
-  if (!judgeRef.current) judgeRef.current = new ChoreoJudge(timeline, TUNING);
+  const occs = useMemo<Occurrence[]>(() => {
+    const out: Occurrence[] = [];
+    PATTERNS.forEach((p, pi) => {
+      for (const s of p.startsByVideo[videoId] ?? []) out.push({ pat: pi, start: s + OFFSET_MS });
+    });
+    return out.sort((a, b) => a.start - b.start);
+  }, [videoId]);
 
   const startedRef = useRef(started);
-  const startsRef = useRef(starts);
+  const occsRef = useRef(occs);
   useEffect(() => { startedRef.current = started; }, [started]);
-  useEffect(() => { startsRef.current = starts; }, [starts]);
+  useEffect(() => { occsRef.current = occs; }, [occs]);
 
   // ページのスクロールを止める(なぞり中に画面が滑るのを防ぐ)
   useEffect(() => {
@@ -78,25 +87,27 @@ export default function HiTensionPracticePage() {
     };
   }, []);
 
+  const resetJudges = () => {
+    judgesRef.current?.forEach(j => j.reset());
+    lastOccKeyRef.current = "";
+  };
+
   const selectVideo = (id: string) => {
     if (id === videoId) return;
     setVideoId(id);
     setStarted(false);
-    lastOccRef.current = -1;
-    judgeRef.current?.reset();
+    resetJudges();
   };
 
   const start = () => {
     const p = playerRef.current; if (!p) return;
     setStarted(true);
-    lastOccRef.current = -1;
-    judgeRef.current?.reset();
+    resetJudges();
     p.play();
   };
   const restart = () => {
     const p = playerRef.current; if (!p) return;
-    lastOccRef.current = -1;
-    judgeRef.current?.reset();
+    resetJudges();
     p.seekTo(0);
     p.play();
   };
@@ -114,19 +125,19 @@ export default function HiTensionPracticePage() {
 
   // 現在のフェーズ(待ち/カウントイン/出現中)を時刻から求める
   const phaseAt = (tMs: number): Phase => {
-    const ss = startsRef.current;
-    for (let i = 0; i < ss.length; i++) {
-      const rel = tMs - ss[i];
-      if (rel >= 0 && rel < totalMs) return { kind: "playing", occ: i, relMs: rel };
+    const os = occsRef.current;
+    for (const o of os) {
+      const rel = tMs - o.start;
+      if (rel >= 0 && rel < totals[o.pat]) return { kind: "playing", occ: o, relMs: rel };
     }
-    for (let i = 0; i < ss.length; i++) {
-      const until = ss[i] - tMs;
-      if (until > 0 && until <= COUNTIN_BEATS * BEAT_MS) {
-        return { kind: "countin", occ: i, beatsLeft: Math.ceil(until / BEAT_MS) };
+    for (const o of os) {
+      const beatMs = 60000 / PATTERNS[o.pat].bpm;
+      const until = o.start - tMs;
+      if (until > 0 && until <= COUNTIN_BEATS * beatMs) {
+        return { kind: "countin", occ: o, beatsLeft: Math.ceil(until / beatMs) };
       }
     }
-    const next = ss.find(s => s > tMs);
-    return { kind: "idle", nextStartMs: next ?? null };
+    return { kind: "idle", next: os.find(o => o.start > tMs) ?? null };
   };
 
   // 描画＋判定
@@ -182,18 +193,25 @@ export default function HiTensionPracticePage() {
         fillZone(ctx, W, H, zone, "rgba(255,255,255,0.06)");
       }
 
-      const judge = judgeRef.current;
+      const judges = judgesRef.current;
       const p = playerRef.current;
-      if (!judge || !p) return;
+      if (!judges || !p) return;
 
       const tMs = p.getCurrentTime() * 1000;
-      const phase = startedRef.current ? phaseAt(tMs) : ({ kind: "idle", nextStartMs: startsRef.current[0] ?? null } as Phase);
+      const phase = startedRef.current ? phaseAt(tMs) : ({ kind: "idle", next: occsRef.current[0] ?? null } as Phase);
 
       // 出現の切り替わりで判定をリセット(チップもまっさらに)
-      if (phase.kind !== "idle" && phase.occ !== lastOccRef.current) {
-        judge.reset();
-        lastOccRef.current = phase.occ;
+      if (phase.kind !== "idle") {
+        const key = `${phase.occ.pat}:${phase.occ.start}`;
+        if (key !== lastOccKeyRef.current) {
+          judges[phase.occ.pat].reset();
+          lastOccKeyRef.current = key;
+        }
       }
+
+      // 表示対象パターン(チップ/ステータスに使う)
+      const patIdx = phase.kind === "idle" ? (phase.next?.pat ?? 0) : phase.occ.pat;
+      const judge = judges[patIdx];
 
       let idx = 0;
       if (phase.kind === "playing") {
@@ -221,7 +239,7 @@ export default function HiTensionPracticePage() {
             strokeZone(ctx, W, H, z, PINK, 3 * dpr);
           }
           const ca = zoneCenter(a, W, H), cb = zoneCenter(b, W, H);
-          ctx.fillStyle = st.result === "ok" ? GREEN : "#fff";
+          ctx.fillStyle = st.result === "ok" ? BRIGHT : "#fff";
           ctx.font = `800 ${16 * dpr}px Inter, system-ui, sans-serif`;
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText(`${Math.min(st.crossings, nReq)}/${nReq}`, (ca.x + cb.x) / 2, (ca.y + cb.y) / 2);
@@ -244,53 +262,57 @@ export default function HiTensionPracticePage() {
 
       // React側の表示更新(変化時のみ)
       setPhaseLabel(prev => (prev === phase.kind ? prev : phase.kind));
+      setDispPat(prev => (prev === patIdx ? prev : patIdx));
       setNextStartMs(prev => {
-        const v = phase.kind === "idle" ? phase.nextStartMs : null;
+        const v = phase.kind === "idle" ? (phase.next?.start ?? null) : null;
         return prev === v ? prev : v;
       });
       setStepIdx(prev => (prev === idx ? prev : idx));
       const st = judge.states[idx];
-      const sigNow = judge.states.map(x => x.result[0]).join("") + ":" + st.traceIdx + ":" + st.crossings + ":" + (phase.kind === "countin" ? phase.beatsLeft : "");
+      const sigNow = patIdx + ":" + judge.states.map(x => x.result[0]).join("") + ":" + st.traceIdx + ":" + st.crossings + ":" + (phase.kind === "countin" ? phase.beatsLeft : "");
       setSig(prev => (prev === sigNow ? prev : sigNow));
     };
     draw();
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeline, totalMs]);
+  }, [timelines, totals]);
 
-  const judge = judgeRef.current;
+  const timeline = timelines[dispPat];
+  const judge = judgesRef.current?.[dispPat];
   const curStep = timeline[Math.min(stepIdx, timeline.length - 1)];
   const curState = judge ? judge.states[Math.min(stepIdx, timeline.length - 1)] : null;
 
   const btn: React.CSSProperties = { fontSize: 14, padding: "6px 12px", borderRadius: 8, border: "1px solid #444", background: "#1a1a1a", color: "#eee", cursor: "pointer" };
   const seg = (active: boolean): React.CSSProperties => ({ ...btn, background: active ? PINK : "#1a1a1a", borderColor: active ? PINK : "#444", color: active ? "#fff" : "#bbb", fontWeight: active ? 700 : 400 });
 
+  // 正解=濃いピンク / 不正解=暗い / これから=中間 / 今いる拍=白
   const chipColor = (i: number): { bg: string; fg: string } => {
     const r = judge?.states[i].result ?? "pending";
-    if (phaseLabel === "playing" && i === stepIdx) return { bg: PINK, fg: "#fff" };
-    if (r === "ok") return { bg: "#143", fg: GREEN };
-    if (r === "miss") return { bg: "#311", fg: "#e88" };
-    return { bg: "#1a1a1a", fg: "#888" };
+    if (phaseLabel === "playing" && i === stepIdx) return { bg: "#fff", fg: "#000" };
+    if (r === "ok") return { bg: PINK, fg: "#fff" };
+    if (r === "miss") return { bg: "#141414", fg: "#555" };
+    return { bg: "#2a2a2a", fg: "#999" };
   };
 
   // ステータス行(高さ固定)の中身
+  const patLabel = PATTERNS[dispPat].label;
   let statusNode: React.ReactNode = null;
   if (phaseLabel === "countin") {
-    statusNode = <span style={{ color: "#fff", fontWeight: 800 }}>もうすぐパターンA！</span>;
+    statusNode = <span style={{ color: "#fff", fontWeight: 800 }}>もうすぐ{patLabel}！</span>;
   } else if (phaseLabel === "playing") {
     statusNode = (
-      <span style={{ color: curState?.result === "ok" ? GREEN : PINK, fontWeight: 800 }}>
-        {stepIdx + 1}. {stepText(curStep.def, TUNING)}
+      <span style={{ color: curState?.result === "ok" ? BRIGHT : PINK, fontWeight: 800 }}>
+        {patLabel.replace("パターン", "")}{stepIdx + 1}. {stepText(curStep.def, TUNING)}
       </span>
     );
   } else if (started && nextStartMs != null) {
-    statusNode = <span style={{ color: "#888" }}>次のパターンA {fmtTime(nextStartMs)}</span>;
+    statusNode = <span style={{ color: "#888" }}>次の{patLabel} {fmtTime(nextStartMs)}</span>;
   }
 
   return (
     <div style={{ height: "100dvh", overflow: "hidden", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto", padding: "8px 12px", color: "#eee", background: "#000", fontFamily: "Inter, system-ui, sans-serif", touchAction: "none" }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flex: "0 0 auto" }}>
-        <h1 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>振り練習：パターンA <span style={{ fontSize: 11, color: "#888" }}>(試作)</span></h1>
+        <h1 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>振り練習 <span style={{ fontSize: 11, color: "#888" }}>(試作)</span></h1>
         <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
           {PRACTICE_VIDEOS.length > 1 && PRACTICE_VIDEOS.map(v => (
             <button key={v.id} style={{ ...seg(videoId === v.id), fontSize: 12, padding: "4px 8px" }} onClick={() => selectVideo(v.id)}>{v.label}</button>
