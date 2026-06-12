@@ -22,9 +22,8 @@ import SettingsSheet from "./components/SettingsSheet";
 import { submitHiSession, fetchHiSessions, fetchHiHeatmap, type HiSession, type HiHeatmap } from "./api";
 import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, type LiveDriftReport, type LiveTap } from "./useHiTensionRealtime";
 import EndCard from "./components/EndCard";
-import BouncyNumber from "./components/BouncyNumber";
 import FpsMeter from "./components/FpsMeter";
-import HandIcon from "./components/HandIcon";
+import HiTapButton, { type HiTapButtonApi } from "./components/HiTapButton";
 import NavButton from "./components/NavButton";
 import LiveHeatmap from "./components/LiveHeatmap";
 import { analyzeBeatOffsets } from "./rhythm";
@@ -109,9 +108,7 @@ function searchToLevel(search: string): number {
   return s === "room" ? 1 : s === "wait" ? 2 : s === "session" ? 3 : 0;
 }
 
-const LONG_PRESS_INTERVAL_MS = 150;
-const LONG_PRESS_THRESHOLD_MS = 250;
-const BUTTON_SIZE = 120;
+// 長押し連打・ボタン寸法は components/HiTapButton.tsx へ移動（タップのstateをページから隔離）。
 const BOUNCE_DURATION_MS = 400;
 
 // せーの失敗判定: 窓 + ready 受信のための余裕
@@ -232,11 +229,9 @@ export default function HiTensionPage() {
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
-  const [isPressed, setIsPressed] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
   const [endedSelfCount, setEndedSelfCount] = useState(0);
-  // play 中に押した回数（ごほうび表示用。submit は timestampsRef を使うので別系統）。
-  const [selfPressCount, setSelfPressCount] = useState(0);
+  // 押下カウント・押し込みエフェクトは HiTapButton 内部 state（タップでページ全体を再レンダーしない）。
   const [isRealtimePlay, setIsRealtimePlay] = useState(false);
   const [bouncingSessionId, setBouncingSessionId] = useState<string | null>(null);
   // 部屋コード。null = グローバル部屋、文字列 = 合言葉の専用部屋
@@ -268,11 +263,10 @@ export default function HiTensionPage() {
   // 指で押した瞬間のタップだけ（長押しの自動連打を含まない）。リズム判定の入力用。
   const manualTimestampsRef = useRef<number[]>([]);
   const currentTimeRef = useRef(0);
-  const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const submittedRef = useRef(false);
   const videoEndedRef = useRef(false);
   const canvasRef = useRef<HandsCanvasApi | null>(null);
+  const tapBtnRef = useRef<HiTapButtonApi | null>(null);
   const playerApiRef = useRef<YouTubePlayerApi | null>(null);
   const bounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRealtimePlayRef = useRef(false);
@@ -889,12 +883,6 @@ export default function HiTensionPage() {
     };
   }, [clearSenoTimer, stopDriftLoop]);
 
-  const clearPressTimers = useCallback(() => {
-    if (pressIntervalRef.current) { clearInterval(pressIntervalRef.current); pressIntervalRef.current = null; }
-    if (holdTimerRef.current) { clearTimeout(holdTimerRef.current); holdTimerRef.current = null; }
-  }, []);
-
-  useEffect(() => { return () => clearPressTimers(); }, [clearPressTimers]);
 
   // 再生まわりの状態をリセットする
   const resetPlayState = () => {
@@ -905,7 +893,7 @@ export default function HiTensionPage() {
     soloModeRef.current = false; // 連携終了→ソロのフラグを次の再生に持ち越さない
     setVideoEnded(false);
     setEndedSelfCount(0);
-    setSelfPressCount(0);
+    tapBtnRef.current?.reset(); // カウンタ・押下状態（HiTapButton内部）を初期化
   };
 
   // ひとりで始める
@@ -1091,12 +1079,10 @@ export default function HiTensionPage() {
       playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
       return;
     }
-    clearPressTimers();
     stopDriftLoop();
     setSyncActive(false); // 本動画終了 → 同期動作を完全停止
     warmupAnchorReceivedRef.current = false;
     clockAnchorRef.current = null;
-    setIsPressed(false);
     videoEndedRef.current = true;
     const count = timestampsRef.current.length;
     console.log(`[hi-tension] video ended (${count} presses)`);
@@ -1124,13 +1110,11 @@ export default function HiTensionPage() {
 
   const handleChangeColor = () => {
     playerApiRef.current?.pause();
-    clearPressTimers();
     stopDriftLoop();
     setSyncActive(false); // ロビーに戻る → 同期動作を完全停止
     warmupAnchorReceivedRef.current = false;
     clockAnchorRef.current = null;
     resetPlayState();
-    setIsPressed(false);
     setRoomCode(null);
     setScreen("select");
   };
@@ -1153,8 +1137,8 @@ export default function HiTensionPage() {
     canvasRef.current?.onTimeUpdate(t);
   }, []);
 
-  const recordHi = useCallback((autoRepeat = false) => {
-    if (videoEndedRef.current) return;
+  const recordHi = useCallback((autoRepeat = false): boolean => {
+    if (videoEndedRef.current) return false;
     // ✋の videoTime は実際の動画位置を使う（受信側 handleTimeUpdate と同じ物差し）。
     // 抽象クロック基準だと映像との定常ズレ(約1秒)が✋に出るため。
     // アンカーからの外挿で精密化（ポーリング間の遅れを除去）。一時停止等でポーリングが
@@ -1167,26 +1151,13 @@ export default function HiTensionPage() {
     // リズム判定用には「指で押した瞬間」だけを使う。長押しの自動連打(150ms間隔)は
     // 機械が刻んだ等間隔タップでユーザーのリズムではないため除外（✋・カウント・保存は全タップ）。
     if (!autoRepeat) manualTimestampsRef.current.push(t);
-    setSelfPressCount((c) => c + 1); // ごほうび表示のカウントアップ（押すたび弾む）
+    // ※ここで page の state は更新しない（カウント・押し込みは HiTapButton 内部に隔離。
+    //   タップごとに1600行のページ全体を再レンダーしていたのが INP 1秒級の主因だった）。
     console.log(`[hi-tension] HI! @ ${t.toFixed(2)}s`);
     canvasRef.current?.spawnSelf(); // 自分の✋（自分用pixi・✋ボタンより上のキャンバス）
     if (isRealtimePlayRef.current && !soloModeRef.current) broadcastTap(t);
+    return true;
   }, [broadcastTap]);
-
-  const handlePressStart = (e: React.PointerEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    setIsPressed(true);
-    recordHi();
-    clearPressTimers();
-    holdTimerRef.current = setTimeout(() => {
-      pressIntervalRef.current = setInterval(() => recordHi(true), LONG_PRESS_INTERVAL_MS);
-    }, LONG_PRESS_THRESHOLD_MS);
-  };
-
-  const handlePressEnd = () => {
-    setIsPressed(false);
-    clearPressTimers();
-  };
 
   const member = findMember(memberId);
 
@@ -1554,45 +1525,8 @@ export default function HiTensionPage() {
                       }
                 }
               >
-                {/* ごほうび：押した回数。✋ボタン群(z:3)内・上部に置く。 */}
-                <div style={{ position: "relative", zIndex: 3 }}>
-                  <BouncyNumber value={selfPressCount} color={accentColor} size="2rem" />
-                </div>
-                <button
-                  type="button"
-                  onPointerDown={handlePressStart}
-                  onPointerUp={handlePressEnd}
-                  onPointerLeave={handlePressEnd}
-                  onPointerCancel={handlePressEnd}
-                  onContextMenu={(e) => e.preventDefault()}
-                  style={{
-                    width: BUTTON_SIZE,
-                    height: BUTTON_SIZE,
-                    flexShrink: 0, // 縦が足りない画面でも丸を保つ（楕円に潰れない）
-                    borderRadius: "50%",
-                    background: accentColor,
-                    color: "#fff",
-                    border: "none",
-                    cursor: "pointer",
-                    // 暗いアリーナ背景＋濃いメンカラでも埋もれないよう白リングで縁取り。
-                    boxShadow: isPressed
-                      ? "0 0 0 3px rgba(255,255,255,0.92), 0 0 0 11px rgba(255,255,255,0.14)"
-                      : "0 0 0 3px rgba(255,255,255,0.92), 0 6px 20px rgba(0,0,0,0.4)",
-                    transform: isPressed ? "scale(0.92)" : "scale(1)",
-                    transition: "transform 0.12s, box-shadow 0.12s",
-                    touchAction: "manipulation",
-                    userSelect: "none",
-                    WebkitUserSelect: "none",
-                    WebkitTouchCallout: "none",
-                    WebkitTapHighlightColor: "transparent",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: 0,
-                  }}
-                >
-                  <HandIcon size={Math.round(BUTTON_SIZE * 0.55)} color="#fff" />
-                </button>
+                {/* ハイ！ボタン＋カウンタ。タップのstate更新を内部に閉じ込めページを再レンダーさせない（INP対策）。 */}
+                <HiTapButton ref={tapBtnRef} accentColor={accentColor} onRecord={recordHi} />
               </div>
             )}
 
