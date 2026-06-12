@@ -16,6 +16,65 @@ const VENUE_TYPO_FIX = {
   '有楽日町朝ホール': '有楽町朝日ホール', // 西田汐里バースデー2026当日券記事(hfJ5WpEN5ZDHGepp)で確認
 };
 
+// ─── 会場名の正規化（未知の誤字対策） ───
+// 公式記事の会場名を保存前に座標辞書(schedule_venues)と照合し、
+// 「都道府県が同じ ＆ 文字の構成が同一（＝並び替え誤字）」なら辞書の正式名に直す。
+// 文字の構成が1文字でも違えば触らない（「大ホール/小ホール」等の別ホールを誤って同一視しないため）。
+
+let VENUE_DICT_CACHE = null;
+function getVenueDict() {
+  if (VENUE_DICT_CACHE !== null) return VENUE_DICT_CACHE;
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const res = UrlFetchApp.fetch(
+      props.getProperty('SUPABASE_URL') + '/rest/v1/schedule_venues?select=name,prefecture',
+      {
+        headers: {
+          'apikey': props.getProperty('SUPABASE_SERVICE_KEY'),
+          'Authorization': 'Bearer ' + props.getProperty('SUPABASE_SERVICE_KEY'),
+        },
+        muteHttpExceptions: true,
+      }
+    );
+    VENUE_DICT_CACHE = res.getResponseCode() === 200 ? JSON.parse(res.getContentText()) : [];
+  } catch (e) {
+    VENUE_DICT_CACHE = []; // 辞書が取れなくても本体処理は続行（正規化なしになるだけ）
+  }
+  return VENUE_DICT_CACHE;
+}
+
+function normalizeVenueChars(s) {
+  return String(s).normalize('NFKC').replace(/[\s　]/g, '');
+}
+
+/** 文字の構成（順不同）をキー化。並び替え誤字の検出用 */
+function venueCharBag(s) {
+  return normalizeVenueChars(s).split('').sort().join('');
+}
+
+/** 「会場名 （都道府県）」を辞書の正式名に解決。一致しなければそのまま返す */
+function resolveVenueName(venueText) {
+  const m = String(venueText).match(/^(.*?)\s*[（(]([^）)]*)[）)]\s*$/);
+  const rawName = (m ? m[1] : venueText).trim();
+  const paren = m ? m[2] : '';
+  const dict = getVenueDict();
+  // 完全一致（正規化後）→ そのまま
+  for (const v of dict) {
+    if (normalizeVenueChars(v.name) === normalizeVenueChars(rawName)) return venueText;
+  }
+  // 並び替え誤字: 都道府県一致 ＆ 文字構成が同一 → 正式名に置換
+  if (paren) {
+    const bag = venueCharBag(rawName);
+    for (const v of dict) {
+      if (v.prefecture && paren.indexOf(v.prefecture) >= 0 && venueCharBag(v.name) === bag) {
+        Logger.log('会場名を正規化: ' + rawName + ' → ' + v.name);
+        return v.name + ' （' + paren + '）';
+      }
+    }
+  }
+  return venueText;
+}
+
 /** エントリポイント（GAS トリガーはここを指定） */
 function UFmain() {
   const props = PropertiesService.getScriptProperties();
@@ -377,6 +436,7 @@ function fetchDeadlines(article) {
       for (const typo in VENUE_TYPO_FIX) {
         if (venue.indexOf(typo) >= 0) venue = venue.replace(typo, VENUE_TYPO_FIX[typo]);
       }
+      venue = resolveVenueName(venue); // 未知の並び替え誤字を辞書の正式名へ
     }
     deadlines.push({ type: 'event', label: '公演', deadline_at: eventIso, location: venue });
   }
