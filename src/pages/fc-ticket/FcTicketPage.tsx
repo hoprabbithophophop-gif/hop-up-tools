@@ -2484,6 +2484,32 @@ function SubscribeScreen({
     try { localStorage.setItem("fc-sub-favorites", JSON.stringify(next)); } catch { /* ignore */ }
   }
 
+  // 推しを解除したら、その推し由来で付いたチェックをまとめて外すか確認する。
+  // 残ってる推しにも一致する予定、Importで貼った/申込済/入金済/気になる登録の予定は外さない（推し以外の理由を尊重）。
+  function handleFavoritesChange(next: Favorites) {
+    const removed: Favorites = {
+      members: favorites.members.filter((m) => !next.members.includes(m)),
+      groups: favorites.groups.filter((g) => !next.groups.includes(g)),
+    };
+    persistFavorites(next);
+    if (favoritesAreEmpty(removed)) return;
+    const matchedNewsUids = new Set(matchResults.flatMap((r) => r.matched.map((m) => m.uid)));
+    const now = new Date();
+    const toRemove: string[] = [];
+    for (const dl of allDeadlines) {
+      if (!includedIds.has(dl.id)) continue;
+      if (new Date(dl.deadline_at) < now) continue;
+      if (!titleMatchesFavorites(dl.fc_news.title, removed)) continue;
+      if (titleMatchesFavorites(dl.fc_news.title, next)) continue;
+      if (matchedNewsUids.has(dl.news_uid) || appliedSet.has(dl.news_uid) || paidSet.has(dl.news_uid) || watchlistSet.has(dl.news_uid)) continue;
+      toRemove.push(dl.id);
+    }
+    if (toRemove.length === 0) return;
+    const names = [...removed.members, ...removed.groups].join("・");
+    if (!confirm("「" + names + "」に一致する予定のチェックをまとめて外しますか？")) return;
+    persistIncluded(new Set([...includedIds].filter((id) => !toRemove.includes(id))));
+  }
+
   // 推しを追加・変更したら、該当する「申込前に動く」予定を自動でチェックに追加（追加のみ・手動の外しは尊重）
   useEffect(() => {
     if (!initialized) return;
@@ -2828,7 +2854,7 @@ function SubscribeScreen({
       </div>
 
       {/* 推しを登録セクション */}
-      <FavoritePicker favorites={favorites} onChange={persistFavorites} />
+      <FavoritePicker favorites={favorites} onChange={handleFavoritesChange} />
 
       {/* 配信する予定セクション */}
       <section className="mb-8">
@@ -2996,6 +3022,9 @@ function SubscribeScreen({
               <span className="material-symbols-outlined text-base">calendar_add_on</span>
               カレンダーに追加
             </a>
+            <p className="text-xs text-on-surface-variant">
+              ※ iPhoneは追加時の「通知を削除」をオフにすると、締切前の通知が届きます。
+            </p>
             {/* 脇役：コピー（別端末用） */}
             <button
               onClick={handleCopy}
