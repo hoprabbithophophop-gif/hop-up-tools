@@ -45,6 +45,9 @@ export const TUNING = {
   holdSlackCoef: 0.15,
   /** 小刻み(wiggle)の既定跨ぎ回数N */
   wiggleDefaultN: 2,
+  /** 表示の先行量(拍)。ターゲット表示・ステップ名・チップだけ未来を見せる
+   *  (本家テロップの早出しと同じ理屈。判定とカウント数字は曲の拍のまま) */
+  visualLeadBeats: 1,
 };
 
 export type Tuning = typeof TUNING;

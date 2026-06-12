@@ -198,25 +198,35 @@ export default function HiTensionPracticePage() {
       if (!judges || !p) return;
 
       const tMs = p.getCurrentTime() * 1000;
-      const phase = startedRef.current ? phaseAt(tMs) : ({ kind: "idle", next: occsRef.current[0] ?? null } as Phase);
+      // 表示の先行: ターゲット・ステップ名・チップは leadMs だけ未来を見せる
+      // (見て→反応するラグの吸収。判定とカウント数字は曲の拍のまま)。
+      // 全パターン同曲＝同BPM前提で先頭パターンの拍長から算出。
+      const leadMs = TUNING.visualLeadBeats * (60000 / PATTERNS[0].bpm);
+      const idlePhase = { kind: "idle", next: occsRef.current[0] ?? null } as Phase;
+      const realPhase = startedRef.current ? phaseAt(tMs) : idlePhase;
+      const dispPhase = startedRef.current ? phaseAt(tMs + leadMs) : idlePhase;
 
-      // 出現の切り替わりで判定をリセット(チップもまっさらに)
-      if (phase.kind !== "idle") {
-        const key = `${phase.occ.pat}:${phase.occ.start}`;
+      // 出現の切り替わりで判定をリセット(チップもまっさらに)＝リアル時刻基準
+      if (realPhase.kind !== "idle") {
+        const key = `${realPhase.occ.pat}:${realPhase.occ.start}`;
         if (key !== lastOccKeyRef.current) {
-          judges[phase.occ.pat].reset();
+          judges[realPhase.occ.pat].reset();
           lastOccKeyRef.current = key;
         }
       }
 
-      // 表示対象パターン(チップ/ステータスに使う)
-      const patIdx = phase.kind === "idle" ? (phase.next?.pat ?? 0) : phase.occ.pat;
+      // 判定はリアル時刻で
+      if (realPhase.kind === "playing") {
+        judges[realPhase.occ.pat].update(realPhase.relMs, zone);
+      }
+
+      // 表示対象パターン(チップ/ステータスに使う)＝先行時刻基準
+      const patIdx = dispPhase.kind === "idle" ? (dispPhase.next?.pat ?? 0) : dispPhase.occ.pat;
       const judge = judges[patIdx];
 
       let idx = 0;
-      if (phase.kind === "playing") {
-        judge.update(phase.relMs, zone);
-        idx = stepIndexAt(judge.timeline, phase.relMs);
+      if (dispPhase.kind === "playing") {
+        idx = stepIndexAt(judge.timeline, dispPhase.relMs);
         const s = judge.timeline[idx];
 
         // ターゲット表示: 薄い→濃い(終点が一番明るい)。通過済みの強調はしない。
@@ -244,19 +254,25 @@ export default function HiTensionPracticePage() {
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText(`${Math.min(st.crossings, nReq)}/${nReq}`, (ca.x + cb.x) / 2, (ca.y + cb.y) / 2);
         }
-      } else if (phase.kind === "countin") {
+      } else if (dispPhase.kind === "countin") {
         // 最初に指を置く位置(次パターンのステップ1の始点)を先に見せる
-        const d0 = PATTERNS[phase.occ.pat].steps[0].def;
+        const d0 = PATTERNS[dispPhase.occ.pat].steps[0].def;
         const startZone: ZoneId = d0.kind === "trace" ? d0.zones[0] : d0.kind === "hold" ? d0.zone : d0.pair[0];
         fillZone(ctx, W, H, startZone, "rgba(218,24,132,0.35)");
         strokeZone(ctx, W, H, startZone, PINK, 3 * dpr);
-        const c0 = zoneCenter(startZone, W, H);
+      }
+
+      // 指置きリング＋カウント数字は曲の拍のまま(リアル時刻基準)
+      if (realPhase.kind === "countin") {
+        const d0r = PATTERNS[realPhase.occ.pat].steps[0].def;
+        const ringZone: ZoneId = d0r.kind === "trace" ? d0r.zones[0] : d0r.kind === "hold" ? d0r.zone : d0r.pair[0];
+        const c0 = zoneCenter(ringZone, W, H);
         ctx.beginPath(); ctx.arc(c0.x, c0.y, 14 * dpr, 0, Math.PI * 2);
         ctx.lineWidth = 3 * dpr; ctx.strokeStyle = "#fff"; ctx.stroke();
 
-        if (phase.beatsLeft <= COUNTIN_NUM_BEATS) {
+        if (realPhase.beatsLeft <= COUNTIN_NUM_BEATS) {
           // 拍同期カウントイン 5,6,7,8
-          const num = 5 + (COUNTIN_NUM_BEATS - phase.beatsLeft);
+          const num = 5 + (COUNTIN_NUM_BEATS - realPhase.beatsLeft);
           ctx.fillStyle = "rgba(255,255,255,0.92)";
           ctx.font = `800 ${Math.min(W, H) * 0.45}px Inter, system-ui, sans-serif`;
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -271,16 +287,16 @@ export default function HiTensionPracticePage() {
         ctx.lineWidth = 3 * dpr; ctx.strokeStyle = "#fff"; ctx.stroke();
       }
 
-      // React側の表示更新(変化時のみ)
-      setPhaseLabel(prev => (prev === phase.kind ? prev : phase.kind));
+      // React側の表示更新(変化時のみ)＝先行時刻基準
+      setPhaseLabel(prev => (prev === dispPhase.kind ? prev : dispPhase.kind));
       setDispPat(prev => (prev === patIdx ? prev : patIdx));
       setNextStartMs(prev => {
-        const v = phase.kind === "idle" ? (phase.next?.start ?? null) : null;
+        const v = dispPhase.kind === "idle" ? (dispPhase.next?.start ?? null) : null;
         return prev === v ? prev : v;
       });
       setStepIdx(prev => (prev === idx ? prev : idx));
       const st = judge.states[idx];
-      const sigNow = patIdx + ":" + judge.states.map(x => x.result[0]).join("") + ":" + st.traceIdx + ":" + st.crossings + ":" + (phase.kind === "countin" ? phase.beatsLeft : "");
+      const sigNow = patIdx + ":" + judge.states.map(x => x.result[0]).join("") + ":" + st.traceIdx + ":" + st.crossings;
       setSig(prev => (prev === sigNow ? prev : sigNow));
     };
     draw();
