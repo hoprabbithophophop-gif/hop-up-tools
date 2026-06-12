@@ -11,6 +11,8 @@ const FcTicketPage    = lazy(() => import("./pages/fc-ticket/FcTicketPage"));
 const YouTubePage     = lazy(() => import("./pages/youtube/YouTubePage"));
 const YouTubePickupPage = lazy(() => import("./pages/youtube/YouTubePickupPage"));
 const HiTensionPage   = lazy(() => import("./pages/hi-tension/HiTensionPage"));
+const HiTensionAuthorPage = lazy(() => import("./pages/hi-tension/HiTensionAuthorPage"));
+const HiTensionPracticePage = lazy(() => import("./pages/hi-tension/HiTensionPracticePage"));
 const PrivacyPage     = lazy(() => import("./pages/PrivacyPage"));
 const TermsPage       = lazy(() => import("./pages/TermsPage"));
 const NotFoundPage    = lazy(() => import("./pages/NotFoundPage"));
@@ -29,6 +31,8 @@ export default function App() {
             <Route path="/youtube" element={<YouTubePage />} />
             <Route path="/youtube/pickup" element={<YouTubePickupPage />} />
             <Route path="/hi-tension" element={<HiTensionPage />} />
+            <Route path="/hi-tension/author" element={<HiTensionAuthorPage />} />
+            <Route path="/hi-tension/practice" element={<HiTensionPracticePage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/terms" element={<TermsPage />} />
             <Route path="*" element={<NotFoundPage />} />
