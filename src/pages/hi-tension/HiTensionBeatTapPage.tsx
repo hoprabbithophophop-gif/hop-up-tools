@@ -58,10 +58,10 @@ export default function HiTensionBeatTapPage() {
   const [videoInput, setVideoInput] = useState(initial.current.videoId);
   const [taps, setTaps] = useState<Tap[]>(initial.current.taps);
   const [bpm, setBpm] = useState(initial.current.bpm);
-  const [anchorSec, setAnchorSec] = useState<number | null>(initial.current.anchorSec);
   const [snapOn, setSnapOn] = useState(initial.current.snapOn);
   const [snapRes, setSnapRes] = useState<"q" | "e">(initial.current.snapRes);
   const [clip, setClip] = useState<{ note: string; lenBeats: number } | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
   const [rate, setRate] = useState(1);
   const [nowSec, setNowSec] = useState(0);
 
@@ -70,15 +70,15 @@ export default function HiTensionBeatTapPage() {
 
   // 設定とタップは変更のたびにこの端末へ保存（個別persist呼びを廃止）。
   useEffect(() => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ videoId, taps, bpm, anchorSec, snapOn, snapRes })); } catch { /* ignore */ }
-  }, [videoId, taps, bpm, anchorSec, snapOn, snapRes]);
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ videoId, taps, bpm, snapOn, snapRes })); } catch { /* ignore */ }
+  }, [videoId, taps, bpm, snapOn, snapRes]);
 
   // BPM＋基準タップの拍グリッドに丸める。基準=確実に拍に乗ったタップ(無くても最初のタップで代用)。
   // 8分/4分で分解能切替。基準は周期的なのでどの拍でもOK(拍1である必要はない)。
   const beatSec = 60 / (bpm || 149);
   const unit = snapRes === "e" ? beatSec / 2 : beatSec;
-  // 明示の基準が無ければ最初のタップを基準に使う＝補正がすぐ効く。
-  const refSec = anchorSec ?? (taps[0]?.t ?? null);
+  // 基準=最初のタップ（拍グリッドの起点。グリッドは周期的なのでこれで十分・個別は‹›で微調整）。
+  const refSec = taps[0]?.t ?? null;
   const snap = (t: number) => (refSec == null ? t : refSec + Math.round((t - refSec) / unit) * unit);
   const dispT = (t: number) => (snapOn ? snap(t) : t);
   // 行を1グリッド(8分/4分)分ずらす＝半拍ズレたタップの微調整。
@@ -97,7 +97,6 @@ export default function HiTensionBeatTapPage() {
   const setLen = (i: number, lenBeats: number) => setTaps(prev => prev.map((x, k) => k === i ? { ...x, lenBeats } : x));
   const copyRow = (i: number) => setClip({ note: taps[i].note, lenBeats: taps[i].lenBeats });
   const pasteRow = (i: number) => { if (clip) setTaps(prev => prev.map((x, k) => k === i ? { ...x, note: clip.note, lenBeats: clip.lenBeats } : x)); };
-  const setAnchorRow = (i: number) => setAnchorSec(taps[i].t); // この行のタップを拍の基準に
 
   const changeRate = (r: number) => { try { playerRef.current?.setPlaybackRate(r); } catch { /* ignore */ } setRate(r); };
   const seekTo = (t: number) => { try { playerRef.current?.seekTo(t); playerRef.current?.play(); } catch { /* ignore */ } };
@@ -116,8 +115,24 @@ export default function HiTensionBeatTapPage() {
     setVideoId(id);
   };
 
-  // 動画の現在位置をうっすら表示（タップ位置の見当用）
+  // 動画の現在位置（再生中に「今どのコールか」を光らせるのに使う）
   const onTimeUpdate = (s: number) => setNowSec(s);
+
+  // 今再生中の位置に当たるコール行（その秒数を過ぎた最後の行）
+  const curIdx = useMemo(() => {
+    let idx = -1;
+    for (let i = 0; i < taps.length; i++) {
+      if (dispT(taps[i].t) <= nowSec + 0.05) idx = i; else break;
+    }
+    return idx;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taps, nowSec, snapOn, refSec, unit]);
+
+  // 現在行を一覧の見える位置へスクロール
+  const curRowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (playing && curRowRef.current) curRowRef.current.scrollIntoView({ block: "nearest" });
+  }, [curIdx, playing]);
 
   // スペースキーでタップ（動画を見ながら押せるように）。入力欄にフォーカス中は無効。
   useEffect(() => {
@@ -157,7 +172,7 @@ export default function HiTensionBeatTapPage() {
 
   const exportData = async () => {
     const out = {
-      videoId, bpm, anchorSec, snap: snapOn ? snapRes : null,
+      videoId, bpm, anchorSec: refSec, snap: snapOn ? snapRes : null,
       calls: taps.map(tp => ({
         t: snapOn ? Math.round(snap(tp.t) * 1000) / 1000 : tp.t,
         tRaw: tp.t,
@@ -182,11 +197,21 @@ export default function HiTensionBeatTapPage() {
 
   return (
     <div style={{ maxWidth: 520, margin: "0 auto", padding: 12, color: "#eee", background: "#000", minHeight: "100dvh", fontFamily: "Inter, system-ui, sans-serif" }}>
-      <h1 style={{ fontSize: 16, fontWeight: 700, margin: "4px 0 2px" }}>コール採譜ツール <span style={{ fontSize: 12, color: "#888" }}>(開発用・非公開)</span></h1>
-      <p style={{ fontSize: 12, color: "#999", margin: "0 0 8px", lineHeight: 1.6 }}>
-        動画を見ながら <b style={{ color: "#ccc" }}>スペースキー</b>（または下の大ボタン）でタップ＝その瞬間の秒数を記録。
-        拍に合わせて刻めばBPM、コールに合わせて押せばコールの秒数が並ぶ。各行にコール文をメモして書き出し。
-      </p>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "4px 0 8px" }}>
+        <h1 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>コール採譜ツール <span style={{ fontSize: 12, color: "#888" }}>(開発用)</span></h1>
+        <button style={{ ...btn, fontSize: 12, padding: "4px 10px", marginLeft: "auto" }} onClick={() => setShowHelp(v => !v)}>{showHelp ? "閉じる" : "？使い方"}</button>
+      </div>
+      {showHelp && (
+        <div style={{ fontSize: 12, color: "#aaa", lineHeight: 1.7, background: "#0c0c0c", border: "1px solid #222", borderRadius: 8, padding: "8px 10px", margin: "0 0 8px" }}>
+          ① ▶再生（YouTubeを直接クリックしない＝Spaceを効かせるため）<br />
+          ② コールの瞬間に <b style={{ color: "#ccc" }}>Space</b>（or 大ボタン）でタップ＝秒数を記録<br />
+          ③ BPMを入れて <b style={{ color: "#ccc" }}>補正ON</b>＝拍グリッド(8分/4分)に丸めてブレを消す<br />
+          ④ 各行に <b style={{ color: "#ccc" }}>コール文</b> と <b style={{ color: "#ccc" }}>長さ拍</b>（例「あーりーがーと」=3.5）<br />
+          ⑤ 半拍ズレた行は <b style={{ color: "#ccc" }}>‹ ›</b> で前後に。同じコールは <b style={{ color: "#ccc" }}>⧉→⤓</b> で使い回し<br />
+          ⑥ 秒数タップでそこへシーク・再生中は今の行がピンクで光る・「書き出す」でcalls.json<br />
+          ※速さ0.5xにすると押しやすい。無音時間は秒数に含まれてる（動画同期はそのまま正しい）。
+        </div>
+      )}
 
       {/* 動画切替 */}
       <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
@@ -225,11 +250,7 @@ export default function HiTensionBeatTapPage() {
         {[["e", "8分"], ["q", "4分"]].map(([v, l]) => (
           <button key={v} style={seg(snapRes === v)} onClick={() => setSnapRes(v as "q" | "e")}>{l}</button>
         ))}
-        <span style={{ color: "#666" }}>基準: {anchorSec == null ? "自動(最初のタップ)" : `${anchorSec.toFixed(2)}s`}</span>
       </div>
-      <p style={{ fontSize: 11, color: "#777", margin: "0 2px 6px", lineHeight: 1.5 }}>
-        補正ON＝BPMの拍に秒数を丸める。「基準」は確実に拍に乗った行の <b style={{ color: "#bbb" }}>◎</b> で指定（未指定なら最初のタップを自動採用）。半拍ズレた行は <b style={{ color: "#bbb" }}>‹ ›</b> で前後に動かす。
-      </p>
 
       {/* 大きなタップボタン */}
       <button
@@ -247,6 +268,15 @@ export default function HiTensionBeatTapPage() {
         <button style={{ ...btn, color: "#e88", borderColor: "#633" }} onClick={clearAll} disabled={taps.length === 0}>全消し</button>
       </div>
 
+      {/* コピー中の表示（コピーが切り替わったか目で分かるように） */}
+      {clip && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 2px 4px", fontSize: 12 }}>
+          <span style={{ color: "#9aa0a6" }}>コピー中:</span>
+          <span style={{ color: PINK, fontWeight: 700 }}>「{clip.note || "(空)"}」 / {clip.lenBeats}拍</span>
+          <button style={{ background: "none", border: "none", color: "#777", cursor: "pointer", fontSize: 12 }} onClick={() => setClip(null)}>消す</button>
+        </div>
+      )}
+
       {/* タップ一覧 */}
       <div style={{ border: "1px solid #222", borderRadius: 8, overflow: "hidden", marginBottom: 10 }}>
         <div style={{ display: "flex", fontSize: 11, color: "#888", padding: "6px 8px", borderBottom: "1px solid #222", background: "#0c0c0c" }}>
@@ -255,15 +285,16 @@ export default function HiTensionBeatTapPage() {
           <span style={{ width: 40, textAlign: "center" }}>前後</span>
           <span style={{ flex: 1 }}>コール文</span>
           <span style={{ width: 40, textAlign: "center" }}>長さ</span>
-          <span style={{ width: 74, textAlign: "right" }}>操作</span>
+          <span style={{ width: 60, textAlign: "right" }}>操作</span>
         </div>
         <div style={{ maxHeight: 300, overflowY: "auto" }}>
           {taps.length === 0 && <p style={{ fontSize: 12, color: "#666", textAlign: "center", padding: 14, margin: 0 }}>まだタップなし</p>}
           {taps.map((tap, i) => {
             const shown = dispT(tap.t);
+            const isCur = i === curIdx;
             return (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 13, padding: "4px 8px", borderBottom: "1px solid #161616" }}>
-                <span style={{ width: 22, color: anchorSec === tap.t ? PINK : "#777", fontWeight: anchorSec === tap.t ? 700 : 400 }}>{i + 1}</span>
+              <div key={i} ref={isCur ? curRowRef : undefined} style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 13, padding: "4px 8px", borderBottom: "1px solid #161616", background: isCur ? "rgba(218,24,132,0.22)" : undefined }}>
+                <span style={{ width: 22, color: isCur ? PINK : "#777" }}>{i + 1}</span>
                 <button onClick={() => seekTo(shown)} style={{ width: 58, textAlign: "left", background: "none", border: "none", color: "#7cf", cursor: "pointer", fontSize: 13, padding: 0 }} title="ここへシーク">{fmt(shown)}</button>
                 <span style={{ width: 40, textAlign: "center", whiteSpace: "nowrap" }}>
                   <button onClick={() => nudge(i, -1)} style={{ background: "none", border: "none", color: "#9cf", cursor: "pointer", fontSize: 16, padding: "0 1px" }} title={`${snapRes === "e" ? "8分" : "4分"}前へ`}>‹</button>
@@ -280,8 +311,7 @@ export default function HiTensionBeatTapPage() {
                   onChange={e => setLen(i, Number(e.target.value) || 0)}
                   style={{ width: 38, fontSize: 12, padding: "4px 3px", borderRadius: 6, border: "1px solid #333", background: "#111", color: "#eee", textAlign: "center" }}
                 />
-                <span style={{ width: 74, textAlign: "right", whiteSpace: "nowrap" }}>
-                  <button onClick={() => setAnchorRow(i)} style={{ background: "none", border: "none", color: anchorSec === tap.t ? PINK : "#9aa0a6", cursor: "pointer", fontSize: 13 }} title="この行を拍の基準に">◎</button>
+                <span style={{ width: 60, textAlign: "right", whiteSpace: "nowrap" }}>
                   <button onClick={() => copyRow(i)} style={{ background: "none", border: "none", color: "#9aa0a6", cursor: "pointer", fontSize: 13 }} title="このコールをコピー">⧉</button>
                   <button onClick={() => pasteRow(i)} disabled={!clip} style={{ background: "none", border: "none", color: clip ? PINK : "#444", cursor: clip ? "pointer" : "default", fontSize: 13 }} title="ここに貼り付け">⤓</button>
                   <button onClick={() => removeAt(i)} style={{ background: "none", border: "none", color: "#a55", cursor: "pointer", fontSize: 15 }} title="削除">×</button>
@@ -293,10 +323,6 @@ export default function HiTensionBeatTapPage() {
       </div>
 
       <button style={{ ...btn, width: "100%", fontWeight: 700 }} onClick={exportData} disabled={taps.length === 0}>書き出す（コピー＋calls.json保存）</button>
-
-      <p style={{ fontSize: 11, color: "#666", margin: "10px 0 0", lineHeight: 1.7 }}>
-        手順: ①BPMを入れる(検出♩が目安・149っぽい) ②無音明けの最初の拍で「▼拍1にする」 ③コールの瞬間にSpace ④「補正ON」で拍グリッド(8分/4分)に丸める＝ブレ消える ⑤「長さ拍」にコールの拍数（例「あーりーがーと」=3.5） ⑥同じコールは ⧉コピー→⤓貼付で使い回し ⑦秒数タップでそこへシーク。無音時間は秒数に含まれてる(拍1アンカーが吸収)。
-      </p>
     </div>
   );
 }
