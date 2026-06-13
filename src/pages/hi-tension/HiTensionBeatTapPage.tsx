@@ -59,6 +59,44 @@ function median(xs: number[]): number {
   return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
 }
 
+// 長さ(拍)のスロット式ピッカー。縦スワイプで回して中央の値にスナップ＝1ジェスチャで選べる。
+function LenPicker({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const ITEM = 34;
+  const lockRef = useRef(false);
+  const tRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const idx = LEN_OPTIONS.indexOf(value);
+    if (idx >= 0 && Math.abs(el.scrollTop - idx * ITEM) > 2) {
+      lockRef.current = true;
+      el.scrollTop = idx * ITEM;
+      if (tRef.current) clearTimeout(tRef.current);
+      tRef.current = setTimeout(() => { lockRef.current = false; }, 60);
+    }
+  }, [value]);
+  const onScroll = () => {
+    if (lockRef.current) return;
+    const el = ref.current; if (!el) return;
+    const idx = Math.max(0, Math.min(LEN_OPTIONS.length - 1, Math.round(el.scrollTop / ITEM)));
+    const v = LEN_OPTIONS[idx];
+    if (v !== value) onChange(v);
+  };
+  return (
+    <div
+      ref={ref}
+      onScroll={onScroll}
+      className="lenwheel"
+      title="スワイプで長さを回して選ぶ"
+      style={{ width: 46, height: ITEM, flexShrink: 0, overflowY: "auto", scrollSnapType: "y mandatory", borderRadius: 8, border: "1px solid #3a3a3a", background: "#111", scrollbarWidth: "none" }}
+    >
+      {LEN_OPTIONS.map(v => (
+        <div key={v} style={{ height: ITEM, display: "flex", alignItems: "center", justifyContent: "center", scrollSnapAlign: "start", fontSize: 15, fontWeight: v === value ? 800 : 400, color: v === value ? "#fff" : "#666" }}>{v}</div>
+      ))}
+    </div>
+  );
+}
+
 export default function HiTensionBeatTapPage() {
   const playerRef = useRef<YouTubePlayerApi>(null);
   const initial = useRef(loadSaved());
@@ -104,8 +142,6 @@ export default function HiTensionBeatTapPage() {
   // ---- 行内ボタン＆選択（IDベース＝並べ替え/削除でも追従。選択は無制限） ----
   const toggleSel = (id: string) => setSel(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selTaps = () => taps.filter(t => sel.has(t.id)).sort((a, b) => a.t - b.t); // 時刻順
-  // 長さをタップで +0.5（8の次は0.5へ戻る）。
-  const cycleLen = (i: number) => setLen(i, taps[i].lenBeats >= 8 ? 0.5 : Math.round((taps[i].lenBeats + 0.5) * 10) / 10);
   // コピー＝選択行があればそのブロック、無ければこの行だけ。「先頭からの相対秒＋コール＋長さ」で保存。
   const copyFrom = (i: number) => {
     const src = sel.size > 0 ? selTaps() : [taps[i]];
@@ -235,6 +271,7 @@ export default function HiTensionBeatTapPage() {
 
   return (
     <div style={{ maxWidth: 520, margin: "0 auto", padding: "8px 12px", color: "#eee", background: "#000", height: "100dvh", overflow: "hidden", display: "flex", flexDirection: "column", fontFamily: "Inter, system-ui, sans-serif" }}>
+      <style>{`.lenwheel::-webkit-scrollbar{display:none}`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0 6px", flex: "0 0 auto" }}>
         <h1 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>コール採譜ツール <span style={{ fontSize: 12, color: "#888" }}>(開発用)</span></h1>
         <button style={{ ...btn, fontSize: 12, padding: "4px 10px", marginLeft: "auto" }} onClick={() => setShowHelp(v => !v)}>{showHelp ? "閉じる" : "？使い方"}</button>
@@ -334,8 +371,8 @@ export default function HiTensionBeatTapPage() {
                   placeholder="コール文…"
                   style={{ flex: 1, height: 38, fontSize: 14, padding: "4px 6px", borderRadius: 8, border: "1px solid #333", background: "#111", color: "#eee", minWidth: 40 }}
                 />
-                {/* 長さ＝タップで+0.5（8の次は0.5へ）。1タップで変えられる。 */}
-                <button onClick={() => cycleLen(i)} style={{ ...iconBtn("#eee"), width: 40, fontSize: 14, fontWeight: 700 }} title="タップで長さ+0.5">{tap.lenBeats}</button>
+                {/* 長さ＝スロット式（縦スワイプで回して選ぶ） */}
+                <LenPicker value={tap.lenBeats} onChange={v => setLen(i, v)} />
                 <button onClick={() => copyFrom(i)} style={iconBtn(sel.size ? PINK : "#9aa0a6")} title={sel.size ? "選択中の行をまとめてコピー" : "この行をコピー"}>⧉</button>
                 <button onClick={() => pasteAt(i)} disabled={!clipBlock} style={{ ...iconBtn(clipBlock ? PINK : "#444") }} title="この行を始点に複製">⤓</button>
                 <button onClick={() => delRow(i)} style={iconBtn("#c66")} title={sel.size && isSel ? "選択をまとめて削除" : "削除"}>×</button>
