@@ -100,6 +100,13 @@ export default function HiTensionPracticePage() {
 
   const timelines = useMemo(() => PATTERNS.map(p => buildTimeline(p.steps, p.bpm, TUNING)), []);
   const totals = useMemo(() => PATTERNS.map(p => phraseLenMs(p.steps, p.bpm)), []);
+  // パターンごと: 動きの呼び名(note) → その動きを構成するステップindex一覧。
+  // アドバイスで「どの動きを何回ミスしたか」を集計するのに使う。
+  const noteGroups = useMemo(() => PATTERNS.map(p => {
+    const g: Record<string, number[]> = {};
+    p.steps.forEach((s, i) => { if (s.note) (g[s.note] ??= []).push(i); });
+    return g;
+  }), []);
   const judgesRef = useRef<ChoreoJudge[] | null>(null);
   if (!judgesRef.current) judgesRef.current = timelines.map(t => new ChoreoJudge(t, TUNING));
 
@@ -410,6 +417,19 @@ export default function HiTensionPracticePage() {
     return { bg: "#2a2a2a", fg: "#999" };
   };
 
+  // アドバイス: 複数回(2回以上)ミスした動きを、ミスが多い順に上位3つ。
+  // 出現ごとに「その動きのステップを1つでも落としたら、その回はミス」と数える。
+  const adviceMoves = (() => {
+    const miss = new Map<string, number>();
+    for (const r of results) {
+      const groups = noteGroups[r.pat];
+      for (const note in groups) {
+        if (groups[note].some(i => r.steps[i] === "miss")) miss.set(note, (miss.get(note) ?? 0) + 1);
+      }
+    }
+    return [...miss.entries()].filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n]) => n);
+  })();
+
   // ステータス行(高さ固定)の中身
   const patLabel = PATTERNS[dispPat].label;
   const patShort = PATTERNS[dispPat].shortLabel;
@@ -497,6 +517,11 @@ export default function HiTensionPracticePage() {
                 );
               })}
             </div>
+            {adviceMoves.length > 0 && (
+              <p style={{ margin: "4px 8px 0", fontSize: 14, fontWeight: 700, color: BRIGHT, textAlign: "center", lineHeight: 1.6 }}>
+                次は {adviceMoves.map(m => `「${m}」`).join("・")} の動きを意識してやってみよう！
+              </p>
+            )}
             <button
               type="button"
               onClick={() => shareToX(results)}

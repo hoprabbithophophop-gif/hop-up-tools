@@ -84,7 +84,12 @@ export type StepDef =
   | { kind: "hold"; zone: ZoneId }
   | { kind: "wiggle"; pair: [ZoneId, ZoneId]; minCrossings?: number };
 
-export type ChoreoStep = { def: StepDef; lenBeats: number };
+export type ChoreoStep = {
+  def: StepDef;
+  lenBeats: number;
+  /** その動きのhopの呼び名(アドバイスで使う。同じ呼び名のステップ=同じ動き) */
+  note?: string;
+};
 
 /** ステップ表示用の説明(ゾーン名の列。文言はデータから機械生成) */
 export function stepText(def: StepDef, tuning: Tuning): string {
