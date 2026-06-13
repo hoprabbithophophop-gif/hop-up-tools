@@ -142,6 +142,11 @@ export default function HiTensionBeatTapPage() {
   // ---- 行内ボタン＆選択（IDベース＝並べ替え/削除でも追従。選択は無制限） ----
   const toggleSel = (id: string) => setSel(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selTaps = () => taps.filter(t => sel.has(t.id)).sort((a, b) => a.t - b.t); // 時刻順
+  // 半拍(8分)/拍ずらし＝この行が選択中なら選択ぜんぶ、そうでなければこの行だけ。最頻用。
+  const nudgeRow = (i: number, dir: 1 | -1) => {
+    const ids = (sel.size > 0 && sel.has(taps[i].id)) ? sel : new Set([taps[i].id]);
+    setTaps(prev => prev.map(x => ids.has(x.id) ? { ...x, t: Math.max(0, Math.round((x.t + dir * unit) * 1000) / 1000) } : x).sort((a, b) => a.t - b.t));
+  };
   // コピー＝選択行があればそのブロック、無ければこの行だけ。「先頭からの相対秒＋コール＋長さ」で保存。
   const copyFrom = (i: number) => {
     const src = sel.size > 0 ? selTaps() : [taps[i]];
@@ -371,6 +376,9 @@ export default function HiTensionBeatTapPage() {
                   placeholder="コール文…"
                   style={{ flex: 1, height: 38, fontSize: 14, padding: "4px 6px", borderRadius: 8, border: "1px solid #333", background: "#111", color: "#eee", minWidth: 40 }}
                 />
+                {/* 半拍ずらし（最頻用・大きく）。8分/4分は補正の分解能。 */}
+                <button onClick={() => nudgeRow(i, -1)} style={iconBtn("#9cf")} title={`${snapRes === "e" ? "8分" : "4分"}前へ`}>‹</button>
+                <button onClick={() => nudgeRow(i, 1)} style={iconBtn("#9cf")} title={`${snapRes === "e" ? "8分" : "4分"}後へ`}>›</button>
                 {/* 長さ＝スロット式（縦スワイプで回して選ぶ） */}
                 <LenPicker value={tap.lenBeats} onChange={v => setLen(i, v)} />
                 <button onClick={() => copyFrom(i)} style={iconBtn(sel.size ? PINK : "#9aa0a6")} title={sel.size ? "選択中の行をまとめてコピー" : "この行をコピー"}>⧉</button>
