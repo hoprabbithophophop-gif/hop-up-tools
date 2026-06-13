@@ -80,8 +80,10 @@ export default function HiTensionPracticePage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const userPtRef = useRef<{ x: number; y: number } | null>(null);
   const zoneRef = useRef<ZoneId | null>(null);
-  const lastOccKeyRef = useRef("");
-  const inOccRef = useRef<{ key: string; pat: number; start: number } | null>(null);
+  // いま判定中の出現の開始時刻(ms)。記録済み出現の開始時刻の集合。
+  // 時刻ベースで管理し、記録は1出現につき1回だけ＝再生時刻のブレに強い。
+  const currentStartRef = useRef<number | null>(null);
+  const recordedStartsRef = useRef<Set<number>>(new Set());
   type OccResult = { pat: number; start: number; ok: number; total: number; steps: StepResult[] };
   const resultsRef = useRef<OccResult[]>([]);
   const [results, setResults] = useState<OccResult[]>([]);
@@ -98,6 +100,9 @@ export default function HiTensionPracticePage() {
 
   const timelines = useMemo(() => PATTERNS.map(p => buildTimeline(p.steps, p.bpm, TUNING)), []);
   const totals = useMemo(() => PATTERNS.map(p => phraseLenMs(p.steps, p.bpm)), []);
+  // 判定が完全に閉じる時刻(最後のステップの判定窓の終端)。記録の確定はここまで待つ
+  // ＝最後のキメも正しくok/missが付く(totalsで切ると最終ステップがpendingのまま残る)。
+  const occEnds = useMemo(() => timelines.map(t => t[t.length - 1].winEndMs), [timelines]);
   const judgesRef = useRef<ChoreoJudge[] | null>(null);
   if (!judgesRef.current) judgesRef.current = timelines.map(t => new ChoreoJudge(t, TUNING));
 
@@ -109,9 +114,9 @@ export default function HiTensionPracticePage() {
     return out.sort((a, b) => a.start - b.start);
   }, [videoId, myOffset]);
 
-  // 再生中に微調整すると出現リストが組み直され「出現を抜けた」誤記録が
-  // 走るので、組み直し時は記録中の出現を破棄する(その回の判定はどのみち無効)
-  useEffect(() => { inOccRef.current = null; }, [occs]);
+  // 再生中に微調整すると出現リストが組み直されるので、判定中の出現は破棄する
+  // (その回の判定はどのみち無効。記録済みの履歴は残す)
+  useEffect(() => { currentStartRef.current = null; }, [occs]);
 
   const startedRef = useRef(started);
   const occsRef = useRef(occs);
@@ -132,8 +137,8 @@ export default function HiTensionPracticePage() {
 
   const resetJudges = () => {
     judgesRef.current?.forEach(j => j.reset());
-    lastOccKeyRef.current = "";
-    inOccRef.current = null;
+    currentStartRef.current = null;
+    recordedStartsRef.current = new Set();
     resultsRef.current = [];
     setResults([]);
   };
@@ -259,37 +264,52 @@ export default function HiTensionPracticePage() {
       const realPhase = startedRef.current ? phaseAt(tMs) : idlePhase;
       const dispPhase = startedRef.current ? phaseAt(tMs + leadMs) : idlePhase;
 
-      // 出現を抜けた瞬間に成績を確定記録(次の出現のリセットで消える前に)
-      const curOccKey = realPhase.kind === "playing" ? `${realPhase.occ.pat}:${realPhase.occ.start}` : null;
-      if (inOccRef.current && inOccRef.current.key !== curOccKey) {
-        const j = judges[inOccRef.current.pat];
-        const ok = j.states.filter(s => s.result === "ok").length;
-        resultsRef.current.push({
-          pat: inOccRef.current.pat, start: inOccRef.current.start,
-          ok, total: j.states.length, steps: j.states.map(s => s.result),
-        });
-        setResults([...resultsRef.current]);
-      }
-      inOccRef.current = realPhase.kind === "playing"
-        ? { key: curOccKey as string, pat: realPhase.occ.pat, start: realPhase.occ.start }
-        : null;
-
-      // 出現の切り替わりで判定をリセット(チップもまっさらに)＝リアル時刻基準
-      if (realPhase.kind !== "idle") {
-        const key = `${realPhase.occ.pat}:${realPhase.occ.start}`;
-        if (key !== lastOccKeyRef.current) {
-          judges[realPhase.occ.pat].reset();
-          lastOccKeyRef.current = key;
+      // ---- 出現の記録・判定(時刻の窓ベース＝フレーム単位の時刻ブレに強い) ----
+      // engage = いま判定すべき出現。本番開始の少し手前(PREROLL)から終端まで。
+      // PREROLL分は負の相対時刻で判定器を回す＝先行表示につられた早入りで
+      // フレーズ頭(1拍目)を取りこぼさないため。
+      const PREROLL = 800;
+      let engaged: Occurrence | null = null;
+      if (startedRef.current) {
+        for (const o of occsRef.current) {
+          if (tMs >= o.start - PREROLL && tMs < o.start + occEnds[o.pat]) { engaged = o; break; }
         }
       }
-
-      // 判定はリアル時刻で。カウントイン中も負の相対時刻で回す
-      // (先行表示につられて早めに動き出した指がフレーズ頭のウィンドウに
-      //  入るのを拾う。回さないと1拍目の入りが必ず取りこぼされる)
-      if (realPhase.kind === "playing") {
-        judges[realPhase.occ.pat].update(realPhase.relMs, zone);
-      } else if (realPhase.kind === "countin") {
-        judges[realPhase.occ.pat].update(tMs - realPhase.occ.start, zone);
+      const cs = currentStartRef.current;
+      // 判定中の出現を「明確に抜けた」ときだけ成績を確定(1出現1回・記録済みは触らない)
+      if (cs != null) {
+        const co = occsRef.current.find(o => o.start === cs);
+        const rel = tMs - cs;
+        const left =
+          !co ||
+          rel >= occEnds[co.pat] ||             // 最後の判定窓まで閉じた
+          (rel < -100 && tMs > 200) ||          // 前へシーク(末尾0付近の誤読は除外)
+          (rel < -100 && tMs > 200) ||          // 前へシーク(末尾0付近の誤読は除外)
+          (engaged != null && engaged.start !== cs) || // 別の出現へ
+          !startedRef.current;                  // 曲が終わった
+        if (left) {
+          if (co && !recordedStartsRef.current.has(cs)) {
+            const j = judges[co.pat];
+            recordedStartsRef.current.add(cs);
+            resultsRef.current.push({
+              pat: co.pat, start: cs,
+              ok: j.states.filter(s => s.result === "ok").length,
+              total: j.states.length, steps: j.states.map(s => s.result),
+            });
+            setResults([...resultsRef.current]);
+          }
+          currentStartRef.current = null;
+        }
+      }
+      // 新しい出現に入った(まだ記録していない)→判定器をまっさらにして開始
+      if (currentStartRef.current == null && engaged != null && !recordedStartsRef.current.has(engaged.start)) {
+        judges[engaged.pat].reset();
+        currentStartRef.current = engaged.start;
+      }
+      // 判定(本番＋PREROLL分。負の相対時刻も渡す)
+      if (currentStartRef.current != null) {
+        const co = occsRef.current.find(o => o.start === currentStartRef.current);
+        if (co) judges[co.pat].update(tMs - co.start, zone);
       }
 
       // 表示対象パターン(チップ/ステータスに使う)＝先行時刻基準
@@ -374,7 +394,7 @@ export default function HiTensionPracticePage() {
     draw();
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timelines, totals]);
+  }, [timelines, totals, occEnds]);
 
   const timeline = timelines[dispPat];
   const judge = judgesRef.current?.[dispPat];
@@ -395,17 +415,18 @@ export default function HiTensionPracticePage() {
 
   // ステータス行(高さ固定)の中身
   const patLabel = PATTERNS[dispPat].label;
+  const patShort = PATTERNS[dispPat].shortLabel;
   let statusNode: React.ReactNode = null;
   if (phaseLabel === "countin") {
-    statusNode = <span style={{ color: "#fff", fontWeight: 800 }}>もうすぐ{patLabel}！</span>;
+    statusNode = <span style={{ color: "#fff", fontWeight: 800 }}>もうすぐ「{patLabel}」！</span>;
   } else if (phaseLabel === "playing") {
     statusNode = (
       <span style={{ color: curState?.result === "ok" ? BRIGHT : PINK, fontWeight: 800 }}>
-        {patLabel.replace("パターン", "")}{stepIdx + 1}. {stepText(curStep.def, TUNING)}
+        {patShort} {stepIdx + 1}. {stepText(curStep.def, TUNING)}
       </span>
     );
   } else if (started && nextStartMs != null) {
-    statusNode = <span style={{ color: "#888" }}>次の{patLabel} {fmtTime(nextStartMs)}</span>;
+    statusNode = <span style={{ color: "#888" }}>次の「{patLabel}」 {fmtTime(nextStartMs)}</span>;
   }
 
   return (
@@ -468,7 +489,7 @@ export default function HiTensionPracticePage() {
                 return (
                   <span key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: full ? BRIGHT : "#ccc", whiteSpace: "nowrap" }}>
-                      {PATTERNS[r.pat].label.replace("パターン", "")}{mark} {r.ok}/{r.total}
+                      {PATTERNS[r.pat].shortLabel}{mark} {r.ok}/{r.total}
                     </span>
                     <span style={{ display: "flex", gap: 2 }}>
                       {r.steps.map((res, k) => (

@@ -14,7 +14,10 @@ import { B_STEPS, B_BPM } from "./choreoB";
 
 export type PracticePattern = {
   key: string;
+  /** 曲のどこかを表す名前(hop指定 2026-06-13)。シェア文・予告バナーで使う */
   label: string;
+  /** 結果一覧やステータスの狭い場所で使う短縮形 */
+  shortLabel: string;
   bpm: number;
   steps: ChoreoStep[];
   /** videoId → そのパターンが始まる時刻(ms)の一覧 */
@@ -34,7 +37,8 @@ const MV_OFFSET_MS = 700;
 export const PATTERNS: PracticePattern[] = [
   {
     key: "A",
-    label: "パターンA",
+    label: "ラララ〜のとこ",
+    shortLabel: "ラララ",
     bpm: A_BPM,
     steps: A_STEPS,
     startsByVideo: {
@@ -44,7 +48,8 @@ export const PATTERNS: PracticePattern[] = [
   },
   {
     key: "B",
-    label: "パターンB",
+    label: "1〜9のとこ",
+    shortLabel: "1〜9",
     bpm: B_BPM,
     steps: B_STEPS,
     startsByVideo: {
@@ -64,5 +69,5 @@ export const PRACTICE_VIDEOS: PracticeVideo[] = [
 // 全出現に一律で掛ける時刻補正(ms)。タップデータ由来のズレを感じたらここで調整。
 export const OFFSET_MS = 0;
 
-// 初回に表示する説明文。文言はhopが書く(空文字の間はUIに出ない)。
-export const INTRO_TEXT = "";
+// 初回に表示する説明文(hop指定 2026-06-13・文言そのまま・アレンジ禁止)。
+export const INTRO_TEXT = "とりあえず右腕を動かす向きさえ\n身に付ければなんとかなる！…かも？";
