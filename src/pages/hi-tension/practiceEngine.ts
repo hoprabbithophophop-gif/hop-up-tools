@@ -111,6 +111,7 @@ export type TimedStep = {
 
 export function buildTimeline(steps: ChoreoStep[], bpm: number, tuning: Tuning): TimedStep[] {
   const beatMs = 60000 / bpm;
+  const total = steps.reduce((sum, s) => sum + s.lenBeats * beatMs, 0);
   const out: TimedStep[] = [];
   let t = 0;
   for (const s of steps) {
@@ -121,7 +122,9 @@ export function buildTimeline(steps: ChoreoStep[], bpm: number, tuning: Tuning):
       startMs: t,
       endMs: t + len,
       winStartMs: t - ext,
-      winEndMs: t + len + ext,
+      // 最後のステップの窓がフレーズ末尾を越えると次フレーズと重なるので、
+      // 窓の終端はフレーズ全長で頭打ち(末尾のキメはフレーズ内で確定させる)。
+      winEndMs: Math.min(t + len + ext, total),
       holdStartMs: t + len * tuning.holdSlackStartCoef,
       holdEndMs: t + len - len * tuning.holdSlackEndCoef,
     });

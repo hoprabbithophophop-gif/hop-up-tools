@@ -100,9 +100,6 @@ export default function HiTensionPracticePage() {
 
   const timelines = useMemo(() => PATTERNS.map(p => buildTimeline(p.steps, p.bpm, TUNING)), []);
   const totals = useMemo(() => PATTERNS.map(p => phraseLenMs(p.steps, p.bpm)), []);
-  // 判定が完全に閉じる時刻(最後のステップの判定窓の終端)。記録の確定はここまで待つ
-  // ＝最後のキメも正しくok/missが付く(totalsで切ると最終ステップがpendingのまま残る)。
-  const occEnds = useMemo(() => timelines.map(t => t[t.length - 1].winEndMs), [timelines]);
   const judgesRef = useRef<ChoreoJudge[] | null>(null);
   if (!judgesRef.current) judgesRef.current = timelines.map(t => new ChoreoJudge(t, TUNING));
 
@@ -113,6 +110,19 @@ export default function HiTensionPracticePage() {
     });
     return out.sort((a, b) => a.start - b.start);
   }, [videoId, myOffset]);
+
+  // 判定区間。隣のフレーズと重ならないようにクリップする＝出現の取り合い防止。
+  // segStart は本番開始の少し手前(PREROLL)からだが、前フレーズの終端は越えない
+  // (切れ目なく続くフレーズでは前倒し無し＝前のフレーズをやってる最中だから)。
+  const PREROLL = 250;
+  const segments = useMemo(() => occs.map((o, i) => {
+    const segEnd = o.start + totals[o.pat];                 // フレーズ末尾
+    const prevEnd = i > 0 ? occs[i - 1].start + totals[occs[i - 1].pat] : -Infinity;
+    const segStart = Math.max(o.start - PREROLL, prevEnd);
+    return { ...o, segStart, segEnd };
+  }), [occs, totals]);
+  const segmentsRef = useRef(segments);
+  useEffect(() => { segmentsRef.current = segments; }, [segments]);
 
   // 再生中に微調整すると出現リストが組み直されるので、判定中の出現は破棄する
   // (その回の判定はどのみち無効。記録済みの履歴は残す)
@@ -264,52 +274,39 @@ export default function HiTensionPracticePage() {
       const realPhase = startedRef.current ? phaseAt(tMs) : idlePhase;
       const dispPhase = startedRef.current ? phaseAt(tMs + leadMs) : idlePhase;
 
-      // ---- 出現の記録・判定(時刻の窓ベース＝フレーム単位の時刻ブレに強い) ----
-      // engage = いま判定すべき出現。本番開始の少し手前(PREROLL)から終端まで。
-      // PREROLL分は負の相対時刻で判定器を回す＝先行表示につられた早入りで
-      // フレーズ頭(1拍目)を取りこぼさないため。
-      const PREROLL = 800;
-      let engaged: Occurrence | null = null;
+      // ---- 出現の記録・判定(重ならない判定区間ベース) ----
+      // active = いま tMs が入っている判定区間(segments は重ならないので高々1つ)。
+      const segs = segmentsRef.current;
+      let active: (typeof segs)[number] | null = null;
       if (startedRef.current) {
-        for (const o of occsRef.current) {
-          if (tMs >= o.start - PREROLL && tMs < o.start + occEnds[o.pat]) { engaged = o; break; }
+        for (const s of segs) {
+          if (tMs >= s.segStart && tMs < s.segEnd) { active = s; break; }
         }
       }
       const cs = currentStartRef.current;
-      // 判定中の出現を「明確に抜けた」ときだけ成績を確定(1出現1回・記録済みは触らない)
-      if (cs != null) {
-        const co = occsRef.current.find(o => o.start === cs);
-        const rel = tMs - cs;
-        const left =
-          !co ||
-          rel >= occEnds[co.pat] ||             // 最後の判定窓まで閉じた
-          (rel < -100 && tMs > 200) ||          // 前へシーク(末尾0付近の誤読は除外)
-          (rel < -100 && tMs > 200) ||          // 前へシーク(末尾0付近の誤読は除外)
-          (engaged != null && engaged.start !== cs) || // 別の出現へ
-          !startedRef.current;                  // 曲が終わった
-        if (left) {
-          if (co && !recordedStartsRef.current.has(cs)) {
-            const j = judges[co.pat];
-            recordedStartsRef.current.add(cs);
-            resultsRef.current.push({
-              pat: co.pat, start: cs,
-              ok: j.states.filter(s => s.result === "ok").length,
-              total: j.states.length, steps: j.states.map(s => s.result),
-            });
-            setResults([...resultsRef.current]);
-          }
-          currentStartRef.current = null;
+      // 判定中の出現から抜けた(別区間 or 区間外 or 曲終了)→成績を一度だけ確定
+      if (cs != null && (active == null || active.start !== cs)) {
+        const co = segs.find(s => s.start === cs);
+        if (co && !recordedStartsRef.current.has(cs)) {
+          const j = judges[co.pat];
+          recordedStartsRef.current.add(cs);
+          resultsRef.current.push({
+            pat: co.pat, start: cs,
+            ok: j.states.filter(st => st.result === "ok").length,
+            total: j.states.length, steps: j.states.map(st => st.result),
+          });
+          setResults([...resultsRef.current]);
         }
+        currentStartRef.current = null;
       }
-      // 新しい出現に入った(まだ記録していない)→判定器をまっさらにして開始
-      if (currentStartRef.current == null && engaged != null && !recordedStartsRef.current.has(engaged.start)) {
-        judges[engaged.pat].reset();
-        currentStartRef.current = engaged.start;
+      // 新しい区間に入った(まだ記録していない)→判定器をまっさらにして開始
+      if (currentStartRef.current == null && active != null && !recordedStartsRef.current.has(active.start)) {
+        judges[active.pat].reset();
+        currentStartRef.current = active.start;
       }
-      // 判定(本番＋PREROLL分。負の相対時刻も渡す)
-      if (currentStartRef.current != null) {
-        const co = occsRef.current.find(o => o.start === currentStartRef.current);
-        if (co) judges[co.pat].update(tMs - co.start, zone);
+      // 判定(区間内のみ。区間頭の手前PREROLL分は負の相対時刻で頭の取りこぼし防止)
+      if (currentStartRef.current != null && active != null) {
+        judges[active.pat].update(tMs - active.start, zone);
       }
 
       // 表示対象パターン(チップ/ステータスに使う)＝先行時刻基準
@@ -394,7 +391,7 @@ export default function HiTensionPracticePage() {
     draw();
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timelines, totals, occEnds]);
+  }, [timelines, totals]);
 
   const timeline = timelines[dispPat];
   const judge = judgesRef.current?.[dispPat];
