@@ -13,6 +13,7 @@ const YouTubePickupPage = lazy(() => import("./pages/youtube/YouTubePickupPage")
 const HiTensionPage   = lazy(() => import("./pages/hi-tension/HiTensionPage"));
 const HiTensionAuthorPage = lazy(() => import("./pages/hi-tension/HiTensionAuthorPage"));
 const HiTensionPracticePage = lazy(() => import("./pages/hi-tension/HiTensionPracticePage"));
+const HiTensionBeatTapPage = lazy(() => import("./pages/hi-tension/HiTensionBeatTapPage"));
 const PrivacyPage     = lazy(() => import("./pages/PrivacyPage"));
 const TermsPage       = lazy(() => import("./pages/TermsPage"));
 const NotFoundPage    = lazy(() => import("./pages/NotFoundPage"));
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="/hi-tension" element={<HiTensionPage />} />
             <Route path="/hi-tension/author" element={<HiTensionAuthorPage />} />
             <Route path="/hi-tension/practice" element={<HiTensionPracticePage />} />
+            <Route path="/hi-tension/beat" element={<HiTensionBeatTapPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/terms" element={<TermsPage />} />
             <Route path="*" element={<NotFoundPage />} />
