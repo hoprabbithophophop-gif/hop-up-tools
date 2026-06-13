@@ -6,7 +6,7 @@ import HandsCanvas, { type HandsCanvasApi } from "./components/HandsCanvas";
 import WaitingRoom from "./WaitingRoom";
 import RoomMenu from "./RoomMenu";
 import ReadyCheck from "./ReadyCheck";
-import { PRACTICE_VIDEOS, WARMUP_VIDEO_ID, WARMUP_VIDEO_START, WARMUP_VIDEO_END, findMember } from "./data";
+import { PRACTICE_VIDEOS, WARMUP_VIDEO_ID, WARMUP_VIDEO_START, WARMUP_VIDEO_END, findMember, ARENA_BG } from "./data";
 
 // 待機室で暖機再生する warmup クリップの YouTube 再生オプション
 const WARMUP_LOAD_OPTS = { startSeconds: WARMUP_VIDEO_START, endSeconds: WARMUP_VIDEO_END };
@@ -1377,10 +1377,9 @@ export default function HiTensionPage() {
               // 潜り込みは HandsCanvas 側で top:-40（✋だけ。カウント/ボタンは動かさない）。
               zIndex: 1,
               isolation: "isolate", // 子の z-index を安定させる（✋履歴=2 / 中断=1 / タップ✋・免責=3）
-              // 再生中は「客電落ち」の暗いアリーナ。完走後(EndCard)は明るいままにしたいので !videoEnded のみ。
-              background: videoEnded
-                ? undefined
-                : "radial-gradient(150% 85% at 50% -8%, #1b2030 0%, #0e1016 48%, #07080c 100%)",
+              // 「客電落ち」の暗いアリーナ。完走後(EndCard)も本編と同じ暗背景に統一
+              // （白メンカラが明るい背景に溶けるため・2026-06-13 hop指定）。
+              background: ARENA_BG,
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -1597,7 +1596,7 @@ export default function HiTensionPage() {
 
       {/* Select 画面 */}
       {screen === "select" && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "#f8f9fa", overflowY: "auto" }}>
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, background: ARENA_BG, overflowY: "auto" }}>
           <MemberSelect
             initialSelectedId={memberId}
             onConfirm={handleConfirm}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { UNIT_ROWS, NEW_MEMBERS, findMember, PRACTICE_VIDEOS } from "../data";
+import { UNIT_ROWS, NEW_MEMBERS, findMember, PRACTICE_VIDEOS, ARENA_BG } from "../data";
 import HandIcon from "./HandIcon";
 import type { SpecialEvent } from "../events";
 
@@ -89,8 +89,8 @@ export default function MemberSelect({
       style={{
         height: "100dvh", // dvh で動的に viewport に合わせ + overflow hidden で iOS の rubber band も潰す
         overflow: "hidden",
-        background: "#f8f9fa",
-        color: "#191c1d",
+        background: ARENA_BG, // 本編と同じ客電落ちアリーナ（白メンカラを溶けさせない）
+        color: "#e8eaed",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
@@ -159,7 +159,7 @@ export default function MemberSelect({
           letterSpacing: "-0.02em",
           margin: 0,
           textAlign: "center",
-          color: "#000",
+          color: "#f5f7fa",
           lineHeight: 1.2,
         }}
       >
@@ -172,7 +172,7 @@ export default function MemberSelect({
           letterSpacing: "0.04em",
           margin: "0.3rem 0 0",
           textAlign: "center",
-          color: "#777",
+          color: "#aab0b6",
         }}
       >
         ✋ Practice ver.
@@ -214,13 +214,16 @@ export default function MemberSelect({
             top: "50%",
             left: "50%",
             transform: "translate(-50%, -50%)",
-            opacity: selectedColor ? 0.13 : 0.06,
+            // 暗背景では色を「重ねる」とくすむので screen 合成で「足して光らせる」。
+            // 選んだ色がダークアリーナにそのまま発色する（hop指定: 鮮やかに）。
+            mixBlendMode: "screen",
+            opacity: selectedColor ? 0.7 : 0.13,
             pointerEvents: "none",
             zIndex: -1,
             animation: "hi-tension-hand-pop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1)",
           }}
         >
-          <HandIcon size="min(122vw, 84vh)" color={selectedColor ?? (isSpecial && eventColor ? eventColor : "#000")} />
+          <HandIcon size="min(122vw, 84vh)" color={selectedColor ?? (isSpecial && eventColor ? eventColor : "#cfd6de")} />
         </div>
 
         <p
@@ -229,7 +232,7 @@ export default function MemberSelect({
             fontWeight: 500,
             margin: isLandscape ? "0 0 0.6rem" : "0 0 1rem",
             textAlign: "center",
-            color: "#474747",
+            color: "#c6ccd2",
             position: "relative",
             zIndex: 1,
           }}
@@ -380,8 +383,9 @@ export default function MemberSelect({
           style={{
             width: "100%",
             padding: "1rem",
-            background: effectiveSelectedId ? "#000" : "#c6c6c6",
-            color: "#fff",
+            // 暗背景では黒ボタンが沈むので、活性時は明るいボタンに反転（文字は黒）。
+            background: effectiveSelectedId ? "#f1f3f5" : "#2a2f37",
+            color: effectiveSelectedId ? "#0e1016" : "#6b7178",
             border: "none",
             fontSize: "0.875rem",
             fontWeight: 700,
