@@ -12,19 +12,29 @@ const PINK = "#da1884";
 const DEFAULT_VIDEO = "n5AVvFwbeaM";
 const LS_KEY = "hi_tension:beat_tap";
 
-type Tap = { t: number; note: string };
+// t=動画の絶対秒(無音込み・生タップ)。note=コール文。lenBeats=コールの長さ(拍・小数可)。
+type Tap = { t: number; note: string; lenBeats: number };
+type Saved = { videoId: string; taps: Tap[]; bpm: number; anchorSec: number | null; snapOn: boolean; snapRes: "q" | "e" };
 
-function loadTaps(): { videoId: string; taps: Tap[] } {
+function loadSaved(): Saved {
+  const base: Saved = { videoId: DEFAULT_VIDEO, taps: [], bpm: 149, anchorSec: null, snapOn: false, snapRes: "e" };
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) {
       const o = JSON.parse(raw);
       if (o && Array.isArray(o.taps)) {
-        return { videoId: typeof o.videoId === "string" ? o.videoId : DEFAULT_VIDEO, taps: o.taps };
+        return {
+          videoId: typeof o.videoId === "string" ? o.videoId : DEFAULT_VIDEO,
+          taps: o.taps.map((x: { t: number; note?: string; lenBeats?: number }) => ({ t: x.t, note: x.note ?? "", lenBeats: typeof x.lenBeats === "number" ? x.lenBeats : 1 })),
+          bpm: typeof o.bpm === "number" ? o.bpm : 149,
+          anchorSec: typeof o.anchorSec === "number" ? o.anchorSec : null,
+          snapOn: o.snapOn === true,
+          snapRes: o.snapRes === "q" ? "q" : "e",
+        };
       }
     }
   } catch { /* 壊れていたら空で始める */ }
-  return { videoId: DEFAULT_VIDEO, taps: [] };
+  return base;
 }
 
 const fmt = (s: number) => {
@@ -43,34 +53,46 @@ function median(xs: number[]): number {
 
 export default function HiTensionBeatTapPage() {
   const playerRef = useRef<YouTubePlayerApi>(null);
-  const initial = useRef(loadTaps());
+  const initial = useRef(loadSaved());
   const [videoId, setVideoId] = useState(initial.current.videoId);
   const [videoInput, setVideoInput] = useState(initial.current.videoId);
   const [taps, setTaps] = useState<Tap[]>(initial.current.taps);
+  const [bpm, setBpm] = useState(initial.current.bpm);
+  const [anchorSec, setAnchorSec] = useState<number | null>(initial.current.anchorSec);
+  const [snapOn, setSnapOn] = useState(initial.current.snapOn);
+  const [snapRes, setSnapRes] = useState<"q" | "e">(initial.current.snapRes);
+  const [clip, setClip] = useState<{ note: string; lenBeats: number } | null>(null);
   const [rate, setRate] = useState(1);
   const [nowSec, setNowSec] = useState(0);
 
   const tapsRef = useRef(taps);
   useEffect(() => { tapsRef.current = taps; }, [taps]);
 
-  const persist = (next: Tap[], vid = videoId) => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ videoId: vid, taps: next })); } catch { /* ignore */ }
-  };
+  // 設定とタップは変更のたびにこの端末へ保存（個別persist呼びを廃止）。
+  useEffect(() => {
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ videoId, taps, bpm, anchorSec, snapOn, snapRes })); } catch { /* ignore */ }
+  }, [videoId, taps, bpm, anchorSec, snapOn, snapRes]);
+
+  // BPM＋アンカーの拍グリッドに丸める。アンカー=無音明けの拍1。8分/4分で分解能切替。
+  const beatSec = 60 / (bpm || 149);
+  const unit = snapRes === "e" ? beatSec / 2 : beatSec;
+  const snap = (t: number) => (anchorSec == null ? t : anchorSec + Math.round((t - anchorSec) / unit) * unit);
+  const dispT = (t: number) => (snapOn ? snap(t) : t);
 
   const addTap = () => {
     const p = playerRef.current; if (!p) return;
     const t = Math.round(p.getCurrentTime() * 1000) / 1000;
-    setTaps(prev => {
-      const next = [...prev, { t, note: "" }].sort((a, b) => a.t - b.t);
-      persist(next);
-      return next;
-    });
+    setTaps(prev => [...prev, { t, note: "", lenBeats: 1 }].sort((a, b) => a.t - b.t));
   };
 
-  const undo = () => setTaps(prev => { const next = prev.slice(0, -1); persist(next); return next; });
-  const clearAll = () => { if (confirm("全部のタップを消す？")) { setTaps([]); persist([]); } };
-  const removeAt = (i: number) => setTaps(prev => { const next = prev.filter((_, k) => k !== i); persist(next); return next; });
-  const setNote = (i: number, note: string) => setTaps(prev => { const next = prev.map((x, k) => k === i ? { ...x, note } : x); persist(next); return next; });
+  const undo = () => setTaps(prev => prev.slice(0, -1));
+  const clearAll = () => { if (confirm("全部のタップを消す？")) setTaps([]); };
+  const removeAt = (i: number) => setTaps(prev => prev.filter((_, k) => k !== i));
+  const setNote = (i: number, note: string) => setTaps(prev => prev.map((x, k) => k === i ? { ...x, note } : x));
+  const setLen = (i: number, lenBeats: number) => setTaps(prev => prev.map((x, k) => k === i ? { ...x, lenBeats } : x));
+  const copyRow = (i: number) => setClip({ note: taps[i].note, lenBeats: taps[i].lenBeats });
+  const pasteRow = (i: number) => { if (clip) setTaps(prev => prev.map((x, k) => k === i ? { ...x, note: clip.note, lenBeats: clip.lenBeats } : x)); };
+  const setAnchorHere = () => { const p = playerRef.current; if (p) setAnchorSec(Math.round(p.getCurrentTime() * 1000) / 1000); };
 
   const changeRate = (r: number) => { try { playerRef.current?.setPlaybackRate(r); } catch { /* ignore */ } setRate(r); };
   const seekTo = (t: number) => { try { playerRef.current?.seekTo(t); playerRef.current?.play(); } catch { /* ignore */ } };
@@ -87,7 +109,6 @@ export default function HiTensionBeatTapPage() {
     const m = raw.match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([A-Za-z0-9_-]{11})/) || raw.match(/^([A-Za-z0-9_-]{11})$/);
     const id = m ? m[1] : raw;
     setVideoId(id);
-    persist(tapsRef.current, id);
   };
 
   // 動画の現在位置をうっすら表示（タップ位置の見当用）
@@ -130,7 +151,17 @@ export default function HiTensionBeatTapPage() {
   }, [intervals]);
 
   const exportData = async () => {
-    const json = JSON.stringify({ videoId, bpmGuess: Math.round(allBpm * 100) / 100, taps }, null, 2);
+    const out = {
+      videoId, bpm, anchorSec, snap: snapOn ? snapRes : null,
+      calls: taps.map(tp => ({
+        t: snapOn ? Math.round(snap(tp.t) * 1000) / 1000 : tp.t,
+        tRaw: tp.t,
+        lenBeats: tp.lenBeats,
+        lenSec: Math.round(tp.lenBeats * beatSec * 1000) / 1000,
+        note: tp.note,
+      })),
+    };
+    const json = JSON.stringify(out, null, 2);
     try { await navigator.clipboard.writeText(json); } catch { /* ignore */ }
     try {
       const blob = new Blob([json], { type: "application/json" });
@@ -171,12 +202,26 @@ export default function HiTensionBeatTapPage() {
         <span style={{ fontSize: 12, color: "#666" }}>現在 {fmt(nowSec)}・{taps.length}タップ</span>
       </div>
 
-      {/* BPM。8分音符が混じると間隔がばらつくので、間隔の中央値と ♩/♪ 両読みを出す。 */}
-      <div style={{ display: "flex", gap: 14, alignItems: "baseline", margin: "4px 2px 6px", flexWrap: "wrap" }}>
-        <div><span style={{ fontSize: 12, color: "#999" }}>♩BPM </span><b style={{ fontSize: 22, color: PINK }}>{recentBpm ? recentBpm.toFixed(1) : "—"}</b></div>
-        <div><span style={{ fontSize: 12, color: "#999" }}>♪なら </span><b style={{ fontSize: 14, color: "#ccc" }}>{recentBpm ? (recentBpm * 2).toFixed(1) : "—"}</b></div>
-        <div><span style={{ fontSize: 12, color: "#999" }}>間隔中央 </span><b style={{ fontSize: 14, color: "#ccc" }}>{recentMs ? `${recentMs}ms` : "—"}</b></div>
-        <div><span style={{ fontSize: 12, color: "#999" }}>全体♩ </span><b style={{ fontSize: 14, color: "#888" }}>{allBpm ? allBpm.toFixed(1) : "—"}</b></div>
+      {/* 自動BPM検出（拍に刻んだ時の参考）。8分混在に備え ♩/♪/間隔ms の両読み。 */}
+      <div style={{ display: "flex", gap: 12, alignItems: "baseline", margin: "4px 2px 4px", flexWrap: "wrap", fontSize: 12, color: "#999" }}>
+        <span>検出♩ <b style={{ fontSize: 16, color: "#ccc" }}>{recentBpm ? recentBpm.toFixed(1) : "—"}</b></span>
+        <span>♪なら <b style={{ color: "#ccc" }}>{recentBpm ? (recentBpm * 2).toFixed(1) : "—"}</b></span>
+        <span>間隔 <b style={{ color: "#ccc" }}>{recentMs ? `${recentMs}ms` : "—"}</b></span>
+      </div>
+
+      {/* 補正：BPM＋アンカーの拍グリッドに丸める */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "2px 2px 6px", flexWrap: "wrap", fontSize: 12 }}>
+        <span style={{ color: "#999" }}>BPM</span>
+        <input type="number" value={bpm} onChange={e => setBpm(Number(e.target.value) || 0)} step="0.1"
+          style={{ width: 70, fontSize: 14, padding: "5px 7px", borderRadius: 6, border: "1px solid #444", background: "#111", color: PINK, fontWeight: 700 }} />
+        <button style={{ ...btn, fontSize: 12, padding: "5px 9px" }} onClick={setAnchorHere}>▼拍1にする</button>
+        <span style={{ color: "#666" }}>拍1: {anchorSec == null ? "未設定" : `${anchorSec.toFixed(2)}s`}</span>
+        <label style={{ display: "flex", alignItems: "center", gap: 4, color: snapOn ? PINK : "#999", cursor: "pointer", fontWeight: snapOn ? 700 : 400 }}>
+          <input type="checkbox" checked={snapOn} onChange={e => setSnapOn(e.target.checked)} /> 補正ON
+        </label>
+        {[["e", "8分"], ["q", "4分"]].map(([v, l]) => (
+          <button key={v} style={seg(snapRes === v)} onClick={() => setSnapRes(v as "q" | "e")}>{l}</button>
+        ))}
       </div>
 
       {/* 大きなタップボタン */}
@@ -198,37 +243,46 @@ export default function HiTensionBeatTapPage() {
       {/* タップ一覧 */}
       <div style={{ border: "1px solid #222", borderRadius: 8, overflow: "hidden", marginBottom: 10 }}>
         <div style={{ display: "flex", fontSize: 11, color: "#888", padding: "6px 8px", borderBottom: "1px solid #222", background: "#0c0c0c" }}>
-          <span style={{ width: 28 }}>#</span>
-          <span style={{ width: 70 }}>秒数</span>
-          <span style={{ width: 56 }}>前との差</span>
-          <span style={{ flex: 1 }}>コール文（メモ）</span>
-          <span style={{ width: 70, textAlign: "right" }}>操作</span>
+          <span style={{ width: 24 }}>#</span>
+          <span style={{ width: 64 }}>{snapOn ? "補正秒" : "秒数"}</span>
+          <span style={{ flex: 1 }}>コール文</span>
+          <span style={{ width: 48, textAlign: "center" }}>長さ拍</span>
+          <span style={{ width: 78, textAlign: "right" }}>操作</span>
         </div>
-        <div style={{ maxHeight: 280, overflowY: "auto" }}>
+        <div style={{ maxHeight: 300, overflowY: "auto" }}>
           {taps.length === 0 && <p style={{ fontSize: 12, color: "#666", textAlign: "center", padding: 14, margin: 0 }}>まだタップなし</p>}
-          {taps.map((tap, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", fontSize: 13, padding: "4px 8px", borderBottom: "1px solid #161616" }}>
-              <span style={{ width: 28, color: "#777" }}>{i + 1}</span>
-              <button onClick={() => seekTo(tap.t)} style={{ width: 70, textAlign: "left", background: "none", border: "none", color: "#7cf", cursor: "pointer", fontSize: 13, padding: 0 }} title="ここへシーク">{fmt(tap.t)}</button>
-              <span style={{ width: 56, color: "#888", fontSize: 12 }}>{i > 0 ? `+${(tap.t - taps[i - 1].t).toFixed(2)}` : "—"}</span>
-              <input
-                value={tap.note}
-                onChange={e => setNote(i, e.target.value)}
-                placeholder="コール文…"
-                style={{ flex: 1, fontSize: 13, padding: "4px 6px", borderRadius: 6, border: "1px solid #333", background: "#111", color: "#eee", minWidth: 0 }}
-              />
-              <span style={{ width: 70, textAlign: "right" }}>
-                <button onClick={() => removeAt(i)} style={{ background: "none", border: "none", color: "#a55", cursor: "pointer", fontSize: 16 }} title="削除">×</button>
-              </span>
-            </div>
-          ))}
+          {taps.map((tap, i) => {
+            const shown = dispT(tap.t);
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 13, padding: "4px 8px", borderBottom: "1px solid #161616" }}>
+                <span style={{ width: 24, color: "#777" }}>{i + 1}</span>
+                <button onClick={() => seekTo(shown)} style={{ width: 64, textAlign: "left", background: "none", border: "none", color: "#7cf", cursor: "pointer", fontSize: 13, padding: 0 }} title="ここへシーク">{fmt(shown)}</button>
+                <input
+                  value={tap.note}
+                  onChange={e => setNote(i, e.target.value)}
+                  placeholder="コール文…"
+                  style={{ flex: 1, fontSize: 13, padding: "4px 6px", borderRadius: 6, border: "1px solid #333", background: "#111", color: "#eee", minWidth: 0 }}
+                />
+                <input
+                  type="number" step="0.5" value={tap.lenBeats}
+                  onChange={e => setLen(i, Number(e.target.value) || 0)}
+                  style={{ width: 44, fontSize: 12, padding: "4px 4px", borderRadius: 6, border: "1px solid #333", background: "#111", color: "#eee", textAlign: "center" }}
+                />
+                <span style={{ width: 78, textAlign: "right", whiteSpace: "nowrap" }}>
+                  <button onClick={() => copyRow(i)} style={{ background: "none", border: "none", color: "#9aa0a6", cursor: "pointer", fontSize: 14 }} title="このコールをコピー">⧉</button>
+                  <button onClick={() => pasteRow(i)} disabled={!clip} style={{ background: "none", border: "none", color: clip ? PINK : "#444", cursor: clip ? "pointer" : "default", fontSize: 14 }} title="ここに貼り付け">⤓</button>
+                  <button onClick={() => removeAt(i)} style={{ background: "none", border: "none", color: "#a55", cursor: "pointer", fontSize: 16 }} title="削除">×</button>
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
       <button style={{ ...btn, width: "100%", fontWeight: 700 }} onClick={exportData} disabled={taps.length === 0}>書き出す（コピー＋calls.json保存）</button>
 
-      <p style={{ fontSize: 11, color: "#666", margin: "10px 0 0", lineHeight: 1.6 }}>
-        コツ: ①速さ0.5xにすると押しやすい ②BPMを知りたい時は曲の拍に合わせて8回くらい刻む ③コールの秒数は本番速度で押すと実際に近い ④秒数をタップするとそこへシークして聞き直せる。
+      <p style={{ fontSize: 11, color: "#666", margin: "10px 0 0", lineHeight: 1.7 }}>
+        手順: ①BPMを入れる(検出♩が目安・149っぽい) ②無音明けの最初の拍で「▼拍1にする」 ③コールの瞬間にSpace ④「補正ON」で拍グリッド(8分/4分)に丸める＝ブレ消える ⑤「長さ拍」にコールの拍数（例「あーりーがーと」=3.5） ⑥同じコールは ⧉コピー→⤓貼付で使い回し ⑦秒数タップでそこへシーク。無音時間は秒数に含まれてる(拍1アンカーが吸収)。
       </p>
     </div>
   );
