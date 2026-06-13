@@ -271,8 +271,9 @@ export default function MemberSelect({
             />
           </div>
         ) : (
-          // 横向きは全員を1列に（縦の3段だと低い画面で「はじめる」が画面外に出て押せない）。
-          (isLandscape
+          <>
+          {/* 横向きは全員を1列に（縦の3段だと低い画面で「はじめる」が画面外に出て押せない）。 */}
+          {(isLandscape
             ? [{ unit: "all", members: UNIT_ROWS.flatMap((r) => r.members) }]
             : UNIT_ROWS
           ).map((row) => (
@@ -319,7 +320,31 @@ export default function MemberSelect({
                 );
               })}
             </div>
-          ))
+          ))}
+          {/* 新メンバー枠（メンバーカラー発表前のプレースホルダ・飾り＝押せない） */}
+          <div
+            style={{
+              display: "flex",
+              gap: isLandscape ? "0.5rem" : "1rem",
+              justifyContent: "center",
+              flexWrap: "nowrap",
+            }}
+          >
+            {["kojima", "ootsubo", "sugiyama"].map((name) => (
+              <div
+                key={name}
+                aria-label={name}
+                style={{
+                  width: isLandscape ? "clamp(44px, 14dvh, 52px)" : "clamp(44px, 7.5dvh, 56px)",
+                  height: isLandscape ? "clamp(44px, 14dvh, 52px)" : "clamp(44px, 7.5dvh, 56px)",
+                  borderRadius: "50%",
+                  background: "#e3e3e3",
+                  boxShadow: "0 0 0 1px rgba(0,0,0,0.08)",
+                }}
+              />
+            ))}
+          </div>
+          </>
         )}
         </div>
       </div>
