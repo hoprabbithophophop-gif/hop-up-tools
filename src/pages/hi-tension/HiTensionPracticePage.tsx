@@ -16,6 +16,28 @@ import {
 const PINK = "#da1884";
 /** 正解(ok)の強調色。正解=濃い/不正解=暗い で統一(赤緑は使わない) */
 const BRIGHT = "#ff8ac4";
+const SHARE_URL = "https://hop-up-tools.pages.dev/hi-tension/practice";
+
+// シェア文面(hop確定 2026-06-13: スコアとタグだけ・語り口は投稿画面で本人が追記)。
+// パターンごとに「一度でも落とした拍番号」を集約＝次どこ意識すべきかが残る。
+// 全部成功した拍は出ない。落とした拍ゼロなら「苦手:なし」。
+function shareToX(results: { pat: number; steps: StepResult[] }[]) {
+  const weakByPat = new Map<number, Set<number>>();
+  const played = new Set<number>();
+  for (const r of results) {
+    played.add(r.pat);
+    let set = weakByPat.get(r.pat);
+    if (!set) { set = new Set(); weakByPat.set(r.pat, set); }
+    r.steps.forEach((res, k) => { if (res === "miss") set.add(k); });
+  }
+  const lines = PATTERNS.map((p, pi) => {
+    if (!played.has(pi)) return null;
+    const weak = [...(weakByPat.get(pi) ?? [])].sort((a, b) => a - b).map(k => k + 1);
+    return `${p.label} 苦手:${weak.length ? weak.join(",") : "なし"}`;
+  }).filter(Boolean);
+  const text = [...lines, "#ハイテンションPractice #上級編", SHARE_URL].join("\n");
+  window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+}
 /** カウントイン: 予告バナーを出す拍数 / 数字(5,6,7,8)を出す拍数 */
 const COUNTIN_BEATS = 8;
 const COUNTIN_NUM_BEATS = 4;
@@ -436,25 +458,34 @@ export default function HiTensionPracticePage() {
         <span style={{ position: "absolute", top: "50%", right: 6, transform: "translateY(-50%)", fontSize: 11, color: "#555", pointerEvents: "none" }}>右</span>
         {/* 今回の結果(曲が終わったあと、空いてるパッド領域に重ねて表示) */}
         {!started && results.length > 0 && (
-          <div style={{ position: "absolute", inset: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 8px", alignContent: "center", justifyItems: "center", padding: 12, background: "rgba(0,0,0,0.72)", pointerEvents: "none", overflowY: "auto" }}>
-            <span style={{ gridColumn: "1 / -1", fontSize: 12, color: "#999" }}>今回の結果</span>
-            {results.map((r, i) => {
-              const nth = results.slice(0, i).filter(x => x.pat === r.pat).length;
-              const mark = "①②③④⑤⑥⑦⑧⑨"[nth] ?? `${nth + 1}`;
-              const full = r.ok === r.total;
-              return (
-                <span key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: full ? BRIGHT : "#ccc", whiteSpace: "nowrap" }}>
-                    {PATTERNS[r.pat].label.replace("パターン", "")}{mark} {r.ok}/{r.total}
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, padding: 12, background: "rgba(0,0,0,0.72)", overflowY: "auto" }}>
+            <span style={{ fontSize: 12, color: "#999" }}>今回の結果</span>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 16px", justifyItems: "center" }}>
+              {results.map((r, i) => {
+                const nth = results.slice(0, i).filter(x => x.pat === r.pat).length;
+                const mark = "①②③④⑤⑥⑦⑧⑨"[nth] ?? `${nth + 1}`;
+                const full = r.ok === r.total;
+                return (
+                  <span key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: full ? BRIGHT : "#ccc", whiteSpace: "nowrap" }}>
+                      {PATTERNS[r.pat].label.replace("パターン", "")}{mark} {r.ok}/{r.total}
+                    </span>
+                    <span style={{ display: "flex", gap: 2 }}>
+                      {r.steps.map((res, k) => (
+                        <span key={k} style={{ width: 5, height: 8, borderRadius: 1.5, background: res === "ok" ? PINK : "#3a3a3a" }} />
+                      ))}
+                    </span>
                   </span>
-                  <span style={{ display: "flex", gap: 2 }}>
-                    {r.steps.map((res, k) => (
-                      <span key={k} style={{ width: 5, height: 8, borderRadius: 1.5, background: res === "ok" ? PINK : "#3a3a3a" }} />
-                    ))}
-                  </span>
-                </span>
-              );
-            })}
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={() => shareToX(results)}
+              style={{ marginTop: 4, fontSize: 14, fontWeight: 700, padding: "8px 18px", borderRadius: 8, border: "none", background: PINK, color: "#fff", cursor: "pointer" }}
+            >
+              𝕏 でシェア
+            </button>
           </div>
         )}
       </div>
