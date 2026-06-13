@@ -11,9 +11,17 @@ const PINK = "#da1884";
 // 既定はありがとビート Stage Practice ver.（BEYOOOOONDS公式）。他のidに差し替え可。
 const DEFAULT_VIDEO = "n5AVvFwbeaM";
 const LS_KEY = "hi_tension:beat_tap";
+// コールの長さ(拍)の選択肢。0.5刻み・最大8。
+const LEN_OPTIONS = Array.from({ length: 16 }, (_, i) => (i + 1) * 0.5); // 0.5..8
 
 // t=動画の絶対秒(無音込み・生タップ)。note=コール文。lenBeats=コールの長さ(拍・小数可)。
-type Tap = { t: number; note: string; lenBeats: number };
+// id=並べ替え/削除でも選択が追従するための安定キー。
+type Tap = { id: string; t: number; note: string; lenBeats: number };
+let _idc = 0;
+const rid = () => {
+  try { if (crypto?.randomUUID) return crypto.randomUUID(); } catch { /* ignore */ }
+  return `t${Date.now()}_${++_idc}`;
+};
 type Saved = { videoId: string; taps: Tap[]; bpm: number; anchorSec: number | null; snapOn: boolean; snapRes: "q" | "e" };
 
 function loadSaved(): Saved {
@@ -25,7 +33,7 @@ function loadSaved(): Saved {
       if (o && Array.isArray(o.taps)) {
         return {
           videoId: typeof o.videoId === "string" ? o.videoId : DEFAULT_VIDEO,
-          taps: o.taps.map((x: { t: number; note?: string; lenBeats?: number }) => ({ t: x.t, note: x.note ?? "", lenBeats: typeof x.lenBeats === "number" ? x.lenBeats : 1 })),
+          taps: o.taps.map((x: { id?: string; t: number; note?: string; lenBeats?: number }) => ({ id: x.id ?? rid(), t: x.t, note: x.note ?? "", lenBeats: typeof x.lenBeats === "number" ? x.lenBeats : 1 })),
           bpm: typeof o.bpm === "number" ? o.bpm : 149,
           anchorSec: typeof o.anchorSec === "number" ? o.anchorSec : null,
           snapOn: o.snapOn === true,
@@ -60,7 +68,9 @@ export default function HiTensionBeatTapPage() {
   const [bpm, setBpm] = useState(initial.current.bpm);
   const [snapOn, setSnapOn] = useState(initial.current.snapOn);
   const [snapRes, setSnapRes] = useState<"q" | "e">(initial.current.snapRes);
-  const [clip, setClip] = useState<{ note: string; lenBeats: number } | null>(null);
+  // コピーしたブロック。dt=ブロック先頭からの相対秒（同じ間隔で複製するため）。
+  const [clipBlock, setClipBlock] = useState<{ dt: number; note: string; lenBeats: number }[] | null>(null);
+  const [sel, setSel] = useState<Set<string>>(new Set());
   const [showHelp, setShowHelp] = useState(false);
   const [rate, setRate] = useState(1);
   const [nowSec, setNowSec] = useState(0);
@@ -81,22 +91,46 @@ export default function HiTensionBeatTapPage() {
   const refSec = taps[0]?.t ?? null;
   const snap = (t: number) => (refSec == null ? t : refSec + Math.round((t - refSec) / unit) * unit);
   const dispT = (t: number) => (snapOn ? snap(t) : t);
-  // 行を1グリッド(8分/4分)分ずらす＝半拍ズレたタップの微調整。
-  const nudge = (i: number, dir: 1 | -1) => setTaps(prev => prev.map((x, k) => k === i ? { ...x, t: Math.round((x.t + dir * unit) * 1000) / 1000 } : x).sort((a, b) => a.t - b.t));
-
   const addTap = () => {
     const p = playerRef.current; if (!p) return;
     const t = Math.round(p.getCurrentTime() * 1000) / 1000;
-    setTaps(prev => [...prev, { t, note: "", lenBeats: 1 }].sort((a, b) => a.t - b.t));
+    setTaps(prev => [...prev, { id: rid(), t, note: "", lenBeats: 1 }].sort((a, b) => a.t - b.t));
   };
 
-  const undo = () => setTaps(prev => prev.slice(0, -1));
-  const clearAll = () => { if (confirm("全部のタップを消す？")) setTaps([]); };
-  const removeAt = (i: number) => setTaps(prev => prev.filter((_, k) => k !== i));
+  const clearAll = () => { if (confirm("全部のタップを消す？")) { setTaps([]); setSel(new Set()); } };
   const setNote = (i: number, note: string) => setTaps(prev => prev.map((x, k) => k === i ? { ...x, note } : x));
   const setLen = (i: number, lenBeats: number) => setTaps(prev => prev.map((x, k) => k === i ? { ...x, lenBeats } : x));
-  const copyRow = (i: number) => setClip({ note: taps[i].note, lenBeats: taps[i].lenBeats });
-  const pasteRow = (i: number) => { if (clip) setTaps(prev => prev.map((x, k) => k === i ? { ...x, note: clip.note, lenBeats: clip.lenBeats } : x)); };
+
+  // ---- 行内ボタン＆選択（IDベース＝並べ替え/削除でも追従。選択は無制限） ----
+  const toggleSel = (id: string) => setSel(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const selTaps = () => taps.filter(t => sel.has(t.id)).sort((a, b) => a.t - b.t); // 時刻順
+  // 長さをタップで +0.5（8の次は0.5へ戻る）。
+  const cycleLen = (i: number) => setLen(i, taps[i].lenBeats >= 8 ? 0.5 : Math.round((taps[i].lenBeats + 0.5) * 10) / 10);
+  // コピー＝選択行があればそのブロック、無ければこの行だけ。「先頭からの相対秒＋コール＋長さ」で保存。
+  const copyFrom = (i: number) => {
+    const src = sel.size > 0 ? selTaps() : [taps[i]];
+    if (!src.length) return;
+    const t0 = src[0].t;
+    setClipBlock(src.map(t => ({ dt: Math.round((t.t - t0) * 1000) / 1000, note: t.note, lenBeats: t.lenBeats })));
+    setSel(new Set());
+  };
+  // 複製＝この行を始点に、コピー元と同じ間隔・同じコールで一気に生成。
+  const pasteAt = (i: number) => {
+    if (!clipBlock || !clipBlock.length) return;
+    const start = taps[i];
+    setTaps(prev => {
+      const next = prev.map(x => x.id === start.id ? { ...x, note: clipBlock[0].note, lenBeats: clipBlock[0].lenBeats } : x);
+      for (let k = 1; k < clipBlock.length; k++) {
+        next.push({ id: rid(), t: Math.round((start.t + clipBlock[k].dt) * 1000) / 1000, note: clipBlock[k].note, lenBeats: clipBlock[k].lenBeats });
+      }
+      return next.sort((a, b) => a.t - b.t);
+    });
+  };
+  // 削除＝この行が選択中なら選択ぜんぶ、そうでなければこの行だけ。
+  const delRow = (i: number) => {
+    if (sel.size > 0 && sel.has(taps[i].id)) { setTaps(prev => prev.filter(x => !sel.has(x.id))); setSel(new Set()); }
+    else { const id = taps[i].id; setTaps(prev => prev.filter(x => x.id !== id)); }
+  };
 
   const changeRate = (r: number) => { try { playerRef.current?.setPlaybackRate(r); } catch { /* ignore */ } setRate(r); };
   const seekTo = (t: number) => { try { playerRef.current?.seekTo(t); playerRef.current?.play(); } catch { /* ignore */ } };
@@ -128,10 +162,14 @@ export default function HiTensionBeatTapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taps, nowSec, snapOn, refSec, unit]);
 
-  // 現在行を一覧の見える位置へスクロール
+  // 現在行を一覧スクロール枠の中央へ（スクロール枠を直接動かす＝確実に追従）
   const curRowRef = useRef<HTMLDivElement>(null);
+  const scrollBoxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (playing && curRowRef.current) curRowRef.current.scrollIntoView({ block: "nearest" });
+    const box = scrollBoxRef.current, row = curRowRef.current;
+    if (!playing || !box || !row || curIdx < 0) return;
+    const target = row.offsetTop - box.clientHeight / 2 + row.clientHeight / 2;
+    box.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
   }, [curIdx, playing]);
 
   // スペースキーでタップ（動画を見ながら押せるように）。入力欄にフォーカス中は無効。
@@ -206,9 +244,9 @@ export default function HiTensionBeatTapPage() {
           ① ▶再生（YouTubeを直接クリックしない＝Spaceを効かせるため）<br />
           ② コールの瞬間に <b style={{ color: "#ccc" }}>Space</b>（or 大ボタン）でタップ＝秒数を記録<br />
           ③ BPMを入れて <b style={{ color: "#ccc" }}>補正ON</b>＝拍グリッド(8分/4分)に丸めてブレを消す<br />
-          ④ 各行に <b style={{ color: "#ccc" }}>コール文</b> と <b style={{ color: "#ccc" }}>長さ拍</b>（例「あーりーがーと」=3.5）<br />
-          ⑤ 半拍ズレた行は <b style={{ color: "#ccc" }}>‹ ›</b> で前後に。同じコールは <b style={{ color: "#ccc" }}>⧉→⤓</b> で使い回し<br />
-          ⑥ 秒数タップでそこへシーク・再生中は今の行がピンクで光る・「書き出す」でcalls.json<br />
+          ④ 各行に <b style={{ color: "#ccc" }}>コール文</b>・長さは <b style={{ color: "#ccc" }}>数字をタップで+0.5</b>（8の次は0.5へ／例「あーりーがーと」=3.5）<br />
+          ⑤ 行の <b style={{ color: "#ccc" }}>番号</b> をタップで選択（何行でも）→どれかの <b style={{ color: "#ccc" }}>⧉</b> でまとめてコピー→繰り返す場所の <b style={{ color: "#ccc" }}>⤓</b> でその行を始点に同じ間隔で複製<br />
+          ⑥ 番号の下の小さい秒数タップでシーク・再生中は今の行がピンクで光って自動追従・<b style={{ color: "#ccc" }}>×</b>で削除・「書き出す」は一覧の末尾<br />
           ※速さ0.5xにすると押しやすい。無音時間は秒数に含まれてる（動画同期はそのまま正しい）。
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8 }}>
             <input
@@ -224,7 +262,10 @@ export default function HiTensionBeatTapPage() {
 
       {/* ここから下の操作系は固定（一覧だけ内側スクロール＝SE等でも再生/タップが流れない） */}
       <div style={{ flex: "0 0 auto" }}>
-      <YouTubePlayer ref={playerRef} videoId={videoId} onEnded={() => { /* 何もしない */ }} onTimeUpdate={onTimeUpdate} />
+      {/* 動画は小さめに上限（短い画面ほど一覧に高さを譲る）。16:9を保つため幅で絞る。 */}
+      <div style={{ width: "min(100%, calc(26dvh * 16 / 9))", margin: "0 auto" }}>
+        <YouTubePlayer ref={playerRef} videoId={videoId} onEnded={() => { /* 何もしない */ }} onTimeUpdate={onTimeUpdate} />
+      </div>
 
       {/* 再生/停止＋現在位置＋検出BPM（1行に集約して縦を詰める） */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "8px 2px 4px", flexWrap: "wrap" }}>
@@ -254,64 +295,50 @@ export default function HiTensionBeatTapPage() {
         タップ（Space）
       </button>
 
-      {/* 操作 */}
-      <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "8px 0" }}>
+      {/* 速さ＋全消し */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "8px 0 4px" }}>
         <span style={{ fontSize: 12, color: "#999" }}>速さ</span>
         {[0.5, 0.75, 1].map(r => (<button key={r} style={seg(rate === r)} onClick={() => changeRate(r)}>{r}x</button>))}
-        <button style={{ ...btn, marginLeft: "auto" }} onClick={undo} disabled={taps.length === 0}>1個取消</button>
-        <button style={{ ...btn, color: "#e88", borderColor: "#633" }} onClick={clearAll} disabled={taps.length === 0}>全消し</button>
+        <button style={{ ...btn, marginLeft: "auto", color: "#e88", borderColor: "#633" }} onClick={clearAll} disabled={taps.length === 0}>全消し</button>
       </div>
-
-      {/* コピー中の表示（コピーが切り替わったか目で分かるように） */}
-      {clip && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 2px 4px", fontSize: 12 }}>
-          <span style={{ color: "#9aa0a6" }}>コピー中:</span>
-          <span style={{ color: PINK, fontWeight: 700 }}>「{clip.note || "(空)"}」 / {clip.lenBeats}拍</span>
-          <button style={{ background: "none", border: "none", color: "#777", cursor: "pointer", fontSize: 12 }} onClick={() => setClip(null)}>消す</button>
-        </div>
-      )}
 
       </div>{/* 固定ブロック終わり */}
 
       {/* タップ一覧（残り高さ全部・内側スクロール） */}
       <div style={{ border: "1px solid #222", borderRadius: 8, overflow: "hidden", margin: "0 0 8px", flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", fontSize: 11, color: "#888", padding: "6px 8px", borderBottom: "1px solid #222", background: "#0c0c0c", flex: "0 0 auto" }}>
-          <span style={{ width: 22 }}>#</span>
-          <span style={{ width: 58 }}>{snapOn ? "補正秒" : "秒数"}</span>
-          <span style={{ width: 40, textAlign: "center" }}>前後</span>
+        {/* ヘッダ：選択中はその件数を出す（「N行選択」＝固定枠を増やさず一覧の上の細い帯に） */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#888", padding: "5px 8px", borderBottom: "1px solid #222", background: "#0c0c0c", flex: "0 0 auto" }}>
+          <span style={{ width: 36, textAlign: "center" }}>#</span>
           <span style={{ flex: 1 }}>コール文</span>
-          <span style={{ width: 40, textAlign: "center" }}>長さ</span>
-          <span style={{ width: 60, textAlign: "right" }}>操作</span>
+          {sel.size > 0
+            ? <span style={{ color: PINK, fontWeight: 700 }}>{sel.size}行選択中＝⧉でまとめてコピー</span>
+            : <span>長さ / 操作</span>}
         </div>
-        <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto" }}>
-          {taps.length === 0 && <p style={{ fontSize: 12, color: "#666", textAlign: "center", padding: 14, margin: 0 }}>まだタップなし</p>}
+        <div ref={scrollBoxRef} style={{ position: "relative", flex: "1 1 auto", minHeight: 0, overflowY: "auto" }}>
+          {taps.length === 0 && <p style={{ fontSize: 13, color: "#666", textAlign: "center", padding: 16, margin: 0 }}>まだタップなし</p>}
           {taps.map((tap, i) => {
             const shown = dispT(tap.t);
             const isCur = i === curIdx;
+            const isSel = sel.has(tap.id);
+            const iconBtn = (color: string): React.CSSProperties => ({ width: 34, height: 34, flexShrink: 0, borderRadius: 8, border: "1px solid #3a3a3a", background: "#191919", color, cursor: "pointer", fontSize: 16, padding: 0 });
             return (
-              <div key={i} ref={isCur ? curRowRef : undefined} style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 13, padding: "4px 8px", borderBottom: "1px solid #161616", background: isCur ? "rgba(218,24,132,0.22)" : undefined }}>
-                <span style={{ width: 22, color: isCur ? PINK : "#777" }}>{i + 1}</span>
-                <button onClick={() => seekTo(shown)} style={{ width: 58, textAlign: "left", background: "none", border: "none", color: "#7cf", cursor: "pointer", fontSize: 13, padding: 0 }} title="ここへシーク">{fmt(shown)}</button>
-                <span style={{ width: 40, textAlign: "center", whiteSpace: "nowrap" }}>
-                  <button onClick={() => nudge(i, -1)} style={{ background: "none", border: "none", color: "#9cf", cursor: "pointer", fontSize: 16, padding: "0 1px" }} title={`${snapRes === "e" ? "8分" : "4分"}前へ`}>‹</button>
-                  <button onClick={() => nudge(i, 1)} style={{ background: "none", border: "none", color: "#9cf", cursor: "pointer", fontSize: 16, padding: "0 1px" }} title={`${snapRes === "e" ? "8分" : "4分"}後へ`}>›</button>
-                </span>
+              <div key={tap.id} ref={isCur ? curRowRef : undefined} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 14, padding: "5px 6px", borderBottom: "1px solid #161616", background: isSel ? "rgba(218,24,132,0.30)" : isCur ? "rgba(218,24,132,0.16)" : undefined }}>
+                {/* #＝選択トグル（大タップ域）。秒数はその下に小さく＝タップでシーク。 */}
+                <button onClick={() => toggleSel(tap.id)} style={{ width: 36, height: 38, flexShrink: 0, borderRadius: 8, border: `1px solid ${isSel ? PINK : "#444"}`, background: isSel ? PINK : "#1a1a1a", color: isSel ? "#fff" : "#999", cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1 }} title="タップで選択">
+                  <span>{i + 1}</span>
+                  <span onClick={e => { e.stopPropagation(); seekTo(shown); }} style={{ fontSize: 8, color: isSel ? "#fce" : "#7cf" }}>{fmt(shown).replace(/^0:/, "")}</span>
+                </button>
                 <input
                   value={tap.note}
                   onChange={e => setNote(i, e.target.value)}
                   placeholder="コール文…"
-                  style={{ flex: 1, fontSize: 13, padding: "4px 6px", borderRadius: 6, border: "1px solid #333", background: "#111", color: "#eee", minWidth: 0 }}
+                  style={{ flex: 1, height: 38, fontSize: 14, padding: "4px 6px", borderRadius: 8, border: "1px solid #333", background: "#111", color: "#eee", minWidth: 40 }}
                 />
-                <input
-                  type="number" step="0.5" value={tap.lenBeats}
-                  onChange={e => setLen(i, Number(e.target.value) || 0)}
-                  style={{ width: 38, fontSize: 12, padding: "4px 3px", borderRadius: 6, border: "1px solid #333", background: "#111", color: "#eee", textAlign: "center" }}
-                />
-                <span style={{ width: 60, textAlign: "right", whiteSpace: "nowrap" }}>
-                  <button onClick={() => copyRow(i)} style={{ background: "none", border: "none", color: "#9aa0a6", cursor: "pointer", fontSize: 13 }} title="このコールをコピー">⧉</button>
-                  <button onClick={() => pasteRow(i)} disabled={!clip} style={{ background: "none", border: "none", color: clip ? PINK : "#444", cursor: clip ? "pointer" : "default", fontSize: 13 }} title="ここに貼り付け">⤓</button>
-                  <button onClick={() => removeAt(i)} style={{ background: "none", border: "none", color: "#a55", cursor: "pointer", fontSize: 15 }} title="削除">×</button>
-                </span>
+                {/* 長さ＝タップで+0.5（8の次は0.5へ）。1タップで変えられる。 */}
+                <button onClick={() => cycleLen(i)} style={{ ...iconBtn("#eee"), width: 40, fontSize: 14, fontWeight: 700 }} title="タップで長さ+0.5">{tap.lenBeats}</button>
+                <button onClick={() => copyFrom(i)} style={iconBtn(sel.size ? PINK : "#9aa0a6")} title={sel.size ? "選択中の行をまとめてコピー" : "この行をコピー"}>⧉</button>
+                <button onClick={() => pasteAt(i)} disabled={!clipBlock} style={{ ...iconBtn(clipBlock ? PINK : "#444") }} title="この行を始点に複製">⤓</button>
+                <button onClick={() => delRow(i)} style={iconBtn("#c66")} title={sel.size && isSel ? "選択をまとめて削除" : "削除"}>×</button>
               </div>
             );
           })}
