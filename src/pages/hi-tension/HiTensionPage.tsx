@@ -1297,8 +1297,10 @@ export default function HiTensionPage() {
         style={{
           height: "100dvh",
           overflow: "hidden",
-          background: "#f8f9fa",
-          color: "#191c1d",
+          // 本編と同じ暗背景に統一（横EndCardで動画の左右にこのコンテナが覗いて
+          // 白帯になっていたのを解消・2026-06-13 hop指摘）。
+          background: ARENA_BG,
+          color: "#e8eaed",
           fontFamily: "Inter, 'Noto Sans JP', sans-serif",
           display: "flex",
           flexDirection: "column",
