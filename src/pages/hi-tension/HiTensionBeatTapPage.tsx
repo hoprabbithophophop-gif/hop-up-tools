@@ -73,11 +73,16 @@ export default function HiTensionBeatTapPage() {
     try { localStorage.setItem(LS_KEY, JSON.stringify({ videoId, taps, bpm, anchorSec, snapOn, snapRes })); } catch { /* ignore */ }
   }, [videoId, taps, bpm, anchorSec, snapOn, snapRes]);
 
-  // BPM＋アンカーの拍グリッドに丸める。アンカー=無音明けの拍1。8分/4分で分解能切替。
+  // BPM＋基準タップの拍グリッドに丸める。基準=確実に拍に乗ったタップ(無くても最初のタップで代用)。
+  // 8分/4分で分解能切替。基準は周期的なのでどの拍でもOK(拍1である必要はない)。
   const beatSec = 60 / (bpm || 149);
   const unit = snapRes === "e" ? beatSec / 2 : beatSec;
-  const snap = (t: number) => (anchorSec == null ? t : anchorSec + Math.round((t - anchorSec) / unit) * unit);
+  // 明示の基準が無ければ最初のタップを基準に使う＝補正がすぐ効く。
+  const refSec = anchorSec ?? (taps[0]?.t ?? null);
+  const snap = (t: number) => (refSec == null ? t : refSec + Math.round((t - refSec) / unit) * unit);
   const dispT = (t: number) => (snapOn ? snap(t) : t);
+  // 行を1グリッド(8分/4分)分ずらす＝半拍ズレたタップの微調整。
+  const nudge = (i: number, dir: 1 | -1) => setTaps(prev => prev.map((x, k) => k === i ? { ...x, t: Math.round((x.t + dir * unit) * 1000) / 1000 } : x).sort((a, b) => a.t - b.t));
 
   const addTap = () => {
     const p = playerRef.current; if (!p) return;
@@ -92,7 +97,7 @@ export default function HiTensionBeatTapPage() {
   const setLen = (i: number, lenBeats: number) => setTaps(prev => prev.map((x, k) => k === i ? { ...x, lenBeats } : x));
   const copyRow = (i: number) => setClip({ note: taps[i].note, lenBeats: taps[i].lenBeats });
   const pasteRow = (i: number) => { if (clip) setTaps(prev => prev.map((x, k) => k === i ? { ...x, note: clip.note, lenBeats: clip.lenBeats } : x)); };
-  const setAnchorHere = () => { const p = playerRef.current; if (p) setAnchorSec(Math.round(p.getCurrentTime() * 1000) / 1000); };
+  const setAnchorRow = (i: number) => setAnchorSec(taps[i].t); // この行のタップを拍の基準に
 
   const changeRate = (r: number) => { try { playerRef.current?.setPlaybackRate(r); } catch { /* ignore */ } setRate(r); };
   const seekTo = (t: number) => { try { playerRef.current?.seekTo(t); playerRef.current?.play(); } catch { /* ignore */ } };
@@ -209,20 +214,22 @@ export default function HiTensionBeatTapPage() {
         <span>間隔 <b style={{ color: "#ccc" }}>{recentMs ? `${recentMs}ms` : "—"}</b></span>
       </div>
 
-      {/* 補正：BPM＋アンカーの拍グリッドに丸める */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "2px 2px 6px", flexWrap: "wrap", fontSize: 12 }}>
+      {/* 補正：BPM＋基準タップの拍グリッドに丸める */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "2px 2px 4px", flexWrap: "wrap", fontSize: 12 }}>
         <span style={{ color: "#999" }}>BPM</span>
         <input type="number" value={bpm} onChange={e => setBpm(Number(e.target.value) || 0)} step="0.1"
           style={{ width: 70, fontSize: 14, padding: "5px 7px", borderRadius: 6, border: "1px solid #444", background: "#111", color: PINK, fontWeight: 700 }} />
-        <button style={{ ...btn, fontSize: 12, padding: "5px 9px" }} onClick={setAnchorHere}>▼拍1にする</button>
-        <span style={{ color: "#666" }}>拍1: {anchorSec == null ? "未設定" : `${anchorSec.toFixed(2)}s`}</span>
         <label style={{ display: "flex", alignItems: "center", gap: 4, color: snapOn ? PINK : "#999", cursor: "pointer", fontWeight: snapOn ? 700 : 400 }}>
           <input type="checkbox" checked={snapOn} onChange={e => setSnapOn(e.target.checked)} /> 補正ON
         </label>
         {[["e", "8分"], ["q", "4分"]].map(([v, l]) => (
           <button key={v} style={seg(snapRes === v)} onClick={() => setSnapRes(v as "q" | "e")}>{l}</button>
         ))}
+        <span style={{ color: "#666" }}>基準: {anchorSec == null ? "自動(最初のタップ)" : `${anchorSec.toFixed(2)}s`}</span>
       </div>
+      <p style={{ fontSize: 11, color: "#777", margin: "0 2px 6px", lineHeight: 1.5 }}>
+        補正ON＝BPMの拍に秒数を丸める。「基準」は確実に拍に乗った行の <b style={{ color: "#bbb" }}>◎</b> で指定（未指定なら最初のタップを自動採用）。半拍ズレた行は <b style={{ color: "#bbb" }}>‹ ›</b> で前後に動かす。
+      </p>
 
       {/* 大きなタップボタン */}
       <button
@@ -243,11 +250,12 @@ export default function HiTensionBeatTapPage() {
       {/* タップ一覧 */}
       <div style={{ border: "1px solid #222", borderRadius: 8, overflow: "hidden", marginBottom: 10 }}>
         <div style={{ display: "flex", fontSize: 11, color: "#888", padding: "6px 8px", borderBottom: "1px solid #222", background: "#0c0c0c" }}>
-          <span style={{ width: 24 }}>#</span>
-          <span style={{ width: 64 }}>{snapOn ? "補正秒" : "秒数"}</span>
+          <span style={{ width: 22 }}>#</span>
+          <span style={{ width: 58 }}>{snapOn ? "補正秒" : "秒数"}</span>
+          <span style={{ width: 40, textAlign: "center" }}>前後</span>
           <span style={{ flex: 1 }}>コール文</span>
-          <span style={{ width: 48, textAlign: "center" }}>長さ拍</span>
-          <span style={{ width: 78, textAlign: "right" }}>操作</span>
+          <span style={{ width: 40, textAlign: "center" }}>長さ</span>
+          <span style={{ width: 74, textAlign: "right" }}>操作</span>
         </div>
         <div style={{ maxHeight: 300, overflowY: "auto" }}>
           {taps.length === 0 && <p style={{ fontSize: 12, color: "#666", textAlign: "center", padding: 14, margin: 0 }}>まだタップなし</p>}
@@ -255,8 +263,12 @@ export default function HiTensionBeatTapPage() {
             const shown = dispT(tap.t);
             return (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 13, padding: "4px 8px", borderBottom: "1px solid #161616" }}>
-                <span style={{ width: 24, color: "#777" }}>{i + 1}</span>
-                <button onClick={() => seekTo(shown)} style={{ width: 64, textAlign: "left", background: "none", border: "none", color: "#7cf", cursor: "pointer", fontSize: 13, padding: 0 }} title="ここへシーク">{fmt(shown)}</button>
+                <span style={{ width: 22, color: anchorSec === tap.t ? PINK : "#777", fontWeight: anchorSec === tap.t ? 700 : 400 }}>{i + 1}</span>
+                <button onClick={() => seekTo(shown)} style={{ width: 58, textAlign: "left", background: "none", border: "none", color: "#7cf", cursor: "pointer", fontSize: 13, padding: 0 }} title="ここへシーク">{fmt(shown)}</button>
+                <span style={{ width: 40, textAlign: "center", whiteSpace: "nowrap" }}>
+                  <button onClick={() => nudge(i, -1)} style={{ background: "none", border: "none", color: "#9cf", cursor: "pointer", fontSize: 16, padding: "0 1px" }} title={`${snapRes === "e" ? "8分" : "4分"}前へ`}>‹</button>
+                  <button onClick={() => nudge(i, 1)} style={{ background: "none", border: "none", color: "#9cf", cursor: "pointer", fontSize: 16, padding: "0 1px" }} title={`${snapRes === "e" ? "8分" : "4分"}後へ`}>›</button>
+                </span>
                 <input
                   value={tap.note}
                   onChange={e => setNote(i, e.target.value)}
@@ -266,12 +278,13 @@ export default function HiTensionBeatTapPage() {
                 <input
                   type="number" step="0.5" value={tap.lenBeats}
                   onChange={e => setLen(i, Number(e.target.value) || 0)}
-                  style={{ width: 44, fontSize: 12, padding: "4px 4px", borderRadius: 6, border: "1px solid #333", background: "#111", color: "#eee", textAlign: "center" }}
+                  style={{ width: 38, fontSize: 12, padding: "4px 3px", borderRadius: 6, border: "1px solid #333", background: "#111", color: "#eee", textAlign: "center" }}
                 />
-                <span style={{ width: 78, textAlign: "right", whiteSpace: "nowrap" }}>
-                  <button onClick={() => copyRow(i)} style={{ background: "none", border: "none", color: "#9aa0a6", cursor: "pointer", fontSize: 14 }} title="このコールをコピー">⧉</button>
-                  <button onClick={() => pasteRow(i)} disabled={!clip} style={{ background: "none", border: "none", color: clip ? PINK : "#444", cursor: clip ? "pointer" : "default", fontSize: 14 }} title="ここに貼り付け">⤓</button>
-                  <button onClick={() => removeAt(i)} style={{ background: "none", border: "none", color: "#a55", cursor: "pointer", fontSize: 16 }} title="削除">×</button>
+                <span style={{ width: 74, textAlign: "right", whiteSpace: "nowrap" }}>
+                  <button onClick={() => setAnchorRow(i)} style={{ background: "none", border: "none", color: anchorSec === tap.t ? PINK : "#9aa0a6", cursor: "pointer", fontSize: 13 }} title="この行を拍の基準に">◎</button>
+                  <button onClick={() => copyRow(i)} style={{ background: "none", border: "none", color: "#9aa0a6", cursor: "pointer", fontSize: 13 }} title="このコールをコピー">⧉</button>
+                  <button onClick={() => pasteRow(i)} disabled={!clip} style={{ background: "none", border: "none", color: clip ? PINK : "#444", cursor: clip ? "pointer" : "default", fontSize: 13 }} title="ここに貼り付け">⤓</button>
+                  <button onClick={() => removeAt(i)} style={{ background: "none", border: "none", color: "#a55", cursor: "pointer", fontSize: 15 }} title="削除">×</button>
                 </span>
               </div>
             );
