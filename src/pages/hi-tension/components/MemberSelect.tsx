@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { UNIT_ROWS, findMember, PRACTICE_VIDEOS } from "../data";
+import { UNIT_ROWS, NEW_MEMBERS, findMember, PRACTICE_VIDEOS } from "../data";
 import HandIcon from "./HandIcon";
 import type { SpecialEvent } from "../events";
 
@@ -321,7 +321,7 @@ export default function MemberSelect({
               })}
             </div>
           ))}
-          {/* 新メンバー枠（メンバーカラー発表前のプレースホルダ・飾り＝押せない） */}
+          {/* 2026-06-13 加入の新メンバー3人（最下段に独立した1行） */}
           <div
             style={{
               display: "flex",
@@ -330,19 +330,33 @@ export default function MemberSelect({
               flexWrap: "nowrap",
             }}
           >
-            {["kojima", "ootsubo", "sugiyama"].map((name) => (
-              <div
-                key={name}
-                aria-label={name}
-                style={{
-                  width: isLandscape ? "clamp(44px, 14dvh, 52px)" : "clamp(44px, 7.5dvh, 56px)",
-                  height: isLandscape ? "clamp(44px, 14dvh, 52px)" : "clamp(44px, 7.5dvh, 56px)",
-                  borderRadius: "50%",
-                  background: "#e3e3e3",
-                  boxShadow: "0 0 0 1px rgba(0,0,0,0.08)",
-                }}
-              />
-            ))}
+            {NEW_MEMBERS.map((m) => {
+              const isSelected = selectedId === m.id;
+              const baseSize = isLandscape ? "clamp(44px, 14dvh, 52px)" : "clamp(44px, 7.5dvh, 56px)";
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  aria-label={`color ${m.color}`}
+                  aria-pressed={isSelected}
+                  onClick={() => { setSelectedId(m.id); setPopTick((t) => t + 1); detectQaGesture(m.id); }}
+                  style={{
+                    width: baseSize,
+                    height: baseSize,
+                    borderRadius: "50%",
+                    background: tint(m.color),
+                    border: "none",
+                    boxShadow: isSelected
+                      ? `0 0 0 3px #f8f9fa, 0 0 0 5px ${tint(m.color)}`
+                      : "0 0 0 1px rgba(0,0,0,0.08)",
+                    padding: 0,
+                    cursor: "pointer",
+                    transform: isSelected ? "scale(1.2)" : "scale(1)",
+                    transition: "transform 0.18s, box-shadow 0.18s",
+                  }}
+                />
+              );
+            })}
           </div>
           </>
         )}

@@ -61,7 +61,19 @@ export const UNIT_ROWS: readonly UnitRow[] = [
   },
 ] as const;
 
-export const ALL_HI_MEMBERS: HiTensionMember[] = UNIT_ROWS.flatMap(r => r.members);
+// 2026-06-13 加入の新メンバー3人（メンカラ同日21:00発表）。サブユニット未確定のため
+// UNIT_ROWS（ユニット別の段）には入れず、色選択では最下段に独立した1行で出す。
+// 小島はな=ホワイト, 大坪茉乃=ライトグリーン(平山遊季#d0df00を参照), 杉山結菜=レッド(暫定#FF0000)。
+export const NEW_MEMBERS: readonly HiTensionMember[] = [
+  { id: "kojima",   color: "#ffffff" },
+  { id: "otsubo",   color: "#d0df00" },
+  { id: "sugiyama", color: "#FF0000" },
+] as const;
+
+export const ALL_HI_MEMBERS: HiTensionMember[] = [
+  ...UNIT_ROWS.flatMap(r => r.members),
+  ...NEW_MEMBERS,
+];
 
 export function findMember(id: string | null): HiTensionMember | null {
   if (!id) return null;
