@@ -112,6 +112,7 @@ export default function HiTensionQuizPage() {
   }, [calls]);
 
   const playerRef = useRef<YouTubePlayerApi>(null);
+  const loadedVideoRef = useRef(data.current.videoId); // 今プレイヤーに載ってる動画（レクチャー確認で切り替わる）
   const [phase, setPhase] = useState<"ready" | "playing" | "result">("ready");
   const [activeIdx, setActiveIdx] = useState(-1);
   const [verdictMap, setVerdictMap] = useState<Record<number, Verdict>>({}); // タイムライン開示用（判定したら中身＋色を出す）
@@ -156,7 +157,7 @@ export default function HiTensionQuizPage() {
   const finish = () => {
     cancelAnimationFrame(rafRef.current);
     if (kickTimer.current) { clearInterval(kickTimer.current); kickTimer.current = null; }
-    try { playerRef.current?.pause(); } catch { /* ignore */ }
+    // 動画は止めない：曲の終わり〜「見てくれてありがとう」シーンまでそのまま流す（ぶつ切りにしない）。
     // 未判定はノータップ・ミス扱いで埋める（cue＝心掛けは採点対象外）
     for (let i = 0; i < targets.length; i++) if (targets[i].kind !== "cue" && !judgedRef.current.has(i)) judge(i, null, null);
     const filled: Result[] = targets
@@ -173,6 +174,11 @@ export default function HiTensionQuizPage() {
     armedRef.current = false; startFramesRef.current = 0;
     activeIdxRef.current = -1; setActiveIdx(-1);
     setPhase("playing");
+    // レクチャー確認でプレイヤーが別動画に切り替わっていたら、ステージ動画へ戻す（もう一回で正しく頭から）。
+    if (loadedVideoRef.current !== data.current.videoId) {
+      try { playerRef.current?.loadVideo?.(data.current.videoId, { startSeconds: 0 }); } catch { /* ignore */ }
+      loadedVideoRef.current = data.current.videoId;
+    }
     // 黒画面のまま固まる対策：プレイヤーの準備が間に合わないと最初のplayが空振りする。
     // 「頭出し＋再生」を、実際に再生が始まる(isPlaying)まで300 msごとに最大8回キックする。
     const kick = () => { try { playerRef.current?.seekTo(0); playerRef.current?.play(); } catch { /* ignore */ } };
@@ -230,14 +236,16 @@ export default function HiTensionQuizPage() {
     judge(i, note, now - tg.call.t);
   };
 
-  // 答え確認リンク（レクチャー動画の数小節前へ）。
+  // 答え確認＝外部YouTubeに飛ばさず、ページ内プレイヤーをレクチャー動画に切り替えてミスの数小節前から再生。
+  // 動画そのものが「正解のタイミング」の実演になる（数小節前＝5,6,7,8のカウントイン相当の助走つき）。
   // 同テンポなので「最初のコール(ステージ)→レクチャー0:06」を合わせれば全体が合う：
   //   lecture時刻 = (このコール - 最初のコール) + 6秒。そこから数小節前を頭出し。
   const firstT = calls.length ? calls[0].t : 0;
-  const lectureUrl = (t: number) => {
+  const watchLecture = (t: number) => {
     const lectureT = (t - firstT) + LECTURE_FIRST_CALL_SEC;
     const sec = Math.max(0, Math.round(lectureT - REVIEW_BARS * 4 * beatSec));
-    return `https://www.youtube.com/watch?v=${LECTURE_VIDEO}&t=${sec}s`;
+    try { playerRef.current?.loadVideo?.(LECTURE_VIDEO, { startSeconds: sec }); } catch { /* ignore */ }
+    loadedVideoRef.current = LECTURE_VIDEO;
   };
 
   const active = activeIdx >= 0 ? targets[activeIdx] : null;
@@ -318,7 +326,7 @@ export default function HiTensionQuizPage() {
 
       {/* ===== result ===== */}
       {phase === "result" && (
-        <ResultView results={results} beatSec={beatSec} lectureUrl={lectureUrl} onRetry={start}
+        <ResultView results={results} onRetry={start} onWatchLecture={watchLecture}
           verdictLabel={verdictLabel} verdictColor={verdictColor} />
       )}
     </div>
@@ -426,9 +434,9 @@ function QuizTimeline({ calls, beatSec, getNow, verdictMap, activeIdx, pink }: {
   );
 }
 
-// 結果画面：スコア＋ミス一覧（正解タイミング実演＋ズレ＋レクチャーリンク）
-function ResultView({ results, beatSec, lectureUrl, onRetry, verdictLabel, verdictColor }: {
-  results: Result[]; beatSec: number; lectureUrl: (t: number) => string; onRetry: () => void;
+// 結果画面：スコア＋ミス一覧（ズレ＋「動画で正しいタイミングを見る」＝ページ内でレクチャー動画の数小節前から）
+function ResultView({ results, onRetry, onWatchLecture, verdictLabel, verdictColor }: {
+  results: Result[]; onRetry: () => void; onWatchLecture: (t: number) => void;
   verdictLabel: Record<Verdict, string>; verdictColor: Record<Verdict, string>;
 }) {
   const ok = results.filter(r => r.verdict === "perfect" || r.verdict === "good").length;
@@ -455,11 +463,10 @@ function ResultView({ results, beatSec, lectureUrl, onRetry, verdictLabel, verdi
                   {verdictLabel[r.verdict]}{r.errMs != null ? `（${r.errMs > 0 ? "+" : ""}${r.errMs}ms ${r.errMs > 0 ? "遅い" : "早い"}）` : ""}
                 </span>
               </div>
-              <TimingDemo beatSec={beatSec} note={r.call.note || "♪"} />
-              <a href={lectureUrl(r.call.t)} target="_blank" rel="noopener noreferrer"
-                style={{ display: "inline-block", marginTop: 8, fontSize: 13, color: "#7cc4ff", textDecoration: "none", fontWeight: 700 }}>
-                ▶ レクチャーで答えを見る（数小節前から）
-              </a>
+              <button onClick={() => onWatchLecture(r.call.t)}
+                style={{ width: "100%", fontSize: 14, color: "#cfe8ff", background: "rgba(124,196,255,0.12)", border: "1px solid rgba(124,196,255,0.45)", borderRadius: 10, padding: "10px 12px", fontWeight: 700, cursor: "pointer" }}>
+                ▶ 動画で正しいタイミングを見る（数小節前から）
+              </button>
             </div>
           ))}
         </>
@@ -467,39 +474,6 @@ function ResultView({ results, beatSec, lectureUrl, onRetry, verdictLabel, verdi
 
       <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 12 }}>
         <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff" }} onClick={onRetry}>もう一回</button>
-      </div>
-    </div>
-  );
-}
-
-// 「5,6,7,8 → ここ！」で正解タイミングを実演（上級編のカウントイン流用）
-function TimingDemo({ beatSec, note }: { beatSec: number; note: string }) {
-  const [step, setStep] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const seq = ["5", "6", "7", "8", note];
-
-  const play = () => {
-    if (timer.current) clearTimeout(timer.current);
-    let k = 0; setStep(seq[0]);
-    const tick = () => {
-      k += 1;
-      if (k < seq.length) { setStep(seq[k]); timer.current = setTimeout(tick, beatSec * 1000); }
-      else { timer.current = setTimeout(() => setStep(null), 700); }
-    };
-    timer.current = setTimeout(tick, beatSec * 1000);
-  };
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-
-  const isCall = step !== null && step === note;
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <button onClick={play} style={{ fontSize: 13, padding: "7px 12px", borderRadius: 9, border: "1px solid rgba(255,255,255,0.2)", background: "rgba(255,255,255,0.06)", color: "#eee", cursor: "pointer", flex: "0 0 auto", fontWeight: 700 }}>
-        ▶ 正解の<br />タイミング
-      </button>
-      <div style={{ flex: 1, height: 44, borderRadius: 9, background: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-        <span style={{ fontSize: isCall ? 22 : 18, fontWeight: 900, color: isCall ? PINK : "#cbd2dc", wordBreak: "break-all", textAlign: "center", lineHeight: 1.1, padding: "0 6px" }}>
-          {step ?? "5・6・7・8 →"}
-        </span>
       </div>
     </div>
   );
