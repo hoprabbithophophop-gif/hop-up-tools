@@ -21,7 +21,7 @@ const ARENA_BG = "radial-gradient(150% 85% at 50% -8%, #1b2030 0%, #0e1016 48%, 
 const LECTURE_VIDEO = "xr7_Z5ibZMA";
 const LECTURE_FIRST_CALL_SEC = 6.0; // レクチャー動画で最初のコールが鳴る時刻(hop実測0:06)。同テンポなのでfirstを合わせれば全体一致
 const REVIEW_BARS = 2;          // 答え確認は「ミスの何小節前」から
-const LEAD_BEATS = 4;           // 候補ボタンを拍の何拍前から出すか（早めに出して読む時間を作る＝反射神経テストにしない）
+const LEAD_BEATS = 6;           // 候補ボタンを拍の何拍前から出すか（早めに出して読む時間を作る＝反射神経テストにしない。BPM149で6拍≈2.4秒）
 const PERFECT_MS = 250;         // タイミング判定はゆるめ（リズム練習であって反応速度テストではない）
 const GOOD_MS = 600;
 const MISS_TAIL = GOOD_MS / 1000 + 0.1; // この秒数を過ぎたら無タップ＝ミス確定
@@ -276,9 +276,9 @@ export default function HiTensionQuizPage() {
       {/* ===== ready ===== */}
       {phase === "ready" && (
         <div style={{ flex: "1 1 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
-          <p style={{ fontSize: 13, color: "#9aa3b0", maxWidth: 360, lineHeight: 1.7, margin: 0 }}>
-            曲が流れる→上のタイムラインで <b style={{ color: "#cbd2dc" }}>？が中央(拍)に近づく</b>→<b style={{ color: "#cbd2dc" }}>正しいコールを選ぶ</b>。<br />
-            大事なのは<b style={{ color: PINK }}>タイミング</b>。オイ！／Fu の連打は専用ボタンで。終わったら苦手を結果画面で振り返れる。
+          <p style={{ fontSize: 14, color: "#cbd2dc", maxWidth: 360, lineHeight: 1.8, margin: 0 }}>
+            正しいコールを正しいタイミングでタップ！<br />
+            <span style={{ color: "#9aa3b0" }}>小さく口ずさみながらだと本番でも対応できるはず！</span>
           </p>
           {calls.length > 0 && (
             <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", fontSize: 17, padding: "13px 30px" }} onClick={start}>▶ スタート</button>
