@@ -10,7 +10,7 @@
 //   - 採点は「コール正誤 × タイミング精度」。流れは止めない。
 //   - 終わったら結果画面：ミスを一覧→「5,6,7,8→ここ！」で正解タイミングを実演＋自分のズレ表示＋
 //     「レクチャーで答えを見る」リンク（コールレクチャー動画の数小節前へ）。
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
 import { ARIGATO_BEAT_CALLS, ARIGATO_BEAT_VIDEO, ARIGATO_BEAT_BPM, ARIGATO_BEAT_SECTIONS } from "./arigatoBeatCalls";
 
@@ -21,13 +21,13 @@ const ARENA_BG = "radial-gradient(150% 85% at 50% -8%, #1b2030 0%, #0e1016 48%, 
 const LECTURE_VIDEO = "xr7_Z5ibZMA";
 const LECTURE_FIRST_CALL_SEC = 6.0; // レクチャー動画で最初のコールが鳴る時刻(hop実測0:06)。同テンポなのでfirstを合わせれば全体一致
 const REVIEW_BARS = 2;          // 答え確認は「ミスの何小節前」から
-const LEAD_BEATS = 6;           // 候補ボタンを拍の何拍前から出すか（早めに出して読む時間を作る＝反射神経テストにしない。BPM149で6拍≈2.4秒）
-// 採点は「早い側だけ厳しめ」（hop方針）。コールは先走り(フライング)が目立つので早すぎを戒め、後ろ(拍ちょうど〜遅い)は寛大。
-const EARLY_GRACE_MS = 150;     // これ以上早いと「早すぎ＝フライング」でミス。〜150msのちょい早はセーフ。
-const PERFECT_MS = 250;         // 拍ちょうど〜これだけ後ろまでPERFECT（早い側はEARLY_GRACEまで）
-const GOOD_MS = 600;            // 〜これだけ後ろまでGOOD
-const MISS_TAIL = GOOD_MS / 1000 + 0.25; // この秒数を過ぎたら無タップ＝ミス確定（「遅い」判定の猶予も確保）
-const MIN_TAP_GAP_SEC = 0.1; // 連打で1タップが2コールを消費しないための最小間隔（DDD lets-ddd-easy の入力デバウンス相当）
+const LEAD_BEATS = 6;           // 候補ボタンを拍の何拍前から「表示」するか（読む時間用。判定窓とは別。BPM149で6拍≈2.4秒）
+// 採点＝DDD(lets-ddd-easy)方式を流用。「最初の未判定コールに当てる」＋「±BADを過ぎたら即ミス消化」＋「±BAD内じゃないと当てない」＋入力デバウンス。
+// 連打が崩れない肝＝窓を狭く・ミスを即消化（居座らせない）。窓が広い(旧850ms=約2拍)と隣を掴んで連鎖する。
+const PERFECT_MS = 100;         // ±100msでPERFECT
+const LATE_MS = 300;            // 拍の頭より「後ろ」はここまで当たる＆GOOD（後ろのマッチ／無タップミス窓）
+const EARLY_MS = 100;           // 拍の頭より「前」はここまでしか当たらない＝頭より前は判定無し（早い側だけ厳しく狭く・hop方針）
+const MIN_TAP_GAP_SEC = 0.1;    // 連打で1タップが2コールを消費しないための最小間隔（DDDの入力デバウンス相当）
 
 // タイムライン（/beat流用）
 const Q_SPAN_SEC = 6;    // 可視秒数（拍ごとの山が分離して見える幅）
@@ -51,7 +51,7 @@ function shareToX(ok: number, total: number, perfect: number, good: number) {
 }
 
 type Call = { t: number; note: string; lenBeats: number };
-type Verdict = "perfect" | "good" | "late" | "early" | "wrong" | "notap";
+type Verdict = "perfect" | "good" | "wrong" | "notap";
 type Target = { call: Call; kind: "chant" | "normal" | "cue"; answer: string; candidates: string[] };
 
 // （）で囲まれたものはコールではなく、レクチャー動画で言ってた「心掛け／合いの手」（例：（かわいく））。
@@ -113,8 +113,6 @@ function shuffle<T>(a: T[]): T[] {
 const VERDICT_BAR: Record<Verdict, { bg: string; bd: string; fg: string }> = {
   perfect: { bg: "rgba(54,211,153,0.24)", bd: "rgba(54,211,153,0.85)", fg: "#36d399" },
   good: { bg: "rgba(124,196,255,0.24)", bd: "rgba(124,196,255,0.85)", fg: "#7cc4ff" },
-  late: { bg: "rgba(245,179,66,0.24)", bd: "rgba(245,179,66,0.85)", fg: "#f5b342" },
-  early: { bg: "rgba(255,138,92,0.24)", bd: "rgba(255,138,92,0.85)", fg: "#ff8a5c" },
   wrong: { bg: "rgba(255,107,138,0.24)", bd: "rgba(255,107,138,0.85)", fg: "#ff6b8a" },
   notap: { bg: "rgba(136,136,136,0.18)", bd: "rgba(136,136,136,0.55)", fg: "#9aa3b0" },
 };
@@ -182,12 +180,8 @@ export default function HiTensionQuizPage() {
     if (chosen === null) verdict = "notap";
     else if (chosen !== tg.answer) verdict = "wrong";
     else {
-      errMs = Math.round((errSec ?? 0) * 1000); // +は遅い、−は早い
-      // 早い側だけ厳しめ：EARLY_GRACEより早い＝フライング(ミス)。あとは拍ちょうど〜後ろを寛大に。
-      if (errMs < -EARLY_GRACE_MS) verdict = "early";
-      else if (errMs <= PERFECT_MS) verdict = "perfect";
-      else if (errMs <= GOOD_MS) verdict = "good";
-      else verdict = "late";
+      errMs = Math.round((errSec ?? 0) * 1000); // +は遅い、−は早い（DDD流用＝左右対称・符号は表示用に保持）
+      verdict = Math.abs(errMs) <= PERFECT_MS ? "perfect" : "good";
     }
     const r: Result = { i, call: tg.call, chosen, errMs, verdict };
     resRef.current[i] = r;
@@ -212,7 +206,8 @@ export default function HiTensionQuizPage() {
     setPhase("result");
   };
 
-  const getNow = () => playerRef.current?.getCurrentTime?.() ?? nowRef.current;
+  // 安定参照（毎レンダーで作り直さない）＝QuizTimelineのReact.memoが効く＝判定外の再描画で揺れない（ガタつき対策）
+  const getNow = useRef(() => playerRef.current?.getCurrentTime?.() ?? nowRef.current).current;
 
   const start = () => {
     judgedRef.current = new Set(); resRef.current = []; setResults([]); setFlash(null); setVerdictMap({});
@@ -252,20 +247,22 @@ export default function HiTensionQuizPage() {
         if (startFramesRef.current >= 3) armedRef.current = true;
         else return;
       }
-      // 通り過ぎた未判定はミス確定（心掛け＝cueは出題しないので対象外）
-      for (let i = 0; i < targets.length; i++) {
-        if (targets[i].kind !== "cue" && !judgedRef.current.has(i) && now > targets[i].call.t + MISS_TAIL) judge(i, null, null);
+      // DDD方式：先頭の未判定コールが「頭＋後ろ窓(LATE)」を過ぎていたら即ミス消化（居座らせない＝連鎖の元を断つ）。
+      // 順番に消化（一気に複数過ぎてても順に）。cueは出題対象外。
+      for (let guard = 0; guard < targets.length; guard++) {
+        let fi = -1;
+        for (let i = 0; i < targets.length; i++) { if (targets[i].kind === "cue" || judgedRef.current.has(i)) continue; fi = i; break; }
+        if (fi < 0) break;
+        if (now > targets[fi].call.t + LATE_MS / 1000) judge(fi, null, null); // 後ろ窓を過ぎた＝無タップミス
+        else break;
       }
-      // アクティブ＝出現中の未判定コールのうち「今の時刻に最も近い」もの（cueは飛ばす）。
-      // 連続オイ！で1つ見送っても、以降は最寄りのコールに当たる＝判定が後ろ倒しにズレない
-      // （DDD lets-ddd-easy 方式：各タップを独立に最寄りノートへ当てる）。
-      let ai = -1, aiAbs = Infinity;
+      // アクティブ＝「先頭の未判定コール」（DDDのfirst-unjudged）。表示窓(LEAD)に入っていれば候補ボタンを出す。
+      // タップは onTap 側で ±MATCH 内のときだけ当てる（窓外は無効）。
+      let ai = -1;
       for (let i = 0; i < targets.length; i++) {
         if (targets[i].kind === "cue" || judgedRef.current.has(i)) continue;
-        const d = now - targets[i].call.t; // +は過ぎた、−はこれから
-        if (d < -LEAD_BEATS * beatSec || d > MISS_TAIL) continue; // まだ画面に出てない先 or もう見送った後は対象外
-        const a = Math.abs(d);
-        if (a < aiAbs) { aiAbs = a; ai = i; }
+        if (now >= targets[i].call.t - LEAD_BEATS * beatSec) ai = i; // 出現済みなら表示
+        break; // 先頭の未判定だけ見る
       }
       if (ai !== activeIdxRef.current) { activeIdxRef.current = ai; setActiveIdx(ai); }
       if (now >= lastT + 1.2) finish();
@@ -279,12 +276,17 @@ export default function HiTensionQuizPage() {
 
   const onTap = (note: string) => {
     const now = getNow();
-    // 1タップで2コールを消費しない（連打の取りこぼし対策・DDDの入力デバウンス相当）。
+    // 入力デバウンス（1タップが2コールを消費しない）。窓外でも時刻は更新（DDD流用）。
     if (now - lastTapAtRef.current < MIN_TAP_GAP_SEC) return;
-    if (activeIdxRef.current < 0) return;
-    const i = activeIdxRef.current;
     lastTapAtRef.current = now;
-    judge(i, note, now - targets[i].call.t);
+    // 当てる先＝先頭の未判定コール（DDDのfirst-unjudged）。
+    let i = -1;
+    for (let k = 0; k < targets.length; k++) { if (targets[k].kind === "cue" || judgedRef.current.has(k)) continue; i = k; break; }
+    if (i < 0) return;
+    const errSec = now - targets[i].call.t;
+    // 当たる窓は左右非対称：前(早い)はEARLYまで・後ろ(遅い)はLATEまで。頭より前は厳しく＝それ以前は判定無し（無視・ペナルティ無し、もう一回叩ける）。
+    if (errSec < -EARLY_MS / 1000 || errSec > LATE_MS / 1000) return;
+    judge(i, note, errSec);
   };
 
   // ===== 結果の「見返し」＝採譜キャリブレーター =====
@@ -336,8 +338,8 @@ export default function HiTensionQuizPage() {
   // 候補ボタン＝高さ固定（テキストが長くても枠内で折り返す＝ガタガタしない）。
   const choiceBtn: React.CSSProperties = { height: 62, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", fontSize: 15, padding: "4px 8px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color: "#eee", fontWeight: 700, cursor: "pointer", lineHeight: 1.15, wordBreak: "break-all", overflow: "hidden" };
 
-  const verdictLabel: Record<Verdict, string> = { perfect: "PERFECT", good: "GOOD", late: "遅い", early: "早すぎ", wrong: "ちがうコール", notap: "押せてない" };
-  const verdictColor: Record<Verdict, string> = { perfect: "#36d399", good: "#7cc4ff", late: "#f5b342", early: "#ff8a5c", wrong: "#ff6b8a", notap: "#888" };
+  const verdictLabel: Record<Verdict, string> = { perfect: "PERFECT", good: "GOOD", wrong: "ちがうコール", notap: "押せてない" };
+  const verdictColor: Record<Verdict, string> = { perfect: "#36d399", good: "#7cc4ff", wrong: "#ff6b8a", notap: "#888" };
 
   return (
     <div style={{ height: "100dvh", overflow: "hidden", background: ARENA_BG, color: "#eef1f5", display: "flex", flexDirection: "column", fontFamily: "Inter, system-ui, sans-serif", padding: "10px 14px", boxSizing: "border-box" }}>
@@ -434,7 +436,7 @@ export default function HiTensionQuizPage() {
 
 // タイムライン（/beat流用・読み取り専用）：中央固定プレイヘッド＋拍グリッド。コールは拍幅のバーで右から流れる。
 // これから来る＝「？」でぼかし、判定済み＝中身＋正誤色で開示。translateXは自前rAFで毎フレーム（親を再描画させない）。
-function QuizTimeline({ calls, beatSec, getNow, verdictMap, activeIdx, pink }: {
+const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdictMap, activeIdx, pink }: {
   calls: Call[]; beatSec: number; getNow: () => number;
   verdictMap: Record<number, Verdict>; activeIdx: number; pink: string;
 }) {
@@ -531,7 +533,7 @@ function QuizTimeline({ calls, beatSec, getNow, verdictMap, activeIdx, pink }: {
       </div>
     </div>
   );
-}
+});
 
 // 結果画面：スコア＋おさらい一覧（PERFECT以外を全部・セクション別）。各コールを「見返す」と動画＋カウントインへ。
 function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, onReset, verdictLabel, verdictColor }: {
@@ -554,7 +556,7 @@ function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, 
       </div>
       {/* 内訳（0件のものは出さない） */}
       <div style={{ display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap", fontSize: 12, margin: "0 0 14px" }}>
-        {(["perfect", "good", "early", "late", "wrong", "notap"] as Verdict[]).map(k => {
+        {(["perfect", "good", "wrong", "notap"] as Verdict[]).map(k => {
           const n = results.filter(r => r.verdict === k).length;
           if (!n) return null;
           return <span key={k} style={{ color: verdictColor[k], fontWeight: 700 }}>{verdictLabel[k]} {n}</span>;
