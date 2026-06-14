@@ -36,9 +36,9 @@ export default function App() {
             <Route path="/hi-tension" element={<HiTensionPage />} />
             <Route path="/hi-tension/author" element={<HiTensionAuthorPage />} />
             <Route path="/hi-tension/practice" element={<HiTensionPracticePage />} />
-            <Route path="/hi-tension/beat" element={<HiTensionBeatTapPage />} />
-            <Route path="/hi-tension/call" element={<HiTensionCallPage />} />
-            <Route path="/hi-tension/quiz" element={<HiTensionQuizPage />} />
+            <Route path="/arigato-beat/beat" element={<HiTensionBeatTapPage />} />
+            <Route path="/arigato-beat/call" element={<HiTensionCallPage />} />
+            <Route path="/arigato-beat/quiz" element={<HiTensionQuizPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/terms" element={<TermsPage />} />
             <Route path="*" element={<NotFoundPage />} />

@@ -3,7 +3,7 @@
 // 目的: ステージ動画を見ながらタップして「その瞬間の動画秒数」を記録し、
 //       タップ間隔から大体のBPMを推定したり、各タップにコール文をメモして、
 //       コールデータ(JSON)として書き出すための作業用画面。
-//       公開ツールではない。隠しルート (/hi-tension/beat)。
+//       公開ツールではない。隠しルート (/arigato-beat/beat)。
 import { useEffect, useMemo, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
 

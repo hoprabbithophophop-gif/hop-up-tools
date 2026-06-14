@@ -1,6 +1,6 @@
-// コール練習プレイヤー（開発用・隠しルート /hi-tension/call）
+// コール練習プレイヤー（開発用・隠しルート /arigato-beat/call）
 //
-// 目的: 採譜ツール(/hi-tension/beat)で作ったコールを「テレプロンプター」で再生する。
+// 目的: 採譜ツール(/arigato-beat/beat)で作ったコールを「テレプロンプター」で再生する。
 //   - YouTube同期モード: ステージ練習動画(YouTube)に合わせてコールを表示（フル制御で完全同期）。
 //   - 単独モード: 動画なしで内部クロックを回す。3・2・1カウントダウンで頭出しし、±msオフセットで
 //     微調整。インスタのレクチャー映像など“操作できない動画”と手動で合わせて一緒に流す用。
@@ -120,7 +120,7 @@ export default function HiTensionCallPage() {
       </div>
 
       {calls.length === 0 && (
-        <p style={{ fontSize: 13, color: "#9aa3b0", marginTop: 12 }}>採譜データがありません。先に <b style={{ color: "#cbd2dc" }}>/hi-tension/beat</b> でコールを記録してね。</p>
+        <p style={{ fontSize: 13, color: "#9aa3b0", marginTop: 12 }}>採譜データがありません。先に <b style={{ color: "#cbd2dc" }}>/arigato-beat/beat</b> でコールを記録してね。</p>
       )}
 
       {/* YouTubeモードだけ動画を出す（同期元） */}

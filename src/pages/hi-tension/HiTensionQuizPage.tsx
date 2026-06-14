@@ -1,4 +1,4 @@
-// コール練習クイズ（開発用・隠しルート /hi-tension/quiz）
+// コール練習クイズ（開発用・隠しルート /arigato-beat/quiz）
 //
 // 主役は「正しいタイミングで・正しいコールを出せるか」。声・マイクは使わず全部タップ。
 //   - ステージプラクティス動画（コール答えが映らない）を流す。
@@ -232,7 +232,7 @@ export default function HiTensionQuizPage() {
       </div>
 
       {calls.length === 0 && phase === "ready" && (
-        <p style={{ fontSize: 13, color: "#9aa3b0", marginTop: 12 }}>採譜データがありません。先に <b style={{ color: "#cbd2dc" }}>/hi-tension/beat</b> でコールを記録してね。</p>
+        <p style={{ fontSize: 13, color: "#9aa3b0", marginTop: 12 }}>採譜データがありません。先に <b style={{ color: "#cbd2dc" }}>/arigato-beat/beat</b> でコールを記録してね。</p>
       )}
 
       {/* 動画（ステージプラクティス＝答えが映らない） */}
