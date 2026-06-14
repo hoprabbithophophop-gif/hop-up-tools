@@ -5,6 +5,24 @@ export type CallData = { t: number; lenBeats: number; note: string };
 
 export const ARIGATO_BEAT_VIDEO = "n5AVvFwbeaM";
 export const ARIGATO_BEAT_BPM = 149;
+
+// 曲のセクション境界（開始秒）。コールは startSec が自分の t 以下で最後のセクションに属する。
+// ※開始秒は採譜データの構造（見せてBEYOOOOONDS=サビ／お名前コール=大サビ／イントロとアウトロの対称 等）からの
+//   推測。実際とズレてたら秒数を直す（hop確認待ち）。
+export const ARIGATO_BEAT_SECTIONS: { name: string; startSec: number }[] = [
+  { name: "イントロ", startSec: 0 },
+  { name: "1番Aメロ", startSec: 23 },
+  { name: "1番Bメロ", startSec: 42 },
+  { name: "1番サビ", startSec: 52 },
+  { name: "1番間奏", startSec: 63 },
+  { name: "2番Aメロ", startSec: 81 },
+  { name: "2番Bメロ", startSec: 93 },
+  { name: "2番サビ", startSec: 108 },
+  { name: "2番間奏", startSec: 123 },
+  { name: "落ちサビ", startSec: 142 },
+  { name: "大サビ", startSec: 163 },
+  { name: "アウトロ", startSec: 202 },
+];
 export const ARIGATO_BEAT_CALLS: CallData[] = [
   { t: 3.295, lenBeats: 2, note: "フィール　ダ　フィーバー" },
   { t: 5.912, lenBeats: 1.5, note: "Say HELLO!" },

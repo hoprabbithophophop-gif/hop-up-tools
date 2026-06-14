@@ -12,7 +12,7 @@
 //     「レクチャーで答えを見る」リンク（コールレクチャー動画の数小節前へ）。
 import { useEffect, useMemo, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
-import { ARIGATO_BEAT_CALLS, ARIGATO_BEAT_VIDEO, ARIGATO_BEAT_BPM } from "./arigatoBeatCalls";
+import { ARIGATO_BEAT_CALLS, ARIGATO_BEAT_VIDEO, ARIGATO_BEAT_BPM, ARIGATO_BEAT_SECTIONS } from "./arigatoBeatCalls";
 
 const PINK = "#da1884";
 const ARENA_BG = "radial-gradient(150% 85% at 50% -8%, #1b2030 0%, #0e1016 48%, #07080c 100%)";
@@ -80,6 +80,17 @@ function bucketOf(lenBeats: number): "s" | "m" | "l" {
   if (lenBeats <= 2) return "s";
   if (lenBeats >= 5) return "l";
   return "m";
+}
+
+// 秒 → 曲のセクション名（startSec が t 以下で最後のもの）。どのありがとう/オイ！かを特定するため。
+function sectionOf(t: number): string {
+  let name = ARIGATO_BEAT_SECTIONS[0]?.name ?? "";
+  for (const s of ARIGATO_BEAT_SECTIONS) { if (s.startSec <= t) name = s.name; else break; }
+  return name;
+}
+function fmtSec(t: number): string {
+  const m = Math.floor(t / 60), s = Math.floor(t % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function shuffle<T>(a: T[]): T[] {
@@ -492,21 +503,31 @@ function ResultView({ results, onRetry, onWatchLecture, verdictLabel, verdictCol
         <p style={{ textAlign: "center", color: "#36d399", fontWeight: 700 }}>全部タイミング合ってた！完璧！</p>
       ) : (
         <>
-          <div style={{ fontSize: 12, color: "#9aa3b0", margin: "0 4px 8px" }}>苦手だったコール（{misses.length}）</div>
-          {misses.map(r => (
-            <div key={r.i} style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, margin: "0 0 10px", background: "rgba(255,255,255,0.03)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 16, fontWeight: 800, wordBreak: "break-all" }}>{r.call.note || "♪"}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: verdictColor[r.verdict], marginLeft: "auto" }}>
-                  {verdictLabel[r.verdict]}{r.errMs != null ? `（${r.errMs > 0 ? "+" : ""}${r.errMs}ms）` : ""}
-                </span>
+          <div style={{ fontSize: 12, color: "#9aa3b0", margin: "0 4px 8px" }}>苦手だったコール（{misses.length}）— セクション別</div>
+          {ARIGATO_BEAT_SECTIONS.map(sec => {
+            const inSec = misses.filter(r => sectionOf(r.call.t) === sec.name);
+            if (!inSec.length) return null;
+            return (
+              <div key={sec.name} style={{ margin: "0 0 12px" }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: PINK, margin: "0 2px 6px", letterSpacing: 0.5 }}>{sec.name}（{inSec.length}）</div>
+                {inSec.map(r => (
+                  <div key={r.i} style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, margin: "0 0 8px", background: "rgba(255,255,255,0.03)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <span style={{ fontSize: 11, color: "#7d8694", fontVariantNumeric: "tabular-nums", flex: "0 0 auto" }}>{fmtSec(r.call.t)}</span>
+                      <span style={{ fontSize: 16, fontWeight: 800, wordBreak: "break-all" }}>{r.call.note || "♪"}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: verdictColor[r.verdict], marginLeft: "auto", flex: "0 0 auto" }}>
+                        {verdictLabel[r.verdict]}{r.errMs != null ? `（${r.errMs > 0 ? "+" : ""}${r.errMs}ms）` : ""}
+                      </span>
+                    </div>
+                    <button onClick={() => onWatchLecture(r.call.t)}
+                      style={{ width: "100%", fontSize: 14, color: "#cfe8ff", background: "rgba(124,196,255,0.12)", border: "1px solid rgba(124,196,255,0.45)", borderRadius: 10, padding: "10px 12px", fontWeight: 700, cursor: "pointer" }}>
+                      ▶ 動画で正しいタイミングを見る（数小節前から）
+                    </button>
+                  </div>
+                ))}
               </div>
-              <button onClick={() => onWatchLecture(r.call.t)}
-                style={{ width: "100%", fontSize: 14, color: "#cfe8ff", background: "rgba(124,196,255,0.12)", border: "1px solid rgba(124,196,255,0.45)", borderRadius: 10, padding: "10px 12px", fontWeight: 700, cursor: "pointer" }}>
-                ▶ 動画で正しいタイミングを見る（数小節前から）
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </>
       )}
 
