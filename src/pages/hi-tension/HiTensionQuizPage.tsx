@@ -286,7 +286,7 @@ export default function HiTensionQuizPage() {
   const verdictColor: Record<Verdict, string> = { perfect: "#36d399", good: "#7cc4ff", late: "#f5b342", early: "#ff8a5c", wrong: "#ff6b8a", notap: "#888" };
 
   return (
-    <div style={{ minHeight: "100dvh", background: ARENA_BG, color: "#eef1f5", display: "flex", flexDirection: "column", fontFamily: "Inter, system-ui, sans-serif", padding: "10px 14px", boxSizing: "border-box" }}>
+    <div style={{ height: "100dvh", overflow: "hidden", background: ARENA_BG, color: "#eef1f5", display: "flex", flexDirection: "column", fontFamily: "Inter, system-ui, sans-serif", padding: "10px 14px", boxSizing: "border-box" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "0 0 auto" }}>
         <h1 style={{ fontSize: 15, fontWeight: 800, margin: 0 }}>コール練習クイズ <span style={{ fontSize: 11, color: "#8b93a0", fontWeight: 400 }}>(開発用)</span></h1>
         {phase === "playing" && <button style={{ ...btn, marginLeft: "auto", padding: "5px 12px", fontSize: 12 }} onClick={stop}>やめる</button>}
