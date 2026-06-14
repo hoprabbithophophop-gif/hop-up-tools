@@ -23,9 +23,9 @@ function loadCalls(): { videoId: string; calls: Call[]; bpm: number } {
       ? o.taps.filter((x: Call) => typeof x?.t === "number").map((x: Call) => ({ t: x.t, note: x.note || "", lenBeats: x.lenBeats || 1 }))
       : [];
     taps.sort((a, b) => a.t - b.t);
-    return { videoId: o.videoId || "xr7_Z5ibZMA", calls: taps, bpm: o.bpm || 149 };
+    return { videoId: o.videoId || "n5AVvFwbeaM", calls: taps, bpm: o.bpm || 149 };
   } catch {
-    return { videoId: "xr7_Z5ibZMA", calls: [], bpm: 149 };
+    return { videoId: "n5AVvFwbeaM", calls: [], bpm: 149 };
   }
 }
 
