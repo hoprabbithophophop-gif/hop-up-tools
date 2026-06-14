@@ -10,10 +10,10 @@
 // コールデータは採譜ツール(/hi-tension/beat)の保存(localStorage)を読む。
 import { useEffect, useMemo, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
+import { ARIGATO_BEAT_CALLS, ARIGATO_BEAT_VIDEO, ARIGATO_BEAT_BPM } from "./arigatoBeatCalls";
 
 const PINK = "#da1884";
 const ARENA_BG = "radial-gradient(150% 85% at 50% -8%, #1b2030 0%, #0e1016 48%, #07080c 100%)";
-const LS_KEY = "hi_tension:beat_tap";
 
 // コールレクチャー動画（答え確認の飛び先）。ステージプラクティスと同テンポ・頭出しが少し遅いだけ。
 const LECTURE_VIDEO = "xr7_Z5ibZMA";
@@ -28,17 +28,10 @@ type Call = { t: number; note: string; lenBeats: number };
 type Verdict = "perfect" | "good" | "late" | "wrong" | "notap";
 type Result = { i: number; call: Call; chosen: string | null; errMs: number | null; verdict: Verdict };
 
+// 本物のありがとビート採譜データを使う（quizは“遊ぶ製品”なので採譜のlocalStorageではなく確定データを読む）
 function loadData(): { videoId: string; calls: Call[]; bpm: number } {
-  try {
-    const o = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
-    const calls: Call[] = Array.isArray(o.taps)
-      ? o.taps.filter((x: Call) => typeof x?.t === "number").map((x: Call) => ({ t: x.t, note: x.note || "", lenBeats: x.lenBeats || 1 }))
-      : [];
-    calls.sort((a, b) => a.t - b.t);
-    return { videoId: o.videoId || "n5AVvFwbeaM", calls, bpm: o.bpm || 149 };
-  } catch {
-    return { videoId: "n5AVvFwbeaM", calls: [], bpm: 149 };
-  }
+  const calls = [...ARIGATO_BEAT_CALLS].map(c => ({ t: c.t, note: c.note, lenBeats: c.lenBeats })).sort((a, b) => a.t - b.t);
+  return { videoId: ARIGATO_BEAT_VIDEO, calls, bpm: ARIGATO_BEAT_BPM };
 }
 
 // 尺バケツ：短い/中/長で分ける（選択肢を尺で見分けられないように同バケツから抽選）
