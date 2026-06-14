@@ -93,6 +93,16 @@ function fmtSec(t: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+// 採譜ズレ補正（コールindex→秒）。結果のカウントイン見返しで「ズレてると感じたら直す」分をこの端末に貯める。
+// ライブ判定には使わない（検証済みロジックを触らない）＝書き出してデータ(arigatoBeatCalls.ts)に焼く運用。
+const LS_OFFSETS = "arigato_beat:call_offsets";
+function loadOffsets(): Record<string, number> {
+  try { const o = JSON.parse(localStorage.getItem(LS_OFFSETS) || "{}"); return o && typeof o === "object" ? o : {}; } catch { return {}; }
+}
+function saveOffsets(o: Record<string, number>) {
+  try { localStorage.setItem(LS_OFFSETS, JSON.stringify(o)); } catch { /* ignore */ }
+}
+
 function shuffle<T>(a: T[]): T[] {
   const r = [...a];
   for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; }
@@ -147,6 +157,8 @@ export default function HiTensionQuizPage() {
   const [verdictMap, setVerdictMap] = useState<Record<number, Verdict>>({}); // タイムライン開示用（判定したら中身＋色を出す）
   const [flash, setFlash] = useState<{ verdict: Verdict; errMs: number | null } | null>(null);
   const [results, setResults] = useState<Result[]>([]);
+  const [offsets, setOffsets] = useState<Record<string, number>>(loadOffsets); // 採譜ズレ補正（見返しで調整）
+  const [reviewIdx, setReviewIdx] = useState(-1); // カウントイン見返し中のコール（-1=なし）
 
   const judgedRef = useRef<Set<number>>(new Set());
   const resRef = useRef<Result[]>([]);
@@ -275,16 +287,42 @@ export default function HiTensionQuizPage() {
     judge(i, note, now - targets[i].call.t);
   };
 
-  // 答え確認＝外部YouTubeに飛ばさず、ページ内プレイヤーをレクチャー動画に切り替えてミスの数小節前から再生。
-  // 動画そのものが「正解のタイミング」の実演になる（数小節前＝5,6,7,8のカウントイン相当の助走つき）。
-  // 同テンポなので「最初のコール(ステージ)→レクチャー0:06」を合わせれば全体が合う：
-  //   lecture時刻 = (このコール - 最初のコール) + 6秒。そこから数小節前を頭出し。
+  // ===== 結果の「見返し」＝採譜キャリブレーター =====
+  // ページ内プレイヤーをレクチャー動画に切り替え、コールの数小節前から再生。動画の再生に同期して
+  // 「5・6・7・8 →（コール）」のカウントインを動画の下に出す（YouTube規約で動画の上には重ねない）。
+  // "→" の瞬間＝採譜が記録してるコールの位置。実際のコールとズレてたら ±拍ボタンで直す（補正値を貯める）。
+  // 同テンポなので「最初のコール(ステージ)→レクチャー0:06」を合わせれば全体一致：lecture時刻=(コール-最初)+6秒。
   const firstT = calls.length ? calls[0].t : 0;
-  const watchLecture = (t: number) => {
-    const lectureT = (t - firstT) + LECTURE_FIRST_CALL_SEC;
-    const sec = Math.max(0, Math.round(lectureT - REVIEW_BARS * 4 * beatSec));
-    try { playerRef.current?.loadVideo?.(LECTURE_VIDEO, { startSeconds: sec }); } catch { /* ignore */ }
-    loadedVideoRef.current = LECTURE_VIDEO;
+  const callTOf = (i: number) => calls[i].t + (offsets[i] ?? 0);              // 補正込みのコール時刻(ステージ)
+  const lectureTOf = (i: number) => (callTOf(i) - firstT) + LECTURE_FIRST_CALL_SEC; // レクチャー換算
+  const segStart = (lectureT: number) => Math.max(0, lectureT - REVIEW_BARS * 4 * beatSec); // 数小節前
+  const seekLecture = (sec: number) => {
+    const s = Math.max(0, sec);
+    if (loadedVideoRef.current !== LECTURE_VIDEO) {
+      try { playerRef.current?.loadVideo?.(LECTURE_VIDEO, { startSeconds: s }); } catch { /* ignore */ }
+      loadedVideoRef.current = LECTURE_VIDEO;
+    } else {
+      try { playerRef.current?.seekTo?.(s); playerRef.current?.play?.(); } catch { /* ignore */ }
+    }
+  };
+  const startReview = (i: number) => { setReviewIdx(i); seekLecture(segStart(lectureTOf(i))); };
+  const replayReview = () => { if (reviewIdx >= 0) seekLecture(segStart(lectureTOf(reviewIdx))); };
+  const nudgeReview = (deltaSec: number) => {
+    if (reviewIdx < 0) return;
+    const i = reviewIdx;
+    const next = Math.round(((offsets[i] ?? 0) + deltaSec) * 1000) / 1000;
+    const n = { ...offsets, [i]: next };
+    setOffsets(n); saveOffsets(n);
+    // 新しい補正でセグメント頭から再生し直して、ズレが直ったか即見れる
+    const lt = (calls[i].t + next - firstT) + LECTURE_FIRST_CALL_SEC;
+    seekLecture(segStart(lt));
+  };
+  const exportOffsets = async () => {
+    const list = Object.keys(offsets).map(k => Number(k)).filter(i => (offsets[i] ?? 0) !== 0).sort((a, b) => a - b)
+      .map(i => ({ i, note: calls[i].note, baseT: calls[i].t, offsetSec: offsets[i], newT: Math.round((calls[i].t + offsets[i]) * 1000) / 1000 }));
+    const json = JSON.stringify(list, null, 2);
+    try { await navigator.clipboard.writeText(json); } catch { /* ignore */ }
+    try { const blob = new Blob([json], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "arigato-beat-offsets.json"; a.click(); URL.revokeObjectURL(url); } catch { /* ignore */ }
   };
 
   const active = activeIdx >= 0 ? targets[activeIdx] : null;
@@ -307,10 +345,26 @@ export default function HiTensionQuizPage() {
         <p style={{ fontSize: 13, color: "#9aa3b0", marginTop: 12 }}>採譜データがありません。先に <b style={{ color: "#cbd2dc" }}>/arigato-beat/beat</b> でコールを記録してね。</p>
       )}
 
-      {/* 動画（ステージプラクティス＝答えが映らない）。フルサイズで見たい＝コンテナ全幅(16:9維持) */}
+      {/* 動画（ステージプラクティス＝答えが映らない）。フルサイズで見たい＝コンテナ全幅(16:9維持） */}
       <div style={{ width: "100%", margin: "8px auto 0", flex: "0 0 auto" }}>
         <YouTubePlayer ref={playerRef} videoId={data.current.videoId} onEnded={() => phase === "playing" && armedRef.current && finish()} />
       </div>
+
+      {/* 見返しパネル（動画の下＝カウントイン＋採譜の±拍補正） */}
+      {phase === "result" && reviewIdx >= 0 && (
+        <ReviewPanel
+          note={calls[reviewIdx].note || "♪"}
+          section={sectionOf(calls[reviewIdx].t)}
+          lectureCallT={lectureTOf(reviewIdx)}
+          beatSec={beatSec}
+          getNow={getNow}
+          offsetSec={offsets[reviewIdx] ?? 0}
+          onNudge={nudgeReview}
+          onReplay={replayReview}
+          onClose={() => setReviewIdx(-1)}
+          pink={PINK}
+        />
+      )}
 
       {/* ===== ready ===== */}
       {phase === "ready" && (
@@ -365,7 +419,8 @@ export default function HiTensionQuizPage() {
 
       {/* ===== result ===== */}
       {phase === "result" && (
-        <ResultView results={results} beatSec={beatSec} onRetry={start} onWatchLecture={watchLecture}
+        <ResultView results={results} onRetry={start} onReview={startReview} reviewIdx={reviewIdx}
+          offsets={offsets} onExport={exportOffsets}
           verdictLabel={verdictLabel} verdictColor={verdictColor} />
       )}
     </div>
@@ -473,9 +528,10 @@ function QuizTimeline({ calls, beatSec, getNow, verdictMap, activeIdx, pink }: {
   );
 }
 
-// 結果画面：スコア＋おさらい一覧（PERFECT以外を全部・セクション別。5,6,7,8カウント実演＋ページ内レクチャー再生）
-function ResultView({ results, beatSec, onRetry, onWatchLecture, verdictLabel, verdictColor }: {
-  results: Result[]; beatSec: number; onRetry: () => void; onWatchLecture: (t: number) => void;
+// 結果画面：スコア＋おさらい一覧（PERFECT以外を全部・セクション別）。各コールを「見返す」と動画＋カウントインへ。
+function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, verdictLabel, verdictColor }: {
+  results: Result[]; onRetry: () => void; onReview: (i: number) => void; reviewIdx: number;
+  offsets: Record<string, number>; onExport: () => void;
   verdictLabel: Record<Verdict, string>; verdictColor: Record<Verdict, string>;
 }) {
   const perfect = results.filter(r => r.verdict === "perfect").length;
@@ -520,10 +576,9 @@ function ResultView({ results, beatSec, onRetry, onWatchLecture, verdictLabel, v
                         {verdictLabel[r.verdict]}{r.errMs != null ? `（${r.errMs > 0 ? "+" : ""}${r.errMs}ms）` : ""}
                       </span>
                     </div>
-                    <TimingDemo beatSec={beatSec} note={r.call.note || "♪"} />
-                    <button onClick={() => onWatchLecture(r.call.t)}
-                      style={{ width: "100%", marginTop: 8, fontSize: 14, color: "#cfe8ff", background: "rgba(124,196,255,0.12)", border: "1px solid rgba(124,196,255,0.45)", borderRadius: 10, padding: "10px 12px", fontWeight: 700, cursor: "pointer" }}>
-                      ▶ 動画で正しいタイミングを見る（数小節前から）
+                    <button onClick={() => onReview(r.i)}
+                      style={{ width: "100%", fontSize: 14, color: reviewIdx === r.i ? "#fff" : "#cfe8ff", background: reviewIdx === r.i ? "rgba(218,24,132,0.5)" : "rgba(124,196,255,0.12)", border: `1px solid ${reviewIdx === r.i ? PINK : "rgba(124,196,255,0.45)"}`, borderRadius: 10, padding: "10px 12px", fontWeight: 700, cursor: "pointer" }}>
+                      ▶ 見返す（動画＋5,6,7,8カウントイン）{(offsets[r.i] ?? 0) !== 0 ? `・補正${offsets[r.i] > 0 ? "+" : ""}${Math.round(offsets[r.i] * 1000)}ms` : ""}
                     </button>
                   </div>
                 ))}
@@ -536,40 +591,70 @@ function ResultView({ results, beatSec, onRetry, onWatchLecture, verdictLabel, v
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 12 }}>
         <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", minWidth: 200 }} onClick={onRetry}>もう一回</button>
         <button style={{ ...btn, minWidth: 200 }} onClick={() => shareToX(ok, results.length, perfect, good)}>𝕏 でシェアする</button>
+        {Object.values(offsets).some(v => v !== 0) && (
+          <button style={{ ...btn, minWidth: 200, fontSize: 13 }} onClick={onExport}>▶ ズレ補正を書き出す（hopへ渡す用）</button>
+        )}
       </div>
     </div>
   );
 }
 
-// 「5・6・7・8 → ここ！」で正解タイミングを実演（上級編のカウントイン流用）。リズムの感覚づかみ用。
-function TimingDemo({ beatSec, note }: { beatSec: number; note: string }) {
+// 見返しパネル（動画の下）：動画の再生に同期して「5・6・7・8 →（コール）」をカウントイン。
+// "→" の瞬間＝採譜が記録してるコール位置。動画の実際のコールとズレてたら ±拍で直す（採譜キャリブレーター）。
+function ReviewPanel({ note, section, lectureCallT, beatSec, getNow, offsetSec, onNudge, onReplay, onClose, pink }: {
+  note: string; section: string; lectureCallT: number; beatSec: number; getNow: () => number;
+  offsetSec: number; onNudge: (deltaSec: number) => void; onReplay: () => void; onClose: () => void; pink: string;
+}) {
   const [step, setStep] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const seq = ["5", "6", "7", "8", note];
-
-  const play = () => {
-    if (timer.current) clearTimeout(timer.current);
-    let k = 0; setStep(seq[0]);
-    const tick = () => {
-      k += 1;
-      if (k < seq.length) { setStep(seq[k]); timer.current = setTimeout(tick, beatSec * 1000); }
-      else { timer.current = setTimeout(() => setStep(null), 700); }
+  const getNowRef = useRef(getNow); getNowRef.current = getNow;
+  const callTRef = useRef(lectureCallT); callTRef.current = lectureCallT;
+  const beatRef = useRef(beatSec); beatRef.current = beatSec;
+  const noteRef = useRef(note); noteRef.current = note;
+  useEffect(() => {
+    let raf = 0;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const d = getNowRef.current() - callTRef.current; // +はコール過ぎ
+      const b = beatRef.current;
+      let s: string | null = null;
+      if (d >= -4 * b && d < -3 * b) s = "5";
+      else if (d >= -3 * b && d < -2 * b) s = "6";
+      else if (d >= -2 * b && d < -1 * b) s = "7";
+      else if (d >= -1 * b && d < 0) s = "8";
+      else if (d >= 0 && d < 1.2 * b) s = noteRef.current; // →コールの瞬間
+      setStep(prev => (prev === s ? prev : s));
     };
-    timer.current = setTimeout(tick, beatSec * 1000);
-  };
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+    loop();
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   const isCall = step !== null && step === note;
+  const offBeats = Math.round((offsetSec / beatSec) * 100) / 100;
+  const offLabel = offsetSec === 0 ? "補正なし（このまま）" : `補正 ${offsetSec > 0 ? "+" : ""}${offBeats}拍（${offsetSec > 0 ? "+" : ""}${Math.round(offsetSec * 1000)}ms）`;
+  const nb: React.CSSProperties = { fontSize: 13, fontWeight: 800, padding: "8px 11px", borderRadius: 9, border: "1px solid rgba(255,255,255,0.25)", background: "rgba(255,255,255,0.07)", color: "#eee", cursor: "pointer" };
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <button onClick={play} style={{ fontSize: 13, padding: "7px 12px", borderRadius: 9, border: "1px solid rgba(255,255,255,0.2)", background: "rgba(255,255,255,0.06)", color: "#eee", cursor: "pointer", flex: "0 0 auto", fontWeight: 700 }}>
-        ▶ 5,6,7,8 で<br />正解タイミング
-      </button>
-      <div style={{ flex: 1, height: 44, borderRadius: 9, background: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-        <span style={{ fontSize: isCall ? 22 : 18, fontWeight: 900, color: isCall ? PINK : "#cbd2dc", wordBreak: "break-all", textAlign: "center", lineHeight: 1.1, padding: "0 6px" }}>
-          {step ?? "5・6・7・8 →"}
+    <div style={{ flex: "0 0 auto", margin: "8px 0 0", padding: "10px 12px", borderRadius: 12, border: `1px solid ${pink}`, background: "rgba(218,24,132,0.08)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#cbd2dc", marginBottom: 6 }}>
+        <span style={{ color: pink, fontWeight: 800 }}>{section}</span>
+        <b style={{ fontSize: 14, color: "#fff" }}>{note}</b>
+        <span style={{ fontSize: 11, color: "#8b93a0" }}>動画の実演と「→」が合ってるか見て、ズレてたら直す</span>
+        <button onClick={onClose} style={{ ...nb, marginLeft: "auto", padding: "4px 9px", fontSize: 11 }}>閉じる</button>
+      </div>
+      {/* カウントイン表示（動画下＝規約OK） */}
+      <div style={{ height: 46, borderRadius: 9, background: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", marginBottom: 8 }}>
+        <span style={{ fontSize: isCall ? 22 : 26, fontWeight: 900, color: isCall ? pink : "#cbd2dc", lineHeight: 1, padding: "0 8px", textAlign: "center", wordBreak: "break-all" }}>
+          {isCall ? `→ ${step}` : (step ?? "▶ 再生中… 5・6・7・8 →")}
         </span>
       </div>
+      {/* ズレてたら直す＝採譜補正（±拍） */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
+        <button onClick={() => onNudge(-beatSec)} style={nb}>−1拍</button>
+        <button onClick={() => onNudge(-beatSec / 2)} style={nb}>−½</button>
+        <button onClick={onReplay} style={{ ...nb, background: "rgba(255,255,255,0.13)" }}>▶ もう一回</button>
+        <button onClick={() => onNudge(beatSec / 2)} style={nb}>+½</button>
+        <button onClick={() => onNudge(beatSec)} style={nb}>+1拍</button>
+      </div>
+      <div style={{ textAlign: "center", fontSize: 11, color: offsetSec === 0 ? "#7d8694" : pink, marginTop: 6, fontWeight: 700 }}>{offLabel}</div>
     </div>
   );
 }
