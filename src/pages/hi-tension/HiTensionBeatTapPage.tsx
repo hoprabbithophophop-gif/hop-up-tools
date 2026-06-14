@@ -22,10 +22,10 @@ const rid = () => {
   try { if (crypto?.randomUUID) return crypto.randomUUID(); } catch { /* ignore */ }
   return `t${Date.now()}_${++_idc}`;
 };
-type Saved = { videoId: string; taps: Tap[]; bpm: number; anchorSec: number | null; snapOn: boolean; snapRes: "q" | "e" };
+type Saved = { videoId: string; taps: Tap[]; bpm: number; anchorSec: number | null; snapOn: boolean; snapRes: "q" | "e"; view: "list" | "timeline" };
 
 function loadSaved(): Saved {
-  const base: Saved = { videoId: DEFAULT_VIDEO, taps: [], bpm: 149, anchorSec: null, snapOn: false, snapRes: "e" };
+  const base: Saved = { videoId: DEFAULT_VIDEO, taps: [], bpm: 149, anchorSec: null, snapOn: false, snapRes: "e", view: "list" };
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) {
@@ -38,6 +38,7 @@ function loadSaved(): Saved {
           anchorSec: typeof o.anchorSec === "number" ? o.anchorSec : null,
           snapOn: o.snapOn === true,
           snapRes: o.snapRes === "q" ? "q" : "e",
+          view: o.view === "timeline" ? "timeline" : "list",
         };
       }
     }
@@ -97,6 +98,133 @@ function LenPicker({ value, onChange }: { value: number; onChange: (v: number) =
   );
 }
 
+// タイムライン編集ビュー：再生中プレイヘッド中央固定＋横スクロール、コールを拍幅のバーで
+// 並べ、バーをドラッグで拍グリッドにスナップ移動。空き所タップでその位置へシーク。
+const SPAN_SEC = 6;     // 可視秒数
+const LANE_H = 30;      // レーン高
+const BAR_H = 26;
+function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, nowSec, getNow, onSeek, onMove, curId, pink }: {
+  taps: Tap[]; dispT: (t: number) => number; snapGrid: (t: number) => number;
+  beatSec: number; unit: number; refSec: number | null;
+  playing: boolean; nowSec: number; getNow: () => number;
+  onSeek: (t: number) => void; onMove: (id: string, t: number) => void;
+  curId: string | null; pink: string;
+}) {
+  const vpRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [vw, setVw] = useState(0);
+  const dragRef = useRef<{ id: string; startX: number; origT: number } | null>(null);
+  const playingRef = useRef(playing); playingRef.current = playing;
+  const nowRef = useRef(nowSec); nowRef.current = nowSec;
+
+  useEffect(() => {
+    const el = vpRef.current; if (!el) return;
+    const set = () => setVw(el.clientWidth);
+    set();
+    const ro = new ResizeObserver(set); ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const pxPerSec = vw > 0 ? vw / SPAN_SEC : 60;
+
+  // レーン割当（時刻順・貪欲first-fit。バーが重なる時だけ次レーンへ）。
+  const { laneOf, laneCount, trackSec } = useMemo(() => {
+    const sorted = [...taps].sort((a, b) => dispT(a.t) - dispT(b.t));
+    const ends: number[] = [];
+    const lo = new Map<string, number>();
+    let maxEnd = 10;
+    for (const tp of sorted) {
+      const s = dispT(tp.t);
+      const e = s + Math.max(tp.lenBeats * beatSec, 0.18);
+      maxEnd = Math.max(maxEnd, e);
+      let L = ends.findIndex(end => end <= s + 0.001);
+      if (L < 0) { ends.push(e); L = ends.length - 1; } else { ends[L] = e; }
+      lo.set(tp.id, L);
+    }
+    return { laneOf: lo, laneCount: Math.max(1, ends.length), trackSec: maxEnd + SPAN_SEC };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taps, beatSec, unit, refSec]);
+
+  // 毎フレーム：現在時刻が中央に来るよう track を translateX（state経由しない＝軽い）。
+  useEffect(() => {
+    let raf = 0;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const tr = trackRef.current; if (!tr || vw === 0) return;
+      const t = playingRef.current ? getNow() : nowRef.current;
+      tr.style.transform = `translateX(${(vw / 2 - t * pxPerSec).toFixed(1)}px)`;
+    };
+    loop();
+    return () => cancelAnimationFrame(raf);
+  }, [vw, pxPerSec, getNow]);
+
+  const onBarDown = (e: React.PointerEvent, tp: Tap) => {
+    e.stopPropagation();
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    dragRef.current = { id: tp.id, startX: e.clientX, origT: dispT(tp.t) };
+  };
+  const onBarMove = (e: React.PointerEvent) => {
+    const d = dragRef.current; if (!d) return;
+    const nt = Math.max(0, snapGrid(d.origT + (e.clientX - d.startX) / pxPerSec));
+    onMove(d.id, nt);
+  };
+  const onBarUp = () => { dragRef.current = null; };
+
+  // 空き所タップ＝その x の時刻へシーク。
+  const onVpDown = (e: React.PointerEvent) => {
+    const el = vpRef.current; if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const center = playingRef.current ? getNow() : nowRef.current;
+    const t = center + (e.clientX - rect.left - vw / 2) / pxPerSec;
+    onSeek(Math.max(0, t));
+  };
+
+  // グリッド線（CSS repeating-gradientで軽く描く）。基準refSecに線が来るようオフセット。
+  const offset = refSec == null ? 0 : (refSec * pxPerSec) % (unit * pxPerSec);
+  const beatPx = unit * pxPerSec;
+  const measurePx = beatSec * 4 * pxPerSec;
+  const grid: React.CSSProperties = {
+    backgroundImage: `repeating-linear-gradient(90deg, rgba(255,255,255,0.10) 0 1px, transparent 1px ${beatPx}px), repeating-linear-gradient(90deg, rgba(255,255,255,0.22) 0 1.5px, transparent 1.5px ${measurePx}px)`,
+    backgroundPosition: `${offset}px 0, ${refSec == null ? 0 : (refSec * pxPerSec) % measurePx}px 0`,
+  };
+
+  return (
+    <div ref={vpRef} onPointerDown={onVpDown} style={{ position: "relative", flex: "1 1 auto", minHeight: 0, overflow: "hidden", border: "1px solid #222", borderRadius: 8, background: "#0a0a0c", touchAction: "none", userSelect: "none" }}>
+      {/* プレイヘッド（中央固定） */}
+      <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, marginLeft: -1, background: pink, zIndex: 3, pointerEvents: "none" }} />
+      {/* トラック（毎フレーム translateX） */}
+      <div ref={trackRef} style={{ position: "absolute", left: 0, top: 0, height: laneCount * LANE_H + 8, width: Math.max(1, trackSec * pxPerSec), ...grid, willChange: "transform" }}>
+        {taps.map(tp => {
+          const left = dispT(tp.t) * pxPerSec;
+          const w = Math.max(30, tp.lenBeats * beatSec * pxPerSec);
+          const lane = laneOf.get(tp.id) ?? 0;
+          const isCur = tp.id === curId;
+          return (
+            <div
+              key={tp.id}
+              onPointerDown={e => onBarDown(e, tp)}
+              onPointerMove={onBarMove}
+              onPointerUp={onBarUp}
+              onPointerCancel={onBarUp}
+              style={{
+                position: "absolute", left, top: lane * LANE_H + 4, width: w, height: BAR_H,
+                borderRadius: 6, border: `1px solid ${isCur ? "#fff" : "rgba(255,255,255,0.25)"}`,
+                background: isCur ? pink : "rgba(218,24,132,0.55)",
+                color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center",
+                padding: "0 5px", overflow: "hidden", whiteSpace: "nowrap", cursor: "grab", touchAction: "none",
+              }}
+              title="ドラッグでタイミング調整"
+            >
+              {tp.note || "（無）"}
+            </div>
+          );
+        })}
+      </div>
+      {taps.length === 0 && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#666", fontSize: 13, pointerEvents: "none" }}>まだタップなし（リストで登録）</div>}
+    </div>
+  );
+}
+
 export default function HiTensionBeatTapPage() {
   const playerRef = useRef<YouTubePlayerApi>(null);
   const initial = useRef(loadSaved());
@@ -112,14 +240,15 @@ export default function HiTensionBeatTapPage() {
   const [showHelp, setShowHelp] = useState(false);
   const [rate, setRate] = useState(1);
   const [nowSec, setNowSec] = useState(0);
+  const [view, setView] = useState<"list" | "timeline">(initial.current.view);
 
   const tapsRef = useRef(taps);
   useEffect(() => { tapsRef.current = taps; }, [taps]);
 
   // 設定とタップは変更のたびにこの端末へ保存（個別persist呼びを廃止）。
   useEffect(() => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ videoId, taps, bpm, snapOn, snapRes })); } catch { /* ignore */ }
-  }, [videoId, taps, bpm, snapOn, snapRes]);
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ videoId, taps, bpm, snapOn, snapRes, view })); } catch { /* ignore */ }
+  }, [videoId, taps, bpm, snapOn, snapRes, view]);
 
   // BPM＋基準タップの拍グリッドに丸める。基準=確実に拍に乗ったタップ(無くても最初のタップで代用)。
   // 8分/4分で分解能切替。基準は周期的なのでどの拍でもOK(拍1である必要はない)。
@@ -147,6 +276,8 @@ export default function HiTensionBeatTapPage() {
     const ids = (sel.size > 0 && sel.has(taps[i].id)) ? sel : new Set([taps[i].id]);
     setTaps(prev => prev.map(x => ids.has(x.id) ? { ...x, t: Math.max(0, Math.round((x.t + dir * unit) * 1000) / 1000) } : x).sort((a, b) => a.t - b.t));
   };
+  // タイムラインでバーをドラッグして時刻を直接セット（IDで指定・グリッドスナップ済みの値が来る）。
+  const moveTap = (id: string, t: number) => setTaps(prev => prev.map(x => x.id === id ? { ...x, t: Math.round(t * 1000) / 1000 } : x).sort((a, b) => a.t - b.t));
   // コピー＝選択行があればそのブロック、無ければこの行だけ。「先頭からの相対秒＋コール＋長さ」で保存。
   const copyFrom = (i: number) => {
     const src = sel.size > 0 ? selTaps() : [taps[i]];
@@ -337,16 +468,24 @@ export default function HiTensionBeatTapPage() {
         タップ（Space）
       </button>
 
-      {/* 速さ＋全消し */}
-      <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "8px 0 4px" }}>
+      {/* 速さ＋ビュー切替＋全消し */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "8px 0 4px", flexWrap: "wrap" }}>
         <span style={{ fontSize: 12, color: "#999" }}>速さ</span>
         {[0.5, 0.75, 1].map(r => (<button key={r} style={seg(rate === r)} onClick={() => changeRate(r)}>{r}x</button>))}
-        <button style={{ ...btn, marginLeft: "auto", color: "#e88", borderColor: "#633" }} onClick={clearAll} disabled={taps.length === 0}>全消し</button>
+        <button style={{ ...seg(view === "list"), marginLeft: "auto" }} onClick={() => setView("list")}>リスト</button>
+        <button style={seg(view === "timeline")} onClick={() => setView("timeline")}>タイムライン</button>
       </div>
 
       </div>{/* 固定ブロック終わり */}
 
-      {/* タップ一覧（残り高さ全部・内側スクロール） */}
+      {view === "timeline" ? (
+        <TimelineView
+          taps={taps} dispT={dispT} snapGrid={snap} beatSec={beatSec} unit={unit} refSec={refSec}
+          playing={playing} nowSec={nowSec} getNow={() => playerRef.current?.getCurrentTime() ?? nowSec}
+          onSeek={t => seekTo(t)} onMove={moveTap} curId={taps[curIdx]?.id ?? null} pink={PINK}
+        />
+      ) : (
+      /* タップ一覧（残り高さ全部・内側スクロール） */
       <div style={{ border: "1px solid #222", borderRadius: 8, overflow: "hidden", margin: "0 0 8px", flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
         {/* ヘッダ：選択中はその件数を出す（「N行選択」＝固定枠を増やさず一覧の上の細い帯に） */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#888", padding: "5px 8px", borderBottom: "1px solid #222", background: "#0c0c0c", flex: "0 0 auto" }}>
@@ -393,6 +532,7 @@ export default function HiTensionBeatTapPage() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }
