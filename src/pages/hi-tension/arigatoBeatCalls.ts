@@ -12,7 +12,7 @@ export const ARIGATO_BEAT_BPM = 149;
 export const ARIGATO_BEAT_SECTIONS: { name: string; startSec: number }[] = [
   { name: "イントロ", startSec: 0 },     // 0:00
   { name: "1番Aメロ", startSec: 23 },    // 0:23
-  { name: "1番Bメロ", startSec: 38 },    // 0:38
+  { name: "1番Bメロ", startSec: 35 },    // 0:35（オイ！×3からBメロ開始）
   { name: "1番サビ", startSec: 52 },     // 0:52
   { name: "1番間奏", startSec: 71 },     // 1:11
   { name: "2番Aメロ", startSec: 81 },    // 1:21
@@ -50,9 +50,9 @@ export const ARIGATO_BEAT_CALLS: CallData[] = [
   { t: 24.235, lenBeats: 3.5, note: "ありがとう" },
   { t: 27.456, lenBeats: 3.5, note: "ありがとう" },
   { t: 30.678, lenBeats: 3.5, note: "ありがとう" },
-  { t: 36.315, lenBeats: 1, note: "オイ！" },
-  { t: 37.926, lenBeats: 1, note: "オイ！" },
-  { t: 39.537, lenBeats: 1, note: "オイ！" },
+  { t: 36.516, lenBeats: 1, note: "オイ！" },
+  { t: 38.127, lenBeats: 1, note: "オイ！" },
+  { t: 39.738, lenBeats: 1, note: "オイ！" },
   { t: 44.57, lenBeats: 2, note: "ありがとう" },
   { t: 47.389, lenBeats: 2, note: "みいみー！" },
   { t: 51.416, lenBeats: 0.5, note: "Fu!" },
@@ -85,9 +85,9 @@ export const ARIGATO_BEAT_CALLS: CallData[] = [
   { t: 88.664, lenBeats: 2, note: "（あ〜かわいいね〜）" },
   { t: 89.872, lenBeats: 2, note: "ぷれしゃす" },
   { t: 92.892, lenBeats: 2, note: "さや〜" },
-  { t: 94.704, lenBeats: 1, note: "オイ！" },
-  { t: 96.315, lenBeats: 1, note: "オイ！" },
-  { t: 97.926, lenBeats: 1, note: "オイ！" },
+  { t: 94.905, lenBeats: 1, note: "オイ！" },
+  { t: 96.516, lenBeats: 1, note: "オイ！" },
+  { t: 98.127, lenBeats: 1, note: "オイ！" },
   { t: 103.161, lenBeats: 2, note: "のーせんきゅー！" },
   { t: 105.778, lenBeats: 3, note: "ライカ しお！" },
   { t: 109.604, lenBeats: 0.5, note: "Fu!" },
