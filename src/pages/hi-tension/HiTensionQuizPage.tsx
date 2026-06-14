@@ -35,7 +35,13 @@ const CHANT_FU = "Fu";
 
 type Call = { t: number; note: string; lenBeats: number };
 type Verdict = "perfect" | "good" | "late" | "wrong" | "notap";
-type Target = { call: Call; kind: "chant" | "normal"; answer: string; candidates: string[] };
+type Target = { call: Call; kind: "chant" | "normal" | "cue"; answer: string; candidates: string[] };
+
+// （）で囲まれたものはコールではなく、レクチャー動画で言ってた「心掛け／合いの手」（例：（かわいく））。
+// クイズの出題対象にも候補にもしない。タイムラインには心掛けとして薄く出すだけ。
+function isCue(note: string): boolean {
+  return /^[（(]/.test(note.trim());
+}
 type Result = { i: number; call: Call; chosen: string | null; errMs: number | null; verdict: Verdict };
 
 // 本物のありがとビート採譜データを使う（quizは“遊ぶ製品”なので採譜のlocalStorageではなく確定データを読む）
@@ -83,18 +89,21 @@ export default function HiTensionQuizPage() {
   // 各コールに候補を用意（普通＝正解＋同尺ダミー2 ／ 連打＝オイ/Fu2択）。毎回ランダムだが起動時に固定。
   const targets = useMemo<Target[]>(() => {
     return calls.map((call, idx) => {
+      if (isCue(call.note)) {
+        return { call, kind: "cue", answer: "", candidates: [] };
+      }
       const ck = chantKindOf(call.note);
       if (ck) {
         return { call, kind: "chant", answer: ck === "oi" ? CHANT_OI : CHANT_FU, candidates: [CHANT_OI, CHANT_FU] };
       }
       const bucket = bucketOf(call.lenBeats);
       const pool = calls
-        .filter((c, k) => k !== idx && c.note && c.note !== call.note && !chantKindOf(c.note) && bucketOf(c.lenBeats) === bucket)
+        .filter((c, k) => k !== idx && c.note && c.note !== call.note && !chantKindOf(c.note) && !isCue(c.note) && bucketOf(c.lenBeats) === bucket)
         .map(c => c.note);
       const uniq = [...new Set(pool)];
       let distract = shuffle(uniq).slice(0, 2);
       if (distract.length < 2) {
-        const more = [...new Set(calls.map(c => c.note).filter(n => n && n !== call.note && !chantKindOf(n) && !distract.includes(n)))];
+        const more = [...new Set(calls.map(c => c.note).filter(n => n && n !== call.note && !chantKindOf(n) && !isCue(n) && !distract.includes(n)))];
         distract = [...distract, ...shuffle(more).slice(0, 2 - distract.length)];
       }
       const candidates = shuffle([call.note || "♪", ...distract]);
@@ -146,9 +155,11 @@ export default function HiTensionQuizPage() {
   const finish = () => {
     cancelAnimationFrame(rafRef.current);
     try { playerRef.current?.pause(); } catch { /* ignore */ }
-    // 未判定はノータップ・ミス扱いで埋める
-    for (let i = 0; i < targets.length; i++) if (!judgedRef.current.has(i)) judge(i, null, null);
-    const filled: Result[] = targets.map((tg, i) => resRef.current[i] ?? { i, call: tg.call, chosen: null, errMs: null, verdict: "notap" });
+    // 未判定はノータップ・ミス扱いで埋める（cue＝心掛けは採点対象外）
+    for (let i = 0; i < targets.length; i++) if (targets[i].kind !== "cue" && !judgedRef.current.has(i)) judge(i, null, null);
+    const filled: Result[] = targets
+      .map((tg, i) => tg.kind === "cue" ? null : (resRef.current[i] ?? { i, call: tg.call, chosen: null, errMs: null, verdict: "notap" as Verdict }))
+      .filter((r): r is Result => r !== null);
     setResults(filled);
     setPhase("result");
   };
@@ -177,13 +188,14 @@ export default function HiTensionQuizPage() {
         if (startFramesRef.current >= 3) armedRef.current = true;
         else return;
       }
-      // 通り過ぎた未判定はミス確定
+      // 通り過ぎた未判定はミス確定（心掛け＝cueは出題しないので対象外）
       for (let i = 0; i < targets.length; i++) {
-        if (!judgedRef.current.has(i) && now > targets[i].call.t + MISS_TAIL) judge(i, null, null);
+        if (targets[i].kind !== "cue" && !judgedRef.current.has(i) && now > targets[i].call.t + MISS_TAIL) judge(i, null, null);
       }
-      // アクティブ＝出現中でまだ未判定の次のコール
+      // アクティブ＝出現中でまだ未判定の次のコール（cueは飛ばす）
       let ai = -1;
       for (let i = 0; i < targets.length; i++) {
+        if (targets[i].kind === "cue") continue;
         const t = targets[i].call.t;
         if (!judgedRef.current.has(i) && now >= t - LEAD_BEATS * beatSec && now <= t + MISS_TAIL) { ai = i; break; }
       }
@@ -372,20 +384,22 @@ function QuizTimeline({ calls, beatSec, getNow, verdictMap, activeIdx, pink }: {
           const left = c.t * pxPerSec;
           const w = Math.max(20, c.lenBeats * beatSec * pxPerSec);
           const lane = laneOf.get(i) ?? 0;
+          const cue = isCue(c.note);
           const v = verdictMap[i];
           const judged = v !== undefined;
           const isActive = i === activeIdx;
           const longWord = /[A-Za-z0-9]{6,}/.test(c.note);
           const barFont = longWord && w < 70 ? 10 : 12;
           let bg: string, bd: string, col: string, text: string;
-          if (judged) { const vb = VERDICT_BAR[v]; bg = vb.bg; bd = vb.bd; col = vb.fg; text = c.note || "♪"; }
+          if (cue) { bg = "transparent"; bd = "rgba(255,255,255,0.14)"; col = "#6b7480"; text = c.note; } // 心掛け＝薄く常時表示
+          else if (judged) { const vb = VERDICT_BAR[v]; bg = vb.bg; bd = vb.bd; col = vb.fg; text = c.note || "♪"; }
           else if (isActive) { bg = pink; bd = "#fff"; col = "#fff"; text = "？"; }
           else { bg = "rgba(255,255,255,0.05)"; bd = "rgba(255,255,255,0.16)"; col = "#7d8694"; text = "？"; }
           return (
             <div key={i} style={{
               position: "absolute", left, top: lane * Q_LANE_PITCH + 4, width: w, maxHeight: Q_LANE_PITCH - 6,
-              borderRadius: 6, border: `1px solid ${bd}`, background: bg, color: col,
-              fontSize: judged ? barFont : 14, fontWeight: judged ? 700 : 800, lineHeight: 1.1,
+              borderRadius: 6, border: `1px ${cue ? "dashed" : "solid"} ${bd}`, background: bg, color: col,
+              fontSize: cue ? 10 : (judged ? barFont : 14), fontWeight: cue ? 500 : (judged ? 700 : 800), fontStyle: cue ? "italic" : "normal", lineHeight: 1.1,
               padding: "3px 4px", whiteSpace: "normal", wordBreak: "break-all", overflowWrap: "anywhere", overflow: "hidden",
               display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center",
               boxShadow: isActive ? "0 0 0 1px rgba(255,255,255,0.5)" : undefined,
