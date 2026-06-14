@@ -21,10 +21,10 @@ const ARENA_BG = "radial-gradient(150% 85% at 50% -8%, #1b2030 0%, #0e1016 48%, 
 const LECTURE_VIDEO = "xr7_Z5ibZMA";
 const LECTURE_FIRST_CALL_SEC = 6.0; // レクチャー動画で最初のコールが鳴る時刻(hop実測0:06)。同テンポなのでfirstを合わせれば全体一致
 const REVIEW_BARS = 2;          // 答え確認は「ミスの何小節前」から
-const LEAD_BEATS = 2;           // 候補ボタンを拍の何拍前から出すか
-const PERFECT_MS = 120;
-const GOOD_MS = 260;
-const MISS_TAIL = GOOD_MS / 1000 + 0.08; // この秒数を過ぎたら無タップ＝ミス確定
+const LEAD_BEATS = 4;           // 候補ボタンを拍の何拍前から出すか（早めに出して読む時間を作る＝反射神経テストにしない）
+const PERFECT_MS = 250;         // タイミング判定はゆるめ（リズム練習であって反応速度テストではない）
+const GOOD_MS = 600;
+const MISS_TAIL = GOOD_MS / 1000 + 0.1; // この秒数を過ぎたら無タップ＝ミス確定
 
 // タイムライン（/beat流用）
 const Q_SPAN_SEC = 6;    // 可視秒数（拍ごとの山が分離して見える幅）
@@ -126,6 +126,7 @@ export default function HiTensionQuizPage() {
   const armedRef = useRef(false); // 先頭で再生中の状態が続いてから判定開始（古い再生位置での誤終了を防ぐ）
   const startFramesRef = useRef(0);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const kickTimer = useRef<ReturnType<typeof setInterval> | null>(null); // 黒画面で固まる対策：再生が始まるまでキック
 
   const lastT = calls.length ? calls[calls.length - 1].t : 0;
 
@@ -154,6 +155,7 @@ export default function HiTensionQuizPage() {
 
   const finish = () => {
     cancelAnimationFrame(rafRef.current);
+    if (kickTimer.current) { clearInterval(kickTimer.current); kickTimer.current = null; }
     try { playerRef.current?.pause(); } catch { /* ignore */ }
     // 未判定はノータップ・ミス扱いで埋める（cue＝心掛けは採点対象外）
     for (let i = 0; i < targets.length; i++) if (targets[i].kind !== "cue" && !judgedRef.current.has(i)) judge(i, null, null);
@@ -171,9 +173,20 @@ export default function HiTensionQuizPage() {
     armedRef.current = false; startFramesRef.current = 0;
     activeIdxRef.current = -1; setActiveIdx(-1);
     setPhase("playing");
-    try { playerRef.current?.seekTo(0); playerRef.current?.play(); } catch { /* ignore */ }
-    // プレイヤー準備が間に合わず頭出しが効かないことがあるので、少し後にもう一度頭へ戻す
-    setTimeout(() => { try { playerRef.current?.seekTo(0); playerRef.current?.play(); } catch { /* ignore */ } }, 500);
+    // 黒画面のまま固まる対策：プレイヤーの準備が間に合わないと最初のplayが空振りする。
+    // 「頭出し＋再生」を、実際に再生が始まる(isPlaying)まで300 msごとに最大8回キックする。
+    const kick = () => { try { playerRef.current?.seekTo(0); playerRef.current?.play(); } catch { /* ignore */ } };
+    kick();
+    if (kickTimer.current) clearInterval(kickTimer.current);
+    let kicks = 0;
+    kickTimer.current = setInterval(() => {
+      kicks += 1;
+      if ((playerRef.current?.isPlaying?.() ?? false) || kicks >= 8) {
+        if (kickTimer.current) { clearInterval(kickTimer.current); kickTimer.current = null; }
+        return;
+      }
+      kick();
+    }, 300);
     const loop = () => {
       rafRef.current = requestAnimationFrame(loop);
       const now = playerRef.current?.getCurrentTime?.() ?? 0;
@@ -205,9 +218,9 @@ export default function HiTensionQuizPage() {
     loop();
   };
 
-  const stop = () => { cancelAnimationFrame(rafRef.current); try { playerRef.current?.pause(); } catch { /* ignore */ } setPhase("ready"); };
+  const stop = () => { cancelAnimationFrame(rafRef.current); if (kickTimer.current) { clearInterval(kickTimer.current); kickTimer.current = null; } try { playerRef.current?.pause(); } catch { /* ignore */ } setPhase("ready"); };
 
-  useEffect(() => () => { cancelAnimationFrame(rafRef.current); if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
+  useEffect(() => () => { cancelAnimationFrame(rafRef.current); if (flashTimer.current) clearTimeout(flashTimer.current); if (kickTimer.current) clearInterval(kickTimer.current); }, []);
 
   const onTap = (note: string) => {
     if (activeIdxRef.current < 0) return;
@@ -247,8 +260,8 @@ export default function HiTensionQuizPage() {
         <p style={{ fontSize: 13, color: "#9aa3b0", marginTop: 12 }}>採譜データがありません。先に <b style={{ color: "#cbd2dc" }}>/arigato-beat/beat</b> でコールを記録してね。</p>
       )}
 
-      {/* 動画（ステージプラクティス＝答えが映らない） */}
-      <div style={{ width: "min(100%, calc(22dvh * 16 / 9))", margin: "8px auto 0", flex: "0 0 auto" }}>
+      {/* 動画（ステージプラクティス＝答えが映らない）。フルサイズで見たい＝コンテナ全幅(16:9維持) */}
+      <div style={{ width: "100%", margin: "8px auto 0", flex: "0 0 auto" }}>
         <YouTubePlayer ref={playerRef} videoId={data.current.videoId} onEnded={() => phase === "playing" && armedRef.current && finish()} />
       </div>
 
