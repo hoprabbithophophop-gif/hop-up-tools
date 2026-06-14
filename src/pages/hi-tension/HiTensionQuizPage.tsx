@@ -365,7 +365,7 @@ export default function HiTensionQuizPage() {
 
       {/* ===== result ===== */}
       {phase === "result" && (
-        <ResultView results={results} onRetry={start} onWatchLecture={watchLecture}
+        <ResultView results={results} beatSec={beatSec} onRetry={start} onWatchLecture={watchLecture}
           verdictLabel={verdictLabel} verdictColor={verdictColor} />
       )}
     </div>
@@ -473,15 +473,16 @@ function QuizTimeline({ calls, beatSec, getNow, verdictMap, activeIdx, pink }: {
   );
 }
 
-// 結果画面：スコア＋ミス一覧（ズレ＋「動画で正しいタイミングを見る」＝ページ内でレクチャー動画の数小節前から）
-function ResultView({ results, onRetry, onWatchLecture, verdictLabel, verdictColor }: {
-  results: Result[]; onRetry: () => void; onWatchLecture: (t: number) => void;
+// 結果画面：スコア＋おさらい一覧（PERFECT以外を全部・セクション別。5,6,7,8カウント実演＋ページ内レクチャー再生）
+function ResultView({ results, beatSec, onRetry, onWatchLecture, verdictLabel, verdictColor }: {
+  results: Result[]; beatSec: number; onRetry: () => void; onWatchLecture: (t: number) => void;
   verdictLabel: Record<Verdict, string>; verdictColor: Record<Verdict, string>;
 }) {
   const perfect = results.filter(r => r.verdict === "perfect").length;
   const good = results.filter(r => r.verdict === "good").length;
   const ok = perfect + good;
-  const misses = results.filter(r => r.verdict !== "perfect" && r.verdict !== "good");
+  // 全PERFECT狙い＝PERFECT以外を全部おさらい（GOOD含む）。
+  const review = results.filter(r => r.verdict !== "perfect");
   const btn: React.CSSProperties = { fontSize: 14, padding: "10px 16px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color: "#eee", fontWeight: 700, cursor: "pointer" };
 
   return (
@@ -499,13 +500,13 @@ function ResultView({ results, onRetry, onWatchLecture, verdictLabel, verdictCol
         })}
       </div>
 
-      {misses.length === 0 ? (
-        <p style={{ textAlign: "center", color: "#36d399", fontWeight: 700 }}>全部タイミング合ってた！完璧！</p>
+      {review.length === 0 ? (
+        <p style={{ textAlign: "center", color: "#36d399", fontWeight: 700 }}>全部PERFECT！完璧！</p>
       ) : (
         <>
-          <div style={{ fontSize: 12, color: "#9aa3b0", margin: "0 4px 8px" }}>苦手だったコール（{misses.length}）— セクション別</div>
+          <div style={{ fontSize: 12, color: "#9aa3b0", margin: "0 4px 8px" }}>PERFECTじゃなかったコール（{review.length}）— おさらい・セクション別</div>
           {ARIGATO_BEAT_SECTIONS.map(sec => {
-            const inSec = misses.filter(r => sectionOf(r.call.t) === sec.name);
+            const inSec = review.filter(r => sectionOf(r.call.t) === sec.name);
             if (!inSec.length) return null;
             return (
               <div key={sec.name} style={{ margin: "0 0 12px" }}>
@@ -519,8 +520,9 @@ function ResultView({ results, onRetry, onWatchLecture, verdictLabel, verdictCol
                         {verdictLabel[r.verdict]}{r.errMs != null ? `（${r.errMs > 0 ? "+" : ""}${r.errMs}ms）` : ""}
                       </span>
                     </div>
+                    <TimingDemo beatSec={beatSec} note={r.call.note || "♪"} />
                     <button onClick={() => onWatchLecture(r.call.t)}
-                      style={{ width: "100%", fontSize: 14, color: "#cfe8ff", background: "rgba(124,196,255,0.12)", border: "1px solid rgba(124,196,255,0.45)", borderRadius: 10, padding: "10px 12px", fontWeight: 700, cursor: "pointer" }}>
+                      style={{ width: "100%", marginTop: 8, fontSize: 14, color: "#cfe8ff", background: "rgba(124,196,255,0.12)", border: "1px solid rgba(124,196,255,0.45)", borderRadius: 10, padding: "10px 12px", fontWeight: 700, cursor: "pointer" }}>
                       ▶ 動画で正しいタイミングを見る（数小節前から）
                     </button>
                   </div>
@@ -534,6 +536,39 @@ function ResultView({ results, onRetry, onWatchLecture, verdictLabel, verdictCol
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 12 }}>
         <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", minWidth: 200 }} onClick={onRetry}>もう一回</button>
         <button style={{ ...btn, minWidth: 200 }} onClick={() => shareToX(ok, results.length, perfect, good)}>𝕏 でシェアする</button>
+      </div>
+    </div>
+  );
+}
+
+// 「5・6・7・8 → ここ！」で正解タイミングを実演（上級編のカウントイン流用）。リズムの感覚づかみ用。
+function TimingDemo({ beatSec, note }: { beatSec: number; note: string }) {
+  const [step, setStep] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seq = ["5", "6", "7", "8", note];
+
+  const play = () => {
+    if (timer.current) clearTimeout(timer.current);
+    let k = 0; setStep(seq[0]);
+    const tick = () => {
+      k += 1;
+      if (k < seq.length) { setStep(seq[k]); timer.current = setTimeout(tick, beatSec * 1000); }
+      else { timer.current = setTimeout(() => setStep(null), 700); }
+    };
+    timer.current = setTimeout(tick, beatSec * 1000);
+  };
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  const isCall = step !== null && step === note;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <button onClick={play} style={{ fontSize: 13, padding: "7px 12px", borderRadius: 9, border: "1px solid rgba(255,255,255,0.2)", background: "rgba(255,255,255,0.06)", color: "#eee", cursor: "pointer", flex: "0 0 auto", fontWeight: 700 }}>
+        ▶ 5,6,7,8 で<br />正解タイミング
+      </button>
+      <div style={{ flex: 1, height: 44, borderRadius: 9, background: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+        <span style={{ fontSize: isCall ? 22 : 18, fontWeight: 900, color: isCall ? PINK : "#cbd2dc", wordBreak: "break-all", textAlign: "center", lineHeight: 1.1, padding: "0 6px" }}>
+          {step ?? "5・6・7・8 →"}
+        </span>
       </div>
     </div>
   );
