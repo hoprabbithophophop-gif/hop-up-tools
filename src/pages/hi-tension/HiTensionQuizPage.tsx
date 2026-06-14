@@ -27,6 +27,7 @@ const EARLY_GRACE_MS = 150;     // これ以上早いと「早すぎ＝フライ
 const PERFECT_MS = 250;         // 拍ちょうど〜これだけ後ろまでPERFECT（早い側はEARLY_GRACEまで）
 const GOOD_MS = 600;            // 〜これだけ後ろまでGOOD
 const MISS_TAIL = GOOD_MS / 1000 + 0.25; // この秒数を過ぎたら無タップ＝ミス確定（「遅い」判定の猶予も確保）
+const MIN_TAP_GAP_SEC = 0.1; // 連打で1タップが2コールを消費しないための最小間隔（DDD lets-ddd-easy の入力デバウンス相当）
 
 // タイムライン（/beat流用）
 const Q_SPAN_SEC = 6;    // 可視秒数（拍ごとの山が分離して見える幅）
@@ -34,6 +35,20 @@ const Q_LANE_PITCH = 42; // レーン間隔
 
 const CHANT_OI = "オイ！";
 const CHANT_FU = "Fu";
+
+// X(旧Twitter)シェア。文面・タグ・URLは hop 指定（勝手に足さない）。本編EndCardと同じ Web Intent 方式
+// （ログイン/API不要・URLは &url= でなく本文に独立行で入れる）。ハッシュタグは #ありがとビートpractice のみ。
+const SHARE_URL = "https://hop-up-tools.pages.dev/arigato-beat/quiz";
+function shareToX(ok: number, total: number, perfect: number, good: number) {
+  const text = [
+    "ありがとビート コール練習で",
+    `正しいタイミング ${ok}/${total}！`,
+    `PERFECT ${perfect}・GOOD ${good}`,
+    "#ありがとビートpractice",
+    SHARE_URL,
+  ].join("\n");
+  window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+}
 
 type Call = { t: number; note: string; lenBeats: number };
 type Verdict = "perfect" | "good" | "late" | "early" | "wrong" | "notap";
@@ -127,6 +142,7 @@ export default function HiTensionQuizPage() {
   const rafRef = useRef(0);
   const nowRef = useRef(0);
   const activeIdxRef = useRef(-1);
+  const lastTapAtRef = useRef(-1); // 直前に判定したタップ時刻（デバウンス用）
   const armedRef = useRef(false); // 先頭で再生中の状態が続いてから判定開始（古い再生位置での誤終了を防ぐ）
   const startFramesRef = useRef(0);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -178,7 +194,7 @@ export default function HiTensionQuizPage() {
   const start = () => {
     judgedRef.current = new Set(); resRef.current = []; setResults([]); setFlash(null); setVerdictMap({});
     armedRef.current = false; startFramesRef.current = 0;
-    activeIdxRef.current = -1; setActiveIdx(-1);
+    activeIdxRef.current = -1; setActiveIdx(-1); lastTapAtRef.current = -1;
     setPhase("playing");
     // レクチャー確認でプレイヤーが別動画に切り替わっていたら、ステージ動画へ戻す（もう一回で正しく頭から）。
     if (loadedVideoRef.current !== data.current.videoId) {
@@ -217,12 +233,16 @@ export default function HiTensionQuizPage() {
       for (let i = 0; i < targets.length; i++) {
         if (targets[i].kind !== "cue" && !judgedRef.current.has(i) && now > targets[i].call.t + MISS_TAIL) judge(i, null, null);
       }
-      // アクティブ＝出現中でまだ未判定の次のコール（cueは飛ばす）
-      let ai = -1;
+      // アクティブ＝出現中の未判定コールのうち「今の時刻に最も近い」もの（cueは飛ばす）。
+      // 連続オイ！で1つ見送っても、以降は最寄りのコールに当たる＝判定が後ろ倒しにズレない
+      // （DDD lets-ddd-easy 方式：各タップを独立に最寄りノートへ当てる）。
+      let ai = -1, aiAbs = Infinity;
       for (let i = 0; i < targets.length; i++) {
-        if (targets[i].kind === "cue") continue;
-        const t = targets[i].call.t;
-        if (!judgedRef.current.has(i) && now >= t - LEAD_BEATS * beatSec && now <= t + MISS_TAIL) { ai = i; break; }
+        if (targets[i].kind === "cue" || judgedRef.current.has(i)) continue;
+        const d = now - targets[i].call.t; // +は過ぎた、−はこれから
+        if (d < -LEAD_BEATS * beatSec || d > MISS_TAIL) continue; // まだ画面に出てない先 or もう見送った後は対象外
+        const a = Math.abs(d);
+        if (a < aiAbs) { aiAbs = a; ai = i; }
       }
       if (ai !== activeIdxRef.current) { activeIdxRef.current = ai; setActiveIdx(ai); }
       if (now >= lastT + 1.2) finish();
@@ -235,11 +255,13 @@ export default function HiTensionQuizPage() {
   useEffect(() => () => { cancelAnimationFrame(rafRef.current); if (flashTimer.current) clearTimeout(flashTimer.current); if (kickTimer.current) clearInterval(kickTimer.current); }, []);
 
   const onTap = (note: string) => {
+    const now = getNow();
+    // 1タップで2コールを消費しない（連打の取りこぼし対策・DDDの入力デバウンス相当）。
+    if (now - lastTapAtRef.current < MIN_TAP_GAP_SEC) return;
     if (activeIdxRef.current < 0) return;
     const i = activeIdxRef.current;
-    const tg = targets[i];
-    const now = getNow();
-    judge(i, note, now - tg.call.t);
+    lastTapAtRef.current = now;
+    judge(i, note, now - targets[i].call.t);
   };
 
   // 答え確認＝外部YouTubeに飛ばさず、ページ内プレイヤーをレクチャー動画に切り替えてミスの数小節前から再生。
@@ -445,7 +467,9 @@ function ResultView({ results, onRetry, onWatchLecture, verdictLabel, verdictCol
   results: Result[]; onRetry: () => void; onWatchLecture: (t: number) => void;
   verdictLabel: Record<Verdict, string>; verdictColor: Record<Verdict, string>;
 }) {
-  const ok = results.filter(r => r.verdict === "perfect" || r.verdict === "good").length;
+  const perfect = results.filter(r => r.verdict === "perfect").length;
+  const good = results.filter(r => r.verdict === "good").length;
+  const ok = perfect + good;
   const misses = results.filter(r => r.verdict !== "perfect" && r.verdict !== "good");
   const btn: React.CSSProperties = { fontSize: 14, padding: "10px 16px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color: "#eee", fontWeight: 700, cursor: "pointer" };
 
@@ -486,8 +510,9 @@ function ResultView({ results, onRetry, onWatchLecture, verdictLabel, verdictCol
         </>
       )}
 
-      <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 12 }}>
-        <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff" }} onClick={onRetry}>もう一回</button>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 12 }}>
+        <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", minWidth: 200 }} onClick={onRetry}>もう一回</button>
+        <button style={{ ...btn, minWidth: 200 }} onClick={() => shareToX(ok, results.length, perfect, good)}>𝕏 でシェアする</button>
       </div>
     </div>
   );
