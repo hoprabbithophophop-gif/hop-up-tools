@@ -217,7 +217,8 @@ function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, n
 
   return (
     <div ref={vpRef} onPointerDown={onVpDown} onPointerMove={onVpMove} onPointerUp={onVpUp} onPointerCancel={onVpUp}
-      style={{ position: "relative", flex: "1 1 auto", minHeight: 0, overflow: "hidden", border: "1px solid #222", borderRadius: 8, background: "#0a0a0c", touchAction: "none", userSelect: "none", cursor: editMode ? "default" : "ew-resize" }}>
+      onContextMenu={e => e.preventDefault()}
+      style={{ position: "relative", flex: "1 1 auto", minHeight: 0, overflow: "hidden", border: "1px solid #222", borderRadius: 8, background: "#0a0a0c", touchAction: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", cursor: editMode ? "default" : "ew-resize" }}>
       {/* プレイヘッド（中央固定） */}
       <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, marginLeft: -1, background: pink, zIndex: 3, pointerEvents: "none" }} />
       {/* 編集チェック（右上）：ONの時だけバーをドラッグして調整できる */}
@@ -232,6 +233,9 @@ function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, n
           const w = Math.max(22, tp.lenBeats * beatSec * pxPerSec);
           const lane = laneOf.get(tp.id) ?? 0;
           const isCur = tp.id === curId;
+          // 長い語（BEYOOOOONDS等）でバー幅が狭いと1行に収まらない→フォントを詰めて縦に折る
+          const longWord = /[A-Za-z0-9]{6,}/.test(tp.note);
+          const barFont = longWord && w < 60 ? 10 : 12;
           return (
             <div
               key={tp.id}
@@ -241,12 +245,12 @@ function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, n
               onPointerCancel={onBarUp}
               style={{
                 position: "absolute", left, top: lane * LANE_PITCH + 4, width: w,
-                maxHeight: LANE_PITCH - 8,
                 borderRadius: 6, border: `1px solid ${isCur ? "#fff" : "rgba(255,255,255,0.25)"}`,
                 background: isCur ? pink : "rgba(218,24,132,0.55)",
-                color: "#fff", fontSize: 12, fontWeight: 700, lineHeight: 1.15,
-                padding: "3px 4px", overflow: "hidden", whiteSpace: "normal", wordBreak: "break-word",
+                color: "#fff", fontSize: barFont, fontWeight: 700, lineHeight: 1.15,
+                padding: "3px 4px", whiteSpace: "normal", wordBreak: "break-all", overflowWrap: "anywhere",
                 cursor: editMode ? "grab" : "inherit", touchAction: "none",
+                userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
                 boxShadow: isCur ? "0 0 0 1px rgba(255,255,255,0.4)" : undefined,
               }}
               title={editMode ? "ドラッグでタイミング調整" : tp.note}
