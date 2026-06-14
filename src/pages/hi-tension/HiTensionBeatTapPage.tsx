@@ -9,7 +9,7 @@ import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer
 
 const PINK = "#da1884";
 // 既定はありがとビート Stage Practice ver.（BEYOOOOONDS公式）。他のidに差し替え可。
-const DEFAULT_VIDEO = "n5AVvFwbeaM";
+const DEFAULT_VIDEO = "xr7_Z5ibZMA"; // ありがとビート コールレクチャー（フル通し実演・YouTube公式）
 const LS_KEY = "hi_tension:beat_tap";
 // コールの長さ(拍)の選択肢。0.5刻み・最大8。
 const LEN_OPTIONS = Array.from({ length: 16 }, (_, i) => (i + 1) * 0.5); // 0.5..8
