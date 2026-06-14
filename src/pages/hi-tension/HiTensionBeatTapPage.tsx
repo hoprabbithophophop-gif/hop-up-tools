@@ -98,28 +98,33 @@ function LenPicker({ value, onChange }: { value: number; onChange: (v: number) =
   );
 }
 
-// タイムライン編集ビュー：再生中プレイヘッド中央固定＋横スクロール、コールを拍幅のバーで
-// 並べ、バーをドラッグで拍グリッドにスナップ移動。空き所タップでその位置へシーク。
-const SPAN_SEC = 6;     // 可視秒数
-const LANE_H = 30;      // レーン高
-const BAR_H = 26;
-function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, nowSec, getNow, onSeek, onMove, curId, pink }: {
+// タイムライン編集ビュー：再生中プレイヘッド中央固定。コールは「拍数＝横幅・全文を縦に折返し」
+// のバーで並ぶ。既定（編集OFF）は横ドラッグ＝動画スクラブ（時間が動く）。編集ON時のみバーを
+// ドラッグして拍グリッドにスナップ移動できる（不用意に触ってリズムがズレる事故を防ぐ）。
+const SPAN_SEC = 6;       // 可視秒数
+const LANE_PITCH = 80;    // レーン間隔（折返しで縦に伸びるバーぶん広め）
+function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, nowSec, getNow, onSeek, onScrub, onMove, curId, pink }: {
   taps: Tap[]; dispT: (t: number) => number; snapGrid: (t: number) => number;
   beatSec: number; unit: number; refSec: number | null;
   playing: boolean; nowSec: number; getNow: () => number;
-  onSeek: (t: number) => void; onMove: (id: string, t: number) => void;
+  onSeek: (t: number) => void; onScrub: (t: number) => void; onMove: (id: string, t: number) => void;
   curId: string | null; pink: string;
 }) {
   const vpRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const [vw, setVw] = useState(0);
+  const [vh, setVh] = useState(0);
+  const [editMode, setEditMode] = useState(false);
+  const editRef = useRef(editMode); editRef.current = editMode;
   const dragRef = useRef<{ id: string; startX: number; origT: number } | null>(null);
+  // 横スクラブ（編集OFF時）：指で時間軸を掴んで動かす。holdT＝rAFが追う固定時刻。
+  const scrubRef = useRef<{ startX: number; startT: number; moved: boolean; holdT: number } | null>(null);
   const playingRef = useRef(playing); playingRef.current = playing;
   const nowRef = useRef(nowSec); nowRef.current = nowSec;
 
   useEffect(() => {
     const el = vpRef.current; if (!el) return;
-    const set = () => setVw(el.clientWidth);
+    const set = () => { setVw(el.clientWidth); setVh(el.clientHeight); };
     set();
     const ro = new ResizeObserver(set); ro.observe(el);
     return () => ro.disconnect();
@@ -146,19 +151,23 @@ function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, n
   }, [taps, beatSec, unit, refSec]);
 
   // 毎フレーム：現在時刻が中央に来るよう track を translateX（state経由しない＝軽い）。
+  // スクラブ中は holdT（指の位置）を、それ以外は再生位置を追う。
   useEffect(() => {
     let raf = 0;
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const tr = trackRef.current; if (!tr || vw === 0) return;
-      const t = playingRef.current ? getNow() : nowRef.current;
+      const sc = scrubRef.current;
+      const t = sc ? sc.holdT : (playingRef.current ? getNow() : nowRef.current);
       tr.style.transform = `translateX(${(vw / 2 - t * pxPerSec).toFixed(1)}px)`;
     };
     loop();
     return () => cancelAnimationFrame(raf);
   }, [vw, pxPerSec, getNow]);
 
+  // バードラッグ（編集ON時のみ）。OFFなら何もせず＝親(viewport)の横スクラブに委ねる。
   const onBarDown = (e: React.PointerEvent, tp: Tap) => {
+    if (!editRef.current) return;
     e.stopPropagation();
     try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* ignore */ }
     dragRef.current = { id: tp.id, startX: e.clientX, origT: dispT(tp.t) };
@@ -170,13 +179,30 @@ function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, n
   };
   const onBarUp = () => { dragRef.current = null; };
 
-  // 空き所タップ＝その x の時刻へシーク。
+  // viewport：編集OFFの掴みは横スクラブ（時間が動く）。指を離した時、動いてなければ＝タップで
+  // その位置へシーク。動いていれば最後のスクラブ位置のまま。
   const onVpDown = (e: React.PointerEvent) => {
-    const el = vpRef.current; if (!el) return;
-    const rect = el.getBoundingClientRect();
+    if (dragRef.current) return; // バー編集中
     const center = playingRef.current ? getNow() : nowRef.current;
-    const t = center + (e.clientX - rect.left - vw / 2) / pxPerSec;
-    onSeek(Math.max(0, t));
+    scrubRef.current = { startX: e.clientX, startT: center, moved: false, holdT: center };
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+  const onVpMove = (e: React.PointerEvent) => {
+    const sc = scrubRef.current; if (!sc) return;
+    const dx = e.clientX - sc.startX;
+    if (Math.abs(dx) > 3) sc.moved = true;
+    const t = Math.max(0, sc.startT - dx / pxPerSec); // 指で右へ＝過去へ
+    sc.holdT = t;
+    if (sc.moved) onScrub(t); // ドラッグ中は動画も追従（再生はそのまま）
+  };
+  const onVpUp = (e: React.PointerEvent) => {
+    const sc = scrubRef.current; if (!sc) { return; }
+    if (!sc.moved) {
+      // タップ＝その x の時刻へシーク
+      const el = vpRef.current;
+      if (el) { const rect = el.getBoundingClientRect(); onSeek(Math.max(0, sc.startT + (e.clientX - rect.left - vw / 2) / pxPerSec)); }
+    }
+    scrubRef.current = null;
   };
 
   // グリッド線（CSS repeating-gradientで軽く描く）。基準refSecに線が来るようオフセット。
@@ -187,16 +213,23 @@ function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, n
     backgroundImage: `repeating-linear-gradient(90deg, rgba(255,255,255,0.10) 0 1px, transparent 1px ${beatPx}px), repeating-linear-gradient(90deg, rgba(255,255,255,0.22) 0 1.5px, transparent 1.5px ${measurePx}px)`,
     backgroundPosition: `${offset}px 0, ${refSec == null ? 0 : (refSec * pxPerSec) % measurePx}px 0`,
   };
+  const trackH = Math.max(laneCount * LANE_PITCH + 8, vh);
 
   return (
-    <div ref={vpRef} onPointerDown={onVpDown} style={{ position: "relative", flex: "1 1 auto", minHeight: 0, overflow: "hidden", border: "1px solid #222", borderRadius: 8, background: "#0a0a0c", touchAction: "none", userSelect: "none" }}>
+    <div ref={vpRef} onPointerDown={onVpDown} onPointerMove={onVpMove} onPointerUp={onVpUp} onPointerCancel={onVpUp}
+      style={{ position: "relative", flex: "1 1 auto", minHeight: 0, overflow: "hidden", border: "1px solid #222", borderRadius: 8, background: "#0a0a0c", touchAction: "none", userSelect: "none", cursor: editMode ? "default" : "ew-resize" }}>
       {/* プレイヘッド（中央固定） */}
       <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, marginLeft: -1, background: pink, zIndex: 3, pointerEvents: "none" }} />
+      {/* 編集チェック（右上）：ONの時だけバーをドラッグして調整できる */}
+      <label style={{ position: "absolute", top: 6, right: 8, zIndex: 4, display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: editMode ? pink : "#aaa", fontWeight: editMode ? 700 : 400, background: "rgba(0,0,0,0.55)", padding: "3px 7px", borderRadius: 6, cursor: "pointer" }}
+        onPointerDown={e => e.stopPropagation()}>
+        <input type="checkbox" checked={editMode} onChange={e => setEditMode(e.target.checked)} /> 編集
+      </label>
       {/* トラック（毎フレーム translateX） */}
-      <div ref={trackRef} style={{ position: "absolute", left: 0, top: 0, height: laneCount * LANE_H + 8, width: Math.max(1, trackSec * pxPerSec), ...grid, willChange: "transform" }}>
+      <div ref={trackRef} style={{ position: "absolute", left: 0, top: 0, height: trackH, width: Math.max(1, trackSec * pxPerSec), ...grid, willChange: "transform" }}>
         {taps.map(tp => {
           const left = dispT(tp.t) * pxPerSec;
-          const w = Math.max(30, tp.lenBeats * beatSec * pxPerSec);
+          const w = Math.max(22, tp.lenBeats * beatSec * pxPerSec);
           const lane = laneOf.get(tp.id) ?? 0;
           const isCur = tp.id === curId;
           return (
@@ -207,13 +240,16 @@ function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, n
               onPointerUp={onBarUp}
               onPointerCancel={onBarUp}
               style={{
-                position: "absolute", left, top: lane * LANE_H + 4, width: w, height: BAR_H,
+                position: "absolute", left, top: lane * LANE_PITCH + 4, width: w,
+                maxHeight: LANE_PITCH - 8,
                 borderRadius: 6, border: `1px solid ${isCur ? "#fff" : "rgba(255,255,255,0.25)"}`,
                 background: isCur ? pink : "rgba(218,24,132,0.55)",
-                color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center",
-                padding: "0 5px", overflow: "hidden", whiteSpace: "nowrap", cursor: "grab", touchAction: "none",
+                color: "#fff", fontSize: 12, fontWeight: 700, lineHeight: 1.15,
+                padding: "3px 4px", overflow: "hidden", whiteSpace: "normal", wordBreak: "break-word",
+                cursor: editMode ? "grab" : "inherit", touchAction: "none",
+                boxShadow: isCur ? "0 0 0 1px rgba(255,255,255,0.4)" : undefined,
               }}
-              title="ドラッグでタイミング調整"
+              title={editMode ? "ドラッグでタイミング調整" : tp.note}
             >
               {tp.note || "（無）"}
             </div>
@@ -305,7 +341,10 @@ export default function HiTensionBeatTapPage() {
   };
 
   const changeRate = (r: number) => { try { playerRef.current?.setPlaybackRate(r); } catch { /* ignore */ } setRate(r); };
-  const seekTo = (t: number) => { try { playerRef.current?.seekTo(t); playerRef.current?.play(); } catch { /* ignore */ } };
+  // タップでシーク＝再生して、リスト追従(playing判定)も復活させる（秒数タップ後に追従が止まる不具合の修正）
+  const seekTo = (t: number) => { try { playerRef.current?.seekTo(t); playerRef.current?.play(); } catch { /* ignore */ } setPlaying(true); };
+  // スクラブ用＝再生状態は変えずに位置だけ動かす（タイムライン横ドラッグ中に毎フレーム呼ぶ）
+  const seekOnly = (t: number) => { try { playerRef.current?.seekTo(t); } catch { /* ignore */ } setNowSec(t); };
   // 自前の再生/停止（iframe を直接クリックさせない＝フォーカスをこの画面に残して Space を効かせる）
   const [playing, setPlaying] = useState(false);
   const togglePlay = () => {
@@ -324,25 +363,29 @@ export default function HiTensionBeatTapPage() {
   // 動画の現在位置（再生中に「今どのコールか」を光らせるのに使う）
   const onTimeUpdate = (s: number) => setNowSec(s);
 
-  // 今再生中の位置に当たるコール行（その秒数を過ぎた最後の行）
+  // 今の再生位置に一番近いコール行（タイムラインの現在地とリストのハイライトを一致させる）
   const curIdx = useMemo(() => {
-    let idx = -1;
+    if (taps.length === 0) return -1;
+    let best = 0, bd = Infinity;
     for (let i = 0; i < taps.length; i++) {
-      if (dispT(taps[i].t) <= nowSec + 0.05) idx = i; else break;
+      const d = Math.abs(dispT(taps[i].t) - nowSec);
+      if (d < bd) { bd = d; best = i; }
     }
-    return idx;
+    return best;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taps, nowSec, snapOn, refSec, unit]);
 
-  // 現在行を一覧スクロール枠の中央へ（スクロール枠を直接動かす＝確実に追従）
+  // 現在行を一覧スクロール枠の中央へ（スクロール枠を直接動かす＝確実に追従）。
+  // playing 判定は外した＝シーク/スクラブで nowSec が動けば必ず追従する（秒数タップ後に止まる不具合の修正）。
   const curRowRef = useRef<HTMLDivElement>(null);
   const scrollBoxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    if (view !== "list") return;
     const box = scrollBoxRef.current, row = curRowRef.current;
-    if (!playing || !box || !row || curIdx < 0) return;
+    if (!box || !row || curIdx < 0) return;
     const target = row.offsetTop - box.clientHeight / 2 + row.clientHeight / 2;
     box.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
-  }, [curIdx, playing]);
+  }, [curIdx, view]);
 
   // スペースキーでタップ（動画を見ながら押せるように）。入力欄にフォーカス中は無効。
   useEffect(() => {
@@ -404,6 +447,8 @@ export default function HiTensionBeatTapPage() {
 
   const btn: React.CSSProperties = { fontSize: 14, padding: "8px 12px", borderRadius: 8, border: "1px solid #444", background: "#1a1a1a", color: "#eee", cursor: "pointer" };
   const seg = (active: boolean): React.CSSProperties => ({ ...btn, background: active ? PINK : "#1a1a1a", borderColor: active ? PINK : "#444", color: active ? "#fff" : "#bbb", fontWeight: active ? 700 : 400 });
+  // コンパクト版（速さ＋ビュー切替を1行に収めるため）
+  const segC = (active: boolean): React.CSSProperties => ({ ...seg(active), fontSize: 13, padding: "5px 9px" });
 
   return (
     <div style={{ maxWidth: 520, margin: "0 auto", padding: "8px 12px", color: "#eee", background: "#000", height: "100dvh", overflow: "hidden", display: "flex", flexDirection: "column", fontFamily: "Inter, system-ui, sans-serif" }}>
@@ -468,12 +513,12 @@ export default function HiTensionBeatTapPage() {
         タップ（Space）
       </button>
 
-      {/* 速さ＋ビュー切替＋全消し */}
-      <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "8px 0 4px", flexWrap: "wrap" }}>
-        <span style={{ fontSize: 12, color: "#999" }}>速さ</span>
-        {[0.5, 0.75, 1].map(r => (<button key={r} style={seg(rate === r)} onClick={() => changeRate(r)}>{r}x</button>))}
-        <button style={{ ...seg(view === "list"), marginLeft: "auto" }} onClick={() => setView("list")}>リスト</button>
-        <button style={seg(view === "timeline")} onClick={() => setView("timeline")}>タイムライン</button>
+      {/* 速さ＋ビュー切替を1行に集約（縦を詰めて一覧/タイムラインに高さを譲る） */}
+      <div style={{ display: "flex", gap: 5, alignItems: "center", margin: "8px 0 4px" }}>
+        <span style={{ fontSize: 12, color: "#999", flex: "0 0 auto" }}>速さ</span>
+        {[0.5, 0.75, 1].map(r => (<button key={r} style={segC(rate === r)} onClick={() => changeRate(r)}>{(r < 1 ? String(r).slice(1) : String(r)) + "x"}</button>))}
+        <button style={{ ...segC(view === "list"), marginLeft: "auto" }} onClick={() => setView("list")}>リスト</button>
+        <button style={segC(view === "timeline")} onClick={() => setView("timeline")}>TL</button>
       </div>
 
       </div>{/* 固定ブロック終わり */}
@@ -482,7 +527,7 @@ export default function HiTensionBeatTapPage() {
         <TimelineView
           taps={taps} dispT={dispT} snapGrid={snap} beatSec={beatSec} unit={unit} refSec={refSec}
           playing={playing} nowSec={nowSec} getNow={() => playerRef.current?.getCurrentTime() ?? nowSec}
-          onSeek={t => seekTo(t)} onMove={moveTap} curId={taps[curIdx]?.id ?? null} pink={PINK}
+          onSeek={t => seekTo(t)} onScrub={t => seekOnly(t)} onMove={moveTap} curId={taps[curIdx]?.id ?? null} pink={PINK}
         />
       ) : (
       /* タップ一覧（残り高さ全部・内側スクロール） */
