@@ -10,18 +10,18 @@ export const ARIGATO_BEAT_BPM = 149;
 // ※開始秒は採譜データの構造（見せてBEYOOOOONDS=サビ／お名前コール=大サビ／イントロとアウトロの対称 等）からの
 //   推測。実際とズレてたら秒数を直す（hop確認待ち）。
 export const ARIGATO_BEAT_SECTIONS: { name: string; startSec: number }[] = [
-  { name: "イントロ", startSec: 0 },
-  { name: "1番Aメロ", startSec: 23 },
-  { name: "1番Bメロ", startSec: 42 },
-  { name: "1番サビ", startSec: 52 },
-  { name: "1番間奏", startSec: 63 },
-  { name: "2番Aメロ", startSec: 81 },
-  { name: "2番Bメロ", startSec: 93 },
-  { name: "2番サビ", startSec: 108 },
-  { name: "2番間奏", startSec: 123 },
-  { name: "落ちサビ", startSec: 142 },
-  { name: "大サビ", startSec: 163 },
-  { name: "アウトロ", startSec: 202 },
+  { name: "イントロ", startSec: 0 },     // 0:00
+  { name: "1番Aメロ", startSec: 23 },    // 0:23
+  { name: "1番Bメロ", startSec: 38 },    // 0:38
+  { name: "1番サビ", startSec: 52 },     // 0:52
+  { name: "1番間奏", startSec: 71 },     // 1:11
+  { name: "2番Aメロ", startSec: 81 },    // 1:21
+  { name: "2番Bメロ", startSec: 93 },    // 1:33
+  { name: "2番サビ", startSec: 108 },    // 1:48
+  { name: "2番間奏", startSec: 130 },    // 2:10
+  { name: "落ちサビ", startSec: 142 },   // 2:22
+  { name: "大サビ", startSec: 163 },     // 2:43
+  { name: "アウトロ", startSec: 196 },   // 3:16
 ];
 export const ARIGATO_BEAT_CALLS: CallData[] = [
   { t: 3.295, lenBeats: 2, note: "フィール　ダ　フィーバー" },
