@@ -1,13 +1,15 @@
 // コール練習クイズ（開発用・隠しルート /hi-tension/quiz）
 //
-// 主役は「正しいタイミングで出せるか」。声・マイクは使わず全部タップ。
+// 主役は「正しいタイミングで・正しいコールを出せるか」。声・マイクは使わず全部タップ。
 //   - ステージプラクティス動画（コール答えが映らない）を流す。
-//   - コールの少し前に候補ボタンが出る＝正解＋同じ尺の別タイミングのコールを自動でまぜる
-//     （チャント帯はオイ/Fu等の短いコール同士）。近づくバーが拍に来た瞬間に正解を狙ってタップ。
-//   - 採点は「ボタン正誤 × タイミング精度」。流れは止めない。
+//   - 上に /beat と同じタイムライン（中央プレイヘッド＋拍グリッド＋コールが拍幅のバーで右から流れる）。
+//     これから来るコールは「？」でぼかし、通過して判定したコールは中身と正誤色で開示＝自分の出来が流れる。
+//   - 下に候補ボタン（位置固定）。？が中央(拍)に来たら正しいコールを選ぶ。
+//     ・普通のコール＝同尺の別コールを混ぜた選択肢。
+//     ・オイ！／Fu の連打地帯＝専用の［オイ！］［Fu］2択（並び固定でリズムに集中）。
+//   - 採点は「コール正誤 × タイミング精度」。流れは止めない。
 //   - 終わったら結果画面：ミスを一覧→「5,6,7,8→ここ！」で正解タイミングを実演＋自分のズレ表示＋
 //     「レクチャーで答えを見る」リンク（コールレクチャー動画の数小節前へ）。
-// コールデータは採譜ツール(/hi-tension/beat)の保存(localStorage)を読む。
 import { useEffect, useMemo, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
 import { ARIGATO_BEAT_CALLS, ARIGATO_BEAT_VIDEO, ARIGATO_BEAT_BPM } from "./arigatoBeatCalls";
@@ -24,14 +26,30 @@ const PERFECT_MS = 120;
 const GOOD_MS = 260;
 const MISS_TAIL = GOOD_MS / 1000 + 0.08; // この秒数を過ぎたら無タップ＝ミス確定
 
+// タイムライン（/beat流用）
+const Q_SPAN_SEC = 6;    // 可視秒数（拍ごとの山が分離して見える幅）
+const Q_LANE_PITCH = 42; // レーン間隔
+
+const CHANT_OI = "オイ！";
+const CHANT_FU = "Fu";
+
 type Call = { t: number; note: string; lenBeats: number };
 type Verdict = "perfect" | "good" | "late" | "wrong" | "notap";
+type Target = { call: Call; kind: "chant" | "normal"; answer: string; candidates: string[] };
 type Result = { i: number; call: Call; chosen: string | null; errMs: number | null; verdict: Verdict };
 
 // 本物のありがとビート採譜データを使う（quizは“遊ぶ製品”なので採譜のlocalStorageではなく確定データを読む）
 function loadData(): { videoId: string; calls: Call[]; bpm: number } {
   const calls = [...ARIGATO_BEAT_CALLS].map(c => ({ t: c.t, note: c.note, lenBeats: c.lenBeats })).sort((a, b) => a.t - b.t);
   return { videoId: ARIGATO_BEAT_VIDEO, calls, bpm: ARIGATO_BEAT_BPM };
+}
+
+// オイ！／Fu 系のコールか（連打地帯は専用2択にする）。
+function chantKindOf(note: string): "oi" | "fu" | null {
+  const n = note.trim();
+  if (n === "オイ！" || n === "オイ") return "oi";
+  if (/^fu/i.test(n)) return "fu"; // "Fu" / "Fu!" など
+  return null;
 }
 
 // 尺バケツ：短い/中/長で分ける（選択肢を尺で見分けられないように同バケツから抽選）
@@ -47,41 +65,55 @@ function shuffle<T>(a: T[]): T[] {
   return r;
 }
 
+// 判定済みバーの色（背景/枠/文字）
+const VERDICT_BAR: Record<Verdict, { bg: string; bd: string; fg: string }> = {
+  perfect: { bg: "rgba(54,211,153,0.24)", bd: "rgba(54,211,153,0.85)", fg: "#36d399" },
+  good: { bg: "rgba(124,196,255,0.24)", bd: "rgba(124,196,255,0.85)", fg: "#7cc4ff" },
+  late: { bg: "rgba(245,179,66,0.24)", bd: "rgba(245,179,66,0.85)", fg: "#f5b342" },
+  wrong: { bg: "rgba(255,107,138,0.24)", bd: "rgba(255,107,138,0.85)", fg: "#ff6b8a" },
+  notap: { bg: "rgba(136,136,136,0.18)", bd: "rgba(136,136,136,0.55)", fg: "#9aa3b0" },
+};
+
 export default function HiTensionQuizPage() {
   const data = useRef(loadData());
   const calls = data.current.calls;
   const bpm = data.current.bpm || 149;
   const beatSec = 60 / bpm;
 
-  // 各コールに候補（正解＋同尺ダミー2個）を用意（毎回ランダムだが起動時に固定）。
-  const targets = useMemo(() => {
+  // 各コールに候補を用意（普通＝正解＋同尺ダミー2 ／ 連打＝オイ/Fu2択）。毎回ランダムだが起動時に固定。
+  const targets = useMemo<Target[]>(() => {
     return calls.map((call, idx) => {
+      const ck = chantKindOf(call.note);
+      if (ck) {
+        return { call, kind: "chant", answer: ck === "oi" ? CHANT_OI : CHANT_FU, candidates: [CHANT_OI, CHANT_FU] };
+      }
       const bucket = bucketOf(call.lenBeats);
       const pool = calls
-        .filter((c, k) => k !== idx && c.note && c.note !== call.note && bucketOf(c.lenBeats) === bucket)
+        .filter((c, k) => k !== idx && c.note && c.note !== call.note && !chantKindOf(c.note) && bucketOf(c.lenBeats) === bucket)
         .map(c => c.note);
       const uniq = [...new Set(pool)];
       let distract = shuffle(uniq).slice(0, 2);
-      // 同尺が足りなければ他バケツからも借りる
       if (distract.length < 2) {
-        const more = [...new Set(calls.map(c => c.note).filter(n => n && n !== call.note && !distract.includes(n)))];
+        const more = [...new Set(calls.map(c => c.note).filter(n => n && n !== call.note && !chantKindOf(n) && !distract.includes(n)))];
         distract = [...distract, ...shuffle(more).slice(0, 2 - distract.length)];
       }
       const candidates = shuffle([call.note || "♪", ...distract]);
-      return { call, candidates };
+      return { call, kind: "normal", answer: call.note || "♪", candidates };
     });
   }, [calls]);
 
   const playerRef = useRef<YouTubePlayerApi>(null);
   const [phase, setPhase] = useState<"ready" | "playing" | "result">("ready");
-  const [nowSec, setNowSec] = useState(0);
   const [activeIdx, setActiveIdx] = useState(-1);
+  const [verdictMap, setVerdictMap] = useState<Record<number, Verdict>>({}); // タイムライン開示用（判定したら中身＋色を出す）
   const [flash, setFlash] = useState<{ verdict: Verdict; errMs: number | null } | null>(null);
   const [results, setResults] = useState<Result[]>([]);
 
   const judgedRef = useRef<Set<number>>(new Set());
   const resRef = useRef<Result[]>([]);
   const rafRef = useRef(0);
+  const nowRef = useRef(0);
+  const activeIdxRef = useRef(-1);
   const armedRef = useRef(false); // 先頭で再生中の状態が続いてから判定開始（古い再生位置での誤終了を防ぐ）
   const startFramesRef = useRef(0);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -95,7 +127,7 @@ export default function HiTensionQuizPage() {
     let verdict: Verdict;
     let errMs: number | null = null;
     if (chosen === null) verdict = "notap";
-    else if (chosen !== (tg.call.note || "♪")) verdict = "wrong";
+    else if (chosen !== tg.answer) verdict = "wrong";
     else {
       errMs = Math.round((errSec ?? 0) * 1000);
       const a = Math.abs(errMs);
@@ -103,6 +135,7 @@ export default function HiTensionQuizPage() {
     }
     const r: Result = { i, call: tg.call, chosen, errMs, verdict };
     resRef.current[i] = r;
+    setVerdictMap(m => ({ ...m, [i]: verdict })); // タイムラインに開示
     if (chosen !== null) {
       setFlash({ verdict, errMs });
       if (flashTimer.current) clearTimeout(flashTimer.current);
@@ -120,9 +153,12 @@ export default function HiTensionQuizPage() {
     setPhase("result");
   };
 
+  const getNow = () => playerRef.current?.getCurrentTime?.() ?? nowRef.current;
+
   const start = () => {
-    judgedRef.current = new Set(); resRef.current = []; setResults([]); setFlash(null);
+    judgedRef.current = new Set(); resRef.current = []; setResults([]); setFlash(null); setVerdictMap({});
     armedRef.current = false; startFramesRef.current = 0;
+    activeIdxRef.current = -1; setActiveIdx(-1);
     setPhase("playing");
     try { playerRef.current?.seekTo(0); playerRef.current?.play(); } catch { /* ignore */ }
     // プレイヤー準備が間に合わず頭出しが効かないことがあるので、少し後にもう一度頭へ戻す
@@ -130,7 +166,7 @@ export default function HiTensionQuizPage() {
     const loop = () => {
       rafRef.current = requestAnimationFrame(loop);
       const now = playerRef.current?.getCurrentTime?.() ?? 0;
-      setNowSec(now);
+      nowRef.current = now;
       // 「頭(0.05〜1.5s)を実際に前進しながら再生中」が3フレーム続いて初めて判定開始。
       // 準備中は getCurrentTime が 0 を返し isPlaying は楽観的に true になりがち＝now>0.05 で本当の再生だけ拾う。
       // これで一瞬の0読みや古い再生位置(動画終端)での即終了を防ぐ。
@@ -151,7 +187,7 @@ export default function HiTensionQuizPage() {
         const t = targets[i].call.t;
         if (!judgedRef.current.has(i) && now >= t - LEAD_BEATS * beatSec && now <= t + MISS_TAIL) { ai = i; break; }
       }
-      setActiveIdx(ai);
+      if (ai !== activeIdxRef.current) { activeIdxRef.current = ai; setActiveIdx(ai); }
       if (now >= lastT + 1.2) finish();
     };
     loop();
@@ -162,10 +198,11 @@ export default function HiTensionQuizPage() {
   useEffect(() => () => { cancelAnimationFrame(rafRef.current); if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
 
   const onTap = (note: string) => {
-    if (activeIdx < 0) return;
-    const tg = targets[activeIdx];
-    const now = playerRef.current?.getCurrentTime?.() ?? nowSec;
-    judge(activeIdx, note, now - tg.call.t);
+    if (activeIdxRef.current < 0) return;
+    const i = activeIdxRef.current;
+    const tg = targets[i];
+    const now = getNow();
+    judge(i, note, now - tg.call.t);
   };
 
   // 答え確認リンク（レクチャー動画の数小節前へ）。
@@ -179,9 +216,10 @@ export default function HiTensionQuizPage() {
   };
 
   const active = activeIdx >= 0 ? targets[activeIdx] : null;
-  const approach = active ? Math.min(1, Math.max(0, (nowSec - (active.call.t - LEAD_BEATS * beatSec)) / (LEAD_BEATS * beatSec))) : 0;
 
   const btn: React.CSSProperties = { fontSize: 15, padding: "11px 18px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color: "#eee", fontWeight: 700, cursor: "pointer" };
+  // 候補ボタン＝高さ固定（テキストが長くても枠内で折り返す＝ガタガタしない）。
+  const choiceBtn: React.CSSProperties = { height: 62, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", fontSize: 15, padding: "4px 8px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color: "#eee", fontWeight: 700, cursor: "pointer", lineHeight: 1.15, wordBreak: "break-all", overflow: "hidden" };
 
   const verdictLabel: Record<Verdict, string> = { perfect: "PERFECT", good: "GOOD", late: "タイミングずれ", wrong: "ちがうコール", notap: "押せてない" };
   const verdictColor: Record<Verdict, string> = { perfect: "#36d399", good: "#7cc4ff", late: "#f5b342", wrong: "#ff6b8a", notap: "#888" };
@@ -198,7 +236,7 @@ export default function HiTensionQuizPage() {
       )}
 
       {/* 動画（ステージプラクティス＝答えが映らない） */}
-      <div style={{ width: "min(100%, calc(24dvh * 16 / 9))", margin: "8px auto 0", flex: "0 0 auto" }}>
+      <div style={{ width: "min(100%, calc(22dvh * 16 / 9))", margin: "8px auto 0", flex: "0 0 auto" }}>
         <YouTubePlayer ref={playerRef} videoId={data.current.videoId} onEnded={() => phase === "playing" && armedRef.current && finish()} />
       </div>
 
@@ -206,8 +244,8 @@ export default function HiTensionQuizPage() {
       {phase === "ready" && (
         <div style={{ flex: "1 1 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
           <p style={{ fontSize: 13, color: "#9aa3b0", maxWidth: 360, lineHeight: 1.7, margin: 0 }}>
-            曲が流れる→コールの少し前に候補が出る→<b style={{ color: "#cbd2dc" }}>近づくバーが拍に来た瞬間に正解をタップ</b>。<br />
-            大事なのは<b style={{ color: PINK }}>タイミング</b>。終わったら苦手を結果画面で振り返れる。
+            曲が流れる→上のタイムラインで <b style={{ color: "#cbd2dc" }}>？が中央(拍)に近づく</b>→<b style={{ color: "#cbd2dc" }}>正しいコールを選ぶ</b>。<br />
+            大事なのは<b style={{ color: PINK }}>タイミング</b>。オイ！／Fu の連打は専用ボタンで。終わったら苦手を結果画面で振り返れる。
           </p>
           {calls.length > 0 && (
             <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", fontSize: 17, padding: "13px 30px" }} onClick={start}>▶ スタート</button>
@@ -217,29 +255,38 @@ export default function HiTensionQuizPage() {
 
       {/* ===== playing ===== */}
       {phase === "playing" && (
-        <div style={{ flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 16, position: "relative" }}>
+        <div style={{ flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "flex-start", gap: 12, position: "relative", paddingTop: 8 }}>
+          {/* タイムライン（中央プレイヘッド＋拍グリッド＋？でぼかし／判定済みは開示） */}
+          <QuizTimeline
+            calls={calls} beatSec={beatSec} getNow={getNow}
+            verdictMap={verdictMap} activeIdx={activeIdx} pink={PINK}
+          />
+
           {/* 判定フラッシュ */}
-          <div style={{ height: 40, textAlign: "center" }}>
+          <div style={{ height: 30, textAlign: "center" }}>
             {flash && (
-              <span style={{ fontSize: 24, fontWeight: 900, color: verdictColor[flash.verdict] }}>
+              <span style={{ fontSize: 22, fontWeight: 900, color: verdictColor[flash.verdict] }}>
                 {verdictLabel[flash.verdict]}{flash.errMs != null && flash.verdict !== "perfect" ? `（${flash.errMs > 0 ? "+" : ""}${flash.errMs}ms）` : ""}
               </span>
             )}
           </div>
 
-          {/* 近づくバー（中央＝拍） */}
-          <div style={{ position: "relative", height: 10, borderRadius: 5, background: "rgba(255,255,255,0.07)", overflow: "hidden", margin: "0 6px" }}>
-            <div style={{ position: "absolute", left: "50%", top: -4, bottom: -4, width: 2, marginLeft: -1, background: PINK }} />
-            {active && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${approach * 50}%`, background: "linear-gradient(90deg, transparent, rgba(218,24,132,0.5))" }} />}
-          </div>
-
-          {/* 候補ボタン */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", minHeight: 56 }}>
-            {active
-              ? active.candidates.map((c, k) => (
-                <button key={k} onClick={() => onTap(c)} style={{ ...btn, fontSize: 16, padding: "13px 18px", maxWidth: 160, lineHeight: 1.2, wordBreak: "break-all" }}>{c}</button>
-              ))
-              : <span style={{ color: "#6b7480", fontSize: 14, alignSelf: "center" }}>♪ つぎのコールを待つ…</span>}
+          {/* 候補ボタン（位置固定） */}
+          <div style={{ minHeight: 84, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            {!active ? (
+              <div style={{ minHeight: 62, display: "flex", alignItems: "center", justifyContent: "center", color: "#6b7480", fontSize: 14 }}>♪ つぎのコールを待つ…</div>
+            ) : active.kind === "chant" ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12, maxWidth: 320, width: "100%", margin: "0 auto" }}>
+                <button onClick={() => onTap(CHANT_OI)} style={{ ...choiceBtn, height: 72, fontSize: 22, borderColor: "rgba(218,24,132,0.55)", background: "rgba(218,24,132,0.12)" }}>オイ！</button>
+                <button onClick={() => onTap(CHANT_FU)} style={{ ...choiceBtn, height: 72, fontSize: 22, borderColor: "rgba(124,196,255,0.5)", background: "rgba(124,196,255,0.1)" }}>Fu</button>
+              </div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+                {active.candidates.map((c, k) => (
+                  <button key={k} onClick={() => onTap(c)} style={choiceBtn}>{c}</button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -249,6 +296,105 @@ export default function HiTensionQuizPage() {
         <ResultView results={results} beatSec={beatSec} lectureUrl={lectureUrl} onRetry={start}
           verdictLabel={verdictLabel} verdictColor={verdictColor} />
       )}
+    </div>
+  );
+}
+
+// タイムライン（/beat流用・読み取り専用）：中央固定プレイヘッド＋拍グリッド。コールは拍幅のバーで右から流れる。
+// これから来る＝「？」でぼかし、判定済み＝中身＋正誤色で開示。translateXは自前rAFで毎フレーム（親を再描画させない）。
+function QuizTimeline({ calls, beatSec, getNow, verdictMap, activeIdx, pink }: {
+  calls: Call[]; beatSec: number; getNow: () => number;
+  verdictMap: Record<number, Verdict>; activeIdx: number; pink: string;
+}) {
+  const vpRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [vw, setVw] = useState(0);
+  const getNowRef = useRef(getNow); getNowRef.current = getNow;
+
+  useEffect(() => {
+    const el = vpRef.current; if (!el) return;
+    const set = () => setVw(el.clientWidth);
+    set();
+    const ro = new ResizeObserver(set); ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const pxPerSec = vw > 0 ? vw / Q_SPAN_SEC : 60;
+  const refSec = calls.length ? calls[0].t : 0;
+
+  // レーン割当（時刻順・貪欲first-fit。バーが重なる時だけ次レーンへ）。
+  const { laneOf, laneCount, trackSec } = useMemo(() => {
+    const sorted = calls.map((c, i) => ({ c, i })).sort((a, b) => a.c.t - b.c.t);
+    const ends: number[] = [];
+    const lo = new Map<number, number>();
+    let maxEnd = 10;
+    for (const { c, i } of sorted) {
+      const s = c.t;
+      const e = s + Math.max(c.lenBeats * beatSec, 0.18);
+      maxEnd = Math.max(maxEnd, e);
+      let L = ends.findIndex(end => end <= s + 0.001);
+      if (L < 0) { ends.push(e); L = ends.length - 1; } else { ends[L] = e; }
+      lo.set(i, L);
+    }
+    return { laneOf: lo, laneCount: Math.max(1, ends.length), trackSec: maxEnd + Q_SPAN_SEC };
+  }, [calls, beatSec]);
+
+  // 毎フレーム：現在時刻が中央に来るよう track を translateX。
+  useEffect(() => {
+    let raf = 0;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const tr = trackRef.current; if (!tr || vw === 0) return;
+      const t = getNowRef.current();
+      tr.style.transform = `translateX(${(vw / 2 - t * pxPerSec).toFixed(1)}px)`;
+    };
+    loop();
+    return () => cancelAnimationFrame(raf);
+  }, [vw, pxPerSec]);
+
+  // グリッド線（拍＝薄／小節頭＝濃）。基準refSecに線が来るようオフセット。
+  const beatPx = beatSec * pxPerSec;
+  const measurePx = beatSec * 4 * pxPerSec;
+  const grid: React.CSSProperties = {
+    backgroundImage: `repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 1px, transparent 1px ${beatPx}px), repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0 1.5px, transparent 1.5px ${measurePx}px)`,
+    backgroundPosition: `${(refSec * pxPerSec) % beatPx}px 0, ${(refSec * pxPerSec) % measurePx}px 0`,
+  };
+  const bandH = Math.min(150, Math.max(96, laneCount * Q_LANE_PITCH + 8));
+  const trackH = Math.max(laneCount * Q_LANE_PITCH + 8, bandH);
+
+  return (
+    <div ref={vpRef} style={{ position: "relative", height: bandH, flex: "0 0 auto", overflow: "hidden", border: "1px solid #1d2430", borderRadius: 10, background: "#0a0c12", userSelect: "none", WebkitUserSelect: "none" }}>
+      {/* プレイヘッド（中央固定） */}
+      <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, marginLeft: -1, background: pink, zIndex: 3, pointerEvents: "none", boxShadow: "0 0 8px rgba(218,24,132,0.6)" }} />
+      {/* トラック（毎フレーム translateX） */}
+      <div ref={trackRef} style={{ position: "absolute", left: 0, top: 0, height: trackH, width: Math.max(1, trackSec * pxPerSec), ...grid, willChange: "transform" }}>
+        {calls.map((c, i) => {
+          const left = c.t * pxPerSec;
+          const w = Math.max(20, c.lenBeats * beatSec * pxPerSec);
+          const lane = laneOf.get(i) ?? 0;
+          const v = verdictMap[i];
+          const judged = v !== undefined;
+          const isActive = i === activeIdx;
+          const longWord = /[A-Za-z0-9]{6,}/.test(c.note);
+          const barFont = longWord && w < 70 ? 10 : 12;
+          let bg: string, bd: string, col: string, text: string;
+          if (judged) { const vb = VERDICT_BAR[v]; bg = vb.bg; bd = vb.bd; col = vb.fg; text = c.note || "♪"; }
+          else if (isActive) { bg = pink; bd = "#fff"; col = "#fff"; text = "？"; }
+          else { bg = "rgba(255,255,255,0.05)"; bd = "rgba(255,255,255,0.16)"; col = "#7d8694"; text = "？"; }
+          return (
+            <div key={i} style={{
+              position: "absolute", left, top: lane * Q_LANE_PITCH + 4, width: w, maxHeight: Q_LANE_PITCH - 6,
+              borderRadius: 6, border: `1px solid ${bd}`, background: bg, color: col,
+              fontSize: judged ? barFont : 14, fontWeight: judged ? 700 : 800, lineHeight: 1.1,
+              padding: "3px 4px", whiteSpace: "normal", wordBreak: "break-all", overflowWrap: "anywhere", overflow: "hidden",
+              display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center",
+              boxShadow: isActive ? "0 0 0 1px rgba(255,255,255,0.5)" : undefined,
+            }}>
+              {text}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
