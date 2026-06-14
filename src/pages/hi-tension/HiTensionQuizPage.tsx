@@ -22,9 +22,11 @@ const LECTURE_VIDEO = "xr7_Z5ibZMA";
 const LECTURE_FIRST_CALL_SEC = 6.0; // レクチャー動画で最初のコールが鳴る時刻(hop実測0:06)。同テンポなのでfirstを合わせれば全体一致
 const REVIEW_BARS = 2;          // 答え確認は「ミスの何小節前」から
 const LEAD_BEATS = 6;           // 候補ボタンを拍の何拍前から出すか（早めに出して読む時間を作る＝反射神経テストにしない。BPM149で6拍≈2.4秒）
-const PERFECT_MS = 250;         // タイミング判定はゆるめ（リズム練習であって反応速度テストではない）
-const GOOD_MS = 600;
-const MISS_TAIL = GOOD_MS / 1000 + 0.1; // この秒数を過ぎたら無タップ＝ミス確定
+// 採点は「早い側だけ厳しめ」（hop方針）。コールは先走り(フライング)が目立つので早すぎを戒め、後ろ(拍ちょうど〜遅い)は寛大。
+const EARLY_GRACE_MS = 150;     // これ以上早いと「早すぎ＝フライング」でミス。〜150msのちょい早はセーフ。
+const PERFECT_MS = 250;         // 拍ちょうど〜これだけ後ろまでPERFECT（早い側はEARLY_GRACEまで）
+const GOOD_MS = 600;            // 〜これだけ後ろまでGOOD
+const MISS_TAIL = GOOD_MS / 1000 + 0.25; // この秒数を過ぎたら無タップ＝ミス確定（「遅い」判定の猶予も確保）
 
 // タイムライン（/beat流用）
 const Q_SPAN_SEC = 6;    // 可視秒数（拍ごとの山が分離して見える幅）
@@ -34,7 +36,7 @@ const CHANT_OI = "オイ！";
 const CHANT_FU = "Fu";
 
 type Call = { t: number; note: string; lenBeats: number };
-type Verdict = "perfect" | "good" | "late" | "wrong" | "notap";
+type Verdict = "perfect" | "good" | "late" | "early" | "wrong" | "notap";
 type Target = { call: Call; kind: "chant" | "normal" | "cue"; answer: string; candidates: string[] };
 
 // （）で囲まれたものはコールではなく、レクチャー動画で言ってた「心掛け／合いの手」（例：（かわいく））。
@@ -76,6 +78,7 @@ const VERDICT_BAR: Record<Verdict, { bg: string; bd: string; fg: string }> = {
   perfect: { bg: "rgba(54,211,153,0.24)", bd: "rgba(54,211,153,0.85)", fg: "#36d399" },
   good: { bg: "rgba(124,196,255,0.24)", bd: "rgba(124,196,255,0.85)", fg: "#7cc4ff" },
   late: { bg: "rgba(245,179,66,0.24)", bd: "rgba(245,179,66,0.85)", fg: "#f5b342" },
+  early: { bg: "rgba(255,138,92,0.24)", bd: "rgba(255,138,92,0.85)", fg: "#ff8a5c" },
   wrong: { bg: "rgba(255,107,138,0.24)", bd: "rgba(255,107,138,0.85)", fg: "#ff6b8a" },
   notap: { bg: "rgba(136,136,136,0.18)", bd: "rgba(136,136,136,0.55)", fg: "#9aa3b0" },
 };
@@ -140,9 +143,12 @@ export default function HiTensionQuizPage() {
     if (chosen === null) verdict = "notap";
     else if (chosen !== tg.answer) verdict = "wrong";
     else {
-      errMs = Math.round((errSec ?? 0) * 1000);
-      const a = Math.abs(errMs);
-      verdict = a <= PERFECT_MS ? "perfect" : a <= GOOD_MS ? "good" : "late";
+      errMs = Math.round((errSec ?? 0) * 1000); // +は遅い、−は早い
+      // 早い側だけ厳しめ：EARLY_GRACEより早い＝フライング(ミス)。あとは拍ちょうど〜後ろを寛大に。
+      if (errMs < -EARLY_GRACE_MS) verdict = "early";
+      else if (errMs <= PERFECT_MS) verdict = "perfect";
+      else if (errMs <= GOOD_MS) verdict = "good";
+      else verdict = "late";
     }
     const r: Result = { i, call: tg.call, chosen, errMs, verdict };
     resRef.current[i] = r;
@@ -254,8 +260,8 @@ export default function HiTensionQuizPage() {
   // 候補ボタン＝高さ固定（テキストが長くても枠内で折り返す＝ガタガタしない）。
   const choiceBtn: React.CSSProperties = { height: 62, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", fontSize: 15, padding: "4px 8px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color: "#eee", fontWeight: 700, cursor: "pointer", lineHeight: 1.15, wordBreak: "break-all", overflow: "hidden" };
 
-  const verdictLabel: Record<Verdict, string> = { perfect: "PERFECT", good: "GOOD", late: "タイミングずれ", wrong: "ちがうコール", notap: "押せてない" };
-  const verdictColor: Record<Verdict, string> = { perfect: "#36d399", good: "#7cc4ff", late: "#f5b342", wrong: "#ff6b8a", notap: "#888" };
+  const verdictLabel: Record<Verdict, string> = { perfect: "PERFECT", good: "GOOD", late: "遅い", early: "早すぎ", wrong: "ちがうコール", notap: "押せてない" };
+  const verdictColor: Record<Verdict, string> = { perfect: "#36d399", good: "#7cc4ff", late: "#f5b342", early: "#ff8a5c", wrong: "#ff6b8a", notap: "#888" };
 
   return (
     <div style={{ minHeight: "100dvh", background: ARENA_BG, color: "#eef1f5", display: "flex", flexDirection: "column", fontFamily: "Inter, system-ui, sans-serif", padding: "10px 14px", boxSizing: "border-box" }}>
@@ -445,9 +451,17 @@ function ResultView({ results, onRetry, onWatchLecture, verdictLabel, verdictCol
 
   return (
     <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: "8px 2px" }}>
-      <div style={{ textAlign: "center", margin: "6px 0 14px" }}>
+      <div style={{ textAlign: "center", margin: "6px 0 8px" }}>
         <div style={{ fontSize: 13, color: "#9aa3b0" }}>正解タイミング</div>
         <div style={{ fontSize: 40, fontWeight: 900, color: PINK }}>{ok}<span style={{ fontSize: 18, color: "#9aa3b0" }}> / {results.length}</span></div>
+      </div>
+      {/* 内訳（0件のものは出さない） */}
+      <div style={{ display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap", fontSize: 12, margin: "0 0 14px" }}>
+        {(["perfect", "good", "early", "late", "wrong", "notap"] as Verdict[]).map(k => {
+          const n = results.filter(r => r.verdict === k).length;
+          if (!n) return null;
+          return <span key={k} style={{ color: verdictColor[k], fontWeight: 700 }}>{verdictLabel[k]} {n}</span>;
+        })}
       </div>
 
       {misses.length === 0 ? (
@@ -460,7 +474,7 @@ function ResultView({ results, onRetry, onWatchLecture, verdictLabel, verdictCol
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                 <span style={{ fontSize: 16, fontWeight: 800, wordBreak: "break-all" }}>{r.call.note || "♪"}</span>
                 <span style={{ fontSize: 12, fontWeight: 700, color: verdictColor[r.verdict], marginLeft: "auto" }}>
-                  {verdictLabel[r.verdict]}{r.errMs != null ? `（${r.errMs > 0 ? "+" : ""}${r.errMs}ms ${r.errMs > 0 ? "遅い" : "早い"}）` : ""}
+                  {verdictLabel[r.verdict]}{r.errMs != null ? `（${r.errMs > 0 ? "+" : ""}${r.errMs}ms）` : ""}
                 </span>
               </div>
               <button onClick={() => onWatchLecture(r.call.t)}
