@@ -363,15 +363,13 @@ export default function HiTensionBeatTapPage() {
   // 動画の現在位置（再生中に「今どのコールか」を光らせるのに使う）
   const onTimeUpdate = (s: number) => setNowSec(s);
 
-  // 今の再生位置に一番近いコール行（タイムラインの現在地とリストのハイライトを一致させる）
+  // 今“鳴っている”コール行＝開始がこの秒数以下の最後の行（まだ来てない次の行は先に光らせない＝先行感を出さない）
   const curIdx = useMemo(() => {
-    if (taps.length === 0) return -1;
-    let best = 0, bd = Infinity;
+    let idx = -1;
     for (let i = 0; i < taps.length; i++) {
-      const d = Math.abs(dispT(taps[i].t) - nowSec);
-      if (d < bd) { bd = d; best = i; }
+      if (dispT(taps[i].t) <= nowSec + 0.05) idx = i; else break;
     }
-    return best;
+    return idx;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taps, nowSec, snapOn, refSec, unit]);
 
