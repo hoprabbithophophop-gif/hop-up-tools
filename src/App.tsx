@@ -15,6 +15,7 @@ const HiTensionAuthorPage = lazy(() => import("./pages/hi-tension/HiTensionAutho
 const HiTensionPracticePage = lazy(() => import("./pages/hi-tension/HiTensionPracticePage"));
 const HiTensionBeatTapPage = lazy(() => import("./pages/hi-tension/HiTensionBeatTapPage"));
 const HiTensionCallPage = lazy(() => import("./pages/hi-tension/HiTensionCallPage"));
+const HiTensionMicTestPage = lazy(() => import("./pages/hi-tension/HiTensionMicTestPage"));
 const PrivacyPage     = lazy(() => import("./pages/PrivacyPage"));
 const TermsPage       = lazy(() => import("./pages/TermsPage"));
 const NotFoundPage    = lazy(() => import("./pages/NotFoundPage"));
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="/hi-tension/practice" element={<HiTensionPracticePage />} />
             <Route path="/hi-tension/beat" element={<HiTensionBeatTapPage />} />
             <Route path="/hi-tension/call" element={<HiTensionCallPage />} />
+            <Route path="/hi-tension/mic" element={<HiTensionMicTestPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/terms" element={<TermsPage />} />
             <Route path="*" element={<NotFoundPage />} />
