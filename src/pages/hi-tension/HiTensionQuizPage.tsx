@@ -317,6 +317,11 @@ export default function HiTensionQuizPage() {
     const lt = (calls[i].t + next - firstT) + LECTURE_FIRST_CALL_SEC;
     seekLecture(segStart(lt));
   };
+  const resetOffsets = () => {
+    if (!Object.keys(offsets).length) return;
+    if (!confirm("保存した採譜の補正を全部消す？（採点には影響なし）")) return;
+    setOffsets({}); saveOffsets({}); setReviewIdx(-1);
+  };
   const exportOffsets = async () => {
     const list = Object.keys(offsets).map(k => Number(k)).filter(i => (offsets[i] ?? 0) !== 0).sort((a, b) => a - b)
       .map(i => ({ i, note: calls[i].note, baseT: calls[i].t, offsetSec: offsets[i], newT: Math.round((calls[i].t + offsets[i]) * 1000) / 1000 }));
@@ -420,7 +425,7 @@ export default function HiTensionQuizPage() {
       {/* ===== result ===== */}
       {phase === "result" && (
         <ResultView results={results} onRetry={start} onReview={startReview} reviewIdx={reviewIdx}
-          offsets={offsets} onExport={exportOffsets}
+          offsets={offsets} onExport={exportOffsets} onReset={resetOffsets}
           verdictLabel={verdictLabel} verdictColor={verdictColor} />
       )}
     </div>
@@ -529,9 +534,9 @@ function QuizTimeline({ calls, beatSec, getNow, verdictMap, activeIdx, pink }: {
 }
 
 // 結果画面：スコア＋おさらい一覧（PERFECT以外を全部・セクション別）。各コールを「見返す」と動画＋カウントインへ。
-function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, verdictLabel, verdictColor }: {
+function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, onReset, verdictLabel, verdictColor }: {
   results: Result[]; onRetry: () => void; onReview: (i: number) => void; reviewIdx: number;
-  offsets: Record<string, number>; onExport: () => void;
+  offsets: Record<string, number>; onExport: () => void; onReset: () => void;
   verdictLabel: Record<Verdict, string>; verdictColor: Record<Verdict, string>;
 }) {
   const perfect = results.filter(r => r.verdict === "perfect").length;
@@ -592,7 +597,10 @@ function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, 
         <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", minWidth: 200 }} onClick={onRetry}>もう一回</button>
         <button style={{ ...btn, minWidth: 200 }} onClick={() => shareToX(ok, results.length, perfect, good)}>𝕏 でシェアする</button>
         {Object.values(offsets).some(v => v !== 0) && (
-          <button style={{ ...btn, minWidth: 200, fontSize: 13 }} onClick={onExport}>▶ ズレ補正を書き出す（hopへ渡す用）</button>
+          <>
+            <button style={{ ...btn, minWidth: 200, fontSize: 13 }} onClick={onExport}>▶ ズレ補正を書き出す（hopへ渡す用）</button>
+            <button style={{ ...btn, minWidth: 200, fontSize: 12, color: "#c98", borderColor: "rgba(255,180,120,0.3)" }} onClick={onReset}>補正をリセット</button>
+          </>
         )}
       </div>
     </div>
