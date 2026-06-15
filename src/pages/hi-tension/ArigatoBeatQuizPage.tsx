@@ -444,6 +444,7 @@ export default function ArigatoBeatQuizPage() {
         <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, textAlign: "center", padding: "8px 0" }}>
           <p style={{ fontSize: 14, color: "#cbd2dc", maxWidth: 360, lineHeight: 1.8, margin: 0 }}>
             正しいコールを正しいタイミングでタップ！<br />
+            バーよりも、コールの頭の一文字目にタイミングを合わせてみよう！<br />
             <span style={{ color: "#9aa3b0" }}>小さく口ずさみながらだと本番でも対応できるはず！</span>
           </p>
           {calls.length > 0 && (
