@@ -164,6 +164,7 @@ export default function ArigatoBeatQuizPage() {
   const [offsets, setOffsets] = useState<Record<string, number>>(loadOffsets); // 採譜ズレ補正（見返しで調整）
   const [reviewIdx, setReviewIdx] = useState(-1); // カウントイン見返し中のコール（-1=なし）
   const [level, setLevel] = useState<1 | 2>(2);   // 今プレイ中/した レベル
+  const levelRef = useRef<1 | 2>(2);              // 「もう一回」が同じレベルを確実に拾うための参照
   const [levelOffset, setLevelOffset] = useState(0); // レベルの時間軸シフト秒（Lv1=レクチャー換算, Lv2=0）
   const levelOffsetRef = useRef(0);
   // タイムライン用＝レベルのシフトを乗せたコール時刻（バー位置を再生時刻に合わせる）
@@ -221,17 +222,18 @@ export default function ArigatoBeatQuizPage() {
   // 安定参照（毎レンダーで作り直さない）＝QuizTimelineのReact.memoが効く＝判定外の再描画で揺れない（ガタつき対策）
   const getNow = useRef(() => playerRef.current?.getCurrentTime?.() ?? nowRef.current).current;
 
-  const start = (lvl: 1 | 2 = level) => {
+  const start = (lvl?: 1 | 2) => {
+    const L = lvl ?? levelRef.current; // 引数なし(もう一回)は今のレベルを確実に拾う
     judgedRef.current = new Set(); resRef.current = []; setResults([]); setFlash(null); setVerdictMap({});
     armedRef.current = false; startFramesRef.current = 0;
     activeIdxRef.current = -1; setActiveIdx(-1); lastTapAtRef.current = -1;
     // レベルの時間軸シフトと動画をセット。
-    const off = levelShift(lvl);
-    levelOffsetRef.current = off; setLevelOffset(off); setLevel(lvl);
+    const off = levelShift(L);
+    levelOffsetRef.current = off; setLevelOffset(off); setLevel(L); levelRef.current = L;
     setPhase("playing");
     pushPlayingState(); // ブラウザバックで戻れるよう履歴に積む
     // このレベルの動画を載せる（別動画が載ってたら切替）。
-    const vid = levelVideo(lvl);
+    const vid = levelVideo(L);
     if (loadedVideoRef.current !== vid) {
       try { playerRef.current?.loadVideo?.(vid, { startSeconds: 0 }); } catch { /* ignore */ }
       loadedVideoRef.current = vid;
@@ -469,7 +471,7 @@ export default function ArigatoBeatQuizPage() {
       {/* ===== result ===== */}
       {phase === "result" && (
         <ResultView results={results} onRetry={start} onReview={startReview} reviewIdx={reviewIdx}
-          offsets={offsets} onExport={exportOffsets} onReset={resetOffsets}
+          offsets={offsets} onExport={exportOffsets} onReset={resetOffsets} onBackToSelect={goReady} level={level}
           verdictLabel={verdictLabel} verdictColor={verdictColor} />
       )}
     </div>
@@ -586,9 +588,9 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
 });
 
 // 結果画面：スコア＋おさらい一覧（PERFECT以外を全部・セクション別）。各コールを「見返す」と動画＋カウントインへ。
-function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, onReset, verdictLabel, verdictColor }: {
+function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, onReset, onBackToSelect, level, verdictLabel, verdictColor }: {
   results: Result[]; onRetry: () => void; onReview: (i: number) => void; reviewIdx: number;
-  offsets: Record<string, number>; onExport: () => void; onReset: () => void;
+  offsets: Record<string, number>; onExport: () => void; onReset: () => void; onBackToSelect: () => void; level: 1 | 2;
   verdictLabel: Record<Verdict, string>; verdictColor: Record<Verdict, string>;
 }) {
   const perfect = results.filter(r => r.verdict === "perfect").length;
@@ -646,7 +648,8 @@ function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, 
       )}
 
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 12 }}>
-        <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", minWidth: 200 }} onClick={onRetry}>もう一回</button>
+        <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", minWidth: 200 }} onClick={onRetry}>もう一回（レベル{level}）</button>
+        <button style={{ ...btn, minWidth: 200 }} onClick={onBackToSelect}>レベル選択へ戻る</button>
         <button style={{ ...btn, minWidth: 200 }} onClick={() => shareToX(ok, results.length, perfect, good)}>𝕏 でシェアする</button>
         {Object.values(offsets).some(v => v !== 0) && (
           <>
