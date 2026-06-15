@@ -12,8 +12,11 @@ import {
   TUNING, ChoreoJudge, buildTimeline, phraseLenMs, nextZone, zoneRect, stepText,
   type ZoneId, type TimedStep, type StepResult,
 } from "./practiceEngine";
+import { accentColor, accentRgb } from "../../lib/accentColor";
 
-const PINK = "#da1884";
+// UIアクセント（通常ホットピンク／6月16日=高瀬くるみのメンカラ）。メンバーカラーは別管理。
+const PINK = accentColor();
+const ACCENT_RGB = accentRgb(); // 塗りつぶし(rgba透明度付き)用のRGB成分
 /** 正解(ok)の強調色。正解=濃い/不正解=暗い で統一(赤緑は使わない) */
 const BRIGHT = "#ff8ac4";
 const SHARE_URL = "https://hop-up-tools.pages.dev/hi-tension/practice";
@@ -330,18 +333,18 @@ export default function HiTensionPracticePage() {
           const n = s.def.zones.length;
           s.def.zones.forEach((z, j) => {
             const a = n === 1 ? 0.40 : 0.08 + (0.32 * j) / (n - 1);
-            fillZone(ctx, W, H, z, `rgba(218,24,132,${a.toFixed(3)})`);
+            fillZone(ctx, W, H, z, `rgba(${ACCENT_RGB},${a.toFixed(3)})`);
             if (j === n - 1) strokeZone(ctx, W, H, z, PINK, 3 * dpr);
           });
         } else if (s.def.kind === "hold") {
-          fillZone(ctx, W, H, s.def.zone, "rgba(218,24,132,0.40)");
+          fillZone(ctx, W, H, s.def.zone, `rgba(${ACCENT_RGB},0.40)`);
           strokeZone(ctx, W, H, s.def.zone, PINK, 3 * dpr);
         } else {
           const [a, b] = s.def.pair;
           const st = judge.states[idx];
           const nReq = s.def.minCrossings ?? TUNING.wiggleDefaultN;
           for (const z of [a, b]) {
-            fillZone(ctx, W, H, z, "rgba(218,24,132,0.30)");
+            fillZone(ctx, W, H, z, `rgba(${ACCENT_RGB},0.30)`);
             strokeZone(ctx, W, H, z, PINK, 3 * dpr);
           }
           const ca = zoneCenter(a, W, H), cb = zoneCenter(b, W, H);
@@ -354,7 +357,7 @@ export default function HiTensionPracticePage() {
         // 最初に指を置く位置(次パターンのステップ1の始点)を先に見せる
         const d0 = PATTERNS[dispPhase.occ.pat].steps[0].def;
         const startZone: ZoneId = d0.kind === "trace" ? d0.zones[0] : d0.kind === "hold" ? d0.zone : d0.pair[0];
-        fillZone(ctx, W, H, startZone, "rgba(218,24,132,0.35)");
+        fillZone(ctx, W, H, startZone, `rgba(${ACCENT_RGB},0.35)`);
         strokeZone(ctx, W, H, startZone, PINK, 3 * dpr);
       }
 
@@ -448,6 +451,8 @@ export default function HiTensionPracticePage() {
 
   return (
     <div onContextMenu={(e) => e.preventDefault()} style={{ height: "100dvh", overflow: "hidden", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto", padding: "8px 12px", color: "#eee", background: "#000", fontFamily: "Inter, system-ui, sans-serif", touchAction: "none", WebkitTouchCallout: "none" }}>
+      {/* 画面全体を黒で塗る（中央480pxより外＝PC等の左右余白がページの白地になるのを防ぐ）。背面に固定。 */}
+      <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: -1 }} aria-hidden />
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flex: "0 0 auto" }}>
         <h1 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>振り練習</h1>
         <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>

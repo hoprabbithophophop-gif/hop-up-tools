@@ -13,8 +13,11 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
 import { ARIGATO_BEAT_CALLS, ARIGATO_BEAT_VIDEO, ARIGATO_BEAT_BPM, ARIGATO_BEAT_SECTIONS } from "./arigatoBeatCalls";
+import { accentColor, accentRgb } from "../../lib/accentColor";
 
-const PINK = "#da1884";
+// UIアクセント（通常ホットピンク／6月16日=高瀬くるみのメンカラ）。メンバーカラーは別管理。
+const PINK = accentColor();
+const ACCENT_RGB = accentRgb(); // 塗りつぶし(rgba透明度付き)用のRGB成分
 const ARENA_BG = "radial-gradient(150% 85% at 50% -8%, #1b2030 0%, #0e1016 48%, #07080c 100%)";
 
 // コールレクチャー動画（答え確認の飛び先）。ステージプラクティスと同テンポ・頭出しが少し遅いだけ。
@@ -484,7 +487,7 @@ export default function ArigatoBeatQuizPage() {
               <div style={{ minHeight: 62, display: "flex", alignItems: "center", justifyContent: "center", color: "#6b7480", fontSize: 14 }}>♪ つぎのコールを待つ…</div>
             ) : active.kind === "chant" ? (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12, maxWidth: 320, width: "100%", margin: "0 auto" }}>
-                <button onClick={() => onTap(CHANT_OI)} style={{ ...choiceBtn, height: 72, fontSize: 22, borderColor: "rgba(218,24,132,0.55)", background: "rgba(218,24,132,0.12)" }}>オイ！</button>
+                <button onClick={() => onTap(CHANT_OI)} style={{ ...choiceBtn, height: 72, fontSize: 22, borderColor: `rgba(${ACCENT_RGB},0.55)`, background: `rgba(${ACCENT_RGB},0.12)` }}>オイ！</button>
                 <button onClick={() => onTap(CHANT_FU)} style={{ ...choiceBtn, height: 72, fontSize: 22, borderColor: "rgba(124,196,255,0.5)", background: "rgba(124,196,255,0.1)" }}>Fu</button>
               </div>
             ) : (
@@ -586,7 +589,7 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
   return (
     <div ref={vpRef} style={{ position: "relative", height: bandH, flex: "0 0 auto", overflow: "hidden", border: "1px solid #1d2430", borderRadius: 10, background: "#0a0c12", userSelect: "none", WebkitUserSelect: "none" }}>
       {/* プレイヘッド（中央固定） */}
-      <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, marginLeft: -1, background: pink, zIndex: 3, pointerEvents: "none", boxShadow: "0 0 8px rgba(218,24,132,0.6)" }} />
+      <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, marginLeft: -1, background: pink, zIndex: 3, pointerEvents: "none", boxShadow: `0 0 8px rgba(${ACCENT_RGB},0.6)` }} />
       {/* トラック（グリッド＋バー・毎フレーム translateX。左へPAD延ばして開始時の空きを埋める） */}
       <div ref={trackRef} style={{ position: "absolute", left: -PAD, top: 0, height: trackH, width: Math.max(1, trackSec * pxPerSec + PAD), ...grid, willChange: "transform", zIndex: 1 }}>
         {calls.map((c, i) => {
@@ -691,7 +694,7 @@ function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, 
                       </span>
                     </div>
                     <button onClick={() => onReview(r.i)}
-                      style={{ width: "100%", fontSize: 14, color: reviewIdx === r.i ? "#fff" : "#cfe8ff", background: reviewIdx === r.i ? "rgba(218,24,132,0.5)" : "rgba(124,196,255,0.12)", border: `1px solid ${reviewIdx === r.i ? PINK : "rgba(124,196,255,0.45)"}`, borderRadius: 10, padding: "10px 12px", fontWeight: 700, cursor: "pointer" }}>
+                      style={{ width: "100%", fontSize: 14, color: reviewIdx === r.i ? "#fff" : "#cfe8ff", background: reviewIdx === r.i ? `rgba(${ACCENT_RGB},0.5)` : "rgba(124,196,255,0.12)", border: `1px solid ${reviewIdx === r.i ? PINK : "rgba(124,196,255,0.45)"}`, borderRadius: 10, padding: "10px 12px", fontWeight: 700, cursor: "pointer" }}>
                       ▶ 見返す（動画＋5,6,7,8カウントイン）{(offsets[r.i] ?? 0) !== 0 ? `・補正${offsets[r.i] > 0 ? "+" : ""}${Math.round(offsets[r.i] * 1000)}ms` : ""}
                     </button>
                   </div>
@@ -752,7 +755,7 @@ function ReviewPanel({ note, lenBeats, section, lectureCallT, beatSec, getNow, o
   const offLabel = offsetSec === 0 ? "補正なし（このまま）" : `補正 ${offsetSec > 0 ? "+" : ""}${offBeats}拍（${offsetSec > 0 ? "+" : ""}${Math.round(offsetSec * 1000)}ms）`;
   const nb: React.CSSProperties = { fontSize: 13, fontWeight: 800, padding: "8px 11px", borderRadius: 9, border: "1px solid rgba(255,255,255,0.25)", background: "rgba(255,255,255,0.07)", color: "#eee", cursor: "pointer" };
   return (
-    <div style={{ flex: "0 0 auto", margin: "8px 0 0", padding: "10px 12px", borderRadius: 12, border: `1px solid ${pink}`, background: "rgba(218,24,132,0.08)" }}>
+    <div style={{ flex: "0 0 auto", margin: "8px 0 0", padding: "10px 12px", borderRadius: 12, border: `1px solid ${pink}`, background: `rgba(${ACCENT_RGB},0.08)` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#cbd2dc", marginBottom: 6 }}>
         <span style={{ color: pink, fontWeight: 800 }}>{section}</span>
         <b style={{ fontSize: 14, color: "#fff" }}>{note}</b>

@@ -34,6 +34,10 @@ const LIVE_B = [76595, 82789, 147821, 154015, 215950, 222144];
 // ※MV編集差(間奏カット等)があれば後半はズレる＝後半は要耳確認。
 const MV_OFFSET_MS = 700;
 
+// Stage Practice ver.(ZLs8GVsbEgY)もオケ同一音源なので、LIVEの位置＋定数オフセット。
+// hop測定: 最初のラララの振りが Stage Practice 12.9s / LIVE 11.563s → 差 +1337ms（仮・実機の微調整UIで詰める）。
+const STAGE_OFFSET_MS = 12900 - 11563;
+
 export const PATTERNS: PracticePattern[] = [
   {
     key: "A",
@@ -44,6 +48,7 @@ export const PATTERNS: PracticePattern[] = [
     startsByVideo: {
       mn1wkO0Ysbw: LIVE_A,
       "WU-IF-cLPCY": LIVE_A.map(s => s + MV_OFFSET_MS),
+      ZLs8GVsbEgY: LIVE_A.map(s => s + STAGE_OFFSET_MS),
     },
   },
   {
@@ -55,6 +60,7 @@ export const PATTERNS: PracticePattern[] = [
     startsByVideo: {
       mn1wkO0Ysbw: LIVE_B,
       "WU-IF-cLPCY": LIVE_B.map(s => s + MV_OFFSET_MS),
+      ZLs8GVsbEgY: LIVE_B.map(s => s + STAGE_OFFSET_MS),
     },
   },
 ];
@@ -64,6 +70,7 @@ export type PracticeVideo = { id: string; label: string };
 export const PRACTICE_VIDEOS: PracticeVideo[] = [
   { id: "mn1wkO0Ysbw", label: "LIVE映像" },
   { id: "WU-IF-cLPCY", label: "MV" },
+  { id: "ZLs8GVsbEgY", label: "Stage Practice" },
 ];
 
 // 全出現に一律で掛ける時刻補正(ms)。タップデータ由来のズレを感じたらここで調整。
