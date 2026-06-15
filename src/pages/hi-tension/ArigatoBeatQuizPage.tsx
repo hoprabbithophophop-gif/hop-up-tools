@@ -224,7 +224,9 @@ export default function ArigatoBeatQuizPage() {
   const getNow = useRef(() => playerRef.current?.getCurrentTime?.() ?? nowRef.current).current;
 
   const start = (lvl?: 1 | 2) => {
-    const L = lvl ?? levelRef.current; // 引数なし(もう一回)は今のレベルを確実に拾う
+    // lvlが1/2の時だけ採用。引数なし or イベント等が紛れ込んだ時は今のレベル(levelRef)を確実に拾う
+    // （もう一回ボタンの onClick={onRetry} がクリックイベントを渡してLv2に化けるのを防ぐ）。
+    const L: 1 | 2 = (lvl === 1 || lvl === 2) ? lvl : levelRef.current;
     judgedRef.current = new Set(); resRef.current = []; setResults([]); setFlash(null); setVerdictMap({});
     armedRef.current = false; startFramesRef.current = 0;
     activeIdxRef.current = -1; setActiveIdx(-1); lastTapAtRef.current = -1;
@@ -375,9 +377,11 @@ export default function ArigatoBeatQuizPage() {
 
   const active = activeIdx >= 0 ? targets[activeIdx] : null;
 
-  const btn: React.CSSProperties = { fontSize: 15, padding: "11px 18px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color: "#eee", fontWeight: 700, cursor: "pointer" };
+  // 長押しで文字選択されないように（タップゲームなので選択は邪魔）。
+  const noSelect: React.CSSProperties = { userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" };
+  const btn: React.CSSProperties = { fontSize: 15, padding: "11px 18px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color: "#eee", fontWeight: 700, cursor: "pointer", ...noSelect };
   // 候補ボタン＝高さ固定（テキストが長くても枠内で折り返す＝ガタガタしない）。
-  const choiceBtn: React.CSSProperties = { height: 62, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", fontSize: 15, padding: "4px 8px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color: "#eee", fontWeight: 700, cursor: "pointer", lineHeight: 1.15, wordBreak: "break-all", overflow: "hidden" };
+  const choiceBtn: React.CSSProperties = { height: 62, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", fontSize: 15, padding: "4px 8px", borderRadius: 12, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color: "#eee", fontWeight: 700, cursor: "pointer", lineHeight: 1.15, wordBreak: "break-all", overflow: "hidden", ...noSelect };
 
   const verdictLabel: Record<Verdict, string> = { perfect: "PERFECT", good: "GOOD", wrong: "ちがうコール", notap: "押せてない" };
   const verdictColor: Record<Verdict, string> = { perfect: "#36d399", good: "#7cc4ff", wrong: "#ff6b8a", notap: "#888" };
@@ -659,7 +663,7 @@ function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, 
       )}
 
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 12 }}>
-        <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", minWidth: 200 }} onClick={onRetry}>もう一回（レベル{level}）</button>
+        <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", minWidth: 200 }} onClick={() => onRetry()}>もう一回（レベル{level}）</button>
         <button style={{ ...btn, minWidth: 200 }} onClick={onBackToSelect}>レベル選択へ戻る</button>
         <button style={{ ...btn, minWidth: 200 }} onClick={() => shareToX(ok, results.length, perfect, good)}>𝕏 でシェアする</button>
         {Object.values(offsets).some(v => v !== 0) && (
