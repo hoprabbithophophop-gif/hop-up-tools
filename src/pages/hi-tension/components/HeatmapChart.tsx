@@ -235,7 +235,7 @@ export default function HeatmapChart({
             fontWeight: 700,
             textTransform: "uppercase",
             letterSpacing: "0.1em",
-            color: "#777",
+            color: "#aab0b6",
             textAlign: "center",
           }}
         >

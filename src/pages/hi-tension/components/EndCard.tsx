@@ -14,8 +14,9 @@ const baseBtnStyle: CSSProperties = {
   cursor: "pointer",
   fontFamily: "inherit",
 };
-const primaryBtnStyle: CSSProperties = { ...baseBtnStyle, background: "#000", color: "#fff" };
-const secondaryBtnStyle: CSSProperties = { ...baseBtnStyle, background: "#eceef0", color: "#191c1d" };
+// 暗背景(本編と統一)用：主役は明るいボタン、副次は沈んだダーク＋明るい字。
+const primaryBtnStyle: CSSProperties = { ...baseBtnStyle, background: "#f1f3f5", color: "#0e1016" };
+const secondaryBtnStyle: CSSProperties = { ...baseBtnStyle, background: "#2a2f37", color: "#e8eaed" };
 
 interface Props {
   selfCount: number;
@@ -90,7 +91,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
     fontWeight: 700,
     textTransform: "uppercase",
     letterSpacing: "0.1em",
-    color: "#777",
+    color: "#aab0b6",
     margin: "0 0 0.4rem",
   };
 
@@ -106,7 +107,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
           width: "100%",
           position: "relative",
           height: 26,
-          background: "#eef0f2",
+          background: "rgba(255,255,255,0.06)",
           overflow: "hidden",
         }}
       >
@@ -119,7 +120,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
             width: "25.8%",
             top: 0,
             bottom: 0,
-            background: "rgba(255,255,255,0.75)",
+            background: "rgba(255,255,255,0.12)",
           }}
         />
         <div
@@ -130,8 +131,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
             bottom: 0,
             width: 2,
             marginLeft: -1,
-            background: "#191c1d",
-            opacity: 0.5,
+            background: "rgba(255,255,255,0.55)",
           }}
         />
         <span style={{ position: "absolute", left: 5, top: "50%", transform: "translateY(-50%)", fontSize: "0.625rem", fontWeight: 600, color: "#9aa0a6" }}>
@@ -155,8 +155,8 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
               margin: "-3.5px 0 0 -3.5px",
               borderRadius: "50%",
               background: memberColor,
-              opacity: 0.3,
-              mixBlendMode: "multiply",
+              opacity: 0.55,
+              mixBlendMode: "screen",
             }}
           />
         ))}
@@ -206,7 +206,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
             <HeatmapChart
               bins={heatmap.bins}
               binSeconds={heatmap.binSeconds}
-              color={isSpecial ? memberColor : "#000000"}
+              color={isSpecial ? memberColor : "#e8eaed"}
               height={40}
               label="みんなの盛り上がり"
               selfTimestamps={selfTimestamps}
@@ -271,7 +271,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
                 // 0.6875rem＝SE初代の横で右ブロックがヒートマップに被らない幅に収める
                 fontSize: "0.6875rem",
                 fontWeight: 600,
-                color: "#777",
+                color: "#9aa0a6",
                 textDecoration: "underline",
                 textUnderlineOffset: "0.2rem",
                 textAlign: "center",
@@ -320,7 +320,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
         <HeatmapChart
           bins={heatmap.bins}
           binSeconds={heatmap.binSeconds}
-          color={isSpecial ? memberColor : "#000000"}
+          color={isSpecial ? memberColor : "#e8eaed"}
           height={60}
           label="みんなの盛り上がり"
           selfTimestamps={selfTimestamps}
@@ -364,7 +364,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
               marginTop: "0.4rem",
               fontSize: "0.75rem",
               fontWeight: 600,
-              color: "#777",
+              color: "#9aa0a6",
               textDecoration: "underline",
               textUnderlineOffset: "0.2rem",
             }}
