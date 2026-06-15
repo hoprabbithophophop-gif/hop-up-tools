@@ -32,7 +32,7 @@ const MIN_TAP_GAP_SEC = 0.1;    // 連打で1タップが2コールを消費し�
 
 // タイムライン（/beat流用）
 const Q_SPAN_SEC = 6;    // 可視秒数（拍ごとの山が分離して見える幅）
-const Q_LANE_PITCH = 42; // レーン間隔
+const Q_LANE_PITCH = 48; // レーン間隔（バー最大高さ=これ-6。長文コールが3行でも収まるよう確保）
 
 const CHANT_OI = "オイ！";
 const CHANT_FU = "Fu";
@@ -420,10 +420,10 @@ export default function ArigatoBeatQuizPage() {
           {calls.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%", maxWidth: 340 }}>
               <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", fontSize: 16, padding: "14px 18px", textAlign: "left", lineHeight: 1.4 }} onClick={() => start(1)}>
-                ▶ レベル1<br /><span style={{ fontSize: 12, fontWeight: 400, color: "#ffd6ea" }}>コールを見ながら（やさしい）</span>
+                ▶ レベル1<br /><span style={{ fontSize: 12, fontWeight: 400, color: "#ffd6ea" }}>コールを見ながら</span>
               </button>
               <button style={{ ...btn, fontSize: 16, padding: "14px 18px", textAlign: "left", lineHeight: 1.4 }} onClick={() => start(2)}>
-                ▶ レベル2<br /><span style={{ fontSize: 12, fontWeight: 400, color: "#9aa3b0" }}>答えなしで思い出す（本番）</span>
+                ▶ レベル2<br /><span style={{ fontSize: 12, fontWeight: 400, color: "#9aa3b0" }}>答えなしで思い出す</span>
               </button>
             </div>
           )}
@@ -486,6 +486,7 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
 }) {
   const vpRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null); // グリッドはビューポート全幅に出して常に埋める（開始時の左半分空き対策）
   const [vw, setVw] = useState(0);
   const getNowRef = useRef(getNow); getNowRef.current = getNow;
 
@@ -520,6 +521,11 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
   // 毎フレーム：現在時刻が中央に来るよう track を translateX。
   // getCurrentTime()は約100ms刻みで量子化されてる＝そのまま使うとスクロールがカクつく。
   // 値が変わった/シークした時だけ再アンカーし、間は performance.now で外挿して滑らかにする（本編横画面と同方式）。
+  // グリッド線（拍＝薄／小節頭＝濃）。基準refSecに線が来るようオフセット。
+  const beatPx = beatSec * pxPerSec;
+  const measurePx = beatSec * 4 * pxPerSec;
+  const gridImage = `repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 1px, transparent 1px ${beatPx}px), repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0 1.5px, transparent 1.5px ${measurePx}px)`;
+
   useEffect(() => {
     let raf = 0, anchorT = -1, anchorP = 0;
     const loop = () => {
@@ -530,28 +536,27 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
       if (anchorT < 0 || Math.abs(raw - anchorT) > 0.02 || raw < anchorT) { anchorT = raw; anchorP = nowP; }
       let t = anchorT + (nowP - anchorP) / 1000; // アンカーからの経過で外挿
       if (t - raw > 0.35) t = raw;               // 停止等で外挿しすぎたらナマ値へ戻す
-      tr.style.transform = `translateX(${(vw / 2 - t * pxPerSec).toFixed(1)}px)`;
+      const baseX = vw / 2 - t * pxPerSec;
+      tr.style.transform = `translateX(${baseX.toFixed(1)}px)`;
+      // グリッドはビューポート全幅の背景を流す（バーと同じオフセット＝開始時も左半分が空かない）
+      const g = gridRef.current;
+      if (g) g.style.backgroundPosition = `${(baseX + (refSec * pxPerSec) % beatPx).toFixed(1)}px 0, ${(baseX + (refSec * pxPerSec) % measurePx).toFixed(1)}px 0`;
     };
     loop();
     return () => cancelAnimationFrame(raf);
-  }, [vw, pxPerSec]);
+  }, [vw, pxPerSec, beatPx, measurePx, refSec]);
 
-  // グリッド線（拍＝薄／小節頭＝濃）。基準refSecに線が来るようオフセット。
-  const beatPx = beatSec * pxPerSec;
-  const measurePx = beatSec * 4 * pxPerSec;
-  const grid: React.CSSProperties = {
-    backgroundImage: `repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 1px, transparent 1px ${beatPx}px), repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0 1.5px, transparent 1.5px ${measurePx}px)`,
-    backgroundPosition: `${(refSec * pxPerSec) % beatPx}px 0, ${(refSec * pxPerSec) % measurePx}px 0`,
-  };
   const bandH = Math.min(150, Math.max(96, laneCount * Q_LANE_PITCH + 8));
   const trackH = Math.max(laneCount * Q_LANE_PITCH + 8, bandH);
 
   return (
     <div ref={vpRef} style={{ position: "relative", height: bandH, flex: "0 0 auto", overflow: "hidden", border: "1px solid #1d2430", borderRadius: 10, background: "#0a0c12", userSelect: "none", WebkitUserSelect: "none" }}>
+      {/* グリッド層（ビューポート全幅・背景を毎フレーム流す＝開始時も画面全体が埋まる） */}
+      <div ref={gridRef} style={{ position: "absolute", inset: 0, backgroundImage: gridImage, pointerEvents: "none", zIndex: 0 }} />
       {/* プレイヘッド（中央固定） */}
       <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, marginLeft: -1, background: pink, zIndex: 3, pointerEvents: "none", boxShadow: "0 0 8px rgba(218,24,132,0.6)" }} />
-      {/* トラック（毎フレーム translateX） */}
-      <div ref={trackRef} style={{ position: "absolute", left: 0, top: 0, height: trackH, width: Math.max(1, trackSec * pxPerSec), ...grid, willChange: "transform" }}>
+      {/* トラック（バーのみ・毎フレーム translateX） */}
+      <div ref={trackRef} style={{ position: "absolute", left: 0, top: 0, height: trackH, width: Math.max(1, trackSec * pxPerSec), willChange: "transform", zIndex: 1 }}>
         {calls.map((c, i) => {
           const left = c.t * pxPerSec;
           const w = Math.max(20, c.lenBeats * beatSec * pxPerSec);
@@ -561,7 +566,7 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
           const judged = v !== undefined;
           const isActive = i === activeIdx;
           const longWord = /[A-Za-z0-9]{6,}/.test(c.note);
-          const barFont = longWord && w < 70 ? 10 : 12;
+          const barFont = (w < 44 || longWord || c.note.length >= 6) ? 10 : 12; // 狭バー/長語/長文は詰める（縦に潰れて見切れるの防止）
           let bg: string, bd: string, col: string, text: string;
           // Lv1(revealAll)はコール文を出す＝やさしい。Lv2は未判定を「？」で隠す。
           const hidden = revealAll ? (c.note || "♪") : "？";
@@ -571,9 +576,9 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
           else { bg = "rgba(255,255,255,0.05)"; bd = "rgba(255,255,255,0.16)"; col = "#7d8694"; text = hidden; }
           return (
             <div key={i} style={{
-              position: "absolute", left, top: lane * Q_LANE_PITCH + 4, width: w, maxHeight: Q_LANE_PITCH - 6,
+              position: "absolute", left, top: lane * Q_LANE_PITCH + 4, width: w, maxHeight: Q_LANE_PITCH - 4,
               borderRadius: 6, border: `1px ${cue ? "dashed" : "solid"} ${bd}`, background: bg, color: col,
-              fontSize: cue ? 10 : (judged ? barFont : 14), fontWeight: cue ? 500 : (judged ? 700 : 800), fontStyle: cue ? "italic" : "normal", lineHeight: 1.1,
+              fontSize: cue ? 10 : (text === "？" ? 14 : barFont), fontWeight: cue ? 500 : (text === "？" ? 800 : 700), fontStyle: cue ? "italic" : "normal", lineHeight: 1.1,
               padding: "3px 4px", whiteSpace: "normal", wordBreak: "break-all", overflowWrap: "anywhere", overflow: "hidden",
               display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center",
               boxShadow: isActive ? "0 0 0 1px rgba(255,255,255,0.5)" : undefined,
