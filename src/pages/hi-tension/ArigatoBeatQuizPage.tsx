@@ -402,6 +402,7 @@ export default function ArigatoBeatQuizPage() {
       {phase === "result" && reviewIdx >= 0 && (
         <ReviewPanel
           note={calls[reviewIdx].note || "♪"}
+          lenBeats={calls[reviewIdx].lenBeats}
           section={sectionOf(calls[reviewIdx].t)}
           lectureCallT={lectureTOf(reviewIdx)}
           beatSec={beatSec}
@@ -674,8 +675,8 @@ function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, 
 
 // 見返しパネル（動画の下）：動画の再生に同期して「5・6・7・8 →（コール）」をカウントイン。
 // "→" の瞬間＝採譜が記録してるコール位置。動画の実際のコールとズレてたら ±拍で直す（採譜キャリブレーター）。
-function ReviewPanel({ note, section, lectureCallT, beatSec, getNow, offsetSec, onNudge, onReplay, onClose, pink }: {
-  note: string; section: string; lectureCallT: number; beatSec: number; getNow: () => number;
+function ReviewPanel({ note, lenBeats, section, lectureCallT, beatSec, getNow, offsetSec, onNudge, onReplay, onClose, pink }: {
+  note: string; lenBeats: number; section: string; lectureCallT: number; beatSec: number; getNow: () => number;
   offsetSec: number; onNudge: (deltaSec: number) => void; onReplay: () => void; onClose: () => void; pink: string;
 }) {
   const [step, setStep] = useState<string | null>(null);
@@ -683,6 +684,7 @@ function ReviewPanel({ note, section, lectureCallT, beatSec, getNow, offsetSec, 
   const callTRef = useRef(lectureCallT); callTRef.current = lectureCallT;
   const beatRef = useRef(beatSec); beatRef.current = beatSec;
   const noteRef = useRef(note); noteRef.current = note;
+  const lenRef = useRef(lenBeats); lenRef.current = lenBeats;
   useEffect(() => {
     let raf = 0;
     const loop = () => {
@@ -694,7 +696,7 @@ function ReviewPanel({ note, section, lectureCallT, beatSec, getNow, offsetSec, 
       else if (d >= -3 * b && d < -2 * b) s = "6";
       else if (d >= -2 * b && d < -1 * b) s = "7";
       else if (d >= -1 * b && d < 0) s = "8";
-      else if (d >= 0 && d < 1.2 * b) s = noteRef.current; // →コールの瞬間
+      else if (d >= 0 && d < Math.max(1, lenRef.current) * b) s = noteRef.current; // →コール（表示時間＝コールの拍数ぶん）
       setStep(prev => (prev === s ? prev : s));
     };
     loop();

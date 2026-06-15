@@ -108,7 +108,7 @@ export const ARIGATO_BEAT_CALLS: CallData[] = [
   { t: 138.194, lenBeats: 1, note: "オイ！" },
   { t: 139, lenBeats: 1, note: "オイ！" },
   { t: 146.248, lenBeats: 3, note: "みよちゃーん" },
-  { t: 165.98, lenBeats: 4, note: "（お名前コールいくよ）" },
+  { t: 165.175, lenBeats: 4, note: "（お名前コールいくよ）" },
   { t: 169.402, lenBeats: 2, note: "みいみー！" },
   { t: 172.624, lenBeats: 2, note: "こころー！" },
   { t: 175.845, lenBeats: 2, note: "ほのかー！" },
