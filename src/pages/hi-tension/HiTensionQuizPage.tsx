@@ -24,9 +24,10 @@ const REVIEW_BARS = 2;          // 答え確認は「ミスの何小節前」か
 const LEAD_BEATS = 6;           // 候補ボタンを拍の何拍前から「表示」するか（読む時間用。判定窓とは別。BPM149で6拍≈2.4秒）
 // 採点＝DDD(lets-ddd-easy)方式を流用。「最初の未判定コールに当てる」＋「±BADを過ぎたら即ミス消化」＋「±BAD内じゃないと当てない」＋入力デバウンス。
 // 連打が崩れない肝＝窓を狭く・ミスを即消化（居座らせない）。窓が広い(旧850ms=約2拍)と隣を掴んで連鎖する。
-const PERFECT_MS = 100;         // ±100msでPERFECT
-const LATE_MS = 300;            // 拍の頭より「後ろ」はここまで当たる＆GOOD（後ろのマッチ／無タップミス窓）
-const EARLY_MS = 100;           // 拍の頭より「前」はここまでしか当たらない＝頭より前は判定無し（早い側だけ厳しく狭く・hop方針）
+const PERFECT_EARLY_MS = 100;   // 頭より「前」はここまでPERFECT（＝当たる早い窓と同じ）
+const PERFECT_LATE_MS = 200;    // 頭より「後ろ」はここまでPERFECT（コールは少し遅れて返すのが自然なので後ろ広め・hop調整）
+const LATE_MS = 300;            // 後ろはここまで当たる＆GOOD（後ろのマッチ／無タップミス窓）
+const EARLY_MS = 100;           // 頭より「前」はここまでしか当たらない＝それ以前は判定無し（早い側だけ厳しく狭く・hop方針）
 const MIN_TAP_GAP_SEC = 0.1;    // 連打で1タップが2コールを消費しないための最小間隔（DDDの入力デバウンス相当）
 
 // タイムライン（/beat流用）
@@ -180,8 +181,9 @@ export default function HiTensionQuizPage() {
     if (chosen === null) verdict = "notap";
     else if (chosen !== tg.answer) verdict = "wrong";
     else {
-      errMs = Math.round((errSec ?? 0) * 1000); // +は遅い、−は早い（DDD流用＝左右対称・符号は表示用に保持）
-      verdict = Math.abs(errMs) <= PERFECT_MS ? "perfect" : "good";
+      errMs = Math.round((errSec ?? 0) * 1000); // +は遅い、−は早い
+      // PERFECTは左右非対称（頭より前は厳しく狭く・後ろは少し広め）。窓外(=errMs<-EARLY)はonTapで弾くのでここには来ない。
+      verdict = (errMs >= -PERFECT_EARLY_MS && errMs <= PERFECT_LATE_MS) ? "perfect" : "good";
     }
     const r: Result = { i, call: tg.call, chosen, errMs, verdict };
     resRef.current[i] = r;
@@ -474,12 +476,18 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
   }, [calls, beatSec]);
 
   // 毎フレーム：現在時刻が中央に来るよう track を translateX。
+  // getCurrentTime()は約100ms刻みで量子化されてる＝そのまま使うとスクロールがカクつく。
+  // 値が変わった/シークした時だけ再アンカーし、間は performance.now で外挿して滑らかにする（本編横画面と同方式）。
   useEffect(() => {
-    let raf = 0;
+    let raf = 0, anchorT = -1, anchorP = 0;
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const tr = trackRef.current; if (!tr || vw === 0) return;
-      const t = getNowRef.current();
+      const raw = getNowRef.current();
+      const nowP = performance.now();
+      if (anchorT < 0 || Math.abs(raw - anchorT) > 0.02 || raw < anchorT) { anchorT = raw; anchorP = nowP; }
+      let t = anchorT + (nowP - anchorP) / 1000; // アンカーからの経過で外挿
+      if (t - raw > 0.35) t = raw;               // 停止等で外挿しすぎたらナマ値へ戻す
       tr.style.transform = `translateX(${(vw / 2 - t * pxPerSec).toFixed(1)}px)`;
     };
     loop();
