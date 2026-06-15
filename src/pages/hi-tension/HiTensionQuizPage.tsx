@@ -123,6 +123,11 @@ export default function HiTensionQuizPage() {
   const calls = data.current.calls;
   const bpm = data.current.bpm || 149;
   const beatSec = 60 / bpm;
+  const firstT = calls.length ? calls[0].t : 0;
+  // レベル：Lv1＝レクチャー動画(答えが画面に出る・やさしい)、Lv2＝ステージ動画(答えなし・本番)。
+  // 同テンポなので時間軸は定数シフトで揃う：レクチャー時刻 = ステージ時刻 + (6.0 - 最初のコール)。
+  const levelVideo = (lvl: 1 | 2) => (lvl === 1 ? LECTURE_VIDEO : data.current.videoId);
+  const levelShift = (lvl: 1 | 2) => (lvl === 1 ? LECTURE_FIRST_CALL_SEC - firstT : 0);
 
   // 各コールに候補を用意（普通＝正解＋同尺ダミー2 ／ 連打＝オイ/Fu2択）。毎回ランダムだが起動時に固定。
   const targets = useMemo<Target[]>(() => {
@@ -158,6 +163,11 @@ export default function HiTensionQuizPage() {
   const [results, setResults] = useState<Result[]>([]);
   const [offsets, setOffsets] = useState<Record<string, number>>(loadOffsets); // 採譜ズレ補正（見返しで調整）
   const [reviewIdx, setReviewIdx] = useState(-1); // カウントイン見返し中のコール（-1=なし）
+  const [level, setLevel] = useState<1 | 2>(2);   // 今プレイ中/した レベル
+  const [levelOffset, setLevelOffset] = useState(0); // レベルの時間軸シフト秒（Lv1=レクチャー換算, Lv2=0）
+  const levelOffsetRef = useRef(0);
+  // タイムライン用＝レベルのシフトを乗せたコール時刻（バー位置を再生時刻に合わせる）
+  const playCalls = useMemo(() => calls.map(c => ({ ...c, t: c.t + levelOffset })), [calls, levelOffset]);
 
   const judgedRef = useRef<Set<number>>(new Set());
   const resRef = useRef<Result[]>([]);
@@ -211,15 +221,20 @@ export default function HiTensionQuizPage() {
   // 安定参照（毎レンダーで作り直さない）＝QuizTimelineのReact.memoが効く＝判定外の再描画で揺れない（ガタつき対策）
   const getNow = useRef(() => playerRef.current?.getCurrentTime?.() ?? nowRef.current).current;
 
-  const start = () => {
+  const start = (lvl: 1 | 2 = level) => {
     judgedRef.current = new Set(); resRef.current = []; setResults([]); setFlash(null); setVerdictMap({});
     armedRef.current = false; startFramesRef.current = 0;
     activeIdxRef.current = -1; setActiveIdx(-1); lastTapAtRef.current = -1;
+    // レベルの時間軸シフトと動画をセット。
+    const off = levelShift(lvl);
+    levelOffsetRef.current = off; setLevelOffset(off); setLevel(lvl);
     setPhase("playing");
-    // レクチャー確認でプレイヤーが別動画に切り替わっていたら、ステージ動画へ戻す（もう一回で正しく頭から）。
-    if (loadedVideoRef.current !== data.current.videoId) {
-      try { playerRef.current?.loadVideo?.(data.current.videoId, { startSeconds: 0 }); } catch { /* ignore */ }
-      loadedVideoRef.current = data.current.videoId;
+    pushPlayingState(); // ブラウザバックで戻れるよう履歴に積む
+    // このレベルの動画を載せる（別動画が載ってたら切替）。
+    const vid = levelVideo(lvl);
+    if (loadedVideoRef.current !== vid) {
+      try { playerRef.current?.loadVideo?.(vid, { startSeconds: 0 }); } catch { /* ignore */ }
+      loadedVideoRef.current = vid;
     }
     // 黒画面のまま固まる対策：プレイヤーの準備が間に合わないと最初のplayが空振りする。
     // 「頭出し＋再生」を、実際に再生が始まる(isPlaying)まで300 msごとに最大8回キックする。
@@ -251,11 +266,12 @@ export default function HiTensionQuizPage() {
       }
       // DDD方式：先頭の未判定コールが「頭＋後ろ窓(LATE)」を過ぎていたら即ミス消化（居座らせない＝連鎖の元を断つ）。
       // 順番に消化（一気に複数過ぎてても順に）。cueは出題対象外。
+      const lo = levelOffsetRef.current; // レベルの時間軸シフト（Lv1=レクチャー換算, Lv2=0）
       for (let guard = 0; guard < targets.length; guard++) {
         let fi = -1;
         for (let i = 0; i < targets.length; i++) { if (targets[i].kind === "cue" || judgedRef.current.has(i)) continue; fi = i; break; }
         if (fi < 0) break;
-        if (now > targets[fi].call.t + LATE_MS / 1000) judge(fi, null, null); // 後ろ窓を過ぎた＝無タップミス
+        if (now > targets[fi].call.t + lo + LATE_MS / 1000) judge(fi, null, null); // 後ろ窓を過ぎた＝無タップミス
         else break;
       }
       // アクティブ＝「先頭の未判定コール」（DDDのfirst-unjudged）。表示窓(LEAD)に入っていれば候補ボタンを出す。
@@ -263,17 +279,35 @@ export default function HiTensionQuizPage() {
       let ai = -1;
       for (let i = 0; i < targets.length; i++) {
         if (targets[i].kind === "cue" || judgedRef.current.has(i)) continue;
-        if (now >= targets[i].call.t - LEAD_BEATS * beatSec) ai = i; // 出現済みなら表示
+        if (now >= targets[i].call.t + lo - LEAD_BEATS * beatSec) ai = i; // 出現済みなら表示
         break; // 先頭の未判定だけ見る
       }
       if (ai !== activeIdxRef.current) { activeIdxRef.current = ai; setActiveIdx(ai); }
-      if (now >= lastT + 1.2) finish();
+      if (now >= lastT + lo + 1.2) finish();
     };
     loop();
   };
 
-  const stop = () => { cancelAnimationFrame(rafRef.current); if (kickTimer.current) { clearInterval(kickTimer.current); kickTimer.current = null; } try { playerRef.current?.pause(); } catch { /* ignore */ } setPhase("ready"); };
+  // レベル選択(ready)へ戻す共通処理（再生停止・見返し閉じ）。
+  const goReady = () => {
+    cancelAnimationFrame(rafRef.current);
+    if (kickTimer.current) { clearInterval(kickTimer.current); kickTimer.current = null; }
+    try { playerRef.current?.pause(); } catch { /* ignore */ }
+    setReviewIdx(-1); setPhase("ready");
+  };
 
+  // ブラウザバック対応：プレイ開始時に履歴を1つ積み、戻る/やめるでページ離脱でなくレベル選択へ。
+  const pushedRef = useRef(false);
+  const phaseRef = useRef(phase); phaseRef.current = phase;
+  const pushPlayingState = () => { if (!pushedRef.current) { try { history.pushState({ q: "arigato-quiz-play" }, ""); } catch { /* ignore */ } pushedRef.current = true; } };
+  const stop = () => { if (pushedRef.current) history.back(); else goReady(); }; // やめる＝バックと同じ経路
+
+  useEffect(() => {
+    const onPop = () => { if (phaseRef.current !== "ready") goReady(); pushedRef.current = false; };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => () => { cancelAnimationFrame(rafRef.current); if (flashTimer.current) clearTimeout(flashTimer.current); if (kickTimer.current) clearInterval(kickTimer.current); }, []);
 
   const onTap = (note: string) => {
@@ -285,7 +319,7 @@ export default function HiTensionQuizPage() {
     let i = -1;
     for (let k = 0; k < targets.length; k++) { if (targets[k].kind === "cue" || judgedRef.current.has(k)) continue; i = k; break; }
     if (i < 0) return;
-    const errSec = now - targets[i].call.t;
+    const errSec = now - (targets[i].call.t + levelOffsetRef.current);
     // 当たる窓は左右非対称：前(早い)はEARLYまで・後ろ(遅い)はLATEまで。頭より前は厳しく＝それ以前は判定無し（無視・ペナルティ無し、もう一回叩ける）。
     if (errSec < -EARLY_MS / 1000 || errSec > LATE_MS / 1000) return;
     judge(i, note, errSec);
@@ -296,7 +330,6 @@ export default function HiTensionQuizPage() {
   // 「5・6・7・8 →（コール）」のカウントインを動画の下に出す（YouTube規約で動画の上には重ねない）。
   // "→" の瞬間＝採譜が記録してるコールの位置。実際のコールとズレてたら ±拍ボタンで直す（補正値を貯める）。
   // 同テンポなので「最初のコール(ステージ)→レクチャー0:06」を合わせれば全体一致：lecture時刻=(コール-最初)+6秒。
-  const firstT = calls.length ? calls[0].t : 0;
   const callTOf = (i: number) => calls[i].t + (offsets[i] ?? 0);              // 補正込みのコール時刻(ステージ)
   const lectureTOf = (i: number) => (callTOf(i) - firstT) + LECTURE_FIRST_CALL_SEC; // レクチャー換算
   const segStart = (lectureT: number) => Math.max(0, lectureT - REVIEW_BARS * 4 * beatSec); // 数小節前
@@ -375,15 +408,22 @@ export default function HiTensionQuizPage() {
         />
       )}
 
-      {/* ===== ready ===== */}
+      {/* ===== ready（レベル選択）===== */}
       {phase === "ready" && (
-        <div style={{ flex: "1 1 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center" }}>
+        <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, textAlign: "center", padding: "8px 0" }}>
           <p style={{ fontSize: 14, color: "#cbd2dc", maxWidth: 360, lineHeight: 1.8, margin: 0 }}>
             正しいコールを正しいタイミングでタップ！<br />
             <span style={{ color: "#9aa3b0" }}>小さく口ずさみながらだと本番でも対応できるはず！</span>
           </p>
           {calls.length > 0 && (
-            <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", fontSize: 17, padding: "13px 30px" }} onClick={start}>▶ スタート</button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%", maxWidth: 340 }}>
+              <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", fontSize: 16, padding: "14px 18px", textAlign: "left", lineHeight: 1.4 }} onClick={() => start(1)}>
+                ▶ レベル1<br /><span style={{ fontSize: 12, fontWeight: 400, color: "#ffd6ea" }}>コールを見ながら（やさしい）</span>
+              </button>
+              <button style={{ ...btn, fontSize: 16, padding: "14px 18px", textAlign: "left", lineHeight: 1.4 }} onClick={() => start(2)}>
+                ▶ レベル2<br /><span style={{ fontSize: 12, fontWeight: 400, color: "#9aa3b0" }}>答えなしで思い出す（本番）</span>
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -393,8 +433,8 @@ export default function HiTensionQuizPage() {
         <div style={{ flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "flex-start", gap: 12, position: "relative", paddingTop: 8 }}>
           {/* タイムライン（中央プレイヘッド＋拍グリッド＋？でぼかし／判定済みは開示） */}
           <QuizTimeline
-            calls={calls} beatSec={beatSec} getNow={getNow}
-            verdictMap={verdictMap} activeIdx={activeIdx} pink={PINK}
+            calls={playCalls} beatSec={beatSec} getNow={getNow}
+            verdictMap={verdictMap} activeIdx={activeIdx} pink={PINK} revealAll={level === 1}
           />
 
           {/* 判定フラッシュ */}
@@ -438,9 +478,9 @@ export default function HiTensionQuizPage() {
 
 // タイムライン（/beat流用・読み取り専用）：中央固定プレイヘッド＋拍グリッド。コールは拍幅のバーで右から流れる。
 // これから来る＝「？」でぼかし、判定済み＝中身＋正誤色で開示。translateXは自前rAFで毎フレーム（親を再描画させない）。
-const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdictMap, activeIdx, pink }: {
+const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdictMap, activeIdx, pink, revealAll }: {
   calls: Call[]; beatSec: number; getNow: () => number;
-  verdictMap: Record<number, Verdict>; activeIdx: number; pink: string;
+  verdictMap: Record<number, Verdict>; activeIdx: number; pink: string; revealAll: boolean;
 }) {
   const vpRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -521,10 +561,12 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
           const longWord = /[A-Za-z0-9]{6,}/.test(c.note);
           const barFont = longWord && w < 70 ? 10 : 12;
           let bg: string, bd: string, col: string, text: string;
+          // Lv1(revealAll)はコール文を出す＝やさしい。Lv2は未判定を「？」で隠す。
+          const hidden = revealAll ? (c.note || "♪") : "？";
           if (cue) { bg = "transparent"; bd = "rgba(255,255,255,0.14)"; col = "#6b7480"; text = c.note; } // 心掛け＝薄く常時表示
           else if (judged) { const vb = VERDICT_BAR[v]; bg = vb.bg; bd = vb.bd; col = vb.fg; text = c.note || "♪"; }
-          else if (isActive) { bg = pink; bd = "#fff"; col = "#fff"; text = "？"; }
-          else { bg = "rgba(255,255,255,0.05)"; bd = "rgba(255,255,255,0.16)"; col = "#7d8694"; text = "？"; }
+          else if (isActive) { bg = pink; bd = "#fff"; col = "#fff"; text = hidden; }
+          else { bg = "rgba(255,255,255,0.05)"; bd = "rgba(255,255,255,0.16)"; col = "#7d8694"; text = hidden; }
           return (
             <div key={i} style={{
               position: "absolute", left, top: lane * Q_LANE_PITCH + 4, width: w, maxHeight: Q_LANE_PITCH - 6,
