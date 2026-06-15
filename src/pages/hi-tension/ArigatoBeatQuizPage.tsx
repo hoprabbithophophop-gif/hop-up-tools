@@ -232,16 +232,19 @@ export default function ArigatoBeatQuizPage() {
     levelOffsetRef.current = off; setLevelOffset(off); setLevel(L); levelRef.current = L;
     setPhase("playing");
     pushPlayingState(); // ブラウザバックで戻れるよう履歴に積む
-    // このレベルの動画を載せる（別動画が載ってたら切替）。
+    // このレベルの動画を載せる。別動画なら loadVideo（0から自動再生）。同じ動画なら seekTo(0) で頭出し。
     const vid = levelVideo(L);
-    if (loadedVideoRef.current !== vid) {
+    const switching = loadedVideoRef.current !== vid;
+    if (switching) {
       try { playerRef.current?.loadVideo?.(vid, { startSeconds: 0 }); } catch { /* ignore */ }
       loadedVideoRef.current = vid;
     }
-    // 黒画面のまま固まる対策：プレイヤーの準備が間に合わないと最初のplayが空振りする。
-    // 「頭出し＋再生」を、実際に再生が始まる(isPlaying)まで300 msごとに最大8回キックする。
-    const kick = () => { try { playerRef.current?.seekTo(0); playerRef.current?.play(); } catch { /* ignore */ } };
-    kick();
+    // 黒画面のまま固まる対策：再生が始まる(isPlaying)まで300 msごとに最大8回キック。
+    // ※切替時(switching)は loadVideo が自動再生するので「即 play()」しない。
+    //   play() は内部で ENDED 時に seekTo(0) する＝ロード中の新動画/終端の旧動画に割り込んで固まるため。
+    //   同じ動画(もう一回)だけ即 seekTo(0)+play で頭出し。切替は再生されなければ 300ms 後に play() でリトライ。
+    const kick = () => { try { if (!switching) playerRef.current?.seekTo(0); playerRef.current?.play(); } catch { /* ignore */ } };
+    if (!switching) kick();
     if (kickTimer.current) clearInterval(kickTimer.current);
     let kicks = 0;
     kickTimer.current = setInterval(() => {
@@ -486,7 +489,6 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
 }) {
   const vpRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
-  const gridRef = useRef<HTMLDivElement>(null); // グリッドはビューポート全幅に出して常に埋める（開始時の左半分空き対策）
   const [vw, setVw] = useState(0);
   const getNowRef = useRef(getNow); getNowRef.current = getNow;
 
@@ -518,14 +520,9 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
     return { laneOf: lo, laneCount: Math.max(1, ends.length), trackSec: maxEnd + Q_SPAN_SEC };
   }, [calls, beatSec]);
 
-  // 毎フレーム：現在時刻が中央に来るよう track を translateX。
-  // getCurrentTime()は約100ms刻みで量子化されてる＝そのまま使うとスクロールがカクつく。
+  // 毎フレーム：現在時刻が中央に来るよう track を translateX（GPU合成＝グリッド線もクリスプに動く）。
+  // getCurrentTime()は約100ms刻みで量子化されてる＝そのまま使うとスクロールがカクつくので
   // 値が変わった/シークした時だけ再アンカーし、間は performance.now で外挿して滑らかにする（本編横画面と同方式）。
-  // グリッド線（拍＝薄／小節頭＝濃）。基準refSecに線が来るようオフセット。
-  const beatPx = beatSec * pxPerSec;
-  const measurePx = beatSec * 4 * pxPerSec;
-  const gridImage = `repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 1px, transparent 1px ${beatPx}px), repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0 1.5px, transparent 1.5px ${measurePx}px)`;
-
   useEffect(() => {
     let raf = 0, anchorT = -1, anchorP = 0;
     const loop = () => {
@@ -536,29 +533,32 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
       if (anchorT < 0 || Math.abs(raw - anchorT) > 0.02 || raw < anchorT) { anchorT = raw; anchorP = nowP; }
       let t = anchorT + (nowP - anchorP) / 1000; // アンカーからの経過で外挿
       if (t - raw > 0.35) t = raw;               // 停止等で外挿しすぎたらナマ値へ戻す
-      const baseX = vw / 2 - t * pxPerSec;
-      tr.style.transform = `translateX(${baseX.toFixed(1)}px)`;
-      // グリッドはビューポート全幅の背景を流す（バーと同じオフセット＝開始時も左半分が空かない）
-      const g = gridRef.current;
-      if (g) g.style.backgroundPosition = `${(baseX + (refSec * pxPerSec) % beatPx).toFixed(1)}px 0, ${(baseX + (refSec * pxPerSec) % measurePx).toFixed(1)}px 0`;
+      tr.style.transform = `translateX(${(vw / 2 - t * pxPerSec).toFixed(1)}px)`;
     };
     loop();
     return () => cancelAnimationFrame(raf);
-  }, [vw, pxPerSec, beatPx, measurePx, refSec]);
+  }, [vw, pxPerSec]);
 
+  // グリッド線（拍＝薄／小節頭＝濃）はトラックに乗せる＝transformで一緒に動く＝線が均等・クリスプ。
+  // 開始時(t=0)に左半分が空かないよう、トラックを左へ PAD ぶん延ばしてグリッドで埋める（PADはmesurePxの倍数＝整列維持）。
+  const beatPx = beatSec * pxPerSec;
+  const measurePx = beatSec * 4 * pxPerSec;
+  const PAD = Math.ceil(vw / Math.max(1, measurePx)) * measurePx;
+  const grid: React.CSSProperties = {
+    backgroundImage: `repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 1px, transparent 1px ${beatPx}px), repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0 1.5px, transparent 1.5px ${measurePx}px)`,
+    backgroundPosition: `${(refSec * pxPerSec) % beatPx}px 0, ${(refSec * pxPerSec) % measurePx}px 0`,
+  };
   const bandH = Math.min(150, Math.max(96, laneCount * Q_LANE_PITCH + 8));
   const trackH = Math.max(laneCount * Q_LANE_PITCH + 8, bandH);
 
   return (
     <div ref={vpRef} style={{ position: "relative", height: bandH, flex: "0 0 auto", overflow: "hidden", border: "1px solid #1d2430", borderRadius: 10, background: "#0a0c12", userSelect: "none", WebkitUserSelect: "none" }}>
-      {/* グリッド層（ビューポート全幅・背景を毎フレーム流す＝開始時も画面全体が埋まる） */}
-      <div ref={gridRef} style={{ position: "absolute", inset: 0, backgroundImage: gridImage, pointerEvents: "none", zIndex: 0 }} />
       {/* プレイヘッド（中央固定） */}
       <div style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: 2, marginLeft: -1, background: pink, zIndex: 3, pointerEvents: "none", boxShadow: "0 0 8px rgba(218,24,132,0.6)" }} />
-      {/* トラック（バーのみ・毎フレーム translateX） */}
-      <div ref={trackRef} style={{ position: "absolute", left: 0, top: 0, height: trackH, width: Math.max(1, trackSec * pxPerSec), willChange: "transform", zIndex: 1 }}>
+      {/* トラック（グリッド＋バー・毎フレーム translateX。左へPAD延ばして開始時の空きを埋める） */}
+      <div ref={trackRef} style={{ position: "absolute", left: -PAD, top: 0, height: trackH, width: Math.max(1, trackSec * pxPerSec + PAD), ...grid, willChange: "transform", zIndex: 1 }}>
         {calls.map((c, i) => {
-          const left = c.t * pxPerSec;
+          const left = c.t * pxPerSec + PAD;
           const w = Math.max(20, c.lenBeats * beatSec * pxPerSec);
           const lane = laneOf.get(i) ?? 0;
           const cue = isCue(c.note);
