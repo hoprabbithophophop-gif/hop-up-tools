@@ -127,8 +127,9 @@ export default function ArigatoBeatQuizPage() {
   // レベル：Lv1＝レクチャー動画(答えが画面に出る・やさしい)、Lv2＝ステージ動画(答えなし・本番)。
   // 同テンポなので時間軸は定数シフトで揃う：レクチャー時刻 = ステージ時刻 + (6.0 - 最初のコール)。
   const levelVideo = (lvl: 1 | 2) => (lvl === 1 ? LECTURE_VIDEO : data.current.videoId);
-  // 反応の中心を全コール +1拍 後ろへ（採譜が全体的に1拍早い体感・hop調整）。判定基準とタイムライン両方に効く。
-  const levelShift = (lvl: 1 | 2) => (lvl === 1 ? LECTURE_FIRST_CALL_SEC - firstT : 0) + beatSec;
+  // Lv2(ステージ)は採譜そのまま＝シフト0。Lv1(レクチャー)だけ「6.0秒基準が約1拍早い」ので +1拍 補正する。
+  // （採譜はステージ動画基準で作ってあるので、ずらすべきはLv1のレクチャー換算だけ）。
+  const levelShift = (lvl: 1 | 2) => (lvl === 1 ? LECTURE_FIRST_CALL_SEC - firstT + beatSec : 0);
 
   // 各コールに候補を用意（普通＝正解＋同尺ダミー2 ／ 連打＝オイ/Fu2択）。毎回ランダムだが起動時に固定。
   const targets = useMemo<Target[]>(() => {
