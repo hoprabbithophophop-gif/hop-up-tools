@@ -239,12 +239,12 @@ export default function ArigatoBeatQuizPage() {
       try { playerRef.current?.loadVideo?.(vid, { startSeconds: 0 }); } catch { /* ignore */ }
       loadedVideoRef.current = vid;
     }
-    // 黒画面のまま固まる対策：再生が始まる(isPlaying)まで300 msごとに最大8回キック。
-    // ※切替時(switching)は loadVideo が自動再生するので「即 play()」しない。
-    //   play() は内部で ENDED 時に seekTo(0) する＝ロード中の新動画/終端の旧動画に割り込んで固まるため。
-    //   同じ動画(もう一回)だけ即 seekTo(0)+play で頭出し。切替は再生されなければ 300ms 後に play() でリトライ。
+    // 黒画面/くるくるのまま固まる対策：再生が始まる(isPlaying)まで300 msごとに最大8回キック。
+    // モバイルはタップgesture内で同期的に play() しないと自動再生されない＝切替でも即 play() する。
+    // ただし切替時は explicit な seekTo(0) はしない（ロード中の新動画に割り込むと固まる＝それがLv1→Lv2の固まりの原因）。
+    // 同じ動画(もう一回)だけ seekTo(0) で頭出し。
     const kick = () => { try { if (!switching) playerRef.current?.seekTo(0); playerRef.current?.play(); } catch { /* ignore */ } };
-    if (!switching) kick();
+    kick();
     if (kickTimer.current) clearInterval(kickTimer.current);
     let kicks = 0;
     kickTimer.current = setInterval(() => {
@@ -524,16 +524,20 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
   // getCurrentTime()は約100ms刻みで量子化されてる＝そのまま使うとスクロールがカクつくので
   // 値が変わった/シークした時だけ再アンカーし、間は performance.now で外挿して滑らかにする（本編横画面と同方式）。
   useEffect(() => {
-    let raf = 0, anchorT = -1, anchorP = 0;
+    let raf = 0, smoothT = -1, lastP = 0;
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const tr = trackRef.current; if (!tr || vw === 0) return;
-      const raw = getNowRef.current();
+      const raw = getNowRef.current(); // getCurrentTimeは約100ms刻みで量子化されてる
       const nowP = performance.now();
-      if (anchorT < 0 || Math.abs(raw - anchorT) > 0.02 || raw < anchorT) { anchorT = raw; anchorP = nowP; }
-      let t = anchorT + (nowP - anchorP) / 1000; // アンカーからの経過で外挿
-      if (t - raw > 0.35) t = raw;               // 停止等で外挿しすぎたらナマ値へ戻す
-      tr.style.transform = `translateX(${(vw / 2 - t * pxPerSec).toFixed(1)}px)`;
+      if (smoothT < 0 || raw < smoothT - 0.15 || raw > smoothT + 0.5) {
+        smoothT = raw; // 初回・シーク戻り・大幅ズレは即合わせ
+      } else {
+        smoothT += (nowP - lastP) / 1000; // 実経過で滑らかに進める（量子化の間を補間）
+        smoothT += (raw - smoothT) * 0.1; // 量子化された真値へ緩く寄せる（カクつかせずドリフト防止）
+      }
+      lastP = nowP;
+      tr.style.transform = `translateX(${(vw / 2 - smoothT * pxPerSec).toFixed(1)}px)`;
     };
     loop();
     return () => cancelAnimationFrame(raf);
