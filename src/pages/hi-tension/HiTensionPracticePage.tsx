@@ -449,7 +449,7 @@ export default function HiTensionPracticePage() {
   return (
     <div onContextMenu={(e) => e.preventDefault()} style={{ height: "100dvh", overflow: "hidden", display: "flex", flexDirection: "column", maxWidth: 480, margin: "0 auto", padding: "8px 12px", color: "#eee", background: "#000", fontFamily: "Inter, system-ui, sans-serif", touchAction: "none", WebkitTouchCallout: "none" }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flex: "0 0 auto" }}>
-        <h1 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>振り練習 <span style={{ fontSize: 11, color: "#888" }}>(試作)</span></h1>
+        <h1 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>振り練習</h1>
         <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
           {PRACTICE_VIDEOS.length > 1 && PRACTICE_VIDEOS.map(v => (
             <button key={v.id} style={{ ...seg(videoId === v.id), fontSize: 12, padding: "4px 8px" }} onClick={() => selectVideo(v.id)}>{v.label}</button>

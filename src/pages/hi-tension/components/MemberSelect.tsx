@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { UNIT_ROWS, findMember, PRACTICE_VIDEOS } from "../data";
 import HandIcon from "./HandIcon";
+import FaIcon from "./FaIcon";
+import { faHandPointer } from "@fortawesome/free-solid-svg-icons";
 import type { SpecialEvent } from "../events";
 
 // 合言葉の部屋（リアルタイム同期）は実利用がほぼ無く（YouTube同期の制約で2人まで）入口を非表示に。
@@ -17,6 +19,8 @@ interface Props {
   onOpenSettings?: () => void;
   /** QAモードのトグル（隠しジェスチャー成立時に呼ぶ）。 */
   onToggleQa?: () => void;
+  /** 上級編（振り練習）へ移動する。アイコンのみの控えめな導線。 */
+  onOpenAdvanced?: () => void;
 }
 
 export default function MemberSelect({
@@ -28,6 +32,7 @@ export default function MemberSelect({
   selectedEventKey = null,
   onOpenSettings,
   onToggleQa,
+  onOpenAdvanced,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   // 色タップごとに +1。背景✋の key に混ぜて「同じ色を選び直しても」再マウント→ポップさせる。
@@ -380,6 +385,27 @@ export default function MemberSelect({
         )}
 
       </div>
+
+      {/* 上級編（振り練習）へ。はじめるの下にアイコンのみで控えめに置く。 */}
+      {onOpenAdvanced && (
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: "0.4rem" }}>
+          <button
+            type="button"
+            aria-label="上級編へ"
+            onClick={onOpenAdvanced}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "0.4rem",
+              opacity: 0.85,
+              display: "inline-flex",
+            }}
+          >
+            <FaIcon icon={faHandPointer} size={26} color="#9aa0a6" />
+          </button>
+        </div>
+      )}
 
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "0.55rem", flexWrap: "wrap", marginBottom: "0.3rem", fontSize: "0.6875rem", color: "#9aa0a6" }}>
         <span>公式動画</span>

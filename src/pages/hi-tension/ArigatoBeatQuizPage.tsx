@@ -1,4 +1,4 @@
-// コール練習クイズ（開発用・隠しルート /arigato-beat/quiz）
+// コール練習クイズ（開発用・隠しルート /arigato-beat）
 //
 // 主役は「正しいタイミングで・正しいコールを出せるか」。声・マイクは使わず全部タップ。
 //   - ステージプラクティス動画（コール答えが映らない）を流す。
@@ -39,7 +39,7 @@ const CHANT_FU = "Fu";
 
 // X(旧Twitter)シェア。文面・タグ・URLは hop 指定（勝手に足さない）。本編EndCardと同じ Web Intent 方式
 // （ログイン/API不要・URLは &url= でなく本文に独立行で入れる）。ハッシュタグは #ありがとビートpractice のみ。
-const SHARE_URL = "https://hop-up-tools.pages.dev/arigato-beat/quiz";
+const SHARE_URL = "https://hop-up-tools.pages.dev/arigato-beat";
 function shareToX(ok: number, total: number, perfect: number, good: number) {
   const text = [
     "ありがとビート コール練習で",
@@ -162,7 +162,9 @@ export default function ArigatoBeatQuizPage() {
   const [activeIdx, setActiveIdx] = useState(-1);
   const [verdictMap, setVerdictMap] = useState<Record<number, Verdict>>({}); // タイムライン開示用（判定したら中身＋色を出す）
   const [flash, setFlash] = useState<{ verdict: Verdict; errMs: number | null } | null>(null);
-  const [results, setResults] = useState<Result[]>([]);
+  const [resultsByLevel, setResultsByLevel] = useState<{ 1: Result[]; 2: Result[] }>({ 1: [], 2: [] });
+  const [resultTab, setResultTab] = useState<1 | 2>(2); // 結果画面で見てるレベル（タブで切替）
+  const results = resultsByLevel[resultTab];            // 結果画面に出す成績＝今のタブのレベルぶん
   const [offsets, setOffsets] = useState<Record<string, number>>(loadOffsets); // 採譜ズレ補正（見返しで調整）
   const [reviewIdx, setReviewIdx] = useState(-1); // カウントイン見返し中のコール（-1=なし）
   const [level, setLevel] = useState<1 | 2>(2);   // 今プレイ中/した レベル
@@ -217,8 +219,10 @@ export default function ArigatoBeatQuizPage() {
     const filled: Result[] = targets
       .map((tg, i) => tg.kind === "cue" ? null : (resRef.current[i] ?? { i, call: tg.call, chosen: null, errMs: null, verdict: "notap" as Verdict }))
       .filter((r): r is Result => r !== null);
-    setResults(filled);
+    setResultsByLevel(prev => ({ ...prev, [levelRef.current]: filled })); // 今やったレベルの成績として保存（もう片方は残す）
+    setResultTab(levelRef.current); // 結果画面は今やったレベルのタブを開く
     setPhase("result");
+    replacePhaseState("result"); // プレイ中エントリを結果に置換（戻る→レベル選択／進む→結果に復帰・成績は保持）
   };
 
   // 安定参照（毎レンダーで作り直さない）＝QuizTimelineのReact.memoが効く＝判定外の再描画で揺れない（ガタつき対策）
@@ -228,14 +232,17 @@ export default function ArigatoBeatQuizPage() {
     // lvlが1/2の時だけ採用。引数なし or イベント等が紛れ込んだ時は今のレベル(levelRef)を確実に拾う
     // （もう一回ボタンの onClick={onRetry} がクリックイベントを渡してLv2に化けるのを防ぐ）。
     const L: 1 | 2 = (lvl === 1 || lvl === 2) ? lvl : levelRef.current;
-    judgedRef.current = new Set(); resRef.current = []; setResults([]); setFlash(null); setVerdictMap({});
+    judgedRef.current = new Set(); resRef.current = []; setFlash(null); setVerdictMap({});
     armedRef.current = false; startFramesRef.current = 0;
     activeIdxRef.current = -1; setActiveIdx(-1); lastTapAtRef.current = -1;
     // レベルの時間軸シフトと動画をセット。
     const off = levelShift(L);
     levelOffsetRef.current = off; setLevelOffset(off); setLevel(L); levelRef.current = L;
+    const fromResult = phaseRef.current === "result";
     setPhase("playing");
-    pushPlayingState(); // ブラウザバックで戻れるよう履歴に積む
+    // 履歴は常に [レベル選択, (プレイ中|結果)] の2段に保つ：レベル選択からは push、
+    // 結果画面からの「もう一回」は replace（段を増やさない＝戻る/進むが素直に往復する）。
+    if (fromResult) replacePhaseState("playing"); else pushPhaseState("playing");
     // このレベルの動画を載せる。別動画なら loadVideo（0から自動再生）。同じ動画なら seekTo(0) で頭出し。
     const vid = levelVideo(L);
     const switching = loadedVideoRef.current !== vid;
@@ -305,14 +312,26 @@ export default function ArigatoBeatQuizPage() {
     setReviewIdx(-1); setPhase("ready");
   };
 
-  // ブラウザバック対応：プレイ開始時に履歴を1つ積み、戻る/やめるでページ離脱でなくレベル選択へ。
-  const pushedRef = useRef(false);
+  // ブラウザバック対応：ready以外のフェーズ(プレイ中/結果)を履歴の1エントリ(abeatPhase)で表す。
+  // 履歴は常に [レベル選択, (プレイ中|結果)] の2段（finish・もう一回は replace で段を増やさない）。
+  // これで「結果で戻る→レベル選択／進む→結果に復帰」が成立。成績(results)はどこでも消さない＝パーにならない。
   const phaseRef = useRef(phase); phaseRef.current = phase;
-  const pushPlayingState = () => { if (!pushedRef.current) { try { history.pushState({ q: "arigato-quiz-play" }, ""); } catch { /* ignore */ } pushedRef.current = true; } };
-  const stop = () => { if (pushedRef.current) history.back(); else goReady(); }; // やめる＝バックと同じ経路
+  const pushPhaseState = (ph: "playing" | "result") => { try { history.pushState({ abeatPhase: ph }, ""); } catch { /* ignore */ } };
+  const replacePhaseState = (ph: "playing" | "result") => { try { history.replaceState({ abeatPhase: ph }, ""); } catch { /* ignore */ } };
+  const stop = () => { history.back(); }; // やめる＝ブラウザバックと同じ経路（レベル選択へ）
 
   useEffect(() => {
-    const onPop = () => { if (phaseRef.current !== "ready") goReady(); pushedRef.current = false; };
+    const onPop = () => {
+      const ph = (history.state && history.state.abeatPhase) || "ready";
+      if (ph === "result") {
+        // 結果画面に復帰（進むで戻ってきた等）。成績データは保持してるのでそのまま再表示。
+        setReviewIdx(-1);
+        setPhase("result");
+      } else {
+        // レベル選択へ（プレイ中断 or 結果からの戻り）。成績は消さない＝進むで結果に戻れる。
+        goReady();
+      }
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -390,7 +409,7 @@ export default function ArigatoBeatQuizPage() {
   return (
     <div style={{ height: "100dvh", overflow: "hidden", background: ARENA_BG, color: "#eef1f5", display: "flex", flexDirection: "column", fontFamily: "Inter, system-ui, sans-serif", padding: "10px 14px", boxSizing: "border-box" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "0 0 auto" }}>
-        <h1 style={{ fontSize: 15, fontWeight: 800, margin: 0 }}>コール練習クイズ <span style={{ fontSize: 11, color: "#8b93a0", fontWeight: 400 }}>(開発用)</span></h1>
+        <h1 style={{ fontSize: 15, fontWeight: 800, margin: 0 }}>コール練習クイズ</h1>
         {phase === "playing" && <button style={{ ...btn, marginLeft: "auto", padding: "5px 12px", fontSize: 12 }} onClick={stop}>やめる</button>}
       </div>
 
@@ -480,8 +499,9 @@ export default function ArigatoBeatQuizPage() {
 
       {/* ===== result ===== */}
       {phase === "result" && (
-        <ResultView results={results} onRetry={start} onReview={startReview} reviewIdx={reviewIdx}
-          offsets={offsets} onExport={exportOffsets} onReset={resetOffsets} onBackToSelect={goReady} level={level}
+        <ResultView results={results} onRetry={() => start(resultTab)} onReview={startReview} reviewIdx={reviewIdx}
+          offsets={offsets} onExport={exportOffsets} onReset={resetOffsets} onBackToSelect={() => history.back()} level={resultTab}
+          resultTab={resultTab} onSelectTab={(t) => { setResultTab(t); setReviewIdx(-1); }} hasLv1={resultsByLevel[1].length > 0} hasLv2={resultsByLevel[2].length > 0}
           verdictLabel={verdictLabel} verdictColor={verdictColor} />
       )}
     </div>
@@ -604,9 +624,10 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
 });
 
 // 結果画面：スコア＋おさらい一覧（PERFECT以外を全部・セクション別）。各コールを「見返す」と動画＋カウントインへ。
-function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, onReset, onBackToSelect, level, verdictLabel, verdictColor }: {
+function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, onReset, onBackToSelect, level, resultTab, onSelectTab, hasLv1, hasLv2, verdictLabel, verdictColor }: {
   results: Result[]; onRetry: () => void; onReview: (i: number) => void; reviewIdx: number;
   offsets: Record<string, number>; onExport: () => void; onReset: () => void; onBackToSelect: () => void; level: 1 | 2;
+  resultTab: 1 | 2; onSelectTab: (lv: 1 | 2) => void; hasLv1: boolean; hasLv2: boolean;
   verdictLabel: Record<Verdict, string>; verdictColor: Record<Verdict, string>;
 }) {
   const perfect = results.filter(r => r.verdict === "perfect").length;
@@ -618,6 +639,23 @@ function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, 
 
   return (
     <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: "8px 2px" }}>
+      {/* レベル切替タブ。やったレベルだけ押せる＝両方プレイ後は結果を見比べられる（未プレイは薄く無効）。 */}
+      <div style={{ display: "flex", gap: 8, justifyContent: "center", margin: "2px 0 10px" }}>
+        {([1, 2] as const).map(lv => {
+          const has = lv === 1 ? hasLv1 : hasLv2;
+          const active = resultTab === lv;
+          return (
+            <button key={lv} type="button" disabled={!has} onClick={() => onSelectTab(lv)}
+              style={{ fontSize: 13, fontWeight: 700, padding: "6px 18px", borderRadius: 8,
+                border: `1px solid ${active ? PINK : "rgba(255,255,255,0.18)"}`,
+                background: active ? PINK : "rgba(255,255,255,0.06)",
+                color: has ? (active ? "#fff" : "#cbd2dc") : "#566",
+                cursor: has ? "pointer" : "not-allowed", opacity: has ? 1 : 0.45 }}>
+              レベル{lv}
+            </button>
+          );
+        })}
+      </div>
       <div style={{ textAlign: "center", margin: "6px 0 8px" }}>
         <div style={{ fontSize: 13, color: "#9aa3b0" }}>正解タイミング</div>
         <div style={{ fontSize: 40, fontWeight: 900, color: PINK }}>{ok}<span style={{ fontSize: 18, color: "#9aa3b0" }}> / {results.length}</span></div>

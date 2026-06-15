@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import HandIcon from "./hi-tension/components/HandIcon";
+import FaIcon from "./hi-tension/components/FaIcon";
+import { faBullhorn } from "@fortawesome/free-solid-svg-icons";
 
 const TOOLS: { to: string; num: string; section: string; title: string; desc: string; wip?: boolean }[] = [
   {
@@ -65,13 +67,20 @@ export default function TopPage() {
         )}
       </main>
 
-      <div style={{ display: "flex", justifyContent: "center", padding: "1.6rem 0 0.4rem" }}>
+      <div style={{ display: "flex", justifyContent: "center", gap: "1.5rem", padding: "1.6rem 0 0.4rem" }}>
         <Link
           to="/hi-tension"
           aria-label="ハイ！テンション Practice"
           style={{ display: "inline-flex", padding: "0.8rem", textDecoration: "none" }}
         >
           <HandIcon size={36} color="#191c1d" />
+        </Link>
+        <Link
+          to="/arigato-beat"
+          aria-label="ありがとビート"
+          style={{ display: "inline-flex", padding: "0.8rem", textDecoration: "none" }}
+        >
+          <FaIcon icon={faBullhorn} size={36} color="#191c1d" />
         </Link>
       </div>
 

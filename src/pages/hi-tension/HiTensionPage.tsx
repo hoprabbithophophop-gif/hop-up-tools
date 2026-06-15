@@ -1607,6 +1607,7 @@ export default function HiTensionPage() {
             selectedEventKey={selectedEventKey}
             onOpenSettings={() => setSettingsOpen(true)}
             onToggleQa={() => setQaMode((v) => !v)}
+            onOpenAdvanced={() => navigate("/hi-tension/practice")}
           />
         </div>
       )}
