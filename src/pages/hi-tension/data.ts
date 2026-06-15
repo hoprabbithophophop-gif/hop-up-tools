@@ -13,6 +13,7 @@ export type PracticeVideo = {
 export const PRACTICE_VIDEOS: readonly PracticeVideo[] = [
   { id: "mn1wkO0Ysbw", label: "LIVE映像" },
   { id: "WU-IF-cLPCY", label: "MV" },
+  { id: "ZLs8GVsbEgY", label: "Stage Practice" },
 ] as const;
 
 /** 既定（1本目）の video_id。api.ts 等の引数デフォルトに使う＝従来挙動を維持。 */
