@@ -118,7 +118,7 @@ const VERDICT_BAR: Record<Verdict, { bg: string; bd: string; fg: string }> = {
   notap: { bg: "rgba(136,136,136,0.18)", bd: "rgba(136,136,136,0.55)", fg: "#9aa3b0" },
 };
 
-export default function HiTensionQuizPage() {
+export default function ArigatoBeatQuizPage() {
   const data = useRef(loadData());
   const calls = data.current.calls;
   const bpm = data.current.bpm || 149;

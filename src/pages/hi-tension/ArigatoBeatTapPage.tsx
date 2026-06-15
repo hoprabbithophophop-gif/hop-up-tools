@@ -265,7 +265,7 @@ function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, n
   );
 }
 
-export default function HiTensionBeatTapPage() {
+export default function ArigatoBeatTapPage() {
   const playerRef = useRef<YouTubePlayerApi>(null);
   const initial = useRef(loadSaved());
   const [videoId, setVideoId] = useState(initial.current.videoId);

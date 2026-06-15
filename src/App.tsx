@@ -13,9 +13,9 @@ const YouTubePickupPage = lazy(() => import("./pages/youtube/YouTubePickupPage")
 const HiTensionPage   = lazy(() => import("./pages/hi-tension/HiTensionPage"));
 const HiTensionAuthorPage = lazy(() => import("./pages/hi-tension/HiTensionAuthorPage"));
 const HiTensionPracticePage = lazy(() => import("./pages/hi-tension/HiTensionPracticePage"));
-const HiTensionBeatTapPage = lazy(() => import("./pages/hi-tension/HiTensionBeatTapPage"));
-const HiTensionCallPage = lazy(() => import("./pages/hi-tension/HiTensionCallPage"));
-const HiTensionQuizPage = lazy(() => import("./pages/hi-tension/HiTensionQuizPage"));
+const ArigatoBeatTapPage = lazy(() => import("./pages/hi-tension/ArigatoBeatTapPage"));
+const ArigatoBeatCallPage = lazy(() => import("./pages/hi-tension/ArigatoBeatCallPage"));
+const ArigatoBeatQuizPage = lazy(() => import("./pages/hi-tension/ArigatoBeatQuizPage"));
 const PrivacyPage     = lazy(() => import("./pages/PrivacyPage"));
 const TermsPage       = lazy(() => import("./pages/TermsPage"));
 const NotFoundPage    = lazy(() => import("./pages/NotFoundPage"));
@@ -36,9 +36,9 @@ export default function App() {
             <Route path="/hi-tension" element={<HiTensionPage />} />
             <Route path="/hi-tension/author" element={<HiTensionAuthorPage />} />
             <Route path="/hi-tension/practice" element={<HiTensionPracticePage />} />
-            <Route path="/arigato-beat/beat" element={<HiTensionBeatTapPage />} />
-            <Route path="/arigato-beat/call" element={<HiTensionCallPage />} />
-            <Route path="/arigato-beat/quiz" element={<HiTensionQuizPage />} />
+            <Route path="/arigato-beat/beat" element={<ArigatoBeatTapPage />} />
+            <Route path="/arigato-beat/call" element={<ArigatoBeatCallPage />} />
+            <Route path="/arigato-beat/quiz" element={<ArigatoBeatQuizPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/terms" element={<TermsPage />} />
             <Route path="*" element={<NotFoundPage />} />

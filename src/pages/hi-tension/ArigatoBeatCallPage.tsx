@@ -29,7 +29,7 @@ function loadCalls(): { videoId: string; calls: Call[]; bpm: number } {
   }
 }
 
-export default function HiTensionCallPage() {
+export default function ArigatoBeatCallPage() {
   const data = useRef(loadCalls());
   const calls = data.current.calls;
   const [mode, setMode] = useState<"youtube" | "solo">("youtube");
