@@ -43,14 +43,20 @@ const CHANT_FU = "Fu";
 // X(旧Twitter)シェア。文面・タグ・URLは hop 指定（勝手に足さない）。本編EndCardと同じ Web Intent 方式
 // （ログイン/API不要・URLは &url= でなく本文に独立行で入れる）。ハッシュタグは #ありがとビートpractice のみ。
 const SHARE_URL = "https://hop-up-tools.pages.dev/arigato-beat";
-function shareToX(ok: number, total: number, perfect: number, good: number) {
-  const text = [
+export function buildArigatoShareText(ok: number, total: number, perfect: number, good: number, level: 1 | 2): string {
+  // 案A: 遊んだレベルで流れてた動画を載せる（Lv1=レクチャー / Lv2=ステージ練習）
+  const video = level === 1 ? LECTURE_VIDEO : ARIGATO_BEAT_VIDEO;
+  return [
     "ありがとビート コール練習で",
     `正しいタイミング ${ok}/${total}！`,
     `PERFECT ${perfect}・GOOD ${good}`,
     "#ありがとビートpractice",
+    `動画はこちら→ https://youtu.be/${video}`,
     SHARE_URL,
   ].join("\n");
+}
+function shareToX(ok: number, total: number, perfect: number, good: number, level: 1 | 2) {
+  const text = buildArigatoShareText(ok, total, perfect, good, level);
   window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
 }
 
@@ -708,7 +714,7 @@ function ResultView({ results, onRetry, onReview, reviewIdx, offsets, onExport, 
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 12 }}>
         <button style={{ ...btn, background: PINK, borderColor: PINK, color: "#fff", minWidth: 200 }} onClick={() => onRetry()}>もう一回（レベル{level}）</button>
         <button style={{ ...btn, minWidth: 200 }} onClick={onBackToSelect}>レベル選択へ戻る</button>
-        <button style={{ ...btn, minWidth: 200 }} onClick={() => shareToX(ok, results.length, perfect, good)}>𝕏 でシェアする</button>
+        <button style={{ ...btn, minWidth: 200 }} onClick={() => shareToX(ok, results.length, perfect, good, level)}>𝕏 でシェアする</button>
         {Object.values(offsets).some(v => v !== 0) && (
           <>
             <button style={{ ...btn, minWidth: 200, fontSize: 13 }} onClick={onExport}>▶ ズレ補正を書き出す（hopへ渡す用）</button>

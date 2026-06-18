@@ -24,7 +24,7 @@ const SHARE_URL = "https://hop-up-tools.pages.dev/hi-tension/practice";
 // シェア文面(hop確定 2026-06-13: スコアとタグだけ・語り口は投稿画面で本人が追記)。
 // パターンごとに「一度でも落とした拍番号」を集約＝次どこ意識すべきかが残る。
 // 全部成功した拍は出ない。落とした拍ゼロなら「苦手:なし」。
-function shareToX(results: { pat: number; steps: StepResult[] }[]) {
+export function buildPracticeShareText(results: { pat: number; steps: StepResult[] }[], videoId: string): string {
   const weakByPat = new Map<number, Set<number>>();
   const played = new Set<number>();
   for (const r of results) {
@@ -38,7 +38,10 @@ function shareToX(results: { pat: number; steps: StepResult[] }[]) {
     const weak = [...(weakByPat.get(pi) ?? [])].sort((a, b) => a - b).map(k => k + 1);
     return `${p.label} 苦手:${weak.length ? weak.join(",") : "なし"}`;
   }).filter(Boolean);
-  const text = [...lines, "#ハイテンションPractice #上級編", SHARE_URL].join("\n");
+  return [...lines, "#ハイテンションPractice #上級編", `動画はこちら→ https://youtu.be/${videoId}`, SHARE_URL].join("\n");
+}
+function shareToX(results: { pat: number; steps: StepResult[] }[], videoId: string) {
+  const text = buildPracticeShareText(results, videoId);
   window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
 }
 /** カウントイン: 予告バナーを出す拍数 / 数字(5,6,7,8)を出す拍数 */
@@ -529,7 +532,7 @@ export default function HiTensionPracticePage() {
             )}
             <button
               type="button"
-              onClick={() => shareToX(results)}
+              onClick={() => shareToX(results, videoId)}
               style={{ marginTop: 4, fontSize: 14, fontWeight: 700, padding: "8px 18px", borderRadius: 8, border: "none", background: PINK, color: "#fff", cursor: "pointer" }}
             >
               𝕏 でシェア
