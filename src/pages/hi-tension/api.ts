@@ -66,6 +66,20 @@ export type HiSession = {
 // → session_hash で並びを固定し、1000行ずつ range でページングして全件取得する。
 const FETCH_PAGE = 1000;
 export async function fetchHiSessions(videoId: string = VIDEO_ID): Promise<HiSession[]> {
+  // 本番: CDNキャッシュ済みエンドポイントを優先（訪問者ごとの全件読みでDisk IOを食わない）。
+  // ローカル開発(関数が動かない)やエンドポイント障害時は、従来の直Supabaseにフォールバック。
+  try {
+    const res = await fetch(`/api/hi-sessions?video_id=${encodeURIComponent(videoId)}`, {
+      headers: { Accept: "application/json" },
+    });
+    if (res.ok) return (await res.json()) as HiSession[];
+  } catch {
+    /* フォールバックへ */
+  }
+  return fetchHiSessionsDirect(videoId);
+}
+
+async function fetchHiSessionsDirect(videoId: string = VIDEO_ID): Promise<HiSession[]> {
   const supabase = getSupabase();
   const all: HiSession[] = [];
   for (let from = 0; ; from += FETCH_PAGE) {
