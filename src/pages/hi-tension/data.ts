@@ -64,7 +64,8 @@ export const UNIT_ROWS: readonly UnitRow[] = [
 
 // 2026-06-13 加入の新メンバー3人（メンカラ同日21:00発表）。サブユニット未確定のため
 // UNIT_ROWS（ユニット別の段）には入れず、色選択では最下段に独立した1行で出す。
-// 小島はな=ホワイト, 大坪茉乃=ライトグリーン(平山遊季#d0df00を参照), 杉山結菜=レッド(暫定#FF0000)。
+// 小島はな=ホワイト#ffffff, 大坪茉乃=ライトグリーン#d0df00, 杉山結菜=レッド#e70033。
+// 全員、公式サイトのメンバーカラースウォッチと一致確認済み（杉山は暫定#FF0000から公式#e70033へ差し替え）。
 // ゲーム本編(再生中)の「客電落ち」アリーナ背景。ロビー(入口)・EndCardでも共有して
 // 統一する（白メンカラが明るい背景に溶けるため・2026-06-13 hop指定）。
 export const ARENA_BG = "radial-gradient(150% 85% at 50% -8%, #1b2030 0%, #0e1016 48%, #07080c 100%)";
@@ -72,7 +73,7 @@ export const ARENA_BG = "radial-gradient(150% 85% at 50% -8%, #1b2030 0%, #0e101
 export const NEW_MEMBERS: readonly HiTensionMember[] = [
   { id: "kojima",   color: "#ffffff" },
   { id: "otsubo",   color: "#d0df00" },
-  { id: "sugiyama", color: "#FF0000" },
+  { id: "sugiyama", color: "#e70033" },
 ] as const;
 
 export const ALL_HI_MEMBERS: HiTensionMember[] = [
