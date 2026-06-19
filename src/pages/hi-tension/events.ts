@@ -49,6 +49,36 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
     shareText: (count: number) =>
       `西田汐里さん お誕生日おめでとう🎂💗\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
   },
+  {
+    key: "otsubo_bd_2026",
+    title: "大坪茉乃さんバースデースペシャル",
+    shortTitle: "大坪茉乃さん💚",
+    color: "#d0df00",
+    targetMemberId: "otsubo",
+    kind: "birthday",
+    start: "2026-06-22T00:00:00+09:00",
+    end: "2026-06-23T00:00:00+09:00",
+    // バースデーメッセージカードの締切（翌月15日）に合わせ、7/15いっぱいまで参加可。
+    joinableUntil: "2026-07-16T00:00:00+09:00",
+    endCardCongrats: "大坪茉乃さん お誕生日おめでとう🎂💚",
+    shareText: (count: number) =>
+      `大坪茉乃さん お誕生日おめでとう🎂💚\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
+  },
+  {
+    key: "maeda_bd_2026",
+    title: "前田こころさんバースデースペシャル",
+    shortTitle: "前田こころさん🩵",
+    color: "#59cbe8",
+    targetMemberId: "maeda",
+    kind: "birthday",
+    start: "2026-06-23T00:00:00+09:00",
+    end: "2026-06-24T00:00:00+09:00",
+    // バースデーメッセージカードの締切（翌月15日）に合わせ、7/15いっぱいまで参加可。
+    joinableUntil: "2026-07-16T00:00:00+09:00",
+    endCardCongrats: "前田こころさん お誕生日おめでとう🎂🩵",
+    shareText: (count: number) =>
+      `前田こころさん お誕生日おめでとう🎂🩵\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
+  },
 ];
 
 export function getEvent(key: string | null | undefined): SpecialEvent | null {
