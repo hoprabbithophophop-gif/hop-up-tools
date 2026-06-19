@@ -17,6 +17,8 @@ export type SpecialEvent = {
   title: string;
   /** 💗チップ・回リストに出す短い表記。 */
   shortTitle: string;
+  /** 設定シート下の「ハート列」に出す、メンカラ寄せの絵文字（💗/💚/🩵）。 */
+  heart: string;
   /** この回のテーマカラー（✋/数字/ボタン/EndCardの着色）。 */
   color: string;
   /** 対象メンバーID（data.ts の id）。 */
@@ -38,6 +40,7 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
     key: "nishida_bd_2026",
     title: "西田汐里さんバースデースペシャル",
     shortTitle: "西田汐里さん💗",
+    heart: "💗",
     color: "#da1884",
     targetMemberId: "nishida",
     kind: "birthday",
@@ -53,6 +56,7 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
     key: "otsubo_bd_2026",
     title: "大坪茉乃さんバースデースペシャル",
     shortTitle: "大坪茉乃さん💚",
+    heart: "💚",
     color: "#d0df00",
     targetMemberId: "otsubo",
     kind: "birthday",
@@ -68,6 +72,7 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
     key: "maeda_bd_2026",
     title: "前田こころさんバースデースペシャル",
     shortTitle: "前田こころさん🩵",
+    heart: "🩵",
     color: "#59cbe8",
     targetMemberId: "maeda",
     kind: "birthday",
@@ -84,6 +89,18 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
 export function getEvent(key: string | null | undefined): SpecialEvent | null {
   if (!key) return null;
   return SPECIAL_EVENTS.find((e) => e.key === key) ?? null;
+}
+
+/**
+ * 設定シート下端の「ハート列」に出す回：誕生日が終わっていて（now>=end）まだ参加期限内（now<joinableUntil）の回。
+ * 開催中のその日の主役は end>now なので含まれない＝主役は通常入口に出て、ここには「過ぎた回」だけ並ぶ。
+ * 配列順（古い順）で返す → 並びは 💗→💚→🩵 になる。
+ */
+export function getPastJoinableEvents(now: Date = new Date()): SpecialEvent[] {
+  const t = now.getTime();
+  return SPECIAL_EVENTS.filter(
+    (e) => t >= Date.parse(e.end) && (!e.joinableUntil || t < Date.parse(e.joinableUntil)),
+  );
 }
 
 // ―― プレビュー（本番に無害・付けた本人のタブだけ効く）――

@@ -14,8 +14,8 @@ interface Props {
   onSelectVideo?: (id: string) => void;
   /** スペシャル回（お祝い等）。色・文言の参照用。 */
   events?: readonly SpecialEvent[];
-  /** 💗で入れる回（開始済み・先頭）。null なら出入り口を出さない。 */
-  viewTargetKey?: string | null;
+  /** 設定シート下の「ハート列」に出す回（誕生日が過ぎてまだ参加可・配列順で💗→💚→🩵）。 */
+  heartRowEvents?: readonly SpecialEvent[];
   /** 今表示中の回キー（null=通常練習）。 */
   selectedEventKey?: string | null;
   /** 表示する回を選ぶ（null=通常練習に戻す）。 */
@@ -81,6 +81,15 @@ const dividerStyle: CSSProperties = {
   background: "#e3e6e8",
   margin: "0.1rem 0",
 };
+const heartBtnStyle: CSSProperties = {
+  background: "none",
+  border: "none",
+  cursor: "pointer",
+  fontSize: "1.5rem",
+  lineHeight: 1,
+  padding: "0.1rem 0.35rem",
+  opacity: 0.9,
+};
 
 /**
  * 設定シート（ユーザー任意のopt-in）。入口の歯車から開く。
@@ -95,7 +104,7 @@ export default function SettingsSheet({
   videoId,
   onSelectVideo,
   events = [],
-  viewTargetKey = null,
+  heartRowEvents = [],
   selectedEventKey = null,
   onSelectEvent,
 }: Props) {
@@ -109,9 +118,9 @@ export default function SettingsSheet({
     settings.heatmap === DEFAULT_HI_SETTINGS.heatmap &&
     settings.reduceMotion === DEFAULT_HI_SETTINGS.reduceMotion;
 
-  // スペシャル回：今その回中か／入れる回があるか。
+  // スペシャル回：今その回中か／下端のハート列を出すか。
   const isSpecial = selectedEventKey != null && events.some((e) => e.key === selectedEventKey);
-  const showSpecial = onSelectEvent != null && (isSpecial || viewTargetKey != null);
+  const showHeartRow = onSelectEvent != null && (heartRowEvents.length > 0 || isSpecial);
   const showVideo = videos.length > 1 && onSelectVideo != null && videoId != null && !isSpecial;
 
   return (
@@ -297,24 +306,31 @@ export default function SettingsSheet({
           閉じる
         </button>
 
-        {showSpecial && (
-          <div style={{ display: "flex", justifyContent: "center" }}>
-            <button
-              type="button"
-              aria-label={isSpecial ? "通常モードに戻る" : "スペシャル回を見る"}
-              onClick={() => onSelectEvent!(isSpecial ? null : viewTargetKey)}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                fontSize: "1.5rem",
-                lineHeight: 1,
-                padding: "0.1rem 0.3rem",
-                opacity: 0.9,
-              }}
-            >
-              {isSpecial ? "✋" : "💗"}
-            </button>
+        {showHeartRow && (
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+            {/* 過ぎた誕生日の回（まだ参加可）に入る。並びは💗→💚→🩵。点灯はしない（絵文字だと分かりにくいため）。 */}
+            {heartRowEvents.map((e) => (
+              <button
+                key={e.key}
+                type="button"
+                aria-label={`${e.title}を見る`}
+                onClick={() => onSelectEvent!(e.key)}
+                style={heartBtnStyle}
+              >
+                {e.heart}
+              </button>
+            ))}
+            {/* スペシャル回の中にいる時だけ、列の端に通常へ戻る✋。 */}
+            {isSpecial && (
+              <button
+                type="button"
+                aria-label="通常モードに戻る"
+                onClick={() => onSelectEvent!(null)}
+                style={heartBtnStyle}
+              >
+                ✋
+              </button>
+            )}
           </div>
         )}
       </div>

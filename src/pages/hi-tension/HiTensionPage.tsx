@@ -29,7 +29,7 @@ import LiveHeatmap from "./components/LiveHeatmap";
 import { analyzeBeatOffsets } from "./rhythm";
 import {
   getActiveSpecialEventKey,
-  getViewableEventKey,
+  getPastJoinableEvents,
   isEventKeyJoinable,
   isEventKeyViewable,
   getEvent,
@@ -1163,8 +1163,8 @@ export default function HiTensionPage() {
 
   // スペシャル回（お祝い等）：開催期間 or ?special / ?nishida プレビューで「今アクティブな回」を判定。
   const activeEventKey = getActiveSpecialEventKey();
-  // 💗リンクで入れる回（開始済み・先頭）。期限切れでも閲覧専用で入れる。無ければ null＝リンク非表示。
-  const viewTargetKey = getViewableEventKey();
+  // 設定シート下の「ハート列」に出す回：誕生日が過ぎてまだ参加期限内の回（過去回のみ・配列順で💗→💚→🩵）。
+  const pastJoinableEvents = getPastJoinableEvents();
   // ユーザーが今見ているモード。通常⇔各回を💗リンクで行き来でき、選択はリロード後も覚える。
   // プレビュー（?special=）最優先。開始前の回は通常に戻す（開始済みなら期限切れでも閲覧で残す）。
   const [selectedEventKey, setSelectedEventKey] = useState<string | null>(() => {
@@ -1623,7 +1623,7 @@ export default function HiTensionPage() {
           videoId={videoId}
           onSelectVideo={setVideoId}
           events={SPECIAL_EVENTS}
-          viewTargetKey={viewTargetKey}
+          heartRowEvents={pastJoinableEvents}
           selectedEventKey={selectedEventKey}
           onSelectEvent={selectEvent}
         />
