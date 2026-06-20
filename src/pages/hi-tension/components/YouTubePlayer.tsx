@@ -88,6 +88,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   const playerRef = useRef<YT.Player | null>(null);
   const isReadyRef = useRef(false);
   const wantPlayRef = useRef(false);
+  const wantLoadRef = useRef<{ id: string; opts?: { startSeconds?: number; endSeconds?: number; cover?: boolean } } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onEndedRef = useRef(onEnded);
   const onTimeUpdateRef = useRef(onTimeUpdate);
@@ -148,6 +149,19 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
             if (!mounted) return;
             isReadyRef.current = true;
             setIsReady(true);
+            // 準備前に loadVideo が呼ばれていれば、ここで読み込み（loadVideoById は自動再生）。
+            // 動画切替で player を作り直した直後の loadVideo が空振りして再生が始まらない問題の対策。
+            if (wantLoadRef.current) {
+              const { id, opts } = wantLoadRef.current;
+              wantLoadRef.current = null;
+              try {
+                (playerRef.current as unknown as { loadVideoById?: (a: { videoId: string; startSeconds?: number; endSeconds?: number }) => void })?.loadVideoById?.({
+                  videoId: id,
+                  startSeconds: opts?.startSeconds ?? 0,
+                  ...(opts?.endSeconds !== undefined ? { endSeconds: opts.endSeconds } : {}),
+                });
+              } catch { /* ignore */ }
+            }
             // 先に play() が呼ばれていれば、ここで再生開始
             if (wantPlayRef.current) {
               wantPlayRef.current = false;
@@ -278,6 +292,9 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
             ...(opts?.endSeconds !== undefined ? { endSeconds: opts.endSeconds } : {}),
           });
         } catch { /* ignore */ }
+      } else {
+        // プレイヤー準備前（動画切替で作り直し中など）は、準備完了後に実行を予約。
+        wantLoadRef.current = { id, opts };
       }
     },
     cueVideo(id: string, opts?: { startSeconds?: number; endSeconds?: number }) {

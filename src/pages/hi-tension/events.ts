@@ -39,6 +39,8 @@ export type SpecialEvent = {
   videoStart?: number;
   /** 専用動画のトリム終了秒（到達でその回を終了＝EndCard）。 */
   videoEnd?: number;
+  /** スペシャル回の入口ボタン文言（省略=既定）。回ごとに変える時に指定。 */
+  enterLabel?: string;
 };
 
 export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
@@ -78,6 +80,7 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
     videoId: "Jp0gynDq-5w",
     videoStart: 55.9,
     videoEnd: 303.1,
+    enterLabel: "ウェルカム（ウェルカム！）",
   },
   {
     key: "maeda_bd_2026",

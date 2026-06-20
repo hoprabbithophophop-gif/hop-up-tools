@@ -400,7 +400,7 @@ export default function MemberSelect({
             transition: "background 0.12s",
           }}
         >
-          {isSpecial ? (viewOnly ? "盛り上がりを見る" : "今こそ手を挙げたい！！！！！") : "はじめる"}
+          {isSpecial ? (selectedEvent?.enterLabel ?? (viewOnly ? "盛り上がりを見る" : "今こそ手を挙げたい！！！！！")) : "はじめる"}
         </button>
 
         {/* 合言葉の部屋（コードで集まる）。ROOM_ENABLED=false で当面非表示。 */}
