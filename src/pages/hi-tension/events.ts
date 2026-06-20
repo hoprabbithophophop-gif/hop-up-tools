@@ -68,7 +68,7 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
     color: "#d0df00",
     targetMemberId: "otsubo",
     kind: "birthday",
-    start: "2026-06-22T00:00:00+09:00",
+    start: "2026-06-21T00:00:00+09:00",
     end: "2026-06-23T00:00:00+09:00",
     // バースデーメッセージカードの締切（翌月15日）に合わせ、7/15いっぱいまで参加可。
     joinableUntil: "2026-07-16T00:00:00+09:00",
