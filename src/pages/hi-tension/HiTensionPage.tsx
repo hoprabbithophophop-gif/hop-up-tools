@@ -1195,6 +1195,13 @@ export default function HiTensionPage() {
   eventVideoOptsRef.current = selectedEvent?.videoId
     ? { startSeconds: selectedEvent.videoStart ?? 0, ...(selectedEvent.videoEnd !== undefined ? { endSeconds: selectedEvent.videoEnd } : {}) }
     : undefined;
+  // 選択中の回に専用動画があれば videoId をそれに同期（preview/当日自動ON/タップ 全経路で効くよう effect で）。
+  // 通常へ戻った時は、専用動画が残っていれば既定に戻す（ユーザーの練習映像選択は保持）。
+  useEffect(() => {
+    const ev = getEvent(selectedEventKey);
+    if (ev?.videoId) setVideoId(ev.videoId);
+    else setVideoId((cur) => (PRACTICE_VIDEOS.some((v) => v.id === cur) ? cur : PRACTICE_VIDEOS[0].id));
+  }, [selectedEventKey]);
   const eventColor = selectedEvent?.color ?? null;
   // 入口/再生中の主役色：スペシャル回中は回の色、通常はメンバーカラー。
   const accentColor = (eventColor ?? member?.color) ?? "#000";
