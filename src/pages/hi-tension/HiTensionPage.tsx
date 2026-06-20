@@ -216,6 +216,9 @@ export default function HiTensionPage() {
   // loadVideo を呼ぶコールバック群はクロージャで videoId が古くなるため、最新値を ref で持つ。
   const videoIdRef = useRef(videoId);
   useEffect(() => { videoIdRef.current = videoId; }, [videoId]);
+  // 専用動画(スペシャル回)のトリムと、トリム終端で呼ぶ終了関数を ref で保持。
+  const eventVideoOptsRef = useRef<{ startSeconds?: number; endSeconds?: number } | undefined>(undefined);
+  const handleVideoEndedRef = useRef<() => void>(() => {});
   const [seatHash, setSeatHash] = useState<number>(0);
   // 端末の向き。横（landscape）になったら横レイアウト＋サイド席ONに切り替える。
   // matchMedia の change を購読して回転に即追従。SSR/未対応環境は false（縦扱い）。
@@ -902,7 +905,7 @@ export default function HiTensionPage() {
     logHiEvent(anonSessionId, "play_called", "confirm");
     isWarmupRef.current = false;
     playerApiRef.current?.unMute();
-    playerApiRef.current?.loadVideo(videoIdRef.current); // warmup が乗ってる可能性があるので明示的に本番動画をロード
+    playerApiRef.current?.loadVideo(videoIdRef.current, eventVideoOptsRef.current); // 専用動画ならトリム付き
     setMemberId(id);
     setLastSelectedMemberId(id);
     setSeatHash(newSeatHash());
@@ -1035,7 +1038,7 @@ export default function HiTensionPage() {
     logHiEvent(anonSessionId, "play_called", "solo");
     isWarmupRef.current = false;
     playerApiRef.current?.unMute();
-    playerApiRef.current?.loadVideo(videoIdRef.current);
+    playerApiRef.current?.loadVideo(videoIdRef.current, eventVideoOptsRef.current);
     resetPlayState();
     setPlaySeatIndex(-1);
     setIsRealtimePlay(false);
@@ -1125,6 +1128,7 @@ export default function HiTensionPage() {
   // 「ポーリング値が変わった瞬間」の(動画時刻, 実時刻)を覚え、タップ時は経過実時間で外挿する。
   const timeAnchorRef = useRef<{ media: number; wall: number } | null>(null);
 
+  handleVideoEndedRef.current = handleVideoEnded;
   const handleTimeUpdate = useCallback((t: number) => {
     if (t !== currentTimeRef.current) {
       timeAnchorRef.current = { media: t, wall: performance.now() };
@@ -1135,6 +1139,11 @@ export default function HiTensionPage() {
     // 出遅れ(約1秒)ぶん映像とズレるため、クロック基準だと✋が映像から定常的にズレる。
     // 映像位置基準にすると✋が映像にちゃんと乗る（端末間の残差は ~0.15秒）。
     canvasRef.current?.onTimeUpdate(t);
+    // 専用動画のトリム終端：videoEnd到達でその回を終了（endSecondsでENDEDが来ない端末の保険）。
+    const trimEnd = eventVideoOptsRef.current?.endSeconds;
+    if (trimEnd !== undefined && !videoEndedRef.current && t >= trimEnd) {
+      handleVideoEndedRef.current();
+    }
   }, []);
 
   const recordHi = useCallback((autoRepeat = false): boolean => {
@@ -1179,9 +1188,13 @@ export default function HiTensionPage() {
   const selectEvent = (key: string | null) => {
     setSelectedEventKey(key);
     writeSpecialChoice(key);
-    if (key != null) setVideoId(PRACTICE_VIDEOS[0].id);
+    if (key != null) setVideoId(getEvent(key)?.videoId ?? PRACTICE_VIDEOS[0].id);
   };
   const selectedEvent = getEvent(selectedEventKey);
+  // 専用動画があればトリム指定を作る（無ければ undefined＝通常再生）。loadVideo/時刻監視から参照。
+  eventVideoOptsRef.current = selectedEvent?.videoId
+    ? { startSeconds: selectedEvent.videoStart ?? 0, ...(selectedEvent.videoEnd !== undefined ? { endSeconds: selectedEvent.videoEnd } : {}) }
+    : undefined;
   const eventColor = selectedEvent?.color ?? null;
   // 入口/再生中の主役色：スペシャル回中は回の色、通常はメンバーカラー。
   const accentColor = (eventColor ?? member?.color) ?? "#000";

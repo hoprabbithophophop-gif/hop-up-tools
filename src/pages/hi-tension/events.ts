@@ -33,6 +33,12 @@ export type SpecialEvent = {
   endCardCongrats: string;
   /** Xシェアの本文（タグ・URL込み。文面はhop指定、勝手に足さない）。 */
   shareText: (count: number) => string;
+  /** その回専用の動画（省略=通常の練習動画）。新メンが映る等で差し替える時に指定。 */
+  videoId?: string;
+  /** 専用動画のトリム開始秒（省略=0）。 */
+  videoStart?: number;
+  /** 専用動画のトリム終了秒（到達でその回を終了＝EndCard）。 */
+  videoEnd?: number;
 };
 
 export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
@@ -67,6 +73,11 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
     endCardCongrats: "大坪茉乃さん お誕生日おめでとう🎂💚",
     shareText: (count: number) =>
       `大坪茉乃さん お誕生日おめでとう🎂💚\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
+    // 大坪さんは新メンバーで本来のハイ！テンション動画に映らないため、本人が映るハロステ
+    // （ハイ！テンション→新メンお披露目）にトリム差し替え。0:55.9〜5:03.1・ループなし・✋自由タップ。
+    videoId: "Jp0gynDq-5w",
+    videoStart: 55.9,
+    videoEnd: 303.1,
   },
   {
     key: "maeda_bd_2026",
