@@ -1141,11 +1141,6 @@ export default function HiTensionPage() {
     // 出遅れ(約1秒)ぶん映像とズレるため、クロック基準だと✋が映像から定常的にズレる。
     // 映像位置基準にすると✋が映像にちゃんと乗る（端末間の残差は ~0.15秒）。
     canvasRef.current?.onTimeUpdate(t);
-    // 専用動画のトリム終端：videoEnd到達でその回を終了（endSecondsでENDEDが来ない端末の保険）。
-    const trimEnd = eventVideoOptsRef.current?.endSeconds;
-    if (trimEnd !== undefined && !videoEndedRef.current && t >= trimEnd) {
-      handleVideoEndedRef.current();
-    }
   }, []);
 
   const recordHi = useCallback((autoRepeat = false): boolean => {
