@@ -114,14 +114,14 @@ export function getEvent(key: string | null | undefined): SpecialEvent | null {
 }
 
 /**
- * 設定シート下端の「ハート列」に出す回：誕生日が終わっていて（now>=end）まだ参加期限内（now<joinableUntil）の回。
- * 開催中のその日の主役は end>now なので含まれない＝主役は通常入口に出て、ここには「過ぎた回」だけ並ぶ。
- * 配列順（古い順）で返す → 並びは 💗→💚→🩵 になる。
+ * 設定シート下端の「ハート列」に出す回：開始済み（now>=start）でまだ参加期限内（now<joinableUntil）の回。
+ * 開催中の当日の主役も「過ぎた回」も両方含む＝別の回や通常から、今いる回以外（自己除外は呼び出し側）の
+ * どの回にもここから入り直せる。配列順（古い順）で返す → 並びは 💗→💚→🩵 になる。
  */
-export function getPastJoinableEvents(now: Date = new Date()): SpecialEvent[] {
+export function getJoinableEvents(now: Date = new Date()): SpecialEvent[] {
   const t = now.getTime();
   return SPECIAL_EVENTS.filter(
-    (e) => t >= Date.parse(e.end) && (!e.joinableUntil || t < Date.parse(e.joinableUntil)),
+    (e) => t >= Date.parse(e.start) && (!e.joinableUntil || t < Date.parse(e.joinableUntil)),
   );
 }
 
