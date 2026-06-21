@@ -308,8 +308,9 @@ export default function SettingsSheet({
 
         {showHeartRow && (
           <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
-            {/* 過ぎた誕生日の回（まだ参加可）に入る。並びは💗→💚→🩵。点灯はしない（絵文字だと分かりにくいため）。 */}
-            {heartRowEvents.map((e) => (
+            {/* 過ぎた誕生日の回（まだ参加可）に入る。並びは💗→💚→🩵。点灯はしない（絵文字だと分かりにくいため）。
+                今いる回は出さない（自分のいる部屋への入口は見せない）＝戻るのは端の✋の役目。 */}
+            {heartRowEvents.filter((e) => e.key !== selectedEventKey).map((e) => (
               <button
                 key={e.key}
                 type="button"
