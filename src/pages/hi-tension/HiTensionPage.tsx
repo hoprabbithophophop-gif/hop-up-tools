@@ -219,6 +219,8 @@ export default function HiTensionPage() {
   // 専用動画(スペシャル回)のトリムと、トリム終端で呼ぶ終了関数を ref で保持。
   const eventVideoOptsRef = useRef<{ startSeconds?: number; endSeconds?: number } | undefined>(undefined);
   const handleVideoEndedRef = useRef<() => void>(() => {});
+  const lastPlayStartRef = useRef(0); // 直近の再生開始時刻(performance.now)。再開直後の誤ENDED無視用。
+  const endingIframeRef = useRef<HTMLIFrameElement | null>(null); // 歓迎クリップiframe（YT APIで消音解除する）。
   const [seatHash, setSeatHash] = useState<number>(0);
   // 端末の向き。横（landscape）になったら横レイアウト＋サイド席ONに切り替える。
   // matchMedia の change を購読して回転に即追従。SSR/未対応環境は false（縦扱い）。
@@ -894,6 +896,7 @@ export default function HiTensionPage() {
     manualTimestampsRef.current = [];
     submittedRef.current = false;
     videoEndedRef.current = false;
+    lastPlayStartRef.current = performance.now();
     soloModeRef.current = false; // 連携終了→ソロのフラグを次の再生に持ち越さない
     setVideoEnded(false);
     setEndingUnmuted(false);
@@ -1084,6 +1087,8 @@ export default function HiTensionPage() {
       playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, WARMUP_LOAD_OPTS);
       return;
     }
+    // 再生開始から3秒以内のENDEDは、動画切替の遷移で出る誤発火として無視（本物の終端は数分後）。
+    if (performance.now() - lastPlayStartRef.current < 3000) return;
     stopDriftLoop();
     setSyncActive(false); // 本動画終了 → 同期動作を完全停止
     warmupAnchorReceivedRef.current = false;
@@ -1374,9 +1379,10 @@ export default function HiTensionPage() {
               メインプレイヤーに触れない＝再入・状態混乱が起きない。表示専用・記録しない。 */}
           {videoEnded && selectedEvent?.endingVideoId && (
             <iframe
-              key={`${selectedEvent.endingVideoId}-${endingUnmuted ? "s" : "m"}`}
+              ref={endingIframeRef}
+              key={selectedEvent.endingVideoId}
               title="ending"
-              src={`https://www.youtube.com/embed/${selectedEvent.endingVideoId}?start=${Math.floor(selectedEvent.endingVideoStart ?? 0)}&end=${Math.ceil(selectedEvent.endingVideoEnd ?? 0)}&autoplay=1&mute=${endingUnmuted ? 0 : 1}&playsinline=1&rel=0&modestbranding=1`}
+              src={`https://www.youtube.com/embed/${selectedEvent.endingVideoId}?start=${Math.floor(selectedEvent.endingVideoStart ?? 0)}&end=${Math.ceil(selectedEvent.endingVideoEnd ?? 0)}&autoplay=1&mute=1&enablejsapi=1&playsinline=1&rel=0&modestbranding=1`}
               allow="autoplay; encrypted-media; picture-in-picture"
               style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", zIndex: 3 }}
             />
@@ -1388,7 +1394,12 @@ export default function HiTensionPage() {
           <div style={{ display: "flex", justifyContent: "center", padding: "0.6rem 0" }}>
             <button
               type="button"
-              onClick={() => setEndingUnmuted(true)}
+              onClick={() => {
+                endingIframeRef.current?.contentWindow?.postMessage(
+                  JSON.stringify({ event: "command", func: "unMute", args: [] }), "*",
+                );
+                setEndingUnmuted(true);
+              }}
               style={{
                 border: "none", borderRadius: 999, cursor: "pointer",
                 background: "rgba(255,255,255,0.16)", color: "#fff", fontWeight: 700,
