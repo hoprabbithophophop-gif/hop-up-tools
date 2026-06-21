@@ -1379,7 +1379,7 @@ export default function HiTensionPage() {
             <iframe
               key={selectedEvent.endingVideoId}
               title="ending"
-              src={`https://www.youtube.com/embed/${selectedEvent.endingVideoId}?start=${Math.floor(selectedEvent.endingVideoStart ?? 0)}&end=${Math.ceil(selectedEvent.endingVideoEnd ?? 0)}&autoplay=1&playsinline=1&rel=0&modestbranding=1`}
+              src={`https://www.youtube.com/embed/${selectedEvent.endingVideoId}?start=${Math.floor(selectedEvent.endingVideoStart ?? 0)}&end=${Math.ceil(selectedEvent.endingVideoEnd ?? 0)}&autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1`}
               allow="autoplay; encrypted-media; picture-in-picture"
               style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", zIndex: 3 }}
             />
