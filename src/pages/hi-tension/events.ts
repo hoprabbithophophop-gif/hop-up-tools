@@ -41,6 +41,10 @@ export type SpecialEvent = {
   videoEnd?: number;
   /** スペシャル回の入口ボタン文言（省略=既定）。回ごとに変える時に指定。 */
   enterLabel?: string;
+  /** 回の終了後、EndCard上のプレイヤーで流す動画（加入発表の歓迎シーン等）。表示専用・記録しない。 */
+  endingVideoId?: string;
+  endingVideoStart?: number;
+  endingVideoEnd?: number;
 };
 
 export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
@@ -81,6 +85,10 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
     videoStart: 55.9,
     videoEnd: 303.1,
     enterLabel: "ウェルカム（ウェルカム！）",
+    // 終了後、加入発表の歓迎シーン（メンバーが「ようこそー！」）をEndCard上で1回だけ流す。
+    endingVideoId: "atBnm5ZZZ8Y",
+    endingVideoStart: 228,
+    endingVideoEnd: 258,
   },
   {
     key: "maeda_bd_2026",
