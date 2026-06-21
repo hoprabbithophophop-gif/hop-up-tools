@@ -233,6 +233,7 @@ export default function HiTensionPage() {
     return () => mq.removeEventListener("change", onChange);
   }, []);
   const [videoEnded, setVideoEnded] = useState(false);
+  const [endingUnmuted, setEndingUnmuted] = useState(false); // 歓迎クリップの音をタップで出したか
   const [endedSelfCount, setEndedSelfCount] = useState(0);
   // 押下カウント・押し込みエフェクトは HiTapButton 内部 state（タップでページ全体を再レンダーしない）。
   const [isRealtimePlay, setIsRealtimePlay] = useState(false);
@@ -895,6 +896,7 @@ export default function HiTensionPage() {
     videoEndedRef.current = false;
     soloModeRef.current = false; // 連携終了→ソロのフラグを次の再生に持ち越さない
     setVideoEnded(false);
+    setEndingUnmuted(false);
     setEndedSelfCount(0);
     tapBtnRef.current?.reset(); // カウンタ・押下状態（HiTapButton内部）を初期化
   };
@@ -1376,13 +1378,29 @@ export default function HiTensionPage() {
           {/* 回終了後、専用エンディング動画（加入発表の歓迎シーン等）を別プレイヤー(iframe)で上に重ねて再生。
               メインプレイヤーに触れない＝再入・状態混乱が起きない。表示専用・記録しない。 */}
           {videoEnded && selectedEvent?.endingVideoId && (
-            <iframe
-              key={selectedEvent.endingVideoId}
-              title="ending"
-              src={`https://www.youtube.com/embed/${selectedEvent.endingVideoId}?start=${Math.floor(selectedEvent.endingVideoStart ?? 0)}&end=${Math.ceil(selectedEvent.endingVideoEnd ?? 0)}&autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1`}
-              allow="autoplay; encrypted-media; picture-in-picture"
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", zIndex: 3 }}
-            />
+            <>
+              <iframe
+                key={`${selectedEvent.endingVideoId}-${endingUnmuted ? "s" : "m"}`}
+                title="ending"
+                src={`https://www.youtube.com/embed/${selectedEvent.endingVideoId}?start=${Math.floor(selectedEvent.endingVideoStart ?? 0)}&end=${Math.ceil(selectedEvent.endingVideoEnd ?? 0)}&autoplay=1&mute=${endingUnmuted ? 0 : 1}&playsinline=1&rel=0&modestbranding=1`}
+                allow="autoplay; encrypted-media; picture-in-picture"
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", zIndex: 3 }}
+              />
+              {!endingUnmuted && (
+                <button
+                  type="button"
+                  onClick={() => setEndingUnmuted(true)}
+                  style={{
+                    position: "absolute", left: "50%", bottom: "8%", transform: "translateX(-50%)",
+                    zIndex: 4, border: "none", borderRadius: 999, cursor: "pointer",
+                    background: "rgba(0,0,0,0.72)", color: "#fff", fontWeight: 700,
+                    fontSize: "0.85rem", padding: "0.5rem 1.1rem", fontFamily: "inherit",
+                  }}
+                >
+                  🔊 タップで音を出す
+                </button>
+              )}
+            </>
           )}
         </div>
 
