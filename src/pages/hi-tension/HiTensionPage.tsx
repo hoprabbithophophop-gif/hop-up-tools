@@ -219,9 +219,6 @@ export default function HiTensionPage() {
   // 専用動画(スペシャル回)のトリムと、トリム終端で呼ぶ終了関数を ref で保持。
   const eventVideoOptsRef = useRef<{ startSeconds?: number; endSeconds?: number } | undefined>(undefined);
   const handleVideoEndedRef = useRef<() => void>(() => {});
-  // 回の終了後にEndCard上で流すクリップ（加入発表の歓迎シーン等）と、1回だけ流すためのガード。
-  const endingClipRef = useRef<{ id: string; start?: number; end?: number } | null>(null);
-  const endingClipShownRef = useRef(false);
   const [seatHash, setSeatHash] = useState<number>(0);
   // 端末の向き。横（landscape）になったら横レイアウト＋サイド席ONに切り替える。
   // matchMedia の change を購読して回転に即追従。SSR/未対応環境は false（縦扱い）。
@@ -896,7 +893,6 @@ export default function HiTensionPage() {
     manualTimestampsRef.current = [];
     submittedRef.current = false;
     videoEndedRef.current = false;
-    endingClipShownRef.current = false;
     soloModeRef.current = false; // 連携終了→ソロのフラグを次の再生に持ち越さない
     setVideoEnded(false);
     setEndedSelfCount(0);
@@ -1095,13 +1091,6 @@ export default function HiTensionPage() {
     console.log(`[hi-tension] video ended (${count} presses)`);
     setEndedSelfCount(count);
     setVideoEnded(true);
-    // エンディングクリップ（加入発表の歓迎シーン等）があれば EndCard 上のプレイヤーで1回だけ流す（表示専用・記録しない）。
-    if (endingClipRef.current && !endingClipShownRef.current) {
-      endingClipShownRef.current = true;
-      const c = endingClipRef.current;
-      playerApiRef.current?.unMute();
-      playerApiRef.current?.loadVideo(c.id, { startSeconds: c.start ?? 0, ...(c.end !== undefined ? { endSeconds: c.end } : {}) });
-    }
     if (submittedRef.current) return;
     if (!memberId || count === 0) return;
     // QAモード/開発サーバーでは保存しない（テストタップを本番データに混ぜない）
@@ -1206,9 +1195,6 @@ export default function HiTensionPage() {
   eventVideoOptsRef.current = selectedEvent?.videoId
     ? { startSeconds: selectedEvent.videoStart ?? 0, ...(selectedEvent.videoEnd !== undefined ? { endSeconds: selectedEvent.videoEnd } : {}) }
     : undefined;
-  endingClipRef.current = selectedEvent?.endingVideoId
-    ? { id: selectedEvent.endingVideoId, start: selectedEvent.endingVideoStart, end: selectedEvent.endingVideoEnd }
-    : null;
   // 選択中の回に専用動画があれば videoId をそれに同期（preview/当日自動ON/タップ 全経路で効くよう effect で）。
   // 通常へ戻った時は、専用動画が残っていれば既定に戻す（ユーザーの練習映像選択は保持）。
   useEffect(() => {
@@ -1387,6 +1373,17 @@ export default function HiTensionPage() {
             onTimeUpdate={handleTimeUpdate}
             onPlayerStateChange={handlePlayerStateChange}
           />
+          {/* 回終了後、専用エンディング動画（加入発表の歓迎シーン等）を別プレイヤー(iframe)で上に重ねて再生。
+              メインプレイヤーに触れない＝再入・状態混乱が起きない。表示専用・記録しない。 */}
+          {videoEnded && selectedEvent?.endingVideoId && (
+            <iframe
+              key={selectedEvent.endingVideoId}
+              title="ending"
+              src={`https://www.youtube.com/embed/${selectedEvent.endingVideoId}?start=${Math.floor(selectedEvent.endingVideoStart ?? 0)}&end=${Math.ceil(selectedEvent.endingVideoEnd ?? 0)}&autoplay=1&playsinline=1&rel=0&modestbranding=1`}
+              allow="autoplay; encrypted-media; picture-in-picture"
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", zIndex: 3 }}
+            />
+          )}
         </div>
 
         {/* HandsCanvas と recordHi ボタン等は本動画再生中（play）の時のみマウント。
