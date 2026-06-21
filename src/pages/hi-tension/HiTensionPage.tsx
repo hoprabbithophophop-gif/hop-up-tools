@@ -1182,10 +1182,14 @@ export default function HiTensionPage() {
     const dv = readVideoIdParam();
     if (dv && dv !== PRACTICE_VIDEOS[0].id) return null;
     if (hasPreviewOverride()) return activeEventKey;
+    // 誕生日当日（主役がいる日）は入口を必ずお祝い優先に。過去に選んだ「通常」や別の回は
+    // 記憶せず上書きする（何度訪れてもその日の主役が迎える。通常で練習したい人はモーダルから都度切替）。
+    if (activeEventKey) return activeEventKey;
+    // ここから先は主役がいない日。保存選択を尊重（過去回の再訪 or 通常）。
     const raw = readStoredChoice();
     if (raw === null) return null;                                       // 通常を明示選択
     if (typeof raw === "string" && isEventKeyViewable(raw)) return raw;  // 開始済みの回（期限切れでも閲覧）
-    return activeEventKey;                                                // 未設定 or 開始前 → その日の主役(無ければnull)
+    return null;                                                          // 未設定 → 通常
   });
   const selectEvent = (key: string | null) => {
     setSelectedEventKey(key);
