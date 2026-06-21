@@ -1378,31 +1378,32 @@ export default function HiTensionPage() {
           {/* 回終了後、専用エンディング動画（加入発表の歓迎シーン等）を別プレイヤー(iframe)で上に重ねて再生。
               メインプレイヤーに触れない＝再入・状態混乱が起きない。表示専用・記録しない。 */}
           {videoEnded && selectedEvent?.endingVideoId && (
-            <>
-              <iframe
-                key={`${selectedEvent.endingVideoId}-${endingUnmuted ? "s" : "m"}`}
-                title="ending"
-                src={`https://www.youtube.com/embed/${selectedEvent.endingVideoId}?start=${Math.floor(selectedEvent.endingVideoStart ?? 0)}&end=${Math.ceil(selectedEvent.endingVideoEnd ?? 0)}&autoplay=1&mute=${endingUnmuted ? 0 : 1}&playsinline=1&rel=0&modestbranding=1`}
-                allow="autoplay; encrypted-media; picture-in-picture"
-                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", zIndex: 3 }}
-              />
-              {!endingUnmuted && (
-                <button
-                  type="button"
-                  onClick={() => setEndingUnmuted(true)}
-                  style={{
-                    position: "absolute", left: "50%", bottom: "8%", transform: "translateX(-50%)",
-                    zIndex: 4, border: "none", borderRadius: 999, cursor: "pointer",
-                    background: "rgba(0,0,0,0.72)", color: "#fff", fontWeight: 700,
-                    fontSize: "0.85rem", padding: "0.5rem 1.1rem", fontFamily: "inherit",
-                  }}
-                >
-                  🔊 タップで音を出す
-                </button>
-              )}
-            </>
+            <iframe
+              key={`${selectedEvent.endingVideoId}-${endingUnmuted ? "s" : "m"}`}
+              title="ending"
+              src={`https://www.youtube.com/embed/${selectedEvent.endingVideoId}?start=${Math.floor(selectedEvent.endingVideoStart ?? 0)}&end=${Math.ceil(selectedEvent.endingVideoEnd ?? 0)}&autoplay=1&mute=${endingUnmuted ? 0 : 1}&playsinline=1&rel=0&modestbranding=1`}
+              allow="autoplay; encrypted-media; picture-in-picture"
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", zIndex: 3 }}
+            />
           )}
         </div>
+
+        {/* 歓迎クリップの「音を出す」は動画の"下"に置く（YouTube動画の上に独自UIを重ねない規約対応）。 */}
+        {videoEnded && selectedEvent?.endingVideoId && !endingUnmuted && (
+          <div style={{ display: "flex", justifyContent: "center", padding: "0.6rem 0" }}>
+            <button
+              type="button"
+              onClick={() => setEndingUnmuted(true)}
+              style={{
+                border: "none", borderRadius: 999, cursor: "pointer",
+                background: "rgba(255,255,255,0.16)", color: "#fff", fontWeight: 700,
+                fontSize: "0.85rem", padding: "0.5rem 1.2rem", fontFamily: "inherit",
+              }}
+            >
+              🔊 タップで音を出す
+            </button>
+          </div>
+        )}
 
         {/* HandsCanvas と recordHi ボタン等は本動画再生中（play）の時のみマウント。
             ＊YouTubePlayer は上で常時マウント維持（暖機動画を切らさないため）。

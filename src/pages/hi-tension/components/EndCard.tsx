@@ -233,10 +233,12 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
                 <BouncyNumber value={selfCount} color={memberColor} size="2.4rem" />
               </div>
             )}
-            <div>
-              <p style={labelStyle}>{isSpecial ? "お祝いに挙がった✋の総数" : "歴代累計"}</p>
-              <BouncyNumber value={totalCount} color={memberColor} size="1.8rem" />
-            </div>
+            {!isSpecial && (
+              <div>
+                <p style={labelStyle}>歴代累計</p>
+                <BouncyNumber value={totalCount} color={memberColor} size="1.8rem" />
+              </div>
+            )}
           </div>
         </div>
 
@@ -310,10 +312,12 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
         </div>
       )}
 
-      <div style={{ textAlign: "center" }}>
-        <p style={labelStyle}>{isSpecial ? "お祝いに挙がった✋の総数" : "歴代累計"}</p>
-        <BouncyNumber value={totalCount} color={memberColor} size="2.25rem" />
-      </div>
+      {!isSpecial && (
+        <div style={{ textAlign: "center" }}>
+          <p style={labelStyle}>歴代累計</p>
+          <BouncyNumber value={totalCount} color={memberColor} size="2.25rem" />
+        </div>
+      )}
 
       {/* 盛り上がりタイムライン（みんながどこで一斉に✋したか）。データが無ければ自動で非表示。 */}
       {heatmap && heatmap.bins.length > 0 && (
