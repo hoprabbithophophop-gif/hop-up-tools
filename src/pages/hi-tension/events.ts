@@ -87,7 +87,7 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
     enterLabel: "ウェルカム（ウェルカム！）",
     // 終了後、加入発表の歓迎シーン（メンバーが「ようこそー！」）をEndCard上で1回だけ流す。
     endingVideoId: "atBnm5ZZZ8Y",
-    endingVideoStart: 228,
+    endingVideoStart: 188,
     endingVideoEnd: 258,
   },
   {
