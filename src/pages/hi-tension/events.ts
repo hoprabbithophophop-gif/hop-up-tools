@@ -105,6 +105,7 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
     endCardCongrats: "前田こころさん お誕生日おめでとう🎂🩵",
     shareText: (count: number) =>
       `前田こころさん お誕生日おめでとう🎂🩵\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
+    enterLabel: "先頭切って！！！！！",
   },
 ];
 
