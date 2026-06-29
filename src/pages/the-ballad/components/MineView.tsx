@@ -113,14 +113,23 @@ export default function MineView({
                     <span style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0, marginTop: "0.1rem", border: `1px solid ${on ? C.ink : C.hair}`, background: on ? C.ink : "transparent", color: "#fff", fontSize: "0.7rem", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       {on ? "✓" : ""}
                     </span>
-                    <span style={{ minWidth: 0 }}>
-                      <span style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
-                        <span style={{ fontSize: "0.8rem", fontWeight: on ? 700 : 400, color: C.ink }}>{s.date} {s.start}</span>
-                        <span style={{ fontSize: "0.7rem", color: C.meta }}>{s.venue}（{s.pref}）</span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: "0.8rem", fontWeight: on ? 700 : 400, color: C.ink }}>
+                        {s.date} {s.start}
+                      </span>
+                      <span style={{ display: "block", color: C.meta, marginTop: "0.1rem", lineHeight: 1.35 }}>
+                        <Emph text={s.pref} big="0.78rem" small="0.6rem" />
+                        <span style={{ fontSize: "0.6rem", margin: "0 0.3rem", color: C.hair }}>／</span>
+                        <Emph text={s.venue} big="0.78rem" small="0.6rem" />
                       </span>
                       {s.performers.length > 0 && (
-                        <span style={{ display: "block", fontSize: "0.65rem", color: C.faint, marginTop: "0.15rem", lineHeight: 1.5 }}>
-                          {s.performers.join("・")}
+                        <span style={{ display: "block", color: C.faint, marginTop: "0.15rem", lineHeight: 1.5 }}>
+                          {s.performers.map((p, idx) => (
+                            <span key={idx} style={{ display: "inline-block", whiteSpace: "nowrap" }}>
+                              {idx > 0 && <span style={{ fontSize: "0.55rem", margin: "0 0.05rem" }}>・</span>}
+                              <Emph text={p} big="0.72rem" small="0.55rem" />
+                            </span>
+                          ))}
                         </span>
                       )}
                     </span>
@@ -182,6 +191,18 @@ export default function MineView({
         </>
       )}
     </div>
+  );
+}
+
+// 頭文字だけ大きく・残りを小さく表示（頭文字でスキャンしやすく、全文は残す）
+function Emph({ text, big, small }: { text: string; big: string; small: string }) {
+  const chars = Array.from(text);
+  if (chars.length === 0) return null;
+  return (
+    <>
+      <span style={{ fontSize: big }}>{chars[0]}</span>
+      {chars.length > 1 && <span style={{ fontSize: small }}>{chars.slice(1).join("")}</span>}
+    </>
   );
 }
 
