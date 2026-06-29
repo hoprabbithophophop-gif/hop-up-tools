@@ -108,14 +108,22 @@ export default function MineView({
                   <button
                     onClick={() => onToggleAttend(s.no)}
                     aria-pressed={on}
-                    style={{ display: "flex", alignItems: "center", gap: "0.7rem", width: "100%", padding: "0.5rem 1rem", background: on ? "#f3f4f5" : "transparent", border: "none", borderTop: `1px solid ${C.line}`, cursor: "pointer", textAlign: "left" }}
+                    style={{ display: "flex", alignItems: "flex-start", gap: "0.7rem", width: "100%", padding: "0.6rem 1rem", background: on ? "#f3f4f5" : "transparent", border: "none", borderTop: `1px solid ${C.line}`, cursor: "pointer", textAlign: "left" }}
                   >
-                    <span style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0, border: `1px solid ${on ? C.ink : C.hair}`, background: on ? C.ink : "transparent", color: "#fff", fontSize: "0.7rem", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ width: "1.1rem", height: "1.1rem", flexShrink: 0, marginTop: "0.1rem", border: `1px solid ${on ? C.ink : C.hair}`, background: on ? C.ink : "transparent", color: "#fff", fontSize: "0.7rem", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       {on ? "✓" : ""}
                     </span>
-                    <span style={{ fontSize: "0.7rem", color: C.hair, fontWeight: 700, flexShrink: 0 }}>No.{s.no}</span>
-                    <span style={{ fontSize: "0.8rem", color: C.body, flexShrink: 0 }}>{s.date} {s.start}</span>
-                    <span style={{ fontSize: "0.68rem", color: C.meta, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.venue}</span>
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
+                        <span style={{ fontSize: "0.8rem", fontWeight: on ? 700 : 400, color: C.ink }}>{s.date} {s.start}</span>
+                        <span style={{ fontSize: "0.7rem", color: C.meta }}>{s.venue}（{s.pref}）</span>
+                      </span>
+                      {s.performers.length > 0 && (
+                        <span style={{ display: "block", fontSize: "0.65rem", color: C.faint, marginTop: "0.15rem", lineHeight: 1.5 }}>
+                          {s.performers.join("・")}
+                        </span>
+                      )}
+                    </span>
                   </button>
                 </div>
               );
