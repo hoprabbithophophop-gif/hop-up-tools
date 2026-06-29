@@ -26,14 +26,10 @@ export default function ShowView({
   query,
   videoOnly,
   onPlay,
-  attended,
-  onToggleAttend,
 }: {
   query: string;
   videoOnly: boolean;
   onPlay: (v: VideoLink) => void;
-  attended: Set<string>;
-  onToggleAttend: (no: string) => void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
 
@@ -96,8 +92,7 @@ export default function ShowView({
           <Fragment key={s.no}>
             {month && month !== prevMonth && <MonthHeader label={`${month}月`} />}
           <div style={{ background: C.card, marginBottom: 2 }}>
-            <div style={{ display: "flex", alignItems: "stretch" }}>
-            <button onClick={() => setOpen(isOpen ? null : s.no)} style={{ ...rowBtn, flex: 1 }}>
+            <button onClick={() => setOpen(isOpen ? null : s.no)} style={rowBtn}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
                   <span style={{ fontSize: "0.6875rem", fontWeight: 700, color: C.hair, letterSpacing: "0.05em" }}>No.{s.no}</span>
@@ -111,15 +106,6 @@ export default function ShowView({
                 <span style={{ color: C.hair, fontSize: "0.8rem" }}>{isOpen ? "−" : "+"}</span>
               </div>
             </button>
-            <button
-              onClick={() => onToggleAttend(s.no)}
-              style={attendBtn(attended.has(s.no))}
-              aria-pressed={attended.has(s.no)}
-              title="参戦した公演に印を付ける"
-            >
-              {attended.has(s.no) ? "✓ 参戦" : "参戦"}
-            </button>
-            </div>
             {isOpen && (
               <div style={{ padding: "0 1.4rem 1rem" }}>
                 {s.entries.map((x, i) => (
@@ -167,19 +153,6 @@ const rowBtn: React.CSSProperties = {
   cursor: "pointer",
   textAlign: "left",
 };
-const attendBtn = (on: boolean): React.CSSProperties => ({
-  flexShrink: 0,
-  border: "none",
-  borderLeft: `1px solid ${C.line}`,
-  background: on ? "#000" : "transparent",
-  color: on ? "#fff" : C.faint,
-  fontSize: "0.625rem",
-  fontWeight: 700,
-  letterSpacing: "0.06em",
-  padding: "0 0.9rem",
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-});
 const entryRow: React.CSSProperties = {
   display: "flex",
   alignItems: "center",

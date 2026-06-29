@@ -14,7 +14,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "songs", label: "Songs" },
   { key: "members", label: "Members" },
   { key: "shows", label: "Shows" },
-  { key: "mine", label: "参戦記録" },
+  { key: "mine", label: "Mine" },
 ];
 
 const ATTEND_KEY = "the-ballad.attended";
@@ -148,10 +148,8 @@ export default function TheBalladPage() {
 
         {tab === "songs" && <SongView query={query} videoOnly={videoOnly} onPlay={setPlaying} />}
         {tab === "members" && <MemberView query={query} videoOnly={videoOnly} onPlay={setPlaying} />}
-        {tab === "shows" && (
-          <ShowView query={query} videoOnly={videoOnly} onPlay={setPlaying} attended={attended} onToggleAttend={toggleAttend} />
-        )}
-        {tab === "mine" && <MineView attended={attended} onPlay={setPlaying} onGoShows={() => setTab("shows")} />}
+        {tab === "shows" && <ShowView query={query} videoOnly={videoOnly} onPlay={setPlaying} />}
+        {tab === "mine" && <MineView attended={attended} onToggleAttend={toggleAttend} onPlay={setPlaying} />}
       </main>
 
       {/* フッター */}
