@@ -79,6 +79,23 @@ export function findVideo(
   return videoMap.get(videoKey(showNo, member, songCore));
 }
 
+// ダイジェスト等、1動画に複数曲が入っている場合の各曲区間の境界（同一動画内の全曲頭秒）。
+const SEG_BY_VIDEO = new Map<string, number[]>();
+for (const v of VIDEO_LINKS) {
+  const arr = SEG_BY_VIDEO.get(v.videoId) ?? [];
+  arr.push(v.startSec);
+  SEG_BY_VIDEO.set(v.videoId, arr);
+}
+for (const arr of SEG_BY_VIDEO.values()) arr.sort((a, b) => a - b);
+
+/** 同一動画内で startSec の次に来る曲頭の秒（＝この曲区間の終わり）。無ければ Infinity。 */
+export function segmentEnd(videoId: string, startSec: number): number {
+  const arr = SEG_BY_VIDEO.get(videoId);
+  if (!arr) return Infinity;
+  for (const s of arr) if (s > startSec + 0.5) return s;
+  return Infinity;
+}
+
 // ハロ！ステ（Hello! Station 公式）のソロ歌唱。公演には紐付かず (メンバー×曲) で1本。
 interface HaloEntry { member: string; songCore: string; videoId: string; startSec: number; date: string }
 const haloMapKey = (member: string, songCore: string) => `${member}|${songCore}`;

@@ -116,7 +116,7 @@ export default function SongView({
                     .filter((v) => (seen.has(v.videoId) ? false : (seen.add(v.videoId), true)));
                   return all.length >= 2 ? (
                     <button onClick={() => setCompare({ song: s.songCore, versions: all })} style={compareBtn}>
-                      歌い比べる（{all.length}）
+                      聴き比べ（{all.length}）
                     </button>
                   ) : null;
                 })()}

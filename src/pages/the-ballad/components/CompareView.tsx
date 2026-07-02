@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { VideoLink } from "@/data/the-ballad";
-import { SHOW_BY_NO, COMPARE_ANCHOR } from "@/data/the-ballad";
+import { SHOW_BY_NO, COMPARE_ANCHOR, segmentEnd } from "@/data/the-ballad";
 import { C } from "../ui";
 
 // 同じ曲の複数バージョン（歌唱者／公演）を切り替えて聴き比べる。
@@ -57,6 +57,14 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
     const t = p?.getCurrentTime?.() ?? anchorOf(versions[idx]);
     return Math.max(0, t - anchorOf(versions[idx]));
   };
+  // 位置合わせ先の秒。ダイジェストの曲区間を越える場合は曲頭に戻す（次の人に着地しない）。
+  const syncPos = (to: VideoLink) => {
+    const head = anchorOf(to);
+    let t = head + elapsedNow();
+    const end = segmentEnd(to.videoId, to.startSec);
+    if (isFinite(end) && t >= end - 0.5) t = head;
+    return Math.max(head, t);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -82,13 +90,29 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // モーダルを開いている間、再生中の曲区間をループ（ダイジェストで次の人に進まないように）。
+  useEffect(() => {
+    if (!ready) return;
+    const id = setInterval(() => {
+      const v = versions[idx];
+      const p = players.current[active];
+      if (!p?.getCurrentTime) return;
+      const t = p.getCurrentTime();
+      const seg = segmentEnd(v.videoId, v.startSec);
+      const end = isFinite(seg) ? seg : (p.getDuration?.() || 0);
+      if (end > 0 && t >= end - 0.4) p.seekTo?.(anchorOf(v), true);
+    }, 500);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx, active, ready]);
+
   const onPick = (i: number) => {
     if (!ready || i === idx) return;
     const inactive = active === 0 ? 1 : 0;
 
     if (armedIdx === i && armedReady) {
       const np = players.current[inactive];
-      np?.seekTo?.(anchorOf(versions[i]) + elapsedNow(), true);
+      np?.seekTo?.(syncPos(versions[i]), true);
       np?.playVideo?.();
       players.current[active]?.pauseVideo?.();
       setActive(inactive);
@@ -101,7 +125,7 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
     const np = players.current[inactive];
     setArmedIdx(i);
     setArmedReady(false);
-    np?.cueVideoById?.({ videoId: versions[i].videoId, startSeconds: anchorOf(versions[i]) + elapsedNow() + 1.2 });
+    np?.cueVideoById?.({ videoId: versions[i].videoId, startSeconds: syncPos(versions[i]) });
     const started = Date.now();
     const timer = setInterval(() => {
       const frac = np?.getVideoLoadedFraction?.() ?? 0;
