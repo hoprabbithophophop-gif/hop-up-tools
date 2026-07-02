@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import type { VideoLink } from "@/data/the-ballad";
-import { SHOW_BY_NO, showLabel } from "@/data/the-ballad";
+import { SHOW_BY_NO, showLabel, MEMBER_COLOR } from "@/data/the-ballad";
+import { useBackClose } from "@/hooks/useBackClose";
+import { Emph } from "./Emph";
 
 export default function VideoModal({
   video,
@@ -9,21 +11,25 @@ export default function VideoModal({
   video: VideoLink;
   onClose: () => void;
 }) {
+  // ブラウザバック（戻る）で閉じる。UI操作の閉じるも requestClose 経由で履歴と表示を一致させる。
+  const requestClose = useBackClose(onClose);
+
   // Esc で閉じる
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") requestClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [requestClose]);
 
   const show = SHOW_BY_NO.get(video.showNo);
   const src = `https://www.youtube.com/embed/${video.videoId}?start=${video.startSec}&autoplay=1&rel=0`;
 
   return (
     <div
-      onClick={onClose}
+      onClick={requestClose}
+      className="page-fade-in"
       style={{
         position: "fixed",
         inset: 0,
@@ -42,7 +48,7 @@ export default function VideoModal({
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "0.6rem" }}>
           <div>
             <p style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#c6c6c6", margin: 0 }}>
-              {video.member}
+              <Emph text={video.member} big="0.6875rem" small="0.6875rem" inkColor="#c6c6c6" color={MEMBER_COLOR[video.member] || undefined} />
             </p>
             <p style={{ fontSize: "0.95rem", fontWeight: 700, color: "#fff", margin: "0.1rem 0 0" }}>
               {video.songCore}
@@ -54,7 +60,7 @@ export default function VideoModal({
             )}
           </div>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             style={{
               background: "transparent",
               border: "none",

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import type { VideoLink } from "@/data/the-ballad";
 import { SHOWS, SETLIST } from "@/data/the-ballad";
 import { C, labelStyle } from "./ui";
@@ -20,7 +20,14 @@ const TABS: { key: Tab; label: string }[] = [
 const ATTEND_KEY = "the-ballad.attended";
 
 export default function TheBalladPage() {
-  const [tab, setTab] = useState<Tab>("songs");
+  // アクティブタブを URL(?tab=) に同期 → ブラウザバックでタブが1段ずつ戻る
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawTab = searchParams.get("tab");
+  const tab: Tab = rawTab === "members" || rawTab === "shows" || rawTab === "mine" ? rawTab : "songs";
+  const setTab = (t: Tab) => {
+    if (t === tab) return;
+    setSearchParams(t === "songs" ? {} : { tab: t }); // push で履歴を積む
+  };
   const [query, setQuery] = useState("");
   const [videoOnly, setVideoOnly] = useState(false);
   const [playing, setPlaying] = useState<VideoLink | null>(null);

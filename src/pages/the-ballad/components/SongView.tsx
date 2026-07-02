@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
-import { SETLIST, findVideo } from "@/data/the-ballad";
+import { SETLIST, findVideo, MEMBER_COLOR, haloVideos } from "@/data/the-ballad";
 import type { VideoLink } from "@/data/the-ballad";
 import { C } from "../ui";
 import VideoChips from "./VideoChips";
+import { Emph } from "./Emph";
+import { Accordion } from "./Accordion";
+import CompareModal from "./CompareModal";
 
 interface MemberAgg {
   member: string;
@@ -27,6 +30,7 @@ export default function SongView({
   onPlay: (v: VideoLink) => void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  const [compare, setCompare] = useState<{ song: string; versions: VideoLink[] } | null>(null);
 
   const songs = useMemo<SongAgg[]>(() => {
     const map = new Map<string, SongAgg>();
@@ -54,6 +58,16 @@ export default function SongView({
     const arr = [...map.values()];
     arr.forEach((s) => s.members.sort((a, b) => b.count - a.count));
     arr.sort((a, b) => b.count - a.count || a.songCore.localeCompare(b.songCore, "ja"));
+    // ハロ！ステの公式歌唱（メンバー×曲）を各歌唱者に足す
+    arr.forEach((s) =>
+      s.members.forEach((m) => {
+        const hv = haloVideos(m.member, s.songCore);
+        if (hv.length) {
+          m.videos.push(...hv);
+          s.hasVideo = true;
+        }
+      })
+    );
     return arr;
   }, []);
 
@@ -93,24 +107,50 @@ export default function SongView({
                 <span style={{ color: C.hair, fontSize: "0.8rem" }}>{isOpen ? "−" : "+"}</span>
               </div>
             </button>
-            {isOpen && (
+            <Accordion open={isOpen}>
               <div style={{ padding: "0 1.4rem 1rem" }}>
+                {(() => {
+                  const seen = new Set<string>();
+                  const all = s.members
+                    .flatMap((m) => m.videos)
+                    .filter((v) => (seen.has(v.videoId) ? false : (seen.add(v.videoId), true)));
+                  return all.length >= 2 ? (
+                    <button onClick={() => setCompare({ song: s.songCore, versions: all })} style={compareBtn}>
+                      歌い比べる（{all.length}）
+                    </button>
+                  ) : null;
+                })()}
                 {s.members.map((m) => (
                   <div key={m.member} style={memberRow}>
-                    <span style={{ fontSize: "0.8rem", color: C.body }}>{m.member}</span>
+                    <span style={{ fontSize: "0.8rem", color: C.body }}><Emph text={m.member} big="0.8rem" small="0.8rem" color={MEMBER_COLOR[m.member] || undefined} /></span>
                     <span style={{ fontSize: "0.7rem", color: C.faint }}>×{m.count}</span>
                     <span style={{ flex: 1 }} />
                     <VideoChips videos={m.videos} onPlay={onPlay} />
                   </div>
                 ))}
               </div>
-            )}
+            </Accordion>
           </div>
         );
       })}
+      {compare && <CompareModal title={compare.song} versions={compare.versions} onClose={() => setCompare(null)} />}
     </div>
   );
 }
+
+const compareBtn: React.CSSProperties = {
+  display: "block",
+  width: "100%",
+  padding: "0.6rem",
+  marginBottom: "0.6rem",
+  background: C.ink,
+  color: "#fff",
+  border: "none",
+  fontSize: "0.7rem",
+  fontWeight: 700,
+  letterSpacing: "0.04em",
+  cursor: "pointer",
+};
 
 const rowBtn: React.CSSProperties = {
   display: "flex",

@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import TeloppOverlay from "./components/TeloppOverlay";
 import ErrorBoundary from "./components/ErrorBoundary";
 
@@ -21,30 +21,40 @@ const PrivacyPage     = lazy(() => import("./pages/PrivacyPage"));
 const TermsPage       = lazy(() => import("./pages/TermsPage"));
 const NotFoundPage    = lazy(() => import("./pages/NotFoundPage"));
 
+// ルート変更ごとにページ全体を軽くフェードインさせる（全ページ共通・1箇所）。
+function AnimatedRoutes() {
+  const location = useLocation();
+  return (
+    <div key={location.pathname} className="page-fade-in">
+      <Routes location={location}>
+        <Route path="/" element={<TopPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/p/:slug" element={<SlugPage />} />
+        <Route path="/fc-ticket" element={<FcTicketPage />} />
+        <Route path="/youtube" element={<YouTubePage />} />
+        <Route path="/youtube/pickup" element={<YouTubePickupPage />} />
+        <Route path="/the-ballad" element={<TheBalladPage />} />
+        <Route path="/hi-tension" element={<HiTensionPage />} />
+        <Route path="/hi-tension/author" element={<HiTensionAuthorPage />} />
+        <Route path="/hi-tension/practice" element={<HiTensionPracticePage />} />
+        <Route path="/arigato-beat/beat" element={<ArigatoBeatTapPage />} />
+        <Route path="/arigato-beat/call" element={<ArigatoBeatCallPage />} />
+        <Route path="/arigato-beat" element={<ArigatoBeatQuizPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <TeloppOverlay />
       <ErrorBoundary>
         <Suspense fallback={null}>
-          <Routes>
-            <Route path="/" element={<TopPage />} />
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/p/:slug" element={<SlugPage />} />
-            <Route path="/fc-ticket" element={<FcTicketPage />} />
-            <Route path="/youtube" element={<YouTubePage />} />
-            <Route path="/youtube/pickup" element={<YouTubePickupPage />} />
-            <Route path="/the-ballad" element={<TheBalladPage />} />
-            <Route path="/hi-tension" element={<HiTensionPage />} />
-            <Route path="/hi-tension/author" element={<HiTensionAuthorPage />} />
-            <Route path="/hi-tension/practice" element={<HiTensionPracticePage />} />
-            <Route path="/arigato-beat/beat" element={<ArigatoBeatTapPage />} />
-            <Route path="/arigato-beat/call" element={<ArigatoBeatCallPage />} />
-            <Route path="/arigato-beat" element={<ArigatoBeatQuizPage />} />
-            <Route path="/privacy" element={<PrivacyPage />} />
-            <Route path="/terms" element={<TermsPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Routes>
+          <AnimatedRoutes />
         </Suspense>
       </ErrorBoundary>
     </BrowserRouter>

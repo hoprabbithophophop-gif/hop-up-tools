@@ -8,6 +8,9 @@ import videoLinksRaw from "./videoLinks.json";
 import videoLinksManualRaw from "./videoLinksManual.json";
 import memberOrderRaw from "./memberOrder.json";
 import memberGroupRaw from "./memberGroup.json";
+import memberColorRaw from "./memberColor.json";
+import haloRaw from "./halostation.json";
+import compareAnchorsRaw from "./compareAnchors.json";
 
 export interface Show {
   no: string;          // 公演番号 "01"〜
@@ -76,6 +79,26 @@ export function findVideo(
   return videoMap.get(videoKey(showNo, member, songCore));
 }
 
+// ハロ！ステ（Hello! Station 公式）のソロ歌唱。公演には紐付かず (メンバー×曲) で1本。
+interface HaloEntry { member: string; songCore: string; videoId: string; startSec: number; date: string }
+const haloMapKey = (member: string, songCore: string) => `${member}|${songCore}`;
+const HALO_BY_KEY = new Map<string, VideoLink[]>();
+for (const h of haloRaw as HaloEntry[]) {
+  const key = haloMapKey(h.member, h.songCore);
+  const arr = HALO_BY_KEY.get(key) ?? [];
+  arr.push({ showNo: "", member: h.member, songCore: h.songCore, videoId: h.videoId, startSec: h.startSec, startLabel: h.date ? `ハロ！ステ ${h.date}` : "ハロ！ステ" });
+  HALO_BY_KEY.set(key, arr);
+}
+
+/** (メンバー×曲) のハロ！ステ公式歌唱（無ければ空配列） */
+export function haloVideos(member: string, songCore: string): VideoLink[] {
+  return HALO_BY_KEY.get(haloMapKey(member, songCore)) ?? [];
+}
+
+// 歌い比べの位置合わせ用アンカー（videoId → 曲頭を指す秒。音声解析で校正済みの版のみ）。
+// これがある版同士は「再生時刻 − アンカー = 曲頭からの経過秒」が共有でき、位置を保って切替できる。
+export const COMPARE_ANCHOR = compareAnchorsRaw as Record<string, number>;
+
 export const SHOW_BY_NO = new Map<string, Show>(SHOWS.map((s) => [s.no, s]));
 
 // スケジュールシートの出演者に名前がある「個人」だけの集合。
@@ -91,6 +114,9 @@ export const MEMBER_ORDER_INDEX = new Map<string, number>(
 
 // メンバー → 所属ユニット名（出演者(横軸) シートの表記そのまま）
 export const MEMBER_GROUP = memberGroupRaw as Record<string, string>;
+
+// メンバー → メンバーカラー（#rrggbb / 未登録は ""）。MINEの頭文字背景に使う
+export const MEMBER_COLOR = memberColorRaw as Record<string, string>;
 
 /** "全員" 等のグループ歌唱を除いたソロ歌唱者か */
 export const isSolo = (member: string) => member !== "全員" && member.trim() !== "";

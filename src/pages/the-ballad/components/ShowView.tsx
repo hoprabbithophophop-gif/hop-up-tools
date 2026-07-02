@@ -1,9 +1,12 @@
 import { useMemo, useState, Fragment } from "react";
-import { SHOWS, SETLIST, findVideo } from "@/data/the-ballad";
+import { SHOWS, SETLIST, findVideo, MEMBER_COLOR } from "@/data/the-ballad";
 import type { VideoLink, SetlistEntry } from "@/data/the-ballad";
 import { C } from "../ui";
 import PlayChip from "./PlayChip";
+import ShareChip from "./ShareChip";
 import { Count, Empty } from "./SongView";
+import { Emph } from "./Emph";
+import { Accordion } from "./Accordion";
 
 interface ShowAgg {
   no: string;
@@ -106,25 +109,29 @@ export default function ShowView({
                 <span style={{ color: C.hair, fontSize: "0.8rem" }}>{isOpen ? "−" : "+"}</span>
               </div>
             </button>
-            {isOpen && (
+            <Accordion open={isOpen}>
               <div style={{ padding: "0 1.4rem 1rem" }}>
                 {s.entries.map((x, i) => (
                   <div key={i} style={entryRow}>
                     <span style={{ fontSize: "0.7rem", color: C.hair, fontWeight: 700, width: "1.6rem", flexShrink: 0 }}>
                       {x.label}
                     </span>
-                    <span style={{ fontSize: "0.8rem", color: C.body, flexShrink: 0 }}>{x.e.member}</span>
+                    <span style={{ fontSize: "0.8rem", color: C.body, flexShrink: 0 }}><Emph text={x.e.member} big="0.8rem" small="0.8rem" color={MEMBER_COLOR[x.e.member] || undefined} /></span>
                     <span style={{ fontSize: "0.8rem", color: C.ink }}>{x.e.songCore}</span>
                     {x.e.artist && <span style={{ fontSize: "0.65rem", color: C.meta }}>{x.e.artist}</span>}
-                    <span style={{ flex: 1 }} />
-                    {x.video && x.video.startLabel.includes("/") && (
-                      <span style={{ fontSize: "0.6rem", color: C.faint }}>昼夜まとめ</span>
+                    {x.video && (
+                      <span style={{ flexBasis: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.3rem" }}>
+                        {x.video.startLabel.includes("/") && (
+                          <span style={{ fontSize: "0.6rem", color: C.faint }}>昼夜まとめ</span>
+                        )}
+                        <PlayChip video={x.video} onPlay={onPlay} />
+                        <ShareChip video={x.video} />
+                      </span>
                     )}
-                    {x.video && <PlayChip video={x.video} onPlay={onPlay} />}
                   </div>
                 ))}
               </div>
-            )}
+            </Accordion>
           </div>
           </Fragment>
         );

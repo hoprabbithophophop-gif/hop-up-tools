@@ -1,8 +1,10 @@
 import { useMemo, useState, Fragment } from "react";
-import { SETLIST, findVideo, INDIVIDUAL_MEMBERS, MEMBER_ORDER_INDEX, MEMBER_GROUP } from "@/data/the-ballad";
+import { SETLIST, findVideo, INDIVIDUAL_MEMBERS, MEMBER_ORDER_INDEX, MEMBER_GROUP, MEMBER_COLOR, haloVideos } from "@/data/the-ballad";
 import type { VideoLink } from "@/data/the-ballad";
 import { C } from "../ui";
 import VideoChips from "./VideoChips";
+import { Emph } from "./Emph";
+import { Accordion } from "./Accordion";
 import { Count, Empty } from "./SongView";
 
 interface SongOfMember {
@@ -57,6 +59,16 @@ export default function MemberView({
     arr.sort((a, b) =>
       (MEMBER_ORDER_INDEX.get(a.member) ?? 9999) - (MEMBER_ORDER_INDEX.get(b.member) ?? 9999)
     );
+    // ハロ！ステの公式歌唱（メンバー×曲）を各曲に足す
+    arr.forEach((m) =>
+      m.songs.forEach((s) => {
+        const hv = haloVideos(m.member, s.songCore);
+        if (hv.length) {
+          s.videos.push(...hv);
+          m.hasVideo = true;
+        }
+      })
+    );
     return arr;
   }, []);
 
@@ -88,7 +100,9 @@ export default function MemberView({
           <div style={{ background: C.card, marginBottom: 2 }}>
             <button onClick={() => setOpen(isOpen ? null : m.member)} style={rowBtn}>
               <span style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap", minWidth: 0 }}>
-                <span style={{ fontSize: "0.95rem", fontWeight: 700, color: C.ink }}>{m.member}</span>
+                <span style={{ fontSize: "0.95rem", fontWeight: 700, color: C.ink }}>
+                  <Emph text={m.member} big="0.95rem" small="0.95rem" weight={700} color={MEMBER_COLOR[m.member] || undefined} />
+                </span>
                 {sub && (
                   <span style={{ fontSize: "0.6875rem", color: C.meta }}>{sub}</span>
                 )}
@@ -99,7 +113,7 @@ export default function MemberView({
                 <span style={{ color: C.hair, fontSize: "0.8rem" }}>{isOpen ? "−" : "+"}</span>
               </div>
             </button>
-            {isOpen && (
+            <Accordion open={isOpen}>
               <div style={{ padding: "0 1.4rem 1rem" }}>
                 {m.songs.map((s) => (
                   <div key={s.songCore} style={songRow}>
@@ -111,7 +125,7 @@ export default function MemberView({
                   </div>
                 ))}
               </div>
-            )}
+            </Accordion>
           </div>
           </Fragment>
         );

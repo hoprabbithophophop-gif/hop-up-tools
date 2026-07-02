@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
-import { SHOWS, SETLIST, findVideo, MEMBER_GROUP, MEMBER_ORDER_INDEX } from "@/data/the-ballad";
+import { SHOWS, SETLIST, findVideo, MEMBER_GROUP, MEMBER_ORDER_INDEX, MEMBER_COLOR, haloVideos } from "@/data/the-ballad";
 import type { VideoLink } from "@/data/the-ballad";
 import { C } from "../ui";
 import VideoChips from "./VideoChips";
+import { Emph } from "./Emph";
+import { Accordion } from "./Accordion";
 
 interface HeardSong {
   member: string;
@@ -64,6 +66,10 @@ export default function MineView({
       ms.count++;
       if (v && !ms.videos.some((x) => x.videoId === v.videoId)) ms.videos.push(v);
     }
+    // ハロ！ステの公式歌唱（メンバー×曲）を集計にも足す
+    for (const s of songMap.values()) s.videos.push(...haloVideos(s.member, s.songCore));
+    for (const m of memberMap.values())
+      for (const ms of m.songs.values()) ms.videos.push(...haloVideos(ms.member, ms.songCore));
     const songList = [...songMap.values()].sort((a, b) => b.count - a.count || a.songCore.localeCompare(b.songCore, "ja"));
     const memberList: HeardMember[] = [...memberMap.values()]
       .map((m) => {
@@ -94,7 +100,7 @@ export default function MineView({
             <span style={{ color: C.hair, fontSize: "0.8rem" }}>{editing ? "−" : "+"}</span>
           </span>
         </button>
-        {editing && (
+        <Accordion open={editing}>
           <div style={{ padding: "0 0.4rem 0.8rem" }}>
             {sortedShows.map((s, i) => {
               const month = (s.date.match(/(\d+)\//) || [])[1];
@@ -114,20 +120,21 @@ export default function MineView({
                       {on ? "✓" : ""}
                     </span>
                     <span style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ display: "block", fontSize: "0.8rem", fontWeight: on ? 700 : 400, color: C.ink }}>
-                        {s.date} {s.start}
-                      </span>
-                      <span style={{ display: "block", color: C.meta, marginTop: "0.1rem", lineHeight: 1.35 }}>
-                        <Emph text={s.pref} big="0.78rem" small="0.6rem" />
-                        <span style={{ fontSize: "0.6rem", margin: "0 0.3rem", color: C.hair }}>／</span>
-                        <Emph text={s.venue} big="0.78rem" small="0.6rem" />
+                      <span style={{ display: "block", fontSize: "0.8rem", color: C.ink, lineHeight: 1.4 }}>
+                        <span style={{ fontWeight: on ? 700 : 400 }}>{s.date} {s.start}</span>
+                        <span style={{ fontSize: "0.6rem", margin: "0 0.4rem", color: C.hair }}>・</span>
+                        <span style={{ color: C.meta }}>
+                          <Emph text={s.pref} big="0.78rem" small="0.52rem" />
+                          <span style={{ fontSize: "0.52rem", margin: "0 0.3rem", color: C.hair }}>／</span>
+                          <Emph text={s.venue} big="0.78rem" small="0.52rem" />
+                        </span>
                       </span>
                       {s.performers.length > 0 && (
                         <span style={{ display: "block", color: C.faint, marginTop: "0.15rem", lineHeight: 1.5 }}>
                           {s.performers.map((p, idx) => (
                             <span key={idx} style={{ display: "inline-block", whiteSpace: "nowrap" }}>
-                              {idx > 0 && <span style={{ fontSize: "0.55rem", margin: "0 0.05rem" }}>・</span>}
-                              <Emph text={p} big="0.72rem" small="0.55rem" />
+                              {idx > 0 && <span style={{ fontSize: "0.5rem", margin: "0 0.03rem" }}>・</span>}
+                              <Emph text={p} big="0.74rem" small="0.46rem" color={MEMBER_COLOR[p] || undefined} />
                             </span>
                           ))}
                         </span>
@@ -138,7 +145,7 @@ export default function MineView({
               );
             })}
           </div>
-        )}
+        </Accordion>
       </div>
 
       {/* 集計 */}
@@ -160,7 +167,7 @@ export default function MineView({
             <div key={s.member + s.songCore} style={row}>
               <span style={{ fontSize: "0.85rem", fontWeight: 700, color: C.ink }}>{s.songCore}</span>
               {s.artist && <span style={{ fontSize: "0.65rem", color: C.meta }}>{s.artist}</span>}
-              <span style={{ fontSize: "0.75rem", color: C.body }}>{s.member}</span>
+              <span style={{ fontSize: "0.75rem", color: C.body }}><Emph text={s.member} big="0.75rem" small="0.75rem" color={MEMBER_COLOR[s.member] || undefined} /></span>
               <span style={{ fontSize: "0.75rem", color: C.ink, fontWeight: 700 }}>×{s.count}</span>
               <span style={{ flex: 1 }} />
               <VideoChips videos={s.videos} onPlay={onPlay} />
@@ -171,7 +178,7 @@ export default function MineView({
           {data.memberList.map((m) => (
             <div key={m.member} style={{ background: C.card, marginBottom: 2, padding: "0.9rem 1.4rem" }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
-                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: C.ink }}>{m.member}</span>
+                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: C.ink }}><Emph text={m.member} big="0.9rem" small="0.9rem" weight={700} color={MEMBER_COLOR[m.member] || undefined} /></span>
                 <span style={{ fontSize: "0.65rem", color: C.meta }}>{(MEMBER_GROUP[m.member] || "").split("/")[0]}</span>
                 <span style={{ flex: 1 }} />
                 <span style={{ fontSize: "0.7rem", color: C.faint, fontWeight: 700 }}>{m.showCount}公演・のべ{m.total}回</span>
@@ -194,17 +201,6 @@ export default function MineView({
   );
 }
 
-// 頭文字だけ大きく・残りを小さく表示（頭文字でスキャンしやすく、全文は残す）
-function Emph({ text, big, small }: { text: string; big: string; small: string }) {
-  const chars = Array.from(text);
-  if (chars.length === 0) return null;
-  return (
-    <>
-      <span style={{ fontSize: big }}>{chars[0]}</span>
-      {chars.length > 1 && <span style={{ fontSize: small }}>{chars.slice(1).join("")}</span>}
-    </>
-  );
-}
 
 function Stat({ n, unit }: { n: number; unit: string }) {
   return (
