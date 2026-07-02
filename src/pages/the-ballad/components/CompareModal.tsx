@@ -19,8 +19,8 @@ export default function CompareModal({
       className="page-fade-in"
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.2rem", zIndex: 1000 }}
     >
-      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 720, maxHeight: "90vh", overflowY: "auto", background: "#000", padding: "1rem" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.6rem" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 720, maxHeight: "90vh", display: "flex", flexDirection: "column", background: "#000", padding: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.6rem", flexShrink: 0 }}>
           <p style={{ fontSize: "0.95rem", fontWeight: 700, color: "#fff", margin: 0 }}>{title}</p>
           <button onClick={requestClose} aria-label="閉じる" style={{ background: "transparent", border: "none", color: "#fff", fontSize: "1.1rem", cursor: "pointer", padding: "0.2rem 0.5rem" }}>
             ✕

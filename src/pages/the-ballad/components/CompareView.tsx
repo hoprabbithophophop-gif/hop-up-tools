@@ -4,8 +4,9 @@ import { SHOW_BY_NO, COMPARE_ANCHOR } from "@/data/the-ballad";
 import { C } from "../ui";
 
 // 同じ曲の複数バージョン（歌唱者／公演）を切り替えて聴き比べる。
-// M3: 校正アンカーで「曲頭からの経過秒」を保った位置合わせ切替。
-// M2: 2枚のプレイヤーを持ち、選んだ1本だけ裏で先読み(arm)→準備OK後の再タップで即切替（10本は読まない）。
+// 表示: 再生中の動画 / 選択中の動画タイトル / 変更する動画タイトルリスト（リストだけスクロール）。
+// M3: 校正アンカーで曲頭からの経過秒を保った位置合わせ切替。
+// M2: 2枚プレイヤーで選んだ1本だけ裏で先読み(arm)→もう一度タップで即切替。
 
 let ytReady: Promise<void> | null = null;
 function loadYouTubeApi(): Promise<void> {
@@ -31,15 +32,23 @@ function versionLabel(v: VideoLink): string {
   return [date, v.startLabel].filter(Boolean).join(" ") || "公式映像";
 }
 
+const dimLabel: React.CSSProperties = {
+  fontSize: "0.625rem",
+  color: "rgba(255,255,255,0.5)",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  margin: 0,
+};
+
 export default function CompareView({ versions }: { versions: VideoLink[] }) {
   const slot0 = useRef<HTMLDivElement>(null);
   const slot1 = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const players = useRef<any[]>([null, null]);
-  const [active, setActive] = useState(0); // 表示・再生中のスロット
-  const [idx, setIdx] = useState(0); // 表示中の版
+  const [active, setActive] = useState(0);
+  const [idx, setIdx] = useState(0);
   const [ready, setReady] = useState(false);
-  const [armedIdx, setArmedIdx] = useState<number | null>(null); // 先読み中/済みの版
+  const [armedIdx, setArmedIdx] = useState<number | null>(null);
   const [armedReady, setArmedReady] = useState(false);
 
   const anchorOf = (v: VideoLink) => COMPARE_ANCHOR[v.videoId] ?? v.startSec;
@@ -73,13 +82,11 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 版タップ：準備OKの版なら切替、それ以外はその1本だけ先読み(arm)。
   const onPick = (i: number) => {
     if (!ready || i === idx) return;
     const inactive = active === 0 ? 1 : 0;
 
     if (armedIdx === i && armedReady) {
-      // 切替：先読み済みスロットを現在の楽曲位置にseekして再生、表示を入れ替え。
       const np = players.current[inactive];
       np?.seekTo?.(anchorOf(versions[i]) + elapsedNow(), true);
       np?.playVideo?.();
@@ -91,7 +98,6 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
       return;
     }
 
-    // arm：非表示スロットに cue（先読み）。先読み中に曲が進むぶんを少し見込んだ位置に。
     const np = players.current[inactive];
     setArmedIdx(i);
     setArmedReady(false);
@@ -106,46 +112,61 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
     }, 200);
   };
 
+  const current = versions[idx];
+
   return (
-    <div>
-      <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#000" }}>
-        <div ref={slot0} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", visibility: active === 0 ? "visible" : "hidden" }} />
-        <div ref={slot1} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", visibility: active === 1 ? "visible" : "hidden" }} />
+    <div style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+      {/* 再生中の動画（YT がラッパー内の div を iframe に置換。visibility はラッパー側に付ける） */}
+      <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#000", flexShrink: 0 }}>
+        <div style={{ position: "absolute", inset: 0, visibility: active === 0 ? "visible" : "hidden" }}>
+          <div ref={slot0} style={{ width: "100%", height: "100%" }} />
+        </div>
+        <div style={{ position: "absolute", inset: 0, visibility: active === 1 ? "visible" : "hidden" }}>
+          <div ref={slot1} style={{ width: "100%", height: "100%" }} />
+        </div>
       </div>
 
-      <p style={{ fontSize: "0.625rem", color: C.faint, letterSpacing: "0.08em", textTransform: "uppercase", margin: "0.8rem 0 0.4rem" }}>
-        歌い比べ（タップで先読み → もう一度で切替）
-      </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {/* 選択中の動画タイトル */}
+      <div style={{ flexShrink: 0, padding: "0.7rem 0 0.5rem" }}>
+        <p style={dimLabel}>再生中</p>
+        <p style={{ fontSize: "0.85rem", fontWeight: 700, color: "#fff", margin: "0.15rem 0 0" }}>
+          {current.member}
+          <span style={{ fontSize: "0.65rem", fontWeight: 400, color: "rgba(255,255,255,0.55)", marginLeft: "0.5rem" }}>
+            {versionLabel(current)}
+          </span>
+        </p>
+      </div>
+
+      {/* 変更する動画タイトルリスト（ここだけスクロール） */}
+      <p style={{ ...dimLabel, flexShrink: 0, marginBottom: "0.4rem" }}>切り替える（タップで先読み → もう一度で切替）</p>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
         {versions.map((v, i) => {
-          const isActive = i === idx;
+          if (i === idx) return null;
           const isArming = armedIdx === i;
-          const state = isActive ? "▶ 再生中" : isArming ? (armedReady ? "もう一度で切替" : "準備中…") : "";
+          const state = isArming ? (armedReady ? "もう一度で切替" : "準備中…") : "";
           return (
             <button
               key={v.videoId}
               onClick={() => onPick(i)}
               disabled={!ready}
-              aria-pressed={isActive}
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: "0.6rem",
                 width: "100%",
                 padding: "0.6rem 0.9rem",
-                background: isActive ? C.ink : isArming ? "#3a3a3a" : C.card,
-                color: isActive || isArming ? "#fff" : C.ink,
+                background: isArming ? "#3a3a3a" : C.card,
+                color: isArming ? "#fff" : C.ink,
                 border: "none",
                 cursor: ready ? "pointer" : "default",
                 textAlign: "left",
+                flexShrink: 0,
               }}
             >
               <span style={{ fontSize: "0.8rem", fontWeight: 700 }}>{v.member}</span>
               <span style={{ flex: 1 }} />
-              {state && <span style={{ fontSize: "0.6rem", color: isActive ? "rgba(255,255,255,0.7)" : "#fff" }}>{state}</span>}
-              <span style={{ fontSize: "0.625rem", color: isActive || isArming ? "rgba(255,255,255,0.6)" : C.meta }}>
-                {versionLabel(v)}
-              </span>
+              {state && <span style={{ fontSize: "0.6rem", color: "#fff" }}>{state}</span>}
+              <span style={{ fontSize: "0.625rem", color: isArming ? "rgba(255,255,255,0.6)" : C.meta }}>{versionLabel(v)}</span>
             </button>
           );
         })}
