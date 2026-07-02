@@ -113,6 +113,7 @@ export default function SongView({
                   const seen = new Set<string>();
                   const all = s.members
                     .flatMap((m) => m.videos)
+                    .filter((v) => v.showNo !== "") // ハロ！ステ(公演に紐付かない全曲版)は頭出しがダイジェストと合わないため聴き比べから除外
                     .filter((v) => (seen.has(v.videoId) ? false : (seen.add(v.videoId), true)));
                   return all.length >= 2 ? (
                     <button onClick={() => setCompare({ song: s.songCore, versions: all })} style={compareBtn}>
