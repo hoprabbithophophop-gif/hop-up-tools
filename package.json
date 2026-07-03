@@ -13,6 +13,7 @@
   "dependencies": {
     "@fortawesome/free-solid-svg-icons": "^7.2.0",
     "@supabase/supabase-js": "^2.99.2",
+    "eruda": "^3.4.3",
     "fabric": "^7.3.1",
     "lz-string": "^1.5.0",
     "nanoid": "^5.1.7",

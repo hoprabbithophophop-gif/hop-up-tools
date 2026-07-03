@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { VideoLink } from "@/data/the-ballad";
 import { SHOW_BY_NO, compareAnchor, compareEnd } from "@/data/the-ballad";
+import { tbLog } from "@/utils/debugLog";
 import { C } from "../ui";
 
 // 同じ曲の複数バージョン（歌唱者／公演）を切り替えて聴き比べる。
@@ -75,11 +76,19 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
       players.current[0] = new w.YT.Player(slot0.current, {
         videoId: versions[0].videoId,
         playerVars: { start: Math.floor(anchorOf(versions[0])), rel: 0, playsinline: 1 },
-        events: { onReady: () => !cancelled && setReady(true) },
+        events: {
+          onReady: () => !cancelled && setReady(true),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          onStateChange: (e: any) => tbLog("state", { pl: 0, s: e?.data, muted: players.current[0]?.isMuted?.() }),
+        },
       });
       players.current[1] = new w.YT.Player(slot1.current, {
         videoId: versions[0].videoId,
         playerVars: { rel: 0, playsinline: 1 },
+        events: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          onStateChange: (e: any) => tbLog("state", { pl: 1, s: e?.data, muted: players.current[1]?.isMuted?.() }),
+        },
       });
     });
     return () => {
@@ -98,7 +107,10 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
       const p = players.current[active];
       if (!p?.getCurrentTime) return;
       // 2枚プレイヤーの競合等で再生中プレイヤーが勝手にミュートされることがあるため即戻す
-      if (p.isMuted?.()) p.unMute?.();
+      if (p.isMuted?.()) {
+        tbLog("automute", { active, idx, s: p.getPlayerState?.() });
+        p.unMute?.();
+      }
       const t = p.getCurrentTime();
       const seg = compareEnd(v.videoId, v.startSec);
       const end = isFinite(seg) ? seg : (p.getDuration?.() || 0);
@@ -108,11 +120,19 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, active, ready]);
 
+  // iOSのバックグラウンド化/オーディオ中断が起きたか記録（?debug=1 のときだけ）
+  useEffect(() => {
+    const onVis = () => tbLog("visibility", { hidden: document.hidden });
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
   const onPick = (i: number) => {
     if (!ready || i === idx) return;
     const inactive = active === 0 ? 1 : 0;
 
     if (armedIdx === i && armedReady) {
+      tbLog("switch", { from: idx, to: i });
       const np = players.current[inactive];
       np?.unMute?.();
       np?.seekTo?.(syncPos(versions[i]), true);
@@ -126,6 +146,7 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
     }
 
     const np = players.current[inactive];
+    tbLog("arm", { to: i });
     setArmedIdx(i);
     setArmedReady(false);
     np?.cueVideoById?.({ videoId: versions[i].videoId, startSeconds: syncPos(versions[i]) });
