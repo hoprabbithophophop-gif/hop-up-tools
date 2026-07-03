@@ -168,24 +168,24 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
       <p style={{ ...dimLabel, flexShrink: 0, marginBottom: "0.4rem" }}>切り替える（タップで先読み → もう一度で切替）</p>
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
         {versions.map((v, i) => {
-          if (i === idx) return null;
+          const isCurrent = i === idx;
           const isArming = armedIdx === i;
-          const state = isArming ? (armedReady ? "もう一度で切替" : "準備中…") : "";
+          const state = isCurrent ? "再生中" : isArming ? (armedReady ? "もう一度で切替" : "準備中…") : "";
           return (
             <button
               key={v.videoId}
               onClick={() => onPick(i)}
-              disabled={!ready}
+              disabled={!ready || isCurrent}
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: "0.6rem",
                 width: "100%",
                 padding: "0.6rem 0.9rem",
-                background: isArming ? "#3a3a3a" : C.card,
-                color: isArming ? "#fff" : C.ink,
+                background: isCurrent ? "#262626" : isArming ? "#3a3a3a" : C.card,
+                color: isCurrent || isArming ? "#fff" : C.ink,
                 border: "none",
-                cursor: ready ? "pointer" : "default",
+                cursor: isCurrent ? "default" : ready ? "pointer" : "default",
                 textAlign: "left",
                 flexShrink: 0,
               }}
@@ -193,7 +193,7 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
               <span style={{ fontSize: "0.8rem", fontWeight: 700 }}>{v.member}</span>
               <span style={{ flex: 1 }} />
               {state && <span style={{ fontSize: "0.6rem", color: "#fff" }}>{state}</span>}
-              <span style={{ fontSize: "0.625rem", color: isArming ? "rgba(255,255,255,0.6)" : C.meta }}>{versionLabel(v)}</span>
+              <span style={{ fontSize: "0.625rem", color: isCurrent || isArming ? "rgba(255,255,255,0.6)" : C.meta }}>{versionLabel(v)}</span>
             </button>
           );
         })}
