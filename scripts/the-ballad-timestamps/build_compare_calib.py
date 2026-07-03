@@ -57,6 +57,25 @@ def ffprobe_duration(path):
         return None
 
 
+# 拍手/シームレス編集で onset 自動検出が不正確な動画（手動値=detect.jsonlのstartsをそのまま使う）
+ONSET_SKIP = set(
+    os.environ.get("TB_ONSET_SKIP", "Q8CrgHvWVb8,nL-P6PH8WcI").split(","))
+
+
+def onset(path, black_end):
+    """黒フェード明け(black_end)の手前で、前曲間の無音の後に音が立ち上がる点(=歌い出し)を返す。
+    detect.py の black_end は映像基準で歌い出しより1〜2s遅いので、音声で前倒しする。"""
+    lo = max(0.0, black_end - 3.5)
+    env = envelope(path, lo, black_end + 0.5)
+    if not env:
+        return round(black_end, 2)
+    vi = min(range(len(env)), key=lambda i: env[i][1])  # black_end手前の谷(曲間の無音)
+    for i in range(vi, len(env)):
+        if env[i][1] > -38:  # 谷の後、音が立ち上がる最初の点＝次曲の歌い出し
+            return round(env[i][0], 2)
+    return round(black_end, 2)
+
+
 def valley_end(path, anchor, upper):
     if upper is not None:
         hi = upper + 0.5
@@ -147,12 +166,15 @@ def main():
             print(f"[{n}/{len(vids)}] {vid} DL失敗")
             continue
         for t in by_vid[vid]:
-            end = valley_end(path, t["anchor"], t["upper"])
-            if end is None or end - t["anchor"] < 30:
+            black_end = t["anchor"]  # detect.jsonl の black_end(映像基準の曲頭)
+            # 通常会は音声で歌い出しに前倒し、武道館等(拍手/シームレス)は手動値のまま
+            anchor = black_end if vid in ONSET_SKIP else onset(path, black_end)
+            end = valley_end(path, anchor, t["upper"])
+            if end is None or end - anchor < 30:
                 # 黒フェード誤検出等で曲区間が壊れた版(尺が極端に短い/end取得不可)は弾く
                 print(f"    skip {vid}@{t['v']['startSec']} (end={end}, 尺異常)")
                 continue
-            added.append({"videoId": vid, "startSec": t["v"]["startSec"], "anchor": t["anchor"], "end": end})
+            added.append({"videoId": vid, "startSec": t["v"]["startSec"], "anchor": anchor, "end": end})
         for f in glob.glob(os.path.join(WORK, vid + ".*")):
             try:
                 os.remove(f)
