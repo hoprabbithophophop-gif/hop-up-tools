@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { VideoLink } from "@/data/the-ballad";
 import { SHOW_BY_NO, compareAnchor, compareEnd } from "@/data/the-ballad";
-import { tbLog } from "@/utils/debugLog";
+import { tbLog, reportIncidentThrottled } from "@/utils/debugLog";
 import { C } from "../ui";
 
 // 同じ曲の複数バージョン（歌唱者／公演）を切り替えて聴き比べる。
@@ -109,6 +109,7 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
       // 2枚プレイヤーの競合等で再生中プレイヤーが勝手にミュートされることがあるため即戻す
       if (p.isMuted?.()) {
         tbLog("automute", { active, idx, s: p.getPlayerState?.() });
+        reportIncidentThrottled("automute", { active, idx, videoId: versions[idx]?.videoId, s: p.getPlayerState?.() });
         p.unMute?.();
       }
       const t = p.getCurrentTime();
