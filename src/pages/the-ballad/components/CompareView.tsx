@@ -58,10 +58,22 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
   const [ready, setReady] = useState(false);
   const [armedIdx, setArmedIdx] = useState<number | null>(null);
   const [armedReady, setArmedReady] = useState(false);
+  const [started, setStarted] = useState(false); // 最初の再生が始まったか(「タップで再生」オーバーレイ制御)
+  const wantPlay = useRef(false); // ready前にタップされた場合、onReadyで再生するためのフラグ
 
   const anchorOf = (v: VideoLink) => compareAnchor(v.videoId, v.startSec);
   // YouTube iframe の seek→再生ラグで頭出しが僅かに遅れるため、seek位置だけ少し手前に置いて先読み補償する
   const SEEK_LEAD = 0.05;
+  // 「タップで再生」: ユーザージェスチャ内で同期的に playVideo する(iOS Safari の autoplay制約対策・hi-tension方式)
+  const startPlay = () => {
+    setStarted(true);
+    const p = players.current[0];
+    if (p && ready) {
+      try { p.playVideo(); } catch { /* ignore */ }
+    } else {
+      wantPlay.current = true;
+    }
+  };
   const elapsedNow = () => {
     const p = players.current[active];
     const t = p?.getCurrentTime?.() ?? anchorOf(versions[idx]);
@@ -89,10 +101,11 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
           onReady: () => {
             if (cancelled) return;
             setReady(true);
-            players.current[0]?.playVideo?.(); // 聴き比べを開いたら最初の版を自動再生
+            // iOS Safari対策: 自動再生せず、タップ由来のplay要求(wantPlay)が来ていればここで再生
+            if (wantPlay.current) { wantPlay.current = false; try { players.current[0]?.playVideo?.(); } catch { /* ignore */ } }
           },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          onStateChange: (e: any) => tbLog("state", { pl: 0, s: e?.data, muted: players.current[0]?.isMuted?.() }),
+          onStateChange: (e: any) => { if (e?.data === 1) setStarted(true); tbLog("state", { pl: 0, s: e?.data, muted: players.current[0]?.isMuted?.() }); },
         },
       });
       players.current[1] = new w.YT.Player(slot1.current, {
@@ -192,6 +205,14 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
         <div style={{ position: "absolute", inset: 0, visibility: active === 1 ? "visible" : "hidden" }}>
           <div ref={slot1} style={{ width: "100%", height: "100%" }} />
         </div>
+        {!started && (
+          <button
+            onClick={startPlay}
+            style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem", background: "rgba(0,0,0,0.5)", border: "none", cursor: "pointer", color: "#fff", fontSize: "1rem", fontWeight: 700 }}
+          >
+            ▶ タップで再生
+          </button>
+        )}
       </div>
 
       {/* 選択中の動画タイトル */}
