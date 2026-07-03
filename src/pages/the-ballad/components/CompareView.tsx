@@ -86,7 +86,11 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
         videoId: versions[0].videoId,
         playerVars: { start: Math.floor(anchorOf(versions[0])), rel: 0, playsinline: 1 },
         events: {
-          onReady: () => !cancelled && setReady(true),
+          onReady: () => {
+            if (cancelled) return;
+            setReady(true);
+            players.current[0]?.playVideo?.(); // 聴き比べを開いたら最初の版を自動再生
+          },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onStateChange: (e: any) => tbLog("state", { pl: 0, s: e?.data, muted: players.current[0]?.isMuted?.() }),
         },
