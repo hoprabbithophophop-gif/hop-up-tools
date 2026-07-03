@@ -46,6 +46,13 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
   const slot1 = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const players = useRef<any[]>([null, null]);
+  const armTimer = useRef<number | null>(null);
+  const clearArmTimer = () => {
+    if (armTimer.current != null) {
+      clearInterval(armTimer.current);
+      armTimer.current = null;
+    }
+  };
   const [active, setActive] = useState(0);
   const [idx, setIdx] = useState(0);
   const [ready, setReady] = useState(false);
@@ -93,6 +100,7 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
     });
     return () => {
       cancelled = true;
+      clearArmTimer();
       players.current.forEach((p) => p?.destroy?.());
       players.current = [null, null];
     };
@@ -115,9 +123,9 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
       const t = p.getCurrentTime();
       const seg = compareEnd(v.videoId, v.startSec);
       const end = isFinite(seg) ? seg : (p.getDuration?.() || 0);
-      // end は谷底(無音)なので手前マージンは小さく。seek遅延は谷の無音幅で吸収する
-      // （0.9 は end=次曲頭だった頃の名残。谷底endには過大で曲末を早く切っていた）
-      if (end > 0 && t >= end - 0.2) p.seekTo?.(anchorOf(v), true);
+      // YouTube iframe の seekTo は 0.5〜1s 遅延し、その間 end を越えて次曲へ食い込む。
+      // 谷底 end からその遅延分だけ手前で seek を開始する（0.2 では吸収しきれず食い込んだ）。
+      if (end > 0 && t >= end - 0.9) p.seekTo?.(anchorOf(v), true);
     }, 200);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -135,6 +143,7 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
     const inactive = active === 0 ? 1 : 0;
 
     if (armedIdx === i && armedReady) {
+      clearArmTimer();
       tbLog("switch", { from: idx, to: i });
       const np = players.current[inactive];
       np?.unMute?.();
@@ -148,17 +157,19 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
       return;
     }
 
+    // 別の版を arm し直す前に、走っているタイマーを必ず止める（表示状態の残留・二重起動を防ぐ）
+    clearArmTimer();
     const np = players.current[inactive];
     tbLog("arm", { to: i });
     setArmedIdx(i);
     setArmedReady(false);
     np?.cueVideoById?.({ videoId: versions[i].videoId, startSeconds: syncPos(versions[i]) });
     const started = Date.now();
-    const timer = setInterval(() => {
+    armTimer.current = window.setInterval(() => {
       const frac = np?.getVideoLoadedFraction?.() ?? 0;
       if (frac > 0.08 || Date.now() - started > 5000) {
         setArmedReady(true);
-        clearInterval(timer);
+        clearArmTimer();
       }
     }, 200);
   };
