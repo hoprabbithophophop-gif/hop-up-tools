@@ -115,7 +115,9 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
       const t = p.getCurrentTime();
       const seg = compareEnd(v.videoId, v.startSec);
       const end = isFinite(seg) ? seg : (p.getDuration?.() || 0);
-      if (end > 0 && t >= end - 0.9) p.seekTo?.(anchorOf(v), true);
+      // end は谷底(無音)なので手前マージンは小さく。seek遅延は谷の無音幅で吸収する
+      // （0.9 は end=次曲頭だった頃の名残。谷底endには過大で曲末を早く切っていた）
+      if (end > 0 && t >= end - 0.2) p.seekTo?.(anchorOf(v), true);
     }, 200);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
