@@ -97,6 +97,8 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
       const v = versions[idx];
       const p = players.current[active];
       if (!p?.getCurrentTime) return;
+      // 2枚プレイヤーの競合等で再生中プレイヤーが勝手にミュートされることがあるため即戻す
+      if (p.isMuted?.()) p.unMute?.();
       const t = p.getCurrentTime();
       const seg = compareEnd(v.videoId, v.startSec);
       const end = isFinite(seg) ? seg : (p.getDuration?.() || 0);
@@ -112,6 +114,7 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
 
     if (armedIdx === i && armedReady) {
       const np = players.current[inactive];
+      np?.unMute?.();
       np?.seekTo?.(syncPos(versions[i]), true);
       np?.playVideo?.();
       players.current[active]?.pauseVideo?.();
