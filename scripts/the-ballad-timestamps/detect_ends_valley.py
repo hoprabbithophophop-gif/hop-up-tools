@@ -59,20 +59,17 @@ def envelope(path, t0, t1):
 
 
 def find_end(env, upper):
-    """谷(最小dB)を求め、その後に RECOVER を超える最初の点(=次曲イントロ)の直前を end。"""
+    """曲末の谷(無音の底)を end にする。次曲イントロは黒フェード中に先行するので、
+    谷底で止めれば余韻フル＋ループの瞬断が無音で起きる＋次曲は入らない。
+    次曲イントロを狙って攻めると、検出が甘い版で次曲の頭が混入するため底で止める。"""
     if not env:
         return None
-    vi = min(range(len(env)), key=lambda i: env[i][1])
-    end = None
-    for i in range(vi, len(env)):
-        if env[i][1] > RECOVER:
-            end = round(env[i][0] - 0.05, 2)  # 次曲イントロ直前
-            break
-    if end is None:
-        end = round(env[vi][0], 2)  # 復活なし(末尾曲等)は谷そのもの
-    if upper is not None:
-        end = min(end, round(upper - 0.05, 2))
-    return end
+    # 次曲頭(black_end)より手前に絞り、次曲本体側の谷を拾わない
+    cand = [e for e in env if upper is None or e[0] < upper - 0.05]
+    if not cand:
+        cand = env
+    mn = min(cand, key=lambda e: e[1])
+    return round(mn[0], 2)
 
 
 def cleanup(vid):
