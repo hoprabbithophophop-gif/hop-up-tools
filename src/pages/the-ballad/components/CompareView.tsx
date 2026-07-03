@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { VideoLink } from "@/data/the-ballad";
-import { SHOW_BY_NO, COMPARE_ANCHOR, segmentEnd } from "@/data/the-ballad";
+import { SHOW_BY_NO, compareAnchor, compareEnd } from "@/data/the-ballad";
 import { C } from "../ui";
 
 // 同じ曲の複数バージョン（歌唱者／公演）を切り替えて聴き比べる。
@@ -51,7 +51,7 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
   const [armedIdx, setArmedIdx] = useState<number | null>(null);
   const [armedReady, setArmedReady] = useState(false);
 
-  const anchorOf = (v: VideoLink) => COMPARE_ANCHOR[v.videoId] ?? v.startSec;
+  const anchorOf = (v: VideoLink) => compareAnchor(v.videoId, v.startSec);
   const elapsedNow = () => {
     const p = players.current[active];
     const t = p?.getCurrentTime?.() ?? anchorOf(versions[idx]);
@@ -61,7 +61,7 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
   const syncPos = (to: VideoLink) => {
     const head = anchorOf(to);
     let t = head + elapsedNow();
-    const end = segmentEnd(to.videoId, to.startSec);
+    const end = compareEnd(to.videoId, to.startSec);
     if (isFinite(end) && t >= end - 0.5) t = head;
     return Math.max(head, t);
   };
@@ -98,10 +98,10 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
       const p = players.current[active];
       if (!p?.getCurrentTime) return;
       const t = p.getCurrentTime();
-      const seg = segmentEnd(v.videoId, v.startSec);
+      const seg = compareEnd(v.videoId, v.startSec);
       const end = isFinite(seg) ? seg : (p.getDuration?.() || 0);
-      if (end > 0 && t >= end - 0.4) p.seekTo?.(anchorOf(v), true);
-    }, 500);
+      if (end > 0 && t >= end - 0.9) p.seekTo?.(anchorOf(v), true);
+    }, 200);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, active, ready]);

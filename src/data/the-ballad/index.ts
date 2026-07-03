@@ -11,6 +11,7 @@ import memberGroupRaw from "./memberGroup.json";
 import memberColorRaw from "./memberColor.json";
 import haloRaw from "./halostation.json";
 import compareAnchorsRaw from "./compareAnchors.json";
+import compareCalibRaw from "./compareCalib.json";
 
 export interface Show {
   no: string;          // 公演番号 "01"〜
@@ -115,6 +116,25 @@ export function haloVideos(member: string, songCore: string): VideoLink[] {
 // 歌い比べの位置合わせ用アンカー（videoId → 曲頭を指す秒。音声解析で校正済みの版のみ）。
 // これがある版同士は「再生時刻 − アンカー = 曲頭からの経過秒」が共有でき、位置を保って切替できる。
 export const COMPARE_ANCHOR = compareAnchorsRaw as Record<string, number>;
+
+// 黒フェード検出で校正した frame 精度のアンカー／曲終わり（実測 residual < 1フレーム）。
+// (videoId, startSec) 単位。ある版はこれを優先し、無ければ旧 COMPARE_ANCHOR / segmentEnd にフォールバック。
+interface CalibEntry { videoId: string; startSec: number; anchor: number; end: number | null }
+const CALIB = new Map<string, { anchor: number; end: number }>();
+for (const c of compareCalibRaw as CalibEntry[]) {
+  CALIB.set(`${c.videoId}|${c.startSec}`, { anchor: c.anchor, end: c.end ?? Infinity });
+}
+
+/** 位置合わせ用の曲頭秒。校正値 → 旧アンカー → startSec の順にフォールバック。 */
+export function compareAnchor(videoId: string, startSec: number): number {
+  return CALIB.get(`${videoId}|${startSec}`)?.anchor ?? COMPARE_ANCHOR[videoId] ?? startSec;
+}
+
+/** この曲区間の終わり秒（null は Infinity）。校正値が無ければ従来の segmentEnd。 */
+export function compareEnd(videoId: string, startSec: number): number {
+  const c = CALIB.get(`${videoId}|${startSec}`);
+  return c ? c.end : segmentEnd(videoId, startSec);
+}
 
 export const SHOW_BY_NO = new Map<string, Show>(SHOWS.map((s) => [s.no, s]));
 
