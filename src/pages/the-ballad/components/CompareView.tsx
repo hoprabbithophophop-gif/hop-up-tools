@@ -60,6 +60,8 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
   const [armedReady, setArmedReady] = useState(false);
 
   const anchorOf = (v: VideoLink) => compareAnchor(v.videoId, v.startSec);
+  // YouTube iframe の seek→再生ラグで頭出しが僅かに遅れるため、seek位置だけ少し手前に置いて先読み補償する
+  const SEEK_LEAD = 0.05;
   const elapsedNow = () => {
     const p = players.current[active];
     const t = p?.getCurrentTime?.() ?? anchorOf(versions[idx]);
@@ -125,7 +127,7 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
       const end = isFinite(seg) ? seg : (p.getDuration?.() || 0);
       // YouTube iframe の seekTo は 0.5〜1s 遅延し、その間 end を越えて次曲へ食い込む。
       // 谷底 end からその遅延分だけ手前で seek を開始する（0.2 では吸収しきれず食い込んだ）。
-      if (end > 0 && t >= end - 0.9) p.seekTo?.(anchorOf(v), true);
+      if (end > 0 && t >= end - 0.9) p.seekTo?.(Math.max(0, anchorOf(v) - SEEK_LEAD), true);
     }, 200);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -147,7 +149,7 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
       tbLog("switch", { from: idx, to: i });
       const np = players.current[inactive];
       np?.unMute?.();
-      np?.seekTo?.(syncPos(versions[i]), true);
+      np?.seekTo?.(Math.max(0, syncPos(versions[i]) - SEEK_LEAD), true);
       np?.playVideo?.();
       players.current[active]?.pauseVideo?.();
       setActive(inactive);
