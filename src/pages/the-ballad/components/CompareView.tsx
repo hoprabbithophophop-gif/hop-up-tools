@@ -35,6 +35,7 @@ export default function CompareView({
   const idxRef = useRef(0);
   const [elapsed, setElapsed] = useState(0); // 現在版の曲頭からの経過秒(Cメロ等で短い版を選択不可にする判定用)
   const lastLoopRef = useRef(0); // 直前のループ発動時刻(異常な連続ループの検出用)
+  const pendingPosRef = useRef<number | null>(null); // 切替直後、playerが新版の狙った位置へ到達するまでpoll判定を保留
   const [copied, setCopied] = useState(false);
 
   const anchorOf = (v: VideoLink) => compareAnchor(v.videoId, v.startSec);
@@ -69,6 +70,12 @@ export default function CompareView({
       const v = versions[idxRef.current];
       if (!p || !v) return;
       const t = p.getCurrentTime();
+      // 切替直後は player の再生位置が前版のまま数百ms残る。新版の狙った位置に到達するまで判定を保留し、
+      // 前版の位置(例: 曲末212.2)を新版の区間に当てはめて即ループする誤判定を防ぐ。
+      if (pendingPosRef.current !== null) {
+        if (Math.abs(t - pendingPosRef.current) < 3) pendingPosRef.current = null;
+        else return;
+      }
       setElapsed(Math.max(0, t - anchorOf(v)));
       const seg = compareEnd(v.videoId, v.startSec);
       const end = isFinite(seg) ? seg : (p.getDuration() || 0);
@@ -96,6 +103,7 @@ export default function CompareView({
     const pos = Math.max(0, syncPos(to) - SEEK_LEAD);
     tbLog("switch", { from: idxRef.current, to: i });
     p?.loadVideo(to.videoId, { startSeconds: pos, cover: true });
+    pendingPosRef.current = pos; // この位置に到達するまで poll のループ/経過判定を保留(前版位置での誤判定防止)
     idxRef.current = i;
     setIdx(i);
   };
