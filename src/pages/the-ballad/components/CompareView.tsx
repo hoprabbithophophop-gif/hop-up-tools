@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { VideoLink } from "@/data/the-ballad";
 import { SHOW_BY_NO, compareAnchor, compareEnd } from "@/data/the-ballad";
-import { tbLog } from "@/utils/debugLog";
+import { tbLog, reportIncidentThrottled } from "@/utils/debugLog";
 import { C } from "../ui";
 import type { YouTubePlayerApi } from "./YouTubePlayer";
 
@@ -34,6 +34,7 @@ export default function CompareView({
   const [idx, setIdx] = useState(0);
   const idxRef = useRef(0);
   const [elapsed, setElapsed] = useState(0); // 現在版の曲頭からの経過秒(Cメロ等で短い版を選択不可にする判定用)
+  const lastLoopRef = useRef(0); // 直前のループ発動時刻(異常な連続ループの検出用)
 
   const anchorOf = (v: VideoLink) => compareAnchor(v.videoId, v.startSec);
   // YouTube iframe の seek→再生ラグで頭出しが僅かに遅れるため、seek/load位置を少し手前に置いて補償
@@ -69,7 +70,13 @@ export default function CompareView({
       const seg = compareEnd(v.videoId, v.startSec);
       const end = isFinite(seg) ? seg : (p.getDuration() || 0);
       if (end > 0 && t >= end - 0.9) {
+        const now = Date.now();
         tbLog("loop", { t: Math.round(t * 10) / 10, anchor: anchorOf(v), end, idx: idxRef.current });
+        // 直前のループから2秒以内=異常な連続ループ(切替直後の誤ループ等)を incident として自動保存
+        if (lastLoopRef.current && now - lastLoopRef.current < 2000) {
+          reportIncidentThrottled("compare-loop-tight", { t: Math.round(t * 10) / 10, anchor: anchorOf(v), end, gapMs: now - lastLoopRef.current, idx: idxRef.current });
+        }
+        lastLoopRef.current = now;
         p.seekTo(Math.max(0, anchorOf(v) - SEEK_LEAD));
       }
     }, 200);

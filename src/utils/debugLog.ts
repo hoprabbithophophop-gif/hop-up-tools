@@ -74,7 +74,13 @@ export function reportIncidentThrottled(reason: string, extra?: Data, minMs = 10
 export function tbDumpIncidents(): unknown[] {
   try { return JSON.parse(localStorage.getItem("tb_incidents") || "[]"); } catch { return []; }
 }
+/** 現在メモリにあるリングバッファ（現象直後の確認用・再現不要・ページ更新で消える）。 */
+export function tbDumpRing(): LogRec[] {
+  return RING.slice();
+}
 if (typeof window !== "undefined") {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).tbDump = tbDumpIncidents;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).tbRing = tbDumpRing;
 }
