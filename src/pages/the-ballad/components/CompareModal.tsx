@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import { useEffect, type RefObject } from "react";
 import type { VideoLink } from "@/data/the-ballad";
 import { useBackClose } from "@/hooks/useBackClose";
 import CompareView from "./CompareView";
@@ -27,6 +27,10 @@ export default function CompareModal({
   onClose: () => void;
 }) {
   const requestClose = () => window.history.back();
+  // モーダルを閉じたら(非表示) 映像が見えないのに音だけ鳴り続けるのは規約違反なので一時停止する
+  useEffect(() => {
+    if (!visible) playerRef.current?.pause();
+  }, [visible, playerRef]);
   return (
     <div
       onClick={requestClose}
