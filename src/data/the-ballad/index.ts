@@ -125,9 +125,11 @@ for (const c of compareCalibRaw as CalibEntry[]) {
   CALIB.set(`${c.videoId}|${c.startSec}`, { anchor: c.anchor, end: c.end ?? Infinity });
 }
 
-/** 位置合わせ用の曲頭秒。校正値 → 旧アンカー → startSec の順にフォールバック。 */
+/** 位置合わせ用の曲頭秒。校正値(videoId+startSec) → startSec の順にフォールバック。
+ * ※旧 COMPARE_ANCHOR は videoId 単位で、同一動画に複数曲があるハロステ/メドレーで
+ *   別の曲へジャンプしてしまうため使わない(例: iKDrnDYa0CU の上國料たしかなこと→植村会いたい)。 */
 export function compareAnchor(videoId: string, startSec: number): number {
-  return CALIB.get(`${videoId}|${startSec}`)?.anchor ?? COMPARE_ANCHOR[videoId] ?? startSec;
+  return CALIB.get(`${videoId}|${startSec}`)?.anchor ?? startSec;
 }
 
 /** この曲区間の終わり秒（null は Infinity）。校正値が無ければ従来の segmentEnd。 */
