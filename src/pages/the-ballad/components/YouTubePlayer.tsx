@@ -24,7 +24,8 @@ export type YouTubePlayerApi = {
 };
 
 interface Props {
-  videoId: string;
+  /** 初期動画。省略時は空プレイヤーを作り、loadVideo で実際の動画を入れる(暖機用) */
+  videoId?: string;
   onEnded?: () => void;
   onTimeUpdate?: (currentTime: number) => void;
   /** YT.PlayerState の値(1=PLAYING, 2=PAUSED, 3=BUFFERING, 0=ENDED) */
@@ -109,9 +110,9 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
       playerRef.current = new YT.Player(CONTAINER_ID, {
         height: "100%",
         width: "100%",
-        videoId,
+        ...(videoId ? { videoId } : {}),
         playerVars: {
-          autoplay: 0, // iOS Safari は同期 loadVideo/play で起動するのでブラウザ任せの autoplay は使わない
+          autoplay: 0, // 再生はユーザーのタップハンドラ内で loadVideo/play を同期呼び出しして起動(iOS対策)
           controls: 1,
           rel: 0,
           modestbranding: 1,

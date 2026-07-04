@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { VideoLink } from "@/data/the-ballad";
 import { SHOW_BY_NO, compareAnchor, compareEnd } from "@/data/the-ballad";
 import { tbLog } from "@/utils/debugLog";
 import { C } from "../ui";
-import YouTubePlayer, { type YouTubePlayerApi } from "./YouTubePlayer";
+import type { YouTubePlayerApi } from "./YouTubePlayer";
 
-// 同じ曲の複数バージョン(歌唱者/公演)を1枚プレイヤーで loadVideo 切替して聴き比べる(hi-tension方式)。
-// iOS対策の要: 再生開始・版切替はユーザーのタップハンドラ内で同期的に loadVideo/unMute を呼ぶ。
-// 位置合わせ: 校正アンカーで曲頭からの経過秒を保って切替。区間ループで次の人に進まない。
+// 同じ曲の複数バージョンを、外部の1枚プレイヤー(playerRef)を loadVideo で切替して聴き比べる。
+// プレイヤー本体は CompareModal/SongView 側が常時 ready で保持し、初回再生は聴き比べボタンの
+// タップハンドラ内で loadVideo される(iOS対策)。CompareView は版リストとループ制御のみ担当。
 
 function versionLabel(v: VideoLink): string {
   const date = SHOW_BY_NO.get(v.showNo)?.date ?? "";
@@ -22,8 +22,15 @@ const dimLabel: React.CSSProperties = {
   margin: 0,
 };
 
-export default function CompareView({ versions }: { versions: VideoLink[] }) {
-  const playerRef = useRef<YouTubePlayerApi>(null);
+export default function CompareView({
+  versions,
+  playerRef,
+  visible,
+}: {
+  versions: VideoLink[];
+  playerRef: RefObject<YouTubePlayerApi | null>;
+  visible: boolean;
+}) {
   const [idx, setIdx] = useState(0);
   const idxRef = useRef(0);
 
@@ -35,7 +42,6 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
     const t = playerRef.current?.getCurrentTime() ?? 0;
     return Math.max(0, t - anchorOf(versions[idxRef.current]));
   };
-  // 位置合わせ先の秒。ダイジェストの曲区間を越える場合は曲頭に戻す(次の人に着地しない)。
   const syncPos = (to: VideoLink) => {
     const head = anchorOf(to);
     let t = head + elapsedNow();
@@ -44,49 +50,47 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
     return Math.max(head, t);
   };
 
-  // 初回: マウント(聴き比べボタンで開いた)直後に versions[0] を音ありロード。
-  // ready前なら YouTubePlayer 内の wantLoad で onReady 時に実行される。
+  // 別の曲の聴き比べに切り替わったら idx をリセット(SongView が versions[0] をロード済み)
   useEffect(() => {
+    setIdx(0);
+    idxRef.current = 0;
+  }, [versions]);
+
+  // 区間ループ: 曲区間の終わりで曲頭へ戻す(次の人に進まない)。開いている間だけ poll。
+  useEffect(() => {
+    if (!visible) return;
+    const id = setInterval(() => {
+      const p = playerRef.current;
+      const v = versions[idxRef.current];
+      if (!p || !v) return;
+      const t = p.getCurrentTime();
+      const seg = compareEnd(v.videoId, v.startSec);
+      const end = isFinite(seg) ? seg : (p.getDuration() || 0);
+      if (end > 0 && t >= end - 0.9) p.seekTo(Math.max(0, anchorOf(v) - SEEK_LEAD));
+    }, 200);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, versions]);
+
+  // 版タップ: ジェスチャ内で unMute して音を出す。別の版なら loadVideo で切替(cover付き)。
+  const onPick = (i: number) => {
     const p = playerRef.current;
     p?.unMute();
-    p?.loadVideo(versions[0].videoId, { startSeconds: anchorOf(versions[0]) });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // 版切替: タップハンドラ内で同期的に loadVideo(cover付き)。iOSでも通る。
-  const onPick = (i: number) => {
     if (i === idxRef.current) return;
     const to = versions[i];
     const pos = Math.max(0, syncPos(to) - SEEK_LEAD);
     tbLog("switch", { from: idxRef.current, to: i });
-    const p = playerRef.current;
-    p?.unMute();
     p?.loadVideo(to.videoId, { startSeconds: pos, cover: true });
     idxRef.current = i;
     setIdx(i);
   };
 
-  // 区間ループ: 曲区間の終わりで曲頭へ戻す(ダイジェストで次の人に進まないように)。
-  const onTimeUpdate = (t: number) => {
-    const v = versions[idxRef.current];
-    const seg = compareEnd(v.videoId, v.startSec);
-    const p = playerRef.current;
-    const end = isFinite(seg) ? seg : (p?.getDuration() ?? 0);
-    if (end > 0 && t >= end - 0.9) p?.seekTo(Math.max(0, anchorOf(v) - SEEK_LEAD));
-  };
-
   const current = versions[idx];
+  if (!current) return null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
-      {/* 再生中の動画(1枚プレイヤーを loadVideo で切替) */}
-      <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#000", flexShrink: 0 }}>
-        <div style={{ position: "absolute", inset: 0 }}>
-          <YouTubePlayer ref={playerRef} videoId={versions[0].videoId} onTimeUpdate={onTimeUpdate} />
-        </div>
-      </div>
-
-      {/* 選択中の動画タイトル */}
+    <>
+      {/* 選択中の版タイトル */}
       <div style={{ flexShrink: 0, padding: "0.7rem 0 0.5rem" }}>
         <p style={dimLabel}>再生中</p>
         <p style={{ fontSize: "0.85rem", fontWeight: 700, color: "#fff", margin: "0.15rem 0 0" }}>
@@ -97,8 +101,8 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
         </p>
       </div>
 
-      {/* 変更する動画タイトルリスト(タップで即切替) */}
-      <p style={{ ...dimLabel, flexShrink: 0, marginBottom: "0.4rem" }}>切り替える（タップで即切替）</p>
+      {/* 版リスト(タップで再生/切替) */}
+      <p style={{ ...dimLabel, flexShrink: 0, marginBottom: "0.4rem" }}>タップで再生 / 切り替え</p>
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
         {versions.map((v, i) => {
           const isCurrent = i === idx;
@@ -106,7 +110,6 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
             <button
               key={v.videoId}
               onClick={() => onPick(i)}
-              disabled={isCurrent}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -116,7 +119,7 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
                 background: isCurrent ? "#262626" : C.card,
                 color: isCurrent ? "#fff" : C.ink,
                 border: "none",
-                cursor: isCurrent ? "default" : "pointer",
+                cursor: "pointer",
                 textAlign: "left",
                 flexShrink: 0,
               }}
@@ -129,6 +132,6 @@ export default function CompareView({ versions }: { versions: VideoLink[] }) {
           );
         })}
       </div>
-    </div>
+    </>
   );
 }

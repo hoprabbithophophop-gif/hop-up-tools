@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
-import { SETLIST, findVideo, MEMBER_COLOR, haloVideos } from "@/data/the-ballad";
+import { useMemo, useRef, useState } from "react";
+import { SETLIST, findVideo, MEMBER_COLOR, haloVideos, compareAnchor } from "@/data/the-ballad";
 import type { VideoLink } from "@/data/the-ballad";
 import { C } from "../ui";
 import VideoChips from "./VideoChips";
 import { Emph } from "./Emph";
 import { Accordion } from "./Accordion";
 import CompareModal from "./CompareModal";
+import type { YouTubePlayerApi } from "./YouTubePlayer";
 
 interface MemberAgg {
   member: string;
@@ -31,6 +32,7 @@ export default function SongView({
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [compare, setCompare] = useState<{ song: string; versions: VideoLink[] } | null>(null);
+  const playerRef = useRef<YouTubePlayerApi | null>(null);
 
   const songs = useMemo<SongAgg[]>(() => {
     const map = new Map<string, SongAgg>();
@@ -116,7 +118,15 @@ export default function SongView({
                     .filter((v) => v.showNo !== "") // ハロ！ステ(公演に紐付かない全曲版)は頭出しがダイジェストと合わないため聴き比べから除外
                     .filter((v) => (seen.has(v.videoId) ? false : (seen.add(v.videoId), true)));
                   return all.length >= 2 ? (
-                    <button onClick={() => setCompare({ song: s.songCore, versions: all })} style={compareBtn}>
+                    <button
+                      onClick={() => {
+                        // タップ(ジェスチャ)ハンドラ内で先頭版を音ありロード(iOS対策)してからモーダルを開く
+                        playerRef.current?.unMute();
+                        playerRef.current?.loadVideo(all[0].videoId, { startSeconds: compareAnchor(all[0].videoId, all[0].startSec) });
+                        setCompare({ song: s.songCore, versions: all });
+                      }}
+                      style={compareBtn}
+                    >
                       聴き比べ（{all.length}）
                     </button>
                   ) : null;
@@ -134,7 +144,13 @@ export default function SongView({
           </div>
         );
       })}
-      {compare && <CompareModal title={compare.song} versions={compare.versions} onClose={() => setCompare(null)} />}
+      <CompareModal
+        visible={!!compare}
+        title={compare?.song ?? ""}
+        versions={compare?.versions ?? []}
+        playerRef={playerRef}
+        onClose={() => setCompare(null)}
+      />
     </div>
   );
 }
