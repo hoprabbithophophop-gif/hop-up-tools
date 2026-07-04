@@ -33,6 +33,7 @@ export default function CompareView({
 }) {
   const [idx, setIdx] = useState(0);
   const idxRef = useRef(0);
+  const [elapsed, setElapsed] = useState(0); // 現在版の曲頭からの経過秒(Cメロ等で短い版を選択不可にする判定用)
 
   const anchorOf = (v: VideoLink) => compareAnchor(v.videoId, v.startSec);
   // YouTube iframe の seek→再生ラグで頭出しが僅かに遅れるため、seek/load位置を少し手前に置いて補償
@@ -64,6 +65,7 @@ export default function CompareView({
       const v = versions[idxRef.current];
       if (!p || !v) return;
       const t = p.getCurrentTime();
+      setElapsed(Math.max(0, t - anchorOf(v)));
       const seg = compareEnd(v.videoId, v.startSec);
       const end = isFinite(seg) ? seg : (p.getDuration() || 0);
       if (end > 0 && t >= end - 0.9) p.seekTo(Math.max(0, anchorOf(v) - SEEK_LEAD));
@@ -106,20 +108,24 @@ export default function CompareView({
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
         {versions.map((v, i) => {
           const isCurrent = i === idx;
+          const endI = compareEnd(v.videoId, v.startSec);
+          // この版に現在の経過位置に対応する区間が無い(Cメロ等で短縮された版・同じ音源のノーカット短縮)＝選択不可
+          const noRegion = !isCurrent && isFinite(endI) && anchorOf(v) + elapsed >= endI - 0.5;
           return (
             <button
               key={v.videoId}
               onClick={() => onPick(i)}
+              disabled={noRegion}
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: "0.6rem",
                 width: "100%",
                 padding: "0.6rem 0.9rem",
-                background: isCurrent ? "#262626" : C.card,
-                color: isCurrent ? "#fff" : C.ink,
+                background: isCurrent ? "#262626" : noRegion ? "#141414" : C.card,
+                color: isCurrent ? "#fff" : noRegion ? "#555" : C.ink,
                 border: "none",
-                cursor: "pointer",
+                cursor: noRegion ? "default" : "pointer",
                 textAlign: "left",
                 flexShrink: 0,
               }}
@@ -127,7 +133,7 @@ export default function CompareView({
               <span style={{ fontSize: "0.8rem", fontWeight: 700 }}>{v.member}</span>
               <span style={{ flex: 1 }} />
               {isCurrent && <span style={{ fontSize: "0.6rem", color: "#fff" }}>再生中</span>}
-              <span style={{ fontSize: "0.625rem", color: isCurrent ? "rgba(255,255,255,0.6)" : C.meta }}>{versionLabel(v)}</span>
+              <span style={{ fontSize: "0.625rem", color: isCurrent ? "rgba(255,255,255,0.6)" : noRegion ? "#3a3a3a" : C.meta }}>{versionLabel(v)}</span>
             </button>
           );
         })}
