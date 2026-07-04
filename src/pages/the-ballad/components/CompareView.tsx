@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { VideoLink } from "@/data/the-ballad";
 import { SHOW_BY_NO, compareAnchor, compareEnd } from "@/data/the-ballad";
-import { tbLog, reportIncidentThrottled, tbDumpIncidents } from "@/utils/debugLog";
+import { tbLog, reportIncident, reportIncidentThrottled, tbDumpRing, tbDumpIncidents } from "@/utils/debugLog";
 import { C } from "../ui";
 import type { YouTubePlayerApi } from "./YouTubePlayer";
 
@@ -35,7 +35,6 @@ export default function CompareView({
   const idxRef = useRef(0);
   const [elapsed, setElapsed] = useState(0); // 現在版の曲頭からの経過秒(Cメロ等で短い版を選択不可にする判定用)
   const lastLoopRef = useRef(0); // 直前のループ発動時刻(異常な連続ループの検出用)
-  const [incident, setIncident] = useState(false); // 異常検出時に画面へ通知(ワンタップでログをコピーする導線)
   const [copied, setCopied] = useState(false);
 
   const anchorOf = (v: VideoLink) => compareAnchor(v.videoId, v.startSec);
@@ -77,7 +76,6 @@ export default function CompareView({
         // 直前のループから2秒以内=異常な連続ループ(切替直後の誤ループ等)を incident として自動保存
         if (lastLoopRef.current && now - lastLoopRef.current < 2000) {
           reportIncidentThrottled("compare-loop-tight", { t: Math.round(t * 10) / 10, anchor: anchorOf(v), end, gapMs: now - lastLoopRef.current, idx: idxRef.current });
-          setIncident(true);
         }
         lastLoopRef.current = now;
         p.seekTo(Math.max(0, anchorOf(v) - SEEK_LEAD));
@@ -152,22 +150,20 @@ export default function CompareView({
         })}
       </div>
 
-      {incident && (
-        <div style={{ flexShrink: 0, marginTop: "0.5rem", padding: "0.6rem 0.8rem", background: "#3a1e1e", display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <span style={{ fontSize: "0.7rem", color: "#ffb4b4", flex: 1 }}>⚠ 再生の異常を記録しました</span>
-          <button
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(JSON.stringify(tbDumpIncidents(), null, 2));
-                setCopied(true);
-              } catch { /* clipboard 不可時は無視 */ }
-            }}
-            style={{ fontSize: "0.7rem", padding: "0.35rem 0.7rem", background: "#fff", color: "#000", border: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}
-          >
-            {copied ? "コピーしました ✓" : "ログをコピー"}
-          </button>
-        </div>
-      )}
+      {/* 不具合報告(常設): 押した瞬間の直近ログ(リングバッファ)＋保存済みincidentをコピー＆保存。
+          異常判定はアプリでなくユーザーに委ねる(自動検出の取りこぼしを防ぐ)。 */}
+      <button
+        onClick={async () => {
+          reportIncident("user-report"); // 直近ログを localStorage にも保存
+          try {
+            await navigator.clipboard.writeText(JSON.stringify({ ring: tbDumpRing(), incidents: tbDumpIncidents() }, null, 2));
+            setCopied(true);
+          } catch { /* clipboard 不可時は無視 */ }
+        }}
+        style={{ flexShrink: 0, marginTop: "0.6rem", padding: "0.5rem 0.7rem", background: "#241414", color: "#d3a", border: "none", fontSize: "0.65rem", cursor: "pointer", textAlign: "left" }}
+      >
+        {copied ? "✓ 直近ログをコピーしました。そのまま貼って送ってください" : "⚠ 不具合を報告（この操作の直近ログをコピー）"}
+      </button>
     </>
   );
 }
