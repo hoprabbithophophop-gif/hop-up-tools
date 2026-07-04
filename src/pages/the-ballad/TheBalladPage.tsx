@@ -35,8 +35,9 @@ export default function TheBalladPage() {
   const playerRef = useRef<YouTubePlayerApi | null>(null);
   // 再生(PlayChip)のタップハンドラ内で音ありロード(iOS対策)してからモーダルを開く
   const handlePlay = (v: VideoLink) => {
-    // 曲が終わったら停止するよう endSeconds(曲終わり)を渡す。区間終わりが不明(Infinity)なら垂れ流し
-    const end = compareEnd(v.videoId, v.startSec);
+    // 曲が終わったら停止するよう endSeconds(曲終わり)を渡す。
+    // ハロ！ステは v.endSec(実測の映像終了時間)を優先、通常曲は compareEnd(区間end)。無ければ垂れ流し。
+    const end = v.endSec ?? compareEnd(v.videoId, v.startSec);
     playerRef.current?.unMute();
     playerRef.current?.loadVideo(v.videoId, {
       startSeconds: compareAnchor(v.videoId, v.startSec),

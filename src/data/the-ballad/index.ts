@@ -38,6 +38,7 @@ export interface VideoLink {
   videoId: string;     // YouTube動画ID
   startSec: number;    // 動画内で曲が始まる秒数
   startLabel: string;  // その回の開演時刻表記 "14:30" / "18:15" / "14:30/18:15"
+  endSec?: number;     // 曲の終わり秒(主にハロ！ステ単体再生の停止用)。無ければ区間end/最後まで
 }
 
 // スペシャル扱いで集計に含めない公演（12/2 日本武道館 Special Number = 公演143）。
@@ -98,13 +99,13 @@ export function segmentEnd(videoId: string, startSec: number): number {
 }
 
 // ハロ！ステ（Hello! Station 公式）のソロ歌唱。公演には紐付かず (メンバー×曲) で1本。
-interface HaloEntry { member: string; songCore: string; videoId: string; startSec: number; date: string }
+interface HaloEntry { member: string; songCore: string; videoId: string; startSec: number; date: string; endSec?: number }
 const haloMapKey = (member: string, songCore: string) => `${member}|${songCore}`;
 const HALO_BY_KEY = new Map<string, VideoLink[]>();
 for (const h of haloRaw as HaloEntry[]) {
   const key = haloMapKey(h.member, h.songCore);
   const arr = HALO_BY_KEY.get(key) ?? [];
-  arr.push({ showNo: "", member: h.member, songCore: h.songCore, videoId: h.videoId, startSec: h.startSec, startLabel: h.date ? `ハロ！ステ ${h.date}` : "ハロ！ステ" });
+  arr.push({ showNo: "", member: h.member, songCore: h.songCore, videoId: h.videoId, startSec: h.startSec, startLabel: h.date ? `ハロ！ステ ${h.date}` : "ハロ！ステ", ...(h.endSec !== undefined ? { endSec: h.endSec } : {}) });
   HALO_BY_KEY.set(key, arr);
 }
 

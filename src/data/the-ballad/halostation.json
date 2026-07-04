@@ -11,7 +11,8 @@
     "songCore": "スローモーション",
     "videoId": "DaDerXi78U0",
     "startSec": 2110,
-    "date": "7/12 中野"
+    "date": "7/12 中野",
+    "endSec": 2295
   },
   {
     "member": "井上玲音",
@@ -25,14 +26,16 @@
     "songCore": "M",
     "videoId": "j2eqLieiVxI",
     "startSec": 1563,
-    "date": "7/12 中野"
+    "date": "7/12 中野",
+    "endSec": 1789
   },
   {
     "member": "川村文乃",
     "songCore": "未来へ",
     "videoId": "aUwADFVykS0",
     "startSec": 417,
-    "date": "7/12 中野"
+    "date": "7/12 中野",
+    "endSec": 639
   },
   {
     "member": "山﨑愛生",
@@ -53,14 +56,16 @@
     "songCore": "たしかなこと",
     "videoId": "iKDrnDYa0CU",
     "startSec": 257,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 477
   },
   {
     "member": "植村あかり",
     "songCore": "会いたい",
     "videoId": "iKDrnDYa0CU",
     "startSec": 1834,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 2038
   },
   {
     "member": "浅倉樹々",
@@ -81,7 +86,8 @@
     "songCore": "I LOVE YOU",
     "videoId": "4VZ9abTTiQc",
     "startSec": 411,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 606
   },
   {
     "member": "平井美葉",
@@ -102,14 +108,16 @@
     "songCore": "Hello, Again ～昔からある場所～",
     "videoId": "xXzni7T7nyk",
     "startSec": 257,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 457
   },
   {
     "member": "野中美希",
     "songCore": "TOMORROW",
     "videoId": "xXzni7T7nyk",
     "startSec": 1817,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 2013
   },
   {
     "member": "松永里愛",
@@ -130,7 +138,8 @@
     "songCore": "もしもピアノが弾けたなら",
     "videoId": "GL2N6H9orQI",
     "startSec": 1463,
-    "date": "7/12 中野"
+    "date": "7/12 中野",
+    "endSec": 1675
   },
   {
     "member": "譜久村聖",
@@ -151,7 +160,8 @@
     "songCore": "会いたい",
     "videoId": "HNc7tI9vVaY",
     "startSec": 2085,
-    "date": "10/12 武道館"
+    "date": "10/12 武道館",
+    "endSec": 2289
   },
   {
     "member": "高瀬くるみ",
@@ -165,14 +175,16 @@
     "songCore": "セーラー服と機関銃",
     "videoId": "8qbdkRZcYT4",
     "startSec": 340,
-    "date": "7/12 中野"
+    "date": "7/12 中野",
+    "endSec": 531
   },
   {
     "member": "山﨑夢羽",
     "songCore": "香水",
     "videoId": "8qbdkRZcYT4",
     "startSec": 1863,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 2035
   },
   {
     "member": "加賀楓",
@@ -193,14 +205,16 @@
     "songCore": "未来へ",
     "videoId": "BT9vNDGYALE",
     "startSec": 2058,
-    "date": "10/12 武道館"
+    "date": "10/12 武道館",
+    "endSec": 2283
   },
   {
     "member": "清野桃々姫",
     "songCore": "手紙 ～拝啓 十五の君へ～",
     "videoId": "uqBWGcc6bqc",
     "startSec": 1115,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 1313
   },
   {
     "member": "小野瑞歩",
@@ -235,6 +249,7 @@
     "songCore": "ハナミズキ",
     "videoId": "n47fYbqeUMM",
     "startSec": 1852,
-    "date": "9/5 八王子"
+    "date": "9/5 八王子",
+    "endSec": 2082
   }
 ]
