@@ -69,6 +69,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const playerRef = useRef<any>(null);
   const isReadyRef = useRef(false);
+  const lastStartRef = useRef(0); // 最後に loadVideo で指定した startSeconds(0付近から再生される稀な現象の補正用)
   const wantPlayRef = useRef(false);
   const wantLoadRef = useRef<{ id: string; opts?: { startSeconds?: number; endSeconds?: number; cover?: boolean } } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -152,6 +153,13 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
               if (coverTimerRef.current) { clearTimeout(coverTimerRef.current); coverTimerRef.current = null; }
               // 勝手にオンになる字幕(captions)を無効化。動画切替後もPLAYING毎に効かせる
               try { playerRef.current?.unloadModule?.("captions"); playerRef.current?.unloadModule?.("cc"); } catch { /* ignore */ }
+              // startSeconds が稀に効かず0付近から再生される現象を補正。位置が startSeconds より
+              // 3秒以上「手前」の時だけ発動(正常に進んでいる/ループ復帰した時は発動しない=UX影響なし)
+              try {
+                const want = lastStartRef.current;
+                const cur = playerRef.current?.getCurrentTime?.() ?? 0;
+                if (want > 3 && cur < want - 3) playerRef.current?.seekTo(want, true);
+              } catch { /* ignore */ }
             } else if (state === 2 || state === 3) {
               stopPolling();
             } else if (state === 0 /* ENDED */) {
@@ -215,6 +223,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
     unMute() { try { playerRef.current?.unMute?.(); } catch { /* ignore */ } },
     loadVideo(id: string, opts?: { startSeconds?: number; endSeconds?: number; cover?: boolean }) {
       beginLoadingTimer();
+      lastStartRef.current = opts?.startSeconds ?? 0;
       if (opts?.cover) {
         setLoadCovering(true);
         if (coverTimerRef.current) clearTimeout(coverTimerRef.current);
