@@ -62,7 +62,7 @@ export default function CompareModal({
         {/* 動画: 1枚プレイヤーを常時 ready で保持(loadVideo で版切替) */}
         <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#000", flexShrink: 0 }}>
           <div style={{ position: "absolute", inset: 0 }}>
-            <YouTubePlayer ref={playerRef} />
+            <YouTubePlayer ref={playerRef} containerId="ballad-compare-player" />
           </div>
         </div>
         {visible && versions.length > 0 && (

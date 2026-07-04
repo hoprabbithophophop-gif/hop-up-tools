@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { VideoLink } from "@/data/the-ballad";
-import { SHOWS, SETLIST } from "@/data/the-ballad";
+import { SHOWS, SETLIST, compareAnchor } from "@/data/the-ballad";
 import { C, labelStyle } from "./ui";
 import SongView from "./components/SongView";
 import MemberView from "./components/MemberView";
 import ShowView from "./components/ShowView";
 import MineView from "./components/MineView";
 import VideoModal from "./components/VideoModal";
+import type { YouTubePlayerApi } from "./components/YouTubePlayer";
 
 type Tab = "songs" | "members" | "shows" | "mine";
 const TABS: { key: Tab; label: string }[] = [
@@ -31,6 +32,13 @@ export default function TheBalladPage() {
   const [query, setQuery] = useState("");
   const [videoOnly, setVideoOnly] = useState(false);
   const [playing, setPlaying] = useState<VideoLink | null>(null);
+  const playerRef = useRef<YouTubePlayerApi | null>(null);
+  // 再生(PlayChip)のタップハンドラ内で音ありロード(iOS対策)してからモーダルを開く
+  const handlePlay = (v: VideoLink) => {
+    playerRef.current?.unMute();
+    playerRef.current?.loadVideo(v.videoId, { startSeconds: compareAnchor(v.videoId, v.startSec) });
+    setPlaying(v);
+  };
 
   // 参戦した公演（ブラウザのlocalStorageに保存・ログイン不要・端末内のみ）
   const [attended, setAttended] = useState<Set<string>>(() => {
@@ -153,10 +161,10 @@ export default function TheBalladPage() {
           )}
         </div>
 
-        {tab === "songs" && <SongView query={query} videoOnly={videoOnly} onPlay={setPlaying} />}
-        {tab === "members" && <MemberView query={query} videoOnly={videoOnly} onPlay={setPlaying} />}
-        {tab === "shows" && <ShowView query={query} videoOnly={videoOnly} onPlay={setPlaying} />}
-        {tab === "mine" && <MineView attended={attended} onToggleAttend={toggleAttend} onPlay={setPlaying} />}
+        {tab === "songs" && <SongView query={query} videoOnly={videoOnly} onPlay={handlePlay} />}
+        {tab === "members" && <MemberView query={query} videoOnly={videoOnly} onPlay={handlePlay} />}
+        {tab === "shows" && <ShowView query={query} videoOnly={videoOnly} onPlay={handlePlay} />}
+        {tab === "mine" && <MineView attended={attended} onToggleAttend={toggleAttend} onPlay={handlePlay} />}
       </main>
 
       {/* フッター */}
@@ -169,7 +177,7 @@ export default function TheBalladPage() {
         </p>
       </footer>
 
-      {playing && <VideoModal video={playing} onClose={() => setPlaying(null)} />}
+      <VideoModal video={playing} visible={!!playing} playerRef={playerRef} onClose={() => setPlaying(null)} />
     </div>
   );
 }

@@ -3,7 +3,6 @@ import LoadingDots from "../../hi-tension/components/LoadingDots";
 
 // 聴き比べ用の1枚プレイヤー。hi-tension の YouTubePlayer を流用（CONTAINER_ID と LoadingDots パスのみ変更）。
 // iOS対策の要: 再生開始/動画切替はユーザーのタップハンドラ内で同期的に loadVideo/unMute を呼ぶこと。
-const CONTAINER_ID = "ballad-compare-player";
 const POLL_MS = 100;
 const LOADING_MIN_MS = 800;
 
@@ -26,6 +25,8 @@ export type YouTubePlayerApi = {
 interface Props {
   /** 初期動画。省略時は空プレイヤーを作り、loadVideo で実際の動画を入れる(暖機用) */
   videoId?: string;
+  /** iframe コンテナのDOM id。複数プレイヤーを同時マウントする時に一意にする */
+  containerId?: string;
   onEnded?: () => void;
   onTimeUpdate?: (currentTime: number) => void;
   /** YT.PlayerState の値(1=PLAYING, 2=PAUSED, 3=BUFFERING, 0=ENDED) */
@@ -55,7 +56,7 @@ function loadYouTubeAPI(): Promise<void> {
 }
 
 const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer(
-  { videoId, onEnded, onTimeUpdate, onPlayerStateChange },
+  { videoId, containerId = "ballad-yt-player", onEnded, onTimeUpdate, onPlayerStateChange },
   ref,
 ) {
   const [isReady, setIsReady] = useState(false);
@@ -99,7 +100,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
       if (!mounted) return;
       let element: HTMLElement | null = null;
       for (let i = 0; i < 25; i++) {
-        element = document.getElementById(CONTAINER_ID);
+        element = document.getElementById(containerId);
         if (element || !mounted) break;
         await new Promise(r => setTimeout(r, 200));
       }
@@ -107,7 +108,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const YT = (window as any).YT;
-      playerRef.current = new YT.Player(CONTAINER_ID, {
+      playerRef.current = new YT.Player(containerId, {
         height: "100%",
         width: "100%",
         ...(videoId ? { videoId } : {}),
@@ -235,7 +236,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%", background: "#000" }}>
-      <div id={CONTAINER_ID} style={{ width: "100%", height: "100%" }} />
+      <div id={containerId} style={{ width: "100%", height: "100%" }} />
       {showLoading && (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#000", pointerEvents: "none" }}>
           <LoadingDots />
