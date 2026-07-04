@@ -214,7 +214,13 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
       if (!p) return;
       try { p.seekTo(0, true); p.playVideo(); } catch { /* ignore */ }
     },
-    seekTo(seconds: number) { try { playerRef.current?.seekTo(Math.max(0, seconds), true); } catch { /* ignore */ } },
+    seekTo(seconds: number) {
+      // 明示 seek 先を「意図した現在位置」として記録する。更新しないと直前 loadVideo の startSeconds(切替位置)が
+      // lastStartRef に残り、PLAYING補正がループの曲頭戻しを「0付近への異常」と誤判定して切替位置へ引き戻す
+      // (ループの戻り先がサビになる不具合)。
+      lastStartRef.current = Math.max(0, seconds);
+      try { playerRef.current?.seekTo(Math.max(0, seconds), true); } catch { /* ignore */ }
+    },
     getCurrentTime() { try { return playerRef.current?.getCurrentTime() ?? 0; } catch { return 0; } },
     isPlaying() { try { return playerRef.current?.getPlayerState() === 1; } catch { return false; } },
     getVideoLoadedFraction() { try { return playerRef.current?.getVideoLoadedFraction?.() ?? 0; } catch { return 0; } },
