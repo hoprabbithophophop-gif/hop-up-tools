@@ -49,7 +49,9 @@ export default function CompareView({
     const head = anchorOf(to);
     let t = head + elapsedNow();
     const end = compareEnd(to.videoId, to.startSec);
-    if (isFinite(end) && t >= end - 0.5) t = head;
+    // 切替先の位置がループ発動端(end-0.9)以降になるなら曲頭へ戻す。閾値をループ側と揃える。
+    // 旧: end-0.5 でズレていたため、曲終わり間際(end-0.9〜end-0.5)で切替すると切替直後に即ループしていた。
+    if (isFinite(end) && t >= end - 1.0) t = head;
     return Math.max(head, t);
   };
 
