@@ -118,6 +118,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
           rel: 0,
           modestbranding: 1,
           playsinline: 1,
+          cc_load_policy: 0, // 字幕をデフォルト非表示(勝手にオンになるのを防ぐ)
         },
         events: {
           onReady: () => {
@@ -149,6 +150,8 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
               startPolling();
               setLoadCovering(false);
               if (coverTimerRef.current) { clearTimeout(coverTimerRef.current); coverTimerRef.current = null; }
+              // 勝手にオンになる字幕(captions)を無効化。動画切替後もPLAYING毎に効かせる
+              try { playerRef.current?.unloadModule?.("captions"); playerRef.current?.unloadModule?.("cc"); } catch { /* ignore */ }
             } else if (state === 2 || state === 3) {
               stopPolling();
             } else if (state === 0 /* ENDED */) {
