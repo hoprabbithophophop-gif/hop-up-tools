@@ -68,7 +68,10 @@ export default function CompareView({
       setElapsed(Math.max(0, t - anchorOf(v)));
       const seg = compareEnd(v.videoId, v.startSec);
       const end = isFinite(seg) ? seg : (p.getDuration() || 0);
-      if (end > 0 && t >= end - 0.9) p.seekTo(Math.max(0, anchorOf(v) - SEEK_LEAD));
+      if (end > 0 && t >= end - 0.9) {
+        tbLog("loop", { t: Math.round(t * 10) / 10, anchor: anchorOf(v), end, idx: idxRef.current });
+        p.seekTo(Math.max(0, anchorOf(v) - SEEK_LEAD));
+      }
     }, 200);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
