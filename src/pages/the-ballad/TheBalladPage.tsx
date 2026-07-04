@@ -40,7 +40,7 @@ export default function TheBalladPage() {
     playerRef.current?.unMute();
     playerRef.current?.loadVideo(v.videoId, {
       startSeconds: compareAnchor(v.videoId, v.startSec),
-      ...(isFinite(end) ? { endSeconds: Math.ceil(end) } : {}),
+      ...(isFinite(end) ? { endSeconds: Math.floor(end) } : {}),
     });
     setPlaying(v);
   };
