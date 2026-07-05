@@ -26,6 +26,7 @@ const GROUP_FILTERS = [
   'OCHA NORMA',
   'ロージークロニクル',
   'ハロプロ研修生',
+  'ハロー！プロジェクト', // 横断イベント(複数グループ合同・歌唱順抽選会等)の救済タグ
 ];
 
 const TYPE_FILTERS = [
