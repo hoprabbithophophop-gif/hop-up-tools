@@ -28,22 +28,24 @@ export default function ReportForm({ video, onClose }: { video: VideoLink; onClo
     if (!issue || sending) return;
     setSending(true);
     setFailed(false);
-    const { error } = await getSupabase().from("ballad_reports").insert({
-      member: video.member,
-      song: video.songCore,
-      video_id: video.videoId,
-      start_sec: video.startSec,
-      show_date: date,
-      issue_type: issue,
-      note: note.trim() || null,
-      ua: typeof navigator !== "undefined" ? navigator.userAgent : null,
-    });
-    setSending(false);
-    if (error) {
-      setFailed(true); // 失敗をユーザーに見せる(黙って完了扱いにしない)
-      return;
+    try {
+      // getSupabase() は URL 未設定(ローカルで .env.local 無い等)だと同期で throw する。await 前でも捕まえる。
+      const { error } = await getSupabase().from("ballad_reports").insert({
+        member: video.member,
+        song: video.songCore,
+        video_id: video.videoId,
+        start_sec: video.startSec,
+        show_date: date,
+        issue_type: issue,
+        note: note.trim() || null,
+        ua: typeof navigator !== "undefined" ? navigator.userAgent : null,
+      });
+      if (error) throw error;
+      setSent(true);
+    } catch {
+      setFailed(true); // 失敗をユーザーに見せる(送信中のまま固めない)
     }
-    setSent(true);
+    setSending(false);
   };
 
   return (

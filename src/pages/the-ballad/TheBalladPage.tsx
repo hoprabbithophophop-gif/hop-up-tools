@@ -181,6 +181,14 @@ export default function TheBalladPage() {
         <p style={{ fontSize: "0.625rem", color: C.hair, margin: 0, lineHeight: 1.6 }}>
           セットリスト・歌唱者データは有志のまとめ（出典：鳩スレ）を元に作成しています。
         </p>
+        <a
+          href="https://ofuse.me/hopuptools"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ display: "inline-block", marginTop: "1.4rem", fontSize: "0.7rem", color: C.meta, textDecoration: "none" }}
+        >
+          ♡ このツールを応援する
+        </a>
       </footer>
 
       <VideoModal video={playing} visible={!!playing} playerRef={playerRef} onClose={() => setPlaying(null)} />

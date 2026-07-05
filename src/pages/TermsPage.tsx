@@ -118,7 +118,12 @@ export default function TermsPage() {
         本規約は日本法に準拠します。本サービスに関する紛争は、東京地方裁判所を第一審の専属的合意管轄裁判所とします。
       </p>
 
-      <h2 style={s.h2}>8. お問い合わせ</h2>
+      <h2 style={s.h2}>8. 支援について</h2>
+      <p style={s.p}>
+        本サービスは無料でご利用いただけます。外部サービス（OFUSE等）を通じた任意の支援を受け付けていますが、支援は完全に任意であり、支援の有無によって機能や内容に差は生じません。いただいた支援に対する返金・特典の提供は行いません。
+      </p>
+
+      <h2 style={s.h2}>9. お問い合わせ</h2>
       <p style={s.p}>
         本規約に関するお問い合わせは、X（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>@hop_rabbit_hop</a> までDMにてご連絡ください。
       </p>
