@@ -3,7 +3,7 @@ import { SHOWS, SETLIST, findVideo, MEMBER_GROUP, MEMBER_ORDER_INDEX, MEMBER_COL
 import type { VideoLink } from "@/data/the-ballad";
 import { C } from "../ui";
 import VideoChips from "./VideoChips";
-import { Emph } from "./Emph";
+import { Emph, MemberEmph } from "./Emph";
 import { Accordion } from "./Accordion";
 
 interface HeardSong {
@@ -167,7 +167,7 @@ export default function MineView({
             <div key={s.member + s.songCore} style={row}>
               <span style={{ fontSize: "0.85rem", fontWeight: 700, color: C.ink }}>{s.songCore}</span>
               {s.artist && <span style={{ fontSize: "0.65rem", color: C.meta }}>{s.artist}</span>}
-              <span style={{ fontSize: "0.75rem", color: C.body }}><Emph text={s.member} big="0.75rem" small="0.75rem" color={MEMBER_COLOR[s.member] || undefined} /></span>
+              <span style={{ fontSize: "0.75rem", color: C.body }}><MemberEmph member={s.member} big="0.75rem" small="0.75rem" /></span>
               <span style={{ fontSize: "0.75rem", color: C.ink, fontWeight: 700 }}>×{s.count}</span>
               <span style={{ flex: 1 }} />
               <VideoChips videos={s.videos} onPlay={onPlay} />
@@ -178,7 +178,7 @@ export default function MineView({
           {data.memberList.map((m) => (
             <div key={m.member} style={{ background: C.card, marginBottom: 2, padding: "0.9rem 1.4rem" }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
-                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: C.ink }}><Emph text={m.member} big="0.9rem" small="0.9rem" weight={700} color={MEMBER_COLOR[m.member] || undefined} /></span>
+                <span style={{ fontSize: "0.9rem", fontWeight: 700, color: C.ink }}><MemberEmph member={m.member} big="0.9rem" small="0.9rem" weight={700} /></span>
                 <span style={{ fontSize: "0.65rem", color: C.meta }}>{(MEMBER_GROUP[m.member] || "").split("/")[0]}</span>
                 <span style={{ flex: 1 }} />
                 <span style={{ fontSize: "0.7rem", color: C.faint, fontWeight: 700 }}>{m.showCount}公演・のべ{m.total}回</span>

@@ -1,11 +1,11 @@
 import { useMemo, useState, Fragment } from "react";
-import { SHOWS, SETLIST, findVideo, MEMBER_COLOR } from "@/data/the-ballad";
+import { SHOWS, SETLIST, findVideo } from "@/data/the-ballad";
 import type { VideoLink, SetlistEntry } from "@/data/the-ballad";
 import { C } from "../ui";
 import PlayChip from "./PlayChip";
 import ShareChip from "./ShareChip";
 import { Count, Empty } from "./SongView";
-import { Emph } from "./Emph";
+import { MemberEmph } from "./Emph";
 import { Accordion } from "./Accordion";
 
 interface ShowAgg {
@@ -116,7 +116,7 @@ export default function ShowView({
                     <span style={{ fontSize: "0.7rem", color: C.hair, fontWeight: 700, width: "1.6rem", flexShrink: 0 }}>
                       {x.label}
                     </span>
-                    <span style={{ fontSize: "0.8rem", color: C.body, flexShrink: 0 }}><Emph text={x.e.member} big="0.8rem" small="0.8rem" color={MEMBER_COLOR[x.e.member] || undefined} /></span>
+                    <span style={{ fontSize: "0.8rem", color: C.body, flexShrink: 0 }}><MemberEmph member={x.e.member} big="0.8rem" small="0.8rem" /></span>
                     <span style={{ fontSize: "0.8rem", color: C.ink }}>{x.e.songCore}</span>
                     {x.e.artist && <span style={{ fontSize: "0.65rem", color: C.meta }}>{x.e.artist}</span>}
                     {x.video && (

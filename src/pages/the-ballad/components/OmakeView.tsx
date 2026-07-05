@@ -1,7 +1,7 @@
-import { OMAKE, omakeVideo, OMAKE_CHUSEN, chusenVideo, MEMBER_COLOR } from "@/data/the-ballad";
+import { OMAKE, omakeVideo, OMAKE_CHUSEN, chusenVideo } from "@/data/the-ballad";
 import type { VideoLink } from "@/data/the-ballad";
 import { C } from "../ui";
-import { Emph } from "./Emph";
+import { MemberEmph } from "./Emph";
 import { Count, Empty } from "./SongView";
 
 // OMAKE タブ: The Ballad 楽曲のスタジオソロカバー（各ユニット公式チャンネルの単独動画）と、
@@ -51,7 +51,7 @@ export default function OmakeView({
         <button key={e.videoId} onClick={() => onPlay(omakeVideo(e))} style={card}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: "0.7rem", color: C.body, marginBottom: "0.15rem" }}>
-              <Emph text={e.member} big="0.7rem" small="0.7rem" color={MEMBER_COLOR[e.member] || undefined} />
+              <MemberEmph member={e.member} big="0.7rem" small="0.7rem" />
             </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
               <span style={{ fontSize: "0.95rem", fontWeight: 700, color: C.ink }}>{e.songCore}</span>

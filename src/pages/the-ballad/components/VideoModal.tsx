@@ -1,8 +1,8 @@
 import { useEffect, useState, type RefObject } from "react";
 import type { VideoLink } from "@/data/the-ballad";
-import { SHOW_BY_NO, showLabel, MEMBER_COLOR } from "@/data/the-ballad";
+import { SHOW_BY_NO, showLabel } from "@/data/the-ballad";
 import { useBackClose } from "@/hooks/useBackClose";
-import { Emph } from "./Emph";
+import { MemberEmph } from "./Emph";
 import YouTubePlayer, { type YouTubePlayerApi } from "./YouTubePlayer";
 import ReportForm from "./ReportForm";
 
@@ -64,7 +64,7 @@ export default function VideoModal({
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "0.6rem" }}>
             <div>
               <p style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#c6c6c6", margin: 0 }}>
-                <Emph text={video.member} big="0.6875rem" small="0.6875rem" inkColor="#c6c6c6" color={MEMBER_COLOR[video.member] || undefined} />
+                <MemberEmph member={video.member} big="0.6875rem" small="0.6875rem" inkColor="#c6c6c6" />
               </p>
               <p style={{ fontSize: "0.95rem", fontWeight: 700, color: "#fff", margin: "0.1rem 0 0" }}>{video.songCore}</p>
               {show && (

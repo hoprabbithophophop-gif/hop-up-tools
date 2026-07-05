@@ -1,4 +1,5 @@
 import { C } from "../ui";
+import { MEMBER_COLOR } from "@/data/the-ballad";
 
 // メンバーカラーが白/ほぼ白だと色ブロックが白背景に埋もれる。公式サイト同様に薄グレー枠(#cfd8dc)で縁取り視認できるようにする。
 export function isNearWhite(hex: string): boolean {
@@ -39,6 +40,38 @@ export function Emph({
         <span style={{ fontSize: big, fontWeight: weight }}>{chars[0]}</span>
       )}
       {chars.length > 1 && <span style={{ fontSize: small, fontWeight: weight }}>{chars.slice(1).join("")}</span>}
+    </>
+  );
+}
+
+// メンバー名を Emph で表示し、MEMBER_COLOR から色を引く。
+// "×" 区切りのデュエット（高木紗友希×小田さくら 等）は各メンバーの色を個別に付ける
+// （単色では2人分の色を表せないため）。単独名は従来どおり頭文字1つに着色。
+export function MemberEmph({
+  member,
+  big,
+  small,
+  weight,
+  inkColor = C.ink,
+}: {
+  member: string;
+  big: string;
+  small: string;
+  weight?: number;
+  inkColor?: string;
+}) {
+  const parts = member.split(/[×✕]/).map((s) => s.trim()).filter(Boolean);
+  if (parts.length <= 1) {
+    return <Emph text={member} big={big} small={small} weight={weight} color={MEMBER_COLOR[member] || undefined} inkColor={inkColor} />;
+  }
+  return (
+    <>
+      {parts.map((p, i) => (
+        <span key={i}>
+          {i > 0 && <span style={{ fontSize: small, fontWeight: weight, color: inkColor, margin: "0 0.15em" }}>×</span>}
+          <Emph text={p} big={big} small={small} weight={weight} color={MEMBER_COLOR[p] || undefined} inkColor={inkColor} />
+        </span>
+      ))}
     </>
   );
 }

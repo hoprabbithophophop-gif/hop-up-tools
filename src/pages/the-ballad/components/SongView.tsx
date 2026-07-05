@@ -1,9 +1,9 @@
 import { useMemo, useRef, useState } from "react";
-import { SETLIST, findVideo, MEMBER_COLOR, haloVideos, compareAnchor } from "@/data/the-ballad";
+import { SETLIST, findVideo, haloVideos, compareAnchor } from "@/data/the-ballad";
 import type { VideoLink } from "@/data/the-ballad";
 import { C } from "../ui";
 import VideoChips from "./VideoChips";
-import { Emph } from "./Emph";
+import { MemberEmph } from "./Emph";
 import { Accordion } from "./Accordion";
 import CompareModal from "./CompareModal";
 import type { YouTubePlayerApi } from "./YouTubePlayer";
@@ -133,7 +133,7 @@ export default function SongView({
                 })()}
                 {s.members.map((m) => (
                   <div key={m.member} style={memberRow}>
-                    <span style={{ fontSize: "0.8rem", color: C.body }}><Emph text={m.member} big="0.8rem" small="0.8rem" color={MEMBER_COLOR[m.member] || undefined} /></span>
+                    <span style={{ fontSize: "0.8rem", color: C.body }}><MemberEmph member={m.member} big="0.8rem" small="0.8rem" /></span>
                     <span style={{ fontSize: "0.7rem", color: C.faint }}>×{m.count}</span>
                     <span style={{ flex: 1 }} />
                     <VideoChips videos={m.videos} onPlay={onPlay} />
