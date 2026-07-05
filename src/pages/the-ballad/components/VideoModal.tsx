@@ -1,9 +1,10 @@
-import { useEffect, type RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import type { VideoLink } from "@/data/the-ballad";
 import { SHOW_BY_NO, showLabel, MEMBER_COLOR } from "@/data/the-ballad";
 import { useBackClose } from "@/hooks/useBackClose";
 import { Emph } from "./Emph";
 import YouTubePlayer, { type YouTubePlayerApi } from "./YouTubePlayer";
+import ReportForm from "./ReportForm";
 
 // visible の間だけ「戻る/Escで閉じる」を有効化する小コンポーネント(hookを条件付きにするため分離)。
 function BackClose({ onClose }: { onClose: () => void }) {
@@ -32,6 +33,7 @@ export default function VideoModal({
   onClose: () => void;
 }) {
   const requestClose = () => window.history.back();
+  const [showReport, setShowReport] = useState(false);
   // 閉じたら映像なしで音だけ鳴り続けないよう一時停止(規約対策)
   useEffect(() => {
     if (!visible) playerRef.current?.pause();
@@ -86,11 +88,20 @@ export default function VideoModal({
         </div>
 
         {video && (
-          <p style={{ fontSize: "0.625rem", color: "rgba(255,255,255,0.45)", margin: "0.6rem 0 0", lineHeight: 1.5 }}>
-            公式ダイジェスト映像の該当箇所を再生しています（抜粋のため曲の全編が含まれない場合があります）。
-          </p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "0.8rem", margin: "0.6rem 0 0" }}>
+            <p style={{ fontSize: "0.625rem", color: "rgba(255,255,255,0.45)", margin: 0, lineHeight: 1.5, flex: 1 }}>
+              公式ダイジェスト映像の該当箇所を再生しています（抜粋のため曲の全編が含まれない場合があります）。
+            </p>
+            <button
+              onClick={() => setShowReport(true)}
+              style={{ flexShrink: 0, padding: "0.4rem 0.6rem", background: "#241414", color: "#d3a", border: "none", fontSize: "0.6rem", cursor: "pointer", whiteSpace: "nowrap" }}
+            >
+              ⚠ 再生がおかしい
+            </button>
+          </div>
         )}
       </div>
+      {video && showReport && <ReportForm video={video} onClose={() => setShowReport(false)} />}
     </div>
   );
 }

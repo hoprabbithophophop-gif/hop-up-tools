@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { VideoLink } from "@/data/the-ballad";
 import { SHOW_BY_NO, compareAnchor, compareEnd } from "@/data/the-ballad";
-import { tbLog, reportIncident, reportIncidentThrottled, tbDumpRing, tbDumpIncidents } from "@/utils/debugLog";
+import { tbLog, reportIncidentThrottled } from "@/utils/debugLog";
+import ReportForm from "./ReportForm";
 import { C } from "../ui";
 import type { YouTubePlayerApi } from "./YouTubePlayer";
 
@@ -35,7 +36,7 @@ export default function CompareView({
   const idxRef = useRef(0);
   const [elapsed, setElapsed] = useState(0); // 現在版の曲頭からの経過秒(Cメロ等で短い版を選択不可にする判定用)
   const lastLoopRef = useRef(0); // 直前のループ発動時刻(異常な連続ループの検出用)
-  const [copied, setCopied] = useState(false);
+  const [showReport, setShowReport] = useState(false);
 
   const anchorOf = (v: VideoLink) => compareAnchor(v.videoId, v.startSec);
   // YouTube iframe の seek→再生ラグで頭出しが僅かに遅れるため、seek/load位置を少し手前に置いて補償
@@ -152,20 +153,14 @@ export default function CompareView({
         })}
       </div>
 
-      {/* 不具合報告(常設): 押した瞬間の直近ログ(リングバッファ)＋保存済みincidentをコピー＆保存。
-          異常判定はアプリでなくユーザーに委ねる(自動検出の取りこぼしを防ぐ)。 */}
+      {/* 不具合報告(常設): 今見ている版の情報を自動で載せて匿名フォームで送る。 */}
       <button
-        onClick={async () => {
-          reportIncident("user-report"); // 直近ログを localStorage にも保存
-          try {
-            await navigator.clipboard.writeText(JSON.stringify({ ring: tbDumpRing(), incidents: tbDumpIncidents() }, null, 2));
-            setCopied(true);
-          } catch { /* clipboard 不可時は無視 */ }
-        }}
+        onClick={() => setShowReport(true)}
         style={{ flexShrink: 0, marginTop: "0.6rem", padding: "0.5rem 0.7rem", background: "#241414", color: "#d3a", border: "none", fontSize: "0.65rem", cursor: "pointer", textAlign: "left" }}
       >
-        {copied ? "✓ 直近ログをコピーしました。そのまま貼って送ってください" : "⚠ 不具合を報告（この操作の直近ログをコピー）"}
+        ⚠ 再生がおかしい時はこちら
       </button>
+      {showReport && <ReportForm video={current} onClose={() => setShowReport(false)} />}
     </>
   );
 }
