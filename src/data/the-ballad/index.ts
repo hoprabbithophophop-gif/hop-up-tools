@@ -12,6 +12,8 @@ import memberColorRaw from "./memberColor.json";
 import haloRaw from "./halostation.json";
 import compareAnchorsRaw from "./compareAnchors.json";
 import compareCalibRaw from "./compareCalib.json";
+import omakeRaw from "./omake.json";
+import omakeChusenRaw from "./omakeChusen.json";
 
 export interface Show {
   no: string;          // 公演番号 "01"〜
@@ -39,6 +41,8 @@ export interface VideoLink {
   startSec: number;    // 動画内で曲が始まる秒数
   startLabel: string;  // その回の開演時刻表記 "14:30" / "18:15" / "14:30/18:15"
   endSec?: number;     // 曲の終わり秒(主にハロ！ステ単体再生の停止用)。無ければ区間end/最後まで
+  full?: boolean;      // true=全編1曲のフル動画(OMAKEスタジオカバー)。false/未指定=ダイジェスト抜粋
+  caption?: string;    // 動画モーダル下部の説明文の上書き(OMAKE=スタジオカバー/抽選会など)。無ければ既定文
 }
 
 // スペシャル扱いで集計に含めない公演（12/2 日本武道館 Special Number = 公演143）。
@@ -137,6 +141,48 @@ export function compareAnchor(videoId: string, startSec: number): number {
 export function compareEnd(videoId: string, startSec: number): number {
   const c = CALIB.get(`${videoId}|${startSec}`);
   return c ? c.end : segmentEnd(videoId, startSec);
+}
+
+// OMAKE: The Ballad 楽曲のスタジオソロカバー（各ユニット公式チャンネルの単独MV/歌唱動画）。
+// 公演には紐付かず 1動画=全編1曲。単体再生は startSec=0 / endSec なし（最後まで）。
+export interface OmakeEntry {
+  member: string;
+  songCore: string;
+  artist: string;   // 原曲アーティスト
+  videoId: string;
+  channel: string;  // 投稿元の公式チャンネル
+}
+export const OMAKE: OmakeEntry[] = omakeRaw as OmakeEntry[];
+
+/** OmakeEntry を単体再生/聴き比べ用の VideoLink に変換（showNo=""、全編1曲なので startSec=0）。
+ *  校正アンカーの無いスタジオ音源のため、compareAnchor/compareEnd は startSec(=0)/Infinity に
+ *  フォールバックし「頭合わせ同期・全編ループ」になる。startLabel には投稿チャンネルを入れる。 */
+export function omakeVideo(e: OmakeEntry): VideoLink {
+  return {
+    showNo: "", member: e.member, songCore: e.songCore, videoId: e.videoId,
+    startSec: 0, startLabel: e.channel, full: true,
+    caption: "公式チャンネル配信のスタジオソロカバー（全編）を再生しています。",
+  };
+}
+
+// OMAKE: 歌唱順抽選会（各会場ブロックで歌唱順をくじ引きする公式の舞台裏動画。OMAKE CHANNEL）。
+// 曲ではなくイベントなので member 位置に「歌唱順抽選会（+チーム）」、songCore に「日付 会場」を入れる。
+export interface ChusenEntry {
+  date: string;    // "7/11・12"
+  venue: string;   // "中野サンプラザ"
+  team: string;    // "A"/"B"/"C" または "" (チーム分けのある回のみ)
+  videoId: string;
+}
+export const OMAKE_CHUSEN: ChusenEntry[] = omakeChusenRaw as ChusenEntry[];
+
+/** ChusenEntry を単体再生用の VideoLink に変換（全編・startSec=0）。 */
+export function chusenVideo(e: ChusenEntry): VideoLink {
+  return {
+    showNo: "", member: e.team ? `歌唱順抽選会 ${e.team}チーム` : "歌唱順抽選会",
+    songCore: `${e.date} ${e.venue}`, videoId: e.videoId,
+    startSec: 0, startLabel: e.date, full: true,
+    caption: "公式チャンネルの歌唱順抽選会（舞台裏・全編）を再生しています。",
+  };
 }
 
 export const SHOW_BY_NO = new Map<string, Show>(SHOWS.map((s) => [s.no, s]));

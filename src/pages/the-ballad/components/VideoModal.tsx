@@ -90,7 +90,8 @@ export default function VideoModal({
         {video && (
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "0.8rem", margin: "0.6rem 0 0" }}>
             <p style={{ fontSize: "0.625rem", color: "rgba(255,255,255,0.45)", margin: 0, lineHeight: 1.5, flex: 1 }}>
-              公式ダイジェスト映像の該当箇所を再生しています（抜粋のため曲の全編が含まれない場合があります）。
+              {video.caption
+                ?? "公式ダイジェスト映像の該当箇所を再生しています（抜粋のため曲の全編が含まれない場合があります）。"}
             </p>
             <button
               onClick={() => setShowReport(true)}

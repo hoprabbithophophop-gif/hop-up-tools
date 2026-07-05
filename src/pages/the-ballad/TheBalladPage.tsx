@@ -7,15 +7,17 @@ import SongView from "./components/SongView";
 import MemberView from "./components/MemberView";
 import ShowView from "./components/ShowView";
 import MineView from "./components/MineView";
+import OmakeView from "./components/OmakeView";
 import VideoModal from "./components/VideoModal";
 import type { YouTubePlayerApi } from "./components/YouTubePlayer";
 
-type Tab = "songs" | "members" | "shows" | "mine";
+type Tab = "songs" | "members" | "shows" | "mine" | "omake";
 const TABS: { key: Tab; label: string }[] = [
   { key: "songs", label: "Songs" },
   { key: "members", label: "Members" },
   { key: "shows", label: "Shows" },
   { key: "mine", label: "Mine" },
+  { key: "omake", label: "Omake" },
 ];
 
 const ATTEND_KEY = "the-ballad.attended";
@@ -24,7 +26,8 @@ export default function TheBalladPage() {
   // アクティブタブを URL(?tab=) に同期 → ブラウザバックでタブが1段ずつ戻る
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get("tab");
-  const tab: Tab = rawTab === "members" || rawTab === "shows" || rawTab === "mine" ? rawTab : "songs";
+  const tab: Tab =
+    rawTab === "members" || rawTab === "shows" || rawTab === "mine" || rawTab === "omake" ? rawTab : "songs";
   const setTab = (t: Tab) => {
     if (t === tab) return;
     setSearchParams(t === "songs" ? {} : { tab: t }); // push で履歴を積む
@@ -73,6 +76,7 @@ export default function TheBalladPage() {
   const placeholder =
     tab === "songs" ? "曲名・アーティスト・メンバーで検索"
     : tab === "members" ? "メンバー・曲名で検索"
+    : tab === "omake" ? "曲名・アーティスト・メンバーで検索"
     : "会場・日程・メンバー・曲名で検索";
 
   return (
@@ -143,7 +147,7 @@ export default function TheBalladPage() {
             })}
           </div>
 
-          {tab !== "mine" && (
+          {tab !== "mine" && tab !== "omake" && (
             <button
               onClick={() => setVideoOnly((v) => !v)}
               style={{
@@ -171,6 +175,7 @@ export default function TheBalladPage() {
         {tab === "members" && <MemberView query={query} videoOnly={videoOnly} onPlay={handlePlay} />}
         {tab === "shows" && <ShowView query={query} videoOnly={videoOnly} onPlay={handlePlay} />}
         {tab === "mine" && <MineView attended={attended} onToggleAttend={toggleAttend} onPlay={handlePlay} />}
+        {tab === "omake" && <OmakeView query={query} onPlay={handlePlay} />}
       </main>
 
       {/* フッター */}
