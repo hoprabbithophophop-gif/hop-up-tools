@@ -1,20 +1,12 @@
-import { useMemo, useRef, useState } from "react";
-import { OMAKE, omakeVideo, OMAKE_CHUSEN, chusenVideo, MEMBER_COLOR, compareAnchor } from "@/data/the-ballad";
-import type { OmakeEntry, VideoLink } from "@/data/the-ballad";
+import { OMAKE, omakeVideo, OMAKE_CHUSEN, chusenVideo, MEMBER_COLOR } from "@/data/the-ballad";
+import type { VideoLink } from "@/data/the-ballad";
 import { C } from "../ui";
 import { Emph } from "./Emph";
 import { Count, Empty } from "./SongView";
-import CompareModal from "./CompareModal";
-import type { YouTubePlayerApi } from "./YouTubePlayer";
 
-// OMAKE タブ: The Ballad 楽曲のスタジオソロカバー（各ユニット公式チャンネルの単独動画）を
-// カード一覧で表示。タップで全編再生。同一曲が2版以上ある「逢いたくていま」だけ聴き比べ可。
-interface SongGroup {
-  songCore: string;
-  artist: string;
-  entries: OmakeEntry[];
-}
-
+// OMAKE タブ: The Ballad 楽曲のスタジオソロカバー（各ユニット公式チャンネルの単独動画）と、
+// 各会場ブロックの歌唱順抽選会（舞台裏）を一覧表示。いずれもタップで全編再生。
+// ※スタジオ収録のみで公演映像と混ざらないため、聴き比べ（同曲の別歌唱の切替）は置かない。
 export default function OmakeView({
   query,
   onPlay,
@@ -22,30 +14,15 @@ export default function OmakeView({
   query: string;
   onPlay: (v: VideoLink) => void;
 }) {
-  const [compare, setCompare] = useState<{ song: string; versions: VideoLink[] } | null>(null);
-  const playerRef = useRef<YouTubePlayerApi | null>(null);
-
-  // 同一曲でまとめる（登場順を維持）。ほとんどは1版、逢いたくていまだけ3版。
-  const groups = useMemo<SongGroup[]>(() => {
-    const map = new Map<string, SongGroup>();
-    for (const e of OMAKE) {
-      let g = map.get(e.songCore);
-      if (!g) {
-        g = { songCore: e.songCore, artist: e.artist, entries: [] };
-        map.set(e.songCore, g);
-      }
-      g.entries.push(e);
-    }
-    return [...map.values()];
-  }, []);
-
   const q = query.trim().toLowerCase();
-  const filtered = groups.filter((g) => {
+
+  const covers = OMAKE.filter((e) => {
     if (!q) return true;
     return (
-      g.songCore.toLowerCase().includes(q) ||
-      g.artist.toLowerCase().includes(q) ||
-      g.entries.some((e) => e.member.toLowerCase().includes(q) || e.channel.toLowerCase().includes(q))
+      e.songCore.toLowerCase().includes(q) ||
+      e.artist.toLowerCase().includes(q) ||
+      e.member.toLowerCase().includes(q) ||
+      e.channel.toLowerCase().includes(q)
     );
   });
 
@@ -60,57 +37,34 @@ export default function OmakeView({
     );
   });
 
-  if (filtered.length === 0 && chusen.length === 0) return <Empty videoOnly={false} />;
-
-  const total = filtered.reduce((n, g) => n + g.entries.length, 0);
+  if (covers.length === 0 && chusen.length === 0) return <Empty videoOnly={false} />;
 
   return (
     <div>
-      {filtered.length > 0 && (
+      {covers.length > 0 && (
         <p style={{ fontSize: "0.8125rem", color: C.meta, margin: "0 0 1rem", lineHeight: 1.6 }}>
           「Hello! Project 2020 Summer COVERS 〜The Ballad〜」で披露された楽曲の、公式チャンネル配信のスタジオソロカバーです。
         </p>
       )}
-      {filtered.length > 0 && <Count n={total} unit="曲" />}
-      {filtered.map((g) => {
-        const versions = g.entries.map(omakeVideo);
-        const multi = g.entries.length >= 2;
-        return (
-          <div key={g.songCore} style={{ marginBottom: multi ? "0.6rem" : 2 }}>
-            {g.entries.map((e) => (
-              <button key={e.videoId} onClick={() => onPlay(omakeVideo(e))} style={card}>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: "0.7rem", color: C.body, marginBottom: "0.15rem" }}>
-                    <Emph text={e.member} big="0.7rem" small="0.7rem" color={MEMBER_COLOR[e.member] || undefined} />
-                  </div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
-                    <span style={{ fontSize: "0.95rem", fontWeight: 700, color: C.ink }}>{e.songCore}</span>
-                    <span style={{ fontSize: "0.7rem", color: C.meta }}>{e.artist}</span>
-                  </div>
-                  <div style={{ fontSize: "0.625rem", color: C.faint, marginTop: "0.2rem", letterSpacing: "0.02em" }}>{e.channel}</div>
-                </div>
-                <span style={{ fontSize: "0.7rem", color: C.hair, flexShrink: 0 }}>▶</span>
-              </button>
-            ))}
-            {multi && (
-              <button
-                onClick={() => {
-                  // タップ(ジェスチャ)内で先頭版を音ありロード(iOS対策)してからモーダルを開く
-                  playerRef.current?.unMute();
-                  playerRef.current?.loadVideo(versions[0].videoId, { startSeconds: compareAnchor(versions[0].videoId, versions[0].startSec) });
-                  setCompare({ song: g.songCore, versions });
-                }}
-                style={compareBtn}
-              >
-                聴き比べ（{versions.length}）
-              </button>
-            )}
+      {covers.length > 0 && <Count n={covers.length} unit="曲" />}
+      {covers.map((e) => (
+        <button key={e.videoId} onClick={() => onPlay(omakeVideo(e))} style={card}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: "0.7rem", color: C.body, marginBottom: "0.15rem" }}>
+              <Emph text={e.member} big="0.7rem" small="0.7rem" color={MEMBER_COLOR[e.member] || undefined} />
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "0.95rem", fontWeight: 700, color: C.ink }}>{e.songCore}</span>
+              <span style={{ fontSize: "0.7rem", color: C.meta }}>{e.artist}</span>
+            </div>
+            <div style={{ fontSize: "0.625rem", color: C.faint, marginTop: "0.2rem", letterSpacing: "0.02em" }}>{e.channel}</div>
           </div>
-        );
-      })}
+          <span style={{ fontSize: "0.7rem", color: C.hair, flexShrink: 0 }}>▶</span>
+        </button>
+      ))}
 
       {chusen.length > 0 && (
-        <div style={{ marginTop: filtered.length > 0 ? "2rem" : 0 }}>
+        <div style={{ marginTop: covers.length > 0 ? "2rem" : 0 }}>
           <h2 style={{ fontSize: "0.8125rem", fontWeight: 700, color: C.ink, margin: "0 0 0.4rem", letterSpacing: "0.02em" }}>
             歌唱順抽選会
           </h2>
@@ -135,14 +89,6 @@ export default function OmakeView({
           ))}
         </div>
       )}
-
-      <CompareModal
-        visible={!!compare}
-        title={compare?.song ?? ""}
-        versions={compare?.versions ?? []}
-        playerRef={playerRef}
-        onClose={() => setCompare(null)}
-      />
     </div>
   );
 }
@@ -158,17 +104,4 @@ const card: React.CSSProperties = {
   border: "none",
   cursor: "pointer",
   textAlign: "left",
-};
-
-const compareBtn: React.CSSProperties = {
-  display: "block",
-  width: "100%",
-  padding: "0.6rem",
-  background: C.ink,
-  color: "#fff",
-  border: "none",
-  fontSize: "0.7rem",
-  fontWeight: 700,
-  letterSpacing: "0.04em",
-  cursor: "pointer",
 };
