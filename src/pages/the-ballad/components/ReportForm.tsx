@@ -93,7 +93,7 @@ export default function ReportForm({ video, onClose }: { video: VideoLink; onClo
               disabled={!issue || sending}
               style={{ ...btn, background: issue ? "#fff" : "#2a2a2a", color: issue ? "#000" : "#666", cursor: issue && !sending ? "pointer" : "default" }}
             >
-              {sending ? "送信中…" : "匿名で送信"}
+              {sending ? "送信中…" : "送信する"}
             </button>
             {failed && <p style={{ color: "#f88", fontSize: "0.7rem", margin: 0, textAlign: "center" }}>送信できませんでした。通信環境を確認してもう一度お試しください。</p>}
             <p style={{ color: C.meta, fontSize: "0.65rem", margin: 0, textAlign: "center" }}>お名前や連絡先は送信されません。</p>
