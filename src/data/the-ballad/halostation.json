@@ -44,14 +44,16 @@
     "songCore": "さよなら 大好きな人",
     "videoId": "Y_T1JBg0id0",
     "startSec": 404,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 633
   },
   {
     "member": "西田汐里",
     "songCore": "PRIDE",
     "videoId": "Y_T1JBg0id0",
     "startSec": 1900,
-    "date": "7/12 中野"
+    "date": "7/12 中野",
+    "endSec": 2122
   },
   {
     "member": "上國料萌衣",
@@ -106,7 +108,8 @@
     "songCore": "三日月",
     "videoId": "3TpwVD6kx9g",
     "startSec": 379,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 607
   },
   {
     "member": "秋山眞緒",
