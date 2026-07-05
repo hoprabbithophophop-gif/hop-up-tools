@@ -21,27 +21,29 @@ export default function ReportForm({ video, onClose }: { video: VideoLink; onClo
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [failed, setFailed] = useState(false);
   const date = SHOW_BY_NO.get(video.showNo)?.date ?? video.startLabel;
 
   const submit = async () => {
     if (!issue || sending) return;
     setSending(true);
-    try {
-      await getSupabase().from("ballad_reports").insert({
-        member: video.member,
-        song: video.songCore,
-        video_id: video.videoId,
-        start_sec: video.startSec,
-        show_date: date,
-        issue_type: issue,
-        note: note.trim() || null,
-        ua: typeof navigator !== "undefined" ? navigator.userAgent : null,
-      });
-    } catch {
-      /* 失敗しても再送を誘発しないよう、そのまま完了扱いにする */
+    setFailed(false);
+    const { error } = await getSupabase().from("ballad_reports").insert({
+      member: video.member,
+      song: video.songCore,
+      video_id: video.videoId,
+      start_sec: video.startSec,
+      show_date: date,
+      issue_type: issue,
+      note: note.trim() || null,
+      ua: typeof navigator !== "undefined" ? navigator.userAgent : null,
+    });
+    setSending(false);
+    if (error) {
+      setFailed(true); // 失敗をユーザーに見せる(黙って完了扱いにしない)
+      return;
     }
     setSent(true);
-    setSending(false);
   };
 
   return (
@@ -91,6 +93,7 @@ export default function ReportForm({ video, onClose }: { video: VideoLink; onClo
             >
               {sending ? "送信中…" : "匿名で送信"}
             </button>
+            {failed && <p style={{ color: "#f88", fontSize: "0.7rem", margin: 0, textAlign: "center" }}>送信できませんでした。通信環境を確認してもう一度お試しください。</p>}
             <p style={{ color: C.meta, fontSize: "0.65rem", margin: 0, textAlign: "center" }}>お名前や連絡先は送信されません。</p>
           </>
         )}
