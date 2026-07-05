@@ -4,7 +4,8 @@
     "songCore": "Jupiter",
     "videoId": "DaDerXi78U0",
     "startSec": 274,
-    "date": "7/12 中野"
+    "date": "7/12 中野",
+    "endSec": 492
   },
   {
     "member": "島倉りか",
@@ -19,7 +20,8 @@
     "songCore": "糸",
     "videoId": "j2eqLieiVxI",
     "startSec": 287,
-    "date": "7/12 中野"
+    "date": "7/12 中野",
+    "endSec": 495
   },
   {
     "member": "岡村ほまれ",
@@ -72,14 +74,16 @@
     "songCore": "カブトムシ",
     "videoId": "-vbiaou2JS0",
     "startSec": 219,
-    "date": "7/12 中野"
+    "date": "7/12 中野",
+    "endSec": 448
   },
   {
     "member": "里吉うたの",
     "songCore": "赤い風船",
     "videoId": "-vbiaou2JS0",
     "startSec": 1833,
-    "date": "7/12 中野"
+    "date": "7/12 中野",
+    "endSec": 2043
   },
   {
     "member": "段原瑠々",
@@ -94,7 +98,8 @@
     "songCore": "366日",
     "videoId": "OhTzIzr6pRY",
     "startSec": 244,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 452
   },
   {
     "member": "佐々木莉佳子",
@@ -131,7 +136,8 @@
     "songCore": "プラネタリウム",
     "videoId": "GL2N6H9orQI",
     "startSec": 281,
-    "date": "7/12 中野"
+    "date": "7/12 中野",
+    "endSec": 494
   },
   {
     "member": "羽賀朱音",
@@ -146,14 +152,16 @@
     "songCore": "僕は君に恋をする",
     "videoId": "BDVajzlA-A4",
     "startSec": 571,
-    "date": "7/12 中野"
+    "date": "7/12 中野",
+    "endSec": 762
   },
   {
     "member": "船木結",
     "songCore": "大阪で生まれた女",
     "videoId": "BDVajzlA-A4",
     "startSec": 1950,
-    "date": "7/12 中野"
+    "date": "7/12 中野",
+    "endSec": 2154
   },
   {
     "member": "森戸知沙希",
@@ -168,7 +176,8 @@
     "songCore": "会いたくて 会いたくて",
     "videoId": "FWuFOm-WOvQ",
     "startSec": 449,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 663
   },
   {
     "member": "橋迫鈴",
@@ -191,14 +200,16 @@
     "songCore": "海の声",
     "videoId": "ke4k00H1-kk",
     "startSec": 1770,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 1986
   },
   {
     "member": "北川莉央",
     "songCore": "やさしさで溢れるように",
     "videoId": "xT1DKs1sWOs",
     "startSec": 1560,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 1765
   },
   {
     "member": "工藤由愛",
@@ -221,28 +232,32 @@
     "songCore": "見上げてごらん夜の星を",
     "videoId": "3bvGna32s78",
     "startSec": 1215,
-    "date": "8/23 中野"
+    "date": "8/23 中野",
+    "endSec": 1454
   },
   {
     "member": "伊勢鈴蘭",
     "songCore": "いい日旅立ち",
     "videoId": "YI9BNNe_zxo",
     "startSec": 1355,
-    "date": "10/12 武道館"
+    "date": "10/12 武道館",
+    "endSec": 1615
   },
   {
     "member": "横山玲奈",
     "songCore": "TOMORROW",
     "videoId": "_1ZM8rLn9Iw",
     "startSec": 1615,
-    "date": "10/12 武道館"
+    "date": "10/12 武道館",
+    "endSec": 1810
   },
   {
     "member": "一岡伶奈",
     "songCore": "明日への手紙",
     "videoId": "7_iAgMT3Se4",
     "startSec": 1289,
-    "date": "9/5 八王子"
+    "date": "9/5 八王子",
+    "endSec": 1492
   },
   {
     "member": "江口紗耶",
