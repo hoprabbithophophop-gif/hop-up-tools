@@ -49,8 +49,8 @@ export default function ReportForm({ video, onClose }: { video: VideoLink; onClo
   };
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.74)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.2rem", zIndex: 1100 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 420, background: "#000", padding: "1.3rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 1100 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 560, background: "#000", padding: "1.2rem 1.3rem calc(1.2rem + env(safe-area-inset-bottom))", display: "flex", flexDirection: "column", gap: "0.9rem", maxHeight: "60vh", overflowY: "auto", borderTop: "1px solid #333" }}>
         {sent ? (
           <>
             <p style={{ color: "#fff", fontSize: "0.9rem", fontWeight: 700, margin: 0 }}>ありがとうございました</p>
