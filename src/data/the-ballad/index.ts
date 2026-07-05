@@ -189,7 +189,7 @@ export const SHOW_BY_NO = new Map<string, Show>(SHOWS.map((s) => [s.no, s]));
 
 // スケジュールシートの出演者に名前がある「個人」だけの集合。
 // MEMBERS（メンバーで探す）は個人のみに絞る。全員/ユニット①〜⑥/グループ名/
-// デュエット/上々軍団 はここに含まれない（SONGS・SHOWSには残る）。
+// デュエット はここに含まれない（SONGS・SHOWSには残る）。
 export const INDIVIDUAL_MEMBERS = new Set<string>(SHOWS.flatMap((s) => s.performers));
 
 // スプレッドシート「出演者(横軸)」の並び（所属ユニット順）。MEMBERS の表示順に使う。
