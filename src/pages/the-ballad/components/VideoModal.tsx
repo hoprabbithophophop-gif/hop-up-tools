@@ -34,9 +34,12 @@ export default function VideoModal({
 }) {
   const requestClose = () => window.history.back();
   const [showReport, setShowReport] = useState(false);
-  // 閉じたら映像なしで音だけ鳴り続けないよう一時停止(規約対策)
+  // 閉じたら映像なしで音だけ鳴り続けないよう一時停止(規約対策)＋報告フォームを畳む
   useEffect(() => {
-    if (!visible) playerRef.current?.pause();
+    if (!visible) {
+      playerRef.current?.pause();
+      setShowReport(false);
+    }
   }, [visible, playerRef]);
 
   const show = video ? SHOW_BY_NO.get(video.showNo) : undefined;
@@ -49,7 +52,7 @@ export default function VideoModal({
         inset: 0,
         background: "rgba(0,0,0,0.72)",
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         justifyContent: "center",
         padding: "1.2rem",
         zIndex: 1000,
@@ -59,9 +62,13 @@ export default function VideoModal({
       }}
     >
       {visible && <BackClose onClose={onClose} />}
-      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 880 }}>
+      {/* maxHeight: svh=ブラウザUI(アドレスバー/ツールバー)表示時の可視高。safe-area分も引きノッチ機でも収める */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 880, maxHeight: "calc(100svh - 2.4rem - env(safe-area-inset-bottom))", display: "flex", flexDirection: "column" }}
+      >
         {video && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "0.6rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "0.6rem", flexShrink: 0 }}>
             <div>
               <p style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#c6c6c6", margin: 0 }}>
                 <MemberEmph member={video.member} big="0.6875rem" small="0.6875rem" inkColor="#c6c6c6" />
@@ -81,28 +88,36 @@ export default function VideoModal({
           </div>
         )}
 
-        <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#000" }}>
+        {/* 動画は常に上部に固定 */}
+        <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#000", flexShrink: 0 }}>
           <div style={{ position: "absolute", inset: 0 }}>
             <YouTubePlayer ref={playerRef} containerId="ballad-single-player" />
           </div>
         </div>
 
+        {/* 動画の下: 既定は説明＋報告ボタン。報告フォームを開いたらここにインライン展開し、
+            残りスペース内でスクロール（動画には重ならない）。 */}
         {video && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "0.8rem", margin: "0.6rem 0 0" }}>
-            <p style={{ fontSize: "0.625rem", color: "rgba(255,255,255,0.45)", margin: 0, lineHeight: 1.5, flex: 1 }}>
-              {video.caption
-                ?? "公式ダイジェスト映像の該当箇所を再生しています（抜粋のため曲の全編が含まれない場合があります）。"}
-            </p>
-            <button
-              onClick={() => setShowReport(true)}
-              style={{ flexShrink: 0, padding: "0.4rem 0.6rem", background: "#241414", color: "#d3a", border: "none", fontSize: "0.6rem", cursor: "pointer", whiteSpace: "nowrap" }}
-            >
-              ⚠ 再生がおかしい
-            </button>
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", marginTop: "0.6rem" }}>
+            {showReport ? (
+              <ReportForm video={video} onClose={() => setShowReport(false)} inline />
+            ) : (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "0.8rem" }}>
+                <p style={{ fontSize: "0.625rem", color: "rgba(255,255,255,0.45)", margin: 0, lineHeight: 1.5, flex: 1 }}>
+                  {video.caption
+                    ?? "公式ダイジェスト映像の該当箇所を再生しています（抜粋のため曲の全編が含まれない場合があります）。"}
+                </p>
+                <button
+                  onClick={() => setShowReport(true)}
+                  style={{ flexShrink: 0, padding: "0.4rem 0.6rem", background: "#241414", color: "#d3a", border: "none", fontSize: "0.6rem", cursor: "pointer", whiteSpace: "nowrap" }}
+                >
+                  ⚠ 再生がおかしい
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
-      {video && showReport && <ReportForm video={video} onClose={() => setShowReport(false)} />}
     </div>
   );
 }
