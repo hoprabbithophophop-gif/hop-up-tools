@@ -104,13 +104,15 @@ export default function ShowView({
                 <p style={{ fontSize: "0.7rem", color: C.meta, margin: "0.15rem 0 0" }}>{s.venue}（{s.pref}）</p>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                {s.hasVideo && <span style={dot} aria-label="公式映像あり" />}
+                {s.hasVideo && <span style={playMark} aria-label="公式映像あり" />}
                 <span style={{ fontSize: "0.7rem", color: C.faint, fontWeight: 700 }}>{s.entries.length}曲</span>
                 <span style={{ color: C.hair, fontSize: "0.8rem" }}>{isOpen ? "−" : "+"}</span>
               </div>
             </button>
             <Accordion open={isOpen}>
               <div style={{ padding: "0 1.4rem 1rem" }}>
+                {/* SHOWSは公演のセトリ全体を見る場所。「動画あり」は公演単位フィルタ(動画ゼロ公演を隠す)のみで、
+                    開いた中は常に全曲を出す(歯抜けにしない)。動画のある曲に▶が付くだけ。 */}
                 {s.entries.map((x, i) => (
                   <div key={i} style={entryRow}>
                     <span style={{ fontSize: "0.7rem", color: C.hair, fontWeight: 700, width: "1.6rem", flexShrink: 0 }}>
@@ -168,4 +170,12 @@ const entryRow: React.CSSProperties = {
   padding: "0.4rem 0",
   borderTop: `1px solid ${C.line}`,
 };
-const dot: React.CSSProperties = { width: 6, height: 6, background: "#000", display: "inline-block" };
+// 「公式映像あり」の印。再生ボタン的な右向き三角（border で作図＝角丸0pxデザインに合わせ、フォント非依存）
+const playMark: React.CSSProperties = {
+  width: 0,
+  height: 0,
+  borderTop: "4px solid transparent",
+  borderBottom: "4px solid transparent",
+  borderLeft: "6px solid #000",
+  display: "inline-block",
+};

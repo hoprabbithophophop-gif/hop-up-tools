@@ -1,21 +1,27 @@
 import { useMemo, useState, Fragment } from "react";
-import { SETLIST, findVideo, INDIVIDUAL_MEMBERS, MEMBER_ORDER_INDEX, MEMBER_GROUP, MEMBER_COLOR, haloVideos } from "@/data/the-ballad";
+import { SETLIST, findVideo, INDIVIDUAL_MEMBERS, MEMBER_ORDER_INDEX, MEMBER_GROUP, MEMBER_COLOR, haloVideos, SHOW_BY_NO, showSortKey } from "@/data/the-ballad";
 import type { VideoLink } from "@/data/the-ballad";
 import { C } from "../ui";
-import VideoChips from "./VideoChips";
+import PlayChip from "./PlayChip";
+import ShareChip from "./ShareChip";
 import { Emph } from "./Emph";
 import { Accordion } from "./Accordion";
 import { Count, Empty } from "./SongView";
 
+interface Occasion {
+  showNo: string;
+  video?: VideoLink; // その公演の公式映像（無ければ undefined）
+}
 interface SongOfMember {
   songCore: string;
   artist: string;
-  count: number;
-  videos: VideoLink[];
+  count: number;         // 歌った公演数（= occasions.length）
+  occasions: Occasion[]; // 歌った公演（日付順）
+  haloVids: VideoLink[]; // ハロ！ステ等、公演に紐付かない公式歌唱
+  hasVideo: boolean;
 }
 interface MemberAgg {
   member: string;
-  total: number;
   songs: SongOfMember[];
   hasVideo: boolean;
 }
@@ -30,45 +36,57 @@ export default function MemberView({
   onPlay: (v: VideoLink) => void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  // 曲の公演内訳は同時に1つだけ開く（別の曲を開くと前のは閉じる）
+  const [openSong, setOpenSong] = useState<string | null>(null);
+
+  const toggleSong = (key: string) => setOpenSong((prev) => (prev === key ? null : key));
 
   const members = useMemo<MemberAgg[]>(() => {
     const map = new Map<string, MemberAgg>();
     for (const e of SETLIST) {
       let m = map.get(e.member);
       if (!m) {
-        m = { member: e.member, total: 0, songs: [], hasVideo: false };
+        m = { member: e.member, songs: [], hasVideo: false };
         map.set(e.member, m);
       }
-      m.total++;
       let s = m.songs.find((x) => x.songCore === e.songCore);
       if (!s) {
-        s = { songCore: e.songCore, artist: e.artist, count: 0, videos: [] };
+        s = { songCore: e.songCore, artist: e.artist, count: 0, occasions: [], haloVids: [], hasVideo: false };
         m.songs.push(s);
       }
-      s.count++;
-      const v = findVideo(e.showNo, e.member, e.songCore);
-      if (v && !s.videos.some((x) => x.showNo === v.showNo)) {
-        s.videos.push(v);
-        m.hasVideo = true;
+      // 同一公演は1回（昼夜別公演はそれぞれ別 showNo）
+      if (!s.occasions.some((o) => o.showNo === e.showNo)) {
+        const v = findVideo(e.showNo, e.member, e.songCore);
+        s.occasions.push({ showNo: e.showNo, video: v });
+        if (v) {
+          s.hasVideo = true;
+          m.hasVideo = true;
+        }
       }
     }
     // MEMBERS はスケジュールに名前のある「個人」のみ（全員/ユニット/グループ/デュエットは除外）
     const arr = [...map.values()].filter((m) => INDIVIDUAL_MEMBERS.has(m.member));
-    arr.forEach((m) => m.songs.sort((a, b) => b.count - a.count || a.songCore.localeCompare(b.songCore, "ja")));
-    // スプレッドシート「出演者(横軸)」の並び順（所属ユニット順）に合わせる
-    arr.sort((a, b) =>
-      (MEMBER_ORDER_INDEX.get(a.member) ?? 9999) - (MEMBER_ORDER_INDEX.get(b.member) ?? 9999)
-    );
     // ハロ！ステの公式歌唱（メンバー×曲）を各曲に足す
     arr.forEach((m) =>
       m.songs.forEach((s) => {
         const hv = haloVideos(m.member, s.songCore);
         if (hv.length) {
-          s.videos.push(...hv);
+          s.haloVids.push(...hv);
+          s.hasVideo = true;
           m.hasVideo = true;
         }
       })
     );
+    // occasions を日付順に、曲の公演数を確定してから曲を並べ替え
+    arr.forEach((m) => {
+      m.songs.forEach((s) => {
+        s.occasions.sort((a, b) => showSortKey(a.showNo) - showSortKey(b.showNo));
+        s.count = s.occasions.length;
+      });
+      m.songs.sort((a, b) => b.count - a.count || a.songCore.localeCompare(b.songCore, "ja"));
+    });
+    // スプレッドシート「出演者(横軸)」の並び順（所属ユニット順）に合わせる
+    arr.sort((a, b) => (MEMBER_ORDER_INDEX.get(a.member) ?? 9999) - (MEMBER_ORDER_INDEX.get(b.member) ?? 9999));
     return arr;
   }, []);
 
@@ -94,6 +112,7 @@ export default function MemberView({
         const prevGrp = i > 0 ? (MEMBER_GROUP[filtered[i - 1].member] || "").split("/")[0] : "";
         // 見出しと重複しないよう、各行にはサブユニット（CHICA#TETSU 等）だけ出す
         const sub = (MEMBER_GROUP[m.member] || "").split("/").slice(1).join("/");
+        const songs = m.songs.filter((s) => !videoOnly || s.hasVideo);
         return (
           <Fragment key={m.member}>
             {grp && grp !== prevGrp && <GroupHeader label={grp} />}
@@ -108,22 +127,63 @@ export default function MemberView({
                 )}
               </span>
               <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                {m.hasVideo && <span style={dot} aria-label="公式映像あり" />}
-                <span style={{ fontSize: "0.7rem", color: C.faint, fontWeight: 700 }}>{m.songs.length}曲</span>
+                {m.hasVideo && <span style={playMark} aria-label="公式映像あり" />}
+                <span style={{ fontSize: "0.7rem", color: C.faint, fontWeight: 700 }}>{songs.length}曲</span>
                 <span style={{ color: C.hair, fontSize: "0.8rem" }}>{isOpen ? "−" : "+"}</span>
               </div>
             </button>
             <Accordion open={isOpen}>
               <div style={{ padding: "0 1.4rem 1rem" }}>
-                {m.songs.map((s) => (
-                  <div key={s.songCore} style={songRow}>
-                    <span style={{ fontSize: "0.8rem", color: C.body }}>{s.songCore}</span>
-                    {s.artist && <span style={{ fontSize: "0.65rem", color: C.meta }}>{s.artist}</span>}
-                    {s.count > 1 && <span style={{ fontSize: "0.7rem", color: C.faint }}>×{s.count}</span>}
-                    <span style={{ flex: 1 }} />
-                    <VideoChips videos={s.videos} onPlay={onPlay} />
-                  </div>
-                ))}
+                {songs.map((s) => {
+                  const sk = m.member + "|" + s.songCore;
+                  const isSongOpen = openSong === sk;
+                  // 「動画あり」ON時は、その公演に映像がある行だけ（ハロ！ステは常に映像）
+                  const occ = videoOnly ? s.occasions.filter((o) => o.video) : s.occasions;
+                  return (
+                    <div key={s.songCore} style={{ borderTop: `1px solid ${C.line}` }}>
+                      <button onClick={() => toggleSong(sk)} style={songRowBtn}>
+                        <span style={{ fontSize: "0.8rem", color: C.body }}>{s.songCore}</span>
+                        {s.artist && <span style={{ fontSize: "0.65rem", color: C.meta }}>{s.artist}</span>}
+                        <span style={{ fontSize: "0.7rem", color: C.faint }}>×{s.count}</span>
+                        <span style={{ flex: 1 }} />
+                        {s.hasVideo && <span style={playMark} aria-label="公式映像あり" />}
+                        <span style={{ color: C.hair, fontSize: "0.8rem" }}>{isSongOpen ? "−" : "+"}</span>
+                      </button>
+                      <Accordion open={isSongOpen}>
+                        <div style={{ padding: "0 0 0.5rem" }}>
+                          {occ.map((o) => {
+                            const sh = SHOW_BY_NO.get(o.showNo);
+                            return (
+                              <div key={o.showNo} style={occasionRow}>
+                                <span style={{ fontSize: "0.75rem", color: C.body, whiteSpace: "nowrap" }}>
+                                  {sh ? `${sh.date} ${sh.start}` : `No.${o.showNo}`}
+                                </span>
+                                {sh && <span style={{ fontSize: "0.65rem", color: C.meta }}>{sh.venue}</span>}
+                                <span style={{ flex: 1 }} />
+                                {o.video && (
+                                  <span style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
+                                    <PlayChip video={o.video} onPlay={onPlay} />
+                                    <ShareChip video={o.video} />
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {m.hasVideo && s.haloVids.map((v) => (
+                            <div key={v.videoId} style={occasionRow}>
+                              <span style={{ fontSize: "0.75rem", color: C.body, whiteSpace: "nowrap" }}>{v.startLabel}</span>
+                              <span style={{ flex: 1 }} />
+                              <span style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
+                                <PlayChip video={v} onPlay={onPlay} />
+                                <ShareChip video={v} />
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </Accordion>
+                    </div>
+                  );
+                })}
               </div>
             </Accordion>
           </div>
@@ -154,12 +214,30 @@ const rowBtn: React.CSSProperties = {
   cursor: "pointer",
   textAlign: "left",
 };
-const songRow: React.CSSProperties = {
+const songRowBtn: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: "0.5rem",
   flexWrap: "wrap",
-  padding: "0.4rem 0",
-  borderTop: `1px solid ${C.line}`,
+  width: "100%",
+  padding: "0.55rem 0",
+  background: "transparent",
+  border: "none",
+  cursor: "pointer",
+  textAlign: "left",
 };
-const dot: React.CSSProperties = { width: 6, height: 6, background: "#000", display: "inline-block" };
+const occasionRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.5rem",
+  flexWrap: "wrap",
+  padding: "0.35rem 0 0.35rem 0.8rem",
+};
+const playMark: React.CSSProperties = {
+  width: 0,
+  height: 0,
+  borderTop: "4px solid transparent",
+  borderBottom: "4px solid transparent",
+  borderLeft: "6px solid #000",
+  display: "inline-block",
+};

@@ -187,6 +187,18 @@ export function chusenVideo(e: ChusenEntry): VideoLink {
 
 export const SHOW_BY_NO = new Map<string, Show>(SHOWS.map((s) => [s.no, s]));
 
+/** 公演を「月→日→開演時刻」で時系列に並べる数値キー（未知の公演は末尾）。SONGS/MEMBERSの公演内訳の並びに使う。 */
+export function showSortKey(showNo: string): number {
+  const s = SHOW_BY_NO.get(showNo);
+  if (!s) return Number.MAX_SAFE_INTEGER;
+  const md = s.date.match(/(\d+)\/(\d+)/);
+  const month = md ? Number(md[1]) : 99;
+  const day = md ? Number(md[2]) : 99;
+  const t = s.start.match(/(\d+):(\d+)/);
+  const mins = t ? Number(t[1]) * 60 + Number(t[2]) : 0;
+  return (month * 100 + day) * 10000 + mins;
+}
+
 // スケジュールシートの出演者に名前がある「個人」だけの集合。
 // MEMBERS（メンバーで探す）は個人のみに絞る。全員/ユニット①〜⑥/グループ名/
 // デュエット はここに含まれない（SONGS・SHOWSには残る）。
