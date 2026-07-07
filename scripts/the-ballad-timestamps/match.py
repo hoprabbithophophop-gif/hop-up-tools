@@ -16,6 +16,8 @@ import os, re, json, unicodedata
 WORK = os.environ.get("TB_WORK", ".")
 DATA = os.environ.get("TB_DATA", os.path.join("src", "data", "the-ballad"))
 DETECT = os.path.join(WORK, "detect.jsonl")
+# ダイジェストのタイトル会場(英語)→日本語会場名の対応（同時刻・複数会場の取り違え防止に使う）
+VENUE_MAP = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "venueMap.json"), encoding="utf-8"))
 
 
 def norm_song(s: str) -> str:
@@ -36,6 +38,14 @@ def parse_show_date(date_str: str):
     return (int(m.group(1)), int(m.group(2))) if m else (None, None)
 
 
+def title_venue(title: str):
+    """タイトルの会場名(英語)を venueMap で日本語会場名へ。会場名に「・」があっても全体を取る。無ければ None。"""
+    m = re.search(r"[・･·]\s*(.+?)[-–\s]*Diges", title or "", re.I)
+    if not m:
+        return None
+    return VENUE_MAP.get(re.sub(r"[^a-z0-9]", "", m.group(1).lower()))
+
+
 def main():
     with open(os.path.join(DATA, "shows.json"), encoding="utf-8") as f:
         shows = json.load(f)
@@ -45,6 +55,10 @@ def main():
     # showNo -> (month, day) / 開演時刻
     show_md = {s["no"]: parse_show_date(s["date"]) for s in shows}
     show_start = {s["no"]: (s.get("start") or "").strip() for s in shows}
+    # 会場名 -> その会場の公演番号集合（同時刻・別会場の動画を取り違えないための会場照合）
+    venue_shows = {}
+    for s in shows:
+        venue_shows.setdefault(s["venue"], set()).add(s["no"])
 
     # (md, normMember, normSong) -> list of {showNo, songCore, start}
     index = {}
@@ -81,12 +95,16 @@ def main():
             tl = re.search(r"Start\s*([0-9]{1,2}:[0-9]{2}(?:/[0-9]{1,2}:[0-9]{2})?)", rec.get("title", ""))
             time_label = tl.group(1) if tl else (rec.get("start") or "")
             start_set = set(time_label.split("/")) if time_label else set()
+            # この動画のタイトル会場に一致する公演だけに絞る（同時刻・複数会場の誤爆防止）
+            allowed = venue_shows.get(title_venue(rec.get("title", "")))
             songs = rec.get("songs", [])
             starts = rec.get("starts", [])
             for song, start in zip(songs, starts):
                 stats["song_rows"] += 1
                 key = (md, norm_member(song["member"]), norm_song(song["song"]))
                 cands = index.get(key)
+                if cands and allowed is not None:
+                    cands = [c for c in cands if c["showNo"] in allowed]
                 # 開演時刻で公演を特定（合体版は両方にマッチ）。
                 # ただし開演が1つも一致しない場合は日付一致で拾う（公演番号が重複している
                 # show36=10/10オリックス昼夜のような元データのクセを救済）。
