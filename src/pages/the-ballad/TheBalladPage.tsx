@@ -70,7 +70,7 @@ export default function TheBalladPage() {
     });
 
   useEffect(() => {
-    document.title = "歌唱曲データベース | hop-up-tools";
+    document.title = "The Balladデータベース | hop-up-tools";
   }, []);
 
   const placeholder =
@@ -88,7 +88,7 @@ export default function TheBalladPage() {
         </Link>
         <p style={{ ...labelStyle, margin: "0 0 0.4rem" }}>The Ballad</p>
         <h1 style={{ fontSize: "2rem", fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1.05, color: C.ink, margin: 0 }}>
-          歌唱曲データベース
+          The Balladデータベース
         </h1>
         <p style={{ fontSize: "0.8125rem", color: C.meta, margin: "0.8rem 0 0", lineHeight: 1.5 }}>
           Hello! Project 2020 〜The Ballad〜 秋ツアーで歌われた{SHOWS.length}公演・{SETLIST.length}曲のソロカバーを、曲・メンバー・公演から検索できます。公式ダイジェスト映像のある曲はその箇所から再生できます。

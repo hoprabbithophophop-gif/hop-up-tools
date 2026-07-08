@@ -23,7 +23,7 @@ const TOOLS: { to: string; num: string; section: string; title: string; desc: st
     to:      "/the-ballad",
     num:     "03",
     section: "THE BALLAD",
-    title:   "歌唱曲データベース",
+    title:   "The Balladデータベース",
     desc:    "2020 The Ballad 公演の歌唱曲・歌唱者・公式映像を検索",
   },
 ];
