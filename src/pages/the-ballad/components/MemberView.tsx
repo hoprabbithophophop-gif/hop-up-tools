@@ -137,8 +137,12 @@ export default function MemberView({
                 {songs.map((s) => {
                   const sk = m.member + "|" + s.songCore;
                   const isSongOpen = openSong === sk;
-                  // 「動画あり」ON時は、その公演に映像がある行だけ（ハロ！ステは常に映像）
+                  // 「動画あり」ON時は映像のある行だけ
                   const occ = videoOnly ? s.occasions.filter((o) => o.video) : s.occasions;
+                  // 昼夜まとめ等、同じ動画が複数公演にある場合、公演の記載は各行に残しつつ、
+                  // ボタンは最後の公演（夜）の下に1つだけ出す（同じ映像でのぬか喜び防止）
+                  const lastVidIdx = new Map<string, number>();
+                  occ.forEach((o, i) => { if (o.video) lastVidIdx.set(o.video.videoId, i); });
                   return (
                     <div key={s.songCore} style={{ borderTop: `1px solid ${C.line}` }}>
                       <button onClick={() => toggleSong(sk)} style={songRowBtn}>
@@ -151,17 +155,17 @@ export default function MemberView({
                       </button>
                       <Accordion open={isSongOpen}>
                         <div style={{ padding: "0 0 0.5rem" }}>
-                          {occ.map((o) => {
+                          {occ.map((o, i) => {
                             const sh = SHOW_BY_NO.get(o.showNo);
+                            const isLastOfVid = o.video ? lastVidIdx.get(o.video.videoId) === i : false;
                             return (
                               <div key={o.showNo} style={occasionRow}>
                                 <span style={{ fontSize: "0.75rem", color: C.body, whiteSpace: "nowrap" }}>
                                   {sh ? `${sh.date} ${sh.start}` : `No.${o.showNo}`}
                                 </span>
                                 {sh && <span style={{ fontSize: "0.65rem", color: C.meta }}>{sh.venue}</span>}
-                                <span style={{ flex: 1 }} />
-                                {o.video && (
-                                  <span style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
+                                {o.video && isLastOfVid && (
+                                  <span style={{ flexBasis: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.3rem", marginTop: "0.15rem" }}>
                                     <PlayChip video={o.video} onPlay={onPlay} />
                                     <ShareChip video={o.video} />
                                   </span>
@@ -172,8 +176,7 @@ export default function MemberView({
                           {m.hasVideo && s.haloVids.map((v) => (
                             <div key={v.videoId} style={occasionRow}>
                               <span style={{ fontSize: "0.75rem", color: C.body, whiteSpace: "nowrap" }}>{v.startLabel}</span>
-                              <span style={{ flex: 1 }} />
-                              <span style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
+                              <span style={{ flexBasis: "100%", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.3rem", marginTop: "0.15rem" }}>
                                 <PlayChip video={v} onPlay={onPlay} />
                                 <ShareChip video={v} />
                               </span>
