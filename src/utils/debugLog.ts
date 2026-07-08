@@ -35,15 +35,25 @@ function saveIncident(obj: unknown): void {
     if (arr.length > INC_MAX) arr.splice(0, arr.length - INC_MAX);
     localStorage.setItem("tb_incidents", JSON.stringify(arr));
   } catch { /* quota等は無視 */ }
-  // TODO(公開時): ここで Supabase にも POST してサーバ側で追跡する。
-  //   fetch(`${SUPABASE_URL}/rest/v1/tb_incidents`, {
-  //     method: "POST",
-  //     headers: { apikey: KEY, Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" },
-  //     body: JSON.stringify(obj),
-  //   }).catch(() => {});
 }
 
-/** 異常発生。直近バッファ＋3秒後の追撃分をスナップショットして保存。 */
+// Supabase(tb_incidents)へ自動送信。RLSで anon INSERT のみ許可、閲覧は service_role(MCP)。
+// 端末のlocalStorageだけだと現物を貰えないので、発生時にサーバ側へも飛ばして追跡できるようにする。
+function postIncident(snap: Record<string, unknown>): void {
+  try {
+    const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+    if (!url || !key) return;
+    const { log, reason, ua, ...detail } = snap;
+    fetch(`${url}/rest/v1/tb_incidents`, {
+      method: "POST",
+      headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({ reason, ua, detail, log }),
+    }).catch(() => { /* ネットワーク不通は無視（記録は best-effort） */ });
+  } catch { /* ignore */ }
+}
+
+/** 異常発生。直近バッファ＋3秒後の追撃分をスナップショットし、localStorageとSupabaseの両方へ保存。 */
 export function reportIncident(reason: string, extra?: Data): void {
   const snap = (suffix = "") => ({
     at: new Date().toISOString(),
@@ -52,13 +62,15 @@ export function reportIncident(reason: string, extra?: Data): void {
     ...(extra || {}),
     log: RING.slice(-40),
   });
-  saveIncident(snap());
+  const first = snap();
+  saveIncident(first);
+  postIncident(first);
   if (debugOn()) {
     // eslint-disable-next-line no-console
     console.warn("[tb] incident:", reason, extra ?? "");
   }
   // automute後に回復したか等、直後3秒の追撃スナップ
-  setTimeout(() => saveIncident(snap(":+3s")), 3000);
+  setTimeout(() => { const s = snap(":+3s"); saveIncident(s); postIncident(s); }, 3000);
 }
 
 /** 同一 reason は既定10秒に1回だけ（乱発防止）。 */

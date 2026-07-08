@@ -11,6 +11,7 @@ const ISSUES = [
   { key: "before_prev", label: "始まる前に前の曲が入る" },
   { key: "after_next", label: "終わりに次の曲が入る" },
   { key: "wrong", label: "全く別の曲が始まる" },
+  { key: "audio_stop", label: "音だけ止まる（映像は続く）" },
   { key: "other", label: "その他" },
 ];
 

@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import LoadingDots from "../../hi-tension/components/LoadingDots";
+import { tbLog, reportIncidentThrottled } from "@/utils/debugLog";
 
 // 聴き比べ用の1枚プレイヤー。hi-tension の YouTubePlayer を流用（CONTAINER_ID と LoadingDots パスのみ変更）。
 // iOS対策の要: 再生開始/動画切替はユーザーのタップハンドラ内で同期的に loadVideo/unMute を呼ぶこと。
@@ -87,12 +88,25 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
     const stopPolling = () => {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     };
+    let muteChk = 0;
     const startPolling = () => {
       stopPolling();
+      muteChk = 0;
       pollRef.current = setInterval(() => {
         const p = playerRef.current;
         if (!p) return;
         try { onTimeUpdateRef.current?.(p.getCurrentTime()); } catch { /* ignore */ }
+        // automute監視(約1秒毎): 再生中(PLAYING)なのに勝手にミュートされたら記録＋自動で音を戻す(iOSの保険)
+        if (++muteChk >= 10) {
+          muteChk = 0;
+          try {
+            if (p.getPlayerState?.() === 1 && p.isMuted?.()) {
+              reportIncidentThrottled("automute", { t: Math.round((p.getCurrentTime?.() ?? 0) * 10) / 10 });
+              p.unMute();
+              tbLog("automute-recover");
+            }
+          } catch { /* ignore */ }
+        }
       }, POLL_MS);
     };
 
