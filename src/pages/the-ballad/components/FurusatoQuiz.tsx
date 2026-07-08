@@ -161,9 +161,8 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
     >
       {visible && <BackClose onClose={onClose} />}
       <div style={{ maxWidth: 460, margin: "0 auto", padding: "1.6rem 1.4rem 3.2rem", minHeight: "100%", boxSizing: "border-box" }}>
-        {/* ヘッダー */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.2rem" }}>
-          <p style={labelStyle}>Furusato Intro-Don</p>
+        {/* ヘッダー（閉じるのみ。タイトルは起動画面の日本語大見出しに集約） */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: "1.2rem" }}>
           <button onClick={() => window.history.back()} aria-label="閉じる" style={{ background: "transparent", border: "none", color: C.faint, fontSize: "1rem", cursor: "pointer", padding: "0.2rem 0.4rem" }}>✕</button>
         </div>
 
