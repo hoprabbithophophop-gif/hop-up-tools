@@ -225,7 +225,7 @@ export function showLabel(s: Show): string {
   return `${s.date} ${s.start} ${s.venue}`.trim();
 }
 
-// ふるさとイントロドン用: 各公演のダイジェスト内「ふるさと」全員合唱パートのサビ区間(ロゴ除外済み)＋編成人数＋出演メンバー。
+// 「どの公演のふるさと？」用: 各公演のダイジェスト内「ふるさと」全員合唱パートのサビ区間(ロゴ除外済み)＋編成人数＋出演メンバー。
 export interface FurusatoShow {
   videoId: string;
   showNo: string;

@@ -1,4 +1,4 @@
-// The Ballad ふるさとイントロドン（OMAKEから起動するモーダルクイズ）
+// The Ballad「どの公演のふるさと？」（OMAKEから起動するモーダルクイズ。内部名は Furusato のまま）
 // 各公演のダイジェスト内「ふるさと」全員合唱パート(サビ29秒前後・ロゴ除外済み)を流し、
 // 歌声と衣装から「どの公演か」を3択で当てる。編成(4→6→8人)で難易度が上がる。全10問。
 // 見た目は docs/DESIGN.md 準拠（黒アクセント / オフホワイト背景 / 角丸0 / ボーダーなし / 英大文字ラベル）。
@@ -69,7 +69,7 @@ function buildQuestions(): Question[] {
 // X(旧Twitter)シェア。文面は暫定(hop確認まで最小限・ハッシュタグなし)。Web Intent方式。
 const SHARE_URL = "https://hop-up-tools.pages.dev/the-ballad";
 function shareToX(ok: number, total: number) {
-  const text = ["The Ballad ふるさとイントロドン", `${total}問中 ${ok}問正解`, "#TheBalladふるさとイントロドン", SHARE_URL].join("\n");
+  const text = ["The Ballad「どの公演のふるさと？」", `${total}問中 ${ok}問正解`, "#TheBalladどのふるさと", SHARE_URL].join("\n");
   window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
 }
 
@@ -86,9 +86,7 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
   const [picked, setPicked] = useState<string | null>(null);
   const [results, setResults] = useState<{ q: Question; picked: string; ok: boolean }[]>([]);
   // 回答するまでサビをリピート再生するための参照(onEnded内で最新値を見る)
-  const pickedRef = useRef<string | null>(null);
   const currentQRef = useRef<Question | null>(null);
-  useEffect(() => { pickedRef.current = picked; }, [picked]);
   const [reviewIdx, setReviewIdx] = useState(-1); // リザルトで動画を見返し中の問題index(-1=なし)
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -108,12 +106,11 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
     playerRef.current?.loadVideo(q.correct.videoId, { startSeconds: q.correct.startSec, endSeconds: q.correct.endSec });
   };
 
-  // サビ終わり(endSec到達=onEnded)で、まだ回答してなければ同じサビをリピート再生する。
+  // サビ終わり(endSec到達=onEnded)で自動リピート。回答後(答え合わせ)もリザルトの見返し中も、
+  // 現在表示中の公演(currentQRef)をずっと繰り返す。
   const handleEnded = () => {
-    if (!pickedRef.current && currentQRef.current) {
-      const q = currentQRef.current;
-      playerRef.current?.loadVideo(q.correct.videoId, { startSeconds: q.correct.startSec, endSeconds: q.correct.endSec });
-    }
+    const q = currentQRef.current;
+    if (q) playerRef.current?.loadVideo(q.correct.videoId, { startSeconds: q.correct.startSec, endSeconds: q.correct.endSec });
   };
 
   const startGame = () => {
@@ -166,8 +163,9 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
           <button onClick={() => window.history.back()} aria-label="閉じる" style={{ background: "transparent", border: "none", color: C.faint, fontSize: "1rem", cursor: "pointer", padding: "0.2rem 0.4rem" }}>✕</button>
         </div>
 
-        {/* 動画（常時マウント＝iOS ready保持。playing、またはリザルトで見返し中に表示） */}
-        <div style={{ width: "100%", display: (phase === "playing" || (phase === "result" && reviewIdx >= 0)) ? "block" : "none" }}>
+        {/* 動画（常時マウント＝iOS ready保持。playing、またはリザルトで見返し中に表示）。
+            sticky で上部固定＝下の選択肢・回答ボタンだけがスクロールする。 */}
+        <div style={{ width: "100%", display: (phase === "playing" || (phase === "result" && reviewIdx >= 0)) ? "block" : "none", position: "sticky", top: 0, zIndex: 5, background: C.bg, paddingBottom: "0.8rem" }}>
           <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#000" }}>
             <div style={{ position: "absolute", inset: 0 }}>
               <YouTubePlayer ref={playerRef} containerId="furusato-quiz-player" onEnded={handleEnded} />
@@ -179,7 +177,7 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
         {phase === "ready" && (
           <div style={{ textAlign: "center", padding: "3.2rem 0 1.6rem" }}>
             <h1 style={{ fontSize: "2rem", fontWeight: 800, letterSpacing: "-0.03em", color: C.ink, margin: "0 0 0.8rem", lineHeight: 1.15 }}>
-              The Ballad<br />ふるさとイントロドン
+              The Ballad<br />どの公演のふるさと？
             </h1>
             <p style={{ fontSize: "0.85rem", color: C.meta, margin: "0 0 2.4rem", lineHeight: 1.8 }}>
               全公演で歌われた「ふるさと」の全員合唱。<br />歌声と衣装から、どの公演か当てよう。
@@ -259,6 +257,7 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
                   return (
                     <button key={i} onClick={() => {
                       setReviewIdx(i);
+                      currentQRef.current = { correct: c, choices: [] }; // 見返し中もこの公演をループ対象に
                       playerRef.current?.unMute();
                       playerRef.current?.loadVideo(c.videoId, { startSeconds: c.startSec, endSeconds: c.endSec });
                       scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });

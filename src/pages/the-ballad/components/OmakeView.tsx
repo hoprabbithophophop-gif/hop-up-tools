@@ -1,6 +1,6 @@
 import { OMAKE, omakeVideo, OMAKE_CHUSEN, chusenVideo } from "@/data/the-ballad";
 import type { VideoLink } from "@/data/the-ballad";
-import { C, labelStyle } from "../ui";
+import { C } from "../ui";
 import { MemberEmph } from "./Emph";
 import { Count, Empty } from "./SongView";
 
@@ -92,12 +92,11 @@ export default function OmakeView({
         </div>
       )}
 
-      {/* ふるさとイントロドン（検索なし時に最下層へ） */}
+      {/* どの公演のふるさと？（検索なし時に最下層へ） */}
       {!q && (
         <button onClick={onOpenQuiz} style={{ ...card, marginTop: "2rem", justifyContent: "space-between" }}>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <p style={{ ...labelStyle, margin: "0 0 0.25rem" }}>Furusato Intro-Don</p>
-            <div style={{ fontSize: "0.95rem", fontWeight: 700, color: C.ink }}>ふるさとイントロドン</div>
+            <div style={{ fontSize: "0.95rem", fontWeight: 700, color: C.ink }}>どの公演のふるさと？</div>
             <div style={{ fontSize: "0.7rem", color: C.meta, marginTop: "0.2rem", lineHeight: 1.5 }}>
               全公演の「ふるさと」全員合唱を聴いて、どの公演か当てるクイズ
             </div>
