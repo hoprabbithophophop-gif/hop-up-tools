@@ -8,6 +8,7 @@ import MemberView from "./components/MemberView";
 import ShowView from "./components/ShowView";
 import MineView from "./components/MineView";
 import OmakeView from "./components/OmakeView";
+import FurusatoQuiz from "./components/FurusatoQuiz";
 import VideoModal from "./components/VideoModal";
 import type { YouTubePlayerApi } from "./components/YouTubePlayer";
 
@@ -35,6 +36,7 @@ export default function TheBalladPage() {
   const [query, setQuery] = useState("");
   const [videoOnly, setVideoOnly] = useState(false);
   const [playing, setPlaying] = useState<VideoLink | null>(null);
+  const [quizOpen, setQuizOpen] = useState(false);
   const playerRef = useRef<YouTubePlayerApi | null>(null);
   // 再生(PlayChip)のタップハンドラ内で音ありロード(iOS対策)してからモーダルを開く
   const handlePlay = (v: VideoLink) => {
@@ -175,7 +177,7 @@ export default function TheBalladPage() {
         {tab === "members" && <MemberView query={query} videoOnly={videoOnly} onPlay={handlePlay} />}
         {tab === "shows" && <ShowView query={query} videoOnly={videoOnly} onPlay={handlePlay} />}
         {tab === "mine" && <MineView attended={attended} onToggleAttend={toggleAttend} onPlay={handlePlay} />}
-        {tab === "omake" && <OmakeView query={query} onPlay={handlePlay} />}
+        {tab === "omake" && <OmakeView query={query} onPlay={handlePlay} onOpenQuiz={() => setQuizOpen(true)} />}
       </main>
 
       {/* フッター */}
@@ -197,6 +199,7 @@ export default function TheBalladPage() {
       </footer>
 
       <VideoModal video={playing} visible={!!playing} playerRef={playerRef} onClose={() => setPlaying(null)} />
+      <FurusatoQuiz visible={quizOpen} onClose={() => setQuizOpen(false)} />
     </div>
   );
 }

@@ -14,6 +14,7 @@ import compareAnchorsRaw from "./compareAnchors.json";
 import compareCalibRaw from "./compareCalib.json";
 import omakeRaw from "./omake.json";
 import omakeChusenRaw from "./omakeChusen.json";
+import furusatoRaw from "./furusato.json";
 
 export interface Show {
   no: string;          // 公演番号 "01"〜
@@ -223,3 +224,18 @@ export const isSolo = (member: string) => member !== "全員" && member.trim() !
 export function showLabel(s: Show): string {
   return `${s.date} ${s.start} ${s.venue}`.trim();
 }
+
+// ふるさとイントロドン用: 各公演のダイジェスト内「ふるさと」全員合唱パートのサビ区間(ロゴ除外済み)＋編成人数＋出演メンバー。
+export interface FurusatoShow {
+  videoId: string;
+  showNo: string;
+  date: string;    // "9/26(土)"
+  start: string;   // "14:30"
+  venue: string;
+  pref: string;
+  startSec: number; // サビ開始
+  endSec: number;   // サビ終わり(ロゴ手前)
+  n: number;        // 編成人数(4/6/8)
+  members: string[];
+}
+export const FURUSATO = furusatoRaw as FurusatoShow[];
