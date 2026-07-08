@@ -69,7 +69,7 @@ function buildQuestions(): Question[] {
 // X(旧Twitter)シェア。文面は暫定(hop確認まで最小限・ハッシュタグなし)。Web Intent方式。
 const SHARE_URL = "https://hop-up-tools.pages.dev/the-ballad";
 function shareToX(ok: number, total: number) {
-  const text = ["The Ballad ふるさとイントロドン", `${total}問中 ${ok}問正解`, SHARE_URL].join("\n");
+  const text = ["The Ballad ふるさとイントロドン", `${total}問中 ${ok}問正解`, "#TheBalladふるさとイントロドン", SHARE_URL].join("\n");
   window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
 }
 
@@ -89,6 +89,8 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
   const pickedRef = useRef<string | null>(null);
   const currentQRef = useRef<Question | null>(null);
   useEffect(() => { pickedRef.current = picked; }, [picked]);
+  const [reviewIdx, setReviewIdx] = useState(-1); // リザルトで動画を見返し中の問題index(-1=なし)
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!visible) {
@@ -96,6 +98,7 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
       setPhase("ready");
       setResults([]);
       setPicked(null);
+      setReviewIdx(-1);
     }
   }, [visible]);
 
@@ -119,6 +122,7 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
     setQIdx(0);
     setPicked(null);
     setResults([]);
+    setReviewIdx(-1);
     setPhase("playing");
     if (qs[0]) playQuestion(qs[0]); // タップ内で音ありロード(iOS対策)
   };
@@ -143,17 +147,12 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
     playQuestion(questions[ni]);
   };
 
-  const replayClip = () => {
-    const q = questions[qIdx];
-    playerRef.current?.unMute();
-    playerRef.current?.loadVideo(q.correct.videoId, { startSeconds: q.correct.startSec, endSeconds: q.correct.endSec });
-  };
-
   const okCount = results.filter((r) => r.ok).length;
   const q = questions[qIdx];
 
   return (
     <div
+      ref={scrollRef}
       style={{
         position: "fixed", inset: 0, background: C.bg, zIndex: 1200,
         opacity: visible ? 1 : 0, pointerEvents: visible ? "auto" : "none", transition: "opacity 0.12s",
@@ -168,8 +167,8 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
           <button onClick={() => window.history.back()} aria-label="閉じる" style={{ background: "transparent", border: "none", color: C.faint, fontSize: "1rem", cursor: "pointer", padding: "0.2rem 0.4rem" }}>✕</button>
         </div>
 
-        {/* 動画（常時マウント＝iOS ready保持。playing以外は隠す） */}
-        <div style={{ width: "100%", display: phase === "playing" ? "block" : "none" }}>
+        {/* 動画（常時マウント＝iOS ready保持。playing、またはリザルトで見返し中に表示） */}
+        <div style={{ width: "100%", display: (phase === "playing" || (phase === "result" && reviewIdx >= 0)) ? "block" : "none" }}>
           <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#000" }}>
             <div style={{ position: "absolute", inset: 0 }}>
               <YouTubePlayer ref={playerRef} containerId="furusato-quiz-player" onEnded={handleEnded} />
@@ -193,10 +192,7 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
         {/* ===== ゲーム画面 ===== */}
         {phase === "playing" && q && (
           <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "1rem 0 0.6rem" }}>
-              <p style={labelStyle}>Q {qIdx + 1} / {questions.length}</p>
-              <button onClick={replayClip} style={subChip}>▶ もう一度きく</button>
-            </div>
+            <p style={{ ...labelStyle, margin: "1rem 0 0.6rem" }}>Q {qIdx + 1} / {questions.length}</p>
             <p style={{ fontSize: "0.8rem", color: C.meta, textAlign: "center", margin: "0 0 1rem" }}>
               歌声、衣装から推測してどの公演か当てよう。
             </p>
@@ -220,7 +216,7 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
                       {revealWrongPick && <span style={{ ...labelStyle, color: C.hair }}>Your pick</span>}
                     </div>
                     <div style={{ fontSize: "0.72rem", color: metaFg, margin: "0.15rem 0 0.3rem" }}>{ch.venue}（{ch.pref}）</div>
-                    <div style={{ fontSize: "0.68rem", color: metaFg, lineHeight: 1.6 }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", fontSize: "0.68rem", color: metaFg, lineHeight: 1.55 }}>
                       {ch.members.map((m, i) => (
                         <span key={i} style={{ whiteSpace: "nowrap" }}>
                           {i > 0 && <span style={{ color: revealCorrect ? "rgba(255,255,255,0.4)" : C.hair, margin: "0 0.15rem" }}>・</span>}
@@ -260,11 +256,20 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
                 {results.map((r, i) => {
                   if (r.ok) return null;
                   const c = r.q.correct;
+                  const reviewing = reviewIdx === i;
                   return (
-                    <div key={i} style={{ background: C.card, padding: "0.8rem 1rem", marginBottom: 2 }}>
-                      <p style={{ ...labelStyle, color: C.hair, margin: 0 }}>Q{i + 1}</p>
+                    <button key={i} onClick={() => {
+                      setReviewIdx(i);
+                      playerRef.current?.unMute();
+                      playerRef.current?.loadVideo(c.videoId, { startSeconds: c.startSec, endSeconds: c.endSec });
+                      scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+                    }} style={{ display: "block", width: "100%", textAlign: "left", background: reviewing ? C.cardHover : C.card, border: "none", padding: "0.8rem 1rem", marginBottom: 2, cursor: "pointer" }}>
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "0.5rem" }}>
+                        <p style={{ ...labelStyle, color: C.hair, margin: 0 }}>Q{i + 1}</p>
+                        <span style={{ fontSize: "0.65rem", fontWeight: 700, color: reviewing ? C.ink : C.meta, flexShrink: 0 }}>{reviewing ? "▶ 再生中" : "▶ サビを聴く"}</span>
+                      </div>
                       <div style={{ fontSize: "0.85rem", fontWeight: 700, color: C.ink, margin: "0.15rem 0" }}>{c.date} {c.start} {c.venue}</div>
-                      <div style={{ fontSize: "0.68rem", color: C.meta, lineHeight: 1.6 }}>
+                      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", fontSize: "0.68rem", color: C.meta, lineHeight: 1.55 }}>
                         {c.members.map((m, k) => (
                           <span key={k} style={{ whiteSpace: "nowrap" }}>
                             {k > 0 && <span style={{ color: C.hair, margin: "0 0.15rem" }}>・</span>}
@@ -272,7 +277,7 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
                           </span>
                         ))}
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
