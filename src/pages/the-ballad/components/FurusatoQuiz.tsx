@@ -78,6 +78,31 @@ function BackClose({ onClose }: { onClose: () => void }) {
   return null;
 }
 
+// 全問正解の祝福演出。桜の花びらが舞い落ちる(一時的なご褒美＝ミニマル基調の例外)。
+function Petals() {
+  return (
+    <div aria-hidden style={{ position: "fixed", inset: 0, pointerEvents: "none", overflow: "hidden", zIndex: 1300 }}>
+      <style>{`@keyframes tb-petal-fall { 0% { transform: translateY(-12vh) translateX(0) rotate(0deg); opacity: 0; } 12% { opacity: 0.95; } 100% { transform: translateY(112vh) translateX(7vw) rotate(560deg); opacity: 0.6; } }`}</style>
+      {Array.from({ length: 30 }).map((_, i) => (
+        <span
+          key={i}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: `${(i * 34) % 100}%`,
+            width: `${7 + (i % 4) * 3}px`,
+            height: `${10 + (i % 4) * 3}px`,
+            borderRadius: "50% 0 50% 0",
+            background: i % 3 === 0 ? "#ffffff" : i % 3 === 1 ? "#e9ebee" : "#f3f4f5",
+            boxShadow: "0 0 1px rgba(0,0,0,0.08)",
+            animation: `tb-petal-fall ${3.4 + (i % 5) * 0.7}s linear ${(i % 9) * 0.33}s infinite`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const playerRef = useRef<YouTubePlayerApi | null>(null);
   const [phase, setPhase] = useState<"ready" | "playing" | "result">("ready");
@@ -99,6 +124,13 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
       setReviewIdx(-1);
     }
   }, [visible]);
+
+  // 全問正解を記録(トップページの The Ballad カードを特別表示にするため)。
+  useEffect(() => {
+    if (phase === "result" && questions.length > 0 && results.length === questions.length && results.every((r) => r.ok)) {
+      try { localStorage.setItem("the-ballad.furusato-cleared", "1"); } catch { /* ignore */ }
+    }
+  }, [phase, results, questions.length]);
 
   const playQuestion = (q: Question) => {
     currentQRef.current = q;
@@ -125,14 +157,13 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
   };
 
   const choose = (show: FurusatoShow) => {
-    if (picked) return;
-    const q = questions[qIdx];
-    const ok = show.showNo === q.correct.showNo;
-    setPicked(show.showNo);
-    setResults((r) => [...r, { q, picked: show.showNo, ok }]);
+    setPicked(show.showNo); // 「次へ」を押すまでは何度でも選び直せる(確定は next で)
   };
 
   const next = () => {
+    // 選び直し可能にしたので、回答の確定はここ(「次へ」)で行う。
+    const cur = questions[qIdx];
+    setResults((r) => [...r, { q: cur, picked: picked!, ok: picked === cur.correct.showNo }]);
     const ni = qIdx + 1;
     if (ni >= questions.length) {
       playerRef.current?.pause();
@@ -153,25 +184,30 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
       style={{
         position: "fixed", inset: 0, background: C.bg, zIndex: 1200,
         opacity: visible ? 1 : 0, pointerEvents: visible ? "auto" : "none", transition: "opacity 0.12s",
-        overflowY: "auto", color: C.body, fontFamily: "Inter, 'Noto Sans JP', sans-serif",
+        overflow: "hidden", color: C.body, fontFamily: "Inter, 'Noto Sans JP', sans-serif",
       }}
     >
       {visible && <BackClose onClose={onClose} />}
-      <div style={{ maxWidth: 460, margin: "0 auto", padding: "1.6rem 1.4rem 3.2rem", minHeight: "100%", boxSizing: "border-box" }}>
-        {/* ヘッダー（閉じるのみ。タイトルは起動画面の日本語大見出しに集約） */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: "1.2rem" }}>
-          <button onClick={() => window.history.back()} aria-label="閉じる" style={{ background: "transparent", border: "none", color: C.faint, fontSize: "1rem", cursor: "pointer", padding: "0.2rem 0.4rem" }}>✕</button>
-        </div>
+      <div style={{ maxWidth: 460, margin: "0 auto", width: "100%", height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+        {/* 固定部: 閉じる＋動画。ここは常に上部固定で、下のスクロール部だけが動く。 */}
+        <div style={{ flexShrink: 0, padding: "1.6rem 1.4rem 0" }}>
+          {/* ヘッダー（閉じるのみ。タイトルは起動画面の日本語大見出しに集約） */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: "1.2rem" }}>
+            <button onClick={() => window.history.back()} aria-label="閉じる" style={{ background: "transparent", border: "none", color: C.faint, fontSize: "1rem", cursor: "pointer", padding: "0.2rem 0.4rem" }}>✕</button>
+          </div>
 
-        {/* 動画（常時マウント＝iOS ready保持。playing、またはリザルトで見返し中に表示）。
-            sticky で上部固定＝下の選択肢・回答ボタンだけがスクロールする。 */}
-        <div style={{ width: "100%", display: (phase === "playing" || (phase === "result" && reviewIdx >= 0)) ? "block" : "none", position: "sticky", top: 0, zIndex: 5, background: C.bg, paddingBottom: "0.8rem" }}>
-          <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#000" }}>
-            <div style={{ position: "absolute", inset: 0 }}>
-              <YouTubePlayer ref={playerRef} containerId="furusato-quiz-player" onEnded={handleEnded} />
+          {/* 動画（常時マウント＝iOS ready保持。playing、またはリザルトで見返し中に表示） */}
+          <div style={{ width: "100%", display: (phase === "playing" || (phase === "result" && reviewIdx >= 0)) ? "block" : "none", paddingBottom: "0.8rem" }}>
+            <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#000" }}>
+              <div style={{ position: "absolute", inset: 0 }}>
+                <YouTubePlayer ref={playerRef} containerId="furusato-quiz-player" onEnded={handleEnded} />
+              </div>
             </div>
           </div>
         </div>
+
+        {/* スクロール部: ready/playing/result。動画・閉じるは固定のまま、ここだけがスクロールする。 */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 1.4rem 3.2rem" }}>
 
         {/* ===== 起動画面 ===== */}
         {phase === "ready" && (
@@ -196,15 +232,14 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
             <div>
               {q.choices.map((ch) => {
                 const isPicked = picked === ch.showNo;
-                const answered = picked !== null;
                 // 正解はまだ見せない(全問答えてから最後にまとめて答え合わせ)。
-                // 選んだ選択肢だけ黒反転で「選択済み」を示し、他はトーンダウンする。
-                const bg = isPicked ? C.ink : answered ? "#f3f4f5" : C.card;
-                const fg = isPicked ? "#fff" : answered ? C.meta : C.body;
-                const metaFg = isPicked ? "rgba(255,255,255,0.7)" : answered ? C.hair : C.meta;
+                // 選んだ選択肢だけ黒反転。「次へ」を押すまでは何度でも選び直せる。
+                const bg = isPicked ? C.ink : C.card;
+                const fg = isPicked ? "#fff" : C.body;
+                const metaFg = isPicked ? "rgba(255,255,255,0.7)" : C.meta;
                 return (
-                  <button key={ch.showNo} onClick={() => choose(ch)} disabled={answered}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "0.8rem 1rem", marginBottom: 2, border: "none", background: bg, color: fg, cursor: answered ? "default" : "pointer", transition: "background 0.12s" }}>
+                  <button key={ch.showNo} onClick={() => choose(ch)}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "0.8rem 1rem", marginBottom: 2, border: "none", background: bg, color: fg, cursor: "pointer", transition: "background 0.12s" }}>
                     <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
                       <span style={{ fontSize: "0.85rem", fontWeight: 700 }}>{ch.date} {ch.start}</span>
                     </div>
@@ -232,14 +267,17 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
         {/* ===== リザルト画面 ===== */}
         {phase === "result" && (
           <div style={{ padding: "1rem 0" }}>
+            {okCount === results.length && <Petals />}
             <div style={{ textAlign: "center", margin: "1.6rem 0 2rem" }}>
               <p style={labelStyle}>Result</p>
               <div style={{ fontSize: "3.2rem", fontWeight: 900, letterSpacing: "-0.04em", color: C.ink, lineHeight: 1.05, margin: "0.4rem 0 0" }}>
                 {okCount}<span style={{ fontSize: "1.2rem", color: C.faint, fontWeight: 700 }}> / {results.length}</span>
               </div>
-              <p style={{ fontSize: "0.9rem", color: C.body, fontWeight: 700, margin: "0.4rem 0 0" }}>
-                {okCount === results.length ? "全問正解。耳がいいね。" : okCount >= results.length * 0.7 ? "かなりの通。" : okCount >= results.length * 0.4 ? "いい線いってる。" : "また挑戦してね。"}
-              </p>
+              {okCount === results.length && (
+                <p style={{ fontSize: "0.9rem", color: C.body, fontWeight: 700, margin: "0.4rem 0 0" }}>
+                  全問正解！お見事！
+                </p>
+              )}
             </div>
 
             {/* 間違いの振り返り */}
@@ -285,6 +323,7 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

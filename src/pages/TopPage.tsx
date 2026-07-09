@@ -30,6 +30,8 @@ const TOOLS: { to: string; num: string; section: string; title: string; desc: st
 
 export default function TopPage() {
   useEffect(() => { document.title = "hop-up-tools"; }, []);
+  // 「どの公演のふるさと？」全問正解を localStorage に記録済みなら、The Ballad カードを特別表示にする
+  const balladCleared = (() => { try { return localStorage.getItem("the-ballad.furusato-cleared") === "1"; } catch { return false; } })();
 
   return (
     <div style={{ background: "#f8f9fa", minHeight: "100vh", fontFamily: "Inter, 'Noto Sans JP', sans-serif", color: "#191c1d" }}>
@@ -60,7 +62,7 @@ export default function TopPage() {
             </div>
           ) : (
             <Link key={t.to} to={t.to} style={{ display: "block", textDecoration: "none", color: "inherit" }}>
-              <ToolRow {...t} />
+              <ToolRow {...t} shine={balladCleared && t.to === "/the-ballad"} />
             </Link>
           )
         )}
@@ -103,7 +105,7 @@ export default function TopPage() {
   );
 }
 
-function ToolRow({ num, section, title, desc, wip }: { num: string; section: string; title: string; desc: string; wip?: boolean }) {
+function ToolRow({ num, section, title, desc, wip, shine }: { num: string; section: string; title: string; desc: string; wip?: boolean; shine?: boolean }) {
   return (
     <div
       className="group"
@@ -116,11 +118,21 @@ function ToolRow({ num, section, title, desc, wip }: { num: string; section: str
         marginBottom: 2,
         cursor: "pointer",
         transition: "background 0.12s",
+        position: "relative",
+        overflow: "hidden",
       }}
       // Tailwind group-hover は Link 親に付けられないので CSS-in-JS で代替
       onMouseEnter={(e) => { if (!wip) e.currentTarget.style.background = "#f3f4f5"; }}
       onMouseLeave={(e) => { if (!wip) e.currentTarget.style.background = "#ffffff"; }}
     >
+      {/* クリア済みの光沢: 数秒ごとに白い光沢が横切る（何度も見に来たくなるご褒美演出。DESIGN.md準拠でモノクロ） */}
+      {shine && (
+        <>
+          <style>{`@keyframes tb-card-shine { 0% { transform: translateX(-140%) skewX(-16deg); } 55%, 100% { transform: translateX(360%) skewX(-16deg); } }`}</style>
+          <span aria-hidden style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: "45%", background: "linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.95) 48%, rgba(206,210,216,0.45) 56%, transparent 82%)", animation: "tb-card-shine 4.5s ease-in-out infinite", pointerEvents: "none", zIndex: 2 }} />
+        </>
+      )}
+
       {/* インデックス番号 */}
       <div style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#c6c6c6", paddingTop: "0.15rem", letterSpacing: "0.05em" }}>
         {num}
