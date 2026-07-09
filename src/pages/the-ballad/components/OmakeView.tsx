@@ -17,6 +17,8 @@ export default function OmakeView({
   onOpenQuiz: () => void;
 }) {
   const q = query.trim().toLowerCase();
+  // 「どの公演のふるさと？」全問正解済みなら、クイズリンクを金の額縁で豪華にする(ご褒美)
+  const cleared = (() => { try { return localStorage.getItem("the-ballad.furusato-cleared") === "1"; } catch { return false; } })();
 
   const covers = OMAKE.filter((e) => {
     if (!q) return true;
@@ -92,9 +94,23 @@ export default function OmakeView({
         </div>
       )}
 
-      {/* どの公演のふるさと？（検索なし時に最下層へ） */}
+      {/* どの公演のふるさと？（検索なし時に最下層へ）。全問正解済みなら金の額縁で豪華に */}
       {!q && (
-        <button onClick={onOpenQuiz} style={{ ...card, marginTop: "2rem", justifyContent: "space-between" }}>
+        <button onClick={onOpenQuiz} style={{ ...card, marginTop: "2rem", justifyContent: "space-between", position: "relative", overflow: "hidden", boxShadow: cleared ? "inset 0 0 0 1px #d4af37, inset 0 0 0 4px #ffffff, inset 0 0 0 5px #d4af37, 0 2px 16px rgba(212,175,55,0.28)" : undefined }}>
+          {cleared && (
+            <>
+              <style>{`@keyframes tb-furusato-shine { 0% { transform: translateX(-140%) skewX(-16deg); } 55%, 100% { transform: translateX(360%) skewX(-16deg); } }`}</style>
+              <span aria-hidden style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: "45%", background: "linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.95) 48%, rgba(212,175,55,0.4) 56%, transparent 82%)", animation: "tb-furusato-shine 2.2s ease-in-out infinite", pointerEvents: "none", zIndex: 2 }} />
+              {[
+                { top: 9, left: 9, borderTop: true, borderLeft: true },
+                { top: 9, right: 9, borderTop: true, borderRight: true },
+                { bottom: 9, left: 9, borderBottom: true, borderLeft: true },
+                { bottom: 9, right: 9, borderBottom: true, borderRight: true },
+              ].map((cc, i) => (
+                <span key={`fc${i}`} aria-hidden style={{ position: "absolute", width: 14, height: 14, top: cc.top, bottom: cc.bottom, left: cc.left, right: cc.right, borderTop: cc.borderTop ? "2px solid #d4af37" : undefined, borderBottom: cc.borderBottom ? "2px solid #d4af37" : undefined, borderLeft: cc.borderLeft ? "2px solid #d4af37" : undefined, borderRight: cc.borderRight ? "2px solid #d4af37" : undefined, zIndex: 3, pointerEvents: "none" }} />
+              ))}
+            </>
+          )}
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: "0.95rem", fontWeight: 700, color: C.ink }}>どの公演のふるさと？</div>
             <div style={{ fontSize: "0.7rem", color: C.meta, marginTop: "0.2rem", lineHeight: 1.5 }}>

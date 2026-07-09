@@ -3,7 +3,7 @@
 // 歌声と衣装から「どの公演か」を3択で当てる。編成(4→6→8人)で難易度が上がる。全10問。
 // 見た目は docs/DESIGN.md 準拠（黒アクセント / オフホワイト背景 / 角丸0 / ボーダーなし / 英大文字ラベル）。
 // プレイヤーは hi-tension 方式(常時ready・タップ内 loadVideo)で iOS でも音あり再生。
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FURUSATO, type FurusatoShow } from "@/data/the-ballad";
 import { C, labelStyle } from "../ui";
 import { MemberEmph } from "./Emph";
@@ -78,26 +78,90 @@ function BackClose({ onClose }: { onClose: () => void }) {
   return null;
 }
 
-// 全問正解の祝福演出。カラフルな紙吹雪が舞い落ちる(一時的なご褒美)。
-const CONFETTI_COLORS = ["#e6394a", "#3b7dd8", "#f5c518", "#2bb673", "#e8579b", "#f08a24", "#8b5cf6", "#22c1c3"];
+// 全問正解の祝福演出。画面上部の左右2箇所のクラッカーから紙片を"塊で"放出する。
+// JS(setInterval)で一定間隔の「一斉発射」を制御し、各紙片は落下秒数(fall)がバラバラなので
+// 速い紙片/遅い紙片で縦にも散る。1回だけ落ちて(forwards)消え、次の発射まで静寂＝間隔ループ。
+// 発射の瞬間が一番速く、内側の紙片は左右に揺れ＋回転してヒラヒラ落下。位置/角度/色/サイズ/速度は乱数。
+const CONFETTI_COLORS = ["#e6394a", "#3b7dd8", "#f5c518", "#2bb673", "#e8579b", "#f08a24", "#8b5cf6", "#22c1c3", "#ff6b9d", "#4ade80"];
+const CONFETTI_INTERVAL = 7000; // 一斉発射の間隔(ms)。最も遅い紙片が落ちきってから次を撃つ
 function Confetti() {
+  const [burst, setBurst] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setBurst((b) => b + 1), CONFETTI_INTERVAL);
+    return () => clearInterval(id);
+  }, []);
+  // burst が変わるたびに軌道を引き直す＝毎回ちがう散り方で一斉に発射する。
+  const pieces = useMemo(
+    () =>
+      Array.from({ length: 90 }, (_, i) => {
+        const fromLeft = Math.random() < 0.5;
+        const angleDeg = 15 + Math.random() * 68;                                      // 発射角度(斜め上〜横へ広く放射)
+        const power = 36 + Math.random() * 60;                                          // 速度も広くばらつかせる
+        const tx = (fromLeft ? 1 : -1) * Math.cos((angleDeg * Math.PI) / 180) * power; // 発射直後の横位置(vw)
+        const txEnd = tx + (fromLeft ? 1 : -1) * (10 + Math.random() * 34);            // 落下中にさらに外へ広がった着地点(vw)
+        const up = -(Math.sin((angleDeg * Math.PI) / 180) * power * 0.45);            // 発射で舞い上がる高さ(vh, 負=上)
+        const ty = 78 + Math.random() * 28;                                            // 着地(vh, 下)。高さもばらつかせる
+        const size = 5 + Math.random() * 6;
+        return {
+          i,
+          fromLeft,
+          originX: 4 + Math.random() * 10,                           // 発射口付近の横ばらつき(%)
+          tx, txEnd, up, ty,
+          sway: (7 + Math.random() * 11) * (Math.random() < 0.5 ? 1 : -1), // ヒラヒラ横揺れ幅(px)
+          flutter: 0.6 + Math.random() * 0.8,                        // ヒラヒラ1往復の秒数(小=速い)
+          w: size * (0.4 + Math.random() * 0.7),                     // 幅(細長リボン〜正方形)
+          h: size,
+          color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+          fall: 3.2 + Math.random() * 3.2,                           // 落下にかける秒数(速い/遅い＝縦に散る)
+          delay: Math.random() * 0.28,                               // 塊放出のわずかな散らし
+        };
+      }),
+    [burst]
+  );
   return (
     <div aria-hidden style={{ position: "fixed", inset: 0, pointerEvents: "none", overflow: "hidden", zIndex: 1300 }}>
-      <style>{`@keyframes tb-confetti-fall { 0% { transform: translateY(-12vh) translateX(0) rotate(0deg); opacity: 0; } 10% { opacity: 1; } 100% { transform: translateY(112vh) translateX(6vw) rotate(720deg); opacity: 0.9; } }`}</style>
-      {Array.from({ length: 44 }).map((_, i) => (
+      <style>{`
+        /* 外側=軌道。発射(0→13%)が一番速く、その後(21→93%)を落下。1回きり(forwards)でJSが再発射する */
+        @keyframes tb-cracker {
+          0%   { transform: translate(0, 0); opacity: 0; }
+          4%   { opacity: 1; }
+          13%  { transform: translate(calc(var(--tx) * 0.85), var(--up)); }
+          21%  { transform: translate(var(--tx), calc(var(--up) * 0.72)); }
+          93%  { transform: translate(var(--tx-end), var(--ty)); opacity: 1; }
+          100% { transform: translate(var(--tx-end), var(--ty)); opacity: 0; }
+        }
+        /* 内側=ヒラヒラ。左右に揺れながら回転(落下中ずっと繰り返す) */
+        @keyframes tb-flutter {
+          0%   { transform: translateX(0) rotate(0deg); }
+          50%  { transform: translateX(var(--sway)) rotate(180deg); }
+          100% { transform: translateX(0) rotate(360deg); }
+        }
+      `}</style>
+      {pieces.map((p) => (
         <span
-          key={i}
+          key={`${burst}-${p.i}`}
           style={{
             position: "absolute",
-            top: 0,
-            left: `${(i * 27) % 100}%`,
-            width: `${6 + (i % 3) * 2}px`,
-            height: `${10 + (i % 3) * 3}px`,
-            background: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-            borderRadius: i % 4 === 0 ? "50%" : "1px",
-            animation: `tb-confetti-fall ${2.8 + (i % 5) * 0.6}s linear ${(i % 8) * 0.28}s infinite`,
-          }}
-        />
+            top: "6%",
+            [p.fromLeft ? "left" : "right"]: `${p.originX}%`,
+            animation: `tb-cracker ${p.fall}s linear ${p.delay}s forwards`,
+            ["--tx" as string]: `${p.tx}vw`,
+            ["--tx-end" as string]: `${p.txEnd}vw`,
+            ["--up" as string]: `${p.up}vh`,
+            ["--ty" as string]: `${p.ty}vh`,
+          } as React.CSSProperties}
+        >
+          <span
+            style={{
+              display: "block",
+              width: `${p.w}px`,
+              height: `${p.h}px`,
+              background: p.color,
+              animation: `tb-flutter ${p.flutter}s ease-in-out ${p.delay}s infinite`,
+              ["--sway" as string]: `${p.sway}px`,
+            } as React.CSSProperties}
+          />
+        </span>
       ))}
     </div>
   );
