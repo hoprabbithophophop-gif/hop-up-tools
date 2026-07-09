@@ -195,28 +195,24 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
             </p>
             <div>
               {q.choices.map((ch) => {
-                const isCorrect = ch.showNo === q.correct.showNo;
                 const isPicked = picked === ch.showNo;
-                const revealed = picked !== null;
-                // 正誤は赤緑を使わず、正解=黒反転／自分の誤答=トーンダウンで表す（DESIGN.md）。
-                const revealCorrect = revealed && isCorrect;
-                const revealWrongPick = revealed && isPicked && !isCorrect;
-                const bg = revealCorrect ? C.ink : revealWrongPick ? "#eceef0" : revealed ? "#f3f4f5" : C.card;
-                const fg = revealCorrect ? "#fff" : revealWrongPick ? C.hair : C.body;
-                const metaFg = revealCorrect ? "rgba(255,255,255,0.7)" : revealWrongPick ? C.hair : C.meta;
+                const answered = picked !== null;
+                // 正解はまだ見せない(全問答えてから最後にまとめて答え合わせ)。
+                // 選んだ選択肢だけ黒反転で「選択済み」を示し、他はトーンダウンする。
+                const bg = isPicked ? C.ink : answered ? "#f3f4f5" : C.card;
+                const fg = isPicked ? "#fff" : answered ? C.meta : C.body;
+                const metaFg = isPicked ? "rgba(255,255,255,0.7)" : answered ? C.hair : C.meta;
                 return (
-                  <button key={ch.showNo} onClick={() => choose(ch)} disabled={revealed}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "0.8rem 1rem", marginBottom: 2, border: "none", background: bg, color: fg, cursor: revealed ? "default" : "pointer", transition: "background 0.12s" }}>
+                  <button key={ch.showNo} onClick={() => choose(ch)} disabled={answered}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "0.8rem 1rem", marginBottom: 2, border: "none", background: bg, color: fg, cursor: answered ? "default" : "pointer", transition: "background 0.12s" }}>
                     <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem" }}>
                       <span style={{ fontSize: "0.85rem", fontWeight: 700 }}>{ch.date} {ch.start}</span>
-                      {revealCorrect && <span style={{ ...labelStyle, color: "#fff" }}>Correct</span>}
-                      {revealWrongPick && <span style={{ ...labelStyle, color: C.hair }}>Your pick</span>}
                     </div>
                     <div style={{ fontSize: "0.72rem", color: metaFg, margin: "0.15rem 0 0.3rem" }}>{ch.venue}（{ch.pref}）</div>
                     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", fontSize: "0.68rem", color: metaFg, lineHeight: 1.55 }}>
                       {ch.members.map((m, i) => (
                         <span key={i} style={{ whiteSpace: "nowrap" }}>
-                          {i > 0 && <span style={{ color: revealCorrect ? "rgba(255,255,255,0.4)" : C.hair, margin: "0 0.15rem" }}>・</span>}
+                          {i > 0 && <span style={{ color: isPicked ? "rgba(255,255,255,0.4)" : C.hair, margin: "0 0.15rem" }}>・</span>}
                           <MemberEmph member={m} big="0.68rem" small="0.68rem" inkColor={metaFg} />
                         </span>
                       ))}
