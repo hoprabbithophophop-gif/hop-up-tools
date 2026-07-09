@@ -78,24 +78,24 @@ function BackClose({ onClose }: { onClose: () => void }) {
   return null;
 }
 
-// 全問正解の祝福演出。桜の花びらが舞い落ちる(一時的なご褒美＝ミニマル基調の例外)。
-function Petals() {
+// 全問正解の祝福演出。カラフルな紙吹雪が舞い落ちる(一時的なご褒美)。
+const CONFETTI_COLORS = ["#e6394a", "#3b7dd8", "#f5c518", "#2bb673", "#e8579b", "#f08a24", "#8b5cf6", "#22c1c3"];
+function Confetti() {
   return (
     <div aria-hidden style={{ position: "fixed", inset: 0, pointerEvents: "none", overflow: "hidden", zIndex: 1300 }}>
-      <style>{`@keyframes tb-petal-fall { 0% { transform: translateY(-12vh) translateX(0) rotate(0deg); opacity: 0; } 12% { opacity: 0.95; } 100% { transform: translateY(112vh) translateX(7vw) rotate(560deg); opacity: 0.6; } }`}</style>
-      {Array.from({ length: 30 }).map((_, i) => (
+      <style>{`@keyframes tb-confetti-fall { 0% { transform: translateY(-12vh) translateX(0) rotate(0deg); opacity: 0; } 10% { opacity: 1; } 100% { transform: translateY(112vh) translateX(6vw) rotate(720deg); opacity: 0.9; } }`}</style>
+      {Array.from({ length: 44 }).map((_, i) => (
         <span
           key={i}
           style={{
             position: "absolute",
             top: 0,
-            left: `${(i * 34) % 100}%`,
-            width: `${7 + (i % 4) * 3}px`,
-            height: `${10 + (i % 4) * 3}px`,
-            borderRadius: "50% 0 50% 0",
-            background: i % 3 === 0 ? "#ffffff" : i % 3 === 1 ? "#e9ebee" : "#f3f4f5",
-            boxShadow: "0 0 1px rgba(0,0,0,0.08)",
-            animation: `tb-petal-fall ${3.4 + (i % 5) * 0.7}s linear ${(i % 9) * 0.33}s infinite`,
+            left: `${(i * 27) % 100}%`,
+            width: `${6 + (i % 3) * 2}px`,
+            height: `${10 + (i % 3) * 3}px`,
+            background: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+            borderRadius: i % 4 === 0 ? "50%" : "1px",
+            animation: `tb-confetti-fall ${2.8 + (i % 5) * 0.6}s linear ${(i % 8) * 0.28}s infinite`,
           }}
         />
       ))}
@@ -267,7 +267,7 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
         {/* ===== リザルト画面 ===== */}
         {phase === "result" && (
           <div style={{ padding: "1rem 0" }}>
-            {okCount === results.length && <Petals />}
+            {okCount === results.length && <Confetti />}
             <div style={{ textAlign: "center", margin: "1.6rem 0 2rem" }}>
               <p style={labelStyle}>Result</p>
               <div style={{ fontSize: "3.2rem", fontWeight: 900, letterSpacing: "-0.04em", color: C.ink, lineHeight: 1.05, margin: "0.4rem 0 0" }}>

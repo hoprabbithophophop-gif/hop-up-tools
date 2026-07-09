@@ -120,6 +120,7 @@ function ToolRow({ num, section, title, desc, wip, shine }: { num: string; secti
         transition: "background 0.12s",
         position: "relative",
         overflow: "hidden",
+        boxShadow: shine ? "inset 0 0 0 1px #d4af37, inset 0 0 0 4px #ffffff, inset 0 0 0 5px #d4af37, 0 2px 16px rgba(212,175,55,0.28)" : undefined,
       }}
       // Tailwind group-hover は Link 親に付けられないので CSS-in-JS で代替
       onMouseEnter={(e) => { if (!wip) e.currentTarget.style.background = "#f3f4f5"; }}
@@ -129,7 +130,34 @@ function ToolRow({ num, section, title, desc, wip, shine }: { num: string; secti
       {shine && (
         <>
           <style>{`@keyframes tb-card-shine { 0% { transform: translateX(-140%) skewX(-16deg); } 55%, 100% { transform: translateX(360%) skewX(-16deg); } }`}</style>
-          <span aria-hidden style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: "45%", background: "linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.95) 48%, rgba(206,210,216,0.45) 56%, transparent 82%)", animation: "tb-card-shine 4.5s ease-in-out infinite", pointerEvents: "none", zIndex: 2 }} />
+          <span aria-hidden style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: "45%", background: "linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.95) 48%, rgba(212,175,55,0.4) 56%, transparent 82%)", animation: "tb-card-shine 2.2s ease-in-out infinite", pointerEvents: "none", zIndex: 2 }} />
+          {/* 額縁風の四隅コーナー装飾（L字の金線） */}
+          {[
+            { top: 9, left: 9, borderTop: true, borderLeft: true },
+            { top: 9, right: 9, borderTop: true, borderRight: true },
+            { bottom: 9, left: 9, borderBottom: true, borderLeft: true },
+            { bottom: 9, right: 9, borderBottom: true, borderRight: true },
+          ].map((c, i) => (
+            <span
+              key={`corner-${i}`}
+              aria-hidden
+              style={{
+                position: "absolute",
+                width: 14,
+                height: 14,
+                top: c.top,
+                bottom: c.bottom,
+                left: c.left,
+                right: c.right,
+                borderTop: c.borderTop ? "2px solid #d4af37" : undefined,
+                borderBottom: c.borderBottom ? "2px solid #d4af37" : undefined,
+                borderLeft: c.borderLeft ? "2px solid #d4af37" : undefined,
+                borderRight: c.borderRight ? "2px solid #d4af37" : undefined,
+                zIndex: 3,
+                pointerEvents: "none",
+              }}
+            />
+          ))}
         </>
       )}
 
