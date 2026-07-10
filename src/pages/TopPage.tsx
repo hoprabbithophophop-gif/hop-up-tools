@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import HandIcon from "./hi-tension/components/HandIcon";
 import FaIcon from "./hi-tension/components/FaIcon";
 import { faBullhorn } from "@fortawesome/free-solid-svg-icons";
+import ContactModal from "@/components/ContactModal";
 
 const TOOLS: { to: string; num: string; section: string; title: string; desc: string; wip?: boolean }[] = [
   {
@@ -29,6 +30,7 @@ const TOOLS: { to: string; num: string; section: string; title: string; desc: st
 ];
 
 export default function TopPage() {
+  const [contactOpen, setContactOpen] = useState(false);
   useEffect(() => { document.title = "hop-up-tools"; }, []);
 
   return (
@@ -91,14 +93,15 @@ export default function TopPage() {
         <div style={{ display: "flex", gap: "1.5rem" }}>
           <Link to="/privacy"     style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>プライバシーポリシー</Link>
           <Link to="/terms"       style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>利用規約</Link>
-          <a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer"
-             style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>お問い合わせ</a>
+          <button onClick={() => setContactOpen(true)}
+             style={{ background: "transparent", border: "none", padding: 0, fontFamily: "inherit", cursor: "pointer", color: "#777", fontSize: "0.6875rem" }}>お問い合わせ</button>
         </div>
         <p style={{ fontSize: "0.625rem", color: "#c6c6c6", margin: "1.2rem 0 0" }}>
           Hand icon by Font Awesome (CC BY 4.0)
         </p>
       </footer>
 
+      {contactOpen && <ContactModal onClose={() => setContactOpen(false)} />}
     </div>
   );
 }

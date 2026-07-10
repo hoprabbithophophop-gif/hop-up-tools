@@ -52,7 +52,7 @@ export default function PrivacyPage() {
     <div style={s.wrap}>
       <Link to="/" style={s.back}>← ホームに戻る</Link>
       <div style={s.header}>プライバシーポリシー</div>
-      <div style={s.updated}>最終更新日: 2026年7月5日</div>
+      <div style={s.updated}>最終更新日: 2026年7月10日</div>
 
       <p style={s.p}>
         hop-up-tools（以下「本サービス」）は、hop_rabbit（以下「運営者」）が提供するHello! Project ファン向けWebツール集です。
@@ -61,7 +61,7 @@ export default function PrivacyPage() {
 
       <h2 style={s.h2}>1. 収集する情報</h2>
       <p style={s.p}>
-        本サービスは、<strong>お名前・連絡先など、ユーザーを個人として特定できる情報を収集しません。</strong>
+        本サービスは、<strong>原則として、お名前・連絡先など、ユーザーを個人として特定できる情報を収集しません。</strong>
       </p>
       <p style={s.p}>
         FC締切リマインダーのテキストエリアに貼り付けた内容は、お使いのブラウザ内でのみ処理されます。
@@ -69,6 +69,13 @@ export default function PrivacyPage() {
       </p>
       <p style={s.p}>
         ただし、一部ツール（THE BALLAD 歌唱曲データベース等）の「不具合を報告」フォームから送信いただいた場合に限り、選択した症状・任意で入力された説明・報告対象の動画情報（曲名・出演者・動画ID等）・ブラウザの種類（User-Agent）が<strong>匿名で</strong>サーバーに保存されます。お名前や連絡先など個人を特定できる情報は含まれず、再生位置の見直しにのみ使用します。
+      </p>
+      <p style={s.p}>
+        お問い合わせフォームから送信いただいた場合、内容・種類・対象ツールがサーバーに保存されます。
+        <strong>返信先は任意項目であり、入力された場合もサーバーには保存されず、運営者への通知にのみ含まれ、返信の目的にのみ使用します。</strong>
+      </p>
+      <p style={s.p}>
+        また、連続した送信を防ぐため、送信時にIPアドレスを復元できない形に変換した値を一時的に記録し、<strong>1時間以内に削除します</strong>。
       </p>
 
       <h2 style={s.h2}>2. ブラウザへのデータ保存（localStorage）</h2>
@@ -101,11 +108,15 @@ export default function PrivacyPage() {
         これはサーバーには送信されず、ブラウザの設定からいつでも削除できます。
       </p>
 
-      <h2 style={s.h2}>4. アクセス解析</h2>
+      <h2 style={s.h2}>4. アクセス解析・不正利用の防止</h2>
       <p style={s.p}>
         本サービスはCloudflare Pages上で動作しており、Cloudflareが匿名のアクセスログ（IPアドレス・ブラウザ情報等）を収集する場合があります。
         これらはCloudflareのプライバシーポリシーに従って処理されます。
         運営者がユーザーを個人として特定することはありません。
+      </p>
+      <p style={s.p}>
+        お問い合わせフォームの送信時に、自動送信を防ぐためCloudflare Turnstileによる確認を行います。
+        この確認のため、Cloudflareに対してブラウザに関する情報が送信されます。
       </p>
 
       <h2 style={s.h2}>5. 広告（Google AdSense）</h2>
@@ -133,7 +144,7 @@ export default function PrivacyPage() {
 
       <h2 style={s.h2}>8. お問い合わせ</h2>
       <p style={s.p}>
-        本ポリシーに関するお問い合わせは、X（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>@hop_rabbit_hop</a> までDMにてご連絡ください。
+        本ポリシーに関するお問い合わせは、トップページの「お問い合わせ」フォーム、またはX（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>@hop_rabbit_hop</a> までDMにてご連絡ください。
       </p>
     </div>
   );
