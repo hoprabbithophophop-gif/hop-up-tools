@@ -100,7 +100,7 @@ function Confetti() {
         const tx = (fromLeft ? 1 : -1) * Math.cos((angleDeg * Math.PI) / 180) * power; // 発射直後の横位置(vw)
         const txEnd = tx + (fromLeft ? 1 : -1) * (10 + Math.random() * 34);            // 落下中にさらに外へ広がった着地点(vw)
         const up = -(Math.sin((angleDeg * Math.PI) / 180) * power * 0.45);            // 発射で舞い上がる高さ(vh, 負=上)
-        const ty = 78 + Math.random() * 28;                                            // 着地(vh, 下)。高さもばらつかせる
+        const ty = 98 + Math.random() * 28;                                            // 着地(vh, 下)。発射口を画面外に上げた分(+20)を足し到達点は不変
         const size = 5 + Math.random() * 6;
         return {
           i,
@@ -142,7 +142,7 @@ function Confetti() {
           key={`${burst}-${p.i}`}
           style={{
             position: "absolute",
-            top: "6%",
+            top: "-14%", // 発射口を画面外上へ＝紙片が湧き出す"塊"を見せず、頂点から降ってくる紙吹雪だけ見せる
             [p.fromLeft ? "left" : "right"]: `${p.originX}%`,
             animation: `tb-cracker ${p.fall}s linear ${p.delay}s forwards`,
             ["--tx" as string]: `${p.tx}vw`,
