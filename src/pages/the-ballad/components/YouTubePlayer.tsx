@@ -269,11 +269,24 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   return (
     <div style={{ position: "relative", width: "100%", height: "100%", background: "#000" }}>
       <div id={containerId} style={{ width: "100%", height: "100%" }} />
-      {showLoading && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#000", pointerEvents: "none" }}>
-          <LoadingDots />
-        </div>
-      )}
+      {/* 動画切替時にYouTube純正UI(タイトル/再生ボタン/関連動画)が一瞬見えるのを隠すカバー。
+          出す時は即座に(チラつきを覆う)、消す時だけフェードで再生を見せる。pointerEvents:none で動画上の操作は奪わない(規約)。 */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#000",
+          pointerEvents: "none",
+          opacity: showLoading ? 1 : 0,
+          transition: showLoading ? "none" : "opacity 0.3s ease",
+        }}
+      >
+        <LoadingDots />
+      </div>
     </div>
   );
 });

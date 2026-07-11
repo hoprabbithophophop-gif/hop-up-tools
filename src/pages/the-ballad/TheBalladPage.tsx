@@ -47,6 +47,7 @@ export default function TheBalladPage() {
     playerRef.current?.loadVideo(v.videoId, {
       startSeconds: compareAnchor(v.videoId, v.startSec),
       ...(isFinite(end) ? { endSeconds: Math.floor(end) } : {}),
+      cover: true, // 切替時のYouTube純正UIチラつきを隠す
     });
     setPlaying(v);
   };

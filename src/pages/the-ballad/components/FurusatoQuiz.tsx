@@ -199,14 +199,14 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
   const playQuestion = (q: Question) => {
     currentQRef.current = q;
     playerRef.current?.unMute();
-    playerRef.current?.loadVideo(q.correct.videoId, { startSeconds: q.correct.startSec, endSeconds: q.correct.endSec });
+    playerRef.current?.loadVideo(q.correct.videoId, { startSeconds: q.correct.startSec, endSeconds: q.correct.endSec, cover: true });
   };
 
   // サビ終わり(endSec到達=onEnded)で自動リピート。回答後(答え合わせ)もリザルトの見返し中も、
   // 現在表示中の公演(currentQRef)をずっと繰り返す。
   const handleEnded = () => {
     const q = currentQRef.current;
-    if (q) playerRef.current?.loadVideo(q.correct.videoId, { startSeconds: q.correct.startSec, endSeconds: q.correct.endSec });
+    if (q) playerRef.current?.loadVideo(q.correct.videoId, { startSeconds: q.correct.startSec, endSeconds: q.correct.endSec, cover: true });
   };
 
   const startGame = () => {
@@ -357,7 +357,7 @@ export default function FurusatoQuiz({ visible, onClose }: { visible: boolean; o
                       setReviewIdx(i);
                       currentQRef.current = { correct: c, choices: [] }; // 見返し中もこの公演をループ対象に
                       playerRef.current?.unMute();
-                      playerRef.current?.loadVideo(c.videoId, { startSeconds: c.startSec, endSeconds: c.endSec });
+                      playerRef.current?.loadVideo(c.videoId, { startSeconds: c.startSec, endSeconds: c.endSec, cover: true });
                       scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
                     }} style={{ display: "block", width: "100%", textAlign: "left", background: reviewing ? C.cardHover : C.card, border: "none", padding: "0.8rem 1rem", marginBottom: 2, cursor: "pointer" }}>
                       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "0.5rem" }}>

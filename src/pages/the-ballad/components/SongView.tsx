@@ -144,7 +144,7 @@ export default function SongView({
                       onClick={() => {
                         // タップ(ジェスチャ)ハンドラ内で先頭版を音ありロード(iOS対策)してからモーダルを開く
                         playerRef.current?.unMute();
-                        playerRef.current?.loadVideo(all[0].videoId, { startSeconds: compareAnchor(all[0].videoId, all[0].startSec) });
+                        playerRef.current?.loadVideo(all[0].videoId, { startSeconds: compareAnchor(all[0].videoId, all[0].startSec), cover: true });
                         setCompare({ song: s.songCore, versions: all });
                       }}
                       style={compareBtn}
