@@ -4,7 +4,7 @@ import UpfcDummyPreview from "./UpfcDummyPreview";
 import FavoritePicker, { type Favorites } from "./FavoritePicker";
 import MemberFilterInput from "./MemberFilterInput";
 import { OG_MEMBERS, OG_GROUP_LABEL } from "@/data/ogMembers";
-import { eventGroupKey, dedupeEventTwins } from "@/lib/eventGrouping";
+import { eventGroupKey, dedupeEventTwins, eventTwinKey } from "@/lib/eventGrouping";
 import { loadVenueGeo, geoForLocation, mapSearchUrl } from "@/lib/venueGeo";
 import { getSupabase } from "../../lib/supabase";
 import {
@@ -41,6 +41,7 @@ interface Deadline {
   label: string;
   deadline_at: string;
   location?: string | null;
+  open_at?: string | null; // 公演(type=event)の開場時刻。通知・カレンダー開始を開場着基準にする
   fc_news: { title: string; detail_url: string; category: string };
 }
 
@@ -2275,21 +2276,57 @@ const FAVORITE_ACTIONABLE_TYPES = ["apply_start", "apply_end", "sale_start", "sa
 // 申込「確定」状態（もう申込締切の通知は要らない）を表すstatusキーワード
 const APPLIED_STATUS_KEYWORDS = ["申込済", "当選", "落選", "入金済", "入金待ち", "当選取消"];
 
-// 公演の出発通知リードタイム（ユーザー設定）。trigger=null は通知なし。
-const EVENT_LEAD_OPTIONS: { key: string; label: string; trigger: string | null }[] = [
-  { key: "P1D",  label: "前日", trigger: "-P1D" },
-  { key: "PT3H", label: "3時間前", trigger: "-PT3H" },
-  { key: "PT2H", label: "2時間前", trigger: "-PT2H" },
-  { key: "PT1H", label: "1時間前", trigger: "-PT1H" },
-  { key: "none", label: "通知なし", trigger: null },
-];
-function eventLeadTrigger(key: string): string | null {
-  return (EVENT_LEAD_OPTIONS.find((o) => o.key === key) ?? EVENT_LEAD_OPTIONS[1]).trigger;
+// 公演の出発通知設定（ユーザー設定）。
+// hours = 当日「◯時間前」(1〜24・null=当日の通知なし)、dayBefore = 前日にも通知。
+// 時間はネイティブselectで選ぶ＝iPhoneではホイールUIになる。
+interface EventLeadSetting { hours: number | null; dayBefore: boolean }
+const DEFAULT_EVENT_LEAD: EventLeadSetting = { hours: 3, dayBefore: false };
+const EVENT_LEAD_HOURS = Array.from({ length: 24 }, (_, i) => i + 1);
+
+// 旧形式("PT3H"/"P1D"/"none")からの引き継ぎ込みで読み込む
+function loadEventLeadSetting(): EventLeadSetting {
+  try {
+    const v = localStorage.getItem("fc-sub-event-lead2");
+    if (v) {
+      const p = JSON.parse(v);
+      if ((p.hours === null || (typeof p.hours === "number" && p.hours >= 1 && p.hours <= 24)) && typeof p.dayBefore === "boolean") {
+        return { hours: p.hours, dayBefore: p.dayBefore };
+      }
+    }
+    const old = localStorage.getItem("fc-sub-event-lead");
+    if (old === "P1D") return { hours: null, dayBefore: true };
+    if (old === "none") return { hours: null, dayBefore: false };
+    const m = old?.match(/^PT(\d+)H$/);
+    if (m) return { hours: Number(m[1]), dayBefore: false };
+  } catch { /* ignore */ }
+  return DEFAULT_EVENT_LEAD;
+}
+
+// 公演ごとの上書き設定（キー=eventTwinKey）。遠征公演だけ余裕を持たせる等に使う
+function loadEventLeadOverrides(): Record<string, EventLeadSetting> {
+  try { return JSON.parse(localStorage.getItem("fc-sub-event-lead-ovr") ?? "{}"); } catch { return {}; }
+}
+
+// 公演の出発通知(VALARM)。前日分も「その日の最初の公演・行く公演」ルールに従う
+function eventAlarms(lead: EventLeadSetting): IcsAlarm[] {
+  const alarms: IcsAlarm[] = [];
+  if (lead.dayBefore) alarms.push({ trigger: "-P1D", description: "明日が公演です" });
+  if (lead.hours != null) alarms.push({ trigger: "-PT" + lead.hours + "H", description: "そろそろお出かけの時間です（本日公演）" });
+  return alarms;
+}
+
+// 行に表示する現在値。開場が分かる公演は「開場の」、無ければ「開演の」（実態通りのラベル）
+function leadLabel(lead: EventLeadSetting, hasOpenTime: boolean): string {
+  if (lead.hours == null && !lead.dayBefore) return "なし";
+  const parts: string[] = [];
+  if (lead.dayBefore) parts.push("前日");
+  if (lead.hours != null) parts.push((hasOpenTime ? "開場の" : "開演の") + lead.hours + "時間前");
+  return parts.join("＋");
 }
 
 // 種類＋状況 → 通知(VALARM)配列。発行時に1回だけ算出して events に焼く（生成側は描画のみ）。
 // isAttending=実際に行く公演か（当選/入金済）。出発通知は行く公演にだけ出す。
-function alarmsForDeadline(type: string, isFirstShowOfDay: boolean, leadTrigger: string | null, isAttending: boolean): IcsAlarm[] {
+function alarmsForDeadline(type: string, isFirstShowOfDay: boolean, eventLeadAlarms: IcsAlarm[], isAttending: boolean): IcsAlarm[] {
   switch (type) {
     case "apply_end":
       return [{ trigger: "-P1D", description: "明日が申込締切です" }, { trigger: "-PT1H", description: "まもなく申込締切です" }];
@@ -2307,9 +2344,10 @@ function alarmsForDeadline(type: string, isFirstShowOfDay: boolean, leadTrigger:
     case "payment_start":
       return [{ trigger: "-PT1H", description: "まもなく入金開始です" }];
     case "event":
-      // 公演＝出発通知。行く公演(当選/入金済)・その日の最初・リードタイム設定ありの時だけ1本。
-      if (!isAttending || !isFirstShowOfDay || !leadTrigger) return [];
-      return [{ trigger: leadTrigger, description: "そろそろお出かけの時間です（本日公演）" }];
+      // 公演＝出発通知。行く公演(当選/入金済)・その日の最初の公演だけに出す。
+      // 中身（前日/当日◯時間前）はユーザー設定（全体既定＋公演ごと上書き）から組み立て済み。
+      if (!isAttending || !isFirstShowOfDay) return [];
+      return eventLeadAlarms;
     default:
       return [{ trigger: "-P1D", description: "明日が締切です" }, { trigger: "-PT1H", description: "まもなく締切です" }];
   }
@@ -2465,10 +2503,9 @@ function SubscribeScreen({
     } catch { /* ignore */ }
     return "after-event-1m";
   });
-  // 公演の出発通知リードタイム（前日/3時間前/.../通知なし）
-  const [eventLead, setEventLead] = useState<string>(() => {
-    try { return localStorage.getItem("fc-sub-event-lead") ?? "PT3H"; } catch { return "PT3H"; }
-  });
+  // 公演の出発通知（全体の既定値＋公演ごとの上書き）
+  const [eventLead, setEventLead] = useState<EventLeadSetting>(loadEventLeadSetting);
+  const [eventLeadOverrides, setEventLeadOverrides] = useState<Record<string, EventLeadSetting>>(loadEventLeadOverrides);
   const [includedIds, setIncludedIds] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem("fc-sub-included");
@@ -2613,10 +2650,11 @@ function SubscribeScreen({
   const slugRef = useRef(slug); slugRef.current = slug;
   const allDeadlinesRef = useRef(allDeadlines); allDeadlinesRef.current = allDeadlines;
   const eventLeadRef = useRef(eventLead); eventLeadRef.current = eventLead;
+  const eventLeadOvrRef = useRef(eventLeadOverrides); eventLeadOvrRef.current = eventLeadOverrides;
   const matchResultsRef = useRef(matchResults); matchResultsRef.current = matchResults;
   const paidRef = useRef(paid); paidRef.current = paid;
   function selectionSig(ids: Set<string>, ret: RetentionMode): string {
-    return [...ids].sort().join(",") + "|" + ret + "|" + eventLeadRef.current;
+    return [...ids].sort().join(",") + "|" + ret + "|" + JSON.stringify(eventLeadRef.current) + "|" + JSON.stringify(eventLeadOvrRef.current);
   }
   // 初期化後、現在の状態を「保存済み」とみなす（タブを開いただけでは発行しない）
   useEffect(() => {
@@ -2634,7 +2672,7 @@ function SubscribeScreen({
     saveTimerRef.current = window.setTimeout(() => { void handlePublish({ silent: true }); }, 2000);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includedIds, retention, eventLead, initialized, slug]);
+  }, [includedIds, retention, eventLead, eventLeadOverrides, initialized, slug]);
   // 離脱時（タブ移動/ページ非表示/閉じる）に保留中の変更を即発行
   useEffect(() => {
     function flush() {
@@ -2688,9 +2726,18 @@ function SubscribeScreen({
     // 発行済みなら自動保存effectがdebounceでサーバ反映する（ここでは即時発行しない）
   }
 
-  function persistEventLead(key: string) {
-    setEventLead(key);
-    try { localStorage.setItem("fc-sub-event-lead", key); } catch { /* ignore */ }
+  function persistEventLead(next: EventLeadSetting) {
+    setEventLead(next);
+    try { localStorage.setItem("fc-sub-event-lead2", JSON.stringify(next)); } catch { /* ignore */ }
+    // 反映は自動保存effectがdebounceで行う
+  }
+
+  // 公演ごとの上書き。null=上書き解除（既定値に戻す）
+  function persistEventLeadOverride(key: string, v: EventLeadSetting | null) {
+    const next = { ...eventLeadOverrides };
+    if (v === null) delete next[key]; else next[key] = v;
+    setEventLeadOverrides(next);
+    try { localStorage.setItem("fc-sub-event-lead-ovr", JSON.stringify(next)); } catch { /* ignore */ }
     // 反映は自動保存effectがdebounceで行う
   }
 
@@ -2795,7 +2842,9 @@ function SubscribeScreen({
         }
       }
       const firstEventIds = new Set(firstEventByDate.values());
-      const leadTrigger = eventLeadTrigger(eventLeadRef.current);
+      // 公演の出発通知：公演ごとの上書きがあればそれ、無ければ全体の既定値
+      const ovrNow = eventLeadOvrRef.current;
+      const leadAlarmsFor = (dl: Deadline) => eventAlarms(ovrNow[eventTwinKey(dl)] ?? eventLeadRef.current);
       // 「実際に行く公演」判定（当選 or 入金済）。出発通知はここだけに出す。
       const statusByUid = new Map<string, string>();
       for (const r of matchResultsRef.current) for (const m of r.matched) statusByUid.set(m.uid, r.parsed.status);
@@ -2825,7 +2874,7 @@ function SubscribeScreen({
           location: dl.location ?? undefined,
           geo,
           // 通知は発行時に算出して焼き込む（生成側・regenは描画のみ）
-          alarms: alarmsForDeadline(dl.type, isEvent && firstEventIds.has(dl.id), leadTrigger, isAttending(dl.news_uid)),
+          alarms: alarmsForDeadline(dl.type, isEvent && firstEventIds.has(dl.id), leadAlarmsFor(dl), isAttending(dl.news_uid)),
         };
       });
       if (events.length === 0) {
@@ -2956,6 +3005,9 @@ function SubscribeScreen({
                       statusBadge={badgeForTwins(dl)}
                       hideTitle
                       onMarkApplied={dl.type === "apply_end" && !appliedSet.has(dl.news_uid) ? () => markApplied(dl) : undefined}
+                      eventLead={dl.type === "event" ? (eventLeadOverrides[eventTwinKey(dl)] ?? eventLead) : undefined}
+                      eventLeadOverridden={dl.type === "event" && !!eventLeadOverrides[eventTwinKey(dl)]}
+                      onEventLeadChange={dl.type === "event" ? (v) => persistEventLeadOverride(eventTwinKey(dl), v) : undefined}
                     />
                   ))}
                 </div>
@@ -2994,6 +3046,9 @@ function SubscribeScreen({
                           onToggle={() => toggleDeadline(dl.id)}
                           statusBadge={badgeForTwins(dl)}
                           hideTitle
+                          eventLead={dl.type === "event" ? (eventLeadOverrides[eventTwinKey(dl)] ?? eventLead) : undefined}
+                          eventLeadOverridden={dl.type === "event" && !!eventLeadOverrides[eventTwinKey(dl)]}
+                          onEventLeadChange={dl.type === "event" ? (v) => persistEventLeadOverride(eventTwinKey(dl), v) : undefined}
                         />
                       ))}
                     </div>
@@ -3010,17 +3065,32 @@ function SubscribeScreen({
         <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
           <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">公演の通知</h3>
         </div>
-        <select
-          value={eventLead}
-          onChange={(e) => persistEventLead(e.target.value)}
-          className="w-full md:w-auto bg-surface-container-low border border-outline-variant/30 px-4 py-2 text-sm cursor-pointer"
-        >
-          {EVENT_LEAD_OPTIONS.map((o) => (
-            <option key={o.key} value={o.key}>{o.label === "通知なし" ? "通知なし" : `公演の${o.label}`}</option>
-          ))}
-        </select>
+        <div className="flex items-center gap-4 flex-wrap">
+          <select
+            value={eventLead.hours ?? "none"}
+            onChange={(e) => persistEventLead({ ...eventLead, hours: e.target.value === "none" ? null : Number(e.target.value) })}
+            className="bg-surface-container-low border border-outline-variant/30 px-4 py-2 text-sm cursor-pointer"
+          >
+            <option value="none">当日の通知なし</option>
+            {EVENT_LEAD_HOURS.map((h) => (
+              <option key={h} value={h}>公演の{h}時間前</option>
+            ))}
+          </select>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={eventLead.dayBefore}
+              onChange={(e) => persistEventLead({ ...eventLead, dayBefore: e.target.checked })}
+              className="w-4 h-4 cursor-pointer"
+            />
+            前日にも通知
+          </label>
+        </div>
         <p className="text-[0.6875rem] text-outline mt-2">
-          ※ 出発の目安に通知します。会場までの距離・準備時間に合わせて選んでください。同じ日に2部以上ある時は、最初の公演にだけ通知します。
+          ※ 出発の目安に通知します。会場までの距離・準備時間に合わせて選んでください。同じ日に2部以上ある時は、最初の公演にだけ通知します。開場時刻が分かる公演は、開場の時間を基準にします。遠征などで余裕が欲しい公演は、一覧の「通知:」から公演ごとに変更できます。
+        </p>
+        <p className="text-[0.6875rem] text-outline mt-1">
+          ※ 通知の時間はこの画面で変更できます（カレンダーアプリ側では予定ごとに変更できません。変更後はカレンダーの自動更新で反映されます）。
         </p>
       </section>
 
@@ -3117,6 +3187,8 @@ function SubscribeScreen({
             <li>このツールは締切を忘れないためのリマインダーです。予定にチェックを付けても、公演への申込・入金は完了しません。申込は各公式ページで行ってください。</li>
             <li>入力した申込状況や登録内容はお使いの端末内に保存され、運営が収集・分析することはありません。（購読URLを発行した場合のみ、選んだ予定がURL先に保管されます）</li>
             <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切は自動で追加、終わった予定は自動で整理されます（反映まで最大数時間。すぐ反映したい時は画面を下に引っ張って更新）。含まれるのは予定だけで、お名前・ログイン・支払いの情報は入りません。</li>
+            <li>iPhoneで通知が届かない時は、「設定 → 通知 → カレンダー」の通知がオンになっているか、購読を追加した時に「通知を削除」をオフにしたかをご確認ください。位置情報の設定はオフのままでも通知は届きます。</li>
+            <li>「設定 → プライバシーとセキュリティ → 位置情報サービス → システムサービス → 位置情報に基づく通知」をオンにすると、公演の予定にiPhoneが計算する出発時刻の通知も使えます（任意です）。位置情報はiPhoneの中で使われるだけで、このツールや運営者に送られることはありません。</li>
             <li>カレンダーアプリによっては読み取り専用で表示されます（編集できません）。</li>
             <li>このリンクはあなた専用です。保存した予定が入っているので、他の人には共有しないでください。</li>
           </ul>
@@ -3168,6 +3240,9 @@ function DeadlineCheckRow({
   statusBadge,
   hideTitle = false,
   onMarkApplied,
+  eventLead,
+  eventLeadOverridden = false,
+  onEventLeadChange,
 }: {
   dl: Deadline;
   checked: boolean;
@@ -3175,10 +3250,17 @@ function DeadlineCheckRow({
   statusBadge: { label: string; tone: "primary" | "muted" | "danger" } | null;
   hideTitle?: boolean;
   onMarkApplied?: () => void;
+  /** 公演行のみ: この公演に効いている出発通知設定（上書き or 既定値） */
+  eventLead?: EventLeadSetting;
+  eventLeadOverridden?: boolean;
+  /** 公演行のみ: 上書きの保存（null=既定に戻す） */
+  onEventLeadChange?: (v: EventLeadSetting | null) => void;
 }) {
   const deadline = new Date(dl.deadline_at);
   const dateStr = deadline.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
   const timeStr = deadline.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  const [leadOpen, setLeadOpen] = useState(false);
+  const leadPrefix = dl.open_at ? "開場の" : "開演の";
 
   const badgeClass = statusBadge?.tone === "danger"
     ? "bg-tertiary-container text-on-tertiary-container"
@@ -3216,6 +3298,62 @@ function DeadlineCheckRow({
           >
             申込んだ → この通知を消す
           </button>
+        )}
+        {/* 公演ごとの出発通知設定（遠征などで余裕が欲しい公演だけ個別に変えられる） */}
+        {onEventLeadChange && eventLead && (
+          <div
+            className="mt-1"
+            onClick={(e) => {
+              // 行全体が<label>なので、エディタ内のクリックでチェックが切り替わるのを防ぐ
+              e.stopPropagation();
+              if (!(e.target as HTMLElement).closest("input,select,button")) e.preventDefault();
+            }}
+          >
+            {!leadOpen ? (
+              <button
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setLeadOpen(true); }}
+                className="text-[0.625rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer"
+              >
+                通知: {leadLabel(eventLead, !!dl.open_at)}{eventLeadOverridden ? "（この公演だけ変更中）" : ""}
+              </button>
+            ) : (
+              <div className="flex items-center gap-3 flex-wrap mt-1">
+                <select
+                  value={eventLead.hours ?? "none"}
+                  onChange={(e) => onEventLeadChange({ ...eventLead, hours: e.target.value === "none" ? null : Number(e.target.value) })}
+                  className="bg-surface-container-low border border-outline-variant/30 px-2 py-1 text-xs cursor-pointer"
+                >
+                  <option value="none">当日の通知なし</option>
+                  {EVENT_LEAD_HOURS.map((h) => (
+                    <option key={h} value={h}>{leadPrefix}{h}時間前</option>
+                  ))}
+                </select>
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={eventLead.dayBefore}
+                    onChange={(e) => onEventLeadChange({ ...eventLead, dayBefore: e.target.checked })}
+                    className="w-3.5 h-3.5 cursor-pointer"
+                  />
+                  前日にも通知
+                </label>
+                {eventLeadOverridden && (
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEventLeadChange(null); }}
+                    className="text-[0.625rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer"
+                  >
+                    既定に戻す
+                  </button>
+                )}
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setLeadOpen(false); }}
+                  className="text-[0.625rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer"
+                >
+                  閉じる
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </label>

@@ -38,7 +38,9 @@ interface EventTwinLike {
   fc_news: { title: string };
 }
 
-const twinKey = (dl: EventTwinLike) =>
+/** 公演を一意に指すキー（公演キー＋開演時刻）。双子（重複event行）でも同じ値になる。
+ *  公演ごとの通知設定の保存キーにも使う。 */
+export const eventTwinKey = (dl: EventTwinLike) =>
   eventGroupKey(dl.fc_news.title) + "|" + new Date(dl.deadline_at).getTime();
 
 /**
@@ -52,7 +54,7 @@ export function dedupeEventTwins<T extends EventTwinLike>(
   const buckets = new Map<string, T[]>();
   for (const dl of deadlines) {
     if (dl.type !== "event") continue;
-    const key = twinKey(dl);
+    const key = eventTwinKey(dl);
     const arr = buckets.get(key);
     if (arr) arr.push(dl);
     else buckets.set(key, [dl]);
@@ -75,7 +77,7 @@ export function dedupeEventTwins<T extends EventTwinLike>(
       deduped.push(dl);
       continue;
     }
-    const key = twinKey(dl);
+    const key = eventTwinKey(dl);
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(repByKey.get(key)!);
