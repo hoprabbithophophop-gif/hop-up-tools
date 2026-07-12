@@ -406,24 +406,37 @@ function fetchDeadlines(article) {
   }
 
   // ── 公演本体の開催日時（締切ではなく公演そのもの。type='event'） ──
-  // 例: 「●日程：2026年7月14日（火）」＋「開場 16:05/開演 16:45」（部ごと）
-  // 単発イベント/バースデー系が対象。ツアーは公演日が別リンク先のため本文に無く取得不可。
-  // 注意: 開演時刻は最初の1件のみ採用（複数部・複数日は将来対応）。見つからなければ正午扱い。
+  // 例: 「●日程：2026年6月22日（月）」＋部ごとに「【公演番号01】開場 16:10/開演 16:45」。
+  // 日程・会場は共通、開場/開演は部（公演番号）ごと。2部制・複数回は part_no=公演番号で別行にする。
+  // 公演番号ブロックが無い従来記事は単独公演（part_no=1）。本文全体から開演/開場を拾う。
+  // ツアーは公演日が画像（公演詳細.png 等）に埋まり本文に無いため、ここでは取れない（ビジョンOCRで別途対応）。
   // 中止・延期の記事からは公演日を作らない（主役の体調不良等で稀に発生）。「振替」は新日程が有効なので除外しない。
   const eventMatch = text.match(/日程[：:]\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
   if (eventMatch && !/中止|延期/.test(article.title)) {
     const ey = parseInt(eventMatch[1], 10);
     const emo = parseInt(eventMatch[2], 10) - 1;
     const ed = parseInt(eventMatch[3], 10);
-    // 開演時刻: 「開演 18:00」「18:00開演」「開演18時」「18時開演」の4書式に対応（前後どちらでも）
-    let eh = 12, emin = 0; // 開演不明時は正午（締切類の23:59と区別するため）
-    let km;
-    if ((km = text.match(/開演\s*(\d{1,2})\s*[:：]\s*(\d{1,2})/))) { eh = +km[1]; emin = +km[2]; }
-    else if ((km = text.match(/(\d{1,2})\s*[:：]\s*(\d{1,2})\s*開演/))) { eh = +km[1]; emin = +km[2]; }
-    else if ((km = text.match(/開演\s*(\d{1,2})\s*時\s*(?:(\d{1,2})\s*分)?/))) { eh = +km[1]; emin = km[2] ? +km[2] : 0; }
-    else if ((km = text.match(/(\d{1,2})\s*時\s*(?:(\d{1,2})\s*分)?\s*開演/))) { eh = +km[1]; emin = km[2] ? +km[2] : 0; }
-    const eventIso = new Date(Date.UTC(ey, emo, ed, eh - 9, emin)).toISOString();
-    // 会場（「会場：◯◯ （地域）」を最初の（…）括弧まで取る。後続の日程/料金等を巻き込まない）
+
+    // 開演時刻（4書式・前後どちらでも）をテキスト断片から拾う。無ければnull。
+    const matchKaien = (seg) => {
+      let km;
+      if ((km = seg.match(/開演\s*(\d{1,2})\s*[:：]\s*(\d{1,2})/))) return { h: +km[1], m: +km[2] };
+      if ((km = seg.match(/(\d{1,2})\s*[:：]\s*(\d{1,2})\s*開演/))) return { h: +km[1], m: +km[2] };
+      if ((km = seg.match(/開演\s*(\d{1,2})\s*時\s*(?:(\d{1,2})\s*分)?/))) return { h: +km[1], m: km[2] ? +km[2] : 0 };
+      if ((km = seg.match(/(\d{1,2})\s*時\s*(?:(\d{1,2})\s*分)?\s*開演/))) return { h: +km[1], m: km[2] ? +km[2] : 0 };
+      return null;
+    };
+    // 開場時刻（同じ4書式）。無ければnull。
+    const matchKaijo = (seg) => {
+      let om;
+      if ((om = seg.match(/開場\s*(\d{1,2})\s*[:：]\s*(\d{1,2})/))) return { h: +om[1], m: +om[2] };
+      if ((om = seg.match(/(\d{1,2})\s*[:：]\s*(\d{1,2})\s*開場/))) return { h: +om[1], m: +om[2] };
+      if ((om = seg.match(/開場\s*(\d{1,2})\s*時\s*(?:(\d{1,2})\s*分)?/))) return { h: +om[1], m: om[2] ? +om[2] : 0 };
+      if ((om = seg.match(/(\d{1,2})\s*時\s*(?:(\d{1,2})\s*分)?\s*開場/))) return { h: +om[1], m: om[2] ? +om[2] : 0 };
+      return null;
+    };
+
+    // 会場（共通）: 「会場：◯◯ （地域）」を最初の（…）括弧まで取る。後続の日程/料金等を巻き込まない。
     let venue = null;
     let vm;
     if ((vm = text.match(/会場[：:]\s*(.{1,40}?[（(][^）)]{1,30}[）)])/))) {
@@ -438,7 +451,34 @@ function fetchDeadlines(article) {
       }
       venue = resolveVenueName(venue); // 未知の並び替え誤字を辞書の正式名へ
     }
-    deadlines.push({ type: 'event', label: '公演', deadline_at: eventIso, location: venue });
+
+    // 1公演（部）分のevent行を作る。開演不明時は正午（締切類の23:59と区別）。開場は開演より前のときだけ採用。
+    const pushShow = (seg, partNo) => {
+      const k = matchKaien(seg) || { h: 12, m: 0 };
+      const eventIso = new Date(Date.UTC(ey, emo, ed, k.h - 9, k.m)).toISOString();
+      let openIso = null;
+      const o = matchKaijo(seg);
+      if (o) {
+        const openDate = new Date(Date.UTC(ey, emo, ed, o.h - 9, o.m));
+        if (openDate.toISOString() < eventIso) openIso = openDate.toISOString();
+      }
+      deadlines.push({ type: 'event', label: '公演', deadline_at: eventIso, location: venue, open_at: openIso, part_no: partNo });
+    };
+
+    // 【公演番号NN】ブロックを全部拾う。各ブロック＝1公演（部）。断片はそのブロック範囲に限定して誤抽出を防ぐ。
+    // HTMLタグ剥がしで括弧内に空白が入る（実テキストは「【 公演番号01 】」）ため \s* を許可。
+    const partRe = /【\s*公演番号\s*(\d+)\s*】/g;
+    const parts = [];
+    let pm;
+    while ((pm = partRe.exec(text)) !== null) parts.push({ no: parseInt(pm[1], 10), idx: pm.index });
+    if (parts.length > 0) {
+      for (let i = 0; i < parts.length; i++) {
+        const end = i + 1 < parts.length ? parts[i + 1].idx : Math.min(text.length, parts[i].idx + 120);
+        pushShow(text.slice(parts[i].idx, end), parts[i].no);
+      }
+    } else {
+      pushShow(text, 1); // 従来形式（単独公演）
+    }
   }
 
   return deadlines;
@@ -540,11 +580,12 @@ function upsertNewsToSupabase(supabaseUrl, supabaseKey, article, deadlines) {
     Logger.log('fc_news UPSERT エラー ' + newsStatus + ': ' + newsRes.getContentText());
   }
 
-  // fc_deadlines UPSERT（news_uid + type がユニーク）
+  // fc_deadlines UPSERT（news_uid + type + part_no がユニーク。複数公演=部ごとに別行）
+  // ※ part_no を含む一意制約への張り替えが本番DBに済んでいることが前提（新スクレイパー配備と同時）。
   for (const dl of deadlines) {
     if (!dl.deadline_at) continue;
 
-    const dlRes = UrlFetchApp.fetch(supabaseUrl + '/rest/v1/fc_deadlines?on_conflict=news_uid,type', {
+    const dlRes = UrlFetchApp.fetch(supabaseUrl + '/rest/v1/fc_deadlines?on_conflict=news_uid,type,part_no', {
       method: 'post',
       headers,
       payload: JSON.stringify([{
@@ -553,6 +594,8 @@ function upsertNewsToSupabase(supabaseUrl, supabaseKey, article, deadlines) {
         label:       dl.label,
         deadline_at: dl.deadline_at,
         location:    dl.location ?? null,
+        open_at:     dl.open_at ?? null,
+        part_no:     dl.part_no ?? 1,
       }]),
       muteHttpExceptions: true,
     });

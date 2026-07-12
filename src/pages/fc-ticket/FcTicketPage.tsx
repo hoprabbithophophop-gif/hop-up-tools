@@ -45,6 +45,13 @@ interface Deadline {
   fc_news: { title: string; detail_url: string; category: string };
 }
 
+// 公演の予定メモに入れる開場・開演の行（開場が取れている公演のみ）
+function doorsLine(dl: Deadline): string {
+  if (dl.type !== "event" || !dl.open_at) return "";
+  const fmt = (d: Date) => d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  return "\n開場 " + fmt(new Date(dl.open_at)) + " / 開演 " + fmt(new Date(dl.deadline_at));
+}
+
 interface ElineupGoodsRow {
   product_url: string;
   product_name: string;
@@ -884,12 +891,14 @@ function DeadlineRow({ dl, paidUp = false, isFirst = false }: { dl: Deadline; pa
   const isEvent = dl.type === "event";
   // 座標が引けない会場は、当日詰まないように予定メモへ地図検索リンクを入れる
   const geo = geoForLocation(dl.location);
+  // 公演は開場時刻があれば予定の開始＝開場（通知もiOSの出発時刻も開場着基準になる）
+  const openAt = isEvent && dl.open_at ? new Date(dl.open_at) : null;
   const calEvent: IcsEvent = {
     uid: dl.id + "@hop-up-tools",
     summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
-    description: dl.fc_news.title + "\n" + dl.fc_news.detail_url +
+    description: dl.fc_news.title + doorsLine(dl) + "\n" + dl.fc_news.detail_url +
       (dl.location && !geo ? "\n地図で探す: " + mapSearchUrl(dl.location) : ""),
-    dtstart: isEvent ? deadline : new Date(deadline.getTime() - 3600000),
+    dtstart: isEvent ? (openAt ?? deadline) : new Date(deadline.getTime() - 3600000),
     dtend: isEvent ? new Date(deadline.getTime() + 7200000) : deadline,
     location: dl.location ?? undefined,
     geo,
@@ -2213,12 +2222,14 @@ function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
   const isEvent = dl.type === "event";
   // 座標が引けない会場は、当日詰まないように予定メモへ地図検索リンクを入れる
   const geo = geoForLocation(dl.location);
+  // 公演は開場時刻があれば予定の開始＝開場（通知もiOSの出発時刻も開場着基準になる）
+  const openAt = isEvent && dl.open_at ? new Date(dl.open_at) : null;
   const calEvent: IcsEvent = {
     uid: dl.id + "@hop-up-tools",
     summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
-    description: dl.fc_news.title + "\n" + dl.fc_news.detail_url +
+    description: dl.fc_news.title + doorsLine(dl) + "\n" + dl.fc_news.detail_url +
       (dl.location && !geo ? "\n地図で探す: " + mapSearchUrl(dl.location) : ""),
-    dtstart: isEvent ? deadline : new Date(deadline.getTime() - 3600000),
+    dtstart: isEvent ? (openAt ?? deadline) : new Date(deadline.getTime() - 3600000),
     dtend: isEvent ? new Date(deadline.getTime() + 7200000) : deadline,
     location: dl.location ?? undefined,
     geo,
@@ -2863,13 +2874,15 @@ function SubscribeScreen({
         // 会場座標も発行時に焼き込む（regenは描画＋座標の後追い補完のみ）。
         // 座標が引けない会場は予定メモに地図検索リンク＝当日詰まない安全網
         const geo = geoForLocation(dl.location);
+        // 公演は開場時刻があれば予定の開始＝開場（通知もiOSの出発時刻も開場着基準になる）
+        const openAt = isEvent && dl.open_at ? new Date(dl.open_at) : null;
         return {
           uid: dl.id + "@hop-up-tools",
           summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
-          description: dl.fc_news.title + "\n" + dl.fc_news.detail_url +
+          description: dl.fc_news.title + doorsLine(dl) + "\n" + dl.fc_news.detail_url +
             (dl.location && !geo ? "\n地図で探す: " + mapSearchUrl(dl.location) : "") +
             "\n\n通知の変更: " + settingsUrlFor(dl.fc_news.title),
-          dtstart: isEvent ? at : new Date(at.getTime() - 3600000),
+          dtstart: isEvent ? (openAt ?? at) : new Date(at.getTime() - 3600000),
           dtend: isEvent ? new Date(at.getTime() + 7200000) : at,
           location: dl.location ?? undefined,
           geo,
