@@ -1066,6 +1066,19 @@ function CalendarScreen({
   const appliedSet = useMemo(() => new Set(applied), [applied]);
   const paidSet = useMemo(() => new Set(paid), [paid]);
 
+  // 「行く公演（回）」セット: Subscribe で選んだ included（localStorage）を読む。
+  // カレンダーは表示のみ（濃淡・旗）＝タブ再マウント時に最新を読めば十分。
+  const goingSet = useMemo<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("fc-sub-included") ?? "[]")); }
+    catch { return new Set(); }
+  }, []);
+  // 公演を薄く出すか: 関わってる受付（申込/気になる）の公演で、行く回に選ばれていないもの。
+  // 関わってない公演（ただの閲覧）は薄くしない。
+  const isShowSkipped = (dl: Deadline) =>
+    dl.type === "event"
+    && (matchedUids.has(dl.news_uid) || watchlistSet.has(dl.news_uid))
+    && !goingSet.has(dl.id);
+
   function toggleApplied(uid: string) {
     if (appliedSet.has(uid)) {
       onAppliedChange(applied.filter((u) => u !== uid));
@@ -1147,6 +1160,22 @@ function CalendarScreen({
 
   // グッズ販売期間（通販開始↔受付締切のペア）。ガントの独立行として描く。
   const goodsPeriods = useMemo(() => buildGoodsPeriods(filteredDeadlines), [filteredDeadlines]);
+
+  // 公演（回）をグループ（eventGroupKey）別に: ガントの旗マーカー用。双子は1回だけ。going=行く回。
+  const showsByGroup = useMemo(() => {
+    const map = new Map<string, { key: string; date: Date; going: boolean }[]>();
+    const seen = new Set<string>();
+    for (const dl of filteredDeadlines) {
+      if (dl.type !== "event") continue;
+      const tk = eventTwinKey(dl);
+      if (seen.has(tk)) continue;
+      seen.add(tk);
+      const g = eventGroupKey(dl.fc_news.title);
+      if (!map.has(g)) map.set(g, []);
+      map.get(g)!.push({ key: tk, date: new Date(dl.deadline_at), going: goingSet.has(dl.id) });
+    }
+    return map;
+  }, [filteredDeadlines, goingSet]);
 
   // 要対応締切のみ（apply_end / payment）— result・apply_start 等は件数に含めない
   const actionableTypes = new Set(["apply_end", "payment"]);
@@ -1445,7 +1474,7 @@ function CalendarScreen({
             const clusterH = (c: Cluster) => clusterLanes(c) * LANE_H + 8; // paddingTop(5)+marginBottom(3)相当
 
             // ── 1レーン描画: チケット申込（申込バー＋入金斜線＋当落ひし形） ──
-            const renderTicketLane = (p: GanttPeriod, label: string) => {
+            const renderTicketLane = (p: GanttPeriod, label: string, shows: { key: string; date: Date; going: boolean }[] = []) => {
               const left = Math.max(0, (p.start.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
               const right = Math.min(TOTAL_DAYS * CELL_WIDTH, (p.end.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
               const width = Math.max(CELL_WIDTH / 2, right - left);
@@ -1476,6 +1505,17 @@ function CalendarScreen({
                       <div style={{ position: "absolute", top: -3, left: -3, width: 8, height: 8, background: "#585f6c", transform: "rotate(45deg)" }} />
                     </div>
                   )}
+                  {/* 公演（回）の旗マーカー: 縦線＋頂点に右向き三角。当落ひし形と同じ高さ。行く=濃/行かない=薄 */}
+                  {shows.map((s) => {
+                    const sx = (s.date.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH;
+                    if (sx < 0 || sx > TOTAL_DAYS * CELL_WIDTH) return null;
+                    const fill = s.going ? "#585f6c" : "#cfcfcf";
+                    return (
+                      <div key={s.key} style={{ position: "absolute", left: sx - 1, top: 2, width: 2, height: LANE_H - 4, background: fill, zIndex: 3 }} title={s.going ? "行く公演" : "行かない公演（Subscribeで選択）"}>
+                        <div style={{ position: "absolute", top: -3, left: 1, width: 7, height: 8, background: fill, clipPath: "polygon(0 0, 100% 50%, 0 100%)" }} />
+                      </div>
+                    );
+                  })}
                 </div>
               );
             };
@@ -1592,7 +1632,7 @@ function CalendarScreen({
                   ) : (
                     clusters.map((cluster, ci) => (
                       <div key={cluster.key} style={{ height: clusterH(cluster), boxSizing: "border-box", paddingTop: 5, paddingBottom: 3, overflow: "hidden", ...(ci > 0 ? { borderTop: "1px solid rgba(0,0,0,0.06)" } : {}) }}>
-                        {cluster.ticketRows.map(({ p, label }) => renderTicketLane(p, label))}
+                        {cluster.ticketRows.map(({ p, label }, ri) => renderTicketLane(p, label, ri === 0 ? (showsByGroup.get(cluster.name) ?? []) : []))}
                         {cluster.goods && renderGoodsLane(cluster.goods)}
                       </div>
                     ))
@@ -1605,7 +1645,7 @@ function CalendarScreen({
           // setSelectedDate/setTooltip*/stripRef/handleStripScrollは安定（または最新値参照に変更済み）なので依存に含めない。
           // selectedDate/tooltipUidも含めない（選択スタイルはuseEffectでDOM直接切替）
           // eslint-disable-next-line react-hooks/exhaustive-deps
-          }, [stripDates, today, minuteKey, ganttPeriods, goodsPeriods, allNews, newsMap, ganttGroupFilter, ganttMemberFilter, paymentByUid, paymentStartByUid, resultByUid])}
+          }, [stripDates, today, minuteKey, ganttPeriods, goodsPeriods, showsByGroup, allNews, newsMap, ganttGroupFilter, ganttMemberFilter, paymentByUid, paymentStartByUid, resultByUid])}
         </div>
       </section>
 
@@ -1763,7 +1803,7 @@ function CalendarScreen({
           </header>
           <div className="flex flex-col gap-6">
             {selectedDeadlines.map((dl) => (
-              <CalendarDeadlineCard key={dl.id} dl={dl} />
+              <CalendarDeadlineCard key={dl.id} dl={dl} dimmed={isShowSkipped(dl)} />
             ))}
           </div>
         </section>
@@ -2213,7 +2253,7 @@ function CalendarScreen({
   );
 }
 
-function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
+function CalendarDeadlineCard({ dl, dimmed = false }: { dl: Deadline; dimmed?: boolean }) {
   const deadline = new Date(dl.deadline_at);
   const now = new Date();
   const diffDays = (deadline.getTime() - now.getTime()) / 86400000;
@@ -2238,7 +2278,10 @@ function CalendarDeadlineCard({ dl }: { dl: Deadline }) {
   const timeStr = deadline.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 
   return (
-    <div className={`p-6 border-l-4 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface-container-lowest ${isUrgent ? "border-tertiary" : "border-primary"}`}>
+    <div
+      className={`p-6 border-l-4 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface-container-lowest ${dimmed ? "border-outline-variant" : isUrgent ? "border-tertiary" : "border-primary"}`}
+      style={dimmed ? { opacity: 0.45 } : undefined}
+    >
       <div className="space-y-1">
         <div className="flex items-center gap-2">
           {isUrgent && (
@@ -2415,6 +2458,22 @@ function groupDeadlinesByEvent(deadlines: Deadline[]): { key: string; deadlines:
   return [...map.entries()].map(([key, dls]) => ({ key, deadlines: dls }));
 }
 
+// 公演（回）が2つ以上ある公演グループ（eventGroupKey）の集合。
+// ＝1日2〜3部 or 複数日程。これらは「行く回」をユーザーに選ばせる＝チェック初期OFF対象。
+// 単独公演（回が1つ）はこの集合に入らない＝従来どおり自動ON。区別は eventTwinKey（公演キー＋開演時刻）の数。
+function multiShowGroupKeys(deadlines: Deadline[]): Set<string> {
+  const byGroup = new Map<string, Set<string>>();
+  for (const dl of deadlines) {
+    if (dl.type !== "event") continue;
+    const g = eventGroupKey(dl.fc_news.title);
+    if (!byGroup.has(g)) byGroup.set(g, new Set());
+    byGroup.get(g)!.add(eventTwinKey(dl));
+  }
+  const multi = new Set<string>();
+  for (const [g, keys] of byGroup) if (keys.size >= 2) multi.add(g);
+  return multi;
+}
+
 function computeDefaultIncluded(
   deadlines: Deadline[],
   matchResults: MatchResult[],
@@ -2449,10 +2508,16 @@ function computeDefaultIncluded(
     if (paidSet.has(dl.news_uid) || st.includes("入金済")) paidUids.add(dl.news_uid);
   }
 
+  // 複数回公演グループ（行く回を選ばせる＝初期OFF対象）。単独公演は含まれない＝従来どおり自動ON。
+  const multiGroups = multiShowGroupKeys(deadlines);
+
   const included = new Set<string>();
   for (const dl of deadlines) {
     if (new Date(dl.deadline_at) < now) continue;
     if (!SUBSCRIPTION_TYPES_TO_SUBSCRIBE.includes(dl.type)) continue;
+    // 複数回ある公演（1日2〜3部 or 複数日程）は常に初期OFF＝行く回をユーザーが選ぶ（全通で一括ONも可）。
+    // 単独公演・締切類は従来どおり下のロジックでON。気になる経由でも一貫してOFFにするため先頭でガード。
+    if (dl.type === "event" && multiGroups.has(eventGroupKey(dl.fc_news.title))) continue;
 
     // 関わる公演 = 二次/追加受付・公演予定・グッズ含め、未来の予定を全部ON
     if (involvedGroups.has(eventGroupKey(dl.fc_news.title))) {
@@ -2613,12 +2678,14 @@ function SubscribeScreen({
   useEffect(() => {
     if (!initialized) return;
     if (favoritesAreEmpty(favorites)) return;
+    const multiGroups = multiShowGroupKeys(allDeadlines); // 複数回公演は自動追加しない（行く回はユーザーが選ぶ）
     const now = new Date();
     const toAdd: string[] = [];
     for (const dl of allDeadlines) {
       if (new Date(dl.deadline_at) < now) continue;
       if (!FAVORITE_ACTIONABLE_TYPES.includes(dl.type)) continue;
       if (includedIds.has(dl.id)) continue;
+      if (dl.type === "event" && multiGroups.has(eventGroupKey(dl.fc_news.title))) continue; // 複数回公演は初期OFF維持
       if (titleMatchesFavorites(dl.fc_news.title, favorites)) toAdd.push(dl.id);
     }
     if (toAdd.length > 0) persistIncluded(new Set([...includedIds, ...toAdd]));
@@ -2640,12 +2707,14 @@ function SubscribeScreen({
       if (matchedUids.has(dl.news_uid)) involved.add(eventGroupKey(dl.fc_news.title));
     }
     if (involved.size === 0) return;
+    const multiGroups = multiShowGroupKeys(allDeadlines); // 複数回公演は自動追加しない（行く回はユーザーが選ぶ／全通）
     const now = new Date();
     const toAdd: string[] = [];
     for (const dl of allDeadlines) {
       if (new Date(dl.deadline_at) < now) continue;
       if (!SUBSCRIPTION_TYPES_TO_SUBSCRIBE.includes(dl.type)) continue;
       if (includedIds.has(dl.id)) continue;
+      if (dl.type === "event" && multiGroups.has(eventGroupKey(dl.fc_news.title))) continue; // 複数回公演は初期OFF維持
       if (dl.type === "apply_end" && isApplied(dl.news_uid)) continue; // 申込済→申込締切は再追加しない
       if (dl.type === "payment" && isPaid(dl.news_uid)) continue;      // 入金済→入金締切は再追加しない
       if (involved.has(eventGroupKey(dl.fc_news.title))) toAdd.push(dl.id);
@@ -2718,6 +2787,17 @@ function SubscribeScreen({
     const allIn = dls.every((d) => twinIdsOf(d.id).some((t) => includedIds.has(t)));
     const next = new Set(includedIds);
     for (const d of dls) {
+      for (const t of twinIdsOf(d.id)) { if (allIn) next.delete(t); else next.add(t); }
+    }
+    persistIncluded(next);
+  }
+
+  // 全通：この公演の回（type=event）を全部ON（行く宣言）。既に全部ONなら解除。締切類は触らない。
+  function toggleGoAllShows(dls: Deadline[]) {
+    const events = dls.filter((d) => d.type === "event");
+    const allIn = events.every((d) => twinIdsOf(d.id).some((t) => includedIds.has(t)));
+    const next = new Set(includedIds);
+    for (const d of events) {
       for (const t of twinIdsOf(d.id)) { if (allIn) next.delete(t); else next.add(t); }
     }
     persistIncluded(next);
@@ -2985,6 +3065,10 @@ function SubscribeScreen({
         <div className="space-y-4">
           {activeGroups.map((g) => {
             const allChecked = g.deadlines.every((d) => isIncluded(d));
+            // 全通ボタン: 回（公演）が2つ以上ある受付だけ。回を全部「行く」に一括ON。
+            const showDls = g.deadlines.filter((d) => d.type === "event");
+            const isMultiShow = new Set(showDls.map((d) => eventTwinKey(d))).size >= 2;
+            const allShowsGoing = showDls.length > 0 && showDls.every((d) => isIncluded(d));
             return (
               <div
                 key={g.key}
@@ -3001,6 +3085,15 @@ function SubscribeScreen({
                     <span className={`w-3.5 h-3.5 flex-shrink-0 border ${allChecked ? "bg-primary border-primary" : "bg-transparent border-outline-variant"}`} />
                     <span className="text-sm font-bold leading-snug">{g.key}</span>
                   </button>
+                  {isMultiShow && (
+                    <button
+                      onClick={() => toggleGoAllShows(g.deadlines)}
+                      className="text-[0.625rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer flex-shrink-0"
+                      title="この公演の回を全部「行く」にする"
+                    >
+                      {allShowsGoing ? "全通解除" : "全通"}
+                    </button>
+                  )}
                   <span className="text-[0.625rem] text-outline flex-shrink-0">{g.deadlines.length}件</span>
                   <button
                     onClick={() => removeEventFromList(g.deadlines)}
