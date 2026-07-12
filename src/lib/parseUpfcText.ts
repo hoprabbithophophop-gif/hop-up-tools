@@ -160,6 +160,30 @@ export function matchApplications(
   }));
 }
 
+// ─── 地域（公演地）トークン ───────────────────────────────
+// DBタイトルが申込名に無い「地域」を限定しているなら別公演（東京公演 / in 名古屋 等）。
+// 都道府県47（日本の固定データ）＋ ハロプロのタイトルに実際出る市・地名。
+// 市名は schedule_venues.prefecture には出ない（名古屋=愛知）ので、ここで補う。
+const PREFECTURES = [
+  "北海道", "青森", "岩手", "宮城", "秋田", "山形", "福島", "茨城", "栃木", "群馬", "埼玉", "千葉",
+  "東京", "神奈川", "新潟", "富山", "石川", "福井", "山梨", "長野", "岐阜", "静岡", "愛知", "三重",
+  "滋賀", "京都", "大阪", "兵庫", "奈良", "和歌山", "鳥取", "島根", "岡山", "広島", "山口", "徳島",
+  "香川", "愛媛", "高知", "福岡", "佐賀", "長崎", "熊本", "大分", "宮崎", "鹿児島", "沖縄",
+];
+const REGION_CITIES = [
+  "名古屋", "横浜", "川崎", "さいたま", "神戸", "泉州", "高石", "館山",
+  "札幌", "仙台", "博多", "台北", "taipei",
+];
+const REGION_WORDS = [...PREFECTURES, ...REGION_CITIES];
+
+/** タイトルに含まれる地域語の集合（小文字化して比較） */
+function regionTokensIn(title: string): Set<string> {
+  const t = title.toLowerCase();
+  const found = new Set<string>();
+  for (const w of REGION_WORDS) if (t.includes(w.toLowerCase())) found.add(w.toLowerCase());
+  return found;
+}
+
 function isTitleMatch(parsedTitle: string, dbTitle: string): boolean {
   // 「チケット付き」記事はパース公演名にも「チケット付き」がある場合のみマッチ
   // （チケット付き宿泊プラン等は別商品なので、通常のFC先行申込にマッチさせない）
@@ -180,7 +204,15 @@ function isTitleMatch(parsedTitle: string, dbTitle: string): boolean {
   if (a.length < 4) return false;
 
   // 戦略①: パース公演名 ⊂ DB タイトル
-  if (b.includes(a)) return true;
+  // ただしDBタイトルが申込名に無い地域を限定しているなら別公演（東京公演/in名古屋等）→ 不一致。
+  // 地域語が両方にある（名古屋⊂名古屋）なら一致。会場シリーズ名のプレフィックスには釣られない。
+  if (b.includes(a)) {
+    const appRegions = regionTokensIn(parsedTitle);
+    for (const r of regionTokensIn(dbTitle)) {
+      if (!appRegions.has(r)) return false;
+    }
+    return true;
+  }
 
   // 戦略②: DB タイトルのコア部分 ⊂ パース公演名
   // ただし dbCore の長さが parsed title の 88% 以上であること（短い部分一致の誤ヒット防止）
