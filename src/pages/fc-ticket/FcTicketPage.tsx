@@ -952,8 +952,18 @@ function CalendarScreen({
   matchedUids: Set<string>;
   onGoSubscribe: () => void;
 }) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // now: 60秒ごとに更新（今日ライン用）。today: その日の0時。
+  // 毎レンダーで new Date() しない＝参照が安定し、ガント等のメモ化が効く
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+  const today = useMemo(() => {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, [now]);
 
   // 購読URL発行済みか。発行済みなら気になる追加で自動配信されるため、単発カレンダー登録は出さない（二重登録防止）
   const hasSubscription = (() => {
@@ -979,11 +989,6 @@ function CalendarScreen({
   const [showCompleted, setShowCompleted] = useState(false);
   const [tooltipUid, setTooltipUid] = useState<string | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, []);
 
   const year = centerDate.getFullYear();
   const month = centerDate.getMonth();
@@ -993,11 +998,16 @@ function CalendarScreen({
   const CELL_WIDTH = 48; // 44px幅 + 4px gap
 
   // 日付ストリップ: today-30〜today+90
-  const stripDates: Date[] = [];
-  for (let i = -30; i <= 90; i++) {
-    stripDates.push(new Date(today.getFullYear(), today.getMonth(), today.getDate() + i));
-  }
+  const stripDates: Date[] = useMemo(() => {
+    const dates: Date[] = [];
+    for (let i = -30; i <= 90; i++) {
+      dates.push(new Date(today.getFullYear(), today.getMonth(), today.getDate() + i));
+    }
+    return dates;
+  }, [today]);
   const STRIP_TODAY_IDX = 30;
+  // ガント再構築の鍵（毎レンダーではなく分が変わった時だけ今日ラインを動かす）
+  const minuteKey = Math.floor(now.getTime() / 60000);
 
   // 今日にスクロール（初回マウント時）
   useEffect(() => {
@@ -1008,6 +1018,7 @@ function CalendarScreen({
   }, []);
 
   // スクロール連動: 中心付近の日付でcenterDateを更新
+  // （メモ化したガントから呼ばれても安全なように、比較は最新値で行う関数型更新）
   function handleStripScroll() {
     if (!stripRef.current) return;
     const { scrollLeft, clientWidth } = stripRef.current;
@@ -1015,14 +1026,35 @@ function CalendarScreen({
     const idx = Math.round((scrollLeft + clientWidth / 2 - PADDING - CELL_WIDTH / 2) / CELL_WIDTH);
     const clamped = Math.max(0, Math.min(stripDates.length - 1, idx));
     const d = stripDates[clamped];
-    if (d.getFullYear() !== centerDate.getFullYear() || d.getMonth() !== centerDate.getMonth()) {
-      setCenterDate(d);
-    }
+    setCenterDate((prev) =>
+      d.getFullYear() === prev.getFullYear() && d.getMonth() === prev.getMonth() ? prev : d
+    );
   }
 
-  const watchlistSet = new Set(watchlist);
-  const appliedSet = new Set(applied);
-  const paidSet = new Set(paid);
+  // 選択中バーの行ハイライトと選択中日付セルの反転。ガント本体はメモ化していて
+  // タップでは再描画されないので、DOMのスタイルだけ直接切り替える。
+  // 依存配列なし＝ガントが（分更新等で）作り直された後も毎回適用し直す。
+  useEffect(() => {
+    const root = stripRef.current;
+    if (!root) return;
+    root.querySelectorAll<HTMLElement>("[data-gantt-uid]").forEach((el) => {
+      el.style.background = el.dataset.ganttUid === tooltipUid ? "rgba(0,0,0,0.06)" : "transparent";
+    });
+    const selKey = selectedDate ? selectedDate.toDateString() : null;
+    root.querySelectorAll<HTMLElement>("[data-day-cell]").forEach((el) => {
+      const sel = el.dataset.dayCell === selKey;
+      const dow = Number(el.dataset.dow);
+      el.style.background = sel ? "#000000" : (el.dataset.bgDefault ?? "transparent");
+      const dowEl = el.children[0] as HTMLElement | undefined;
+      const numEl = el.children[1] as HTMLElement | undefined;
+      if (dowEl) dowEl.style.color = sel ? "rgba(255,255,255,0.75)" : dow === 0 ? "#ba1a1a" : dow === 6 ? "#585f6c" : "#999";
+      if (numEl) numEl.style.color = sel ? "#fff" : dow === 0 ? "#ba1a1a" : dow === 6 ? "#585f6c" : "";
+    });
+  });
+
+  const watchlistSet = useMemo(() => new Set(watchlist), [watchlist]);
+  const appliedSet = useMemo(() => new Set(applied), [applied]);
+  const paidSet = useMemo(() => new Set(paid), [paid]);
 
   function toggleApplied(uid: string) {
     if (appliedSet.has(uid)) {
@@ -1045,12 +1077,15 @@ function CalendarScreen({
   }
 
   // apply_end 締切日マップ（気になるセクション用）
-  const applyEndByUid = new Map<string, Date>();
-  const paymentByUid = new Map<string, Date>();
-  for (const dl of allDeadlines) {
-    if (dl.type === "apply_end") applyEndByUid.set(dl.news_uid, new Date(dl.deadline_at));
-    if (dl.type === "payment") paymentByUid.set(dl.news_uid, new Date(dl.deadline_at));
-  }
+  const { applyEndByUid, paymentByUid } = useMemo(() => {
+    const applyEndByUid = new Map<string, Date>();
+    const paymentByUid = new Map<string, Date>();
+    for (const dl of allDeadlines) {
+      if (dl.type === "apply_end") applyEndByUid.set(dl.news_uid, new Date(dl.deadline_at));
+      if (dl.type === "payment") paymentByUid.set(dl.news_uid, new Date(dl.deadline_at));
+    }
+    return { applyEndByUid, paymentByUid };
+  }, [allDeadlines]);
 
   // watchlist トグル
   function toggleWatchlist(uid: string) {
@@ -1064,15 +1099,18 @@ function CalendarScreen({
   }
 
   // フィルター適用済み締切リスト
-  const filteredDeadlines =
-    calFilter === "mine"
-      ? allDeadlines.filter((dl) => matchedUids.has(dl.news_uid) || watchlistSet.has(dl.news_uid))
-      : allDeadlines;
+  const filteredDeadlines = useMemo(
+    () =>
+      calFilter === "mine"
+        ? allDeadlines.filter((dl) => matchedUids.has(dl.news_uid) || watchlistSet.has(dl.news_uid))
+        : allDeadlines,
+    [allDeadlines, calFilter, matchedUids, watchlistSet],
+  );
 
   // 締切の種別（ドット色分け用）
 
   // ─── Gantt 期間構築 ───────────────────────────────────────
-  const ganttPeriods: GanttPeriod[] = (() => {
+  const ganttPeriods: GanttPeriod[] = useMemo(() => {
     const grouped = new Map<string, Record<string, Date>>();
     for (const dl of filteredDeadlines) {
       if (!grouped.has(dl.news_uid)) grouped.set(dl.news_uid, {});
@@ -1094,11 +1132,11 @@ function CalendarScreen({
       }
     }
     return periods;
-  })();
+  }, [filteredDeadlines, matchedUids, watchlistSet]);
 
 
   // グッズ販売期間（通販開始↔受付締切のペア）。ガントの独立行として描く。
-  const goodsPeriods = buildGoodsPeriods(filteredDeadlines);
+  const goodsPeriods = useMemo(() => buildGoodsPeriods(filteredDeadlines), [filteredDeadlines]);
 
   // 要対応締切のみ（apply_end / payment）— result・apply_start 等は件数に含めない
   const actionableTypes = new Set(["apply_end", "payment"]);
@@ -1132,23 +1170,25 @@ function CalendarScreen({
     return diff >= 0 && diff < 3;
   }).length;
 
-  const newsMap = new Map(allNews.map((n) => [n.uid, n]));
+  const newsMap = useMemo(() => new Map(allNews.map((n) => [n.uid, n])), [allNews]);
 
-  // Ganttツールチップ用: newsUid → 全締切種別
-  const deadlinesByNewsUid = new Map<string, Record<string, Date>>();
-  for (const dl of filteredDeadlines) {
-    if (!deadlinesByNewsUid.has(dl.news_uid)) deadlinesByNewsUid.set(dl.news_uid, {});
-    deadlinesByNewsUid.get(dl.news_uid)![dl.type] = new Date(dl.deadline_at);
-  }
-  // 入金バー開始日: payment_start → result → 申込締切日 の優先順
-  const paymentStartByUid = new Map<string, Date>();
-  const resultByUid = new Map<string, Date>();
-  for (const dl of filteredDeadlines) {
-    if (dl.type === "payment_start") paymentStartByUid.set(dl.news_uid, new Date(dl.deadline_at));
-    if (dl.type === "result") resultByUid.set(dl.news_uid, new Date(dl.deadline_at));
-  }
+  // Ganttツールチップ用: newsUid → 全締切種別／入金バー開始日: payment_start → result → 申込締切日 の優先順
+  const { deadlinesByNewsUid, paymentStartByUid, resultByUid } = useMemo(() => {
+    const deadlinesByNewsUid = new Map<string, Record<string, Date>>();
+    const paymentStartByUid = new Map<string, Date>();
+    const resultByUid = new Map<string, Date>();
+    for (const dl of filteredDeadlines) {
+      if (!deadlinesByNewsUid.has(dl.news_uid)) deadlinesByNewsUid.set(dl.news_uid, {});
+      deadlinesByNewsUid.get(dl.news_uid)![dl.type] = new Date(dl.deadline_at);
+      if (dl.type === "payment_start") paymentStartByUid.set(dl.news_uid, new Date(dl.deadline_at));
+      if (dl.type === "result") resultByUid.set(dl.news_uid, new Date(dl.deadline_at));
+    }
+    return { deadlinesByNewsUid, paymentStartByUid, resultByUid };
+  }, [filteredDeadlines]);
 
   // 気になる公演候補（申込締切がある公演 or すでにwatchlist済み）
+  // ソート含めて重いので、入力が変わった時だけ計算し直す
+  const { watchlistCandidates, availableGroups, activeCandidates, doneCandidates } = useMemo(() => {
   const watchlistCandidates = allNews.filter(
     (n) => watchlistSet.has(n.uid) || applyEndByUid.has(n.uid)
   );
@@ -1213,6 +1253,11 @@ function CalendarScreen({
     const bLast = (paymentByUid.get(b.uid) ?? applyEndByUid.get(b.uid))?.getTime() ?? 0;
     return bLast - aLast; // 直近に締切だったものが上
   });
+
+  return { watchlistCandidates, availableGroups, activeCandidates, doneCandidates };
+  // minuteKey: ソート内の「現在時刻」基準を分単位で追従させる
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allNews, watchlistSet, appliedSet, paidSet, applyEndByUid, paymentByUid, watchlistSearch, watchlistGroups, minuteKey]);
 
   return (
     <main className="max-w-4xl mx-auto px-4 md:px-0 pb-8">
@@ -1306,8 +1351,10 @@ function CalendarScreen({
         </div>
 
         {/* 左: イベントラベル固定列／右: タイムライン横スクロール */}
+        {/* ガント全体をメモ化: バータップ（ツールチップ開閉）ではこの巨大なツリーを再構築しない。
+            選択中バーのグレー強調はuseEffectでDOMに直接付け外しする */}
         <div style={{ margin: "0 -16px", display: "flex", alignItems: "flex-start" }}>
-          {(() => {
+          {useMemo(() => {
             const TOTAL_DAYS = stripDates.length; // 121
             const contentWidth = TOTAL_DAYS * CELL_WIDTH + 32; // +32 for 16px padding each side
             const stripStart = stripDates[0].getTime();
@@ -1392,7 +1439,6 @@ function CalendarScreen({
               const left = Math.max(0, (p.start.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
               const right = Math.min(TOTAL_DAYS * CELL_WIDTH, (p.end.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
               const width = Math.max(CELL_WIDTH / 2, right - left);
-              const isOpen = tooltipUid === p.newsUid;
               const paymentDate = paymentByUid.get(p.newsUid);
               const paymentBarStart = paymentDate ? (paymentStartByUid.get(p.newsUid) ?? resultByUid.get(p.newsUid) ?? p.end) : null;
               const pLeft = paymentBarStart !== null ? Math.max(0, (paymentBarStart.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH) : null;
@@ -1402,9 +1448,9 @@ function CalendarScreen({
               const resultDate = resultByUid.get(p.newsUid);
               const resultX = resultDate ? (resultDate.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH : null;
               const showResultMarker = resultX !== null && resultX >= 0 && resultX <= TOTAL_DAYS * CELL_WIDTH;
-              const onClick = (e: React.MouseEvent) => { e.stopPropagation(); if (isOpen) setTooltipUid(null); else { setTooltipUid(p.newsUid); setTooltipPos({ x: e.clientX, y: e.clientY }); } };
+              const onClick = (e: React.MouseEvent) => { e.stopPropagation(); setTooltipPos({ x: e.clientX, y: e.clientY }); setTooltipUid((cur) => (cur === p.newsUid ? null : p.newsUid)); };
               return (
-                <div key={p.newsUid} style={{ height: LANE_H, position: "relative", background: isOpen ? "rgba(0,0,0,0.06)" : "transparent" }}>
+                <div key={p.newsUid} data-gantt-uid={p.newsUid} style={{ height: LANE_H, position: "relative" }}>
                   <div className="gantt-bar-apply" style={{ position: "absolute", left, width, top: 4, height: 18, background: "#585f6c", overflow: "hidden", boxSizing: "border-box", cursor: "pointer" }} onClick={onClick}>
                     <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.95)", whiteSpace: "nowrap", lineHeight: "18px", display: "inline-block", paddingLeft: 8, paddingRight: 4 }}>{label}</span>
                   </div>
@@ -1429,11 +1475,10 @@ function CalendarScreen({
               const gLeft = Math.max(0, (g.start!.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
               const gRight = Math.min(TOTAL_DAYS * CELL_WIDTH, (g.end.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH);
               const gWidth = Math.max(CELL_WIDTH / 2, gRight - gLeft);
-              const isOpen = tooltipUid === g.id;
               return (
-                <div key={g.id} style={{ height: LANE_H, position: "relative", background: isOpen ? "rgba(0,0,0,0.06)" : "transparent" }}>
+                <div key={g.id} data-gantt-uid={g.id} style={{ height: LANE_H, position: "relative" }}>
                   <div style={{ position: "absolute", left: gLeft, width: gWidth, top: 4, height: 18, background: "#585f6c", overflow: "hidden", boxSizing: "border-box", cursor: "pointer" }}
-                    onClick={(e) => { e.stopPropagation(); if (isOpen) setTooltipUid(null); else { setTooltipUid(g.id); setTooltipPos({ x: e.clientX, y: e.clientY }); } }}>
+                    onClick={(e) => { e.stopPropagation(); setTooltipPos({ x: e.clientX, y: e.clientY }); setTooltipUid((cur) => (cur === g.id ? null : g.id)); }}>
                     <svg width={gWidth} height={18} style={{ position: "absolute", inset: 0, display: "block", pointerEvents: "none" }}>
                       {Array.from({ length: Math.ceil(gWidth / 6) + 1 }, (_, c) => (
                         <g key={c}><circle cx={3 + c * 6} cy={5} r={1.1} fill="rgba(255,255,255,0.55)" /><circle cx={6 + c * 6} cy={13} r={1.1} fill="rgba(255,255,255,0.55)" /></g>
@@ -1445,8 +1490,8 @@ function CalendarScreen({
               );
             };
 
-            // 現在時刻ラインのx座標（分単位でリアルタイム移動）
-            const nowOffsetPx = (now.getTime() - stripStart) / MS_PER_DAY * CELL_WIDTH;
+            // 現在時刻ラインのx座標（分単位でリアルタイム移動。minuteKey=分単位の現在時刻）
+            const nowOffsetPx = (minuteKey * 60000 - stripStart) / MS_PER_DAY * CELL_WIDTH;
             const todayLineX = 16 + nowOffsetPx;
 
             return (
@@ -1473,10 +1518,10 @@ function CalendarScreen({
                 <div style={{ display: "flex", gap: 4 }}>
                   {stripDates.map((d, idx) => {
                     const isToday = isSameDay(d, today);
-                    const isSelected = selectedDate ? isSameDay(d, selectedDate) : false;
                     const dow = d.getDay();
-const isMonthStart = d.getDate() === 1;
+                    const isMonthStart = d.getDate() === 1;
 
+                    // 選択中スタイルはここでは描かない（useEffectでDOM直接切替＝日付タップでガント全体を再構築しない）
                     return (
                       <div key={idx} style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", width: 44 }}>
                         {isMonthStart ? (
@@ -1487,21 +1532,24 @@ const isMonthStart = d.getDate() === 1;
                           <div style={{ height: 14 }} />
                         )}
                         <div
-                          onClick={() => setSelectedDate(isSelected ? null : d)}
+                          data-day-cell={d.toDateString()}
+                          data-dow={dow}
+                          data-bg-default={isToday ? "rgba(0,0,0,0.08)" : "transparent"}
+                          onClick={() => setSelectedDate((prev) => (prev && isSameDay(prev, d) ? null : d))}
                           style={{
                             width: 44,
                             padding: "4px 0",
                             textAlign: "center",
                             cursor: "pointer",
                             borderRadius: 0,
-                            background: isSelected ? "#000000" : isToday ? "rgba(0,0,0,0.08)" : "transparent",
+                            background: isToday ? "rgba(0,0,0,0.08)" : "transparent",
                             userSelect: "none",
                           }}
                         >
-                          <div style={{ fontSize: 9, fontWeight: 700, marginBottom: 1, color: isSelected ? "rgba(255,255,255,0.75)" : dow === 0 ? "#ba1a1a" : dow === 6 ? "#585f6c" : "#999" }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, marginBottom: 1, color: dow === 0 ? "#ba1a1a" : dow === 6 ? "#585f6c" : "#999" }}>
                             {DOW_JA[dow]}
                           </div>
-                          <div style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: isSelected ? "#fff" : dow === 0 ? "#ba1a1a" : dow === 6 ? "#585f6c" : undefined }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: dow === 0 ? "#ba1a1a" : dow === 6 ? "#585f6c" : undefined }}>
                             {d.getDate()}
                           </div>
                         </div>
@@ -1544,7 +1592,10 @@ const isMonthStart = d.getDate() === 1;
               </div>
               </>
             );
-          })()}
+          // setSelectedDate/setTooltip*/stripRef/handleStripScrollは安定（または最新値参照に変更済み）なので依存に含めない。
+          // selectedDate/tooltipUidも含めない（選択スタイルはuseEffectでDOM直接切替）
+          // eslint-disable-next-line react-hooks/exhaustive-deps
+          }, [stripDates, today, minuteKey, ganttPeriods, goodsPeriods, allNews, newsMap, ganttGroupFilter, ganttMemberFilter, paymentByUid, paymentStartByUid, resultByUid])}
         </div>
       </section>
 
