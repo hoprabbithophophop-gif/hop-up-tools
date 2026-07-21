@@ -1,7 +1,9 @@
 /**
- * fc-ics Edge Function 経由でICSサブスクリプションをアップロード/削除する
+ * fc-ics Edge Function 経由でICS購読の「注文票」をアップロード/削除する。
+ * ICSの中身そのものはブラウザでは作らない。サーバー側(fc-ics-upload)が
+ * 注文票と最新の締切データを突き合わせて組み立てる（案1・組み立て役の一本化）。
  */
-import type { IcsEvent } from "./ics";
+import type { OrderTicket } from "./icsCore";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -19,9 +21,7 @@ export function subscriptionUrls(slug: string): SubscriptionUrls {
 
 export async function uploadSubscriptionIcs(
   slug: string,
-  ics: string,
-  events?: IcsEvent[],
-  retention?: string,
+  order: OrderTicket,
 ): Promise<SubscriptionUrls> {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/fc-ics-upload`, {
     method: "POST",
@@ -29,8 +29,7 @@ export async function uploadSubscriptionIcs(
       "Authorization": `Bearer ${ANON_KEY}`,
       "Content-Type": "application/json",
     },
-    // events / retention は再生成（保持期限による自動削除）用にサーバ保存される
-    body: JSON.stringify({ slug, ics, events, retention }),
+    body: JSON.stringify({ slug, order }),
   });
 
   if (!res.ok) {

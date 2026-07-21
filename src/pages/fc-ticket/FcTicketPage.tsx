@@ -12,12 +12,11 @@ import {
   downloadIcs,
   generateGoogleCalendarUrl,
   generateYahooCalendarUrl,
-  generateMultiIcs,
   generateSubscriptionSlug,
   cleanFcTitle,
   type IcsEvent,
-  type IcsAlarm,
 } from "../../lib/ics";
+import type { OrderTicket, EventLeadSetting, RetentionMode } from "../../lib/icsCore";
 import {
   uploadSubscriptionIcs,
   deleteSubscriptionIcs,
@@ -139,8 +138,6 @@ function buildGoodsPeriods(deadlines: Deadline[]): GoodsPeriod[] {
 
 // input に Result を統合（締切確認）。旧 "result" は input にエイリアス。
 type Tab = "input" | "calendar" | "subscribe";
-
-type RetentionMode = "after-event-1m" | "6m" | "forever";
 
 interface GanttPeriod {
   newsUid: string;
@@ -2333,7 +2330,7 @@ const APPLIED_STATUS_KEYWORDS = ["申込済", "当選", "落選", "入金済", "
 // 公演の出発通知設定（ユーザー設定）。
 // hours = 当日「◯時間前」(1〜24・null=当日の通知なし)、dayBefore = 前日にも通知。
 // 時間はネイティブselectで選ぶ＝iPhoneではホイールUIになる。
-interface EventLeadSetting { hours: number | null; dayBefore: boolean }
+// 型は ../../lib/icsCore の EventLeadSetting と共通（注文票としてサーバーへ送るため）。
 const DEFAULT_EVENT_LEAD: EventLeadSetting = { hours: 3, dayBefore: false };
 const EVENT_LEAD_HOURS = Array.from({ length: 24 }, (_, i) => i + 1);
 
@@ -2361,50 +2358,15 @@ function loadEventLeadOverrides(): Record<string, EventLeadSetting> {
   try { return JSON.parse(localStorage.getItem("fc-sub-event-lead-ovr") ?? "{}"); } catch { return {}; }
 }
 
-// 公演の出発通知(VALARM)。前日分も「その日の最初の公演・行く公演」ルールに従う
-function eventAlarms(lead: EventLeadSetting): IcsAlarm[] {
-  const alarms: IcsAlarm[] = [];
-  if (lead.dayBefore) alarms.push({ trigger: "-P1D", description: "明日が公演です" });
-  if (lead.hours != null) alarms.push({ trigger: "-PT" + lead.hours + "H", description: "そろそろお出かけの時間です（本日公演）" });
-  return alarms;
-}
-
 // 行に表示する現在値。開場が分かる公演は「開場の」、無ければ「開演の」（実態通りのラベル）
+// 通知(VALARM)そのものの組み立ては注文票を受け取ったサーバー側で行う
+// （supabase/functions/_shared/icsAssemble.ts）。ここは画面表示用の文言だけ。
 function leadLabel(lead: EventLeadSetting, hasOpenTime: boolean): string {
   if (lead.hours == null && !lead.dayBefore) return "なし";
   const parts: string[] = [];
   if (lead.dayBefore) parts.push("前日");
   if (lead.hours != null) parts.push((hasOpenTime ? "開場の" : "開演の") + lead.hours + "時間前");
   return parts.join("＋");
-}
-
-// 種類＋状況 → 通知(VALARM)配列。発行時に1回だけ算出して events に焼く（生成側は描画のみ）。
-// isAttending=実際に行く公演か（当選/入金済）。出発通知は行く公演にだけ出す。
-function alarmsForDeadline(type: string, isFirstShowOfDay: boolean, eventLeadAlarms: IcsAlarm[], isAttending: boolean): IcsAlarm[] {
-  switch (type) {
-    case "apply_end":
-      return [{ trigger: "-P1D", description: "明日が申込締切です" }, { trigger: "-PT1H", description: "まもなく申込締切です" }];
-    case "payment":
-      return [{ trigger: "-P1D", description: "明日が入金締切です" }, { trigger: "-PT1H", description: "まもなく入金締切です" }];
-    case "sale_end":
-    case "goods_sale_end":
-      return [{ trigger: "-P1D", description: "明日がグッズ締切です" }];
-    case "result":
-      return [{ trigger: "-P1D", description: "明日 当落発表です" }];
-    case "apply_start":
-      return [{ trigger: "-PT1H", description: "まもなく申込開始です" }];
-    case "sale_start":
-      return [{ trigger: "-PT1H", description: "まもなくグッズ販売開始です" }];
-    case "payment_start":
-      return [{ trigger: "-PT1H", description: "まもなく入金開始です" }];
-    case "event":
-      // 公演＝出発通知。行く公演(当選/入金済)・その日の最初の公演だけに出す。
-      // 中身（前日/当日◯時間前）はユーザー設定（全体既定＋公演ごと上書き）から組み立て済み。
-      if (!isAttending || !isFirstShowOfDay) return [];
-      return eventLeadAlarms;
-    default:
-      return [{ trigger: "-P1D", description: "明日が締切です" }, { trigger: "-PT1H", description: "まもなく締切です" }];
-  }
 }
 
 // ─── 推し（favorites）によるタイトル自動マッチ ────────────────
@@ -2733,8 +2695,22 @@ function SubscribeScreen({
   const eventLeadOvrRef = useRef(eventLeadOverrides); eventLeadOvrRef.current = eventLeadOverrides;
   const matchResultsRef = useRef(matchResults); matchResultsRef.current = matchResults;
   const paidRef = useRef(paid); paidRef.current = paid;
+  // 「行く」と判定された news_uid（当選 or 入金済）。貼り付けテキストの中身ではなく
+  // この判定結果(○×)だけを注文票に含める（サーバーには生テキストを送らない約束を維持）。
+  function computeAttendingNewsUids(matchResultsList: MatchResult[], paidList: string[]): string[] {
+    const paidSetNow = new Set(paidList);
+    const attending = new Set(paidList);
+    for (const r of matchResultsList) {
+      const st = r.parsed.status;
+      if (!(st.includes("入金済") || (st.includes("当選") && !st.includes("当選取消")))) continue;
+      for (const m of r.matched) attending.add(m.uid);
+    }
+    for (const uid of paidSetNow) attending.add(uid);
+    return [...attending].sort();
+  }
   function selectionSig(ids: Set<string>, ret: RetentionMode): string {
-    return [...ids].sort().join(",") + "|" + ret + "|" + JSON.stringify(eventLeadRef.current) + "|" + JSON.stringify(eventLeadOvrRef.current);
+    const attendingSig = computeAttendingNewsUids(matchResultsRef.current, paidRef.current).join(",");
+    return [...ids].sort().join(",") + "|" + ret + "|" + JSON.stringify(eventLeadRef.current) + "|" + JSON.stringify(eventLeadOvrRef.current) + "|" + attendingSig;
   }
   // 初期化後、現在の状態を「保存済み」とみなす（タブを開いただけでは発行しない）
   useEffect(() => {
@@ -2752,7 +2728,7 @@ function SubscribeScreen({
     saveTimerRef.current = window.setTimeout(() => { void handlePublish({ silent: true }); }, 2000);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includedIds, retention, eventLead, eventLeadOverrides, initialized, slug]);
+  }, [includedIds, retention, eventLead, eventLeadOverrides, paid, matchResults, initialized, slug]);
   // 離脱時（タブ移動/ページ非表示/閉じる）に保留中の変更を即発行
   useEffect(() => {
     function flush() {
@@ -2916,66 +2892,24 @@ function SubscribeScreen({
     if (silent) setSaveState("saving"); else setPublishing(true);
     try {
       const useSlug = sl ?? generateSubscriptionSlug();
+      // 選んだ予定が実在するか（未読込・削除済み等でなければ）だけここで軽く確認する。
+      // 実際の中身（開演時刻・会場・当落状況等の最新値）はサーバー側が発行のたびに読み直して組み立てる。
       const chosenRaw = [...ids]
         .map((id) => deadlines.find((dl) => dl.id === id))
         .filter((dl): dl is Deadline => !!dl);
-      // 双子（同一公演の重複event行）は1本だけ配信＝カレンダーに同じ公演が2個並ばない
-      const chosen = dedupeEventTwins(chosenRaw).deduped;
-      // 同日の公演のうち「最も早い1件」を出発通知の対象に（2部以降は会場に居るので通知なし）
-      const firstEventByDate = new Map<string, string>(); // 日付キー → 最早の event の dl.id
-      for (const dl of chosen) {
-        if (dl.type !== "event") continue;
-        const d = new Date(dl.deadline_at);
-        const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-        const cur = firstEventByDate.get(key);
-        if (!cur || new Date(dl.deadline_at) < new Date(chosen.find((x) => x.id === cur)!.deadline_at)) {
-          firstEventByDate.set(key, dl.id);
-        }
-      }
-      const firstEventIds = new Set(firstEventByDate.values());
-      // 公演の出発通知：公演ごとの上書きがあればそれ、無ければ全体の既定値
-      const ovrNow = eventLeadOvrRef.current;
-      const leadAlarmsFor = (dl: Deadline) => eventAlarms(ovrNow[eventTwinKey(dl)] ?? eventLeadRef.current);
-      // 「実際に行く公演」判定（当選 or 入金済）。出発通知はここだけに出す。
-      const statusByUid = new Map<string, string>();
-      for (const r of matchResultsRef.current) for (const m of r.matched) statusByUid.set(m.uid, r.parsed.status);
-      const paidSetNow = new Set(paidRef.current);
-      const isAttending = (uid: string) => {
-        const st = statusByUid.get(uid) ?? "";
-        return paidSetNow.has(uid) || st.includes("入金済") || (st.includes("当選") && !st.includes("当選取消"));
-      };
-      // 予定メモから設定にすぐ飛べるリンク（公演キー付き＝開くと該当公演までスクロール）
-      const settingsUrlFor = (title: string) =>
-        "https://hop-up-tools.pages.dev/fc-ticket?tab=subscribe&focus=" + encodeURIComponent(eventGroupKey(title));
-      const events: IcsEvent[] = chosen.map((dl) => {
-        const at = new Date(dl.deadline_at);
-        // 公演(event)は「開演〜2時間」の予定として扱う。締切類は「締切の1時間前〜締切」。
-        const isEvent = dl.type === "event";
-        // 会場座標も発行時に焼き込む（regenは描画＋座標の後追い補完のみ）。
-        // 座標が引けない会場は予定メモに地図検索リンク＝当日詰まない安全網
-        const geo = geoForLocation(dl.location);
-        // 公演は開場時刻があれば予定の開始＝開場（通知もiOSの出発時刻も開場着基準になる）
-        const openAt = isEvent && dl.open_at ? new Date(dl.open_at) : null;
-        return {
-          uid: dl.id + "@hop-up-tools",
-          summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
-          description: dl.fc_news.title + doorsLine(dl) + "\n" + dl.fc_news.detail_url +
-            (dl.location && !geo ? "\n地図で探す: " + mapSearchUrl(dl.location) : "") +
-            "\n\n通知の変更: " + settingsUrlFor(dl.fc_news.title),
-          dtstart: isEvent ? (openAt ?? at) : new Date(at.getTime() - 3600000),
-          dtend: isEvent ? new Date(at.getTime() + 7200000) : at,
-          location: dl.location ?? undefined,
-          geo,
-          // 通知は発行時に算出して焼き込む（生成側・regenは描画のみ）
-          alarms: alarmsForDeadline(dl.type, isEvent && firstEventIds.has(dl.id), leadAlarmsFor(dl), isAttending(dl.news_uid)),
-        };
-      });
-      if (events.length === 0) {
+      if (chosenRaw.length === 0) {
         if (!silent) setError("配信する予定が1つも選択されていません。");
         return;
       }
-      const ics = generateMultiIcs(events);
-      const urls = await uploadSubscriptionIcs(useSlug, ics, events, ret);
+      const order: OrderTicket = {
+        v: 2,
+        includedIds: [...ids],
+        retention: ret,
+        eventLead: eventLeadRef.current,
+        eventLeadOverrides: eventLeadOvrRef.current,
+        attendingNewsUids: computeAttendingNewsUids(matchResultsRef.current, paidRef.current),
+      };
+      const urls = await uploadSubscriptionIcs(useSlug, order);
       if (!sl) {
         setSlug(useSlug);
         try { localStorage.setItem("fc-sub-slug", useSlug); } catch { /* ignore */ }
