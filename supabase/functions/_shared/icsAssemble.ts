@@ -32,13 +32,39 @@ export interface DeadlineRow {
   deadline_at: string;
   location: string | null;
   open_at: string | null;
-  fc_news: { title: string; detail_url: string };
+  fc_news: { title: string; detail_url: string; category: string | null };
 }
 
 const RETENTION_WINDOW_MS: Record<Exclude<RetentionMode, "forever">, number> = {
   "after-event-1m": 31 * 24 * 3600 * 1000,
   "6m": 184 * 24 * 3600 * 1000,
 };
+
+// 開場時刻が取れていない公演で「仮の開場」を見積もるための、開演からの巻き戻り分数。
+// 2026-07-22時点のfc_deadlines実データ（開場・開演が両方入っている行、n=90）から、
+// 種類(fc_news.category)ごとの「実測の最大の開場〜開演差分」を採用（安全側＝多めに見積もる）。
+//   イベント　　: 実測 最大45分・平均37.6分・中央値40分 (n=86) → 45分を採用
+//   コンサート　: 実測 最大60分・平均48.8分・中央値52.5分 (n=4、サンプル少) → 60分を採用
+// 未知の種類・未対応の種類は、この中で一番安全側（大きい）の60分にフォールバックする。
+// 数値がずれてきたと感じたら、ここだけ直せばよい。
+const ASSUMED_DOORS_GAP_MIN: Record<string, number> = {
+  "イベント": 45,
+  "コンサート": 60,
+};
+const DEFAULT_ASSUMED_DOORS_GAP_MIN = 60;
+
+function doorsGapMinutes(category: string | null | undefined): number {
+  return ASSUMED_DOORS_GAP_MIN[category ?? ""] ?? DEFAULT_ASSUMED_DOORS_GAP_MIN;
+}
+
+// 分数 → ICSのTRIGGER値（例: 225分 → "-PT3H45M"、180分 → "-PT3H"、45分 → "-PT45M"）
+function minutesToTrigger(totalMin: number): string {
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `-PT${m}M`;
+  if (m === 0) return `-PT${h}H`;
+  return `-PT${h}H${m}M`;
+}
 
 // 種類＋状況 → 通知(VALARM)配列。クライアント(旧 FcTicketPage.tsx)から移設。
 // isAttending=実際に行く公演か（当選/入金済）。出発通知は行く公演にだけ出す。
@@ -73,11 +99,16 @@ function alarmsForDeadline(
   }
 }
 
-// 公演の出発通知(VALARM)。前日分も「その日の最初の公演・行く公演」ルールに従う
-function eventAlarms(lead: EventLeadSetting): IcsAlarm[] {
+// 公演の出発通知(VALARM)。前日分も「その日の最初の公演・行く公演」ルールに従う。
+// extraGapMin: 開場時刻が分かっている公演は0（DTSTART=開場そのものなので調整不要）。
+// 開場時刻が取れていない公演は、種類に応じた「仮の開場」ぶん(doorsGapMinutes)を
+// DTSTART(=開演)からさらに巻き戻して、開場基準のつもりの通知時刻に近づける。
+function eventAlarms(lead: EventLeadSetting, extraGapMin: number): IcsAlarm[] {
   const alarms: IcsAlarm[] = [];
   if (lead.dayBefore) alarms.push({ trigger: "-P1D", description: "明日が公演です" });
-  if (lead.hours != null) alarms.push({ trigger: "-PT" + lead.hours + "H", description: "そろそろお出かけの時間です（本日公演）" });
+  if (lead.hours != null) {
+    alarms.push({ trigger: minutesToTrigger(lead.hours * 60 + extraGapMin), description: "そろそろお出かけの時間です（本日公演）" });
+  }
   return alarms;
 }
 
@@ -153,7 +184,11 @@ export function assembleFromOrder(
   const firstEventIds = new Set(firstEventByDate.values());
 
   const attending = new Set(order.attendingNewsUids);
-  const leadAlarmsFor = (dl: DeadlineRow) => eventAlarms(order.eventLeadOverrides[eventTwinKey(dl)] ?? order.eventLead);
+  const leadAlarmsFor = (dl: DeadlineRow) => {
+    const lead = order.eventLeadOverrides[eventTwinKey(dl)] ?? order.eventLead;
+    const extraGapMin = dl.open_at ? 0 : doorsGapMinutes(dl.fc_news.category);
+    return eventAlarms(lead, extraGapMin);
+  };
 
   const now_ = formatIcsDate(now);
   const veventBlocks = kept.flatMap((dl) => {

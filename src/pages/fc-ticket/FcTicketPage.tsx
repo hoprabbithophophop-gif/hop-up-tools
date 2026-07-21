@@ -2358,14 +2358,15 @@ function loadEventLeadOverrides(): Record<string, EventLeadSetting> {
   try { return JSON.parse(localStorage.getItem("fc-sub-event-lead-ovr") ?? "{}"); } catch { return {}; }
 }
 
-// 行に表示する現在値。開場が分かる公演は「開場の」、無ければ「開演の」（実態通りのラベル）
-// 通知(VALARM)そのものの組み立ては注文票を受け取ったサーバー側で行う
-// （supabase/functions/_shared/icsAssemble.ts）。ここは画面表示用の文言だけ。
+// 行に表示する現在値。開場が分かる公演は「開場の」、無ければ「開場(推定)の」（実態通りのラベル）。
+// 開場が取れていない公演は、種類ごとの見積もり分だけ開演から巻き戻した時刻を「仮の開場」として
+// 通知の基準にしている（supabase/functions/_shared/icsAssemble.ts の doorsGapMinutes）。
+// 通知(VALARM)そのものの組み立ては注文票を受け取ったサーバー側で行う。ここは画面表示用の文言だけ。
 function leadLabel(lead: EventLeadSetting, hasOpenTime: boolean): string {
   if (lead.hours == null && !lead.dayBefore) return "なし";
   const parts: string[] = [];
   if (lead.dayBefore) parts.push("前日");
-  if (lead.hours != null) parts.push((hasOpenTime ? "開場の" : "開演の") + lead.hours + "時間前");
+  if (lead.hours != null) parts.push((hasOpenTime ? "開場の" : "開場(推定)の") + lead.hours + "時間前");
   return parts.join("＋");
 }
 

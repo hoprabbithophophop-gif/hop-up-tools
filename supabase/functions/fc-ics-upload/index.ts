@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
   // 最新の締切データを注文票のidぶんだけ読み直す（ここが「作り置き」→「作り直し」の要）
   const { data: deadlineRows, error: dlError } = await supabase
     .from("fc_deadlines")
-    .select("id, news_uid, type, label, deadline_at, location, open_at, fc_news(title, detail_url)")
+    .select("id, news_uid, type, label, deadline_at, location, open_at, fc_news(title, detail_url, category)")
     .in("id", order.includedIds);
   if (dlError) {
     return json({ error: "Failed to load deadlines: " + dlError.message }, 500);

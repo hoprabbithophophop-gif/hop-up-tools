@@ -51,7 +51,7 @@ Deno.serve(async () => {
         // 選択済みidの「今の」内容を読み直す。記事削除等でidが無くなった分は自然に外れる。
         const { data: deadlineRows, error: dlError } = await supabase
           .from("fc_deadlines")
-          .select("id, news_uid, type, label, deadline_at, location, open_at, fc_news(title, detail_url)")
+          .select("id, news_uid, type, label, deadline_at, location, open_at, fc_news(title, detail_url, category)")
           .in("id", order.includedIds);
         if (dlError) throw new Error(dlError.message);
         ics = assembleFromOrder(order, (deadlineRows ?? []) as DeadlineRow[], venueGeoByName, now);

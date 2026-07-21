@@ -27,7 +27,7 @@ function deadline(over: Partial<DeadlineRow>): DeadlineRow {
     deadline_at: "2026-08-01T10:00:00+09:00",
     location: null,
     open_at: null,
-    fc_news: { title: "テスト公演FC2次受付のお知らせ", detail_url: "https://example.com/n1" },
+    fc_news: { title: "テスト公演FC2次受付のお知らせ", detail_url: "https://example.com/n1", category: null },
     ...over,
   };
 }
@@ -64,15 +64,49 @@ test("assembleFromOrder: 公演(event)は行く判定(attendingNewsUids)が無�
 });
 
 test("assembleFromOrder: 公演でattendingNewsUidsに入っていれば出発通知(ユーザー設定の◯時間前)が付く", () => {
-  const ev = deadline({ id: "d1", news_uid: "n1", type: "event", deadline_at: "2026-08-01T18:00:00+09:00" });
+  // 開場時刻が分かっている公演は、これまで通りユーザー設定の時間そのままでよい
+  const ev = deadline({ id: "d1", news_uid: "n1", type: "event", deadline_at: "2026-08-01T18:00:00+09:00", open_at: "2026-08-01T17:30:00+09:00" });
   const order = baseOrder({ includedIds: ["d1"], attendingNewsUids: ["n1"], eventLead: { hours: 5, dayBefore: false } });
   const ics = assembleFromOrder(order, [ev], new Map(), NOW);
   assert.ok(ics.includes("TRIGGER:-PT5H"));
 });
 
+test("assembleFromOrder: 開場時刻が無い「イベント」種別は、種類の見積もり(45分)ぶん多めに巻き戻す", () => {
+  const ev = deadline({
+    id: "d1", news_uid: "n1", type: "event", deadline_at: "2026-08-01T18:00:00+09:00", open_at: null,
+    fc_news: { title: "テスト", detail_url: "u", category: "イベント" },
+  });
+  const order = baseOrder({ includedIds: ["d1"], attendingNewsUids: ["n1"], eventLead: { hours: 3, dayBefore: false } });
+  const ics = assembleFromOrder(order, [ev], new Map(), NOW);
+  // 3時間 + 45分 = 3時間45分
+  assert.ok(ics.includes("TRIGGER:-PT3H45M"));
+});
+
+test("assembleFromOrder: 開場時刻が無い「コンサート」種別は、種類の見積もり(60分)ぶん多めに巻き戻す", () => {
+  const ev = deadline({
+    id: "d1", news_uid: "n1", type: "event", deadline_at: "2026-08-01T18:00:00+09:00", open_at: null,
+    fc_news: { title: "テスト", detail_url: "u", category: "コンサート" },
+  });
+  const order = baseOrder({ includedIds: ["d1"], attendingNewsUids: ["n1"], eventLead: { hours: 3, dayBefore: false } });
+  const ics = assembleFromOrder(order, [ev], new Map(), NOW);
+  // 3時間 + 60分 = 4時間（キリよく巻き戻る）
+  assert.ok(ics.includes("TRIGGER:-PT4H"));
+});
+
+test("assembleFromOrder: 開場時刻が無く種類も不明な公演は、安全側(60分)にフォールバックする", () => {
+  const ev = deadline({
+    id: "d1", news_uid: "n1", type: "event", deadline_at: "2026-08-01T18:00:00+09:00", open_at: null,
+    fc_news: { title: "テスト", detail_url: "u", category: null },
+  });
+  const order = baseOrder({ includedIds: ["d1"], attendingNewsUids: ["n1"], eventLead: { hours: 1, dayBefore: false } });
+  const ics = assembleFromOrder(order, [ev], new Map(), NOW);
+  // 1時間 + 60分 = 2時間
+  assert.ok(ics.includes("TRIGGER:-PT2H"));
+});
+
 test("assembleFromOrder: 同一公演の双子(event)は1本に畳まれる", () => {
-  const a = deadline({ id: "a", news_uid: "n1", type: "event", deadline_at: "2026-08-01T18:00:00+09:00", fc_news: { title: "公演X FC2次受付のお知らせ", detail_url: "u" } });
-  const b = deadline({ id: "b", news_uid: "n1", type: "event", deadline_at: "2026-08-01T18:00:00+09:00", fc_news: { title: "公演X", detail_url: "u" } });
+  const a = deadline({ id: "a", news_uid: "n1", type: "event", deadline_at: "2026-08-01T18:00:00+09:00", fc_news: { title: "公演X FC2次受付のお知らせ", detail_url: "u", category: null } });
+  const b = deadline({ id: "b", news_uid: "n1", type: "event", deadline_at: "2026-08-01T18:00:00+09:00", fc_news: { title: "公演X", detail_url: "u", category: null } });
   const order = baseOrder({ includedIds: ["a", "b"] });
   const ics = assembleFromOrder(order, [a, b], new Map(), NOW);
   assert.equal((ics.match(/BEGIN:VEVENT/g) ?? []).length, 1);
