@@ -1,12 +1,20 @@
-export interface IcsAlarm {
-  trigger: string;      // 例: "-P1D"(前日), "-PT1H"(1時間前), "-PT3H"(3時間前)
-  description: string;  // 通知文言
-}
+// 単発の「カレンダーに追加」（1件だけの即時ダウンロード・外部カレンダーURL）用。
+// ブラウザ専用のAPI（Blob / crypto.getRandomValues の対話的利用）を使う関数はここに置く。
+// 純粋な組み立て部品（VALARM/GEOの行、公演グルーピング等）は ./icsCore を参照。
+// 複数予定をまとめる購読用ICSの組み立ては、サーバー側 (supabase/functions/_shared/icsAssemble.ts)
+// に一本化した（案1・組み立て役の一本化）。ここでは作らない。
+import {
+  formatIcsDate,
+  DEFAULT_ALARMS,
+  renderGeo,
+  renderAlarms,
+  cleanFcTitle,
+  type IcsAlarm,
+  type IcsGeo,
+} from "./icsCore";
 
-export interface IcsGeo {
-  lat: number;
-  lon: number;
-}
+export type { IcsAlarm, IcsGeo };
+export { cleanFcTitle, renderGeo, renderAlarms, DEFAULT_ALARMS };
 
 export interface IcsEvent {
   uid: string;
@@ -19,56 +27,6 @@ export interface IcsEvent {
   geo?: IcsGeo | null;
   // 通知。未指定→締切系デフォルト(前日+1h)でフォールバック。空配列[]→通知なし。
   alarms?: IcsAlarm[];
-}
-
-function formatIcsDate(d: Date): string {
-  return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-}
-
-// 旧データ(alarms無し)互換のデフォルト通知＝従来どおり前日＋1時間前の締切リマインダー
-const DEFAULT_ALARMS: IcsAlarm[] = [
-  { trigger: "-P1D", description: "明日が締切です" },
-  { trigger: "-PT1H", description: "1時間後が締切です" },
-];
-
-// 会場座標行を生成。GEO(標準) + X-APPLE-STRUCTURED-LOCATION(iOSの地図タップ・経路案内用)
-export function renderGeo(event: Pick<IcsEvent, "geo" | "location">): string[] {
-  const g = event.geo;
-  if (!g) return [];
-  // X-TITLEはパラメータ値なので壊す文字（引用符・改行）を除去して引用符で包む
-  const title = (event.location ?? "").replace(/[",\n\\]/g, " ").replace(/\s+/g, " ").trim();
-  return [
-    `GEO:${g.lat};${g.lon}`,
-    `X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-APPLE-RADIUS=200;X-TITLE="${title}":geo:${g.lat},${g.lon}`,
-  ];
-}
-
-// VALARM行を生成。undefined→デフォルト、[]→通知なし。
-export function renderAlarms(alarms?: IcsAlarm[]): string[] {
-  const list = alarms ?? DEFAULT_ALARMS;
-  return list.flatMap((a) => [
-    "BEGIN:VALARM",
-    `TRIGGER:${a.trigger}`,
-    "ACTION:DISPLAY",
-    `DESCRIPTION:${a.description.replace(/\n/g, "\\n")}`,
-    "END:VALARM",
-  ]);
-}
-
-/**
- * fc_news.title からカレンダー表示用にノイズを除去する
- * iOS標準カレンダー等で予定タイトルが切れた時にも要旨が分かるよう、
- * 装飾的な接頭辞・接尾辞・括弧を削る
- */
-export function cleanFcTitle(title: string): string {
-  return title
-    .replace(/★ファンクラブ会員限定イベント★/g, "")
-    .replace(/Hello! Project会員の皆様へ、/g, "")
-    .replace(/のお知らせ\s*$/, "")
-    .replace(/開催決定[！!]\s*$/, "")
-    .replace(/[「」『』]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 export function generateIcs(event: IcsEvent): string {
@@ -132,41 +90,6 @@ export function generateYahooCalendarUrl(event: IcsEvent): string {
   });
   if (event.location) params.set("in_loc", event.location);
   return `https://calendar.yahoo.co.jp/?${params.toString()}`;
-}
-
-/**
- * 複数イベントを1つのICSにまとめる（購読URL用）
- */
-export function generateMultiIcs(events: IcsEvent[]): string {
-  const now = formatIcsDate(new Date());
-
-  const veventBlocks = events.flatMap((event) => {
-    const start = formatIcsDate(event.dtstart);
-    const end = formatIcsDate(event.dtend);
-    return [
-      "BEGIN:VEVENT",
-      `UID:${event.uid}`,
-      `DTSTAMP:${now}`,
-      `DTSTART:${start}`,
-      `DTEND:${end}`,
-      `SUMMARY:${event.summary}`,
-      `DESCRIPTION:${event.description.replace(/\n/g, "\\n")}`,
-      ...(event.location ? [`LOCATION:${event.location}`] : []),
-      ...renderGeo(event),
-      ...renderAlarms(event.alarms),
-      "END:VEVENT",
-    ];
-  });
-
-  return [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//hop-up-tools//FC Ticket Subscription//JA",
-    "CALSCALE:GREGORIAN",
-    "X-WR-CALNAME:FC締切リマインダー",
-    ...veventBlocks,
-    "END:VCALENDAR",
-  ].join("\r\n");
 }
 
 /**

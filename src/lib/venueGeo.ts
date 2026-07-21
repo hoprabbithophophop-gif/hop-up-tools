@@ -3,12 +3,14 @@
 // fc-ticket のデータ読込時に一度だけ取得してモジュール内に保持する。
 // 画面の描画はデータ読込完了後に始まるので、参照時には辞書が揃っている。
 // 会場が辞書に無い場合は null ＝ 従来どおり会場名テキストだけのカレンダー予定になる。
+//
+// 座標を引く純粋なロジック（geoForLocation・誤字補正表・地図検索URL）は ./icsCore に移した
+// （サーバー側の購読ICS組み立てでも同じ辞書引きが必要なため）。ここでは読み込みだけを担う。
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { geoForLocation as geoForLocationCore, mapSearchUrl, type VenueGeo } from "./icsCore";
 
-export interface VenueGeo {
-  lat: number;
-  lon: number;
-}
+export type { VenueGeo };
+export { mapSearchUrl };
 
 const venueGeoByName = new Map<string, VenueGeo>();
 
@@ -23,24 +25,7 @@ export async function loadVenueGeo(sb: SupabaseClient): Promise<void> {
   }
 }
 
-// 公式記事側の誤字の補正（スクレイパー側にも同じ補正あり）。
-// DBに誤字のまま残っている行でも座標が引けるようにする保険。
-const LOCATION_TYPO_FIX: Record<string, string> = {
-  有楽日町朝ホール: "有楽町朝日ホール",
-};
-
 /** fc_deadlines.location「会場名 （都道府県）」→ 会場名で座標を引く */
 export function geoForLocation(location: string | null | undefined): VenueGeo | null {
-  if (!location) return null;
-  const name = location.replace(/\s*（[^）]*）\s*$/, "").trim();
-  return venueGeoByName.get(LOCATION_TYPO_FIX[name] ?? name) ?? null;
-}
-
-/**
- * 座標が引けない会場の安全網: 会場名のGoogleマップ検索URL。
- * 予定メモに入れておけば、辞書整備が間に合わない公演でも当日タップで地図検索が開く。
- */
-export function mapSearchUrl(location: string): string {
-  const q = location.replace(/[（）()]/g, " ").replace(/\s+/g, " ").trim();
-  return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+  return geoForLocationCore(location, venueGeoByName);
 }
