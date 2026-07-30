@@ -15,7 +15,7 @@ function parseTime(val: string): number | null {
 }
 
 export function TrimPanel() {
-  const { state, trimItem, getCurrentTime, playChapter, pause } = useChapterPlaylistContext();
+  const { state, trimItem, getCurrentTime, playChapter, pause, applyLiveTrim } = useChapterPlaylistContext();
   const { queue, currentIndex } = state;
   const current = currentIndex !== null ? queue[currentIndex] : null;
 
@@ -51,6 +51,7 @@ export function TrimPanel() {
     }
     setInOutError(false);
     trimItem(current.id, start, endSec);
+    applyLiveTrim(start, endSec);
   };
 
   const setCurrentAsIn = () => {
@@ -123,7 +124,7 @@ export function TrimPanel() {
 
   if (!current) {
     return (
-      <div className="px-4 py-3 text-[0.625rem] text-black/40 text-center">
+      <div className="mx-4 my-2 border border-black/10 px-4 py-3 text-[0.625rem] text-black/40 text-center uppercase tracking-widest">
         再生中のアイテムがありません
       </div>
     );
@@ -135,75 +136,87 @@ export function TrimPanel() {
     startSec !== null && endSec !== null && endSec > startSec ? endSec - startSec : null;
 
   return (
-    <div className="px-4 py-1">
-      <div className="grid grid-cols-[1fr_4rem_1fr] items-center gap-y-1">
-        {/* 1行目: ラベル + 区間長 + ラベル */}
-        <div className="text-center text-[0.65rem] text-black/50">開始</div>
-        <div className="text-center text-[0.65rem] text-black/40 tabular-nums">
-          {duration !== null ? formatSeconds(duration, 1) : ''}
-        </div>
-        <div className="text-center text-[0.65rem] text-black/50">終了</div>
-
-        {/* 2行目: input + 矢印 + input */}
-        <input
-          type="text"
-          inputMode="decimal"
-          value={inVal}
-          onChange={e => {
-            const v = e.target.value;
-            setInVal(v);
-            if (parseTime(v) !== null) applyTrim(v, outVal);
-          }}
-          onBlur={confirmIn}
-          onKeyDown={e => {
-            if (e.key === 'ArrowUp') { e.preventDefault(); adjustIn(0.1); }
-            else if (e.key === 'ArrowDown') { e.preventDefault(); adjustIn(-0.1); }
-            else if (e.key === 'Enter') { e.preventDefault(); confirmIn(); }
-          }}
-          placeholder="--:--"
-          className="min-w-0 text-center text-[1.05rem] tabular-nums text-black bg-transparent py-0.5 focus:outline-none focus:bg-black/[0.03]"
-        />
-        <div className="text-center text-[0.85rem] text-black/30">→</div>
-        <input
-          type="text"
-          inputMode="decimal"
-          value={outVal}
-          onChange={e => {
-            const v = e.target.value;
-            setOutVal(v);
-            if (parseTime(v) !== null) applyTrim(inVal, v);
-          }}
-          onBlur={confirmOut}
-          onKeyDown={e => {
-            if (e.key === 'ArrowUp') { e.preventDefault(); adjustOut(0.1); }
-            else if (e.key === 'ArrowDown') { e.preventDefault(); adjustOut(-0.1); }
-            else if (e.key === 'Enter') { e.preventDefault(); confirmOut(); }
-          }}
-          placeholder="--:--"
-          className="min-w-0 text-center text-[1.05rem] tabular-nums text-black bg-transparent py-0.5 focus:outline-none focus:bg-black/[0.03]"
-        />
-
-        {/* 3行目: ボタン + (空) + ボタン */}
-        <button
-          onClick={setCurrentAsIn}
-          className="py-1 text-[0.7rem] text-black/80 hover:bg-black/[0.04] active:bg-black/[0.08] cursor-pointer transition-colors"
-        >
-          開始をここに
-        </button>
-        <div></div>
-        <button
-          onClick={setCurrentAsOut}
-          className="py-1 text-[0.7rem] text-black/80 hover:bg-black/[0.04] active:bg-black/[0.08] cursor-pointer transition-colors"
-        >
-          終了をここに
-        </button>
+    <div className="mx-4 my-2 border border-black/10">
+      {/* 見出し: 何を編集している区画かを明示（何のチャプターかを併記） */}
+      <div className="flex items-center justify-between gap-2 px-3 pt-2 pb-1.5 border-b border-black/[0.06]">
+        <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-black/50">
+          Trim Chapter
+        </span>
+        <span className="text-[0.6875rem] text-black/30 truncate max-w-[55%]">
+          {current.chapterLabel}
+        </span>
       </div>
 
-      {inOutError && (
-        <p className="text-[0.6rem] text-red-600 text-center mt-2">
-          開始は終了より前に設定してください
-        </p>
-      )}
+      <div className="px-4 py-2">
+        <div className="grid grid-cols-[1fr_4rem_1fr] items-center gap-y-1">
+          {/* 1行目: ラベル + 区間長 + ラベル */}
+          <div className="text-center text-[0.65rem] text-black/50">開始</div>
+          <div className="text-center text-[0.65rem] text-black/40 tabular-nums">
+            {duration !== null ? formatSeconds(duration, 1) : ''}
+          </div>
+          <div className="text-center text-[0.65rem] text-black/50">終了</div>
+
+          {/* 2行目: input + 矢印 + input */}
+          <input
+            type="text"
+            inputMode="decimal"
+            value={inVal}
+            onChange={e => {
+              const v = e.target.value;
+              setInVal(v);
+              if (parseTime(v) !== null) applyTrim(v, outVal);
+            }}
+            onBlur={confirmIn}
+            onKeyDown={e => {
+              if (e.key === 'ArrowUp') { e.preventDefault(); adjustIn(0.1); }
+              else if (e.key === 'ArrowDown') { e.preventDefault(); adjustIn(-0.1); }
+              else if (e.key === 'Enter') { e.preventDefault(); confirmIn(); }
+            }}
+            placeholder="--:--"
+            className="min-w-0 text-center text-[1.05rem] tabular-nums text-black bg-transparent py-0.5 focus:outline-none focus:bg-black/[0.03]"
+          />
+          <div className="text-center text-[0.85rem] text-black/30">→</div>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={outVal}
+            onChange={e => {
+              const v = e.target.value;
+              setOutVal(v);
+              if (parseTime(v) !== null) applyTrim(inVal, v);
+            }}
+            onBlur={confirmOut}
+            onKeyDown={e => {
+              if (e.key === 'ArrowUp') { e.preventDefault(); adjustOut(0.1); }
+              else if (e.key === 'ArrowDown') { e.preventDefault(); adjustOut(-0.1); }
+              else if (e.key === 'Enter') { e.preventDefault(); confirmOut(); }
+            }}
+            placeholder="--:--"
+            className="min-w-0 text-center text-[1.05rem] tabular-nums text-black bg-transparent py-0.5 focus:outline-none focus:bg-black/[0.03]"
+          />
+
+          {/* 3行目: ボタン + (空) + ボタン。押せると分かるよう常時ボーダーを出す */}
+          <button
+            onClick={setCurrentAsIn}
+            className="py-1 text-[0.7rem] font-bold text-black/70 border border-black/10 hover:bg-black/[0.04] active:bg-black/[0.08] cursor-pointer transition-colors"
+          >
+            開始をここに
+          </button>
+          <div></div>
+          <button
+            onClick={setCurrentAsOut}
+            className="py-1 text-[0.7rem] font-bold text-black/70 border border-black/10 hover:bg-black/[0.04] active:bg-black/[0.08] cursor-pointer transition-colors"
+          >
+            終了をここに
+          </button>
+        </div>
+
+        {inOutError && (
+          <p className="text-[0.6rem] text-red-600 text-center mt-2">
+            開始は終了より前に設定してください
+          </p>
+        )}
+      </div>
     </div>
   );
 }

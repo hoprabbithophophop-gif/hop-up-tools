@@ -15,6 +15,8 @@ interface ChapterPlaylistContextValue extends UseChapterPlaylistReturn {
   getCurrentTime: () => number;
   /** タップハンドラー内から直接呼ぶことでモバイルautoplay制限を回避する */
   playChapter: (videoId: string, startSeconds: number, endSeconds: number) => void;
+  /** トリム編集を今の再生に即反映する（次に頭から再生し直すまで待たない） */
+  applyLiveTrim: (startSeconds: number, endSeconds: number) => void;
   selection: UseChapterSelectionReturn;
   /** 選択した順番でキューを構築して再生開始 */
   startInSelectionOrder: () => void;
@@ -50,7 +52,7 @@ export function ChapterPlaylistProvider({
     setPlaying(isPlaying);
   }, [setPlaying]);
 
-  const { isReady, isTransitioning, playChapter, pause, resume, getCurrentTime } = useYouTubePlayer({
+  const { isReady, isTransitioning, playChapter, pause, resume, getCurrentTime, updateActiveBounds } = useYouTubePlayer({
     onChapterEnd: handleChapterEnd,
     onError: handleError,
     onPlayStateChange: handlePlayStateChange,
@@ -192,12 +194,13 @@ export function ChapterPlaylistProvider({
     resume: handleResume,
     getCurrentTime,
     playChapter,
+    applyLiveTrim: updateActiveBounds,
     selection,
     startInSelectionOrder,
     startShuffled,
     chapterBarExpanded,
     toggleChapterBar,
-  }), [playlist, handleClearQueue, isReady, isTransitioning, handlePause, handleResume, getCurrentTime, playChapter, selection, startInSelectionOrder, startShuffled, chapterBarExpanded, toggleChapterBar]);
+  }), [playlist, handleClearQueue, isReady, isTransitioning, handlePause, handleResume, getCurrentTime, playChapter, updateActiveBounds, selection, startInSelectionOrder, startShuffled, chapterBarExpanded, toggleChapterBar]);
 
   return (
     <ChapterPlaylistContext.Provider value={contextValue}>

@@ -1,13 +1,15 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { getSupabase } from '../../../lib/supabase';
 import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistContext';
-import { VideoChapterSheet } from './VideoChapterSheet';
+import { VideoChapterSheet, parseChapters } from './VideoChapterSheet';
 import { ZappingCard } from './ZappingCard';
 import type { VideoRow } from './ZappingCard';
 import { SearchBar } from './SearchBar';
 import { FilterPanel } from './FilterPanel';
 import type { FilterState } from './FilterPanel';
 import { readPlayHistory, type PlayHistoryItem } from '../../videos/hooks/usePlayHistory';
+import { buildChapterQueueItems, formatSeconds } from '../../videos/utils/playlist-utils';
+import type { ChapterQueueItem } from '../../videos/types/playlist';
 
 const PAGE_SIZE = 24;
 const MEMBERS_BY_GROUP: Record<string, string[]> = {
@@ -41,6 +43,7 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayer
   const [panelTab, setPanelTab] = useState<'discover' | 'history'>('discover');
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
+  const [resultTab, setResultTab] = useState<'all' | 'videos' | 'chapters'>('all');
 
 
   // ── 検索 ──
@@ -257,6 +260,29 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayer
     fetchSearchVideos(filter, searchQuery, 0, true, 'desc');
   }, [filter, searchQuery, isSearchActive, fetchSearchVideos, 'desc']);
 
+  useEffect(() => {
+    if (!isSearchActive) setResultTab('all');
+  }, [isSearchActive]);
+
+  // チャプター単位の検索結果: 動画の説明文をその場で解析し、検索語に一致するチャプターだけ抜き出す
+  // (DBにチャプター専用テーブルは持たない方針のため、ヒットした動画側だけをその場で読み直す)
+  const chapterResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
+    const results: { video: VideoRow; item: ChapterQueueItem }[] = [];
+    for (const v of searchVideos) {
+      const chapters = parseChapters(v.description_short || '');
+      if (chapters.length === 0) continue;
+      const items = buildChapterQueueItems(v, chapters);
+      chapters.forEach((ch, i) => {
+        if (ch.label.toLowerCase().includes(query)) {
+          results.push({ video: v, item: items[i] });
+        }
+      });
+    }
+    return results;
+  }, [searchVideos, searchQuery]);
+
   // ブラウズ無限スクロール
   useEffect(() => {
     if (isSearchActive) return;
@@ -380,13 +406,14 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayer
                 {panelTab === 'discover' && (
                   <>
                     {pickVideos.length > 0 && (
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="flex overflow-x-auto gap-2 -mx-4 px-4 pb-1" style={{ scrollSnapType: 'x proximity' }}>
                         {pickVideos.map(v => (
-                          <VideoCard
-                            key={v.video_id}
-                            video={v}
-                            onChapters={() => setSheetVideo(v)}
-                          />
+                          <div key={v.video_id} className="shrink-0 w-[45%] min-w-[160px] max-w-[220px]" style={{ scrollSnapAlign: 'start' }}>
+                            <VideoCard
+                              video={v}
+                              onChapters={() => setSheetVideo(v)}
+                            />
+                          </div>
                         ))}
                       </div>
                     )}
@@ -400,7 +427,7 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayer
 
                 {panelTab === 'history' && (
                   <div className="grid grid-cols-3 gap-2">
-                    {playHistory.slice(0, 9).map(h => (
+                    {playHistory.map(h => (
                       <VideoCard
                         key={`${h.videoId}-${h.startSeconds}`}
                         video={{
@@ -446,6 +473,25 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayer
               )}
             </div>
 
+            {/* ALL / VIDEOS / CHAPTERS */}
+            <div className="flex items-center gap-1 mb-3 border-b border-black/[0.06]">
+              {([
+                ['all', 'ALL', searchVideos.length],
+                ['videos', 'VIDEOS', searchVideos.length],
+                ['chapters', 'CHAPTERS', chapterResults.length],
+              ] as const).map(([key, label, count]) => (
+                <button
+                  key={key}
+                  onClick={() => setResultTab(key)}
+                  className={`px-3 py-1.5 text-[0.7rem] font-bold uppercase tracking-widest cursor-pointer transition-colors border-b-2 ${
+                    resultTab === key ? 'text-black border-black' : 'text-black/30 border-transparent'
+                  }`}
+                >
+                  {label}{count > 0 ? ` (${count})` : ''}
+                </button>
+              ))}
+            </div>
+
             {searchError && (
               <div className="flex flex-col items-center justify-center h-32 gap-3">
                 <p className="text-[0.7rem] font-thin text-black/50">読み込みエラー。再度お試しください。</p>
@@ -458,7 +504,7 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayer
               </div>
             )}
 
-            {!searchError && searchVideos.length > 0 && (
+            {!searchError && (resultTab === 'all' || resultTab === 'videos') && searchVideos.length > 0 && (
               <div className="grid gap-[0.8rem]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
                 {searchVideos.map(v => (
                   <VideoCard
@@ -470,10 +516,51 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayer
               </div>
             )}
 
-            {!searchLoading && !searchError && searchVideos.length === 0 && (
+            {!searchError && resultTab === 'chapters' && chapterResults.length > 0 && (
+              <div className="flex flex-col">
+                <div className="grid grid-cols-[3.2rem_1fr_auto] gap-x-3 px-1 py-1.5 border-b border-black/[0.06]">
+                  <span className="text-[0.6rem] font-bold uppercase tracking-widest text-black/30">時間</span>
+                  <span className="text-[0.6rem] font-bold uppercase tracking-widest text-black/30">チャプター</span>
+                  <span className="text-[0.6rem] font-bold uppercase tracking-widest text-black/30 text-right">追加</span>
+                </div>
+                {chapterResults.map(({ video, item }) => {
+                  const inQueue = state.queue.some(q => q.id.startsWith(item.id));
+                  return (
+                    <div key={item.id} className="grid grid-cols-[3.2rem_1fr_auto] gap-x-3 items-center px-1 py-2 border-b border-black/[0.04]">
+                      <span className="text-[0.7rem] tabular-nums text-black/50">{formatSeconds(item.startSeconds)}</span>
+                      <div className="min-w-0">
+                        <p className="text-[0.75rem] font-bold leading-snug truncate">{item.chapterLabel}</p>
+                        <p className="text-[0.65rem] text-black/40 truncate">{video.channel_name}</p>
+                      </div>
+                      <button
+                        onClick={() => inQueue ? removeFromQueue(state.queue.find(q => q.id.startsWith(item.id))!.id) : addItem(item)}
+                        className={`shrink-0 w-8 h-8 flex items-center justify-center cursor-pointer ${
+                          inQueue ? 'bg-black text-white' : 'bg-black/10 text-black/50'
+                        }`}
+                        aria-label={inQueue ? 'キューから削除' : 'キューに追加'}
+                      >
+                        <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>
+                          {inQueue ? 'check' : 'add'}
+                        </span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {!searchLoading && !searchError && resultTab !== 'chapters' && searchVideos.length === 0 && (
               <div className="flex items-center justify-center h-40">
                 <p className="text-[0.7rem] font-thin text-black/50 uppercase tracking-widest">
                   一致する動画がありません
+                </p>
+              </div>
+            )}
+
+            {!searchLoading && !searchError && resultTab === 'chapters' && chapterResults.length === 0 && (
+              <div className="flex items-center justify-center h-40">
+                <p className="text-[0.7rem] font-thin text-black/50 uppercase tracking-widest">
+                  一致するチャプターがありません
                 </p>
               </div>
             )}
@@ -540,7 +627,7 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayer
       {showScrollTop && (
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="fixed right-4 bottom-[80px] z-30 w-10 h-10 bg-white shadow-md flex items-center justify-center text-black/30 cursor-pointer"
+          className="fixed right-4 bottom-[80px] z-30 w-10 h-10 bg-white border border-black/10 flex items-center justify-center text-black/40 cursor-pointer"
           aria-label="ページ上部に戻る"
         >
           <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>keyboard_arrow_up</span>

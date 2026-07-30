@@ -28,7 +28,7 @@ interface Chapter {
   timestamp: string;
 }
 
-function parseChapters(description: string): Chapter[] {
+export function parseChapters(description: string): Chapter[] {
   if (!description) return [];
   const re = new RegExp('^(\\d{1,2}):(\\d{2})(?::(\\d{2}))?[\\u200B]*[～〜\\s\\-]+(.+)$', 'gm');
   const chapters: Chapter[] = [];
@@ -577,11 +577,13 @@ function ChapterRow({ id, label, timeRange, mode, item, isFullVideo, onPreview, 
         </p>
         {timeRange && <p className="text-[0.7rem] font-thin text-black/40 mt-[0.2rem]">{timeRange}</p>}
       </div>
-      <div className="shrink-0 w-9 h-9 flex items-center justify-center text-black/30">
+      <div className={`shrink-0 w-8 h-8 flex items-center justify-center ${
+        inQueue ? 'bg-black text-white' : 'bg-black/10 text-black/50'
+      }`}>
         {inQueue ? (
-          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>check</span>
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>check</span>
         ) : (
-          <span className="material-symbols-outlined leading-none" style={{ fontSize: '20px' }}>add</span>
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: '18px' }}>add</span>
         )}
       </div>
       {onShare && (

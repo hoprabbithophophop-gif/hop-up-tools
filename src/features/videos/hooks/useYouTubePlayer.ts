@@ -19,6 +19,8 @@ interface UseYouTubePlayerReturn {
   pause: () => void;
   resume: () => void;
   getCurrentTime: () => number;
+  /** 再生を止めずに区間の境界だけ差し替える（トリム編集を今の再生へ即反映するため） */
+  updateActiveBounds: (startSeconds: number, endSeconds: number) => void;
 }
 
 interface PendingChapter {
@@ -287,9 +289,37 @@ export function useYouTubePlayer({
     }
   }, []);
 
+  // トリム編集を「次に頭から再生し直したとき」ではなく今の再生に即反映するための境界更新。
+  // 動画の読み込み直し(loadVideoById)はしない — あくまで既存の再生を続けたまま境界だけ差し替える。
+  // 一時停止中は何もしない（勝手に次へ進めると再開の意図と衝突するため）。
+  const updateActiveBounds = useCallback((startSeconds: number, endSeconds: number) => {
+    endSecondsRef.current = endSeconds;
+    const player = playerRef.current;
+    if (!player) return;
+    try {
+      if (player.getPlayerState() !== YT.PlayerState.PLAYING) return;
+      const current = player.getCurrentTime();
+      if (
+        isFinite(endSeconds) &&
+        endSeconds !== Number.MAX_SAFE_INTEGER &&
+        current >= endSeconds - END_THRESHOLD_SECONDS
+      ) {
+        if (!chapterEndFiredRef.current) {
+          chapterEndFiredRef.current = true;
+          stopPolling();
+          onChapterEndRef.current();
+        }
+      } else {
+        chapterEndFiredRef.current = false;
+      }
+    } catch {
+      // プレイヤー状態取得に失敗した場合は何もしない
+    }
+  }, [stopPolling]);
+
   useEffect(() => {
     return () => stopPolling();
   }, [stopPolling]);
 
-  return { isReady, isTransitioning, playChapter, pause, resume, getCurrentTime };
+  return { isReady, isTransitioning, playChapter, pause, resume, getCurrentTime, updateActiveBounds };
 }

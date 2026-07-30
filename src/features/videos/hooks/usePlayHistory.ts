@@ -1,7 +1,7 @@
 import type { ChapterQueueItem } from '../types/playlist';
 
 const HISTORY_KEY = 'hello_video_play_history';
-const MAX_HISTORY = 3;
+const MAX_HISTORY = 50;
 
 export interface PlayHistoryItem {
   videoId: string;
