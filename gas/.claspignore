@@ -1,0 +1,5 @@
+# テスト用ファイルと見本HTMLはApps Scriptに送らない
+# (fixtures/*.html はhtmlExtensions設定に引っかかるため明示的に除外が必要)
+**/*.test.mjs
+fixtures/
+fixtures/**

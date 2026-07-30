@@ -20,11 +20,24 @@ var GROUP_PAGES = [
   { group: 'ハロプロ研修生',    url: 'https://www.helloproject.com/helloprokenshuseihokkaido/' },
 ];
 
+// ===== 横断イベント救済用の汎用タグ =====
+// OMAKE CHANNEL 等の混在チャンネルは CHANNEL_GROUP_MAP に無く、タイトルにグループ名の無い
+// 横断イベント動画（歌唱順抽選会・フェス・合同企画等）はタグが空 → is_active_content=false で
+// /youtube から落ちる。個別グループが1つも当たらず、かつ下記マーカー語があれば汎用タグで救済する。
+var HP_GENERAL_TAG = 'ハロー！プロジェクト';
+var HP_EVENT_KEYWORDS = [
+  'Hello! Project', 'Hello!Project', 'Hello! Pro',
+  'ハロー！プロジェクト', 'ハロプロ',
+  'The Ballad', 'COVERS', 'ひなフェス', 'ハロコン',
+];
+
 // ===== 現役グループ（is_active_content 判定用） =====
 // GROUP_PAGES と同期させること（活動終了グループは含めない）
+// ※ HP_GENERAL_TAG は横断イベント救済用の合成タグ。メンバー同期は無いので GROUP_PAGES には入れない。
 var ACTIVE_GROUPS = [
   'モーニング娘。', 'アンジュルム', 'Juice=Juice', 'つばきファクトリー',
   'BEYOOOOONDS', 'OCHA NORMA', 'ロージークロニクル', 'ハロプロ研修生',
+  HP_GENERAL_TAG,
 ];
 
 // ===== チャンネル → グループ 直接マッピング =====
@@ -133,6 +146,17 @@ function detectGroups(channelId, title, description) {
       }
     }
   });
+
+  // 個別グループが1つも当たらず、かつHP横断イベントのマーカー語があれば汎用タグで救済。
+  // (混在チャンネルのグループ名なしイベント動画が is_active_content=false で落ちるのを防ぐ)
+  if (tags.length === 0) {
+    for (var j = 0; j < HP_EVENT_KEYWORDS.length; j++) {
+      if (text.indexOf(HP_EVENT_KEYWORDS[j]) !== -1) {
+        tags.push(HP_GENERAL_TAG);
+        break;
+      }
+    }
+  }
   return tags;
 }
 
