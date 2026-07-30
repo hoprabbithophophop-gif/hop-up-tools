@@ -15,7 +15,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const scraperSrc = readFileSync(join(__dirname, "upfc-scraper.js"), "utf8");
 
 function loadScraper() {
-  const sandbox = {};
+  // GAS だけに存在するグローバル。抽出処理が動作ログを残すために使うので、
+  // テストでは記録するだけのダミーを置く（sandbox.__logs で内容を確認できる）。
+  const logs = [];
+  const sandbox = { Logger: { log: (m) => logs.push(String(m)) }, __logs: logs };
   vm.createContext(sandbox);
   vm.runInContext(scraperSrc, sandbox, { filename: "upfc-scraper.js" });
   return sandbox;
@@ -101,6 +104,75 @@ test("parseDeadlinesFromHtml: 会場名の文字は正規化しない（照合�
   assert.equal(events.length, 1);
   // 全角の「１」がそのまま残っていること（照合用の正規化が会場名に漏れていないこと）の確認
   assert.ok(events[0].location.includes("第１ホール"), `location=${events[0].location}`);
+});
+
+// ─── グッズ通販の締切（2026-07-07 のFCショップ移転後の書式）────────────────
+
+function goodsArticle(title) {
+  return {
+    uid: "GOODSUID",
+    title,
+    category: "グッズ",
+    detail_url: "https://www.upfc.jp/helloproject/news_detail.php?@uid=GOODSUID",
+  };
+}
+
+test("parseDeadlinesFromHtml: 移転後の個別グッズ記事(実記事)から通販開始と通販締切を両方拾える", () => {
+  const { parseDeadlinesFromHtml } = loadScraper();
+  const html = readFileSync(join(__dirname, "fixtures", "upfc-goods-kubota.html"), "utf8");
+  const article = goodsArticle("OCHA NORMA 窪田七海バースデーイベント2026 オリジナルグッズ公開！");
+  const deadlines = parseDeadlinesFromHtml(article, html);
+
+  const start = deadlines.find((d) => d.type === "goods_sale_start");
+  const end = deadlines.find((d) => d.type === "goods_sale_end");
+  assert.ok(start, "通販開始(goods_sale_start)が取れていない");
+  assert.ok(end, "通販締切(goods_sale_end)が取れていない");
+  // 本文: 販売開始日：2026年7月17日（金）18：00 / 受付締切日：2026年8月7日（金）23：59
+  assert.equal(start.deadline_at, new Date(Date.UTC(2026, 6, 17, 18 - 9, 0)).toISOString());
+  assert.equal(end.deadline_at, new Date(Date.UTC(2026, 7, 7, 23 - 9, 59)).toISOString());
+  // グッズ記事の締切がチケットの申込締切として登録されないこと
+  assert.ok(!deadlines.some((d) => d.type === "apply_end"), "apply_end が混ざっている");
+});
+
+test("parseDeadlinesFromHtml: 移転前の月次まとめ通販(申込開始日/申込締切日)は引き続き拾える（回帰確認）", () => {
+  const { parseDeadlinesFromHtml } = loadScraper();
+  const html =
+    "<p>申込開始日：2026年6月1日（月）18:00</p>" +
+    "<p>申込締切日：2026年6月26日（金）23:59</p>";
+  const article = goodsArticle("6/1(月）受付スタート 6月通販公開！");
+  const deadlines = parseDeadlinesFromHtml(article, html);
+  assert.equal(deadlines.length, 2);
+  assert.equal(
+    deadlines.find((d) => d.type === "goods_sale_start").deadline_at,
+    new Date(Date.UTC(2026, 5, 1, 18 - 9, 0)).toISOString(),
+  );
+  assert.equal(
+    deadlines.find((d) => d.type === "goods_sale_end").deadline_at,
+    new Date(Date.UTC(2026, 5, 26, 23 - 9, 59)).toISOString(),
+  );
+});
+
+test("parseDeadlinesFromHtml: 移転後の月次まとめ通販(販売開始日/受付締切日)も拾える", () => {
+  const { parseDeadlinesFromHtml } = loadScraper();
+  const html =
+    "<p>販売開始日：2026年7月7日（火）18:00</p>" +
+    "<p>受付締切日：2026年7月28日（火）23：59</p>";
+  const article = goodsArticle("7/7(火）受付スタート 7月通販公開！");
+  const deadlines = parseDeadlinesFromHtml(article, html);
+  assert.equal(
+    deadlines.find((d) => d.type === "goods_sale_end").deadline_at,
+    new Date(Date.UTC(2026, 6, 28, 23 - 9, 59)).toISOString(),
+  );
+});
+
+test("parseDeadlinesFromHtml: 26イベント分が並ぶグッズ一覧記事(実記事)は丸ごと見送る", () => {
+  const { parseDeadlinesFromHtml } = loadScraper();
+  const html = readFileSync(join(__dirname, "fixtures", "upfc-goods-masterlist.html"), "utf8");
+  const article = goodsArticle("ファンクラブショップ 受付締切日・商品お届け予定日のお知らせ");
+  const deadlines = parseDeadlinesFromHtml(article, html);
+  // 先頭1件だけを「この記事の締切」として保存すると誤りになるので0件が正しい。
+  // 過去には本文中の「申込締切日」が拾われて apply_end として誤登録されていた。
+  assert.equal(deadlines.length, 0, `見送られていない: ${JSON.stringify(deadlines)}`);
 });
 
 test("UF_BACKFILL_TARGETS: 名指し読み直しの対象は24件・重複UIDなし・タイトル欠けなし", () => {

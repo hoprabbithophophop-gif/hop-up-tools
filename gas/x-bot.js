@@ -162,12 +162,16 @@ function XBmain() {
   var jstOffset = 9 * 60 * 60 * 1000;
   var todayJst = new Date(Math.floor((now.getTime() + jstOffset) / 86400000) * 86400000 - jstOffset);
 
-  // ── 3日以内の申込締切・入金期限・当落発表 ──
+  // ── 3日以内の申込締切・入金期限・当落発表・グッズ通販締切 ──
+  // グッズ通販締切(goods_sale_end)は、2026年7月7日のFCショップ移転までは e-LineUP!Mall 側の
+  // 商品ページからしか取れず、専用の別ブロックで elineup_goods を読んでいた。
+  // 移転後は締切もUPFCのニュース記事本文に載るようになり fc_deadlines に入るため、
+  // 他の締切と同じこのループで扱う（別ブロックは廃止）。
   var in4daysJst = new Date(todayJst.getTime() + 4 * 86400000); // 3日前まで拾うため余裕をみて4日
   var dlRes = UrlFetchApp.fetch(
     supabaseUrl + '/rest/v1/fc_deadlines'
     + '?select=type,label,deadline_at,fc_news(uid,title,detail_url)'
-    + '&type=in.(apply_end,payment,result)'
+    + '&type=in.(apply_end,payment,result,goods_sale_end)'
     + '&deadline_at=gte.' + todayJst.toISOString()
     + '&deadline_at=lt.' + in4daysJst.toISOString()
     + '&order=deadline_at.asc',
@@ -249,61 +253,6 @@ function XBmain() {
     }
     Utilities.sleep(2000);
   });
-
-  // ── e-LineUP グッズ受付締切（1日前・当日）──
-  var inGoodsJst = new Date(todayJst.getTime() + 2 * 86400000); // 1日前まで拾うため2日分
-  var gRes = UrlFetchApp.fetch(
-    supabaseUrl + '/rest/v1/elineup_goods'
-    + '?select=product_url,product_name,event_name,sale_end_at'
-    + '&sale_end_at=gte.' + todayJst.toISOString()
-    + '&sale_end_at=lt.' + inGoodsJst.toISOString()
-    + '&order=sale_end_at.asc',
-    { headers: headers, muteHttpExceptions: true }
-  );
-  if (gRes.getResponseCode() === 200) {
-    var goods = JSON.parse(gRes.getContentText());
-    // 同一イベント＋締切で集約（1イベント1ツイート）
-    var byEvent = {};
-    goods.forEach(function (g) {
-      if (!g.sale_end_at) return;
-      var ev = (g.event_name || g.product_name || 'グッズ').replace(/\s+/g, ' ').trim();
-      var k = ev + '|' + g.sale_end_at;
-      if (!byEvent[k]) byEvent[k] = { ev: ev, saleEnd: g.sale_end_at, url: g.product_url };
-    });
-    Object.keys(byEvent).forEach(function (k) {
-      var g = byEvent[k];
-      var dlDate = new Date(g.saleEnd);
-      var dlDateJst = new Date(dlDate.getTime() + jstOffset);
-      var dlDayStart = new Date(Date.UTC(dlDateJst.getUTCFullYear(), dlDateJst.getUTCMonth(), dlDateJst.getUTCDate()));
-      var daysLeft = Math.round((dlDayStart.getTime() - todayJst.getTime()) / 86400000);
-      if (!shouldNotify('goods_sale_end', daysLeft)) return;
-
-      var postTimeJst = new Date(todayJst.getTime() + 7 * 60 * 60 * 1000);
-      var hoursLeft = Math.ceil((dlDate.getTime() - postTimeJst.getTime()) / (60 * 60 * 1000));
-      if (hoursLeft <= 0) return; // 締切超過セーフティ
-      var daysLabel = (daysLeft === 0) ? ('あと' + hoursLeft + '時間') : ('あと1日（あと' + hoursLeft + '時間）');
-
-      var text = emojiFor('goods_sale_end') + ' グッズ受付締切【' + daysLabel + '】\n\n'
-        + g.ev + 'のグッズ\n'
-        + '受付締切：' + formatJstDate(g.saleEnd) + ' ' + formatJstTime(g.saleEnd) + '\n\n'
-        + 'e-LineUP → ' + g.url + '\n'
-        + hashtagFor('goods_sale_end');
-
-      var tweetKey = 'goods_' + k + '_d' + daysLeft;
-      if (hasBeenTweeted(tweetKey)) return;
-      try {
-        postTweet(text);
-        markAsTweeted(tweetKey);
-        notifiedCount++;
-        Logger.log('[X] グッズツイート成功: ' + g.ev + ' (' + daysLabel + ')');
-      } catch (e) {
-        Logger.log('[X] グッズツイート失敗: ' + e.message);
-      }
-      Utilities.sleep(2000);
-    });
-  } else {
-    Logger.log('[X] elineup_goods 取得失敗: ' + gRes.getContentText());
-  }
 
   // 締切ツイートがあった場合のみツール紹介を1回投稿
   // 同じ文言を毎日投稿するとspam判定されやすいので、4バリエーション × 2URL の組み合わせをシーケンシャルに使う

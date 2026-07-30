@@ -422,17 +422,36 @@ function parseDeadlinesFromHtml(article, html) {
   const D_WITH_YEAR = '\\d{4}\\s*年\\s*\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日\\s*[（(]\\s*[月火水木金土日][祝]?\\s*[）)](?:\\s*\\d{1,2}\\s*時(?:\\s*\\d{1,2}\\s*分)?)?';
   const D_NO_YEAR   = '\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日\\s*[（(]\\s*[月火水木金土日][祝]?\\s*[）)](?:\\s*\\d{1,2}\\s*時(?:\\s*\\d{1,2}\\s*分)?)?';
 
-  // ── 月次まとめ通販（「○月通販公開！」） ──
-  // 本文に「申込開始日：2026年6月1日（月）18:00」「申込締切日：2026年6月26日（金）23:59」が揃う。
-  // e-LineUP突き合わせ不要でUPFC単独で販売期間が完結する。
-  // 申込締切日が通常の申込締切パターン(apply_end)に当たってチケット扱いされるのを防ぐため、
-  // ここで goods_sale_start / goods_sale_end として確定し、以降のパターンには進ませず return。
-  if (/通販公開|\d+\s*月\s*通販/.test(article.title)) {
-    const open  = parseColonDateNear(text, '申込開始日');
-    const close = parseColonDateNear(text, '申込締切日');
+  // ── グッズ通信販売（月次まとめ・個別イベント 共通） ──
+  // 2026年7月7日17時、FCショップが e-LineUP!Mall から UPFCサイト内へ移転した。
+  // これに伴い本文の見出しの言葉が変わっている:
+  //   移転前 … 申込開始日／申込締切日（月次まとめ記事のみ。個別イベントの締切はUPFCに無く、
+  //             e-LineUP側の商品ページからしか取れなかった＝elineup-scraper.js の役目）
+  //   移転後 … 販売開始日／受付締切日（月次・個別とも同じ書式。締切もUPFC側で読めるようになった）
+  // 旧ラベルも残す（過去記事を読み直したときに崩れないように）。
+  // 「申込締切日」がチケットの申込締切パターン(apply_end)に誤って当たるのを防ぐため、
+  // ここで goods_sale_start / goods_sale_end として確定し、以降のパターンには進ませず return する。
+  if (article.category === 'グッズ' || /通販公開|\d+\s*月\s*通販/.test(article.title)) {
+    // 1記事に複数イベント分の締切が並ぶ棚卸し記事（例:「ファンクラブショップ 受付締切日・
+    // 商品お届け予定日のお知らせ」＝26イベント分が一覧になっている）は、先頭の1件だけを
+    // その記事の締切として保存すると誤りになるので丸ごと見送る。
+    // 同じ締切は個別記事側から取れるため、見送っても取りこぼしにはならない。
+    const endLabelCount = (text.match(/(?:受付締切日|申込締切日)\s*[：:]/g) || []).length;
+    if (endLabelCount >= 2) {
+      Logger.log('複数イベント分の締切が並ぶグッズ一覧記事のため見送り: ' + article.title);
+      return deadlines;
+    }
+
+    const open  = parseColonDateNear(text, '販売開始日')
+               || parseColonDateNear(text, '申込開始日')
+               || parseColonDateNear(text, '受付開始日');
+    const close = parseColonDateNear(text, '受付締切日')
+               || parseColonDateNear(text, '申込締切日');
     if (open)  deadlines.push({ type: 'goods_sale_start', label: '通販開始', deadline_at: open });
     if (close) deadlines.push({ type: 'goods_sale_end',   label: '通販締切', deadline_at: close });
-    return deadlines;
+    if (deadlines.length > 0) return deadlines;
+    // 見出し形式で1件も取れなかったグッズ記事（販売開始が文章の中にしか無い等）は、
+    // これまで通り以降のパターンに進ませる（下の「グッズ通信販売の開始（文章形式）」で拾う）。
   }
 
   // ── 申込期間（開始〜終了） ──
