@@ -46,6 +46,11 @@ function validateOrder(order: unknown): order is OrderTicket {
   if (typeof o.eventLeadOverrides !== "object" || o.eventLeadOverrides === null) return false;
   if (!Object.values(o.eventLeadOverrides as Record<string, unknown>).every(isEventLeadSetting)) return false;
   if (!Array.isArray(o.attendingNewsUids) || !o.attendingNewsUids.every((u) => typeof u === "string")) return false;
+  // paidNewsUids は省略可。必須にすると、古い画面から送られた注文票を弾いてしまい発行が全滅する
+  // （2026-08-01に同種の噛み合わせで実際に起きた）。無ければ「1件も入金済みでない」として扱う。
+  if (o.paidNewsUids !== undefined) {
+    if (!Array.isArray(o.paidNewsUids) || !o.paidNewsUids.every((u) => typeof u === "string")) return false;
+  }
   return true;
 }
 

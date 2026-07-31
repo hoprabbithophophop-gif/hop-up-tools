@@ -2712,9 +2712,20 @@ function SubscribeScreen({
     for (const uid of paidSetNow) attending.add(uid);
     return [...attending].sort();
   }
+  // 「入金が済んだ」公演だけを集める。attendingNewsUids は当選も入金済も混ぜた「行く公演」なので、
+  // 入金締切の予定を【入金済み】に書き換えるにはこちらを別に持つ必要がある。
+  function computePaidNewsUids(matchResultsList: MatchResult[], paidList: string[]): string[] {
+    const paidSet = new Set(paidList);
+    for (const r of matchResultsList) {
+      if (!r.parsed.status.includes("入金済")) continue;
+      for (const m of r.matched) paidSet.add(m.uid);
+    }
+    return [...paidSet].sort();
+  }
   function selectionSig(ids: Set<string>, ret: RetentionMode): string {
     const attendingSig = computeAttendingNewsUids(matchResultsRef.current, paidRef.current).join(",");
-    return [...ids].sort().join(",") + "|" + ret + "|" + JSON.stringify(eventLeadRef.current) + "|" + JSON.stringify(eventLeadOvrRef.current) + "|" + attendingSig;
+    const paidSig = computePaidNewsUids(matchResultsRef.current, paidRef.current).join(",");
+    return [...ids].sort().join(",") + "|" + ret + "|" + JSON.stringify(eventLeadRef.current) + "|" + JSON.stringify(eventLeadOvrRef.current) + "|" + attendingSig + "|" + paidSig;
   }
   // 初期化後、現在の状態を「保存済み」とみなす（タブを開いただけでは発行しない）
   useEffect(() => {
@@ -2924,6 +2935,7 @@ function SubscribeScreen({
         eventLead: eventLeadRef.current,
         eventLeadOverrides: eventLeadOvrRef.current,
         attendingNewsUids: computeAttendingNewsUids(matchResultsRef.current, paidRef.current),
+        paidNewsUids: computePaidNewsUids(matchResultsRef.current, paidRef.current),
       };
       const urls = await uploadSubscriptionIcs(useSlug, order);
       if (!sl) {

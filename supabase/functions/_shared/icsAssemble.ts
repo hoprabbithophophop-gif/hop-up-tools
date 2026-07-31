@@ -219,6 +219,10 @@ export function assembleFromOrder(
   const firstEventIds = new Set(firstEventByDate.values());
 
   const attending = new Set(order.attendingNewsUids);
+  // 入金が済んだ公演。入金締切の予定は「消す」のではなく【入金済み】に書き換えて通知だけ止める。
+  // 消してしまうと「通知が来ない」が《払い終わった》と《仕組みが壊れた》の両方を意味してしまい、
+  // 見分けがつかない。予定が残っていれば、カレンダーを見るだけで認識されているか確かめられる。
+  const paid = new Set(order.paidNewsUids ?? []);
   const leadAlarmsFor = (dl: DeadlineRow) => {
     const lead = order.eventLeadOverrides[eventTwinKey(dl)] ?? order.eventLead;
     const extraGapMin = dl.open_at ? 0 : doorsGapMinutes(dl.fc_news.category);
@@ -229,13 +233,17 @@ export function assembleFromOrder(
   const veventBlocks = kept.flatMap((dl) => {
     const { dtstart, dtend, isEvent } = computeTimes(dl);
     const geo = geoForLocation(dl.location, venueGeoByName);
-    const alarms = alarmsForDeadline(
-      dl.type,
-      isEvent && firstEventIds.has(dl.id),
-      leadAlarmsFor(dl),
-      attending.has(dl.news_uid),
-      new Date(dl.deadline_at),
-    );
+    // 入金が済んだ入金締切は、予定は残したまま名前を【入金済み】にして通知を外す
+    const isPaidOff = dl.type === "payment" && paid.has(dl.news_uid);
+    const alarms = isPaidOff
+      ? []
+      : alarmsForDeadline(
+          dl.type,
+          isEvent && firstEventIds.has(dl.id),
+          leadAlarmsFor(dl),
+          attending.has(dl.news_uid),
+          new Date(dl.deadline_at),
+        );
     const description =
       dl.fc_news.title +
       doorsLine(dl) +
@@ -249,7 +257,7 @@ export function assembleFromOrder(
       `DTSTAMP:${now_}`,
       `DTSTART:${formatIcsDate(dtstart)}`,
       `DTEND:${formatIcsDate(dtend)}`,
-      `SUMMARY:【${dl.label}】${cleanFcTitle(dl.fc_news.title)}`,
+      `SUMMARY:【${isPaidOff ? "入金済み" : dl.label}】${cleanFcTitle(dl.fc_news.title)}`,
       `DESCRIPTION:${description.replace(/\n/g, "\\n")}`,
       ...(dl.location ? [`LOCATION:${dl.location}`] : []),
       ...renderGeo({ geo, location: dl.location }),

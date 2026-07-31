@@ -157,6 +157,56 @@ test("assembleFromOrder: 申込締切・当落確認は記事に実時刻があ�
   assert.ok(!ics.includes("TRIGGER;VALUE=DATE-TIME"), "絶対時刻の通知が混ざっている");
 });
 
+test("assembleFromOrder: 入金が済んだ入金締切は予定を残したまま【入金済み】にして通知を外す", () => {
+  // 予定ごと消すと「通知が来ない」が《払い終わった》と《仕組みが壊れた》の両方を意味してしまう。
+  // 予定を残しておけば、カレンダーを見るだけで認識されているか確かめられる。
+  const dl = deadline({
+    id: "d1", news_uid: "n1", type: "payment", label: "入金締切",
+    deadline_at: "2026-08-05T23:59:00+09:00",
+    fc_news: { title: "ハロ！コン 2026 FC先行受付のお知らせ", detail_url: "u", category: "コンサート" },
+  });
+  const order = baseOrder({ includedIds: ["d1"], retention: "forever", paidNewsUids: ["n1"] });
+  const ics = assembleFromOrder(order, [dl], new Map(), NOW);
+  assert.ok(ics.includes("UID:d1@hop-up-tools"), "予定ごと消えてしまっている");
+  assert.ok(ics.includes("SUMMARY:【入金済み】"), "【入金済み】に書き換わっていない");
+  assert.ok(!ics.includes("BEGIN:VALARM"), "通知が残っている");
+});
+
+test("assembleFromOrder: 入金がまだの入金締切は通常どおり通知が付く", () => {
+  const dl = deadline({
+    id: "d1", news_uid: "n1", type: "payment", label: "入金締切",
+    deadline_at: "2026-08-05T23:59:00+09:00",
+  });
+  const order = baseOrder({ includedIds: ["d1"], retention: "forever", paidNewsUids: [] });
+  const ics = assembleFromOrder(order, [dl], new Map(), NOW);
+  assert.ok(ics.includes("SUMMARY:【入金締切】"));
+  assert.ok(ics.includes("本日が入金締切です"));
+});
+
+test("assembleFromOrder: paidNewsUids が無い古い注文票でも壊れない", () => {
+  const dl = deadline({ id: "d1", news_uid: "n1", type: "payment", label: "入金締切", deadline_at: "2026-08-05T23:59:00+09:00" });
+  const order = baseOrder({ includedIds: ["d1"], retention: "forever" });
+  delete (order as { paidNewsUids?: string[] }).paidNewsUids;
+  const ics = assembleFromOrder(order, [dl], new Map(), NOW);
+  assert.ok(ics.includes("SUMMARY:【入金締切】"), "入金済み扱いになってしまっている");
+  assert.ok(ics.includes("BEGIN:VALARM"), "通知が消えてしまっている");
+});
+
+test("assembleFromOrder: 入金済みでも公演や申込締切の通知には影響しない", () => {
+  const ev = deadline({
+    id: "d1", news_uid: "n1", type: "event", deadline_at: "2026-08-20T18:00:00+09:00", open_at: "2026-08-20T17:00:00+09:00",
+  });
+  const ap = deadline({ id: "d2", news_uid: "n1", type: "apply_end", label: "申込締切", deadline_at: "2026-08-10T17:00:00+09:00" });
+  const order = baseOrder({
+    includedIds: ["d1", "d2"], retention: "forever",
+    attendingNewsUids: ["n1"], paidNewsUids: ["n1"], eventLead: { hours: 3, dayBefore: false },
+  });
+  const ics = assembleFromOrder(order, [ev, ap], new Map(), NOW);
+  assert.ok(ics.includes("そろそろお出かけの時間です（本日公演）"), "出発通知が消えている");
+  assert.ok(ics.includes("明日が申込締切です"), "申込締切の通知が消えている");
+  assert.ok(!ics.includes("【入金済み】"), "入金締切以外まで書き換わっている");
+});
+
 test("assembleFromOrder: 同一公演の双子(event)は1本に畳まれる", () => {
   const a = deadline({ id: "a", news_uid: "n1", type: "event", deadline_at: "2026-08-01T18:00:00+09:00", fc_news: { title: "公演X FC2次受付のお知らせ", detail_url: "u", category: null } });
   const b = deadline({ id: "b", news_uid: "n1", type: "event", deadline_at: "2026-08-01T18:00:00+09:00", fc_news: { title: "公演X", detail_url: "u", category: null } });
