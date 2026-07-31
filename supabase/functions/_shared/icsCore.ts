@@ -9,8 +9,13 @@
 // 別の理由（保存前の正規化）で同じ内容がある。会場の誤字を直したときはそちらも確認する。
 
 export interface IcsAlarm {
-  trigger: string; // 例: "-P1D"(前日), "-PT1H"(1時間前), "-PT3H"(3時間前)
+  trigger?: string; // 予定の開始からの相対指定。例: "-P1D"(前日), "-PT1H"(1時間前)
   description: string; // 通知文言
+  /**
+   * 絶対時刻（ISO文字列）。指定するとこの時刻ちょうどに通知する（trigger より優先）。
+   * 締切時刻そのものが当てにならない種類（入金締切）で使う。
+   */
+  at?: string;
 }
 
 export interface IcsGeo {
@@ -41,15 +46,24 @@ export function renderGeo(event: { geo?: IcsGeo | null; location?: string | null
 }
 
 // VALARM行を生成。undefined→デフォルト、[]→通知なし。
+// at があれば絶対時刻の通知、無ければ予定の開始からの相対の通知。
 export function renderAlarms(alarms?: IcsAlarm[]): string[] {
   const list = alarms ?? DEFAULT_ALARMS;
-  return list.flatMap((a) => [
-    "BEGIN:VALARM",
-    `TRIGGER:${a.trigger}`,
-    "ACTION:DISPLAY",
-    `DESCRIPTION:${a.description.replace(/\n/g, "\\n")}`,
-    "END:VALARM",
-  ]);
+  return list.flatMap((a) => {
+    const triggerLine = a.at
+      ? `TRIGGER;VALUE=DATE-TIME:${formatIcsDate(new Date(a.at))}`
+      : a.trigger
+        ? `TRIGGER:${a.trigger}`
+        : null;
+    if (!triggerLine) return []; // 時刻の指定が無い通知は出さない
+    return [
+      "BEGIN:VALARM",
+      triggerLine,
+      "ACTION:DISPLAY",
+      `DESCRIPTION:${a.description.replace(/\n/g, "\\n")}`,
+      "END:VALARM",
+    ];
+  });
 }
 
 /**

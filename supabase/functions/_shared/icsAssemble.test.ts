@@ -126,6 +126,37 @@ test("assembleFromOrder: 同じ日の2部以降には出発通知が付かない
   assert.equal((ics.match(/そろそろお出かけの時間です/g) ?? []).length, 1);
 });
 
+test("assembleFromOrder: 入金締切の通知は締切日の21時(JST)と前日21時に固定される", () => {
+  // 記事に入金締切の時刻が書かれていないことが多く、23:59は既定値でしかない。
+  // 相対指定だと締切時刻のブレが通知時刻に伝わるため、21時固定にしている。
+  const dl = deadline({ id: "d1", type: "payment", label: "入金締切", deadline_at: "2026-08-05T23:59:00+09:00" });
+  const order = baseOrder({ includedIds: ["d1"], retention: "forever" });
+  const ics = assembleFromOrder(order, [dl], new Map(), NOW);
+  // 21:00 JST = 12:00 UTC
+  assert.ok(ics.includes("TRIGGER;VALUE=DATE-TIME:20260804T120000Z"), "前日21時の通知が無い");
+  assert.ok(ics.includes("TRIGGER;VALUE=DATE-TIME:20260805T120000Z"), "当日21時の通知が無い");
+  assert.ok(ics.includes("本日が入金締切です"));
+  assert.ok(ics.includes("明日が入金締切です"));
+});
+
+test("assembleFromOrder: 入金締切が昼など21時に間に合わない場合は従来の相対指定に戻す", () => {
+  const dl = deadline({ id: "d1", type: "payment", label: "入金締切", deadline_at: "2026-08-05T12:00:00+09:00" });
+  const order = baseOrder({ includedIds: ["d1"], retention: "forever" });
+  const ics = assembleFromOrder(order, [dl], new Map(), NOW);
+  assert.ok(ics.includes("TRIGGER;VALUE=DATE-TIME:20260804T120000Z"), "前日21時の通知は出るはず");
+  assert.ok(!ics.includes("TRIGGER;VALUE=DATE-TIME:20260805T120000Z"), "締切を過ぎた時刻に通知してはいけない");
+  assert.ok(ics.includes("TRIGGER:-PT1H"), "当日分の代わりの相対通知が無い");
+});
+
+test("assembleFromOrder: 申込締切・当落確認は記事に実時刻があるので相対指定のまま", () => {
+  const dl = deadline({ id: "d1", type: "apply_end", label: "申込締切", deadline_at: "2026-08-05T17:00:00+09:00" });
+  const order = baseOrder({ includedIds: ["d1"], retention: "forever" });
+  const ics = assembleFromOrder(order, [dl], new Map(), NOW);
+  assert.ok(ics.includes("TRIGGER:-P1D"));
+  assert.ok(ics.includes("TRIGGER:-PT1H"));
+  assert.ok(!ics.includes("TRIGGER;VALUE=DATE-TIME"), "絶対時刻の通知が混ざっている");
+});
+
 test("assembleFromOrder: 同一公演の双子(event)は1本に畳まれる", () => {
   const a = deadline({ id: "a", news_uid: "n1", type: "event", deadline_at: "2026-08-01T18:00:00+09:00", fc_news: { title: "公演X FC2次受付のお知らせ", detail_url: "u", category: null } });
   const b = deadline({ id: "b", news_uid: "n1", type: "event", deadline_at: "2026-08-01T18:00:00+09:00", fc_news: { title: "公演X", detail_url: "u", category: null } });

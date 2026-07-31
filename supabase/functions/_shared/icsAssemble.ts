@@ -66,6 +66,38 @@ function minutesToTrigger(totalMin: number): string {
   return `-PT${h}H${m}M`;
 }
 
+// JSTの「dayOffset日ずらした日の21時」を返す。
+// サーバーは世界標準時で動くので、JSTへ寄せて日付を取り、21時-9時間でUTCに戻す。
+function jstNinePm(base: Date, dayOffset: number): Date {
+  const j = new Date(base.getTime() + 9 * 3600000);
+  return new Date(Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate() + dayOffset, 21 - 9, 0));
+}
+
+/**
+ * 入金締切の通知は「締切日の21時（JST）」に固定する。前日の21時にも出す。
+ *
+ * 公式記事は入金締切に時刻を書かないことが多く（2026-08-01時点で108件中104件が時刻なし＝
+ * 既定値の23:59が入っている）、締切時刻そのものが当てにならない。予定の開始からの相対指定だと、
+ * その不確かさがそのまま通知時刻のブレになる。21時固定なら、実際の締切が23時でも23時59分でも
+ * 当日中の余裕がある時間に必ず届く。
+ *
+ * 昼締切など21時では間に合わない場合だけ、従来どおり相対指定に戻す。
+ */
+function paymentAlarms(deadlineAt: Date): IcsAlarm[] {
+  const alarms: IcsAlarm[] = [];
+  const dayBefore = jstNinePm(deadlineAt, -1);
+  const sameDay = jstNinePm(deadlineAt, 0);
+  if (dayBefore.getTime() < deadlineAt.getTime()) {
+    alarms.push({ at: dayBefore.toISOString(), description: "明日が入金締切です" });
+  }
+  if (sameDay.getTime() < deadlineAt.getTime()) {
+    alarms.push({ at: sameDay.toISOString(), description: "本日が入金締切です" });
+  } else {
+    alarms.push({ trigger: "-PT1H", description: "まもなく入金締切です" });
+  }
+  return alarms;
+}
+
 // 種類＋状況 → 通知(VALARM)配列。クライアント(旧 FcTicketPage.tsx)から移設。
 // isAttending=実際に行く公演か（当選/入金済）。出発通知は行く公演にだけ出す。
 function alarmsForDeadline(
@@ -73,12 +105,13 @@ function alarmsForDeadline(
   isFirstShowOfDay: boolean,
   eventLeadAlarms: IcsAlarm[],
   isAttending: boolean,
+  deadlineAt: Date,
 ): IcsAlarm[] {
   switch (type) {
     case "apply_end":
       return [{ trigger: "-P1D", description: "明日が申込締切です" }, { trigger: "-PT1H", description: "まもなく申込締切です" }];
     case "payment":
-      return [{ trigger: "-P1D", description: "明日が入金締切です" }, { trigger: "-PT1H", description: "まもなく入金締切です" }];
+      return paymentAlarms(deadlineAt);
     case "sale_end":
     case "goods_sale_end":
       return [{ trigger: "-P1D", description: "明日がグッズ締切です" }];
@@ -201,6 +234,7 @@ export function assembleFromOrder(
       isEvent && firstEventIds.has(dl.id),
       leadAlarmsFor(dl),
       attending.has(dl.news_uid),
+      new Date(dl.deadline_at),
     );
     const description =
       dl.fc_news.title +
