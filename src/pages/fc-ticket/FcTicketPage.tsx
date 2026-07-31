@@ -398,7 +398,7 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
                 : "text-outline hover:text-primary"
             }`}
           >
-            {t === "input" ? "Import" : t === "calendar" ? "Calendar" : "Subscribe"}
+            {t === "input" ? "Import" : t === "calendar" ? "Calendar" : "Sync"}
           </button>
         ))}
       </nav>
@@ -670,9 +670,9 @@ function ResultScreen({
             onClick={onSubscribe}
             className="bg-primary text-on-primary-fixed px-6 py-4 text-left transition-colors hover:bg-secondary cursor-pointer flex items-start gap-3"
           >
-            <span className="material-symbols-outlined">rss_feed</span>
+            <span className="material-symbols-outlined">sync</span>
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest mb-1">カレンダーアプリで購読</p>
+              <p className="text-xs font-bold uppercase tracking-widest mb-1">カレンダーアプリに同期</p>
               <p className="text-[0.6875rem] opacity-90 leading-tight">TimeTree・iPhone標準カレンダーに自動同期</p>
             </div>
           </button>
@@ -975,7 +975,7 @@ function CalendarScreen({
     return d;
   }, [now]);
 
-  // 購読URL発行済みか。発行済みなら気になる追加で自動配信されるため、単発カレンダー登録は出さない（二重登録防止）
+  // 同期用URL発行済みか。発行済みなら気になる追加で自動配信されるため、単発カレンダー登録は出さない（二重登録防止）
   const hasSubscription = (() => {
     try { return !!localStorage.getItem("fc-sub-slug"); } catch { return false; }
   })();
@@ -1511,7 +1511,7 @@ function CalendarScreen({
                     if (sx < 0 || sx > TOTAL_DAYS * CELL_WIDTH) return null;
                     const fill = s.going ? "#585f6c" : "#cfcfcf";
                     return (
-                      <div key={s.key} style={{ position: "absolute", left: sx - 1, top: 2, width: 2, height: LANE_H - 4, background: fill, zIndex: 3 }} title={s.going ? "行く公演" : "行かない公演（Subscribeで選択）"}>
+                      <div key={s.key} style={{ position: "absolute", left: sx - 1, top: 2, width: 2, height: LANE_H - 4, background: fill, zIndex: 3 }} title={s.going ? "行く公演" : "行かない公演（Syncで選択）"}>
                         <div style={{ position: "absolute", top: -3, left: 1, width: 7, height: 8, background: fill, clipPath: "polygon(0 0, 100% 50%, 0 100%)" }} />
                       </div>
                     );
@@ -2142,10 +2142,10 @@ function CalendarScreen({
                   {/* 追加直後のカレンダー登録提案 */}
                   {isPending && calEvent && (
                     hasSubscription ? (
-                      // 購読URL発行済み → 自動で配信されるので単発登録は出さない（二重登録防止）
+                      // 同期用URL発行済み → 自動で反映されるので単発登録は出さない（二重登録防止）
                       <div className="flex items-center gap-3 px-4 py-3 bg-surface-container-high border-l-2 flex-wrap" style={{ borderColor: "#000000" }}>
                         <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "#000000" }}>check_circle</span>
-                        <span className="text-xs font-bold flex-1">この予定は購読URLに追加されました（自動で配信されます）。</span>
+                        <span className="text-xs font-bold flex-1">この予定は同期用URLに追加されました（自動で反映されます）。</span>
                         <button
                           onClick={() => setPendingCalendarUid(null)}
                           className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer transition-colors"
@@ -2179,7 +2179,7 @@ function CalendarScreen({
                         <button
                           onClick={onGoSubscribe}
                           className="text-[0.625rem] text-outline hover:text-primary cursor-pointer transition-colors text-left underline underline-offset-2"
-                        >毎回入れるのが面倒なら → まとめて購読する（Subscribe）</button>
+                        >毎回入れるのが面倒なら → まとめて同期する（Sync）</button>
                       </div>
                     )
                   )}
@@ -2827,7 +2827,7 @@ function SubscribeScreen({
     .filter((dl) => SUBSCRIPTION_TYPES_TO_SUBSCRIBE.includes(dl.type))
     .filter((dl) => new Date(dl.deadline_at) >= now)
     .filter((dl) => {
-      // 関連のあるものだけ表示: matched / watchlist / applied / 既に購読対象
+      // 関連のあるものだけ表示: matched / watchlist / applied / 既に同期対象
       return (
         matchResults.some((r) => r.matched.some((m) => m.uid === dl.news_uid)) ||
         watchlistSet.has(dl.news_uid) ||
@@ -2946,7 +2946,7 @@ function SubscribeScreen({
 
   async function handleDelete() {
     if (!slug) return;
-    if (!confirm("購読URLを無効化します。\nスマホのカレンダーアプリでも購読の解除をお願いします。\n（設定 → カレンダー → アカウント → 該当カレンダーを削除）")) return;
+    if (!confirm("同期用URLを無効化します。\nスマホのカレンダーアプリでも同期の解除をお願いします。\n（設定 → カレンダー → アカウント → 該当カレンダーを削除）")) return;
     setDeleting(true);
     try {
       await deleteSubscriptionIcs(slug);
@@ -2989,10 +2989,10 @@ function SubscribeScreen({
       <div className="mb-8">
         <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">Section</span>
         <h2 className="text-5xl font-extrabold tracking-tighter leading-none mt-2">
-          SUBSCRIBE
+          SYNC
         </h2>
         <p className="text-sm text-on-surface-variant mt-3">
-          カレンダーアプリと自動同期できる購読URLを発行します。
+          カレンダーアプリに自動で同期される専用URLを発行します。
         </p>
       </div>
 
@@ -3008,7 +3008,7 @@ function SubscribeScreen({
 
         {activeDeadlines.length === 0 && completedDeadlines.length === 0 && (
           <p className="text-sm text-on-surface-variant py-8 text-center">
-            まず Input タブで申込状況を貼り付けるか、Calendar タブで気になる公演を追加してください。
+            まず Import タブで申込状況を貼り付けるか、Calendar タブで気になる公演を追加してください。
           </p>
         )}
 
@@ -3172,7 +3172,7 @@ function SubscribeScreen({
       {/* URL発行/表示エリア */}
       <section className="mb-8">
         <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
-          <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">購読URL</h3>
+          <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">同期用URL</h3>
         </div>
 
         {!publishedUrls ? (
@@ -3191,7 +3191,7 @@ function SubscribeScreen({
           </div>
         ) : (
           <div className="space-y-4">
-            {/* 主役：カレンダーに追加（この端末で購読登録） */}
+            {/* 主役：カレンダーに追加（この端末で同期を登録） */}
             <a
               href={publishedUrls.webcal}
               className="bg-primary text-on-primary-fixed w-full px-6 py-4 text-sm font-bold uppercase tracking-[0.2em] hover:bg-secondary transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
@@ -3241,9 +3241,9 @@ function SubscribeScreen({
           </summary>
           <ul className="text-xs text-on-surface-variant space-y-2 list-disc list-inside mt-4">
             <li>このツールは締切を忘れないためのリマインダーです。予定にチェックを付けても、公演への申込・入金は完了しません。申込は各公式ページで行ってください。</li>
-            <li>入力した申込状況や登録内容はお使いの端末内に保存され、運営が収集・分析することはありません。（購読URLを発行した場合のみ、選んだ予定がURL先に保管されます）</li>
+            <li>入力した申込状況や登録内容はお使いの端末内に保存され、運営が収集・分析することはありません。（同期用URLを発行した場合のみ、選んだ予定がURL先に保管されます）</li>
             <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切は自動で追加、終わった予定は自動で整理されます（反映まで最大数時間。すぐ反映したい時は画面を下に引っ張って更新）。含まれるのは予定だけで、お名前・ログイン・支払いの情報は入りません。</li>
-            <li>iPhoneで通知が届かない時は、「設定 → 通知 → カレンダー」の通知がオンになっているか、購読を追加した時に「通知を削除」をオフにしたかをご確認ください。位置情報の設定はオフのままでも通知は届きます。</li>
+            <li>iPhoneで通知が届かない時は、「設定 → 通知 → カレンダー」の通知がオンになっているか、同期を追加した時に「通知を削除」をオフにしたかをご確認ください。位置情報の設定はオフのままでも通知は届きます。</li>
             <li>「設定 → プライバシーとセキュリティ → 位置情報サービス → システムサービス → 位置情報に基づく通知」をオンにすると、公演の予定にiPhoneが計算する出発時刻の通知も使えます（任意です）。位置情報はiPhoneの中で使われるだけで、このツールや運営者に送られることはありません。</li>
             <li>カレンダーアプリによっては読み取り専用で表示されます（編集できません）。</li>
             <li>このリンクはあなた専用です。保存した予定が入っているので、他の人には共有しないでください。</li>
@@ -3256,7 +3256,7 @@ function SubscribeScreen({
         <section className="mt-12 pt-6 border-t border-outline-variant/30">
           <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline mb-2">URLを無効化する</h3>
           <p className="text-xs text-on-surface-variant mb-3">
-            購読URLを完全に削除します。流出が疑われる場合や、もう使わない場合に。
+            同期用URLを完全に削除します。流出が疑われる場合や、もう使わない場合に。
           </p>
           <button
             onClick={handleDelete}
@@ -3422,7 +3422,7 @@ function BottomNav({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const items: { t: Tab; icon: string; label: string }[] = [
     { t: "calendar",  icon: "calendar_today", label: "Calendar" },
     { t: "input",     icon: "content_paste",  label: "Import" },
-    { t: "subscribe", icon: "rss_feed",       label: "Subscribe" },
+    { t: "subscribe", icon: "sync",           label: "Sync" },
   ];
 
   return (
