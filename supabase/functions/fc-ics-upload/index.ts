@@ -96,11 +96,26 @@ Deno.serve(async (req) => {
     return json({ error: "Invalid order format" }, 400);
   }
 
-  // 最新の締切データを注文票のidぶんだけ読み直す（ここが「作り置き」→「作り直し」の要）
+  // 最新の締切データを注文票のidぶんだけ読み直す（ここが「作り置き」→「作り直し」の要）。
+  // fc_deadlines.id はUUIDなので、UUIDの形をしていないidは問い合わせ前に落とす。
+  // 画面には過去にe-LineUP由来の疑似的な行（id="goods:イベント名|日時"）が並んでいた時期があり、
+  // その選択がブラウザに残っていると、そのまま問い合わせて「UUIDとして不正」で丸ごと失敗し、
+  // 発行そのものができなくなる（2026-08-01に発生）。存在しないidは元々自然に外れる仕組みなので、
+  // ここで落としても取りこぼしは増えない。
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const wantedIds = order.includedIds.filter((id) => UUID_RE.test(id));
+  const droppedIds = order.includedIds.length - wantedIds.length;
+  if (droppedIds > 0) {
+    console.warn(`skipped ${droppedIds} non-uuid id(s) in order for ${slug}`);
+  }
+  if (wantedIds.length === 0) {
+    return json({ error: "配信できる予定がありません（選択した予定が見つかりませんでした）" }, 400);
+  }
+
   const { data: deadlineRows, error: dlError } = await supabase
     .from("fc_deadlines")
     .select("id, news_uid, type, label, deadline_at, location, open_at, fc_news(title, detail_url, category)")
-    .in("id", order.includedIds);
+    .in("id", wantedIds);
   if (dlError) {
     return json({ error: "Failed to load deadlines: " + dlError.message }, 500);
   }

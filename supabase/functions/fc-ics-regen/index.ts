@@ -15,6 +15,10 @@ function isOrderTicket(events: unknown): events is OrderTicket {
   return typeof events === "object" && events !== null && (events as Record<string, unknown>).v === 2;
 }
 
+// fc_deadlines.id はUUID。UUIDの形をしていないidを問い合わせに混ぜると、
+// 「UUIDとして不正」でその購読ぶんの作り直しが丸ごと失敗する（発行側と同じ守り）。
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 Deno.serve(async () => {
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -52,7 +56,7 @@ Deno.serve(async () => {
         const { data: deadlineRows, error: dlError } = await supabase
           .from("fc_deadlines")
           .select("id, news_uid, type, label, deadline_at, location, open_at, fc_news(title, detail_url, category)")
-          .in("id", order.includedIds);
+          .in("id", order.includedIds.filter((id) => UUID_RE.test(id)));
         if (dlError) throw new Error(dlError.message);
         ics = assembleFromOrder(order, (deadlineRows ?? []) as DeadlineRow[], venueGeoByName, now);
         updatedOrders++;

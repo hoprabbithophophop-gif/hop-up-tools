@@ -60,6 +60,9 @@ interface ElineupGoodsRow {
 
 // e-LineUPグッズを「イベント＋締切」単位でまとめ、締切パイプライン(Deadline)に乗せる形へ変換。
 // 同一イベントの複数商品は同じ受付締切なので1件に集約する。
+// fc_deadlines.id はUUID。購読の注文票にはUUIDの行だけを載せる（疑似的な行を除くため）
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function buildGoodsDeadlines(rows: ElineupGoodsRow[]): Deadline[] {
   const byKey = new Map<string, { ev: string; saleEnd: string; url: string }>();
   for (const r of rows) {
@@ -2902,9 +2905,21 @@ function SubscribeScreen({
         if (!silent) setError("配信する予定が1つも選択されていません。");
         return;
       }
+      // サーバーが読み直せるのは fc_deadlines に実在する行（idはUUID）だけ。
+      // 画面には過去、e-LineUP由来の疑似的な行（id="goods:イベント名|日時"）が混ざっていた時期があり、
+      // その選択がブラウザに残っていると発行が丸ごと失敗する。UUIDの形のものだけを注文票に載せる。
+      //
+      // ここで「今画面に読み込めている予定か」までは絞らないこと。画面の読み込みには件数の上限が
+      // あるため、遠い先の予定が読み込まれていないことがあり、絞ると選んだはずの予定が
+      // 注文票から静かに消える。実在しないidはサーバー側で自然に外れるので絞る必要がない。
+      const includedIds = [...ids].filter((id) => UUID_RE.test(id));
+      if (includedIds.length === 0) {
+        if (!silent) setError("配信する予定が1つも選択されていません。");
+        return;
+      }
       const order: OrderTicket = {
         v: 2,
-        includedIds: [...ids],
+        includedIds,
         retention: ret,
         eventLead: eventLeadRef.current,
         eventLeadOverrides: eventLeadOvrRef.current,
