@@ -58,7 +58,7 @@ Deno.serve(async () => {
         updatedOrders++;
       } else {
         const events = Array.isArray(sub.events) ? sub.events : [];
-        ics = buildIcsLegacyFromEvents(events, venueGeoByName, now);
+        ics = buildIcsLegacyFromEvents(events, venueGeoByName, now, sub.retention);
         updatedLegacy++;
       }
       const { error: upErr } = await supabase.storage

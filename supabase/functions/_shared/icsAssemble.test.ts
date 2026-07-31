@@ -133,7 +133,33 @@ test("buildIcsLegacyFromEvents: 旧形式(events配列)も従来通り組み立�
     [{ uid: "u1@x", summary: "S", dtstart: "2026-08-01T09:00:00Z", dtend: "2026-08-01T10:00:00Z" }],
     new Map(),
     NOW,
+    "after-event-1m",
   );
   assert.ok(ics.includes("UID:u1@x"));
   assert.ok(ics.includes("SUMMARY:S"));
+});
+
+test("buildIcsLegacyFromEvents: 旧形式でも保持期限を過ぎた予定は落とす（注文票ルートと同じ扱い）", () => {
+  // これが無いと、購読者のカレンダーに終わった予定が全部戻ってしまう（2026-08-01に実際に起きた）
+  const ics = buildIcsLegacyFromEvents(
+    [
+      { uid: "old@x", summary: "終わった予定", dtstart: "2020-01-01T09:00:00Z", dtend: "2020-01-01T10:00:00Z" },
+      { uid: "new@x", summary: "これからの予定", dtstart: "2026-08-01T09:00:00Z", dtend: "2026-08-01T10:00:00Z" },
+    ],
+    new Map(),
+    NOW,
+    "after-event-1m",
+  );
+  assert.ok(!ics.includes("UID:old@x"), "保持期限を過ぎた予定が残っている");
+  assert.ok(ics.includes("UID:new@x"));
+});
+
+test("buildIcsLegacyFromEvents: forever指定なら旧形式でも古い予定を残す", () => {
+  const ics = buildIcsLegacyFromEvents(
+    [{ uid: "old@x", summary: "終わった予定", dtstart: "2020-01-01T09:00:00Z", dtend: "2020-01-01T10:00:00Z" }],
+    new Map(),
+    NOW,
+    "forever",
+  );
+  assert.ok(ics.includes("UID:old@x"));
 });

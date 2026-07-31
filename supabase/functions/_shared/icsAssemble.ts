@@ -245,9 +245,17 @@ export function buildIcsLegacyFromEvents(
   events: LegacyEv[],
   venueGeoByName: Map<string, VenueGeo>,
   now: Date,
+  retention: RetentionMode,
 ): string {
+  // 保持期限を過ぎた予定を落とす。注文票ルート(assembleFromOrder)と同じ扱いに揃える。
+  // ここを忘れると、購読者のカレンダーに終わった予定が全部戻ってしまう。
+  const windowMs = retention === "forever" ? null : RETENTION_WINDOW_MS[retention] ?? RETENTION_WINDOW_MS["after-event-1m"];
+  const kept = windowMs == null
+    ? events
+    : events.filter((e) => new Date(e.dtend).getTime() + windowMs >= now.getTime());
+
   const now_ = formatIcsDate(now);
-  const blocks = events.flatMap((e) => {
+  const blocks = kept.flatMap((e) => {
     const geo = (e.geo && typeof e.geo.lat === "number") ? e.geo : geoForLocation(e.location, venueGeoByName);
     return [
       "BEGIN:VEVENT",
