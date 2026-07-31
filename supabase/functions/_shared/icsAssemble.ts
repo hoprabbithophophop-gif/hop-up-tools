@@ -171,11 +171,13 @@ export function assembleFromOrder(
   });
 
   // 同日の公演のうち最も早い1件だけ出発通知の対象に（2部以降は会場に居るので通知なし）
+  // 「同じ日」の区切りは日本時間で判定する。サーバーの実行タイムゾーン（世界標準時）で
+  // 切ると、朝9時前に開演する公演が前日扱いになり、同じ日の2部にも出発通知が付いてしまう。
   const firstEventByDate = new Map<string, string>();
   for (const dl of kept) {
     if (dl.type !== "event") continue;
-    const d = new Date(dl.deadline_at);
-    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const d = new Date(new Date(dl.deadline_at).getTime() + 9 * 3600000); // JSTへ寄せてから日付を取る
+    const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
     const cur = firstEventByDate.get(key);
     if (!cur || new Date(dl.deadline_at) < new Date(kept.find((x) => x.id === cur)!.deadline_at)) {
       firstEventByDate.set(key, dl.id);

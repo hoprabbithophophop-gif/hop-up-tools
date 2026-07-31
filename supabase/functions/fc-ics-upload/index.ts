@@ -133,12 +133,17 @@ Deno.serve(async (req) => {
     return json({ error: "Upload failed: " + uploadError.message }, 500);
   }
 
-  // 注文票そのものを控えとして保存（毎日の見回りが最新データで作り直す材料）
+  // 注文票そのものを控えとして保存（毎日の見回りが最新データで作り直す材料）。
+  // 旧方式では控えは補助情報だったが、作り直し方式では控えが本体。
+  // ここが失敗したまま成功を返すと、URLは生きているのに毎日の作り直しの対象から外れ、
+  // 二度と更新されない置き去りのカレンダーができてしまう。必ず失敗として返す。
+  // （配信ファイルの保存は上書き方式なので、利用者がやり直せば同じ内容で作り直される）
   const { error: manifestError } = await supabase
     .from("fc_subscriptions")
     .upsert({ slug, retention: order.retention, events: order, updated_at: new Date().toISOString() });
   if (manifestError) {
     console.error("manifest upsert failed:", manifestError.message);
+    return json({ error: "設定の保存に失敗しました。もう一度お試しください。" }, 500);
   }
 
   await supabase.from("rate_limit_log").insert({

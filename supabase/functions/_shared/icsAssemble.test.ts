@@ -1,4 +1,8 @@
-// 実行: node --experimental-strip-types --test supabase/functions/_shared/icsAssemble.test.ts
+// 実行: TZ=UTC node --experimental-strip-types --test supabase/functions/_shared/icsAssemble.test.ts
+//
+// TZ=UTC を付けること。Edge Function は世界標準時で動くため、
+// 日本時間の開発機で動かすと「日付の切れ目」のずれを見逃す
+// （ローカル時刻に依存した書き方をしても、日本時間の機械では偶然通ってしまう）。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assembleFromOrder, buildIcsLegacyFromEvents, type DeadlineRow } from "./icsAssemble.ts";
@@ -102,6 +106,24 @@ test("assembleFromOrder: 開場時刻が無く種類も不明な公演は、安�
   const ics = assembleFromOrder(order, [ev], new Map(), NOW);
   // 1時間 + 60分 = 2時間
   assert.ok(ics.includes("TRIGGER:-PT2H"));
+});
+
+test("assembleFromOrder: 同じ日の2部以降には出発通知が付かない（日本時間で日付を切る）", () => {
+  // 朝9時前(JST)開演の公演は、世界標準時で日付を切ると前日扱いになり、
+  // 同じ日の2部にも「その日の最初」として出発通知が付いてしまう。
+  // JST 2026-08-01 08:00開演（= UTCでは 7/31 23:00）と同日 13:00開演の2本で確認する。
+  const p1 = deadline({
+    id: "p1", news_uid: "n1", type: "event", deadline_at: "2026-08-01T08:00:00+09:00",
+    fc_news: { title: "テスト公演 1部", detail_url: "u", category: "イベント" },
+  });
+  const p2 = deadline({
+    id: "p2", news_uid: "n1", type: "event", deadline_at: "2026-08-01T13:00:00+09:00",
+    fc_news: { title: "テスト公演 2部", detail_url: "u", category: "イベント" },
+  });
+  const order = baseOrder({ includedIds: ["p1", "p2"], attendingNewsUids: ["n1"], eventLead: { hours: 2, dayBefore: false } });
+  const ics = assembleFromOrder(order, [p1, p2], new Map(), NOW);
+  // 出発通知は1本だけ（＝その日の最初の公演のみ）
+  assert.equal((ics.match(/そろそろお出かけの時間です/g) ?? []).length, 1);
 });
 
 test("assembleFromOrder: 同一公演の双子(event)は1本に畳まれる", () => {
