@@ -16,13 +16,25 @@ import {
   cleanFcTitle,
   type IcsEvent,
 } from "../../lib/ics";
-import type { OrderTicket, EventLeadSetting, RetentionMode } from "../../lib/icsCore";
+import type { EventLeadSetting, RetentionMode } from "../../lib/icsCore";
 import {
-  uploadSubscriptionIcs,
   deleteSubscriptionIcs,
   subscriptionUrls,
   type SubscriptionUrls,
 } from "../../lib/icsSubscription";
+import {
+  readInputs,
+  readEventLead,
+  readEventLeadOverrides,
+  writeSlug,
+  writeRetention,
+  writeIncludedIds,
+  writeEventLead,
+  writeEventLeadOverrides,
+  clearPublished,
+  DEFAULT_EVENT_LEAD,
+} from "./subscriptionStore";
+import { useSubscriptionSaver, type SubscriptionSaver } from "./useSubscriptionSaver";
 import {
   parseUpfcText,
   matchApplications,
@@ -62,6 +74,37 @@ interface ElineupGoodsRow {
 // 同一イベントの複数商品は同じ受付締切なので1件に集約する。
 // fc_deadlines.id はUUID。購読の注文票にはUUIDの行だけを載せる（疑似的な行を除くため）
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * 締切データを「全件」取り寄せる。
+ *
+ * 以前は1回の取得で上限500件だったため、対象が540件に増えた時点で先の40件が
+ * 画面から静かに消えていた（黙って欠ける＝このツールで一番やってはいけない壊れ方）。
+ * 件数がどれだけ増えても漏れないよう、返ってこなくなるまで繰り返し取り寄せる。
+ * サーバー側にも1回あたりの上限があるため、上限を上げるだけでは同じ問題が再発しうる。
+ */
+const DEADLINE_PAGE_SIZE = 1000;
+const DEADLINE_MAX_PAGES = 20; // 万一終わらないときの安全弁（= 最大2万件）
+
+async function fetchAllDeadlines(sb: ReturnType<typeof getSupabase>): Promise<Deadline[]> {
+  const since = new Date(Date.now() - 60 * 86400000).toISOString();
+  const rows: Deadline[] = [];
+  for (let page = 0; page < DEADLINE_MAX_PAGES; page++) {
+    const from = page * DEADLINE_PAGE_SIZE;
+    const { data, error } = await sb
+      .from("fc_deadlines")
+      .select("*, fc_news(title, detail_url, category)")
+      .gte("deadline_at", since)
+      .order("deadline_at", { ascending: true })
+      .order("id", { ascending: true }) // 同時刻の並びを固定して取りこぼし・重複を防ぐ
+      .range(from, from + DEADLINE_PAGE_SIZE - 1);
+    if (error) throw error;
+    const batch = (data as Deadline[]) ?? [];
+    rows.push(...batch);
+    if (batch.length < DEADLINE_PAGE_SIZE) return rows; // 最後まで取り終えた
+  }
+  return rows;
+}
 
 function buildGoodsDeadlines(rows: ElineupGoodsRow[]): Deadline[] {
   const byKey = new Map<string, { ev: string; saleEnd: string; url: string }>();
@@ -247,17 +290,16 @@ export default function FcTicketPage() {
     localStorage.setItem("fc-paid", JSON.stringify(uids));
   }
 
+  // 同期（カレンダー購読）の保存の係。どの画面を開いていても働くよう、常に動いているここで1回だけ呼ぶ。
+  // 同期画面の中に置くと、カレンダー画面で付けた「入金済み」が届かない（実際に起きた不具合）。
+  const saver = useSubscriptionSaver(matchResults, paid);
+
   // Supabase から全データを取得
   useEffect(() => {
     const sb = getSupabase();
     Promise.all([
       sb.from("fc_news").select("uid, title, category, detail_url"),
-      sb
-        .from("fc_deadlines")
-        .select("*, fc_news(title, detail_url, category)")
-        .gte("deadline_at", new Date(Date.now() - 60 * 86400000).toISOString())
-        .order("deadline_at", { ascending: true })
-        .limit(500),
+      fetchAllDeadlines(sb),
       sb
         .from("elineup_goods")
         .select("product_url, product_name, event_name, sale_end_at")
@@ -265,9 +307,8 @@ export default function FcTicketPage() {
         .gte("sale_end_at", new Date(Date.now() - 7 * 86400000).toISOString()),
       // 会場名→座標の辞書（カレンダー予定の地図タップ用）。描画前に揃えておく
       loadVenueGeo(sb),
-    ]).then(([newsRes, dlRes, goodsRes]) => {
+    ]).then(([newsRes, deadlines, goodsRes]) => {
       if (newsRes.data) setAllNews(newsRes.data as FcNewsRow[]);
-      const deadlines = (dlRes.data as Deadline[]) ?? [];
       const goodsDeadlines = buildGoodsDeadlines((goodsRes.data as ElineupGoodsRow[]) ?? []);
       setAllDeadlines([...deadlines, ...goodsDeadlines]);
       setLoading(false);
@@ -304,6 +345,25 @@ export default function FcTicketPage() {
         <a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" className="underline text-primary ml-1">@hop_rabbit</a>
         まで。
       </div>
+
+      {/* 未送信の帯。保存できていない変更があることを、どの画面にいても見えるようにする。
+          静かに消えるより鳴りすぎる側に倒す方針のため、送れるまで出し続ける。
+          ※文言・見た目は仮。後で調整する。 */}
+      {saver.hasUnsaved && (
+        <div className="w-full bg-surface-container-low px-6 py-2 flex items-center justify-center gap-3 text-[0.6875rem]">
+          <span className="material-symbols-outlined text-sm text-error">cloud_off</span>
+          <span className="text-on-surface">
+            {saver.saveState === "saving" ? "変更を保存しています…" : "変更がまだ保存されていません"}
+          </span>
+          <button
+            onClick={saver.saveNow}
+            disabled={saver.saveState === "saving"}
+            className="uppercase tracking-widest font-bold text-primary underline underline-offset-2 disabled:opacity-40 cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center h-64 text-outline text-xs uppercase tracking-widest">
@@ -367,6 +427,7 @@ export default function FcTicketPage() {
               applied={applied}
               onAppliedChange={setApplied}
               paid={paid}
+              saver={saver}
             />
           )}
         </>
@@ -2334,32 +2395,8 @@ const APPLIED_STATUS_KEYWORDS = ["申込済", "当選", "落選", "入金済", "
 // hours = 当日「◯時間前」(1〜24・null=当日の通知なし)、dayBefore = 前日にも通知。
 // 時間はネイティブselectで選ぶ＝iPhoneではホイールUIになる。
 // 型は ../../lib/icsCore の EventLeadSetting と共通（注文票としてサーバーへ送るため）。
-const DEFAULT_EVENT_LEAD: EventLeadSetting = { hours: 3, dayBefore: false };
+// 既定値と読み込みは subscriptionStore に集約した（設定値の出入口を1箇所にするため）。
 const EVENT_LEAD_HOURS = Array.from({ length: 24 }, (_, i) => i + 1);
-
-// 旧形式("PT3H"/"P1D"/"none")からの引き継ぎ込みで読み込む
-function loadEventLeadSetting(): EventLeadSetting {
-  try {
-    const v = localStorage.getItem("fc-sub-event-lead2");
-    if (v) {
-      const p = JSON.parse(v);
-      if ((p.hours === null || (typeof p.hours === "number" && p.hours >= 1 && p.hours <= 24)) && typeof p.dayBefore === "boolean") {
-        return { hours: p.hours, dayBefore: p.dayBefore };
-      }
-    }
-    const old = localStorage.getItem("fc-sub-event-lead");
-    if (old === "P1D") return { hours: null, dayBefore: true };
-    if (old === "none") return { hours: null, dayBefore: false };
-    const m = old?.match(/^PT(\d+)H$/);
-    if (m) return { hours: Number(m[1]), dayBefore: false };
-  } catch { /* ignore */ }
-  return DEFAULT_EVENT_LEAD;
-}
-
-// 公演ごとの上書き設定（キー=eventTwinKey）。遠征公演だけ余裕を持たせる等に使う
-function loadEventLeadOverrides(): Record<string, EventLeadSetting> {
-  try { return JSON.parse(localStorage.getItem("fc-sub-event-lead-ovr") ?? "{}"); } catch { return {}; }
-}
 
 // 行に表示する現在値。開場が分かる公演は「開場の」、無ければ「開場(推定)の」（実態通りのラベル）。
 // 開場が取れていない公演は、種類ごとの見積もり分だけ開演から巻き戻した時刻を「仮の開場」として
@@ -2522,6 +2559,7 @@ function SubscribeScreen({
   applied,
   onAppliedChange,
   paid,
+  saver,
 }: {
   allDeadlines: Deadline[];
   matchResults: MatchResult[];
@@ -2530,31 +2568,18 @@ function SubscribeScreen({
   applied: string[];
   onAppliedChange: (uids: string[]) => void;
   paid: string[];
+  saver: SubscriptionSaver;
 }) {
   const watchlistSet = useMemo(() => new Set(watchlist), [watchlist]);
   const appliedSet = useMemo(() => new Set(applied), [applied]);
   const paidSet = useMemo(() => new Set(paid), [paid]);
 
-  const [slug, setSlug] = useState<string | null>(() => {
-    try { return localStorage.getItem("fc-sub-slug"); } catch { return null; }
-  });
-  const [retention, setRetention] = useState<RetentionMode>(() => {
-    try {
-      const v = localStorage.getItem("fc-sub-retention");
-      if (v === "after-event-1m" || v === "6m" || v === "forever") return v;
-    } catch { /* ignore */ }
-    return "after-event-1m";
-  });
+  const [slug, setSlug] = useState<string | null>(() => readInputs().slug);
+  const [retention, setRetention] = useState<RetentionMode>(() => readInputs().retention);
   // 公演の出発通知（全体の既定値＋公演ごとの上書き）
-  const [eventLead, setEventLead] = useState<EventLeadSetting>(loadEventLeadSetting);
-  const [eventLeadOverrides, setEventLeadOverrides] = useState<Record<string, EventLeadSetting>>(loadEventLeadOverrides);
-  const [includedIds, setIncludedIds] = useState<Set<string>>(() => {
-    try {
-      const saved = localStorage.getItem("fc-sub-included");
-      if (saved) return new Set(JSON.parse(saved));
-    } catch { /* ignore */ }
-    return new Set<string>();
-  });
+  const [eventLead, setEventLead] = useState<EventLeadSetting>(readEventLead);
+  const [eventLeadOverrides, setEventLeadOverrides] = useState<Record<string, EventLeadSetting>>(readEventLeadOverrides);
+  const [includedIds, setIncludedIds] = useState<Set<string>>(() => new Set(readInputs().includedIds));
   const [favorites, setFavorites] = useState<Favorites>(() => {
     try {
       const saved = localStorage.getItem("fc-sub-favorites");
@@ -2573,9 +2598,7 @@ function SubscribeScreen({
   const [publishedUrls, setPublishedUrls] = useState<SubscriptionUrls | null>(() => slug ? subscriptionUrls(slug) : null);
   const [copied, setCopied] = useState(false);
   // 自動保存（発行済みなら選択変更をdebounce 2sでサーバ反映。差分スキップ＋離脱時保存）
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
-  const lastSavedSigRef = useRef<string | null>(null);
-  const saveTimerRef = useRef<number | null>(null);
+  const saveState = saver.saveState;
 
   // ?focus=<公演キー>: 予定メモの「通知の変更」リンクから該当公演へ直行（スクロール＋一瞬ハイライト）
   const [searchParams, setSearchParams] = useSearchParams();
@@ -2606,7 +2629,7 @@ function SubscribeScreen({
 
   function persistIncluded(next: Set<string>) {
     setIncludedIds(next);
-    try { localStorage.setItem("fc-sub-included", JSON.stringify([...next])); } catch { /* ignore */ }
+    writeIncludedIds(next);
   }
 
   function persistFavorites(next: Favorites) {
@@ -2689,80 +2712,12 @@ function SubscribeScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchResults, initialized, allDeadlines]);
 
-  // ── 自動保存（発行済みのみ・debounce 2s・差分スキップ・離脱時flush） ──
-  // タイマー/リスナーから最新値を読むためのref（毎レンダーで更新）
+  // ── 自動保存は親（FcTicketPage）の保存の係が受け持つ ──
+  // 以前はこの画面の中に係がいたため、カレンダー画面で付けた「入金済み」が届かなかった。
+  // いまは設定値を subscriptionStore 経由で書き、合図を受けた親の係が送信する。
+  // ここに保存のタイマーやリスナーを再び置かないこと（係が2人になると二重送信の元になる）。
   const includedRef = useRef(includedIds); includedRef.current = includedIds;
-  const retentionRef = useRef(retention); retentionRef.current = retention;
   const slugRef = useRef(slug); slugRef.current = slug;
-  const allDeadlinesRef = useRef(allDeadlines); allDeadlinesRef.current = allDeadlines;
-  const eventLeadRef = useRef(eventLead); eventLeadRef.current = eventLead;
-  const eventLeadOvrRef = useRef(eventLeadOverrides); eventLeadOvrRef.current = eventLeadOverrides;
-  const matchResultsRef = useRef(matchResults); matchResultsRef.current = matchResults;
-  const paidRef = useRef(paid); paidRef.current = paid;
-  // 「行く」と判定された news_uid（当選 or 入金済）。貼り付けテキストの中身ではなく
-  // この判定結果(○×)だけを注文票に含める（サーバーには生テキストを送らない約束を維持）。
-  function computeAttendingNewsUids(matchResultsList: MatchResult[], paidList: string[]): string[] {
-    const paidSetNow = new Set(paidList);
-    const attending = new Set(paidList);
-    for (const r of matchResultsList) {
-      const st = r.parsed.status;
-      if (!(st.includes("入金済") || (st.includes("当選") && !st.includes("当選取消")))) continue;
-      for (const m of r.matched) attending.add(m.uid);
-    }
-    for (const uid of paidSetNow) attending.add(uid);
-    return [...attending].sort();
-  }
-  // 「入金が済んだ」公演だけを集める。attendingNewsUids は当選も入金済も混ぜた「行く公演」なので、
-  // 入金締切の予定を【入金済み】に書き換えるにはこちらを別に持つ必要がある。
-  function computePaidNewsUids(matchResultsList: MatchResult[], paidList: string[]): string[] {
-    const paidSet = new Set(paidList);
-    for (const r of matchResultsList) {
-      if (!r.parsed.status.includes("入金済")) continue;
-      for (const m of r.matched) paidSet.add(m.uid);
-    }
-    return [...paidSet].sort();
-  }
-  function selectionSig(ids: Set<string>, ret: RetentionMode): string {
-    const attendingSig = computeAttendingNewsUids(matchResultsRef.current, paidRef.current).join(",");
-    const paidSig = computePaidNewsUids(matchResultsRef.current, paidRef.current).join(",");
-    return [...ids].sort().join(",") + "|" + ret + "|" + JSON.stringify(eventLeadRef.current) + "|" + JSON.stringify(eventLeadOvrRef.current) + "|" + attendingSig + "|" + paidSig;
-  }
-  // 初期化後、現在の状態を「保存済み」とみなす（タブを開いただけでは発行しない）
-  useEffect(() => {
-    if (initialized && lastSavedSigRef.current === null) {
-      lastSavedSigRef.current = selectionSig(includedIds, retention);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialized]);
-  // 変更をdebounce 2sで自動発行（前回保存と差分があるときだけ）
-  useEffect(() => {
-    if (!initialized || !slug || lastSavedSigRef.current === null) return;
-    if (selectionSig(includedIds, retention) === lastSavedSigRef.current) return; // 差分なし→何もしない
-    setSaveState("saving");
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = window.setTimeout(() => { void handlePublish({ silent: true }); }, 2000);
-    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includedIds, retention, eventLead, eventLeadOverrides, paid, matchResults, initialized, slug]);
-  // 離脱時（タブ移動/ページ非表示/閉じる）に保留中の変更を即発行
-  useEffect(() => {
-    function flush() {
-      if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
-      const ids = includedRef.current, ret = retentionRef.current;
-      if (slugRef.current && ids.size > 0 && selectionSig(ids, ret) !== lastSavedSigRef.current) {
-        void handlePublish({ silent: true });
-      }
-    }
-    const onHide = () => { if (document.visibilityState === "hidden") flush(); };
-    window.addEventListener("pagehide", flush);
-    document.addEventListener("visibilitychange", onHide);
-    return () => {
-      window.removeEventListener("pagehide", flush);
-      document.removeEventListener("visibilitychange", onHide);
-      flush(); // アンマウント＝Subscribeタブから離脱
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // チェックの付け外しは双子セット（畳まれた同一公演の全id）単位で同期させる
   function toggleDeadline(id: string) {
@@ -2804,14 +2759,12 @@ function SubscribeScreen({
 
   function persistRetention(mode: RetentionMode) {
     setRetention(mode);
-    try { localStorage.setItem("fc-sub-retention", mode); } catch { /* ignore */ }
-    // 発行済みなら自動保存effectがdebounceでサーバ反映する（ここでは即時発行しない）
+    writeRetention(mode); // 合図が出て、親の保存の係がまとめて送る
   }
 
   function persistEventLead(next: EventLeadSetting) {
     setEventLead(next);
-    try { localStorage.setItem("fc-sub-event-lead2", JSON.stringify(next)); } catch { /* ignore */ }
-    // 反映は自動保存effectがdebounceで行う
+    writeEventLead(next);
   }
 
   // 公演ごとの上書き。null=上書き解除（既定値に戻す）
@@ -2819,8 +2772,7 @@ function SubscribeScreen({
     const next = { ...eventLeadOverrides };
     if (v === null) delete next[key]; else next[key] = v;
     setEventLeadOverrides(next);
-    try { localStorage.setItem("fc-sub-event-lead-ovr", JSON.stringify(next)); } catch { /* ignore */ }
-    // 反映は自動保存effectがdebounceで行う
+    writeEventLeadOverrides(next);
   }
 
   // 申込締切の行で「申込んだ」＝申込済を記録＋その申込締切を配信から外す（自動保存で反映）
@@ -2892,67 +2844,44 @@ function SubscribeScreen({
     window.setTimeout(() => setHighlightKey((cur) => (cur === key ? null : cur)), 2000);
   });
 
-  async function handlePublish(opts?: { silent?: boolean }) {
-    const silent = opts?.silent ?? false;
-    // 最新値はrefから（タイマー/離脱リスナー経由でも正しく読む）
+  // 初回の「発行」ボタン。2回目以降の保存は親の保存の係（useSubscriptionSaver）が受け持つ。
+  // ここでやるのは「まだURLが無いなら発行する」ことと、失敗を画面に出すことだけ。
+  async function handlePublish() {
     const ids = includedRef.current;
-    const ret = retentionRef.current;
-    const sl = slugRef.current;
-    const deadlines = allDeadlinesRef.current;
     if (ids.size === 0) {
-      if (!silent) setError("配信する予定が1つも選択されていません。");
+      setError("配信する予定が1つも選択されていません。");
+      return;
+    }
+    // サーバーが読み直せるのは fc_deadlines に実在する行（idはUUID）だけ。
+    // 画面には過去、e-LineUP由来の疑似的な行（id="goods:イベント名|日時"）が混ざっていた時期があり、
+    // その選択がブラウザに残っていると発行が丸ごと失敗する。UUIDの形のものだけを注文票に載せる。
+    //
+    // ここで「今画面に読み込めている予定か」までは絞らないこと。画面の読み込みには件数の上限が
+    // あるため、遠い先の予定が読み込まれていないことがあり、絞ると選んだはずの予定が
+    // 注文票から静かに消える。実在しないidはサーバー側で自然に外れるので絞る必要がない。
+    if ([...ids].filter((id) => UUID_RE.test(id)).length === 0) {
+      setError("配信する予定が1つも選択されていません。");
       return;
     }
     setError(null);
-    if (silent) setSaveState("saving"); else setPublishing(true);
+    setPublishing(true);
     try {
-      const useSlug = sl ?? generateSubscriptionSlug();
-      // 選んだ予定が実在するか（未読込・削除済み等でなければ）だけここで軽く確認する。
-      // 実際の中身（開演時刻・会場・当落状況等の最新値）はサーバー側が発行のたびに読み直して組み立てる。
-      const chosenRaw = [...ids]
-        .map((id) => deadlines.find((dl) => dl.id === id))
-        .filter((dl): dl is Deadline => !!dl);
-      if (chosenRaw.length === 0) {
-        if (!silent) setError("配信する予定が1つも選択されていません。");
-        return;
-      }
-      // サーバーが読み直せるのは fc_deadlines に実在する行（idはUUID）だけ。
-      // 画面には過去、e-LineUP由来の疑似的な行（id="goods:イベント名|日時"）が混ざっていた時期があり、
-      // その選択がブラウザに残っていると発行が丸ごと失敗する。UUIDの形のものだけを注文票に載せる。
-      //
-      // ここで「今画面に読み込めている予定か」までは絞らないこと。画面の読み込みには件数の上限が
-      // あるため、遠い先の予定が読み込まれていないことがあり、絞ると選んだはずの予定が
-      // 注文票から静かに消える。実在しないidはサーバー側で自然に外れるので絞る必要がない。
-      const includedIds = [...ids].filter((id) => UUID_RE.test(id));
-      if (includedIds.length === 0) {
-        if (!silent) setError("配信する予定が1つも選択されていません。");
-        return;
-      }
-      const order: OrderTicket = {
-        v: 2,
-        includedIds,
-        retention: ret,
-        eventLead: eventLeadRef.current,
-        eventLeadOverrides: eventLeadOvrRef.current,
-        attendingNewsUids: computeAttendingNewsUids(matchResultsRef.current, paidRef.current),
-        paidNewsUids: computePaidNewsUids(matchResultsRef.current, paidRef.current),
-      };
-      const urls = await uploadSubscriptionIcs(useSlug, order);
-      if (!sl) {
+      let useSlug = slugRef.current;
+      if (!useSlug) {
+        useSlug = generateSubscriptionSlug();
         setSlug(useSlug);
-        try { localStorage.setItem("fc-sub-slug", useSlug); } catch { /* ignore */ }
+        writeSlug(useSlug); // 合図が出て、親の保存の係が送信する
       }
-      setPublishedUrls(urls);
-      lastSavedSigRef.current = selectionSig(ids, ret); // 保存済みシグネチャ更新（差分スキップ用）
-      if (silent) {
-        setSaveState("saved");
-        window.setTimeout(() => setSaveState((s) => (s === "saved" ? "idle" : s)), 2000);
+      setPublishedUrls(subscriptionUrls(useSlug));
+      // 送信そのものは保存の係に任せる（成功したときだけ「送信済み」の印が付く）
+      const ok = await saver.saveImmediately();
+      if (!ok && saver.lastError) {
+        setError("URLの発行に失敗しました: " + saver.lastError);
       }
     } catch (e) {
-      if (!silent) setError("URLの発行に失敗しました: " + (e instanceof Error ? e.message : String(e)));
-      else setSaveState("idle");
+      setError("URLの発行に失敗しました: " + (e instanceof Error ? e.message : String(e)));
     } finally {
-      if (!silent) setPublishing(false);
+      setPublishing(false);
     }
   }
 
@@ -2964,9 +2893,7 @@ function SubscribeScreen({
       await deleteSubscriptionIcs(slug);
       setSlug(null);
       setPublishedUrls(null);
-      try {
-        localStorage.removeItem("fc-sub-slug");
-      } catch { /* ignore */ }
+      clearPublished(); // 購読URLと「送信済み」の印を消す（設定値は残す）
     } catch (e) {
       setError("削除に失敗しました: " + (e instanceof Error ? e.message : String(e)));
     } finally {
