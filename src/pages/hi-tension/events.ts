@@ -107,6 +107,24 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
       `前田こころさん お誕生日おめでとう🎂🩵\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
     enterLabel: "先頭切って！！！！！",
   },
+  {
+    key: "eguchi_bd_2026",
+    title: "江口紗耶さんバースデースペシャル",
+    shortTitle: "江口紗耶さん💛",
+    heart: "💛",
+    color: "#fdda24",
+    targetMemberId: "eguchi",
+    kind: "birthday",
+    // 誕生日当日(8/1)の公開が遅れたため、日付境界ではなく公開時刻から24時間に設定。
+    start: "2026-08-01T23:15:00+09:00",
+    end: "2026-08-02T23:15:00+09:00",
+    // バースデーメッセージカードの締切（翌月15日）に合わせ、9/15いっぱいまで参加可。
+    joinableUntil: "2026-09-16T00:00:00+09:00",
+    endCardCongrats: "江口紗耶さん お誕生日おめでとう🎂💛",
+    shareText: (count: number) =>
+      `江口紗耶さん お誕生日おめでとう🎂💛\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
+    enterLabel: "君ならやれます私がついてる",
+  },
 ];
 
 export function getEvent(key: string | null | undefined): SpecialEvent | null {
