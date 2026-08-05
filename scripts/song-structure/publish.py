@@ -4,8 +4,13 @@
   python publish.py
 
 `songs/<曲ID>/structure.json` から必要な部分だけを取り出して
-`public/call-center/songs/<曲ID>.json` に置く。ここに置いたものが
+`public/song-skeletons/<曲ID>.json` に置く。ここに置いたものが
 そのままサイトの一部として配信される。
+
+置き場所を `public/call-center/` の下にしてはいけない。サイトの中に実在の
+フォルダができると、Cloudflare がページの住所より先にそのフォルダを見に行き、
+/call-center が「中身が無い」で弾かれる。手元の開発サーバーでは起きず、
+本番でだけ出る噛み合わせ。
 
 出さないもの
   ・音源の指紋とファイルサイズ（内部の照合用。外に出す必要がない）
@@ -21,7 +26,7 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 SONGS = HERE / "songs"
-OUT = HERE.parent.parent / "public" / "call-center" / "songs"
+OUT = HERE.parent.parent / "public" / "song-skeletons"
 
 
 def digest(doc: dict) -> str:

@@ -3,7 +3,11 @@
  *
  * 骨組みはデータベースではなく、アプリと一緒に配る静的ファイルから読む。
  * 一度決まったら変わらないデータなので、毎回データベースへ取りに行く必要がない。
- * 置き場所は public/call-center/songs/<曲ID>.json（scripts/song-structure/publish.py が作る）。
+ * 置き場所は public/song-skeletons/<曲ID>.json（scripts/song-structure/publish.py が作る）。
+ *
+ * 置き場所を /call-center/ の下にしてはいけない。サイトの中に実在のフォルダができると、
+ * Cloudflare がページの住所より先にそのフォルダを見に行き、/call-center が「中身が無い」で
+ * 弾かれる。手元の開発サーバーでは起きず、本番でだけ出る噛み合わせ。
  */
 
 export type Section = {
@@ -41,7 +45,7 @@ const cache = new Map<string, Promise<Skeleton>>();
 export function loadSkeleton(slug: string): Promise<Skeleton> {
   let p = cache.get(slug);
   if (!p) {
-    p = fetch(`/call-center/songs/${slug}.json`).then((r) => {
+    p = fetch(`/song-skeletons/${slug}.json`).then((r) => {
       if (!r.ok) throw new Error(`骨組みが見つかりません: ${slug}`);
       return r.json() as Promise<Skeleton>;
     });
