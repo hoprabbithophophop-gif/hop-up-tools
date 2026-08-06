@@ -4,13 +4,40 @@
 //       タップ間隔から大体のBPMを推定したり、各タップにコール文をメモして、
 //       コールデータ(JSON)として書き出すための作業用画面。
 //       公開ツールではない。隠しルート (/arigato-beat/beat)。
+//
+// 曲を外から渡すこともできる（コール情報集約センターから呼ぶ）。何も渡さなければ
+// 従来どおり＝ありがとビート専用の開発用ツールとして、これまでと同じに動く。
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
 
 const PINK = "#da1884";
 // 既定はありがとビート Stage Practice ver.（BEYOOOOONDS公式）。他のidに差し替え可。
 const DEFAULT_VIDEO = "n5AVvFwbeaM"; // ありがとビート ステージプラクティス（コール答えが映像に出ない＝自己チェック練習用）
 const LS_KEY = "hi_tension:beat_tap";
+
+/** 外から採譜させたい曲。集約センターが渡す。 */
+export type TapPageSong = {
+  /** 曲ID。端末への保存を曲ごとに分けるのに使う */
+  slug: string;
+  title: string;
+  groupName: string;
+  /** 採譜する動画 */
+  videoId: string;
+  /** 分かっていれば初期BPM。無ければ叩いた間隔から見当を付ける */
+  bpm?: number;
+  /** 戻る先のURL */
+  backTo?: string;
+};
+
+/** 書き出す1件ぶんのコール。 */
+export type TapPageCall = { t: number; lenSec: number; lenBeats: number; note: string };
+
+type Props = {
+  song?: TapPageSong;
+  /** 「取り込む」ボタンを出したいときだけ渡す。渡さなければ書き出しボタンだけ */
+  onSave?: (calls: TapPageCall[]) => void | Promise<void>;
+};
 // コールの長さ(拍)の選択肢。0.5刻み・最大8。
 const LEN_OPTIONS = Array.from({ length: 16 }, (_, i) => (i + 1) * 0.5); // 0.5..8
 
@@ -24,17 +51,17 @@ const rid = () => {
 };
 type Saved = { videoId: string; taps: Tap[]; bpm: number; anchorSec: number | null; snapOn: boolean; snapRes: "q" | "e"; view: "list" | "timeline" };
 
-function loadSaved(): Saved {
-  const base: Saved = { videoId: DEFAULT_VIDEO, taps: [], bpm: 149, anchorSec: null, snapOn: false, snapRes: "e", view: "list" };
+function loadSaved(lsKey: string, defVideo: string, defBpm: number): Saved {
+  const base: Saved = { videoId: defVideo, taps: [], bpm: defBpm, anchorSec: null, snapOn: false, snapRes: "e", view: "list" };
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    const raw = localStorage.getItem(lsKey);
     if (raw) {
       const o = JSON.parse(raw);
       if (o && Array.isArray(o.taps)) {
         return {
-          videoId: typeof o.videoId === "string" ? o.videoId : DEFAULT_VIDEO,
+          videoId: typeof o.videoId === "string" ? o.videoId : defVideo,
           taps: o.taps.map((x: { id?: string; t: number; note?: string; lenBeats?: number }) => ({ id: x.id ?? rid(), t: x.t, note: x.note ?? "", lenBeats: typeof x.lenBeats === "number" ? x.lenBeats : 1 })),
-          bpm: typeof o.bpm === "number" ? o.bpm : 149,
+          bpm: typeof o.bpm === "number" ? o.bpm : defBpm,
           anchorSec: typeof o.anchorSec === "number" ? o.anchorSec : null,
           snapOn: o.snapOn === true,
           snapRes: o.snapRes === "q" ? "q" : "e",
@@ -265,11 +292,14 @@ function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, n
   );
 }
 
-export default function ArigatoBeatTapPage() {
+export default function ArigatoBeatTapPage({ song, onSave }: Props = {}) {
   const playerRef = useRef<YouTubePlayerApi>(null);
-  const initial = useRef(loadSaved());
-  const [videoId, setVideoId] = useState(initial.current.videoId);
-  const [videoInput, setVideoInput] = useState(initial.current.videoId);
+  // 端末への保存先。曲を渡されたときは「曲ごと・動画ごと」に分ける
+  // （叩いた秒はその動画の絶対秒なので、動画が違えば別物になるため）。
+  const lsKey = song ? `call-center:tap:${song.slug}:${song.videoId}` : LS_KEY;
+  const initial = useRef(loadSaved(lsKey, song?.videoId ?? DEFAULT_VIDEO, song?.bpm ?? 149));
+  const [videoId, setVideoId] = useState(song?.videoId ?? initial.current.videoId);
+  const [videoInput, setVideoInput] = useState(song?.videoId ?? initial.current.videoId);
   const [taps, setTaps] = useState<Tap[]>(initial.current.taps);
   const [bpm, setBpm] = useState(initial.current.bpm);
   const [snapOn, setSnapOn] = useState(initial.current.snapOn);
@@ -287,8 +317,8 @@ export default function ArigatoBeatTapPage() {
 
   // 設定とタップは変更のたびにこの端末へ保存（個別persist呼びを廃止）。
   useEffect(() => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ videoId, taps, bpm, snapOn, snapRes, view })); } catch { /* ignore */ }
-  }, [videoId, taps, bpm, snapOn, snapRes, view]);
+    try { localStorage.setItem(lsKey, JSON.stringify({ videoId, taps, bpm, snapOn, snapRes, view })); } catch { /* ignore */ }
+  }, [lsKey, videoId, taps, bpm, snapOn, snapRes, view]);
 
   // BPM＋基準タップの拍グリッドに丸める。基準=確実に拍に乗ったタップ(無くても最初のタップで代用)。
   // 8分/4分で分解能切替。基準は周期的なのでどの拍でもOK(拍1である必要はない)。
@@ -425,6 +455,27 @@ export default function ArigatoBeatTapPage() {
     return md > 0 ? 60 / md : 0;
   }, [intervals]);
 
+  // 書き出しと取り込みで共通の形。補正ONなら拍に丸めた秒、OFFなら叩いた生の秒。
+  const buildCalls = (): TapPageCall[] => taps.map(tp => ({
+    t: snapOn ? Math.round(snap(tp.t) * 1000) / 1000 : tp.t,
+    lenBeats: tp.lenBeats,
+    lenSec: Math.round(tp.lenBeats * beatSec * 1000) / 1000,
+    note: tp.note,
+  }));
+
+  const [saveState, setSaveState] = useState<"idle" | "busy" | "done">("idle");
+  const runSave = async () => {
+    if (!onSave) return;
+    setSaveState("busy");
+    try {
+      await onSave(buildCalls());
+      setSaveState("done");
+      setTimeout(() => setSaveState("idle"), 2000);
+    } catch {
+      setSaveState("idle");
+    }
+  };
+
   const exportData = async () => {
     const out = {
       videoId, bpm, anchorSec: refSec, snap: snapOn ? snapRes : null,
@@ -456,7 +507,17 @@ export default function ArigatoBeatTapPage() {
     <div style={{ maxWidth: 520, margin: "0 auto", padding: "8px 12px", color: "#eee", background: "#000", height: "100dvh", overflow: "hidden", display: "flex", flexDirection: "column", fontFamily: "Inter, system-ui, sans-serif" }}>
       <style>{`.lenwheel::-webkit-scrollbar{display:none}`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0 6px", flex: "0 0 auto" }}>
-        <h1 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>コール採譜ツール <span style={{ fontSize: 12, color: "#888" }}>(開発用)</span></h1>
+        {song ? (
+          <h1 style={{ fontSize: 16, fontWeight: 700, margin: 0, flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {song.title}
+            <span style={{ fontSize: 12, color: "#888", fontWeight: 400 }}>　{song.groupName}</span>
+          </h1>
+        ) : (
+          <h1 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>コール採譜ツール <span style={{ fontSize: 12, color: "#888" }}>(開発用)</span></h1>
+        )}
+        {song?.backTo && (
+          <Link to={song.backTo} style={{ ...btn, fontSize: 12, padding: "4px 10px", textDecoration: "none", flex: "0 0 auto" }}>← 曲へ</Link>
+        )}
         <button style={{ ...btn, fontSize: 12, padding: "4px 10px", marginLeft: "auto" }} onClick={() => setShowHelp(v => !v)}>{showHelp ? "閉じる" : "？使い方"}</button>
       </div>
       {showHelp && (
@@ -468,15 +529,18 @@ export default function ArigatoBeatTapPage() {
           ⑤ 行の <b style={{ color: "#ccc" }}>番号</b> をタップで選択（何行でも）→どれかの <b style={{ color: "#ccc" }}>⧉</b> でまとめてコピー→繰り返す場所の <b style={{ color: "#ccc" }}>⤓</b> でその行を始点に同じ間隔で複製<br />
           ⑥ 番号の下の小さい秒数タップでシーク・再生中は今の行がピンクで光って自動追従・<b style={{ color: "#ccc" }}>×</b>で削除・「書き出す」は一覧の末尾<br />
           ※速さ0.5xにすると押しやすい。無音時間は秒数に含まれてる（動画同期はそのまま正しい）。
-          <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8 }}>
-            <input
-              value={videoInput}
-              onChange={e => setVideoInput(e.target.value)}
-              placeholder="別の動画: YouTube URL か ID"
-              style={{ flex: 1, fontSize: 13, padding: "6px 8px", borderRadius: 6, border: "1px solid #444", background: "#111", color: "#eee" }}
-            />
-            <button style={{ ...btn, fontSize: 12, padding: "5px 10px" }} onClick={loadVideoId}>読込</button>
-          </div>
+          {/* 曲を渡されているときは、その曲に結び付いた動画で固定する（取り違え防止） */}
+          {!song && (
+            <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8 }}>
+              <input
+                value={videoInput}
+                onChange={e => setVideoInput(e.target.value)}
+                placeholder="別の動画: YouTube URL か ID"
+                style={{ flex: 1, fontSize: 13, padding: "6px 8px", borderRadius: 6, border: "1px solid #444", background: "#111", color: "#eee" }}
+              />
+              <button style={{ ...btn, fontSize: 12, padding: "5px 10px" }} onClick={loadVideoId}>読込</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -574,6 +638,15 @@ export default function ArigatoBeatTapPage() {
             );
           })}
           {/* 書き出すは最後にしか使わないので一覧の末尾に置く（固定枠を食わない） */}
+          {taps.length > 0 && onSave && (
+            <button
+              style={{ ...btn, width: "100%", fontWeight: 800, margin: "8px 0 4px", background: saveState === "done" ? "#1a3a1a" : PINK, borderColor: saveState === "done" ? "#2a5a2a" : PINK, color: "#fff" }}
+              disabled={saveState === "busy"}
+              onClick={runSave}
+            >
+              {saveState === "busy" ? "取り込み中…" : saveState === "done" ? "取り込んだ" : `この曲のコールに取り込む（${taps.length}件）`}
+            </button>
+          )}
           {taps.length > 0 && (
             <button style={{ ...btn, width: "100%", fontWeight: 700, margin: "8px 0 4px" }} onClick={exportData}>書き出す（コピー＋calls.json保存）</button>
           )}

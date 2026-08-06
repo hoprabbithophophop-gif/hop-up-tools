@@ -15,8 +15,8 @@ import type { Skeleton } from "./skeleton";
 export type TimelineCall = {
   /** 曲の頭から何秒目か */
   t: number;
-  /** 何拍ぶんの長さか */
-  lenBeats: number;
+  /** 長さ（秒）。拍ではなく秒で持つ＝骨組みが無い曲でもそのまま描ける */
+  lenSec: number;
   note: string;
 };
 
@@ -51,7 +51,6 @@ export default memo(function Timeline({ sk, calls, getNow, spanSec = 6 }: Props)
 
   const pxPerSec = vw > 0 ? vw / spanSec : 60;
   const lastSec = sk.beats[sk.beats.length - 1] ?? 0;
-  const beatSec = sk.bpm > 0 ? 60 / sk.bpm : 0.5;
 
   // 重なるコールは下の段へ送る（早い者順に空いている段を探す）
   const { laneOf, laneCount } = useMemo(() => {
@@ -59,7 +58,7 @@ export default memo(function Timeline({ sk, calls, getNow, spanSec = 6 }: Props)
     const laneEnds: number[] = [];
     const map = new Map<number, number>();
     for (const { c, i } of order) {
-      const end = c.t + Math.max(c.lenBeats * beatSec, 0.18);
+      const end = c.t + Math.max(c.lenSec, 0.18);
       let lane = laneEnds.findIndex((e) => e <= c.t + 0.001);
       if (lane < 0) {
         laneEnds.push(end);
@@ -70,7 +69,7 @@ export default memo(function Timeline({ sk, calls, getNow, spanSec = 6 }: Props)
       map.set(i, lane);
     }
     return { laneOf: map, laneCount: Math.max(1, laneEnds.length) };
-  }, [calls, beatSec]);
+  }, [calls]);
 
   // 毎コマ、いまの位置が中央に来るように帯をずらす。
   // 再生位置は約0.1秒刻みでしか動かないので、そのまま使うとカクつく。
@@ -159,7 +158,7 @@ export default memo(function Timeline({ sk, calls, getNow, spanSec = 6 }: Props)
             style={{
               ...S.call,
               left: c.t * pxPerSec + pad,
-              width: Math.max(22, c.lenBeats * beatSec * pxPerSec),
+              width: Math.max(22, c.lenSec * pxPerSec),
               top: SECTION_H + (laneOf.get(i) ?? 0) * LANE_PITCH + 4,
               height: LANE_PITCH - 8,
             }}

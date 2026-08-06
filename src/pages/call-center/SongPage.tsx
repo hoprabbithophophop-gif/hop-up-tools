@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { getSupabase } from "@/lib/supabase";
 import Player, { type PlayerApi } from "./Player";
 import Timeline, { type TimelineCall } from "./Timeline";
+import { loadLocalCalls } from "./localCalls";
 import {
   loadSkeleton,
   positionAt,
@@ -60,8 +61,6 @@ const KIND_LABEL: Record<Kind, string> = {
 /** 見るものを先に、映像のない音源を最後に。 */
 const KIND_ORDER: Record<Kind, number> = { live: 0, lecture: 1, other: 2, audio: 3 };
 
-/** コールはまだ1件も無い。投稿の仕組みができたらここが差し替わる。 */
-const CALLS_NOT_YET: TimelineCall[] = [];
 
 export default function SongPage() {
   const { slug = "" } = useParams();
@@ -72,6 +71,8 @@ export default function SongPage() {
   const [videoIdx, setVideoIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [pos, setPos] = useState<Position | null>(null);
+  // 採譜したコール。いまは端末の中にあるものを読む（サーバー保存はまだ通らない）
+  const [calls, setCalls] = useState<TimelineCall[]>([]);
 
   const playerRef = useRef<PlayerApi>(null);
   // 毎コマ書き換えるので、React の描き直しを挟まずに直接触る
@@ -83,6 +84,7 @@ export default function SongPage() {
   useEffect(() => {
     let alive = true;
     setError(null);
+    setCalls(loadLocalCalls(slug));
     loadSkeleton(slug).then(
       (s) => alive && setSk(s),
       (e) => alive && setError(String(e.message ?? e)),
@@ -226,7 +228,7 @@ export default function SongPage() {
 
           {/* 横に流れるコールの帯。中央の線がいまの位置 */}
           <div style={S.timelineWrap}>
-            <Timeline sk={sk} calls={CALLS_NOT_YET} getNow={getNowSong} />
+            <Timeline sk={sk} calls={calls} getNow={getNowSong} />
           </div>
           <div style={S.stagePos}>
             {pos && pos.bar > 0 ? (pos.section?.name ?? pos.section?.labelAuto ?? "—") : "再生前"}
@@ -237,6 +239,10 @@ export default function SongPage() {
             <span style={S.sep}>／</span>
             {playing ? "再生中" : "停止中"}
           </div>
+
+          <Link to={`/call-center/song/${song.slug}/tap?v=${video.video_id}`} style={S.tapLink}>
+            この動画でコールを採譜する
+          </Link>
 
           <h2 style={S.h2}>曲の作り</h2>
           <p style={S.hint}>押すとその場所から再生します。</p>
@@ -344,6 +350,18 @@ const S: Record<string, React.CSSProperties> = {
   },
   sep: { color: "#c8cdd3", margin: "0 8px" },
   clock: { fontFamily: "Inter, system-ui, sans-serif" },
+
+  tapLink: {
+    display: "block",
+    marginTop: 14,
+    padding: "12px 16px",
+    background: "#000",
+    color: "#fff",
+    fontSize: 13.5,
+    fontWeight: 700,
+    textAlign: "center",
+    textDecoration: "none",
+  },
 
   sectionList: { display: "flex", flexDirection: "column", gap: 2 },
   sectionRow: {
