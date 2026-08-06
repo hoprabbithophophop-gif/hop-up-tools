@@ -19,6 +19,8 @@ const CONTAINER_ID = "call-center-player";
 export type PlayerApi = {
   /** いま再生している秒数。読めないときは0 */
   getCurrentTime: () => number;
+  /** 動画全体の長さ（秒）。まだ読めないときは0 */
+  getDuration: () => number;
   /** 再生中か（一時停止・読み込み中は false） */
   isPlaying: () => boolean;
   /** 指定の秒へ飛ぶ */
@@ -133,6 +135,13 @@ const Player = forwardRef<PlayerApi, Props>(function Player(
       getCurrentTime() {
         try {
           return playerRef.current?.getCurrentTime() ?? 0;
+        } catch {
+          return 0;
+        }
+      },
+      getDuration() {
+        try {
+          return playerRef.current?.getDuration() ?? 0;
         } catch {
           return 0;
         }

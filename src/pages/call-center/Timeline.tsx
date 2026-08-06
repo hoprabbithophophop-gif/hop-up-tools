@@ -21,10 +21,17 @@ export type TimelineCall = {
 };
 
 type Props = {
-  sk: Skeleton;
+  /**
+   * 曲の骨組み。無い曲では null を渡す。
+   * その場合は拍の線も区間の帯も出さず、コールだけが流れる帯になる。
+   * コールの位置は秒で持っているので、骨組みが無くても正しく流れる。
+   */
+  sk: Skeleton | null;
   calls: TimelineCall[];
   /** いまの再生位置（曲の中での秒数）を返す。毎コマ呼ばれる */
   getNow: () => number;
+  /** 帯の全長（秒）。骨組みが無いときの目安に使う */
+  totalSec?: number;
   /** 画面に映す秒数。狭いほど拡大される */
   spanSec?: number;
 };
@@ -32,7 +39,7 @@ type Props = {
 const LANE_PITCH = 44;
 const SECTION_H = 24;
 
-export default memo(function Timeline({ sk, calls, getNow, spanSec = 6 }: Props) {
+export default memo(function Timeline({ sk, calls, getNow, totalSec, spanSec = 6 }: Props) {
   const viewRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [vw, setVw] = useState(0);
@@ -50,7 +57,10 @@ export default memo(function Timeline({ sk, calls, getNow, spanSec = 6 }: Props)
   }, []);
 
   const pxPerSec = vw > 0 ? vw / spanSec : 60;
-  const lastSec = sk.beats[sk.beats.length - 1] ?? 0;
+  // 帯の全長。骨組みがあれば最後の拍まで、無ければ動画の長さか最後のコールまで。
+  const lastSec = sk
+    ? (sk.beats[sk.beats.length - 1] ?? 0)
+    : Math.max(totalSec ?? 0, ...calls.map((c) => c.t + c.lenSec), 10);
 
   // 重なるコールは下の段へ送る（早い者順に空いている段を探す）
   const { laneOf, laneCount } = useMemo(() => {
@@ -97,10 +107,15 @@ export default memo(function Timeline({ sk, calls, getNow, spanSec = 6 }: Props)
     return () => cancelAnimationFrame(raf);
   }, [vw, pxPerSec]);
 
-  const measured = sk.beatsMeasured ?? sk.beats.length;
-  const downbeats = useMemo(() => new Set(sk.downbeats.map((d) => d.toFixed(3))), [sk.downbeats]);
+  const measured = sk ? (sk.beatsMeasured ?? sk.beats.length) : 0;
+  const downbeats = useMemo(
+    () => new Set((sk?.downbeats ?? []).map((d) => d.toFixed(3))),
+    [sk],
+  );
   const laneAreaH = Math.max(LANE_PITCH, laneCount * LANE_PITCH);
-  const bandH = SECTION_H + laneAreaH;
+  // 骨組みが無い曲には区間の帯そのものが無いので、その高さぶんを詰める
+  const sectionH = sk ? SECTION_H : 0;
+  const bandH = sectionH + laneAreaH;
   const pad = vw; // 曲の頭でも左半分が空にならないよう、左へ伸ばす
 
   return (
@@ -117,8 +132,8 @@ export default memo(function Timeline({ sk, calls, getNow, spanSec = 6 }: Props)
           height: bandH,
         }}
       >
-        {/* 拍の線。小節の頭は濃く、継ぎ足した推定のぶんは薄く */}
-        {sk.beats.map((t, i) => {
+        {/* 拍の線。小節の頭は濃く、継ぎ足した推定のぶんは薄く。骨組みが無い曲では引かない */}
+        {(sk?.beats ?? []).map((t, i) => {
           const bar = downbeats.has(t.toFixed(3));
           return (
             <div
@@ -126,7 +141,7 @@ export default memo(function Timeline({ sk, calls, getNow, spanSec = 6 }: Props)
               style={{
                 position: "absolute",
                 left: t * pxPerSec + pad,
-                top: SECTION_H,
+                top: sectionH,
                 bottom: 0,
                 width: bar ? 1.5 : 1,
                 background: bar ? "#b1b8c0" : "#dfe2e6",
@@ -137,7 +152,7 @@ export default memo(function Timeline({ sk, calls, getNow, spanSec = 6 }: Props)
         })}
 
         {/* 区間の帯 */}
-        {sk.sections.map((s) => (
+        {(sk?.sections ?? []).map((s) => (
           <div
             key={s.order}
             style={{
@@ -159,7 +174,7 @@ export default memo(function Timeline({ sk, calls, getNow, spanSec = 6 }: Props)
               ...S.call,
               left: c.t * pxPerSec + pad,
               width: Math.max(22, c.lenSec * pxPerSec),
-              top: SECTION_H + (laneOf.get(i) ?? 0) * LANE_PITCH + 4,
+              top: sectionH + (laneOf.get(i) ?? 0) * LANE_PITCH + 4,
               height: LANE_PITCH - 8,
             }}
           >
@@ -169,7 +184,7 @@ export default memo(function Timeline({ sk, calls, getNow, spanSec = 6 }: Props)
       </div>
 
       {calls.length === 0 && (
-        <div style={S.empty}>まだこの曲のコールは1件も登録されていません</div>
+        <div style={{ ...S.empty, top: sectionH }}>まだこの曲のコールは1件も登録されていません</div>
       )}
     </div>
   );

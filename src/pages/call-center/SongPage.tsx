@@ -85,9 +85,11 @@ export default function SongPage() {
     let alive = true;
     setError(null);
     setCalls(loadLocalCalls(slug));
+    // 骨組みは「あれば拍の線と区間が出る」飾り。無い曲もそのまま開ける。
+    setSk(null);
     loadSkeleton(slug).then(
       (s) => alive && setSk(s),
-      (e) => alive && setError(String(e.message ?? e)),
+      () => { /* 骨組みが無い曲。コールは秒で持っているのでこのまま表示できる */ },
     );
     getSupabase()
       .from("song_structures")
@@ -125,14 +127,16 @@ export default function SongPage() {
 
   // 再生位置を毎コマ読んで、曲の中での居場所に直す。
   useEffect(() => {
-    if (!sk || !video) return;
+    if (!video) return;
     let raf = 0;
-    const total = sk.beats[sk.beats.length - 1] ?? 0;
+    // 曲の長さ。骨組みがあれば最後の拍まで、無ければ動画の長さを借りる。
+    const skTotal = sk ? (sk.beats[sk.beats.length - 1] ?? 0) : 0;
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const p = playerRef.current;
       if (!p) return;
       const songSec = getNowSong();
+      const total = skTotal > 0 ? skTotal : Math.max(0, p.getDuration() - video.offset_sec);
 
       if (progressRef.current) {
         const ratio = total > 0 ? Math.max(0, Math.min(1, songSec / total)) : 0;
@@ -140,6 +144,7 @@ export default function SongPage() {
       }
       if (clockRef.current) clockRef.current.textContent = fmt(Math.max(0, songSec));
 
+      if (!sk) return; // 骨組みが無い曲では、小節や区間の表示そのものが出ない
       const next = positionAt(sk, songSec);
       const key = `${next.bar}/${next.beatInBar}/${next.section?.order ?? -1}`;
       if (key !== shownRef.current) {
@@ -159,7 +164,7 @@ export default function SongPage() {
       </Shell>
     );
   }
-  if (!song || !sk) {
+  if (!song) {
     return (
       <Shell>
         <div style={S.notice}>読み込み中…</div>
@@ -167,7 +172,7 @@ export default function SongPage() {
     );
   }
 
-  const mismatch = song.skeleton_digest && song.skeleton_digest !== sk.digest;
+  const mismatch = sk && song.skeleton_digest && song.skeleton_digest !== sk.digest;
   const startAt = video ? toVideoSec(0, video.offset_sec, video.rate) : 0;
 
   // 区間の頭へ飛ぶ。押した操作の中で再生まで済ませる（iPhoneで音が出る条件）
@@ -228,13 +233,22 @@ export default function SongPage() {
 
           {/* 横に流れるコールの帯。中央の線がいまの位置 */}
           <div style={S.timelineWrap}>
-            <Timeline sk={sk} calls={calls} getNow={getNowSong} />
+            <Timeline
+              sk={sk}
+              calls={calls}
+              getNow={getNowSong}
+              totalSec={playerRef.current ? playerRef.current.getDuration() - video.offset_sec : undefined}
+            />
           </div>
           <div style={S.stagePos}>
-            {pos && pos.bar > 0 ? (pos.section?.name ?? pos.section?.labelAuto ?? "—") : "再生前"}
-            <span style={S.sep}>／</span>
-            {pos && pos.bar > 0 ? `${pos.bar}小節目 ${pos.beatInBar}拍目` : "0小節目"}
-            <span style={S.sep}>／</span>
+            {sk && (
+              <>
+                {pos && pos.bar > 0 ? (pos.section?.name ?? pos.section?.labelAuto ?? "—") : "再生前"}
+                <span style={S.sep}>／</span>
+                {pos && pos.bar > 0 ? `${pos.bar}小節目 ${pos.beatInBar}拍目` : "0小節目"}
+                <span style={S.sep}>／</span>
+              </>
+            )}
             <span ref={clockRef} style={S.clock}>0:00.00</span>
             <span style={S.sep}>／</span>
             {playing ? "再生中" : "停止中"}
@@ -244,33 +258,38 @@ export default function SongPage() {
             この動画でコールを採譜する
           </Link>
 
-          <h2 style={S.h2}>曲の作り</h2>
-          <p style={S.hint}>押すとその場所から再生します。</p>
-          <div style={S.sectionList}>
-            {sk.sections.map((s) => {
-              const on = pos?.section?.order === s.order;
-              return (
-                <button
-                  key={s.order}
-                  onClick={() => jumpTo(s)}
-                  style={{ ...S.sectionRow, ...(on ? S.sectionRowOn : null) }}
-                >
-                  <span style={S.sectionTime}>{fmt(s.startSec)}</span>
-                  <span style={S.sectionName}>{s.name ?? s.labelAuto}</span>
-                  <span style={S.sectionLen}>{Math.round(s.endSec - s.startSec)}秒</span>
-                </button>
-              );
-            })}
-          </div>
+          {/* 曲の作りと拍の情報は、骨組みがある曲にだけ出る */}
+          {sk && (
+            <>
+              <h2 style={S.h2}>曲の作り</h2>
+              <p style={S.hint}>押すとその場所から再生します。</p>
+              <div style={S.sectionList}>
+                {sk.sections.map((s) => {
+                  const on = pos?.section?.order === s.order;
+                  return (
+                    <button
+                      key={s.order}
+                      onClick={() => jumpTo(s)}
+                      style={{ ...S.sectionRow, ...(on ? S.sectionRowOn : null) }}
+                    >
+                      <span style={S.sectionTime}>{fmt(s.startSec)}</span>
+                      <span style={S.sectionName}>{s.name ?? s.labelAuto}</span>
+                      <span style={S.sectionLen}>{Math.round(s.endSec - s.startSec)}秒</span>
+                    </button>
+                  );
+                })}
+              </div>
 
-          <div style={S.meta}>
-            BPM {Math.round(Number(song.bpm))} ／ 拍 {sk.beats.length}個
-            {sk.beatsMeasured !== null && sk.beatsMeasured < sk.beats.length && (
-              <> ／ うち {sk.beats.length - sk.beatsMeasured}拍は曲の終わりまで継ぎ足した推定</>
-            )}
-            <br />
-            この動画では曲の0拍目が {toVideoSec(sk.firstBeatSec, video.offset_sec, video.rate).toFixed(2)} 秒目
-          </div>
+              <div style={S.meta}>
+                BPM {Math.round(Number(song.bpm))} ／ 拍 {sk.beats.length}個
+                {sk.beatsMeasured !== null && sk.beatsMeasured < sk.beats.length && (
+                  <> ／ うち {sk.beats.length - sk.beatsMeasured}拍は曲の終わりまで継ぎ足した推定</>
+                )}
+                <br />
+                この動画では曲の0拍目が {toVideoSec(sk.firstBeatSec, video.offset_sec, video.rate).toFixed(2)} 秒目
+              </div>
+            </>
+          )}
         </>
       ) : (
         <div style={S.notice}>この曲にはまだ動画が結び付いていません。</div>
