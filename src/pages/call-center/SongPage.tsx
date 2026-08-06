@@ -237,6 +237,7 @@ export default function SongPage() {
               sk={sk}
               calls={calls}
               getNow={getNowSong}
+              beatSec={song.bpm ? 60 / Number(song.bpm) : undefined}
               totalSec={playerRef.current ? playerRef.current.getDuration() - video.offset_sec : undefined}
             />
           </div>

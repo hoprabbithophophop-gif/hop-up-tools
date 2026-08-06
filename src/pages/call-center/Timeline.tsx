@@ -1,5 +1,6 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPlayheadClock } from "@/lib/playheadClock";
+import { toBubbles } from "./callBubbles";
 import type { Skeleton } from "./skeleton";
 
 /**
@@ -31,30 +32,31 @@ type Props = {
   calls: TimelineCall[];
   /** いまの再生位置（曲の中での秒数）を返す。毎コマ呼ばれる */
   getNow: () => number;
+  /** 1拍の長さ（秒）。分かっていれば、長いコールを半拍ずつに割って並べる */
+  beatSec?: number;
   /** 帯の全長（秒）。骨組みが無いときの目安に使う */
   totalSec?: number;
-  /** 画面に映す秒数。狭いほど拡大される */
+  /**
+   * 画面に映す秒数。狭いほど拡大される。
+   * 8分ごとに粒が並ぶ曲では、狭くしないと丸が重なって段が分かれる
+   * （BPM149なら8分＝0.2秒。375px幅で3秒なら1粒25px）。
+   */
   spanSec?: number;
 };
 
-const LANE_PITCH = 46;
 const SECTION_H = 24;
-/** 吹き出しを吊り下げる糸の長さ。拍の線と吹き出しをつなぐ */
-const STEM_H = 14;
-/** 吹き出しの高さ */
-const BUBBLE_H = 30;
-/** 尻尾（吹き出しの左上から上へ伸びる三角）の大きさ */
-const TAIL_W = 7;
-const TAIL_H = 9;
+/** 吹き出し（丸）の高さ */
+const BUBBLE_H = 26;
+/** 針の高さ。この先が「声を出す瞬間」を指す */
+const NEEDLE_H = 15;
+/** 針の根元の太さ */
+const NEEDLE_W = 8;
+const LANE_PITCH = NEEDLE_H + BUBBLE_H + 5;
 
-/**
- * その文字を出すのに、およそ何ピクセル要るか。
- * 吹き出しの幅そのものは中身に合わせて伸びる（文字は切れない）。
- * これは「どの段に置くか」を決めるときの見当にだけ使う。
- */
-const estTextPx = (s: string) => 16 + [...s].length * 12.5;
+/** 吹き出しの幅。1文字なら丸、長ければ横に伸びた楕円になる */
+const bubbleW = (s: string) => Math.max(BUBBLE_H, [...s].length * 11 + 14);
 
-export default memo(function Timeline({ sk, calls, getNow, totalSec, spanSec = 6 }: Props) {
+export default memo(function Timeline({ sk, calls, getNow, beatSec, totalSec, spanSec = 3 }: Props) {
   const viewRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [vw, setVw] = useState(0);
@@ -77,15 +79,16 @@ export default memo(function Timeline({ sk, calls, getNow, totalSec, spanSec = 6
     ? (sk.beats[sk.beats.length - 1] ?? 0)
     : Math.max(totalSec ?? 0, ...calls.map((c) => c.t + c.lenSec), 10);
 
-  // 重なるコールは下の段へ送る（早い者順に空いている段を探す）
+  // 長いコールは声に出す単位へ割って、粒として並べる
+  const bubbles = useMemo(() => toBubbles(calls, beatSec), [calls, beatSec]);
+
+  // 重なる吹き出しは下の段へ送る（早い者順に空いている段を探す）
   const { laneOf, laneCount } = useMemo(() => {
-    const order = calls.map((c, i) => ({ c, i })).sort((a, b) => a.c.t - b.c.t);
     const laneEnds: number[] = [];
     const map = new Map<number, number>();
-    for (const { c, i } of order) {
-      // 重なり判定は、見た目の幅（言う長さ／文字幅の広いほう）で行う
-      const end = c.t + Math.max(c.lenSec, estTextPx(c.note) / pxPerSec, 0.18);
-      let lane = laneEnds.findIndex((e) => e <= c.t + 0.001);
+    bubbles.forEach((b, i) => {
+      const end = b.t + (bubbleW(b.text) + 3) / pxPerSec;
+      let lane = laneEnds.findIndex((e) => e <= b.t + 0.001);
       if (lane < 0) {
         laneEnds.push(end);
         lane = laneEnds.length - 1;
@@ -93,9 +96,9 @@ export default memo(function Timeline({ sk, calls, getNow, totalSec, spanSec = 6
         laneEnds[lane] = end;
       }
       map.set(i, lane);
-    }
+    });
     return { laneOf: map, laneCount: Math.max(1, laneEnds.length) };
-  }, [calls, pxPerSec]);
+  }, [bubbles, pxPerSec]);
 
   // 毎コマ、いまの位置が中央に来るように帯をずらす。
   // 再生位置は階段状にしか動かないので、なめらかで後戻りしない時計を通す。
@@ -172,26 +175,24 @@ export default memo(function Timeline({ sk, calls, getNow, totalSec, spanSec = 6
           </div>
         ))}
 
-        {/* コール。拍の線から糸を垂らして、雫の形の吹き出しをぶら下げる。
-            尖った角が「ここで声を出す」瞬間を指す。 */}
-        {calls.map((c, i) => {
-          const x = c.t * pxPerSec + pad;
-          const top = sectionH + (laneOf.get(i) ?? 0) * LANE_PITCH + STEM_H;
+        {/* コール。上から刺さった針の先が「ここで声を出す」瞬間を指す。 */}
+        {bubbles.map((b, i) => {
+          const x = b.t * pxPerSec + pad;
+          const needleTop = sectionH + (laneOf.get(i) ?? 0) * LANE_PITCH;
+          const w = bubbleW(b.text);
           return (
             <Fragment key={i}>
-              <div style={{ ...S.stem, left: x, top: sectionH, height: top - sectionH }} />
-              <div style={{ ...S.tail, left: x, top: top - TAIL_H + 1 }} />
+              <div style={{ ...S.needle, left: x - NEEDLE_W / 2, top: needleTop }} />
               <div
                 style={{
                   ...S.call,
-                  left: x,
-                  // 幅は「言う長さ」ぶん取るが、文字が入らないときは中身に合わせて伸ばす
-                  minWidth: c.lenSec * pxPerSec,
-                  top,
+                  left: x - w / 2,
+                  width: w,
+                  top: needleTop + NEEDLE_H,
                   height: BUBBLE_H,
                 }}
               >
-                {c.note}
+                {b.text}
               </div>
             </Fragment>
           );
@@ -243,44 +244,35 @@ const S: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap",
     padding: "0 6px",
   },
-  /** 吹き出しを吊り下げる糸 */
-  stem: {
-    position: "absolute",
-    width: 1,
-    background: "#000",
-    opacity: 0.4,
-    zIndex: 2,
-  },
-
-  /** 吹き出しの尻尾。糸の先から吹き出しへつながる三角 */
-  tail: {
+  /** 上から刺さる針。先端が「声を出す瞬間」を指す */
+  needle: {
     position: "absolute",
     width: 0,
     height: 0,
-    borderLeft: `${TAIL_W}px solid #000`,
-    borderBottom: `${TAIL_H}px solid transparent`,
-    zIndex: 4,
+    borderLeft: `${NEEDLE_W / 2}px solid transparent`,
+    borderRight: `${NEEDLE_W / 2}px solid transparent`,
+    borderBottom: `${NEEDLE_H}px solid #000`,
+    zIndex: 3,
   },
 
-  // ぶら下がる吹き出し。尻尾の付け根が「声を出す瞬間」を指す。
-  // 文字は左端に寄せる。中央に置くと、吹き出しの長さの半分ぶん遅れて
-  // 文字が中央線に届くので、拍に合わせて読む人には「ずれている」ように見える。
+  // 丸い吹き出し。針の真下に中心が来る。
+  // 塗りつぶすと粒が並んだとき黒い塊になって読めないので、白抜きに輪郭。
   call: {
     position: "absolute",
-    background: "#000",
-    color: "#fff",
-    fontSize: 12,
+    background: "#fff",
+    color: "#000",
+    border: "1.5px solid #000",
+    boxSizing: "border-box",
+    fontSize: 12.5,
     fontWeight: 700,
     display: "flex",
     alignItems: "center",
-    justifyContent: "flex-start",
-    textAlign: "left",
-    lineHeight: 1.15,
-    padding: "2px 9px 2px 7px",
-    borderRadius: 14,
-    width: "max-content",
+    justifyContent: "center",
+    textAlign: "center",
+    lineHeight: 1,
+    borderRadius: "50%",
     whiteSpace: "nowrap",
-    zIndex: 3,
+    zIndex: 4,
   },
   empty: {
     position: "absolute",
