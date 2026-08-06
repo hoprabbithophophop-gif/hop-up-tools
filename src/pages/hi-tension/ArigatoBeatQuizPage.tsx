@@ -14,6 +14,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
 import { ARIGATO_BEAT_CALLS, ARIGATO_BEAT_VIDEO, ARIGATO_BEAT_BPM, ARIGATO_BEAT_SECTIONS } from "./arigatoBeatCalls";
 import { accentColor, accentRgb } from "../../lib/accentColor";
+import { createPlayheadClock } from "../../lib/playheadClock";
 
 // UIアクセント（通常ホットピンク／6月16日=高瀬くるみのメンカラ）。メンバーカラーは別管理。
 const PINK = accentColor();
@@ -558,23 +559,19 @@ const QuizTimeline = memo(function QuizTimeline({ calls, beatSec, getNow, verdic
   }, [calls, beatSec]);
 
   // 毎フレーム：現在時刻が中央に来るよう track を translateX（GPU合成＝グリッド線もクリスプに動く）。
-  // getCurrentTime()は約100ms刻みで量子化されてる＝そのまま使うとスクロールがカクつくので
-  // 値が変わった/シークした時だけ再アンカーし、間は performance.now で外挿して滑らかにする（本編横画面と同方式）。
+  // getCurrentTime()は階段状にしか動かない＝そのまま使うとスクロールがカクつくので、
+  // 値が変わった/シークした時だけ再アンカーし、間は performance.now で外挿して滑らかにする。
+  //
+  // 以前はここで毎フレーム「聞いた値」へ寄せ戻していたが、階段の途中では聞いた値のほうが
+  // 古いので、正しく先へ進んだ表示が引き戻されて帯が一瞬逆走していた（利用者から指摘あり）。
   useEffect(() => {
-    let raf = 0, smoothT = -1, lastP = 0;
+    let raf = 0;
+    const clock = createPlayheadClock();
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const tr = trackRef.current; if (!tr || vw === 0) return;
-      const raw = getNowRef.current(); // getCurrentTimeは約100ms刻みで量子化されてる
-      const nowP = performance.now();
-      if (smoothT < 0 || raw < smoothT - 0.15 || raw > smoothT + 0.5) {
-        smoothT = raw; // 初回・シーク戻り・大幅ズレは即合わせ
-      } else {
-        smoothT += (nowP - lastP) / 1000; // 実経過で滑らかに進める（量子化の間を補間）
-        smoothT += (raw - smoothT) * 0.1; // 量子化された真値へ緩く寄せる（カクつかせずドリフト防止）
-      }
-      lastP = nowP;
-      tr.style.transform = `translateX(${(vw / 2 - smoothT * pxPerSec).toFixed(1)}px)`;
+      const t = clock(getNowRef.current(), performance.now());
+      tr.style.transform = `translateX(${(vw / 2 - t * pxPerSec).toFixed(1)}px)`;
     };
     loop();
     return () => cancelAnimationFrame(raf);

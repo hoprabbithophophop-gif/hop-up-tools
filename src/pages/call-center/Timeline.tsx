@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPlayheadClock } from "@/lib/playheadClock";
 import type { Skeleton } from "./skeleton";
 
@@ -37,8 +37,22 @@ type Props = {
   spanSec?: number;
 };
 
-const LANE_PITCH = 44;
+const LANE_PITCH = 46;
 const SECTION_H = 24;
+/** 吹き出しを吊り下げる糸の長さ。拍の線と吹き出しをつなぐ */
+const STEM_H = 14;
+/** 吹き出しの高さ */
+const BUBBLE_H = 30;
+/** 尻尾（吹き出しの左上から上へ伸びる三角）の大きさ */
+const TAIL_W = 7;
+const TAIL_H = 9;
+
+/**
+ * その文字を出すのに、およそ何ピクセル要るか。
+ * 吹き出しの幅そのものは中身に合わせて伸びる（文字は切れない）。
+ * これは「どの段に置くか」を決めるときの見当にだけ使う。
+ */
+const estTextPx = (s: string) => 16 + [...s].length * 12.5;
 
 export default memo(function Timeline({ sk, calls, getNow, totalSec, spanSec = 6 }: Props) {
   const viewRef = useRef<HTMLDivElement | null>(null);
@@ -69,7 +83,8 @@ export default memo(function Timeline({ sk, calls, getNow, totalSec, spanSec = 6
     const laneEnds: number[] = [];
     const map = new Map<number, number>();
     for (const { c, i } of order) {
-      const end = c.t + Math.max(c.lenSec, 0.18);
+      // 重なり判定は、見た目の幅（言う長さ／文字幅の広いほう）で行う
+      const end = c.t + Math.max(c.lenSec, estTextPx(c.note) / pxPerSec, 0.18);
       let lane = laneEnds.findIndex((e) => e <= c.t + 0.001);
       if (lane < 0) {
         laneEnds.push(end);
@@ -80,7 +95,7 @@ export default memo(function Timeline({ sk, calls, getNow, totalSec, spanSec = 6
       map.set(i, lane);
     }
     return { laneOf: map, laneCount: Math.max(1, laneEnds.length) };
-  }, [calls]);
+  }, [calls, pxPerSec]);
 
   // 毎コマ、いまの位置が中央に来るように帯をずらす。
   // 再生位置は階段状にしか動かないので、なめらかで後戻りしない時計を通す。
@@ -157,21 +172,30 @@ export default memo(function Timeline({ sk, calls, getNow, totalSec, spanSec = 6
           </div>
         ))}
 
-        {/* コール */}
-        {calls.map((c, i) => (
-          <div
-            key={i}
-            style={{
-              ...S.call,
-              left: c.t * pxPerSec + pad,
-              width: Math.max(22, c.lenSec * pxPerSec),
-              top: sectionH + (laneOf.get(i) ?? 0) * LANE_PITCH + 4,
-              height: LANE_PITCH - 8,
-            }}
-          >
-            {c.note}
-          </div>
-        ))}
+        {/* コール。拍の線から糸を垂らして、雫の形の吹き出しをぶら下げる。
+            尖った角が「ここで声を出す」瞬間を指す。 */}
+        {calls.map((c, i) => {
+          const x = c.t * pxPerSec + pad;
+          const top = sectionH + (laneOf.get(i) ?? 0) * LANE_PITCH + STEM_H;
+          return (
+            <Fragment key={i}>
+              <div style={{ ...S.stem, left: x, top: sectionH, height: top - sectionH }} />
+              <div style={{ ...S.tail, left: x, top: top - TAIL_H + 1 }} />
+              <div
+                style={{
+                  ...S.call,
+                  left: x,
+                  // 幅は「言う長さ」ぶん取るが、文字が入らないときは中身に合わせて伸ばす
+                  minWidth: c.lenSec * pxPerSec,
+                  top,
+                  height: BUBBLE_H,
+                }}
+              >
+                {c.note}
+              </div>
+            </Fragment>
+          );
+        })}
       </div>
 
       {calls.length === 0 && (
@@ -219,9 +243,28 @@ const S: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap",
     padding: "0 6px",
   },
-  // 文字は箱の左端＝声を出し始める瞬間に寄せる。
-  // 中央に置くと、箱の長さの半分ぶん遅れて文字が中央線に届くので、
-  // 拍に合わせて読む人には「ずれている」ように見える（実際に指摘を受けた）。
+  /** 吹き出しを吊り下げる糸 */
+  stem: {
+    position: "absolute",
+    width: 1,
+    background: "#000",
+    opacity: 0.4,
+    zIndex: 2,
+  },
+
+  /** 吹き出しの尻尾。糸の先から吹き出しへつながる三角 */
+  tail: {
+    position: "absolute",
+    width: 0,
+    height: 0,
+    borderLeft: `${TAIL_W}px solid #000`,
+    borderBottom: `${TAIL_H}px solid transparent`,
+    zIndex: 4,
+  },
+
+  // ぶら下がる吹き出し。尻尾の付け根が「声を出す瞬間」を指す。
+  // 文字は左端に寄せる。中央に置くと、吹き出しの長さの半分ぶん遅れて
+  // 文字が中央線に届くので、拍に合わせて読む人には「ずれている」ように見える。
   call: {
     position: "absolute",
     background: "#000",
@@ -233,10 +276,11 @@ const S: Record<string, React.CSSProperties> = {
     justifyContent: "flex-start",
     textAlign: "left",
     lineHeight: 1.15,
-    padding: "2px 4px 2px 3px",
-    overflow: "hidden",
-    wordBreak: "break-all",
-    zIndex: 2,
+    padding: "2px 9px 2px 7px",
+    borderRadius: 14,
+    width: "max-content",
+    whiteSpace: "nowrap",
+    zIndex: 3,
   },
   empty: {
     position: "absolute",
