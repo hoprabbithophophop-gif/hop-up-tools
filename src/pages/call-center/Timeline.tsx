@@ -67,23 +67,27 @@ export default memo(function Timeline({
   const pxPerSec = vw > 0 ? vw / spanSec : 60;
   const lastSec = Math.max(totalSec, units.length ? units[units.length - 1].t + 2 : 0, 10);
 
-  // 重なる吹き出しは下の段へ送る（早い者順に空いている段を探す）
+  /*
+   * 吹き出しは重なってよい。帯が受け持つのは「いつ言うか」だけで、
+   * 「何を言うか」は下の段が持っているため。段を増やすと縦に伸びるうえ、
+   * 上下どちらを先に読むのか分からなくなって、かえって拍が見えなくなる。
+   *
+   * 段を分けるのは「同じ瞬間に別のコールが登録されている」ときだけ。
+   * ここを重ねると後ろのものが完全に隠れて、存在ごと消えてしまう。
+   */
   const { laneOf, laneCount } = useMemo(() => {
-    const laneEnds: number[] = [];
     const map = new Map<number, number>();
+    const usedAt = new Map<string, number>();
+    let max = 0;
     units.forEach((u, i) => {
-      const end = u.t + (bubbleW(u.text) + 3) / pxPerSec;
-      let lane = laneEnds.findIndex((e) => e <= u.t + 0.001);
-      if (lane < 0) {
-        laneEnds.push(end);
-        lane = laneEnds.length - 1;
-      } else {
-        laneEnds[lane] = end;
-      }
+      const key = u.t.toFixed(3);
+      const lane = usedAt.get(key) ?? 0;
+      usedAt.set(key, lane + 1);
       map.set(i, lane);
+      if (lane > max) max = lane;
     });
-    return { laneOf: map, laneCount: Math.max(1, laneEnds.length) };
-  }, [units, pxPerSec]);
+    return { laneOf: map, laneCount: max + 1 };
+  }, [units]);
 
   // 毎コマ、いまの位置が中央に来るように帯をずらす。
   useEffect(() => {
@@ -193,7 +197,7 @@ const S: Record<string, React.CSSProperties> = {
     width: 2,
     marginLeft: -1,
     background: "#000",
-    zIndex: 5,
+    zIndex: 6,
     pointerEvents: "none",
   },
   track: { position: "absolute", top: 0, willChange: "transform", zIndex: 1 },
@@ -221,7 +225,8 @@ const S: Record<string, React.CSSProperties> = {
     borderLeft: `${NEEDLE_W / 2}px solid transparent`,
     borderRight: `${NEEDLE_W / 2}px solid transparent`,
     borderBottom: `${NEEDLE_H}px solid #000`,
-    zIndex: 3,
+    // 針の列がそのままリズム譜になるので、吹き出しが重なっても針だけは必ず見えるようにする
+    zIndex: 5,
   },
 
   // 丸い吹き出し。針の真下に中心が来る。
