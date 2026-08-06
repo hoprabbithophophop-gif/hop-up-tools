@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getSupabase } from "@/lib/supabase";
 import Player, { type PlayerApi } from "./Player";
-import Timeline, { type TimelineCall } from "./Timeline";
-import { loadLocalCalls } from "./localCalls";
+import Timeline from "./Timeline";
+import CallTicker from "./CallTicker";
+import { buildGrid, toUnits } from "./callBubbles";
+import { loadLocalCalls, type LocalCall } from "./localCalls";
 import {
   loadSkeleton,
   positionAt,
@@ -61,6 +63,13 @@ const KIND_LABEL: Record<Kind, string> = {
 /** 見るものを先に、映像のない音源を最後に。 */
 const KIND_ORDER: Record<Kind, number> = { live: 0, lecture: 1, other: 2, audio: 3 };
 
+/** 帯に映す秒数の選択肢。※文言は仮 */
+const SPAN_CHOICES = [
+  { sec: 6, label: "広い" },
+  { sec: 3, label: "ふつう" },
+  { sec: 1.8, label: "大きい" },
+];
+
 
 export default function SongPage() {
   const { slug = "" } = useParams();
@@ -72,7 +81,10 @@ export default function SongPage() {
   const [playing, setPlaying] = useState(false);
   const [pos, setPos] = useState<Position | null>(null);
   // 採譜したコール。いまは端末の中にあるものを読む（サーバー保存はまだ通らない）
-  const [calls, setCalls] = useState<TimelineCall[]>([]);
+  const [calls, setCalls] = useState<LocalCall[]>([]);
+  // 帯に映す秒数。狭いほど拍が読みやすく、広いほど先が見える。
+  // 何を言うかは下の段が受け持つので、どちらに振っても言葉は分かる。
+  const [spanSec, setSpanSec] = useState(3);
 
   const playerRef = useRef<PlayerApi>(null);
   // 毎コマ書き換えるので、React の描き直しを挟まずに直接触る
@@ -114,6 +126,38 @@ export default function SongPage() {
     [rawOffsets],
   );
   const video = offsets[videoIdx];
+
+  // 1拍の長さ。骨組みがあればそちら、無ければ棚に入れたBPMから。
+  const beatSec = useMemo(() => {
+    if (sk && sk.bpm > 0) return 60 / sk.bpm;
+    if (song?.bpm) return 60 / Number(song.bpm);
+    return undefined;
+  }, [sk, song]);
+
+  // 8分ごとの目盛りと、その上に立つ粒。粒は必ず目盛りに吸着する。
+  const grid = useMemo(
+    () =>
+      buildGrid({
+        beats: sk?.beats,
+        downbeats: sk?.downbeats,
+        beatSec,
+        anchorSec: calls[0]?.t ?? 0,
+        endSec: Math.max(calls[calls.length - 1]?.t ?? 0, sk?.beats[sk.beats.length - 1] ?? 0) + 8,
+      }),
+    [sk, beatSec, calls],
+  );
+  const units = useMemo(() => toUnits(calls, beatSec, grid), [calls, beatSec, grid]);
+  const sections = useMemo(
+    () =>
+      (sk?.sections ?? []).map((s) => ({
+        order: s.order,
+        startSec: s.startSec,
+        endSec: s.endSec,
+        label: s.name ?? s.labelAuto,
+        group: s.group,
+      })),
+    [sk],
+  );
 
   // 帯は毎コマこれを呼ぶ。作り直されると帯の動きが途切れるので、中身だけ差し替わる形にする。
   const videoRef = useRef(video);
@@ -234,12 +278,28 @@ export default function SongPage() {
           {/* 横に流れるコールの帯。中央の線がいまの位置 */}
           <div style={S.timelineWrap}>
             <Timeline
-              sk={sk}
-              calls={calls}
+              sections={sections}
+              grid={grid}
+              units={units}
               getNow={getNowSong}
-              beatSec={song.bpm ? 60 / Number(song.bpm) : undefined}
-              totalSec={playerRef.current ? playerRef.current.getDuration() - video.offset_sec : undefined}
+              totalSec={playerRef.current ? playerRef.current.getDuration() - video.offset_sec : 0}
+              spanSec={spanSec}
             />
+          </div>
+
+          {/* 何を言うかは、拡大しても縮めても読めるようにこちらで受け持つ */}
+          <CallTicker units={units} getNow={getNowSong} />
+
+          <div style={S.spanRow}>
+            {SPAN_CHOICES.map((c) => (
+              <button
+                key={c.sec}
+                onClick={() => setSpanSec(c.sec)}
+                style={{ ...S.spanBtn, ...(spanSec === c.sec ? S.spanBtnOn : null) }}
+              >
+                {c.label}
+              </button>
+            ))}
           </div>
           <div style={S.stagePos}>
             {sk && (
@@ -370,6 +430,19 @@ const S: Record<string, React.CSSProperties> = {
   },
   sep: { color: "#c8cdd3", margin: "0 8px" },
   clock: { fontFamily: "Inter, system-ui, sans-serif" },
+
+  spanRow: { display: "flex", gap: 2, justifyContent: "center", marginTop: 2 },
+  spanBtn: {
+    font: "inherit",
+    fontSize: 11.5,
+    fontWeight: 700,
+    padding: "7px 14px",
+    background: "#fff",
+    color: "#585f6c",
+    border: 0,
+    cursor: "pointer",
+  },
+  spanBtnOn: { background: "#000", color: "#fff" },
 
   tapLink: {
     display: "block",
