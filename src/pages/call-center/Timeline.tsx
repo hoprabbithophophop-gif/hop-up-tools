@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { createPlayheadClock } from "@/lib/playheadClock";
 import type { Skeleton } from "./skeleton";
 
 /**
@@ -82,26 +83,16 @@ export default memo(function Timeline({ sk, calls, getNow, totalSec, spanSec = 6
   }, [calls]);
 
   // 毎コマ、いまの位置が中央に来るように帯をずらす。
-  // 再生位置は約0.1秒刻みでしか動かないので、そのまま使うとカクつく。
-  // 値が飛んだときだけ合わせ直し、間は時計で進めて滑らかにする。
+  // 再生位置は階段状にしか動かないので、なめらかで後戻りしない時計を通す。
   useEffect(() => {
     let raf = 0;
-    let smooth = -1;
-    let lastPerf = 0;
+    const clock = createPlayheadClock();
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const track = trackRef.current;
       if (!track || vw === 0) return;
-      const raw = getNowRef.current();
-      const perf = performance.now();
-      if (smooth < 0 || raw < smooth - 0.15 || raw > smooth + 0.5) {
-        smooth = raw; // 最初・巻き戻し・大きく飛んだときは即合わせる
-      } else {
-        smooth += (perf - lastPerf) / 1000; // 実際に経った時間ぶん進める
-        smooth += (raw - smooth) * 0.1; // 本当の値へゆるく寄せる（ずれ続けないように）
-      }
-      lastPerf = perf;
-      track.style.transform = `translateX(${(vw / 2 - smooth * pxPerSec).toFixed(1)}px)`;
+      const t = clock(getNowRef.current(), performance.now());
+      track.style.transform = `translateX(${(vw / 2 - t * pxPerSec).toFixed(1)}px)`;
     };
     loop();
     return () => cancelAnimationFrame(raf);
@@ -228,6 +219,9 @@ const S: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap",
     padding: "0 6px",
   },
+  // 文字は箱の左端＝声を出し始める瞬間に寄せる。
+  // 中央に置くと、箱の長さの半分ぶん遅れて文字が中央線に届くので、
+  // 拍に合わせて読む人には「ずれている」ように見える（実際に指摘を受けた）。
   call: {
     position: "absolute",
     background: "#000",
@@ -236,10 +230,10 @@ const S: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     display: "flex",
     alignItems: "center",
-    justifyContent: "center",
-    textAlign: "center",
+    justifyContent: "flex-start",
+    textAlign: "left",
     lineHeight: 1.15,
-    padding: "2px 4px",
+    padding: "2px 4px 2px 3px",
     overflow: "hidden",
     wordBreak: "break-all",
     zIndex: 2,
