@@ -278,6 +278,36 @@ export default function SongPage() {
             <div ref={progressRef} style={S.progressFill} />
           </div>
 
+          {/*
+            自前の再生ボタン。押された操作の中から直接プレイヤーを動かす。
+            iPhoneは「利用者が押した瞬間」でないと音を出さないため、
+            この形にしておかないと再生が始まらないことがある。
+          */}
+          <div style={S.transport}>
+            <button
+              onClick={() => {
+                const p = playerRef.current;
+                if (!p) return;
+                if (p.isPlaying()) p.pause();
+                else p.play();
+              }}
+              style={S.playBtn}
+            >
+              {playing ? "■　停止" : "▶　再生"}
+            </button>
+            <button
+              onClick={() => {
+                const p = playerRef.current;
+                if (!p) return;
+                p.seekTo(startAt);
+                p.play();
+              }}
+              style={S.rewindBtn}
+            >
+              曲の頭から
+            </button>
+          </div>
+
           {offsets.length > 1 && (
             <div style={S.tabs}>
               {offsets.map((o, i) => (
@@ -453,6 +483,31 @@ const S: Record<string, React.CSSProperties> = {
   },
   sep: { color: "#c8cdd3", margin: "0 8px" },
   clock: { fontFamily: "Inter, system-ui, sans-serif" },
+
+  transport: { display: "flex", gap: 2, marginTop: 2 },
+  playBtn: {
+    font: "inherit",
+    flex: "1 1 auto",
+    fontSize: 14,
+    fontWeight: 800,
+    padding: "14px 16px",
+    background: "#000",
+    color: "#fff",
+    border: 0,
+    cursor: "pointer",
+    letterSpacing: "0.04em",
+  },
+  rewindBtn: {
+    font: "inherit",
+    flex: "0 0 auto",
+    fontSize: 12.5,
+    fontWeight: 700,
+    padding: "14px 16px",
+    background: "#fff",
+    color: "#585f6c",
+    border: 0,
+    cursor: "pointer",
+  },
 
   spanRow: { display: "flex", gap: 2, justifyContent: "center", marginTop: 2 },
   spanBtn: {

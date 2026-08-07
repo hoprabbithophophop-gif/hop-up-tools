@@ -28,6 +28,20 @@ export type BuiltInSong = {
 
 const beatSec = 60 / ARIGATO_BEAT_BPM;
 
+/**
+ * 音の切れ目の直し。
+ *
+ * 機械の見当では「おー／る／ぼ／ざ／わー」になるが、実際に叫ぶリズムは
+ * 「おーる／ぼざ／わー」。単語の切れ目は文字だけからは分からないので、
+ * 区切りを書いて示す（空白を入れた所で切れる）。
+ *
+ * ここで直すのは集約センターの表示だけ。公開中のコール練習クイズが使う
+ * 元データには手を入れない。
+ */
+const SPLIT_FIX: Record<string, string> = {
+  "おーるぼざわー": "おーる ぼざ わー",
+};
+
 export const BUILT_IN_SONGS: BuiltInSong[] = [
   {
     slug: "arigato-beat",
@@ -39,7 +53,7 @@ export const BUILT_IN_SONGS: BuiltInSong[] = [
     calls: ARIGATO_BEAT_CALLS.map((c) => ({
       t: c.t,
       lenSec: Math.round(c.lenBeats * beatSec * 1000) / 1000,
-      note: c.note,
+      note: SPLIT_FIX[c.note] ?? c.note,
     })),
   },
 ];

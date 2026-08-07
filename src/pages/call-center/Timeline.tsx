@@ -93,7 +93,7 @@ export default memo(function Timeline({
    * 針は残るので、リズムは変わらず読める。何を言うかは下の段にある。
    */
   const tight = useMemo(() => {
-    return units.map((u, i) => {
+    const perUnit = units.map((u, i) => {
       const w = bubbleW(u.text);
       const near = (j: number) =>
         j < 0 || j >= units.length
@@ -101,6 +101,13 @@ export default memo(function Timeline({
           : Math.abs(units[j].t - u.t) * pxPerSec - (w + bubbleW(units[j].text)) / 2;
       return Math.min(near(i - 1), near(i + 1)) < 0;
     });
+    // 判定は1つのコールの中でそろえる。同じコールなのに出る音と出ない音が
+    // 混ざると、書き漏れのように見えてしまうため。
+    const tightCall = new Set<number>();
+    units.forEach((u, i) => {
+      if (perUnit[i]) tightCall.add(u.callIndex);
+    });
+    return units.map((u) => tightCall.has(u.callIndex));
   }, [units, pxPerSec]);
 
   const { laneOf, laneCount } = useMemo(() => {

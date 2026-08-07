@@ -70,12 +70,25 @@ const Player = forwardRef<PlayerApi, Props>(function Player(
   // 最初の1回だけ作る。動画の切り替えは作り直さず、中身の入れ替えで行う。
   const firstVideo = useRef({ videoId, startSeconds });
 
+  // 準備できる前に再生を頼まれたら、ここに覚えておいて準備完了時に再生する
+  const wantPlayRef = useRef(false);
+
   useEffect(() => {
     let alive = true;
-    loadYouTubeApi().then(() => {
+    const init = async () => {
+      await loadYouTubeApi();
       if (!alive || playerRef.current) return;
-      const el = document.getElementById(CONTAINER_ID);
-      if (!el) return;
+
+      // 置き場所の要素が出来るまで待つ。1回見て無いだけで諦めると、
+      // タイミング次第でプレイヤーが一生作られず、動画が動かなくなる。
+      let el: HTMLElement | null = null;
+      for (let i = 0; i < 25; i++) {
+        el = document.getElementById(CONTAINER_ID);
+        if (el || !alive) break;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      if (!alive || !el) return;
+
       playerRef.current = new YT.Player(CONTAINER_ID, {
         height: "100%",
         width: "100%",
@@ -93,6 +106,15 @@ const Player = forwardRef<PlayerApi, Props>(function Player(
             if (!alive) return;
             readyRef.current = true;
             setReady(true);
+            // 準備できる前に押されていた再生を、ここで実行する
+            if (wantPlayRef.current) {
+              wantPlayRef.current = false;
+              try {
+                playerRef.current?.playVideo();
+              } catch {
+                /* まだ動かせないときは諦める */
+              }
+            }
           },
           onStateChange: (e) => {
             if (!alive) return;
@@ -100,7 +122,8 @@ const Player = forwardRef<PlayerApi, Props>(function Player(
           },
         },
       });
-    });
+    };
+    init();
     return () => {
       alive = false;
       try {
@@ -161,8 +184,17 @@ const Player = forwardRef<PlayerApi, Props>(function Player(
         }
       },
       play() {
+        // 必ず「利用者が押した操作」の中から同期的に呼ぶこと（iPhone対策）。
+        // まだ準備できていないときは覚えておいて、準備完了時に再生する。
+        const p = playerRef.current;
+        if (!p || !readyRef.current) {
+          wantPlayRef.current = true;
+          return;
+        }
         try {
-          playerRef.current?.playVideo();
+          // 終わったあとに押されたときは、頭に戻してから再生する
+          if (p.getPlayerState() === 0) p.seekTo(0, true);
+          p.playVideo();
         } catch {
           /* 同上 */
         }
