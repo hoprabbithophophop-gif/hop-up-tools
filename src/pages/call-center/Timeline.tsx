@@ -25,6 +25,16 @@ const LANE_PITCH = NEEDLE_H + BUBBLE_H + 5;
 /** 吹き出しの幅。1文字なら丸、長ければ横に伸びた楕円になる */
 const bubbleW = (s: string) => Math.max(BUBBLE_H, [...s].length * 11 + 14);
 
+/**
+ * 同じ瞬間に別のコールが登録されているときの塗り分け。
+ * 色は使わない（色で見分けにくい人がいるため）。地・斜線・点の3種で分ける。
+ */
+const LANE_FILL: React.CSSProperties[] = [
+  {},
+  { backgroundImage: "repeating-linear-gradient(45deg, #000 0 1px, transparent 1px 5px)" },
+  { backgroundImage: "radial-gradient(#000 0.9px, transparent 1px)", backgroundSize: "5px 5px" },
+];
+
 type Props = {
   /** 区間の帯に出すもの。骨組みが無い曲では空 */
   sections?: { order: number; startSec: number; endSec: number; label: string; group: number }[];
@@ -149,8 +159,9 @@ export default memo(function Timeline({
 
         {/* コール。針の先が目盛りの上に立ち、そこが「声を出す瞬間」 */}
         {units.map((u, i) => {
+          const lane = laneOf.get(i) ?? 0;
           const x = u.t * pxPerSec + pad;
-          const needleTop = sectionH + (laneOf.get(i) ?? 0) * LANE_PITCH;
+          const needleTop = sectionH + lane * LANE_PITCH;
           const w = bubbleW(u.text);
           return (
             <Fragment key={i}>
@@ -158,13 +169,14 @@ export default memo(function Timeline({
               <div
                 style={{
                   ...S.call,
+                  ...LANE_FILL[lane % LANE_FILL.length],
                   left: x - w / 2,
                   width: w,
                   top: needleTop + NEEDLE_H,
                   height: BUBBLE_H,
                 }}
               >
-                {u.text}
+                <span style={S.callText}>{u.text}</span>
               </div>
             </Fragment>
           );
@@ -247,6 +259,13 @@ const S: Record<string, React.CSSProperties> = {
     borderRadius: "50%",
     whiteSpace: "nowrap",
     zIndex: 4,
+  },
+
+  /** 模様の上でも読めるように、文字だけ白い下敷きを敷く */
+  callText: {
+    background: "#fff",
+    padding: "0 2px",
+    borderRadius: 2,
   },
 
   empty: {

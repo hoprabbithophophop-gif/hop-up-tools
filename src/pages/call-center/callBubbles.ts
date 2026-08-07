@@ -40,23 +40,62 @@ export type CallUnit = {
 /** 単独では音にならず、前の文字にくっつくもの */
 const TRAILING = /[ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮーｰ〜～!！?？♪、。]/;
 const LATIN = /[A-Za-z0-9']/;
+/** 書いた人が「ここで切る」と示すもの。空白と中黒 */
+const SEPARATOR = /[\s・･/／|｜]/;
+
+/** かなの母音。「とう」「せい」のように、伸ばす音を1つにまとめるのに使う */
+const VOWEL_O = "おこそとのほもよろをごぞどぼぽょオコソトノホモヨロヲゴゾドボポョ";
+const VOWEL_E = "えけせてねへめれげぜでべぺエケセテネヘメレゲゼデベペ";
+
+/**
+ * 前の音に、この文字がくっついて1つの音になるか。
+ * 「ありがとう」の「う」は前の「と」を伸ばす音なので「とう」で1つ。
+ * ここで見るのは伸ばす働きの2つだけにしてある。同じ母音が続くだけで
+ * まとめてしまうと、「ウォオオッオ」のように1音ずつ叫ぶものが潰れるため。
+ */
+function isLongVowelTail(prev: string, ch: string): boolean {
+  const last = prev[prev.length - 1];
+  if (ch === "う" || ch === "ウ") return VOWEL_O.includes(last);
+  if (ch === "い" || ch === "イ") return VOWEL_E.includes(last);
+  return false;
+}
 
 /** 1つの吹き出しにそのまま収める文字数の上限。これを超えたら割る */
 const KEEP_WHOLE_CHARS = 3;
 
-/** コール文を、声に出す単位（音）へ割る。 */
+/**
+ * コール文を、声に出す単位（音）へ割る。
+ *
+ * 機械の見当が実際のリズムと違うことはある（「おーるぼざわー」を
+ * 「おーる／ぼざ／わー」と切りたい、など）。単語の切れ目は文字だけからは
+ * 分からないので、**採譜するときに空白か「・」を入れれば、そこで切れる。**
+ */
 export function splitMora(s: string): string[] {
+  const text = s.trim();
+
+  // 書いた人が区切りを入れているなら、その通りに切る。機械の見当は使わない。
+  // 「おーる ぼざ わー」と書けば、そのまま3つになる。
+  if (SEPARATOR.test(text)) {
+    const parts = text
+      .split(new RegExp(SEPARATOR.source, "g"))
+      .map((p) => p.trim())
+      .filter((p) => p !== "");
+    if (parts.length > 1) return parts;
+  }
+
+  // 区切りが無いときだけ、機械が音の切れ目を見当で決める。
   const out: string[] = [];
-  for (const ch of [...s.trim()]) {
+  for (const ch of [...text]) {
     const prev = out[out.length - 1];
-    if (/\s/.test(ch)) continue; // 空白は音を持たない
-    if (prev !== undefined && TRAILING.test(ch)) {
-      out[out.length - 1] = prev + ch;
-      continue;
-    }
-    if (prev !== undefined && LATIN.test(ch) && LATIN.test(prev[prev.length - 1])) {
-      out[out.length - 1] = prev + ch; // ローマ字の単語は割らない
-      continue;
+    if (prev !== undefined) {
+      if (TRAILING.test(ch) || isLongVowelTail(prev, ch)) {
+        out[out.length - 1] = prev + ch;
+        continue;
+      }
+      if (LATIN.test(ch) && LATIN.test(prev[prev.length - 1])) {
+        out[out.length - 1] = prev + ch; // ローマ字の単語は途中で割らない
+        continue;
+      }
     }
     out.push(ch);
   }
