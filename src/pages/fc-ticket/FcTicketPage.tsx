@@ -346,14 +346,16 @@ export default function FcTicketPage() {
         まで。
       </div>
 
-      {/* 未送信の帯。保存できていない変更があることを、どの画面にいても見えるようにする。
-          静かに消えるより鳴りすぎる側に倒す方針のため、送れるまで出し続ける。
+      {/* 反映できていないときの帯。どの画面にいても見えるようにする。
+          出す条件は「送ろうとして失敗した」ときだけ（isStuck）。未送信そのもの(hasUnsaved)で出すと、
+          チェックを1つ付けた瞬間から帯が出て急かすことになる。
+          再試行中も下ろさない——点いたり消えたりする方が不安になるため。
           ※文言・見た目は仮。後で調整する。 */}
-      {saver.hasUnsaved && (
+      {saver.isStuck && (
         <div className="w-full bg-surface-container-low px-6 py-2 flex items-center justify-center gap-3 text-[0.6875rem]">
           <span className="material-symbols-outlined text-sm text-error">cloud_off</span>
           <span className="text-on-surface">
-            {saver.saveState === "saving" ? "変更を保存しています…" : "変更がまだ保存されていません"}
+            {saver.saveState === "saving" ? "変更を反映しています…" : "変更がまだ反映されていません"}
           </span>
           <button
             onClick={saver.saveNow}
@@ -2597,7 +2599,8 @@ function SubscribeScreen({
   const [error, setError] = useState<string | null>(null);
   const [publishedUrls, setPublishedUrls] = useState<SubscriptionUrls | null>(() => slug ? subscriptionUrls(slug) : null);
   const [copied, setCopied] = useState(false);
-  // 自動保存（発行済みなら選択変更をdebounce 2sでサーバ反映。差分スキップ＋離脱時保存）
+  // 自動保存の表示。送信は「画面を離れたとき」が主役で、開いたままのときは保険が働く。
+  // 触っている間は saveState が idle のままなので、ここには何も出ない。
   const saveState = saver.saveState;
 
   // ?focus=<公演キー>: 予定メモの「通知の変更」リンクから該当公演へ直行（スクロール＋一瞬ハイライト）
@@ -2914,8 +2917,9 @@ function SubscribeScreen({
 
   return (
     <main className="pt-8 pb-32 px-6 max-w-4xl mx-auto">
-      {/* 自動保存トースト：フッターナビの上に固定表示（スクロール位置に関係なく必ず見える） */}
-      {saveState !== "idle" && (
+      {/* 自動保存トースト：フッターナビの上に固定表示（スクロール位置に関係なく必ず見える）。
+          失敗中(isStuck)は上の帯が同じことを言うので、ここでは重ねて出さない。 */}
+      {saveState !== "idle" && !saver.isStuck && (
         <div
           className="fixed left-1/2 -translate-x-1/2 bottom-24 z-[60] px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest pointer-events-none inline-flex items-center gap-1.5"
           style={{ background: "#ffffff", color: "#777", border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 8px rgba(0,0,0,0.10)" }}

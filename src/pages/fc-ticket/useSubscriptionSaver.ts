@@ -20,7 +20,15 @@ import { onInputsChanged, readInputs, readLastSavedSig, writeLastSavedSig } from
 /** fc_deadlines.id はUUID。画面だけの疑似的な行を注文票に載せない（載せると発行が丸ごと失敗する） */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const DEBOUNCE_MS = 2000;
+/**
+ * 編集してから送るまでの待ち時間。
+ *
+ * 主役は「画面を離れたとき」の送信（タブを閉じる・別アプリへ切り替え・画面ロック）で、
+ * こちらはその取りこぼしを拾う保険。画面を開いたまま長く放置した場合だけ働く。
+ * 短くすると、考えている間・チェックを付け外ししている間にも送信が走り、
+ * 画面に「保存中」が点滅して急かされているように見える（2秒だった頃の実害）。
+ */
+const DEBOUNCE_MS = 30000;
 /** 失敗したときの再試行の間隔。だんだん延ばして、諦めはしない */
 const RETRY_DELAYS_MS = [5000, 15000, 60000, 300000];
 
@@ -92,8 +100,14 @@ function signatureOf(built: { slug: string; order: OrderTicket } | null): string
 
 export interface SubscriptionSaver {
   saveState: SaveState;
-  /** 未送信の変更を抱えているか。画面に帯を出す判断に使う */
+  /** 未送信の変更を抱えているか（送る前の待ち時間も含む）。画面表示には使わない */
   hasUnsaved: boolean;
+  /**
+   * 送ろうとして失敗し、まだ反映できていない状態。画面に帯を出す判断はこれで行う。
+   * hasUnsaved で出すと、チェックを付けた瞬間から帯が出て急かすことになる。
+   * 一度成功するまで下ろさない（再試行中も出したままにして、点いたり消えたりさせない）。
+   */
+  isStuck: boolean;
   /** 直近の失敗理由（画面表示用・無ければ null） */
   lastError: string | null;
   /** 「いま送る」ボタン用 */
@@ -105,6 +119,7 @@ export interface SubscriptionSaver {
 export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]): SubscriptionSaver {
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [hasUnsaved, setHasUnsaved] = useState(false);
+  const [isStuck, setIsStuck] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
   // タイマーから最新値を読むためのref
@@ -127,8 +142,11 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
     if (inFlightRef.current) return false;
     const built = buildOrder(matchResultsRef.current, paidRef.current);
     const sig = signatureOf(built);
-    if (!built || sig === null) { setHasUnsaved(false); return false; }
-    if (sig === readLastSavedSig()) { setHasUnsaved(false); return true; } // 送る必要なし
+    // 送るものが無くなった（同期をやめた等）／送る必要が消えた（元の状態に戻した）場合は、
+    // 失敗の帯も一緒に下ろす。ここで下ろさないと、送る相手も直す手立ても無いのに
+    // 「反映されていません」が出たままになり、Retryを押しても何も起きない状態に陥る。
+    if (!built || sig === null) { setHasUnsaved(false); setIsStuck(false); return false; }
+    if (sig === readLastSavedSig()) { setHasUnsaved(false); setIsStuck(false); return true; } // 送る必要なし
 
     inFlightRef.current = true;
     setSaveState("saving");
@@ -139,6 +157,7 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
       retryIndexRef.current = 0;
       setLastError(null);
       setHasUnsaved(false);
+      setIsStuck(false);
       setSaveState("saved");
       if (savedToastTimerRef.current) clearTimeout(savedToastTimerRef.current);
       savedToastTimerRef.current = window.setTimeout(() => setSaveState("idle"), 2000);
@@ -146,6 +165,7 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
     } catch (e) {
       setLastError(e instanceof Error ? e.message : String(e));
       setHasUnsaved(true);
+      setIsStuck(true);
       setSaveState("failed");
       // 諦めずに間を空けて再試行（最後の間隔で打ち止めにせず繰り返す）
       const delay = RETRY_DELAYS_MS[Math.min(retryIndexRef.current, RETRY_DELAYS_MS.length - 1)];
@@ -158,10 +178,12 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
     }
   }, []);
 
-  /** 変更を受けて、少し待ってから送る */
+  /** 変更を受けて、少し待ってから送る。
+   *  ここで「保存中」にはしない——まだ何も送っていないのに表示だけ先に動かすと、
+   *  チェックを1つ付けるたびに画面が反応して、見張られているように見える。
+   *  表示が動くのは、実際に送り始めた doSave の中だけ。 */
   const scheduleSave = useCallback(() => {
     if (!refreshUnsaved()) return;
-    setSaveState("saving");
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => { void doSave(); }, DEBOUNCE_MS);
   }, [doSave, refreshUnsaved]);
@@ -201,5 +223,5 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
     void doSave();
   }, [doSave]);
 
-  return { saveState, hasUnsaved, lastError, saveNow, saveImmediately: doSave };
+  return { saveState, hasUnsaved, isStuck, lastError, saveNow, saveImmediately: doSave };
 }
