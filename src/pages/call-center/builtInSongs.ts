@@ -15,18 +15,34 @@ import type { LocalCall } from "./localCalls";
  * 棚に入れたら、この置き場からは外す。
  */
 
+export type BuiltInVideo = {
+  videoId: string;
+  /** この動画の何秒目が曲の頭か */
+  offsetSec: number;
+  label: string;
+};
+
 export type BuiltInSong = {
   slug: string;
   title: string;
   groupName: string;
   bpm: number;
-  /** 見る動画。採譜の秒はこの動画のものなので、ずれは0 */
-  videoId: string;
-  videoLabel: string;
+  videos: BuiltInVideo[];
   calls: LocalCall[];
 };
 
 const beatSec = 60 / ARIGATO_BEAT_BPM;
+
+/**
+ * 公式のコールレクチャー動画。コールが画面に出るので、この曲を知るならこちらが本命。
+ *
+ * ずれは既に測ってある。採譜はステージ練習の動画で取ってあり、レクチャーは
+ * 同じ速さで頭出しだけ違う。最初のコールがレクチャーでは6.0秒（Hopが実測）で、
+ * そこから1拍ぶん後ろに寄せると全体が合う——というのがコール練習ツールでの結論。
+ * ここでも同じ値をそのまま使う。
+ */
+const LECTURE_VIDEO = "xr7_Z5ibZMA";
+const LECTURE_FIRST_CALL_SEC = 6.0;
 
 /**
  * 音の切れ目の直し。
@@ -48,8 +64,14 @@ export const BUILT_IN_SONGS: BuiltInSong[] = [
     title: "ありがとビート",
     groupName: "BEYOOOOONDS",
     bpm: ARIGATO_BEAT_BPM,
-    videoId: ARIGATO_BEAT_VIDEO,
-    videoLabel: "Stage Practice ver.",
+    videos: [
+      {
+        videoId: LECTURE_VIDEO,
+        offsetSec: LECTURE_FIRST_CALL_SEC - ARIGATO_BEAT_CALLS[0].t + beatSec,
+        label: "コールレクチャー",
+      },
+      { videoId: ARIGATO_BEAT_VIDEO, offsetSec: 0, label: "Stage Practice ver." },
+    ],
     calls: ARIGATO_BEAT_CALLS.map((c) => ({
       t: c.t,
       lenSec: Math.round(c.lenBeats * beatSec * 1000) / 1000,

@@ -62,11 +62,26 @@ const KIND_LABEL: Record<Kind, string> = {
 };
 
 /** 見るものを先に、映像のない音源を最後に。 */
-const KIND_ORDER: Record<Kind, number> = { live: 0, lecture: 1, other: 2, audio: 3 };
+const KIND_ORDER: Record<Kind, number> = { lecture: 0, live: 1, other: 2, audio: 3 };
 
-/** 帯に映す秒数の選択肢。※文言は仮 */
+/**
+ * タブに出す名前。短い覚え書きが入っていればそれを、
+ * 長い事情メモしか無いときは種類の名前を出す。
+ * （動画の種類を持つ列ができたら、そちらを見るように差し替える）
+ */
+function tabLabel(o: Offset): string {
+  const note = (o.note ?? "").trim();
+  if (note !== "" && [...note].length <= 16) return note;
+  return KIND_LABEL[kindOf(o)];
+}
+
+/**
+ * 帯に映す秒数の選択肢。
+ * 言葉の主語は「コールの見え方」でそろえる。狭く映すほど1つずつが大きく出て、
+ * 広く映すほど小さくなり、入りきらないものは点になる。
+ */
 const SPAN_CHOICES = [
-  { sec: 6, label: "広い" },
+  { sec: 6, label: "小さい" },
   { sec: 3, label: "ふつう" },
   { sec: 1.8, label: "大きい" },
 ];
@@ -111,9 +126,14 @@ export default function SongPage() {
         bpm: builtIn.bpm,
         skeleton_digest: null,
       });
-      setRawOffsets([
-        { video_id: builtIn.videoId, offset_sec: 0, rate: 1, note: builtIn.videoLabel },
-      ]);
+      setRawOffsets(
+        builtIn.videos.map((v) => ({
+          video_id: v.videoId,
+          offset_sec: v.offsetSec,
+          rate: 1,
+          note: v.label,
+        })),
+      );
       const mine = loadLocalCalls(slug);
       setCalls(mine.length > 0 ? mine : builtIn.calls);
       return () => {
@@ -316,7 +336,7 @@ export default function SongPage() {
                   onClick={() => setVideoIdx(i)}
                   style={{ ...S.tab, ...(i === videoIdx ? S.tabOn : null) }}
                 >
-                  {KIND_LABEL[kindOf(o)]}
+                  {tabLabel(o)}
                 </button>
               ))}
             </div>
