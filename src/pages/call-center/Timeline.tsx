@@ -20,6 +20,8 @@ const BUBBLE_H = 26;
 const NEEDLE_H = 15;
 /** 針の根元の太さ */
 const NEEDLE_W = 8;
+/** 文字が入らないときに出す、小さい点の大きさ */
+const DOT_H = 8;
 const LANE_PITCH = NEEDLE_H + BUBBLE_H + 5;
 
 /** 吹き出しの幅。1文字なら丸、長ければ横に伸びた楕円になる */
@@ -85,6 +87,22 @@ export default memo(function Timeline({
    * 段を分けるのは「同じ瞬間に別のコールが登録されている」ときだけ。
    * ここを重ねると後ろのものが完全に隠れて、存在ごと消えてしまう。
    */
+  /*
+   * 隣と重なってしまう粒は、文字を出さずに小さい点だけにする。
+   * 帯を広く映したとき、読めない文字が重なり合って濁るのを避けるため。
+   * 針は残るので、リズムは変わらず読める。何を言うかは下の段にある。
+   */
+  const tight = useMemo(() => {
+    return units.map((u, i) => {
+      const w = bubbleW(u.text);
+      const near = (j: number) =>
+        j < 0 || j >= units.length
+          ? Infinity
+          : Math.abs(units[j].t - u.t) * pxPerSec - (w + bubbleW(units[j].text)) / 2;
+      return Math.min(near(i - 1), near(i + 1)) < 0;
+    });
+  }, [units, pxPerSec]);
+
   const { laneOf, laneCount } = useMemo(() => {
     const map = new Map<number, number>();
     const usedAt = new Map<string, number>();
@@ -162,21 +180,23 @@ export default memo(function Timeline({
           const lane = laneOf.get(i) ?? 0;
           const x = u.t * pxPerSec + pad;
           const needleTop = sectionH + lane * LANE_PITCH;
-          const w = bubbleW(u.text);
+          const narrow = tight[i];
+          const w = narrow ? DOT_H : bubbleW(u.text);
+          const h = narrow ? DOT_H : BUBBLE_H;
           return (
             <Fragment key={i}>
               <div style={{ ...S.needle, left: x - NEEDLE_W / 2, top: needleTop }} />
               <div
                 style={{
                   ...S.call,
-                  ...LANE_FILL[lane % LANE_FILL.length],
+                  ...(narrow ? S.callDot : LANE_FILL[lane % LANE_FILL.length]),
                   left: x - w / 2,
                   width: w,
                   top: needleTop + NEEDLE_H,
-                  height: BUBBLE_H,
+                  height: h,
                 }}
               >
-                <span style={S.callText}>{u.text}</span>
+                {narrow ? null : <span style={S.callText}>{u.text}</span>}
               </div>
             </Fragment>
           );
@@ -260,6 +280,9 @@ const S: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap",
     zIndex: 4,
   },
+
+  /** 文字が入らないときの点。塗りつぶして存在だけ示す */
+  callDot: { background: "#000" },
 
   /** 模様の上でも読めるように、文字だけ白い下敷きを敷く */
   callText: {

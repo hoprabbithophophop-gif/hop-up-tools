@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getSupabase } from "@/lib/supabase";
+import { BUILT_IN_SONGS } from "./builtInSongs";
 
 /**
  * コール情報集約センター — 曲の一覧。
@@ -34,6 +35,12 @@ export default function CallCenterPage() {
   }, []);
 
   const byGroup = new Map<string, Song[]>();
+  // まだ棚に入れていない曲（アプリに同梱しているもの）も一緒に並べる
+  for (const b of BUILT_IN_SONGS) {
+    byGroup.set(b.groupName, [
+      { id: b.slug, slug: b.slug, title: b.title, group_name: b.groupName, bpm: b.bpm },
+    ]);
+  }
   for (const s of songs ?? []) {
     const list = byGroup.get(s.group_name) ?? [];
     list.push(s);

@@ -5,6 +5,7 @@ import Player, { type PlayerApi } from "./Player";
 import Timeline from "./Timeline";
 import CallTicker from "./CallTicker";
 import { buildGrid, toUnits } from "./callBubbles";
+import { findBuiltInSong } from "./builtInSongs";
 import { loadLocalCalls, type LocalCall } from "./localCalls";
 import {
   loadSkeleton,
@@ -96,9 +97,31 @@ export default function SongPage() {
   useEffect(() => {
     let alive = true;
     setError(null);
-    setCalls(loadLocalCalls(slug));
     // 骨組みは「あれば拍の線と区間が出る」飾り。無い曲もそのまま開ける。
     setSk(null);
+
+    // まだ棚に入れていない曲は、アプリに同梱したデータで開く
+    const builtIn = findBuiltInSong(slug);
+    if (builtIn) {
+      setSong({
+        id: builtIn.slug,
+        slug: builtIn.slug,
+        title: builtIn.title,
+        group_name: builtIn.groupName,
+        bpm: builtIn.bpm,
+        skeleton_digest: null,
+      });
+      setRawOffsets([
+        { video_id: builtIn.videoId, offset_sec: 0, rate: 1, note: builtIn.videoLabel },
+      ]);
+      const mine = loadLocalCalls(slug);
+      setCalls(mine.length > 0 ? mine : builtIn.calls);
+      return () => {
+        alive = false;
+      };
+    }
+
+    setCalls(loadLocalCalls(slug));
     loadSkeleton(slug).then(
       (s) => alive && setSk(s),
       () => { /* 骨組みが無い曲。コールは秒で持っているのでこのまま表示できる */ },
