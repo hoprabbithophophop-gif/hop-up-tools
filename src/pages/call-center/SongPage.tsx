@@ -285,17 +285,20 @@ export default function SongPage() {
 
       {video ? (
         <>
-          <Player
-            key={video.video_id}
-            ref={playerRef}
-            videoId={video.video_id}
-            startSeconds={startAt}
-            onPlayingChange={setPlaying}
-          />
+          {/* 動画は上に貼り付けて、下の内容がその後ろを流れていくようにする */}
+          <div style={S.videoStick}>
+            <Player
+              key={video.video_id}
+              ref={playerRef}
+              videoId={video.video_id}
+              startSeconds={startAt}
+              onPlayingChange={setPlaying}
+            />
 
-          {/* 曲のどこを再生しているか。動画の下に置く */}
-          <div style={S.progressTrack}>
-            <div ref={progressRef} style={S.progressFill} />
+            {/* 曲のどこを再生しているか。動画の下に置く */}
+            <div style={S.progressTrack}>
+              <div ref={progressRef} style={S.progressFill} />
+            </div>
           </div>
 
           {/*
@@ -470,6 +473,15 @@ const S: Record<string, React.CSSProperties> = {
   meta: { fontSize: 12, color: "#585f6c", marginTop: 28, lineHeight: 1.8 },
   videoNote: { fontSize: 12.5, color: "#585f6c", margin: "10px 0 0", lineHeight: 1.7 },
 
+  videoStick: {
+    position: "sticky",
+    top: 0,
+    zIndex: 20,
+    background: "#f8f9fa",
+    // 画面の外へはみ出さないよう、横の余白ぶんだけ広げて背景を敷く
+    margin: "0 -20px",
+    padding: "0 20px",
+  },
   progressTrack: { height: 3, background: "#dfe2e6", overflow: "hidden" },
   progressFill: {
     height: "100%",

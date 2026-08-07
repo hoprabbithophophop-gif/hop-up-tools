@@ -58,6 +58,13 @@ const SPLIT_FIX: Record<string, string> = {
   "おーるぼざわー": "おーる ぼざ わー",
 };
 
+/**
+ * （）で囲まれたものはコールではない。
+ * レクチャー動画で言っていた心掛けや合いの手（「（かわいく）」など）なので、
+ * 集約センターには載せない。コール練習ツールでも出題対象から外している。
+ */
+const isNotACall = (note: string) => /^[（(]/.test(note.trim());
+
 export const BUILT_IN_SONGS: BuiltInSong[] = [
   {
     slug: "arigato-beat",
@@ -72,7 +79,7 @@ export const BUILT_IN_SONGS: BuiltInSong[] = [
       },
       { videoId: ARIGATO_BEAT_VIDEO, offsetSec: 0, label: "Stage Practice ver." },
     ],
-    calls: ARIGATO_BEAT_CALLS.map((c) => ({
+    calls: ARIGATO_BEAT_CALLS.filter((c) => !isNotACall(c.note)).map((c) => ({
       t: c.t,
       lenSec: Math.round(c.lenBeats * beatSec * 1000) / 1000,
       note: SPLIT_FIX[c.note] ?? c.note,
