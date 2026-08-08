@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useReducedMotion } from "@/lib/useReducedMotion";
 import type { CallUnit } from "./callBubbles";
 
 /**
@@ -21,6 +22,9 @@ type Props = {
 const HOLD_SEC = 0.28;
 
 export default function CallTicker({ units, getNow }: Props) {
+  // 端末が「視差効果を減らす」なら、大きくする動きは出さない。
+  // 色と太さだけで「いまここ」を示す＝何を言うかは同じように読める。
+  const reduced = useReducedMotion();
   const [idx, setIdx] = useState(-1);
   const shownRef = useRef(-1);
   const getNowRef = useRef(getNow);
@@ -78,7 +82,15 @@ export default function CallTicker({ units, getNow }: Props) {
               u.callIndex === activeUnit.callIndex &&
               u.unitIndex < activeUnit.unitIndex;
             return (
-              <span key={i} style={{ ...S.mora, ...(past ? S.moraPast : null), ...(on ? S.moraOn : null) }}>
+              <span
+                key={i}
+                style={{
+                  ...S.mora,
+                  ...(reduced ? S.moraStill : null),
+                  ...(past ? S.moraPast : null),
+                  ...(on ? (reduced ? S.moraOnStill : S.moraOn) : null),
+                }}
+              >
                 {u.text}
               </span>
             );
@@ -114,6 +126,15 @@ const S: Record<string, React.CSSProperties> = {
   },
   moraPast: { color: "#585f6c" },
   moraOn: { color: "#000", transform: "scale(1.5)", transitionDuration: "0.06s" },
+
+  /** 「視差効果を減らす」設定のとき。動かさず、色と下線だけで示す */
+  moraStill: { transform: "none", transition: "none" },
+  moraOnStill: {
+    color: "#000",
+    transform: "none",
+    transition: "none",
+    boxShadow: "inset 0 -4px 0 #000",
+  },
   rest: { fontSize: 20, fontWeight: 800, color: "#dfe2e6" },
   nextLine: {
     textAlign: "center",
