@@ -4,6 +4,7 @@ import { getSupabase } from "@/lib/supabase";
 import ArigatoBeatTapPage, { type TapPageCall } from "../hi-tension/ArigatoBeatTapPage";
 import { loadSkeleton, toSongSec } from "./skeleton";
 import { saveLocalCalls, type LocalCall } from "./localCalls";
+import { findBuiltInSong } from "./builtInSongs";
 
 /**
  * 曲のコールを採譜する画面。
@@ -40,6 +41,32 @@ export default function SongTapPage() {
 
   useEffect(() => {
     let alive = true;
+
+    // 棚に入れる前の曲（同梱データ）も採譜できるようにする。
+    // ここが無いと、いま唯一中身のあるありがとビートで採譜画面が開けない。
+    const builtIn = findBuiltInSong(slug);
+    if (builtIn) {
+      setSong({
+        id: builtIn.slug,
+        slug: builtIn.slug,
+        title: builtIn.title,
+        group_name: builtIn.groupName,
+        bpm: builtIn.bpm,
+      });
+      setOffsets(
+        builtIn.videos.map((v) => ({
+          video_id: v.videoId,
+          offset_sec: v.offsetSec,
+          rate: 1,
+          note: v.label,
+        })),
+      );
+      setBpmHint(builtIn.bpm);
+      return () => {
+        alive = false;
+      };
+    }
+
     getSupabase()
       .from("song_structures")
       .select("id, slug, title, group_name, bpm, song_video_offsets(video_id, offset_sec, rate, note)")
@@ -87,6 +114,13 @@ export default function SongTapPage() {
 
   return (
     <ArigatoBeatTapPage
+      /*
+       * 保存先の断り。いま採譜した結果はこの端末の中にしか残らない
+       * （棚へ書き込むには匿名ログインが必要で、まだ有効になっていない）。
+       * これを伝えないまま採譜させると、別の端末で開いたときに消えていて、
+       * 作った人の労力がそのまま失われる。※文言は後から差し替える前提の仮置き
+       */
+      notice="いまはこの端末の中にだけ保存されます。ほかの人にはまだ見えません。"
       key={video.video_id}
       song={{
         slug: song.slug,

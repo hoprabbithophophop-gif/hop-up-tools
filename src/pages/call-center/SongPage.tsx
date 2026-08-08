@@ -164,8 +164,18 @@ export default function SongPage() {
     };
   }, [slug]);
 
+  /*
+   * 映像のない音源（配信音源・ジャケットの静止画が出るだけのもの）は画面に出さない。
+   *
+   * これは骨組みを取るために使っただけの音で、見ても何も起きない。
+   * 「解析に使った動画だから」という理由で画面に出してよい理由にはならない。
+   * 出す動画は、公式チャンネルの映像だけにする。
+   */
   const offsets = useMemo(
-    () => [...rawOffsets].sort((a, b) => KIND_ORDER[kindOf(a)] - KIND_ORDER[kindOf(b)]),
+    () =>
+      [...rawOffsets]
+        .filter((o) => kindOf(o) !== "audio")
+        .sort((a, b) => KIND_ORDER[kindOf(a)] - KIND_ORDER[kindOf(b)]),
     [rawOffsets],
   );
   const video = offsets[videoIdx];

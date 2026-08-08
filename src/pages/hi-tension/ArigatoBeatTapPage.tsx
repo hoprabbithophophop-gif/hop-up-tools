@@ -37,6 +37,8 @@ type Props = {
   song?: TapPageSong;
   /** 「取り込む」ボタンを出したいときだけ渡す。渡さなければ書き出しボタンだけ */
   onSave?: (calls: TapPageCall[]) => void | Promise<void>;
+  /** 保存先などの断り書き。渡されたときだけ、画面の上のほうに出す */
+  notice?: string;
 };
 // コールの長さ(拍)の選択肢。0.5刻み・最大8。
 const LEN_OPTIONS = Array.from({ length: 16 }, (_, i) => (i + 1) * 0.5); // 0.5..8
@@ -292,7 +294,7 @@ function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, n
   );
 }
 
-export default function ArigatoBeatTapPage({ song, onSave }: Props = {}) {
+export default function ArigatoBeatTapPage({ song, onSave, notice }: Props = {}) {
   const playerRef = useRef<YouTubePlayerApi>(null);
   // 端末への保存先。曲を渡されたときは「曲ごと・動画ごと」に分ける
   // （叩いた秒はその動画の絶対秒なので、動画が違えば別物になるため）。
@@ -541,6 +543,13 @@ export default function ArigatoBeatTapPage({ song, onSave }: Props = {}) {
               <button style={{ ...btn, fontSize: 12, padding: "5px 10px" }} onClick={loadVideoId}>読込</button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* 保存先の断り。渡されたときだけ出す */}
+      {notice && (
+        <div style={{ flex: "0 0 auto", fontSize: 12, lineHeight: 1.6, color: "#eee", background: "#2a2118", border: "1px solid #6b5a3a", borderRadius: 8, padding: "8px 10px", margin: "0 0 8px" }}>
+          {notice}
         </div>
       )}
 
