@@ -1,0 +1,96 @@
+{
+  "_readme": [
+    "曲 → 使う動画の対応表。骨組み（拍）を測る元であり、画面の主担当でもある。",
+    "選び方の順番: ①Hopの指定 ②コールレクチャー ③現場ノリの伝わるライブ映像 ④MV。すべて公式動画。",
+    "バンド版は骨組みの元にしない（テンポにズレが出るため）。",
+    "映像のない音源（配信音源・アートトラック）は、画面にも測定にも使わない。",
+    "",
+    "status の意味:",
+    "  確定   … このまま使う",
+    "  要確認 … 通常音源かバンド版か判断できていない。包絡線を取って揺らぎを測ってから決める",
+    "  暫定   … いまは他に選べる公式動画が無い。条件が変わったら差し替える",
+    "",
+    "差し替えたら、その動画から拍を取り直すこと（拍はその動画の時間軸に乗っているため）。"
+  ],
+  "_rules": {
+    "band_exclude_title_words": ["バンド", "band", "生演奏", "orchestra", "弾き語り"],
+    "normal_backing_track_events": ["ハロコン", "ひなフェス", "単独コンサート", "単独ツアー"],
+    "not_assumed_normal": [
+      "ハロ！ステ … YouTubeチャンネル内の番組なので、バンド版が取り上げられる可能性がある。中身を決めつけない"
+    ]
+  },
+  "songs": {
+    "ninmin-friends": {
+      "title": "ニンミンフレンズ",
+      "videoId": "fVxfOAHymzo",
+      "kind": "lecture",
+      "status": "確定",
+      "note": "公式のコールレクチャー。選び方の②に唯一該当する"
+    },
+    "bababa-burning-love": {
+      "title": "BaBaBa Burning Love！",
+      "videoId": "v74fhJAkMH8",
+      "kind": "live",
+      "status": "確定",
+      "note": "ANGERME 2026 Spring final 陰と陽 DUALITY。通常音源であることをHopが確認済み"
+    },
+    "bloody-bullet": {
+      "title": "BLOODY BULLET",
+      "videoId": "xW3p6ZmX5CA",
+      "kind": "live",
+      "status": "確定",
+      "note": "Concert 2025 Queen of Hearts Special Flush"
+    },
+    "hi-tension": {
+      "title": "ハイ！テンション",
+      "videoId": "mn1wkO0Ysbw",
+      "kind": "live",
+      "status": "確定",
+      "note": "BEYOOOOONDS CONCERT TOUR 2026 SPRING [BEYOSCOOOOOPE]"
+    },
+    "positive-program": {
+      "title": "ポジティブプログラム",
+      "videoId": "z55lGMgG3o0",
+      "kind": "live",
+      "status": "確定",
+      "note": "ハロ！ステ Live Edit.。0拍目=1.79秒をHopが耳で確認済みなので、通常音源と分かっている"
+    },
+    "misery": {
+      "title": "Misery ～愛の天秤～",
+      "videoId": "GSESchw4cqw",
+      "startSec": 2848,
+      "endSec": 3082,
+      "kind": "live",
+      "status": "確定",
+      "note": "Hello! Project 2026 Winter - White Tails -（1/24 愛知）。ハロ！ステ#620 の 47:28〜51:22。ゆったり始まってテンポが上がるイントロが省略されている可能性が高く、そこにコールは入らない。テンポが安定するぶん拍が取りやすいので、拍もこの動画から取る"
+    },
+    "dantotsu-de-aishite": {
+      "title": "ダントツで愛して",
+      "videoId": "1gZuAxHTzDA",
+      "kind": "live",
+      "status": "要確認",
+      "note": "ハロ！ステ Live Edit.。番組なので中身を決めつけない。包絡線のテンポ揺らぎで判定する。バンド版ならMV 9_tlMNl81oQ へ差し替え"
+    },
+    "mappira-datteba": {
+      "title": "まっぴらだってば！",
+      "videoId": "IHVuMCwzmiY",
+      "kind": "live",
+      "status": "要確認",
+      "note": "ハロ！ステ Live Edit.。同上。バンド版ならMV TcEsANV5nac へ差し替え"
+    },
+    "lonely-but-not-alone": {
+      "title": "Lonely...But not Alone",
+      "videoId": "1hSOOSaPZZc",
+      "kind": "mv",
+      "status": "暫定",
+      "note": "Promotion Edit。ライブのフル映像が公式から出たら差し替える（短縮版はハロ！ステで紹介済みなので時間の問題）"
+    },
+    "waccha-future": {
+      "title": "ワッチャ☆フューチャー",
+      "videoId": "gqgBqDDyPZ0",
+      "kind": "mv",
+      "status": "暫定",
+      "note": "アップフロントチャンネル。版名の記載が無く実質MV。ライブのフル映像が出たら差し替える"
+    }
+  }
+}
