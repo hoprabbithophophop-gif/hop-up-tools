@@ -22,6 +22,8 @@ type Song = {
 export default function CallCenterPage() {
   const [songs, setSongs] = useState<Song[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** 曲ごとに、棚に入っているコールの数 */
+  const [counts, setCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     // 棚に繋がらなくても、同梱している曲は出す。
@@ -36,6 +38,16 @@ export default function CallCenterPage() {
           if (error) setError(error.message);
           else setSongs((data as Song[]) ?? []);
         });
+
+      // 曲ごとのコール数。開く前に中身の有無が分かるようにする。
+      getSupabase()
+        .rpc("count_calls_by_song")
+        .then(({ data }) => {
+          if (!data) return;
+          const m: Record<string, number> = {};
+          for (const r of data as { slug: string; n: number }[]) m[r.slug] = Number(r.n);
+          setCounts(m);
+        });
     } catch (e) {
       setError(String((e as Error)?.message ?? e));
       setSongs([]);
@@ -49,14 +61,16 @@ export default function CallCenterPage() {
    * いま11曲中10曲が空なので、当たりを引く前に帰ってしまう。
    */
   const countOf = (slug: string): number => {
-    const b = BUILT_IN_SONGS.find((x) => x.slug === slug);
+    const fromShelf = counts[slug] ?? 0;
+    if (fromShelf > 0) return fromShelf;
+    const b = BUILT_IN_SONGS.find((x) => x.slug === slug && !x.inShelf);
     const mine = loadLocalCalls(slug).length;
     return mine > 0 ? mine : b ? b.calls.length : 0;
   };
 
   const byGroup = new Map<string, Song[]>();
   // まだ棚に入れていない曲（アプリに同梱しているもの）も一緒に並べる
-  for (const b of BUILT_IN_SONGS) {
+  for (const b of BUILT_IN_SONGS.filter((x) => !x.inShelf)) {
     byGroup.set(b.groupName, [
       { id: b.slug, slug: b.slug, title: b.title, group_name: b.groupName, bpm: b.bpm },
     ]);

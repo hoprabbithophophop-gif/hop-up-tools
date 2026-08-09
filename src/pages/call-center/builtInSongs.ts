@@ -24,6 +24,8 @@ export type BuiltInVideo = {
 
 export type BuiltInSong = {
   slug: string;
+  /** すでに棚（Supabase）に入っているか。入っていれば同梱データは使わない */
+  inShelf?: boolean;
   title: string;
   groupName: string;
   bpm: number;
@@ -68,6 +70,8 @@ const isNotACall = (note: string) => /^[（(]/.test(note.trim());
 export const BUILT_IN_SONGS: BuiltInSong[] = [
   {
     slug: "arigato-beat",
+    // 2026-08-09 に棚へ入った。ここは記録として残すが、画面はもう棚から読む
+    inShelf: true,
     title: "ありがとビート",
     groupName: "BEYOOOOONDS",
     bpm: ARIGATO_BEAT_BPM,

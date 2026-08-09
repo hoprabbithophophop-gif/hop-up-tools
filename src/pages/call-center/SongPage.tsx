@@ -115,9 +115,10 @@ export default function SongPage() {
     // 骨組みは「あれば拍の線と区間が出る」飾り。無い曲もそのまま開ける。
     setSk(null);
 
-    // まだ棚に入れていない曲は、アプリに同梱したデータで開く
+    // まだ棚に入れていない曲は、アプリに同梱したデータで開く。
+    // 棚に入った曲は同梱を使わない（ありがとビートは 2026-08-09 に棚へ入った）。
     const builtIn = findBuiltInSong(slug);
-    if (builtIn) {
+    if (builtIn && !builtIn.inShelf) {
       setSong({
         id: builtIn.slug,
         slug: builtIn.slug,
