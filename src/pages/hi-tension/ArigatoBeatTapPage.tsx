@@ -35,6 +35,11 @@ export type TapPageCall = { t: number; lenSec: number; lenBeats: number; note: s
 
 type Props = {
   song?: TapPageSong;
+  /**
+   * すでに登録されているコール。採譜画面をゼロから始めさせないため。
+   * 端末に下書きが残っていればそちらを優先する（作業中のものを消さない）。
+   */
+  existing?: TapPageCall[];
   /** 「取り込む」ボタンを出したいときだけ渡す。渡さなければ書き出しボタンだけ */
   onSave?: (calls: TapPageCall[]) => void | Promise<void>;
   /** 保存先などの断り書き。渡されたときだけ、画面の上のほうに出す */
@@ -294,12 +299,19 @@ function TimelineView({ taps, dispT, snapGrid, beatSec, unit, refSec, playing, n
   );
 }
 
-export default function ArigatoBeatTapPage({ song, onSave, notice }: Props = {}) {
+export default function ArigatoBeatTapPage({ song, onSave, notice, existing }: Props = {}) {
   const playerRef = useRef<YouTubePlayerApi>(null);
   // 端末への保存先。曲を渡されたときは「曲ごと・動画ごと」に分ける
   // （叩いた秒はその動画の絶対秒なので、動画が違えば別物になるため）。
   const lsKey = song ? `call-center:tap:${song.slug}:${song.videoId}` : LS_KEY;
   const initial = useRef(loadSaved(lsKey, song?.videoId ?? DEFAULT_VIDEO, song?.bpm ?? 149));
+  // 端末に下書きが無く、すでに登録されているコールが渡されていれば、それを出発点にする
+  if (initial.current.taps.length === 0 && existing && existing.length > 0) {
+    initial.current = {
+      ...initial.current,
+      taps: existing.map((c) => ({ id: rid(), t: c.t, note: c.note, lenBeats: c.lenBeats })),
+    };
+  }
   const [videoId, setVideoId] = useState(song?.videoId ?? initial.current.videoId);
   const [videoInput, setVideoInput] = useState(song?.videoId ?? initial.current.videoId);
   const [taps, setTaps] = useState<Tap[]>(initial.current.taps);

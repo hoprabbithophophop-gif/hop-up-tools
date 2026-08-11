@@ -41,6 +41,7 @@ type Offset = {
   offset_sec: number;
   rate: number;
   note: string | null;
+  end_sec: number | null;
 };
 
 /** 動画の種類。いまは覚え書きの文面から見分けている（仮。専用の列を立てるまでのつなぎ） */
@@ -133,6 +134,7 @@ export default function SongPage() {
           offset_sec: v.offsetSec,
           rate: 1,
           note: v.label,
+          end_sec: null,
         })),
       );
       const mine = loadLocalCalls(slug);
@@ -166,7 +168,7 @@ export default function SongPage() {
     );
     getSupabase()
       .from("song_structures")
-      .select("id, slug, title, group_name, bpm, skeleton_digest, song_video_offsets(video_id, offset_sec, rate, note)")
+      .select("id, slug, title, group_name, bpm, skeleton_digest, song_video_offsets(video_id, offset_sec, rate, note, end_sec)")
       .eq("slug", slug)
       .maybeSingle()
       .then(({ data, error }) => {

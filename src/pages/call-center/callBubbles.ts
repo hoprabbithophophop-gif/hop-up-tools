@@ -176,15 +176,29 @@ export function toUnits(
     const units =
       [...callText].length <= KEEP_WHOLE_CHARS ? [callText] : splitMora(callText);
 
-    // 目盛りがあるときは、目盛りそのものを1本ずつ辿る。
-    // 秒数を等間隔で足すやり方だと、曲の途中でテンポが変わる曲で目盛りから外れてしまう。
+    /*
+     * 音をどの間隔で並べるか。
+     *
+     * **そのコールの長さ（何拍かけて言うか）を使う。** これは採譜した人が
+     * 「読み上げ終えるまでにこれだけかかる」と記録した値で、勝手に決めてよいものではない。
+     * 「ありがとう」は3.5拍、「ウォオッオッオッオー」は6拍かけて言う。
+     * 全部を半拍で置くと、長いコールほど早口になって実際と合わなくなる。
+     *
+     * そのうえで、置く場所は目盛りに吸着させる（拍に乗っていることが見えるように）。
+     * 長さが分からないときだけ、半拍を既定にする。
+     */
+    const spanSec = c.lenSec > 0 ? c.lenSec : (beatSec ?? 0.4) * 0.5 * units.length;
+    const stepSec = spanSec / units.length;
     const startIdx = grid.length > 0 ? snapIndex(grid, c.t) : -1;
+    let lastIdx = -1;
     const at = (i: number) => {
-      if (startIdx < 0) {
-        const step = beatSec && beatSec > 0 ? beatSec / 2 : (c.lenSec > 0 ? c.lenSec / Math.max(1, units.length) : 0.2);
-        return c.t + i * step;
-      }
-      return grid[Math.min(startIdx + i, grid.length - 1)].t;
+      const raw = c.t + i * stepSec;
+      if (grid.length === 0) return raw;
+      let idx = i === 0 ? startIdx : snapIndex(grid, raw);
+      if (idx <= lastIdx) idx = lastIdx + 1; // 同じ目盛りに2つ重ねない
+      idx = Math.min(idx, grid.length - 1);
+      lastIdx = idx;
+      return grid[idx].t;
     };
 
     units.forEach((u, unitIndex) =>

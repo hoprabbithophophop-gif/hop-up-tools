@@ -34,6 +34,13 @@ type Props = {
   videoId: string;
   /** 最初に頭出しする秒数 */
   startSeconds?: number;
+  /**
+   * ここまで再生したら止める秒数。
+   * 長い番組の一部だけを使う曲（ハロ！ステの中の1曲など）で、
+   * 曲が終わったあと番組が流れ続けるのを防ぐ。
+   * YouTube の仕組みにもともとある指定で、/youtube のチャプター再生も同じものを使っている。
+   */
+  endSeconds?: number;
   /** 再生・一時停止が切り替わったとき */
   onPlayingChange?: (playing: boolean) => void;
 };
@@ -56,7 +63,7 @@ function loadYouTubeApi(): Promise<void> {
 }
 
 const Player = forwardRef<PlayerApi, Props>(function Player(
-  { videoId, startSeconds = 0, onPlayingChange },
+  { videoId, startSeconds = 0, endSeconds, onPlayingChange },
   ref,
 ) {
   const playerRef = useRef<YT.Player | null>(null);
@@ -68,7 +75,7 @@ const Player = forwardRef<PlayerApi, Props>(function Player(
   }, [onPlayingChange]);
 
   // 最初の1回だけ作る。動画の切り替えは作り直さず、中身の入れ替えで行う。
-  const firstVideo = useRef({ videoId, startSeconds });
+  const firstVideo = useRef({ videoId, startSeconds, endSeconds });
 
   // 準備できる前に再生を頼まれたら、ここに覚えておいて準備完了時に再生する
   const wantPlayRef = useRef(false);
@@ -100,6 +107,9 @@ const Player = forwardRef<PlayerApi, Props>(function Player(
           modestbranding: 1,
           playsinline: 1,
           start: Math.max(0, Math.floor(firstVideo.current.startSeconds)),
+          ...(firstVideo.current.endSeconds
+            ? { end: Math.ceil(firstVideo.current.endSeconds) }
+            : {}),
         },
         events: {
           onReady: () => {
@@ -140,17 +150,21 @@ const Player = forwardRef<PlayerApi, Props>(function Player(
   useEffect(() => {
     if (!ready) return;
     if (videoId === firstVideo.current.videoId) return;
-    firstVideo.current = { videoId, startSeconds };
+    firstVideo.current = { videoId, startSeconds, endSeconds };
     try {
       (
         playerRef.current as unknown as {
-          cueVideoById?: (a: { videoId: string; startSeconds?: number }) => void;
+          cueVideoById?: (a: { videoId: string; startSeconds?: number; endSeconds?: number }) => void;
         }
-      )?.cueVideoById?.({ videoId, startSeconds: Math.max(0, startSeconds) });
+      )?.cueVideoById?.({
+        videoId,
+        startSeconds: Math.max(0, startSeconds),
+        ...(endSeconds ? { endSeconds: Math.ceil(endSeconds) } : {}),
+      });
     } catch {
       /* 切り替えに失敗しても画面は壊さない */
     }
-  }, [videoId, startSeconds, ready]);
+  }, [videoId, startSeconds, endSeconds, ready]);
 
   useImperativeHandle(
     ref,
