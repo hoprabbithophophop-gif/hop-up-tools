@@ -142,7 +142,24 @@ export default function SongPage() {
       };
     }
 
+    // 棚に入っているコールを読む。読めなければ端末に控えたものを出す。
+    // （棚が落ちても、自分で採譜したものは見られるようにしておく）
     setCalls(loadLocalCalls(slug));
+    getSupabase()
+      .from("song_structures").select("id").eq("slug", slug).maybeSingle()
+      .then(({ data }) => {
+        if (!alive || !data) return;
+        getSupabase()
+          .rpc("get_song_calls", { p_song_id: data.id })
+          .then(({ data: rows }) => {
+            if (!alive || !rows) return;
+            const fromShelf = (rows as { start_sec: number | null; len_sec: number | null; text: string | null }[])
+              .filter((r) => r.start_sec !== null && r.text)
+              .map((r) => ({ t: Number(r.start_sec), lenSec: Number(r.len_sec ?? 0.4), note: r.text as string }))
+              .sort((a, b) => a.t - b.t);
+            if (fromShelf.length > 0) setCalls(fromShelf);
+          });
+      });
     loadSkeleton(slug).then(
       (s) => alive && setSk(s),
       () => { /* 骨組みが無い曲。コールは秒で持っているのでこのまま表示できる */ },
