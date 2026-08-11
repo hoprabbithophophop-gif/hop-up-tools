@@ -116,6 +116,12 @@ const Player = forwardRef<PlayerApi, Props>(function Player(
             if (!alive) return;
             readyRef.current = true;
             setReady(true);
+            // 埋め込みの開始指定は整数秒しか受け付けないので、
+            // 準備できた時点で正確な秒へ合わせ直す（頭出しが0.1秒手前から始まるのを防ぐ）
+            const want = firstVideo.current.startSeconds;
+            if (want > 0 && Math.abs(want - Math.floor(want)) > 0.02) {
+              try { playerRef.current?.seekTo(want, true); } catch { /* まだ動かせないときは諦める */ }
+            }
             // 準備できる前に押されていた再生を、ここで実行する
             if (wantPlayRef.current) {
               wantPlayRef.current = false;
@@ -206,8 +212,9 @@ const Player = forwardRef<PlayerApi, Props>(function Player(
           return;
         }
         try {
-          // 終わったあとに押されたときは、頭に戻してから再生する
-          if (p.getPlayerState() === 0) p.seekTo(0, true);
+          // 終わったあとに押されたときは、その動画の開始位置へ戻してから再生する。
+          // 0に戻すと、番組の一部だけを使う曲（Miseryなど）で番組の先頭へ飛んでしまう。
+          if (p.getPlayerState() === 0) p.seekTo(firstVideo.current.startSeconds || 0, true);
           p.playVideo();
         } catch {
           /* 同上 */

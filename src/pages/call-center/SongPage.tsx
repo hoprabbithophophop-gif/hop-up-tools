@@ -42,6 +42,7 @@ type Offset = {
   rate: number;
   note: string | null;
   end_sec: number | null;
+  label: string | null;
 };
 
 /** 動画の種類。いまは覚え書きの文面から見分けている（仮。専用の列を立てるまでのつなぎ） */
@@ -66,14 +67,13 @@ const KIND_LABEL: Record<Kind, string> = {
 const KIND_ORDER: Record<Kind, number> = { lecture: 0, live: 1, other: 2, audio: 3 };
 
 /**
- * タブに出す名前。短い覚え書きが入っていればそれを、
- * 長い事情メモしか無いときは種類の名前を出す。
- * （動画の種類を持つ列ができたら、そちらを見るように差し替える）
+ * タブに出す名前。棚の名前の欄を見る。
+ * 以前は覚え書きの文面から当て推量していたが、覚え書きが長いと
+ * 「動画」という中身の無い名前に落ちていた（実測で確認）。
  */
 function tabLabel(o: Offset): string {
-  const note = (o.note ?? "").trim();
-  if (note !== "" && [...note].length <= 16) return note;
-  return KIND_LABEL[kindOf(o)];
+  const label = (o.label ?? "").trim();
+  return label !== "" ? label : KIND_LABEL[kindOf(o)];
 }
 
 /**
@@ -135,6 +135,7 @@ export default function SongPage() {
           rate: 1,
           note: v.label,
           end_sec: null,
+          label: v.label,
         })),
       );
       const mine = loadLocalCalls(slug);
@@ -168,7 +169,7 @@ export default function SongPage() {
     );
     getSupabase()
       .from("song_structures")
-      .select("id, slug, title, group_name, bpm, skeleton_digest, song_video_offsets(video_id, offset_sec, rate, note, end_sec)")
+      .select("id, slug, title, group_name, bpm, skeleton_digest, song_video_offsets(video_id, offset_sec, rate, note, end_sec, label)")
       .eq("slug", slug)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -322,6 +323,7 @@ export default function SongPage() {
               ref={playerRef}
               videoId={video.video_id}
               startSeconds={startAt}
+              endSeconds={video.end_sec ?? undefined}
               onPlayingChange={setPlaying}
             />
 
