@@ -6,9 +6,10 @@ import type { HiSession } from "../hi-tension/api";
 /**
  * 試作: 置く画面。
  *
+ * 画面いっぱいに収める（スクロールしない）。上から順に、動画・跳ねる面・ボタン。
  * 常時出るのは4つだけ（← 曲へ／▶再生・停止／！／？）。
- * 跳ねる客席はハイ！テンションの HandsCanvas をそのまま使い、絵だけ ✋ → ！ にしている。
- * 動画の上には何も重ねない（下の面で跳ねる）。
+ * 跳ねる面はハイ！テンションの HandsCanvas をそのまま使い、絵だけ「！の入った吹き出し」にしている。
+ * 動画の上には何も重ねない。
  *
  * 客席に出ているのは、ありがとビートに実際に登録されているコール104件。
  * ばらつきや人数はこちらで作らない（実際に人が叩いた結果としてしか出ないもの）。
@@ -35,7 +36,6 @@ const CALL_SEC = [
 // コールレクチャー動画。曲の0秒＝この動画の 3.108 秒
 const VIDEO_ID = "xr7_Z5ibZMA";
 const OFFSET = 3.108;
-const PINK = "#da1884";
 
 /**
  * すでに集まっているぶん。
@@ -75,7 +75,7 @@ export default function PopPrototypePage() {
 
   /**
    * 「！」＝自分のぶんが跳ねる。
-   * 押した瞬間（onPointerDown）に出す。指を離すのを待つと、その分そのまま遅れて感じる。
+   * 押した瞬間（onPointerDown）に出す。指を離すのを待つとその分そのまま遅れて感じる。
    * ハイ！テンションの✋ボタンも同じく onPointerDown で反応している。
    */
   const pressMark = (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -93,57 +93,63 @@ export default function PopPrototypePage() {
 
   return (
     <div style={S.page}>
-      <div style={S.wrap}>
-        <div style={S.head}>
-          <span style={S.back}>← 曲へ</span>
-          <span style={S.title}>ありがとビート</span>
-        </div>
+      {/* 上から順に固定。ページ全体はスクロールしない */}
+      <div style={S.head}>
+        <span style={S.back}>← 曲へ</span>
+        <span style={S.title}>ありがとビート</span>
+        <span style={S.count}>！ {marks} ／ ？ {holds}</span>
+      </div>
 
+      <div style={S.videoBox}>
         <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={() => setPlaying(false)} onTimeUpdate={onTime} />
+      </div>
 
-        <div style={S.row}>
-          <button style={S.play} onClick={togglePlay}>{playing ? "⏸ 停止" : "▶ 再生"}</button>
-          <span style={S.clock}>{fmt(nowSec)}</span>
-          <span style={S.count}>！ {marks} ／ ？ {holds}</span>
-        </div>
+      <div style={S.row}>
+        <button type="button" style={S.play} onClick={togglePlay}>{playing ? "⏸ 停止" : "▶ 再生"}</button>
+        <span style={S.clock}>{fmt(nowSec)}</span>
+      </div>
 
-        {/* 跳ねる面。動画の上には重ねない */}
-        <div style={S.stage}>
-          <HandsCanvas
-            ref={handsRef}
-            icon="mark"
-            sessions={COLLECTED}
-            selfMemberId="nishida"
-            selfSeatHash={7}
-            overrideColor={PINK}
-            scaleCount={300}
-            // 跳ねた頂点と絵の高さぶんを上に確保して、面の中に全部収める
-            topMargin={190}
-            freezeAge
-          />
-        </div>
+      {/* 跳ねる面。残りの高さを全部使う。動画の上には重ねない */}
+      <div style={S.stage}>
+        <HandsCanvas
+          ref={handsRef}
+          icon="mark"
+          sessions={COLLECTED}
+          selfMemberId="nishida"
+          selfSeatHash={7}
+          overrideColor="#ffffff"
+          scaleCount={300}
+          // 跳ねた頂点と絵の高さぶんを上に確保して、面の中に全部収める
+          topMargin={150}
+          freezeAge
+        />
+      </div>
 
-        <div style={S.btnRow}>
-          <button type="button" style={S.mark} onPointerDown={pressMark} onContextMenu={(e) => e.preventDefault()}>！</button>
-          <button type="button" style={S.hold} onPointerDown={pressHold} onContextMenu={(e) => e.preventDefault()}>？</button>
-        </div>
+      <div style={S.btnRow}>
+        <button type="button" style={S.mark} onPointerDown={pressMark} onContextMenu={(e) => e.preventDefault()}>！</button>
+        <button type="button" style={S.hold} onPointerDown={pressHold} onContextMenu={(e) => e.preventDefault()}>？</button>
       </div>
     </div>
   );
 }
 
 const S: Record<string, React.CSSProperties> = {
-  page: { background: "#000", minHeight: "100dvh", color: "#eee", fontFamily: "'Hiragino Sans','Noto Sans JP',system-ui,sans-serif" },
-  wrap: { maxWidth: 520, margin: "0 auto", padding: "10px 12px 24px" },
-  head: { display: "flex", alignItems: "center", gap: 10, margin: "2px 0 8px" },
+  page: {
+    background: "#000", color: "#eee", height: "100dvh", overflow: "hidden",
+    display: "flex", flexDirection: "column",
+    maxWidth: 520, margin: "0 auto", padding: "8px 10px 10px",
+    fontFamily: "'Hiragino Sans','Noto Sans JP',system-ui,sans-serif",
+  },
+  head: { display: "flex", alignItems: "center", gap: 10, flex: "0 0 auto", marginBottom: 6 },
   back: { fontSize: 12, color: "#9aa0a6" },
   title: { fontSize: 15, fontWeight: 800 },
-  row: { display: "flex", alignItems: "center", gap: 10, margin: "8px 2px" },
-  play: { background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "9px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
-  clock: { fontSize: 12, color: "#666", fontFamily: "ui-monospace,Menlo,Consolas,monospace" },
   count: { marginLeft: "auto", fontSize: 12, color: "#8a8a92", fontFamily: "ui-monospace,Menlo,Consolas,monospace" },
-  stage: { position: "relative", height: 380, background: "#0a0a0c", overflow: "hidden" },
-  btnRow: { display: "flex", gap: 8, marginTop: 10 },
-  mark: { flex: 1, background: PINK, color: "#fff", border: 0, padding: "26px 10px", fontSize: 34, fontWeight: 900, lineHeight: 1, cursor: "pointer", fontFamily: "inherit" },
-  hold: { flex: "0 0 84px", background: "#1f1f24", color: "#9aa0a6", border: 0, boxShadow: "inset 0 0 0 1px #4a4a52", fontSize: 22, fontWeight: 900, cursor: "pointer", fontFamily: "inherit" },
+  videoBox: { flex: "0 0 auto" },
+  row: { display: "flex", alignItems: "center", gap: 10, flex: "0 0 auto", margin: "6px 0" },
+  play: { background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
+  clock: { fontSize: 12, color: "#666", fontFamily: "ui-monospace,Menlo,Consolas,monospace" },
+  stage: { position: "relative", flex: "1 1 auto", minHeight: 0, background: "#0a0a0c", overflow: "hidden" },
+  btnRow: { display: "flex", gap: 8, flex: "0 0 auto", marginTop: 8 },
+  mark: { flex: 1, background: "#fff", color: "#000", border: 0, padding: "22px 10px", fontSize: 30, fontWeight: 900, lineHeight: 1, cursor: "pointer", fontFamily: "inherit" },
+  hold: { flex: "0 0 84px", background: "#1a1a1a", color: "#9aa0a6", border: 0, boxShadow: "inset 0 0 0 1px #4a4a52", fontSize: 22, fontWeight: 900, cursor: "pointer", fontFamily: "inherit" },
 };

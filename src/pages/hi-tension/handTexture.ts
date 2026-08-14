@@ -93,15 +93,88 @@ export function getHandOutlineTexture(): { texture: Texture; anchorX: number; an
  */
 export function getMarkTexture(): Texture {
   if (cachedMark) return cachedMark;
-  cachedMark = buildIconTexture(faExclamation);
+  cachedMark = buildBubble(false);
   return cachedMark;
 }
 
-/** 「！」の白フチ版（自分のぶんを群衆から見分けるため）。✋版と同じ作り。 */
+/** 吹き出しの白フチ版（自分のぶんを群衆から見分けるため）。✋版と同じ考え方。 */
 export function getMarkOutlineTexture(): { texture: Texture; anchorX: number; anchorY: number } {
   if (cachedMarkOutline) return cachedMarkOutline;
-  cachedMarkOutline = buildIconOutlineTexture(faExclamation);
-  return cachedMarkOutline;
+  const pad = 14;
+  return (cachedMarkOutline = {
+    texture: buildBubble(true, pad),
+    anchorX: 0.5,
+    anchorY: 1.0,
+  });
+}
+
+/**
+ * 「！」の入った吹き出しを1枚の絵にする。
+ *
+ * 色は Pixi の tint で塗るので、絵は白一色のシルエットで作る。
+ * 「！」は塗らずに“穴”として抜く（destination-out）。こうすると tint で吹き出しが塗られ、
+ * 「！」の部分だけ背景が透けて、吹き出しの中に！が入って見える。
+ * しっぽは下向き（席の位置＝下端中央から生えているように見せる）。
+ */
+function buildBubble(outline: boolean, pad = 0): Texture {
+  const W = 256;
+  const H = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = W + pad * 2;
+  canvas.height = H + pad * 2;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2d context not available");
+  ctx.translate(pad, pad);
+
+  // 吹き出しの本体（角の丸い四角）としっぽ
+  const bw = 208;
+  const bh = 158;
+  const bx = (W - bw) / 2;
+  const by = 8;
+  const r = 34;
+  const tailW = 34;
+  const tailH = 42;
+
+  const body = new Path2D();
+  body.moveTo(bx + r, by);
+  body.lineTo(bx + bw - r, by);
+  body.quadraticCurveTo(bx + bw, by, bx + bw, by + r);
+  body.lineTo(bx + bw, by + bh - r);
+  body.quadraticCurveTo(bx + bw, by + bh, bx + bw - r, by + bh);
+  // しっぽ（下端中央から下へ）
+  body.lineTo(W / 2 + tailW / 2, by + bh);
+  body.lineTo(W / 2, by + bh + tailH);
+  body.lineTo(W / 2 - tailW / 2, by + bh);
+  body.lineTo(bx + r, by + bh);
+  body.quadraticCurveTo(bx, by + bh, bx, by + bh - r);
+  body.lineTo(bx, by + r);
+  body.quadraticCurveTo(bx, by, bx + r, by);
+  body.closePath();
+
+  ctx.fillStyle = "#ffffff";
+  if (outline) {
+    // フチ版は同じ形を太いストロークで膨らませる（✋の白フチと同じ考え方）
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 26;
+    ctx.lineJoin = "round";
+    ctx.stroke(body);
+  }
+  ctx.fill(body);
+
+  // 「！」を穴として抜く
+  const [iconW, iconH, , , pathData] = faExclamation.icon;
+  const path = Array.isArray(pathData) ? pathData.join(" ") : pathData;
+  const markH = 104;
+  const s = markH / iconH;
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.save();
+  ctx.translate(W / 2 - (iconW * s) / 2, by + bh / 2 - markH / 2);
+  ctx.scale(s, s);
+  ctx.fill(new Path2D(path));
+  ctx.restore();
+  ctx.globalCompositeOperation = "source-over";
+
+  return Texture.from(canvas);
 }
 
 /** 縦に細い「！」でも潰れないよう、幅の狭いアイコンは横に余白を足して正方形に近づける */
