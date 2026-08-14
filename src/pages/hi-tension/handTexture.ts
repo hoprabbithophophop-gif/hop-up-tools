@@ -1,10 +1,12 @@
 // FontAwesome Free Solid "hand" icon (CC BY 4.0)
 // 帰属表示: フッターに「Hand icon by Font Awesome (CC BY 4.0)」を記載
-import { faHand } from "@fortawesome/free-solid-svg-icons";
+import { faHand, faExclamation } from "@fortawesome/free-solid-svg-icons";
 import { Texture } from "pixi.js";
 
 let cachedTexture: Texture | null = null;
 let cachedOutline: { texture: Texture; anchorX: number; anchorY: number } | null = null;
+let cachedMark: Texture | null = null;
+let cachedMarkOutline: { texture: Texture; anchorX: number; anchorY: number } | null = null;
 
 /**
  * FA hand アイコンのパスを Canvas に Path2D で直接描画し、PIXI.Texture にする。
@@ -82,6 +84,78 @@ export function getHandOutlineTexture(): { texture: Texture; anchorX: number; an
     anchorY: (pad + h) / (h + pad * 2),
   };
   return cachedOutline;
+}
+
+/**
+ * 「！」テクスチャ。✋とまったく同じ作り方（FontAwesome のパスを Path2D で直接描画）で、
+ * 形だけ exclamation に差し替えたもの。コール情報集約センターで使う。
+ * ✋側の関数には一切手を触れていないので、ハイ！テンションの見た目は変わらない。
+ */
+export function getMarkTexture(): Texture {
+  if (cachedMark) return cachedMark;
+  cachedMark = buildIconTexture(faExclamation);
+  return cachedMark;
+}
+
+/** 「！」の白フチ版（自分のぶんを群衆から見分けるため）。✋版と同じ作り。 */
+export function getMarkOutlineTexture(): { texture: Texture; anchorX: number; anchorY: number } {
+  if (cachedMarkOutline) return cachedMarkOutline;
+  cachedMarkOutline = buildIconOutlineTexture(faExclamation);
+  return cachedMarkOutline;
+}
+
+/** 縦に細い「！」でも潰れないよう、幅の狭いアイコンは横に余白を足して正方形に近づける */
+function buildIconTexture(icon: typeof faHand): Texture {
+  const [iconW, iconH, , , pathData] = icon.icon;
+  const path = Array.isArray(pathData) ? pathData.join(" ") : pathData;
+  const renderSize = 256;
+  const scale = renderSize / Math.max(iconW, iconH);
+  const w = Math.max(1, Math.round(iconW * scale));
+  const h = Math.max(1, Math.round(iconH * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2d context not available");
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill(new Path2D(path));
+  return Texture.from(canvas);
+}
+
+function buildIconOutlineTexture(icon: typeof faHand): { texture: Texture; anchorX: number; anchorY: number } {
+  const [iconW, iconH, , , pathData] = icon.icon;
+  const path = Array.isArray(pathData) ? pathData.join(" ") : pathData;
+  const renderSize = 256;
+  const scale = renderSize / Math.max(iconW, iconH);
+  const w = Math.max(1, Math.round(iconW * scale));
+  const h = Math.max(1, Math.round(iconH * scale));
+
+  const strokeIcon = 65;
+  const pad = Math.ceil((strokeIcon * scale) / 2) + 2;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w + pad * 2;
+  canvas.height = h + pad * 2;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2d context not available");
+  ctx.translate(pad, pad);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = strokeIcon;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  const p = new Path2D(path);
+  ctx.stroke(p);
+  ctx.fill(p);
+
+  return {
+    texture: Texture.from(canvas),
+    anchorX: (pad + w / 2) / (w + pad * 2),
+    anchorY: (pad + h) / (h + pad * 2),
+  };
 }
 
 /**

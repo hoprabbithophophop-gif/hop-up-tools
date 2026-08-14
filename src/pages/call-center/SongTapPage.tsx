@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { getSupabase } from "@/lib/supabase";
 import ArigatoBeatTapPage, { type TapPageCall } from "../hi-tension/ArigatoBeatTapPage";
-import { loadSkeleton, toSongSec } from "./skeleton";
-import { saveLocalCalls, type LocalCall } from "./localCalls";
+import { loadSkeleton, toSongSec, toVideoSec } from "./skeleton";
+import { loadLocalCalls, saveLocalCalls, type LocalCall } from "./localCalls";
 import { findBuiltInSong } from "./builtInSongs";
 import { ensureCanWrite } from "@/lib/anonAuth";
 import HumanCheckGate from "@/components/HumanCheckGate";
@@ -39,6 +39,9 @@ export default function SongTapPage() {
   const [song, setSong] = useState<Song | null>(null);
   const [offsets, setOffsets] = useState<Offset[]>([]);
   const [bpmHint, setBpmHint] = useState<number | undefined>(undefined);
+  // すでに登録されているコール（曲の時計での秒数）。採譜画面を白紙から始めさせないため。
+  const [known, setKnown] = useState<LocalCall[]>([]);
+  const [knownReady, setKnownReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [posting, setPosting] = useState<string | null>(null);
   // 人間確認を出しているあいだ、答えが返るまで待つための受け皿
@@ -101,8 +104,40 @@ export default function SongTapPage() {
     };
   }, [slug]);
 
+  // すでに登録されているコールを読む。まず端末の控え、読めれば棚のもので上書きする。
+  // 別の端末で開いたときや下書きを消したときに、白紙から始まってしまうのを防ぐ。
+  useEffect(() => {
+    let alive = true;
+    setKnownReady(false);
+    setKnown(loadLocalCalls(slug));
+    // 棚に繋がらないときも採譜は続けられる（端末の控えで始める）ので、失敗しても止めない
+    try {
+      getSupabase()
+        .from("song_structures").select("id").eq("slug", slug).maybeSingle()
+        .then(({ data }) => {
+          if (!alive) return;
+          if (!data) return setKnownReady(true);
+          getSupabase()
+            .rpc("get_song_calls", { p_song_id: data.id })
+            .then(({ data: rows }) => {
+              if (!alive) return;
+              const fromShelf = ((rows ?? []) as { start_sec: number | null; len_sec: number | null; text: string | null }[])
+                .filter((r) => r.start_sec !== null && r.text)
+                .map((r) => ({ t: Number(r.start_sec), lenSec: Number(r.len_sec ?? 0.4), note: r.text as string }))
+                .sort((a, b) => a.t - b.t);
+              if (fromShelf.length > 0) setKnown(fromShelf);
+              setKnownReady(true);
+            }, () => alive && setKnownReady(true));
+        }, () => alive && setKnownReady(true));
+    } catch {
+      setKnownReady(true);
+    }
+    return () => { alive = false; };
+  }, [slug]);
+
   if (error) return <Notice>{error}</Notice>;
   if (!song) return <Notice>読み込み中…</Notice>;
+  if (!knownReady) return <Notice>読み込み中…</Notice>;
 
   const video = offsets.find((o) => o.video_id === wantVideo) ?? offsets[0];
   if (!video) {
@@ -117,6 +152,10 @@ export default function SongTapPage() {
    * 3) 棚へ入れる。どういう条件で置いたか（来歴）も一緒に残す
    */
   const onSave = async (calls: TapPageCall[]) => {
+    // 言葉が空の行は押し間違いとして落とす。
+    // 「？」（何て言ってるか分からない場所）は落とさずに送る。
+    // 「ここで何か言っていた」という位置そのものが情報で、コールの入れどころを心得ている人が
+    // 見たときに「あ、ここも何か言ってたな」と思い出すきっかけになるため。
     const converted: LocalCall[] = calls
       .filter((c) => c.note.trim() !== "")
       .map((c) => ({
@@ -132,7 +171,8 @@ export default function SongTapPage() {
     setPosting("入場の確認中…");
     try {
       const ok = await ensureCanWrite(askForToken);
-      if (!ok) { setPosting(null); return; }
+      // 入場の確認をやめたときも、曲ページへは戻さずその場に留まらせる
+      if (!ok) { setPosting(null); throw new Error("入場の確認をやめました"); }
 
       setPosting("送っています…");
       const db = getSupabase();
@@ -163,6 +203,8 @@ export default function SongTapPage() {
     } catch (err) {
       setPosting(`送れませんでした（${(err as Error).message}）。手元には残っています`);
       setTimeout(() => setPosting(null), 6000);
+      // 採譜画面へ知らせる＝失敗したら曲ページへ戻さず、その場に留まらせる
+      throw err;
     }
   };
 
@@ -179,6 +221,17 @@ export default function SongTapPage() {
        */
       notice="取り込むと、まず手元に控えてから送ります。送れなくても手元には残ります。"
       key={video.video_id}
+      /*
+       * すでに登録されているコールを出発点にする。持っているのは「曲の何秒目か」なので、
+       * この動画の再生位置に直してから渡す（同じ曲でも動画が違えば秒がずれるため）。
+       * 端末に下書きが残っていれば、採譜画面側がそちらを優先する。
+       */
+      existing={known.map((c) => ({
+        t: Math.round(toVideoSec(c.t, video.offset_sec, video.rate) * 1000) / 1000,
+        lenSec: c.lenSec,
+        lenBeats: bpmHint ? Math.round((c.lenSec / (60 / bpmHint)) * 10) / 10 : 1,
+        note: c.note,
+      }))}
       song={{
         slug: song.slug,
         title: song.title,

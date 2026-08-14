@@ -118,8 +118,10 @@ export default function SongPage() {
 
     // まだ棚に入れていない曲は、アプリに同梱したデータで開く。
     // 棚に入った曲は同梱を使わない（ありがとビートは 2026-08-09 に棚へ入った）。
+    // ただし棚に繋がらないときは、同梱があればそちらで開く（下の catch から呼ぶ）。
     const builtIn = findBuiltInSong(slug);
-    if (builtIn && !builtIn.inShelf) {
+    const openWithBuiltIn = () => {
+      if (!builtIn) return false;
       setSong({
         id: builtIn.slug,
         slug: builtIn.slug,
@@ -140,46 +142,59 @@ export default function SongPage() {
       );
       const mine = loadLocalCalls(slug);
       setCalls(mine.length > 0 ? mine : builtIn.calls);
+      return true;
+    };
+
+    if (builtIn && !builtIn.inShelf) {
+      openWithBuiltIn();
       return () => {
         alive = false;
       };
     }
 
-    // 棚に入っているコールを読む。読めなければ端末に控えたものを出す。
-    // （棚が落ちても、自分で採譜したものは見られるようにしておく）
-    setCalls(loadLocalCalls(slug));
-    getSupabase()
-      .from("song_structures").select("id").eq("slug", slug).maybeSingle()
-      .then(({ data }) => {
-        if (!alive || !data) return;
-        getSupabase()
-          .rpc("get_song_calls", { p_song_id: data.id })
-          .then(({ data: rows }) => {
-            if (!alive || !rows) return;
-            const fromShelf = (rows as { start_sec: number | null; len_sec: number | null; text: string | null }[])
-              .filter((r) => r.start_sec !== null && r.text)
-              .map((r) => ({ t: Number(r.start_sec), lenSec: Number(r.len_sec ?? 0.4), note: r.text as string }))
-              .sort((a, b) => a.t - b.t);
-            if (fromShelf.length > 0) setCalls(fromShelf);
-          });
-      });
+    // 骨組みは棚と関係なく静的ファイルから読む
     loadSkeleton(slug).then(
       (s) => alive && setSk(s),
       () => { /* 骨組みが無い曲。コールは秒で持っているのでこのまま表示できる */ },
     );
-    getSupabase()
-      .from("song_structures")
-      .select("id, slug, title, group_name, bpm, skeleton_digest, song_video_offsets(video_id, offset_sec, rate, note, end_sec, label)")
-      .eq("slug", slug)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (!alive) return;
-        if (error) return setError(error.message);
-        if (!data) return setError("この曲は見つかりませんでした");
-        const d = data as unknown as Song & { song_video_offsets: Offset[] };
-        setSong(d);
-        setRawOffsets(d.song_video_offsets ?? []);
-      });
+
+    // 棚に入っているコールを読む。読めなければ端末に控えたものを出す。
+    // （棚が落ちても、自分で採譜したものは見られるようにしておく）
+    setCalls(loadLocalCalls(slug));
+    try {
+      getSupabase()
+        .from("song_structures").select("id").eq("slug", slug).maybeSingle()
+        .then(({ data }) => {
+          if (!alive || !data) return;
+          getSupabase()
+            .rpc("get_song_calls", { p_song_id: data.id })
+            .then(({ data: rows }) => {
+              if (!alive || !rows) return;
+              const fromShelf = (rows as { start_sec: number | null; len_sec: number | null; text: string | null }[])
+                .filter((r) => r.start_sec !== null && r.text)
+                .map((r) => ({ t: Number(r.start_sec), lenSec: Number(r.len_sec ?? 0.4), note: r.text as string }))
+                .sort((a, b) => a.t - b.t);
+              if (fromShelf.length > 0) setCalls(fromShelf);
+            }, () => { /* 読めなければ端末の控えのまま */ });
+        }, () => { /* 同上 */ });
+
+      getSupabase()
+        .from("song_structures")
+        .select("id, slug, title, group_name, bpm, skeleton_digest, song_video_offsets(video_id, offset_sec, rate, note, end_sec, label)")
+        .eq("slug", slug)
+        .maybeSingle()
+        .then(({ data, error }) => {
+          if (!alive) return;
+          if (error) return openWithBuiltIn() || setError(error.message);
+          if (!data) return openWithBuiltIn() || setError("この曲は見つかりませんでした");
+          const d = data as unknown as Song & { song_video_offsets: Offset[] };
+          setSong(d);
+          setRawOffsets(d.song_video_offsets ?? []);
+        }, () => { alive && !openWithBuiltIn() && setError("いま棚に繋がりません"); });
+    } catch {
+      // 棚そのものが使えない（設定が無い等）。同梱があればそれで開く
+      if (!openWithBuiltIn()) setError("いま棚に繋がりません");
+    }
     return () => {
       alive = false;
     };

@@ -20,6 +20,8 @@ const ArigatoBeatQuizPage = lazy(() => import("./pages/hi-tension/ArigatoBeatQui
 const CallCenterPage  = lazy(() => import("./pages/call-center/CallCenterPage"));
 const CallCenterSongPage = lazy(() => import("./pages/call-center/SongPage"));
 const CallCenterSongTapPage = lazy(() => import("./pages/call-center/SongTapPage"));
+// 判断用の試作（！が跳ねる見え方を決めるためだけのもの。答えが出たら消す）
+const CallCenterPopPrototypePage = lazy(() => import("./pages/call-center/PopPrototypePage"));
 const PrivacyPage     = lazy(() => import("./pages/PrivacyPage"));
 const TermsPage       = lazy(() => import("./pages/TermsPage"));
 const NotFoundPage    = lazy(() => import("./pages/NotFoundPage"));
@@ -46,6 +48,7 @@ function AnimatedRoutes() {
         <Route path="/call-center" element={<CallCenterPage />} />
         <Route path="/call-center/song/:slug" element={<CallCenterSongPage />} />
         <Route path="/call-center/song/:slug/tap" element={<CallCenterSongTapPage />} />
+        <Route path="/call-center/pop-prototype" element={<CallCenterPopPrototypePage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="*" element={<NotFoundPage />} />

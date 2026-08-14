@@ -12,7 +12,7 @@ import {
 // import そのものに副作用があるので、pixi.js の他 import より前に置く。
 import "pixi.js/unsafe-eval";
 import { Application, Container, PerspectiveMesh, Sprite, Texture, Ticker } from "pixi.js";
-import { getHandTexture, getHandOutlineTexture, seatFromHash } from "../handTexture";
+import { getHandTexture, getHandOutlineTexture, getMarkTexture, getMarkOutlineTexture, seatFromHash } from "../handTexture";
 import { findMember } from "../data";
 import type { HiSession } from "../api";
 
@@ -43,6 +43,18 @@ interface Props {
   reduceMotion?: boolean;
   /** 診断用: Pixi/WebGL 関連イベントを親に通知（後で削除） */
   onPixiEvent?: (event: string, detail?: string) => void;
+  /**
+   * 湧かす絵。既定は "hand"（✋）＝ハイ！テンションのこれまでどおり。
+   * "mark" にすると「！」になる（コール情報集約センター用）。
+   * 変えるのは絵だけで、席の作りも跳ね方も一切変えない。
+   */
+  icon?: "hand" | "mark";
+  /**
+   * 上に空けておく余白(px)。既定は 80（＝ハイ！テンションのこれまでどおり）。
+   * ここを跳躍量＋絵の高さより大きくすると、跳ねが上端で切れずに全部収まる。
+   * 高さの低い面で使うときに指定する。
+   */
+  topMargin?: number;
 }
 
 // バケットインデックスに紐づく「(セッション, このバケットでの押下回数)」
@@ -140,9 +152,13 @@ function easeOutCubic(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN },
   ref,
 ) {
+  // 絵の種類は起動時に1回だけ見る（途中で切り替える使い方はしない）
+  const iconRef = useRef<"hand" | "mark">(icon);
+  const topMarginRef = useRef<number>(topMargin);
+  useEffect(() => { topMarginRef.current = topMargin; }, [topMargin]);
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const textureRef = useRef<Texture | null>(null);
@@ -388,7 +404,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       const selfContainer = selfContainerRef.current;
       if (!container || !selfContainer) { onPixiEventRef.current?.("pixi_init_fail", "no container"); return; }
 
-      const texture = getHandTexture();
+      const texture = iconRef.current === "mark" ? getMarkTexture() : getHandTexture();
 
       // 群衆用と自分用、2つの pixi を作る（自分用キャンバスは DOM で✋ボタンより上に重ねる）。
       const crowdApp = new Application();
@@ -504,7 +520,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     let node: Sprite | Container;
     if (params.isSelf) {
       const container = new Container();
-      const outlineTex = getHandOutlineTexture();
+      const outlineTex = iconRef.current === "mark" ? getMarkOutlineTexture() : getHandOutlineTexture();
       const outline = new Sprite(outlineTex.texture);
       outline.anchor.set(outlineTex.anchorX, outlineTex.anchorY); // 中身の手を本体とぴったり重ねる
       outline.scale.set(spriteScale);
@@ -548,8 +564,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
 
     // 上端に TOP_MARGIN 分の余白を確保した残り領域に着地点を配置する。
     // これで yRatio が小さい(=上寄りの)席でも、跳躍が上端で見切れない。
-    const usableH = Math.max(1, h - TOP_MARGIN);
-    const baselineY = TOP_MARGIN + params.yRatio * usableH;
+    const usableH = Math.max(1, h - topMarginRef.current);
+    const baselineY = topMarginRef.current + params.yRatio * usableH;
     node.x = params.xRatio * w;
     node.y = baselineY;
 
