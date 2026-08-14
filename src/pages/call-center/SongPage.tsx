@@ -438,8 +438,12 @@ export default function SongPage() {
             {playing ? "再生中" : "停止中"}
           </div>
 
-          <Link to={`/call-center/song/${song.slug}/tap?v=${video.video_id}`} style={S.tapLink}>
-            この動画でコールを採譜する
+          {/* 置く入口を一等地に。採譜（ひと続きの長い掛け声を入れられる唯一の道）は下に小さく */}
+          <Link to={`/call-center/song/${song.slug}/place`} style={S.tapLink}>
+            現場でコールを聞いたことがある【仮】
+          </Link>
+          <Link to={`/call-center/song/${song.slug}/tap?v=${video.video_id}`} style={S.subTapLink}>
+            聞き取って全部書き込む（上級）【仮】
           </Link>
 
           {/* 曲の作りと拍の情報は、骨組みがある曲にだけ出る */}
@@ -611,6 +615,15 @@ const S: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     textAlign: "center",
     textDecoration: "none",
+  },
+  /** 採譜への道。置く入口に一等地を譲って、下に小さく残す */
+  subTapLink: {
+    display: "block",
+    marginTop: 8,
+    fontSize: 11.5,
+    color: "#8B8B85",
+    textAlign: "center",
+    textDecoration: "underline",
   },
 
   sectionList: { display: "flex", flexDirection: "column", gap: 2 },
