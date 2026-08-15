@@ -82,3 +82,25 @@ language sql stable security definer set search_path = '' as $$
 $$;
 
 grant execute on function public.get_song_tap_counts(uuid) to anon, authenticated;
+
+-- ── 追記（2026-08-15 適用済み）: ！に付けた言葉 ─────────────
+-- i番目の！に付けた言葉（付けなかった要素は null）。秒・色の列と必ず同じ長さ。
+-- 1語の上限12文字は入力欄側で縛る（配列要素ごとのCHECKはSQLでは書けない）。
+
+alter table public.call_tap_sessions
+  add column mark_words text[];
+
+alter table public.call_tap_sessions
+  add constraint call_tap_sessions_words_len_match
+  check (mark_words is null or cardinality(mark_words) = cardinality(mark_secs));
+
+-- 総量の上限（乱用対策）
+alter table public.call_tap_sessions
+  add constraint call_tap_sessions_words_total_len
+  check (mark_words is null or char_length(array_to_string(mark_words, '')) <= 60000);
+
+comment on column public.call_tap_sessions.mark_words is
+  'i番目の！に付けた言葉（コールの文字。例: オイ！／ウォオッオッオッオー）。付けなかった要素は null。列ごと null は「言葉なしで送った参加」。mark_secs と必ず同じ長さ。1語の上限12文字は入力欄側で縛る。';
+
+-- 読みの入館証を出し直す（created_by は引き続き外に見せない）
+grant select (mark_words) on public.call_tap_sessions to anon, authenticated;

@@ -41,8 +41,8 @@ type Video = { video_id: string; offset_sec: number; rate: number; label: string
 /** 振り返り画面を何が呼び出したか。ボタンの並びが変わる */
 type ReviewTrigger = "ended" | "back";
 
-/** 1回の「！」。時刻・そのとき選んでいた色・その色が誰の色か（棚に送る用） */
-type MarkEntry = { id: number; sec: number; colorHex: string; memberId: string | null };
+/** 1回の「！」。時刻・そのとき選んでいた色・その色が誰の色か・付けた言葉（棚に送る用） */
+type MarkEntry = { id: number; sec: number; colorHex: string; memberId: string | null; word: string | null };
 
 /** 色えらびの1粒（＝チップ）。表示名は出さないので色さえ引ければよい */
 type ChipMember = { name: string; color: string };
@@ -107,7 +107,15 @@ function hashSessionKey(rowId: string, memberKey: string): number {
 
 // mark_secs は numeric[] なので、PostgREST の版によっては要素が文字列で来ることがある。
 // Number() で必ず数へ直してから使う（calls.start_sec 等、既存コードの numeric 変換と同じ流儀）。
-type TapRow = { id: string; mark_secs: (number | string)[] | null; mark_member_ids: (string | null)[] | null; created_at: string };
+// mark_words は 2026-08-15 に棚へ適用済み（scripts/song-structure/create-call-tap-sessions.sql の追記参照）。
+// 言葉なしで送られた行は列ごと null で来る。
+type TapRow = {
+  id: string;
+  mark_secs: (number | string)[] | null;
+  mark_member_ids: (string | null)[] | null;
+  mark_words: (string | null)[] | null;
+  created_at: string;
+};
 
 function tapRowsToSessions(rows: TapRow[]): HiSession[] {
   const today = new Date().toISOString().slice(0, 10);
@@ -138,6 +146,47 @@ function tapRowsToSessions(rows: TapRow[]): HiSession[] {
   return out;
 }
 
+/** 秒と言葉の対。候補チップの元データ（跳ねる面には使わない。tapRowsToSessions とは別に保持する） */
+type WordPair = { sec: number; word: string };
+
+/** 棚から読んだ行から「秒と言葉の対」だけを抜き出す（言葉が付いていないものは除く） */
+function extractWordPairs(rows: TapRow[]): WordPair[] {
+  const out: WordPair[] = [];
+  for (const row of rows) {
+    const secs = (row.mark_secs ?? []).map(Number);
+    const words = row.mark_words ?? [];
+    secs.forEach((sec, i) => {
+      const w = words[i];
+      if (w) out.push({ sec, word: w });
+    });
+  }
+  return out;
+}
+
+/**
+ * ある！の候補チップを作る。範囲はその！の秒の前後4拍（BPMが出せなければ前後2秒）。
+ * 出どころは2つ: 棚から読んだ他の参加者の言葉（crowdWords）と、この参加で自分が
+ * 既に付けた言葉（marks・対象自身は除く）。同じ言葉はまとめて多い順、最大8個。
+ */
+function candidateWords(target: MarkEntry, marks: MarkEntry[], crowdWords: WordPair[]): string[] {
+  const beatSec = estimateBeatSec(marks);
+  const windowSec = beatSec ? 4 * beatSec : 2;
+  const lo = target.sec - windowSec;
+  const hi = target.sec + windowSec;
+  const counts = new Map<string, number>();
+  const add = (w: string) => counts.set(w, (counts.get(w) ?? 0) + 1);
+  for (const cw of crowdWords) {
+    if (cw.sec >= lo && cw.sec <= hi) add(cw.word);
+  }
+  for (const mk of marks) {
+    if (mk.id !== target.id && mk.word && mk.sec >= lo && mk.sec <= hi) add(mk.word);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([w]) => w);
+}
+
 /** 見返すときに何秒巻き戻すか。BPMが出せなかったときの代わり ※仮 */
 const REWIND_SEC = 5;
 
@@ -150,9 +199,25 @@ function median(xs: number[]): number {
 }
 
 /**
+ * 間隔を 0.30〜0.60秒（＝100〜200BPM）の窓へ、倍・半分で折り返す。
+ * 曲は100〜200BPMの範囲という前提（オーナー承認済み）。遅いバラードは倍に読むことになるが、
+ * カウントイン用途では拍として破綻しない（2拍を1拍と数えるだけで、数字がズレても実害は無い）。
+ *
+ * 単純な「全間隔の中央値」だと、1拍ごとに叩いた山（0.4秒台）と2拍ごとに叩いた山（0.8秒台）の
+ * 谷間に中央値が落ちる欠陥がある（実データで確認済み: 素の中央値0.667秒=90BPM、実際は146BPM）。
+ * 折り返してから中央値を取ることで、この谷間落ちを避ける。
+ */
+function foldToBeatWindow(x: number): number {
+  let y = x;
+  while (y < 0.30) y *= 2;
+  while (y >= 0.60) y /= 2;
+  return y;
+}
+
+/**
  * この参加で叩いた間隔から、大まかな拍の長さ（秒）を見積もる。
- * 採譜画面と同じやり方: 隣り合う間隔のうち 0.15〜3秒 のものだけを集めて中央値を取る。
- * 倍・半分の取り違えはあり得るが、カウントインの用途なら細かい正確さは要らない。
+ * 採譜画面と同じやり方: 隣り合う間隔のうち 0.15〜3秒 のものだけを集め（ふるい）、
+ * それぞれを foldToBeatWindow で折り返してから中央値を取る。
  * 有効な間隔が少なすぎるとき（4個未満 ※仮）は null＝BPMが出せない扱いにする。
  */
 function estimateBeatSec(marks: MarkEntry[]): number | null {
@@ -163,7 +228,7 @@ function estimateBeatSec(marks: MarkEntry[]): number | null {
     if (d > 0.15 && d < 3) intervals.push(d);
   }
   if (intervals.length < 4) return null;
-  return median(intervals);
+  return median(intervals.map(foldToBeatWindow));
 }
 
 /** 見返しのカウントイン先。対象の秒・拍の長さ・その！の色（カウントイン明けに出す） */
@@ -196,6 +261,11 @@ export default function PlacePage() {
   // 振り返りの「見返す」で、カウントイン中の対象。無ければ固定巻き戻しのまま（バナーも出さない）
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
   const [previewStep, setPreviewStep] = useState<string | null>(null);
+  // 棚から読んだ、他の参加者が付けた「秒と言葉の対」。候補チップの元データ
+  const [crowdWords, setCrowdWords] = useState<WordPair[]>([]);
+  // 振り返り画面で、今どの！の言葉を編集中か。行の本体を押すと開く（別画面にはしない）
+  const [editingMarkId, setEditingMarkId] = useState<number | null>(null);
+  const [wordDraft, setWordDraft] = useState("");
 
   const [reviewTrigger, setReviewTrigger] = useState<ReviewTrigger | null>(null);
   const [sending, setSending] = useState(false);
@@ -331,19 +401,23 @@ export default function PlacePage() {
           // 過去の参加者が叩いたぶんも、同じ動画のものだけ跳ねる面に流す
           // （動画が違うと秒の物差しも違うので混ぜない＝ハイ！テンションの「動画ごとに客席を分ける」流儀と同じ）。
           // 件数はキリなく増えるので直近200行に絞る（過去のディスク負荷事故の再発防止）。
-          // 棚（テーブル）がまだ無くても置く画面は成り立つよう、失敗しても黙って諦める。
+          // 読みに失敗しても置く画面は成り立つよう、黙って諦める（跳ねと候補が出ないだけ）。
+          // mark_words は跳ねる面には使わない（tapRowsToSessions は今までどおり）。
+          // 候補チップに使う「秒と言葉の対」だけ別途 crowdWords に持っておく。
           getSupabase()
             .from("call_tap_sessions")
-            .select("id, mark_secs, mark_member_ids, created_at")
+            .select("id, mark_secs, mark_member_ids, mark_words, created_at")
             .eq("song_id", d.id)
             .eq("video_id", v.video_id)
             .order("created_at", { ascending: false })
             .limit(200)
             .then(({ data: tapRows }) => {
               if (!alive || !tapRows) return;
-              const crowd = tapRowsToSessions(tapRows as TapRow[]);
-              if (crowd.length === 0) return;
-              setSessions((prev) => [...prev, ...crowd]);
+              const rows = tapRows as TapRow[];
+              const crowd = tapRowsToSessions(rows);
+              if (crowd.length > 0) setSessions((prev) => [...prev, ...crowd]);
+              const words = extractWordPairs(rows);
+              if (words.length > 0) setCrowdWords((prev) => [...prev, ...words]);
             }, () => { /* 読めなくても置く画面は成り立つ */ });
         }, () => { if (alive && !openBuiltIn()) setError("いま棚に繋がりません"); });
     } catch {
@@ -410,7 +484,7 @@ export default function PlacePage() {
     handsRef.current?.spawnSelf(colorHex);
     const sec = Math.round((playerRef.current?.getCurrentTime() ?? 0) * 1000) / 1000;
     const id = ++markIdRef.current;
-    setMarks((arr) => [...arr, { id, sec, colorHex, memberId: colorIdToMemberId(currentColor) }]);
+    setMarks((arr) => [...arr, { id, sec, colorHex, memberId: colorIdToMemberId(currentColor), word: null }]);
   };
 
   /** 「曲へ」。叩きが残っていれば振り返りを挟む。ゼロならそのまま戻る */
@@ -457,6 +531,26 @@ export default function PlacePage() {
     setMarks((arr) => arr.map((m) => (m.id === id ? { ...m, colorHex, memberId } : m)));
   };
 
+  /** 振り返り画面で、行の本体を押すと言葉の入力に変わる（別画面にはしない） */
+  const startEditWord = (m: MarkEntry) => {
+    setEditingMarkId(m.id);
+    setWordDraft(m.word ?? "");
+  };
+
+  /** 言葉の「確定」。空で確定＝言葉を消す */
+  const confirmWord = () => {
+    const trimmed = wordDraft.trim();
+    setMarks((arr) => arr.map((m) => (m.id === editingMarkId ? { ...m, word: trimmed === "" ? null : trimmed } : m)));
+    setEditingMarkId(null);
+    setWordDraft("");
+  };
+
+  /** 言葉の「やめる」。何も変えずに閉じる */
+  const cancelWordEdit = () => {
+    setEditingMarkId(null);
+    setWordDraft("");
+  };
+
   /** 送信エラーを画面に出す。理由を読む時間を確保するため少し長めに出しておく */
   const showSendError = (msg: string) => {
     setSendError(msg);
@@ -467,9 +561,10 @@ export default function PlacePage() {
    * 叩いたぶんを棚へ送る。
    * 1) まだ入場していなければ人間確認を出す
    * 2) 曲の鍵（song_structures.id）を棚から引く（同梱データの仮の鍵ではなく本物の鍵が要る）
-   * 3) 送る本人（匿名ログインのID）を添えて1行として入れる（秒の並びと、メンバーIDの並びの2列）
+   * 3) 送る本人（匿名ログインのID）を添えて1行として入れる（秒・メンバーID・言葉の3つの並び）
    *
-   * 棚（テーブル）がまだ適用されていなくても画面が壊れないよう、失敗したらその場に留まる。
+   * mark_words 列は 2026-08-15 に棚へ適用済み。
+   * 送信に失敗しても画面が壊れないよう、失敗したらその場に留まる。
    * 失敗の理由（err.message）はそのまま画面に出す。原因が分からないまま握りつぶすと、
    * 手が空くまで何度も無駄に試すことになるため（オーナーの実機テストで実際に起きた）。
    * 「入場の確認」由来と「送信」由来を分けて出す。
@@ -509,6 +604,7 @@ export default function PlacePage() {
         video_id: video.video_id,
         mark_secs: marks.map((m) => m.sec),
         mark_member_ids: marks.map((m) => m.memberId),
+        mark_words: marks.map((m) => m.word),
         created_by: userData.user.id,
       });
       if (e3) throw e3;
@@ -531,6 +627,7 @@ export default function PlacePage() {
     const ok = await doSend();
     if (!ok) return; // 失敗。振り返り画面は開いたまま、その場に留まる
     clearPreview();
+    cancelWordEdit();
     setReviewTrigger(null);
     if (reviewTrigger === "back") navigate(`/call-center/song/${slug}`);
   };
@@ -538,12 +635,14 @@ export default function PlacePage() {
   /** 「まだ叩く」：振り返り画面を閉じるだけ、その場に留まって続きを叩ける */
   const onReviewKeepTapping = () => {
     clearPreview();
+    cancelWordEdit();
     setReviewTrigger(null);
   };
 
   /** 「送らずに戻る」（back起点のみ）：送らずに離脱する */
   const onReviewLeaveWithoutSending = () => {
     clearPreview();
+    cancelWordEdit();
     setReviewTrigger(null);
     navigate(`/call-center/song/${slug}`);
   };
@@ -637,19 +736,50 @@ export default function PlacePage() {
             </div>
           )}
           <div style={S.reviewList}>
-            {sortedMarks.map((m) => (
-              <div key={m.id} style={S.reviewRow}>
-                <span style={S.reviewTime}>{fmt(m.sec)}</span>
-                <button
-                  type="button"
-                  style={{ ...S.reviewDot, background: m.colorHex }}
-                  onClick={() => recolorMark(m.id)}
-                  aria-label="この！の色を、今えらんでいる色に塗り替える"
-                />
-                <button type="button" style={S.reviewLink} onClick={() => seekPreview(m)}>見返す</button>
-                <button type="button" style={S.reviewRemove} onClick={() => removeMark(m.id)} aria-label="この！を消す">×</button>
-              </div>
-            ))}
+            {sortedMarks.map((m) =>
+              editingMarkId === m.id ? (
+                /* 言葉の入力（行の本体を押すとここに変わる。別画面にはしない） */
+                <div key={m.id} style={S.reviewRowEditing}>
+                  <div style={S.reviewRowEditingTop}>
+                    <span style={S.reviewTime}>{fmt(m.sec)}</span>
+                    <input
+                      type="text"
+                      value={wordDraft}
+                      onChange={(e) => setWordDraft(e.target.value)}
+                      maxLength={12}
+                      placeholder="ここに書く…"
+                      style={S.wordInput}
+                      autoFocus
+                    />
+                    <button type="button" style={S.wordConfirm} onClick={confirmWord}>確定</button>
+                    <button type="button" style={S.reviewRemove} onClick={cancelWordEdit} aria-label="やめる">×</button>
+                  </div>
+                  {(() => {
+                    const candidates = candidateWords(m, marks, crowdWords);
+                    return candidates.length > 0 ? (
+                      <div style={S.wordChipRow}>
+                        {candidates.map((w) => (
+                          <button key={w} type="button" style={S.wordChip} onClick={() => setWordDraft(w)}>{w}</button>
+                        ))}
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+              ) : (
+                <div key={m.id} style={S.reviewRow} onClick={() => startEditWord(m)}>
+                  <span style={S.reviewTime}>{fmt(m.sec)}</span>
+                  <button
+                    type="button"
+                    style={{ ...S.reviewDot, background: m.colorHex }}
+                    onClick={(e) => { e.stopPropagation(); recolorMark(m.id); }}
+                    aria-label="この！の色を、今えらんでいる色に塗り替える"
+                  />
+                  <span style={S.reviewWord}>{m.word ?? ""}</span>
+                  <button type="button" style={S.reviewLink} onClick={(e) => { e.stopPropagation(); seekPreview(m); }}>見返す</button>
+                  <button type="button" style={S.reviewRemove} onClick={(e) => { e.stopPropagation(); removeMark(m.id); }} aria-label="この！を消す">×</button>
+                </div>
+              )
+            )}
           </div>
           {/* 行の色を塗り直すのに使う。振り返り中も見える必要があるのでここにも出す */}
           {colorPicker}
@@ -744,15 +874,25 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: 22, fontWeight: 900, lineHeight: 1,
   },
   reviewList: { flex: "1 1 auto", minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 },
-  reviewRow: { display: "flex", alignItems: "center", gap: 10, padding: "9px 4px", boxShadow: "inset 0 -1px 0 #222" },
+  // 行の本体を押すと言葉の入力に変わる＝押せる行なのでポインタを出す
+  reviewRow: { display: "flex", alignItems: "center", gap: 10, padding: "9px 4px", boxShadow: "inset 0 -1px 0 #222", cursor: "pointer" },
   reviewTime: { fontSize: 13, fontFamily: "ui-monospace,Menlo,Consolas,monospace", color: "#eee", width: 62, flex: "0 0 auto" },
   // ボタン化（塗り直せる）ので、押せると分かるよう薄い輪郭を足す。地色が近いと見えにくいので二重にする
   reviewDot: {
     width: 18, height: 18, borderRadius: "50%", flex: "0 0 auto", padding: 0, border: 0, cursor: "pointer",
     boxShadow: "0 0 0 1px rgba(255,255,255,0.5), inset 0 0 0 1px rgba(0,0,0,0.35)",
   },
-  reviewLink: { flex: "1 1 auto", textAlign: "left", background: "none", border: 0, color: "#7cf", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "4px 0" },
+  // 付いた言葉の表示。無ければ空のまま＝残りの余白を見返す/×側へ渡すだけ（今までどおり秒だけの見た目）
+  reviewWord: { flex: "1 1 auto", minWidth: 0, fontSize: 13, color: "#eee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  reviewLink: { flex: "0 0 auto", background: "none", border: 0, color: "#7cf", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "4px 6px" },
   reviewRemove: { flex: "0 0 auto", width: 30, height: 30, background: "none", color: "#9aa0a6", border: 0, boxShadow: "inset 0 0 0 1px #444", fontSize: 16, cursor: "pointer", fontFamily: "inherit" },
+  // 言葉の入力中の行。押しても再度開かない（reviewRow と違い onClick を持たせない別の見た目）
+  reviewRowEditing: { display: "flex", flexDirection: "column", gap: 6, padding: "9px 4px", boxShadow: "inset 0 -1px 0 #222" },
+  reviewRowEditingTop: { display: "flex", alignItems: "center", gap: 8 },
+  wordInput: { flex: "1 1 auto", minWidth: 0, background: "#111", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "6px 8px", fontSize: 13, fontFamily: "inherit" },
+  wordConfirm: { flex: "0 0 auto", background: "none", color: "#7cf", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "6px 10px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
+  wordChipRow: { display: "flex", gap: 6, flexWrap: "wrap", paddingLeft: 70 },
+  wordChip: { background: "none", color: "#cbd2dc", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
   reviewFooter: { flex: "0 0 auto", paddingTop: 10 },
   reviewLede: { fontSize: 12, lineHeight: 1.7, color: "#9aa0a6", margin: "0 0 10px" },
   reviewActions: { display: "flex", flexDirection: "column", gap: 8 },
