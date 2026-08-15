@@ -17,7 +17,11 @@ import { findMember } from "../data";
 import type { HiSession } from "../api";
 
 export type HandsCanvasApi = {
-  spawnSelf: () => void;
+  /**
+   * color を渡すと、その色で跳ねる（selfMemberId からの色引きをスキップ）。
+   * 未指定ならこれまでどおり selfMemberId から色を引く（挙動不変）。
+   */
+  spawnSelf: (color?: string) => void;
   onTimeUpdate: (currentTime: number) => void;
   receiveLiveTap: (memberId: string, seatIndex: number, videoTime: number, lagMs: number) => void;
 };
@@ -55,6 +59,14 @@ interface Props {
    * 高さの低い面で使うときに指定する。
    */
   topMargin?: number;
+  /**
+   * 群衆✋の色を決める関数（省略時はこれまでどおり findMember＝ハイ！テンションの
+   * BEYOOOOONDS名簿のみ。ここに findMember 以外の名簿（例: src/data/members.ts の
+   * 全グループ）を渡すと、そちらで色を解決できる）。
+   * 未指定のときだけ「名簿に無いIDは湧かさない」という従来の挙動を維持する。
+   * 指定したときは、名簿に無いID（=undefined を返す）は白で湧かす（消さない）。
+   */
+  resolveColor?: (memberId: string) => string | undefined;
 }
 
 // バケットインデックスに紐づく「(セッション, このバケットでの押下回数)」
@@ -152,7 +164,7 @@ function easeOutCubic(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor },
   ref,
 ) {
   // 絵の種類は起動時に1回だけ見る（途中で切り替える使い方はしない）
@@ -178,6 +190,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   const onPixiEventRef = useRef<typeof onPixiEvent>(onPixiEvent);
   const overrideColorRef = useRef<string | undefined>(overrideColor);
   useEffect(() => { overrideColorRef.current = overrideColor; }, [overrideColor]);
+  const resolveColorRef = useRef<((memberId: string) => string | undefined) | undefined>(resolveColor);
+  useEffect(() => { resolveColorRef.current = resolveColor; }, [resolveColor]);
   const freezeAgeRef = useRef<boolean>(freezeAge);
   useEffect(() => { freezeAgeRef.current = freezeAge; }, [freezeAge]);
   const reduceMotionRef = useRef<boolean>(reduceMotion);
@@ -672,17 +686,29 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     app.ticker.add(onTick);
   }
 
+  /**
+   * 群衆1人ぶんの色を決める。
+   * resolveColor が指定されていなければ、これまでどおり findMember（ハイ！テンションの
+   * BEYOOOOONDS名簿）を引き、見つからなければ undefined を返す（＝呼び出し側でスキップ＝挙動不変）。
+   * resolveColor が指定されていれば、それで引く。見つからなくても undefined ではなく白を返す
+   * （名簿に無いIDだからと粒ごと消えると、ハイ！テンションの名簿更新忘れ事故と同じことになるため）。
+   */
+  function memberColorOrSkip(memberId: string): string | undefined {
+    if (resolveColorRef.current) return resolveColorRef.current(memberId) ?? "#ffffff";
+    return findMember(memberId)?.color;
+  }
+
   function spawnForBucket(bucket: number, animationOffsetMs: number) {
     const entries = bucketIndex.get(bucket);
     if (!entries) return;
     for (const { session, count } of entries) {
-      const member = findMember(session.member_id);
-      if (!member) continue;
+      const memberColor = memberColorOrSkip(session.member_id);
+      if (!memberColor) continue;
       const pos = sessionLayout.get(session.session_hash) ?? { ...seatFromHash(session.session_hash), depthK: 1, rotation: 0 };
       for (let i = 0; i < count; i++) {
         spawnHand({
           xRatio: pos.xRatio, yRatio: pos.yRatio, depthK: pos.depthK, rotation: pos.rotation, jumpScale: pos.jumpScale,
-          color: overrideColorRef.current ?? member.color,
+          color: overrideColorRef.current ?? memberColor,
           isSelf: false,
           isToday: session.is_today,
           playedDate: session.played_date,
@@ -693,11 +719,17 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   }
 
   useImperativeHandle(ref, () => ({
-    spawnSelf() {
-      const memberId = selfMemberIdRef.current;
-      if (!memberId) return;
-      const member = findMember(memberId);
-      if (!member) return;
+    spawnSelf(color?: string) {
+      // color 指定があればそちらを使う（呼び出し側が自分で色を決めるケース＝コール集約センターの
+      // ！ごとの色替え）。未指定ならこれまでどおり selfMemberId から findMember で引く（挙動不変）。
+      let resolvedColor = color;
+      if (resolvedColor === undefined) {
+        const memberId = selfMemberIdRef.current;
+        if (!memberId) return;
+        const member = findMember(memberId);
+        if (!member) return;
+        resolvedColor = member.color;
+      }
       // リアルタイム時は席ベースの等間隔、ソロ時は中段。横ではハイ！ボタン(右下)の近くから挙げる。
       const seatIdx = selfSeatIndexRef.current;
       const { xRatio, yRatio } =
@@ -708,7 +740,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
             : { xRatio: 0.5, yRatio: SELF_Y_SOLO };
       spawnHand({
         xRatio, yRatio,
-        color: overrideColorRef.current ?? member.color,
+        color: overrideColorRef.current ?? resolvedColor,
         isSelf: true,
         isToday: true,
         depthK: SELF_DEPTH,
