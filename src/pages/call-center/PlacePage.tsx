@@ -14,7 +14,7 @@ import { isLight } from "@/lib/colorUtils";
 /**
  * 置く画面。
  *
- * 画面いっぱいに収める（スクロールしない）。上から順に、動画・跳ねる面・色チップ・！ボタン。
+ * 画面いっぱいに収める（スクロールしない）。上から順に、動画・色えらび・跳ねる面／振り返り・！ボタン。
  * 常時出るのは3つだけ（← 曲へ／▶再生・停止／！）。
  * 跳ねる面はハイ！テンションの客席（HandsCanvas）をそのまま使い、絵だけ「！の入った吹き出し」にしている。
  * 動画の上には何も重ねない。
@@ -23,17 +23,23 @@ import { isLight } from "@/lib/colorUtils";
  *
  * メンカラ（推しメンの色）はペンライトの色替えと同じ感覚で、！を叩くたびに変えてよい。
  * 選んでいる色は！ボタン自体を染めて今どの色で叩いているか分かるようにする。
+ * 色えらびは丸だけ（名前ラベルは出さない）。公式ペンライトの矢印送りと同じ操作で、
+ * 曲中に小さい丸を狙わなくても矢印の連打で目当ての色まで行ける。
  *
  * 叩いた結果（棚に置く1行=1曲を通しで叩いたぶん）は、
  *   ・動画が終わったとき
  *   ・叩きが1個以上ある状態で「← 曲へ」で離れようとしたとき
- * に確認を挟んでから送る。文言はすべて仮置き（あとで差し替える前提。※【仮】マークはUIに出さない）。
+ * に振り返りの画面（置いたものが時刻順に並ぶ一覧）を挟んでから送る。
+ * 文言はすべて仮置き（あとで差し替える前提。※【仮】マークはUIに出さない）。
  */
 
 type Video = { video_id: string; offset_sec: number; rate: number; label: string | null };
 
-/** 確認モーダルを何が呼び出したか。ボタンの並びが変わる */
-type ConfirmTrigger = "ended" | "back";
+/** 振り返り画面を何が呼び出したか。ボタンの並びが変わる */
+type ReviewTrigger = "ended" | "back";
+
+/** 1回の「！」。時刻・そのとき選んでいた色・その色が誰の色か（棚に送る用） */
+type MarkEntry = { id: number; sec: number; colorHex: string; memberId: string | null };
 
 /** 端末に覚えさせる「最後に選んでいた色」。並び順やお気に入りまでは作り込まない。 */
 const LAST_COLOR_KEY = "call_center:last_selected_member_id";
@@ -50,6 +56,22 @@ function setLastSelectedColorId(id: string | null): void {
 /** メンバーIDから色を引く。src/data/members.ts（/profile と同じメンバー表）が正。ID=氏名。 */
 function resolveMemberColor(id: string): string | undefined {
   return ALL_MEMBERS.find((m) => m.name === id)?.color;
+}
+
+/** 中立色（メンバーではない）の色id。棚には「メンバーではない」＝nullとして送る */
+const NEUTRAL_ID = "neutral";
+const NEUTRAL_HEX = "#d0d0d0"; // 明るいグレー。値の発明はしない前提の1つ ※仮の明度
+
+/** 選んでいる色（白＝null／中立＝NEUTRAL_ID／メンバー＝氏名）から、実際に表示する色を引く */
+function colorIdToHex(id: string | null): string {
+  if (id === null) return "#ffffff";
+  if (id === NEUTRAL_ID) return NEUTRAL_HEX;
+  return resolveMemberColor(id) ?? "#ffffff";
+}
+/** 選んでいる色から、棚に送る「メンバーID」を引く。白・中立はどちらもメンバーではないのでnull */
+function colorIdToMemberId(id: string | null): string | null {
+  if (id === null || id === NEUTRAL_ID) return null;
+  return id;
 }
 
 /**
@@ -101,11 +123,15 @@ function tapRowsToSessions(rows: TapRow[]): HiSession[] {
   return out;
 }
 
+/** 見返すときに何秒巻き戻すか。BPMが無い曲がほとんどなのでカウントインは作らず固定秒にする ※仮 */
+const REWIND_SEC = 5;
+
 export default function PlacePage() {
   const { slug = "" } = useParams();
   const navigate = useNavigate();
   const playerRef = useRef<YouTubePlayerApi>(null);
   const handsRef = useRef<HandsCanvasApi>(null);
+  const markIdRef = useRef(0);
 
   const [title, setTitle] = useState("");
   const [groupName, setGroupName] = useState("");
@@ -114,15 +140,13 @@ export default function PlacePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [playing, setPlaying] = useState(false);
-  // 「！」を叩いた、その動画の中での秒の並び。棚へ送るときはこの配列をそのまま渡す。
-  const [markSecs, setMarkSecs] = useState<number[]>([]);
-  // markSecs と同じ長さ。i番目の！を叩いた瞬間に選んでいたメンバー（未選択は null）
-  const [markMemberIds, setMarkMemberIds] = useState<(string | null)[]>([]);
-  // 今選んでいる色（ペンライトの色替え）。null=無色（白）
+  // 叩いたもの一つひとつ。棚へ送るときはここから秒の列・メンバーIDの列を取り出す。
+  const [marks, setMarks] = useState<MarkEntry[]>([]);
+  // 今選んでいる色（ペンライトの色替え）。null=白（既定＝未選択と同じ扱い）
   const [currentColor, setCurrentColor] = useState<string | null>(null);
   const [nowSec, setNowSec] = useState(0);
 
-  const [confirmTrigger, setConfirmTrigger] = useState<ConfirmTrigger | null>(null);
+  const [reviewTrigger, setReviewTrigger] = useState<ReviewTrigger | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   // 人間確認を出しているあいだ、答えが返るまで待つための受け皿（SongTapPage と同じ形）
@@ -133,20 +157,30 @@ export default function PlacePage() {
       setGate(() => (t: string | null) => { setGate(null); resolve(t); });
     });
 
-  // この曲のグループのメンバーだけをチップに出す
+  // この曲のグループのメンバーだけを色えらびに出す（公式の並び順のまま）
   const chipMembers = useMemo(
     () => ALL_MEMBERS.filter((m) => m.group === groupName),
     [groupName],
   );
 
-  // 端末に覚えている色を復元。ただしこの曲のチップに無い色（グループが違う等）は復元しない
-  // ＝どのチップも光っていないのに！ボタンだけ色付いている、という食い違いを避けるため
+  // 色えらびの選択肢。白・中立（明るいグレー）・メンバー、の順で固定
+  const colorOptions = useMemo(
+    () => [
+      { id: null as string | null, hex: "#ffffff" },
+      { id: NEUTRAL_ID as string | null, hex: NEUTRAL_HEX },
+      ...chipMembers.map((m) => ({ id: m.name as string | null, hex: m.color })),
+    ],
+    [chipMembers],
+  );
+
+  // 端末に覚えている色を復元。中立色はどの曲でも復元してよいが、メンバー色は
+  // この曲の色えらびに無ければ復元しない（どの丸も光っていないのに！ボタンだけ
+  // 色付いている、という食い違いを避けるため）
   useEffect(() => {
-    if (!groupName || chipMembers.length === 0) return;
     const remembered = getLastSelectedColorId();
-    if (remembered && chipMembers.some((m) => m.name === remembered)) {
-      setCurrentColor(remembered);
-    }
+    if (!remembered) return;
+    if (remembered === NEUTRAL_ID) { setCurrentColor(NEUTRAL_ID); return; }
+    if (chipMembers.some((m) => m.name === remembered)) setCurrentColor(remembered);
   }, [groupName, chipMembers]);
 
   useEffect(() => {
@@ -235,45 +269,68 @@ export default function PlacePage() {
     else { p.play(); setPlaying(true); }
   };
 
-  /** 動画が最後まで再生された。叩きが1個以上あれば送るか確認する */
+  /** 動画が最後まで再生された。叩きが1個以上あれば振り返りを出す */
   const onEnded = () => {
     setPlaying(false);
-    if (markSecs.length > 0) setConfirmTrigger("ended");
+    if (marks.length > 0) setReviewTrigger("ended");
   };
 
-  /** 色チップを押す。もう一度同じ色を押したら解除（無色＝白に戻る） */
-  const pickColor = (name: string) => {
-    const next = currentColor === name ? null : name;
-    setCurrentColor(next);
-    setLastSelectedColorId(next);
+  /** 色えらびの丸を直接押す */
+  const pickColor = (id: string | null) => {
+    setCurrentColor(id);
+    setLastSelectedColorId(id);
+  };
+
+  /** 矢印での色送り（公式ペンライトの色替えと同じ操作）。delta=-1で前、+1で次 */
+  const moveColor = (delta: number) => {
+    const idx = colorOptions.findIndex((o) => o.id === currentColor);
+    const base = idx === -1 ? 0 : idx;
+    const next = (base + delta + colorOptions.length) % colorOptions.length;
+    pickColor(colorOptions[next].id);
   };
 
   /** 押した瞬間（onPointerDown）に出す。指を離すのを待つとその分そのまま遅れて感じる。 */
   const pressMark = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
-    const color = currentColor ? resolveMemberColor(currentColor) ?? "#ffffff" : "#ffffff";
-    handsRef.current?.spawnSelf(color);
-    const t = Math.round((playerRef.current?.getCurrentTime() ?? 0) * 1000) / 1000;
-    setMarkSecs((arr) => [...arr, t]);
-    setMarkMemberIds((arr) => [...arr, currentColor]);
+    const colorHex = colorIdToHex(currentColor);
+    handsRef.current?.spawnSelf(colorHex);
+    const sec = Math.round((playerRef.current?.getCurrentTime() ?? 0) * 1000) / 1000;
+    const id = ++markIdRef.current;
+    setMarks((arr) => [...arr, { id, sec, colorHex, memberId: colorIdToMemberId(currentColor) }]);
   };
 
-  /** 「← 曲へ」。叩きが残っていれば確認を挟む。ゼロならそのまま戻る */
+  /** 「← 曲へ」。叩きが残っていれば振り返りを挟む。ゼロならそのまま戻る */
   const handleBack = () => {
-    if (markSecs.length > 0) { setConfirmTrigger("back"); return; }
+    if (marks.length > 0) { setReviewTrigger("back"); return; }
     navigate(`/call-center/song/${slug}`);
+  };
+
+  /**
+   * 振り返り画面の「見返す」。その時刻の少し前から再生する（一覧は出したまま）。
+   * play() は「動画が終わった直後（ENDED状態）」だと内部で先頭(0秒)へ戻す仕様なので、
+   * 先に play() を呼んでから seekTo で狙った位置へ上書きする（逆順だと 0秒に戻されて消える）。
+   */
+  const seekPreview = (sec: number) => {
+    playerRef.current?.play();
+    playerRef.current?.seekTo(Math.max(0, sec - REWIND_SEC));
+    setPlaying(true);
+  };
+
+  /** 振り返り画面の「×」。棚にはまだ送っていないので、画面の中の並びから外すだけでよい */
+  const removeMark = (id: number) => {
+    setMarks((arr) => arr.filter((m) => m.id !== id));
   };
 
   /**
    * 叩いたぶんを棚へ送る。
    * 1) まだ入場していなければ人間確認を出す
    * 2) 曲の鍵（song_structures.id）を棚から引く（同梱データの仮の鍵ではなく本物の鍵が要る）
-   * 3) 送る本人（匿名ログインのID）を添えて1行として入れる（秒の並びと、色の並びの2列）
+   * 3) 送る本人（匿名ログインのID）を添えて1行として入れる（秒の並びと、メンバーIDの並びの2列）
    *
    * 棚（テーブル）がまだ適用されていなくても画面が壊れないよう、失敗したらその場に留まる。
    */
   const doSend = async (): Promise<boolean> => {
-    if (!video) return false;
+    if (!video || marks.length === 0) return false;
     setSendError(null);
     setSending(true);
     try {
@@ -291,15 +348,14 @@ export default function PlacePage() {
       const { error: e3 } = await db.from("call_tap_sessions").insert({
         song_id: row.id,
         video_id: video.video_id,
-        mark_secs: markSecs,
-        mark_member_ids: markMemberIds,
+        mark_secs: marks.map((m) => m.sec),
+        mark_member_ids: marks.map((m) => m.memberId),
         created_by: userData.user.id,
       });
       if (e3) throw e3;
 
       // 送れた＝この参加は1行として棚に乗った。次の通しはゼロから数え直す
-      setMarkSecs([]);
-      setMarkMemberIds([]);
+      setMarks([]);
       setSending(false);
       return true;
     } catch {
@@ -310,19 +366,19 @@ export default function PlacePage() {
     }
   };
 
-  const onConfirmSend = async () => {
+  const onReviewSend = async () => {
     const ok = await doSend();
-    if (!ok) return; // 失敗。モーダルは開いたまま、その場に留まる
-    setConfirmTrigger(null);
-    if (confirmTrigger === "back") navigate(`/call-center/song/${slug}`);
+    if (!ok) return; // 失敗。振り返り画面は開いたまま、その場に留まる
+    setReviewTrigger(null);
+    if (reviewTrigger === "back") navigate(`/call-center/song/${slug}`);
   };
 
-  /** 「送らない」（onEnded起点）／「やめる」（back起点）：閉じるだけ、その場に留まる */
-  const onConfirmStay = () => setConfirmTrigger(null);
+  /** 「まだ叩く」：振り返り画面を閉じるだけ、その場に留まって続きを叩ける */
+  const onReviewKeepTapping = () => setReviewTrigger(null);
 
   /** 「送らずに戻る」（back起点のみ）：送らずに離脱する */
-  const onConfirmLeaveWithoutSending = () => {
-    setConfirmTrigger(null);
+  const onReviewLeaveWithoutSending = () => {
+    setReviewTrigger(null);
     navigate(`/call-center/song/${slug}`);
   };
 
@@ -337,38 +393,21 @@ export default function PlacePage() {
     );
   }
 
-  const currentColorHex = currentColor ? resolveMemberColor(currentColor) : undefined;
-  const markBg = currentColorHex ?? "#fff";
-  const markFg = currentColorHex ? (isLight(currentColorHex) ? "#000" : "#fff") : "#000";
+  const currentColorHex = colorIdToHex(currentColor);
+  const markBg = currentColorHex;
+  const markFg = isLight(currentColorHex) ? "#000" : "#fff";
+  // 時刻順に並べて見せる（叩いた順とは限らない＝巻き戻して見返した後にまた叩く、があるため）
+  const sortedMarks = [...marks].sort((a, b) => a.sec - b.sec);
 
   return (
     <div style={S.page}>
       {gate && <HumanCheckGate onDone={gate} />}
-      {confirmTrigger && (
-        <div style={S.modalBack}>
-          <div style={S.modalCard}>
-            <div style={S.modalTitle}>！ {markSecs.length}個 を送る？</div>
-            <p style={S.modalLede}>ちょっとタイミングずれたかも、とかはライブ感ということでいいじゃない。</p>
-            <div style={S.modalRow}>
-              <button style={S.modalPrimary} onClick={onConfirmSend} disabled={sending}>
-                {sending ? "送っています…" : "送る"}
-              </button>
-              {confirmTrigger === "back" && (
-                <button style={S.modalSecondary} onClick={onConfirmLeaveWithoutSending} disabled={sending}>送らずに戻る</button>
-              )}
-              <button style={S.modalSecondary} onClick={onConfirmStay} disabled={sending}>
-                {confirmTrigger === "back" ? "やめる" : "送らない"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {sendError && <div style={S.errorBanner}>{sendError}</div>}
 
       <div style={S.head}>
         <button style={S.back} onClick={handleBack}>← 曲へ</button>
         <span style={S.title}>{title}</span>
-        <span style={S.count}>！ {markSecs.length}</span>
+        <span style={S.count}>！ {marks.length}</span>
       </div>
 
       <div style={S.videoBox}>
@@ -387,52 +426,88 @@ export default function PlacePage() {
         <span style={S.clock}>{fmt(nowSec)}</span>
       </div>
 
-      {/* 跳ねる面。残りの高さを全部使う。動画の上には重ねない */}
-      <div style={S.stage}>
-        <HandsCanvas
-          ref={handsRef}
-          icon="mark"
-          sessions={sessions}
-          selfMemberId="nishida"
-          selfSeatHash={7}
-          resolveColor={resolveMemberColor}
-          scaleCount={300}
-          topMargin={150}
-          freezeAge
-        />
-      </div>
-
-      {/* メンカラのチップ（ペンライトの色替え）。このグループにメンバー表が無ければ出さない */}
-      {chipMembers.length > 0 && (
-        <div style={S.chipRow}>
-          {chipMembers.map((m) => (
-            <button
-              key={m.name}
-              type="button"
-              onClick={() => pickColor(m.name)}
-              style={{
-                ...S.chip,
-                background: m.color,
-                boxShadow: currentColor === m.name
-                  ? "0 0 0 2px #fff, inset 0 0 0 1px rgba(0,0,0,0.4)"
-                  : "inset 0 0 0 1px rgba(0,0,0,0.4)",
-              }}
-              title={m.name}
-            >
-              <span style={{ ...S.chipLabel, color: isLight(m.color) ? "#000" : "#fff" }}>{m.name}</span>
-            </button>
-          ))}
+      {reviewTrigger ? (
+        /* 振り返り画面。動画は上に出たままなので「見返す」で流しながら一覧を読める */
+        <div style={S.reviewWrap}>
+          <div style={S.reviewHeading}>！ {marks.length}個</div>
+          <div style={S.reviewList}>
+            {sortedMarks.map((m) => (
+              <div key={m.id} style={S.reviewRow}>
+                <span style={S.reviewTime}>{fmt(m.sec)}</span>
+                <span style={{ ...S.reviewDot, background: m.colorHex }} />
+                <button type="button" style={S.reviewLink} onClick={() => seekPreview(m.sec)}>見返す</button>
+                <button type="button" style={S.reviewRemove} onClick={() => removeMark(m.id)} aria-label="この！を消す">×</button>
+              </div>
+            ))}
+          </div>
+          <div style={S.reviewFooter}>
+            <p style={S.reviewLede}>ちょっとタイミングずれたかも、とかはライブ感ということでいいじゃない。</p>
+            <div style={S.reviewActions}>
+              <button style={S.modalPrimary} onClick={onReviewSend} disabled={sending || marks.length === 0}>
+                {sending ? "送っています…" : "これで送る"}
+              </button>
+              {reviewTrigger === "back" && (
+                <button style={S.modalSecondary} onClick={onReviewLeaveWithoutSending} disabled={sending}>送らずに戻る</button>
+              )}
+              <button style={S.modalSecondary} onClick={onReviewKeepTapping} disabled={sending}>まだ叩く</button>
+            </div>
+          </div>
         </div>
-      )}
+      ) : (
+        <>
+          {/* 跳ねる面。残りの高さを全部使う。動画の上には重ねない */}
+          <div style={S.stage}>
+            <HandsCanvas
+              ref={handsRef}
+              icon="mark"
+              sessions={sessions}
+              selfMemberId="nishida"
+              selfSeatHash={7}
+              resolveColor={resolveMemberColor}
+              scaleCount={300}
+              topMargin={150}
+              freezeAge
+            />
+          </div>
 
-      <div style={S.btnRow}>
-        <button
-          type="button"
-          style={{ ...S.mark, background: markBg, color: markFg }}
-          onPointerDown={pressMark}
-          onContextMenu={(e) => e.preventDefault()}
-        >！</button>
-      </div>
+          {/* 色えらび（丸だけ・名前は出さない）。公式ペンライトと同じく矢印でも送れる */}
+          <div style={S.colorPickerRow}>
+            <button type="button" style={S.arrowBtn} onClick={() => moveColor(-1)} aria-label="前の色">◀</button>
+            <div style={S.dotsRow}>
+              {colorOptions.map((opt) => {
+                const selected = opt.id === currentColor;
+                return (
+                  <button
+                    key={opt.id ?? "white"}
+                    type="button"
+                    onClick={() => pickColor(opt.id)}
+                    aria-label={opt.id === null ? "白" : opt.id === NEUTRAL_ID ? "グレー" : opt.id}
+                    style={{
+                      ...S.dot,
+                      background: opt.hex,
+                      transform: selected ? "scale(1.35)" : "scale(1)",
+                      boxShadow: selected
+                        ? "0 0 0 2px #fff, inset 0 0 0 1px rgba(0,0,0,0.35)"
+                        : "inset 0 0 0 1px rgba(0,0,0,0.35)",
+                      zIndex: selected ? 1 : 0,
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <button type="button" style={S.arrowBtn} onClick={() => moveColor(1)} aria-label="次の色">▶</button>
+          </div>
+
+          <div style={S.btnRow}>
+            <button
+              type="button"
+              style={{ ...S.mark, background: markBg, color: markFg }}
+              onPointerDown={pressMark}
+              onContextMenu={(e) => e.preventDefault()}
+            >！</button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -453,22 +528,23 @@ const S: Record<string, React.CSSProperties> = {
   play: { background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
   clock: { fontSize: 12, color: "#666", fontFamily: "ui-monospace,Menlo,Consolas,monospace" },
   stage: { position: "relative", flex: "1 1 auto", minHeight: 0, background: "#0a0a0c", overflow: "hidden" },
-  chipRow: { display: "flex", gap: 8, overflowX: "auto", flex: "0 0 auto", padding: "8px 2px 0" },
-  chip: {
-    flex: "0 0 auto", width: 50, height: 50, borderRadius: "50%", border: 0, cursor: "pointer",
-    display: "flex", alignItems: "center", justifyContent: "center", padding: 2,
-  },
-  chipLabel: { fontSize: 9, fontWeight: 700, lineHeight: 1.1, textAlign: "center", overflow: "hidden", maxWidth: 44 },
+  colorPickerRow: { display: "flex", alignItems: "center", gap: 6, flex: "0 0 auto", padding: "8px 0 0" },
+  arrowBtn: { flex: "0 0 auto", width: 26, height: 26, background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: 0 },
+  dotsRow: { flex: "1 1 auto", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 3, padding: "0 6px" },
+  dot: { flex: "0 1 22px", aspectRatio: "1", minWidth: 12, maxWidth: 22, borderRadius: "50%", border: 0, cursor: "pointer", padding: 0 },
   btnRow: { display: "flex", gap: 8, flex: "0 0 auto", marginTop: 8 },
   mark: { flex: 1, background: "#fff", color: "#000", border: 0, padding: "22px 10px", fontSize: 30, fontWeight: 900, lineHeight: 1, cursor: "pointer", fontFamily: "inherit" },
-  modalBack: {
-    position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.7)",
-    display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
-  },
-  modalCard: { background: "#111", boxShadow: "inset 0 0 0 1px #333", padding: "22px 20px", maxWidth: 380, width: "100%" },
-  modalTitle: { fontSize: 16, fontWeight: 900, marginBottom: 10, color: "#fff" },
-  modalLede: { fontSize: 12.5, lineHeight: 1.8, color: "#9aa0a6", margin: "0 0 18px" },
-  modalRow: { display: "flex", flexDirection: "column", gap: 8 },
+  reviewWrap: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", marginTop: 8 },
+  reviewHeading: { fontSize: 13, fontWeight: 800, color: "#eee", flex: "0 0 auto", marginBottom: 4 },
+  reviewList: { flex: "1 1 auto", minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 },
+  reviewRow: { display: "flex", alignItems: "center", gap: 10, padding: "9px 4px", boxShadow: "inset 0 -1px 0 #222" },
+  reviewTime: { fontSize: 13, fontFamily: "ui-monospace,Menlo,Consolas,monospace", color: "#eee", width: 62, flex: "0 0 auto" },
+  reviewDot: { width: 16, height: 16, borderRadius: "50%", flex: "0 0 auto", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.3)" },
+  reviewLink: { flex: "1 1 auto", textAlign: "left", background: "none", border: 0, color: "#7cf", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "4px 0" },
+  reviewRemove: { flex: "0 0 auto", width: 30, height: 30, background: "none", color: "#9aa0a6", border: 0, boxShadow: "inset 0 0 0 1px #444", fontSize: 16, cursor: "pointer", fontFamily: "inherit" },
+  reviewFooter: { flex: "0 0 auto", paddingTop: 10 },
+  reviewLede: { fontSize: 12, lineHeight: 1.7, color: "#9aa0a6", margin: "0 0 10px" },
+  reviewActions: { display: "flex", flexDirection: "column", gap: 8 },
   modalPrimary: { background: "#fff", color: "#000", border: 0, padding: "12px 14px", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" },
   modalSecondary: { background: "none", color: "#9aa0a6", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "12px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
   errorBanner: {
