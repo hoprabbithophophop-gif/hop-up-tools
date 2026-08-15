@@ -135,7 +135,8 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
     targetMemberId: "kobayashi",
     kind: "birthday",
     start: "2026-08-16T00:00:00+09:00",
-    end: "2026-08-17T00:00:00+09:00",
+    // 公開が当日朝にずれ込んだぶん、主役で迎える期間を翌朝6時まで延長（Hop指示 2026-08-16）
+    end: "2026-08-17T06:00:00+09:00",
     // バースデーメッセージカードの締切（翌月15日）に合わせ、9/15いっぱいまで参加可。
     joinableUntil: "2026-09-16T00:00:00+09:00",
     endCardCongrats: "小林萌花さん お誕生日おめでとう🎂🍀",
