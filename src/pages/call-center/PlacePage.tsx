@@ -374,13 +374,19 @@ function errMessage(err: unknown): string {
 }
 
 /** 「大きい文字」レーンの1粒。id は言葉ごとに振り直す通し番号で作る安定キー */
-type LaneGroup = { id: string; word: string; sec: number; count: number };
+// rank: 同じ瞬間（互いに±半拍以内）に複数の言葉の候補が並んだときの順位。1位=本線・最大。
+// 2位・3位はその上に小さく積む段（rank-1がそのまま段数）。4位以降は束から外す＝出さない。
+type LaneGroup = { id: string; word: string; sec: number; count: number; rank: number };
 
 /**
  * crowdWords を「同じ言葉を複数の人が同じ瞬間に叩いたぶん」でまとめる。
  * 言葉ごとに秒を昇順に並べ、塊の先頭から半拍以内なら同じ塊として吸収する。
  * 1拍ごとの連続コール（それ それ それ それ）は別々の粒として残す（1拍以内の鎖式でまとめると
  * これらがくっついてしまう）。代表秒は塊の中央値、人数は塊に入った件数。
+ *
+ * その後、時刻順に並べた塊どうしをさらに「同じ瞬間（互いに±半拍以内）」で束ねる
+ * （＝別々の言葉が同じタイミングの候補として並ぶケース。「それ」「オイ」等の言い方違いを想定）。
+ * 束の中は人数の多い順（同数なら秒が早い方）で rank を振り、最大3件まで（4件目以降は出さない）。
  */
 function buildWordGroups(crowdWords: WordPair[], beatSec: number): LaneGroup[] {
   const byWord = new Map<string, number[]>();
@@ -389,7 +395,7 @@ function buildWordGroups(crowdWords: WordPair[], beatSec: number): LaneGroup[] {
     arr.push(cw.sec);
     byWord.set(cw.word, arr);
   }
-  const out: LaneGroup[] = [];
+  const out: { id: string; word: string; sec: number; count: number }[] = [];
   for (const [word, secsIn] of byWord) {
     const secs = [...secsIn].sort((a, b) => a - b);
     let cluster: number[] = [];
@@ -409,33 +415,58 @@ function buildWordGroups(crowdWords: WordPair[], beatSec: number): LaneGroup[] {
     }
     flush();
   }
-  return out.sort((a, b) => a.sec - b.sec);
+  const sorted = out.sort((a, b) => a.sec - b.sec);
+
+  // 「同じ瞬間の束」にまとめて rank を振る（同じ考え方で先頭からの半拍以内をひとまとめにする）
+  const ranked: LaneGroup[] = [];
+  let bundle: typeof sorted = [];
+  const flushBundle = () => {
+    if (bundle.length === 0) return;
+    const orderedByRank = [...bundle].sort((a, b) => (b.count !== a.count ? b.count - a.count : a.sec - b.sec));
+    orderedByRank.slice(0, 3).forEach((g, i) => ranked.push({ ...g, rank: i + 1 }));
+    bundle = [];
+  };
+  for (const g of sorted) {
+    if (bundle.length === 0 || g.sec - bundle[0].sec <= beatSec / 2) bundle.push(g);
+    else { flushBundle(); bundle.push(g); }
+  }
+  flushBundle();
+  return ranked.sort((a, b) => a.sec - b.sec);
 }
+
+// 同じ瞬間に複数の言葉が並んだときの、rank別の大きさ倍率と縦の積み上げ量(px)。
+// index = rank-1。rank1=本線（縦オフセット無し）、rank2・3はその上に小さく積む
+const RANK_SCALE = [1, 0.7, 0.55];
+const RANK_STACK_PX = [0, -18, -34];
 
 /**
  * レーン上の1粒の見た目（横位置・大きさ・色・不透明度）を、いまの再生秒から計算してDOMへ直接書く。
- * 1行だけ（上下の段分けはしない）で、遠近を「大きさ×速さ」で表現する。
+ * 遠近を「大きさ×速さ」で表現する。
  *
  * 横位置は非線形: x = sign(d) × sqrt(|d|/窓) × 半幅（d=その言葉の秒−いまの秒）。
  * 線形(d/窓)と違い、遠い言葉ほど端の方でゆっくり、自分の瞬間が近づくほど速く中央を通り抜ける
  * （＝「近いほど動きが大きい」の遠近感）。
  *
  * 大きさ・不透明度は t=|d|/窓（0=いま〜1=窓の端）の連続値で決める:
- *   通常scale = 0.7 + 0.5×(1−t)（遠い=0.7倍、直近=1.2倍）
- *   その瞬間（±半拍）は通常scaleの2倍＋人数ボーナス（上限3倍）、色は白。それ以外はグレー(#888)
+ *   通常scale = 0.7 + 0.5×(1−t)（遠い=0.7倍、直近=1.2倍）に rank別倍率(RANK_SCALE)を掛ける
+ *   その瞬間（±半拍）に白く大きく光るのは rank1（1位＝人数最多）だけ。通常scaleの2倍＋人数ボーナス
+ *   （上限3倍）、色は白。rank2以降は光らない・大きくもならない＝常にグレーのまま
+ *   （光る瞬間は「いま何て叫ぶか」の答えなので、2つ光ると新規が迷うため）
  *   不透明度 = 0.4 + 0.6×(1−t)（遠い端=0.4、中央付近=1）
- * 1行なので言葉どうしが重なる瞬間はあるが、遠い言葉は小さく薄いので許容する（回避ロジックは作らない）。
+ * 縦位置は rank に応じて RANK_STACK_PX ぶん本線から上へ積む（1案しかない瞬間は常にrank1＝本線のまま）。
  */
 function positionLaneItem(el: HTMLDivElement, g: LaneGroup, now: number, beatSec: number, halfW: number) {
   const windowSec = 4 * beatSec;
   const d = g.sec - now; // + は未来（右）、− は過去（左）
   const t = Math.min(1, Math.abs(d) / windowSec);
   const x = Math.sign(d) * Math.sqrt(Math.abs(d) / windowSec) * halfW;
-  const isPeak = Math.abs(d) <= beatSec / 2;
+  const isPeak = g.rank === 1 && Math.abs(d) <= beatSec / 2;
+  const rankScale = RANK_SCALE[g.rank - 1] ?? RANK_SCALE[RANK_SCALE.length - 1];
+  const yOffset = RANK_STACK_PX[g.rank - 1] ?? RANK_STACK_PX[RANK_STACK_PX.length - 1];
   const baseScale = 0.7 + 0.5 * (1 - t);
-  const scale = isPeak ? Math.min(3, baseScale * 2 + (g.count - 1) * 0.2) : baseScale;
+  const scale = (isPeak ? Math.min(3, baseScale * 2 + (g.count - 1) * 0.2) : baseScale) * rankScale;
   const opacity = 0.4 + 0.6 * (1 - t);
-  el.style.transform = `translate(-50%, -50%) translateX(${x}px) scale(${scale})`;
+  el.style.transform = `translate(-50%, -50%) translate(${x}px, ${yOffset}px) scale(${scale})`;
   el.style.color = isPeak ? "#fff" : "#888";
   el.style.opacity = String(opacity);
 }
