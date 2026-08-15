@@ -1074,7 +1074,9 @@ export default function PlacePage() {
           </div>
         </div>
       ) : (
-        <>
+        // 動画より下の全部（色えらび・跳ねる面・！ボタン）をまとめて包む。
+        // 止まっているあいだは、この全体を1枚の再生ボタンで覆う（下は再生ボタン以外押せない）
+        <div style={S.belowVideo}>
           {/* 跳ねる面。残りの高さを全部使う。動画の上には重ねない */}
           <div style={S.stage}>
             <HandsCanvas
@@ -1084,25 +1086,25 @@ export default function PlacePage() {
               selfMemberId="nishida"
               selfSeatHash={7}
               resolveColor={resolveMemberColor}
-              centerSelfPeak
+              alignBottom
               skipSquash
               scaleCount={300}
-              topMargin={150}
+              // WordLane（高さ70px・stage上端）にかぶらない程度の上余白。
+              // alignBottom で着地点は使える領域の下端(yRatio=1)に固定されるため、
+              // 跳躍の高さ(80px)ぶんが topMargin より上に突き抜けないよう、
+              // 跳ねる面の実際の高さ（iPhone SE相当の狭い画面で見積もり）に合わせて
+              // topMargin+bottomMargin を抑えている（旧: 150/40 → 突き抜ける計算になっていた）。
+              // ※実機での見た目確認はできていない
+              topMargin={90}
               // 吹き出しの表示幅の半分＋数px（！のテクスチャは吹き出し本体が256px角の枠に208px幅で
               // 収まる作り。BASE_SIZE基準の典型的な表示サイズの半分程度を見込んだ値）。
               // 端いっぱいに湧いても本体が枠外に出て文字が読めなくなるのを防ぐ
               sideMargin={50}
-              bottomMargin={40}
+              bottomMargin={20}
               freezeAge
             />
             {/* 「大きい文字」レーン。再生中だけ（停止中・止まっているときは出さない） */}
             <WordLane playerRef={playerRef} crowdWords={crowdWords} active={playing} />
-            {!playing && (
-              /* 止まっているあいだだけ、狙いやすい大きな再生ボタンを前面に出す。
-                 叩く面（このstage）の上には重ねてよいが、動画の上には重ねない
-                 （stageは動画の外＝videoBoxの下なので問題ない）。再生が始まったら消える */
-              <button type="button" style={S.bigPlay} onClick={togglePlay}>再生</button>
-            )}
           </div>
 
           {colorPicker}
@@ -1115,7 +1117,14 @@ export default function PlacePage() {
               onContextMenu={(e) => e.preventDefault()}
             >！</button>
           </div>
-        </>
+
+          {!playing && (
+            /* 再生していない（一時停止中も含む）あいだ、動画より下の全部を1枚の再生ボタンで覆う。
+               HandsCanvasはアンマウントしない（覆いの下でPixiJSはそのまま動き続ける＝作り直しを避ける）。
+               動画自体はこの外(videoBox)にあるので、動画の上には重ならない */
+            <button type="button" style={S.fullPlayOverlay} onClick={togglePlay}>再生</button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1134,16 +1143,16 @@ const S: Record<string, React.CSSProperties> = {
   count: { marginLeft: "auto", fontSize: 12, color: "#8a8a92", fontFamily: "ui-monospace,Menlo,Consolas,monospace", flexShrink: 0 },
   videoBox: { flex: "0 0 auto" },
   play: { background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
+  // 動画より下の全部（色えらび・跳ねる面・！ボタン）を包む器。止まっているとき、この上に
+  // fullPlayOverlay を重ねて全面を覆う
+  belowVideo: { position: "relative", flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" },
   stage: { position: "relative", flex: "1 1 auto", minHeight: 0, background: "#0a0a0c", overflow: "hidden" },
-  // 止まっているあいだだけ出す、狙いやすい大きな再生ボタン。stage(叩く面)の上端に重ねる。
-  // stageは動画(videoBox)の外なので、これは動画には重ならない
-  bigPlay: {
-    // 四辺に余白を空けて「面に浮いたボタン」に見せる（縁いっぱいに貼ると隣の！と
-    // くっついて押せる感じがしない、と実機で指摘があった）。面が低いときは高さも譲る
-    position: "absolute", top: 10, left: 10, right: 10, zIndex: 5,
-    height: "min(110px, calc(100% - 20px))",
-    background: "rgba(255,255,255,0.96)", color: "#000",
-    border: 0, fontSize: 22, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
+  // 止まっている（一時停止含む）あいだ、動画より下の全部を覆う1枚の再生ボタン。
+  // belowVideo の inset:0 いっぱいに重ねる。動画(videoBox)はこの外なので重ならない
+  fullPlayOverlay: {
+    position: "absolute", inset: 0, zIndex: 20,
+    background: "#fff", color: "#000",
+    border: 0, fontSize: 26, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
   },
   // 「大きい文字」レーン。跳ねる面の上部だけ・動画には重ねない。タップは透過（吹き出しや！ボタンを塞がない）
   wordLane: {

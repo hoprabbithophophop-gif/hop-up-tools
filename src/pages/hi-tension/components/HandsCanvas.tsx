@@ -90,6 +90,13 @@ interface Props {
    * コール集約センターの！は「置けた」の即時確認が目的なので、溜めが遅延に見える。
    */
   skipSquash?: boolean;
+  /**
+   * 着地点の高さをランダムにせず、！ボタンのラインへ揃える（自分も群衆も）。
+   * 既定は false（＝ハイ！テンションのこれまでどおり、席ごとのランダムな高さ）。
+   * true のとき、spawnHand に渡す yRatio を常に 1（＝使える領域の下端。bottomMargin は今まで通り効く）
+   * として扱う。横位置(xRatio)・奥行き(depthK)には影響しない。centerSelfPeak より優先する。
+   */
+  alignBottom?: boolean;
 }
 
 // バケットインデックスに紐づく「(セッション, このバケットでの押下回数)」
@@ -187,7 +194,7 @@ function easeOutCubic(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor, centerSelfPeak = false, sideMargin = 0, bottomMargin = 0, skipSquash = false },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor, centerSelfPeak = false, sideMargin = 0, bottomMargin = 0, skipSquash = false, alignBottom = false },
   ref,
 ) {
   // 絵の種類は起動時に1回だけ見る（途中で切り替える使い方はしない）
@@ -200,6 +207,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   useEffect(() => { sideMarginRef.current = sideMargin; }, [sideMargin]);
   const bottomMarginRef = useRef<number>(bottomMargin);
   useEffect(() => { bottomMarginRef.current = bottomMargin; }, [bottomMargin]);
+  const alignBottomRef = useRef<boolean>(alignBottom);
+  useEffect(() => { alignBottomRef.current = alignBottom; }, [alignBottom]);
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const textureRef = useRef<Texture | null>(null);
@@ -742,9 +751,11 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       const memberColor = memberColorOrSkip(session.member_id);
       if (!memberColor) continue;
       const pos = sessionLayout.get(session.session_hash) ?? { ...seatFromHash(session.session_hash), depthK: 1, rotation: 0 };
+      // alignBottom: 高さをランダムにせず、！ボタンのライン（使える領域の下端）へ揃える
+      const yRatio = alignBottomRef.current ? 1 : pos.yRatio;
       for (let i = 0; i < count; i++) {
         spawnHand({
-          xRatio: pos.xRatio, yRatio: pos.yRatio, depthK: pos.depthK, rotation: pos.rotation, jumpScale: pos.jumpScale,
+          xRatio: pos.xRatio, yRatio, depthK: pos.depthK, rotation: pos.rotation, jumpScale: pos.jumpScale,
           color: overrideColorRef.current ?? memberColor,
           isSelf: false,
           isToday: session.is_today,
@@ -776,11 +787,15 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
             ? { xRatio: 0.85, yRatio: 0.93 } // 横：右下のボタン付近（アリーナ手前列あたり）で跳ねる
             : { xRatio: 0.5, yRatio: SELF_Y_SOLO };
 
-      // centerSelfPeak: 頂点(baselineY - jumpHeight)が面の縦の真ん中(h/2)に来るよう着地点を逆算する。
-      // baselineY = topMargin + yRatio×(h-topMargin-bottomMargin) なので、
-      // h/2 = baselineY - jumpHeight を yRatio について解く（spawnHand側の usableH と同じ式に揃える）。
-      // self の spawnHand 呼び出しは jumpScale を渡さない＝jumpHeight は既定の80固定。
-      if (centerSelfPeakRef.current) {
+      // alignBottom: 高さをランダムにせず、！ボタンのライン（使える領域の下端）へ揃える。
+      // centerSelfPeak（頂点を縦の真ん中に）より優先する（両方trueなら「ボタンから出る」を採る）。
+      if (alignBottomRef.current) {
+        yRatio = 1;
+      } else if (centerSelfPeakRef.current) {
+        // centerSelfPeak: 頂点(baselineY - jumpHeight)が面の縦の真ん中(h/2)に来るよう着地点を逆算する。
+        // baselineY = topMargin + yRatio×(h-topMargin-bottomMargin) なので、
+        // h/2 = baselineY - jumpHeight を yRatio について解く（spawnHand側の usableH と同じ式に揃える）。
+        // self の spawnHand 呼び出しは jumpScale を渡さない＝jumpHeight は既定の80固定。
         const h = selfAppRef.current?.screen.height ?? 0;
         if (h > 0) {
           const usableH = Math.max(1, h - topMarginRef.current - bottomMarginRef.current);
