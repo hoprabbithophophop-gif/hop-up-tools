@@ -101,6 +101,32 @@ function clearDraft(slug: string, videoId: string): void {
   try { localStorage.removeItem(draftKey(slug, videoId)); } catch { /* ignore */ }
 }
 
+/**
+ * 自分が送信した棚の行ID（call_tap_sessions.id）の控え。曲・動画ごとに分ける。
+ * 「送信済みの吹き出しのうち、これは自分の行だから消せる」の判定にだけ使う
+ * （実際に消せるかどうかはRLSが本人＋24時間以内かで判定するので、ここは見た目の印だけの役割）。
+ */
+function sentRowsKey(slug: string, videoId: string): string {
+  return `call_center:sent_rows:${slug}:${videoId}`;
+}
+function loadSentRowIds(slug: string, videoId: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(sentRowsKey(slug, videoId));
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((x): x is string => typeof x === "string"));
+  } catch {
+    return new Set();
+  }
+}
+function addSentRowId(slug: string, videoId: string, id: string): Set<string> {
+  const cur = loadSentRowIds(slug, videoId);
+  cur.add(id);
+  try { localStorage.setItem(sentRowsKey(slug, videoId), JSON.stringify([...cur])); } catch { /* ignore */ }
+  return cur;
+}
+
 /** 明るいグレー。値の発明はしない前提の1つ ※仮の明度 */
 const NEUTRAL_HEX = "#d0d0d0";
 
@@ -606,11 +632,24 @@ export default function PlacePage() {
   const playerRef = useRef<YouTubePlayerApi>(null);
   const handsRef = useRef<HandsCanvasApi>(null);
   const markIdRef = useRef(0);
+  // 通常再生中、下書きの！の通過検出に使う「直前のonTimeでの秒」。0初期化なので、初回tickで
+  // 既にsecが0より先(復元直後の頭出し等)だと、そこまでの下書きがまとめて一度だけ湧く程度の実害のみ
+  const lastPlaySecRef = useRef(0);
+  // 吹き出しを押して確認モーダルが出ているあいだ、そのtapTagを控える（二重に開かないための判定用。
+  // stateだけだと非同期のズレが心配なので、判定はこのrefで同期的に行う）
+  const bubbleConfirmTagRef = useRef<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [groupName, setGroupName] = useState("");
   const [video, setVideo] = useState<Video | null>(null);
-  const [sessions, setSessions] = useState<HiSession[]>([]);
+  // 棚から読んだ生の行（跳ねる面のsessions・候補チップのcrowdWords・送信済み！のタップ判定は
+  // すべてここから作る＝派生値。棚の値を書き換えたとき(送信済み！の削除)ここだけ更新すれば
+  // 他は自動で追従する（appendで積むとリフェッチのたびに二重表示になるため、置き換え式にした）
+  const [rawTapRows, setRawTapRows] = useState<TapRow[]>([]);
+  // 既に登録されているコール（get_song_calls由来の擬似セッション）。rawTapRowsとは出どころが違うので分ける
+  const [registeredCallsSession, setRegisteredCallsSession] = useState<HiSession | null>(null);
+  // 自分がこの曲・動画で送信した行ID（送信済みの！を押せる対象にするための印。localStorage由来）
+  const [sentRowIds, setSentRowIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   const [playing, setPlaying] = useState(false);
@@ -634,8 +673,6 @@ export default function PlacePage() {
   // sec >= previewStopAt を見ていると、着地前のこの古い値で即座に誤爆して「見返し」が
   // 実質1tickで終わってしまう（＝叩き足す間もなく振り返りへ戻る）事故になる。
   const previewArmedRef = useRef(false);
-  // 棚から読んだ、他の参加者が付けた「秒と言葉の対」。候補チップの元データ
-  const [crowdWords, setCrowdWords] = useState<WordPair[]>([]);
   // 振り返り画面で、今どの！の言葉を編集中か。行の本体を押すと開く（別画面にはしない）
   const [editingMarkId, setEditingMarkId] = useState<number | null>(null);
   const [wordDraft, setWordDraft] = useState("");
@@ -654,11 +691,53 @@ export default function PlacePage() {
   const removedClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 人間確認を出しているあいだ、答えが返るまで待つための受け皿（SongTapPage と同じ形）
   const [gate, setGate] = useState<((t: string | null) => void) | null>(null);
+  // 吹き出しを押したときの「この！を消す？」確認。tagがあれば表示（消す／やめるの決着でnullに戻す）
+  const [bubbleConfirm, setBubbleConfirm] = useState<{ tag: string } | null>(null);
+  // 送信済みの！を消せなかった（24時間超過・本人以外等）ときの一言
+  const [sentDeleteNotice, setSentDeleteNotice] = useState<string | null>(null);
 
   const askForToken = () =>
     new Promise<string | null>((resolve) => {
       setGate(() => (t: string | null) => { setGate(null); resolve(t); });
     });
+
+  // 跳ねる面に流すセッション一式。登録済みコール（あれば先頭）＋棚の行から作った疑似セッション。
+  const sessions = useMemo<HiSession[]>(() => {
+    const crowd = tapRowsToSessions(rawTapRows);
+    return registeredCallsSession ? [registeredCallsSession, ...crowd] : crowd;
+  }, [registeredCallsSession, rawTapRows]);
+
+  // 棚から読んだ、他の参加者が付けた「秒と言葉の対」。候補チップの元データ
+  const crowdWords = useMemo<WordPair[]>(() => extractWordPairs(rawTapRows), [rawTapRows]);
+
+  // 自分が送った行のうち、跳ねる面のどの粒がどの(行ID, その行の中でのindex)に対応するかの索引。
+  // tapRowsToSessions と同じ session_hash / bucket の作り方に合わせて組む（ずれると違う！を消してしまう）。
+  const sentTapIndex = useMemo(() => {
+    const map = new Map<string, { rowId: string; index: number }>();
+    if (sentRowIds.size === 0) return map;
+    const occurrenceCounters = new Map<string, number>(); // `${session_hash}:${bucket}` → 出現数
+    for (const row of rawTapRows) {
+      if (!sentRowIds.has(row.id)) continue;
+      const secs = (row.mark_secs ?? []).map(Number);
+      const memberIds = row.mark_member_ids ?? [];
+      secs.forEach((sec, i) => {
+        const key = memberIds[i] ?? "";
+        const sessionHash = hashSessionKey(row.id, key);
+        const bucket = Math.round(sec * 20);
+        const counterKey = `${sessionHash}:${bucket}`;
+        const occ = occurrenceCounters.get(counterKey) ?? 0;
+        occurrenceCounters.set(counterKey, occ + 1);
+        map.set(`${counterKey}:${occ}`, { rowId: row.id, index: i });
+      });
+    }
+    return map;
+  }, [rawTapRows, sentRowIds]);
+
+  /** 群衆✋の1粒が「自分が送った行の、何番目の！か」を返す。HandsCanvasのgetBucketTapTagへ渡す */
+  const getBucketTapTag = (session: HiSession, bucket: number, occurrenceIndex: number): string | undefined => {
+    const hit = sentTapIndex.get(`${session.session_hash}:${bucket}:${occurrenceIndex}`);
+    return hit ? `sent:${hit.rowId}:${hit.index}` : undefined;
+  };
 
   // playing → previewToolsVisible。true化は即座、false化は250ms待ってから（瞬間的な揺り戻し対策）
   useEffect(() => {
@@ -725,6 +804,7 @@ export default function PlacePage() {
       if (v) {
         setVideo({ video_id: v.videoId, offset_sec: v.offsetSec, rate: 1, label: v.label });
         restoreDraft(v.videoId);
+        setSentRowIds(loadSentRowIds(slug, v.videoId));
       }
       return true;
     };
@@ -745,6 +825,7 @@ export default function PlacePage() {
           if (!v) { setError("この曲にはまだ動画が結び付いていません"); return; }
           setVideo({ video_id: v.video_id, offset_sec: Number(v.offset_sec), rate: Number(v.rate) || 1, label: v.label });
           restoreDraft(v.video_id);
+          setSentRowIds(loadSentRowIds(slug, v.video_id));
 
           /**
            * 色えらびに出すメンバー。3段のフォールバック:
@@ -798,14 +879,14 @@ export default function PlacePage() {
                 .filter((r) => r.start_sec !== null)
                 .map((r) => toVideoSec(Number(r.start_sec), Number(v.offset_sec), Number(v.rate) || 1));
               if (secs.length === 0) return;
-              setSessions((prev) => [...prev, {
+              setRegisteredCallsSession({
                 session_hash: 424242,
                 member_id: "", // 誰の色でもない＝グレー（resolveMemberColorが見つけられないIDにしている）
                 is_today: true,
                 bucket_indices: secs.map((t) => Math.round(t * 10)),
                 bucket_indices_20: secs.map((t) => Math.round(t * 20)),
                 played_date: new Date().toISOString().slice(0, 10),
-              }]);
+              });
             }, () => { /* 読めなくても置く画面は成り立つ */ });
 
           // 過去の参加者が叩いたぶんも、同じ動画のものだけ跳ねる面に流す
@@ -823,11 +904,7 @@ export default function PlacePage() {
             .limit(200)
             .then(({ data: tapRows }) => {
               if (!alive || !tapRows) return;
-              const rows = tapRows as TapRow[];
-              const crowd = tapRowsToSessions(rows);
-              if (crowd.length > 0) setSessions((prev) => [...prev, ...crowd]);
-              const words = extractWordPairs(rows);
-              if (words.length > 0) setCrowdWords((prev) => [...prev, ...words]);
+              setRawTapRows(tapRows as TapRow[]);
             }, () => { /* 読めなくても置く画面は成り立つ */ });
         }, () => { if (alive && !openBuiltIn()) setError("現在通信できていません（集まったコールを読み込めません）"); });
     } catch {
@@ -845,6 +922,23 @@ export default function PlacePage() {
 
   const onTime = (sec: number) => {
     handsRef.current?.onTimeUpdate(sec);
+
+    // 通常再生中（振り返り中ではない）、自分の下書きの！の秒を通過するたびに、群衆と同じ見た目で
+    // 跳ねさせる（押して消せる目印tapTag=draft付き）。直前のsecと今回のsecの間に挟まった！だけを
+    // 拾う「境界をまたいだか」判定なので、同じ通過で二重に湧くことはない（次のtickではもう
+    // 境界の外＝lastPlaySecRefが進んでいるので再判定されない）。巻き戻すと自然にリセットされる
+    // （戻った直後はsec<lastPlaySecRefになるので一旦何も拾わなくなり、そこから先へ進むとまた拾える）。
+    if (!reviewTrigger) {
+      const prevSec = lastPlaySecRef.current;
+      if (sec > prevSec) {
+        for (const m of marks) {
+          if (m.sec > prevSec && m.sec <= sec) {
+            handsRef.current?.spawnCrowdSelf(m.colorHex, `draft:${m.id}`);
+          }
+        }
+      }
+    }
+    lastPlaySecRef.current = sec;
 
     // 見返しのカウントイン中なら、今どの段階か（5・6・7・8→！）を出す
     if (previewTarget) {
@@ -1021,6 +1115,96 @@ export default function PlacePage() {
     }
   };
 
+  /** 送信済みの！を消せなかった（24時間超過・本人以外等）ときの一言を出す */
+  const showSentDeleteError = () => {
+    setSentDeleteNotice("もう直せません（送信から24時間まで）");
+    setTimeout(() => setSentDeleteNotice(null), 6000);
+  };
+
+  /**
+   * 跳ねる面の！を押したときの通知（オーナー最終決定：タップ→中空停止→確認モーダル）。
+   * 押した瞬間はまだ何も止めない・消さない。確認が出ていないときだけ、その粒を凍結して
+   * 「この！を消す？」を出す。確認中に別の粒を押しても無視する（先の確認を閉じるまで一つだけ）。
+   */
+  const onBubbleTap = (tag: string) => {
+    if (bubbleConfirmTagRef.current) return;
+    bubbleConfirmTagRef.current = tag;
+    handsRef.current?.freezeBubble(tag);
+    setBubbleConfirm({ tag });
+  };
+
+  /** 確認の「やめる」：何もなかったことにして、凍結した粒の動きを再開する */
+  const cancelBubbleConfirm = () => {
+    const tag = bubbleConfirmTagRef.current;
+    bubbleConfirmTagRef.current = null;
+    setBubbleConfirm(null);
+    if (tag) handsRef.current?.resolveBubble(tag, "resume");
+  };
+
+  /**
+   * 確認の「消す」：凍結した粒を縮めて消し、tagの中身（draft/sent）に応じて実際の削除を行う。
+   * draft = まだ送っていない下書き。既存の removeMark をそのまま使う（振り返り側の×と同じ扱い）。
+   * sent = 既に送信済みの行。棚をUPDATE（最後の1個ならDELETE）して消す。undoは無い
+   * （確認モーダルを挟んだのでこれでよい、というオーナー決定）。
+   */
+  const confirmBubbleDelete = async () => {
+    const tag = bubbleConfirmTagRef.current;
+    bubbleConfirmTagRef.current = null;
+    setBubbleConfirm(null);
+    if (!tag) return;
+    handsRef.current?.resolveBubble(tag, "remove");
+    if (tag.startsWith("draft:")) {
+      const id = Number(tag.slice("draft:".length));
+      if (!Number.isNaN(id)) removeMark(id);
+    } else if (tag.startsWith("sent:")) {
+      const rest = tag.slice("sent:".length);
+      const sep = rest.lastIndexOf(":");
+      if (sep > 0) {
+        const rowId = rest.slice(0, sep);
+        const index = Number(rest.slice(sep + 1));
+        if (!Number.isNaN(index)) await deleteSentMark(rowId, index);
+      }
+    }
+  };
+
+  /**
+   * 送信済みの行から！を1つ消す。RLS（本人＋24時間以内）が通れば成功。
+   * 通らない場合はエラーを投げずに0件更新で返ってくる（RLSの仕様）ので、更新できた行数で判定する。
+   * 最後の1個を消すときは、空配列の行を棚に残さないよう行ごとDELETEする
+   * （UPDATE用のDELETEポリシーも既に用意されている）。
+   */
+  const deleteSentMark = async (rowId: string, index: number) => {
+    const row = rawTapRows.find((r) => r.id === rowId);
+    if (!row) { showSentDeleteError(); return; }
+    const secs = row.mark_secs ?? [];
+    const db = getSupabase();
+    try {
+      if (secs.length <= 1) {
+        const { data, error } = await db.from("call_tap_sessions").delete().eq("id", rowId).select("id");
+        if (error) throw error;
+        if (!data || data.length === 0) { showSentDeleteError(); return; }
+        setRawTapRows((prev) => prev.filter((r) => r.id !== rowId));
+      } else {
+        const memberIds = row.mark_member_ids ?? [];
+        const words = row.mark_words ?? [];
+        const newSecs = secs.filter((_, i) => i !== index);
+        const newMemberIds = memberIds.filter((_, i) => i !== index);
+        const newWords = words.filter((_, i) => i !== index);
+        const { data, error } = await db.from("call_tap_sessions")
+          .update({ mark_secs: newSecs, mark_member_ids: newMemberIds, mark_words: newWords })
+          .eq("id", rowId)
+          .select("id");
+        if (error) throw error;
+        if (!data || data.length === 0) { showSentDeleteError(); return; }
+        setRawTapRows((prev) => prev.map((r) => (r.id !== rowId ? r : {
+          ...r, mark_secs: newSecs, mark_member_ids: newMemberIds, mark_words: newWords,
+        })));
+      }
+    } catch {
+      showSentDeleteError();
+    }
+  };
+
   /**
    * 振り返り画面で、その行の色の丸を押したときの塗り替え。
    * 今チップ列で選んでいる色（currentColor）で、その！を上書きするだけ。
@@ -1114,15 +1298,18 @@ export default function PlacePage() {
       // ここでは一言は出さない（振り返りを開いたときの一言で十分。ここは保険なので静かに）
       const { merged } = mergeCloseMarks(marks, estimateBeatSec(marks));
 
-      const { error: e3 } = await db.from("call_tap_sessions").insert({
+      const { data: insertedRow, error: e3 } = await db.from("call_tap_sessions").insert({
         song_id: row.id,
         video_id: video.video_id,
         mark_secs: merged.map((m) => m.sec),
         mark_member_ids: merged.map((m) => m.memberId),
         mark_words: merged.map((m) => m.word),
         created_by: userData.user.id,
-      });
+      }).select("id").single();
       if (e3) throw e3;
+
+      // 送った行のIDを端末に控える（送信済みの吹き出しを「これは自分の行」として押せる対象にする用）
+      if (insertedRow?.id) setSentRowIds(addSentRowId(slug, video.video_id, insertedRow.id));
 
       // 送れた＝この参加は1行として棚に乗った。次の通しはゼロから数え直す。
       // 黙って数がゼロに戻ると「消えた」ように見えて不安にさせるので、お礼の画面に切り替える
@@ -1250,6 +1437,16 @@ export default function PlacePage() {
     <div style={S.page}>
       {gate && <HumanCheckGate onDone={gate} />}
       {sendError && <div style={S.errorBanner}>{sendError}</div>}
+      {sentDeleteNotice && <div style={S.errorBanner}>{sentDeleteNotice}</div>}
+      {bubbleConfirm && (
+        /* 吹き出しを押したときの確認。動画は再生を続けたまま、動画の上には重ねない
+           （下端固定のバナー。押した粒はHandsCanvas側で既に凍結済み） */
+        <div style={S.bubbleConfirmBanner}>
+          <span>この！を消す？</span>
+          <button type="button" style={S.bubbleConfirmBtn} onClick={confirmBubbleDelete}>消す</button>
+          <button type="button" style={S.bubbleConfirmBtnGhost} onClick={cancelBubbleConfirm}>やめる</button>
+        </div>
+      )}
 
       <div style={S.head}>
         <button style={S.back} onClick={handleBack}>曲の一覧へ</button>
@@ -1414,6 +1611,8 @@ export default function PlacePage() {
               sideMargin={50}
               bottomMargin={10}
               freezeAge
+              onBubbleTap={onBubbleTap}
+              getBucketTapTag={getBucketTapTag}
             />
           </div>
 
@@ -1539,6 +1738,15 @@ const S: Record<string, React.CSSProperties> = {
     background: "#000", color: "#fff", fontSize: 13, fontWeight: 700,
     padding: "12px 16px", textAlign: "center", boxShadow: "inset 0 1px 0 #333",
   },
+  // 吹き出しを押したときの「この！を消す？」確認。動画の上には重ねない下端固定バナー
+  bubbleConfirmBanner: {
+    position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 160,
+    background: "#000", color: "#fff", fontSize: 13, fontWeight: 700,
+    padding: "12px 16px", textAlign: "center", boxShadow: "inset 0 1px 0 #333",
+    display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
+  },
+  bubbleConfirmBtn: { background: "#fff", color: "#000", border: 0, padding: "8px 14px", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" },
+  bubbleConfirmBtnGhost: { background: "none", color: "#9aa0a6", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
   // 送信成功後のお礼画面
   thankYouTitle: { fontSize: 19, fontWeight: 900, margin: "0 0 10px" },
   thankYouBody: { fontSize: 13, lineHeight: 1.8, color: "#cbd2dc", margin: "0 0 16px" },

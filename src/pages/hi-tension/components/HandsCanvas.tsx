@@ -11,7 +11,7 @@ import {
 // `pixi.js/unsafe-eval` を side-effect import すると eval を使わない別実装に切り替わる。
 // import そのものに副作用があるので、pixi.js の他 import より前に置く。
 import "pixi.js/unsafe-eval";
-import { Application, Container, PerspectiveMesh, Sprite, Texture, Ticker } from "pixi.js";
+import { Application, Circle, Container, PerspectiveMesh, Sprite, Texture, Ticker } from "pixi.js";
 import { getHandTexture, getHandOutlineTexture, getMarkTexture, getMarkOutlineTexture, seatFromHash } from "../handTexture";
 import { findMember } from "../data";
 import type { HiSession } from "../api";
@@ -20,10 +20,30 @@ export type HandsCanvasApi = {
   /**
    * color を渡すと、その色で跳ねる（selfMemberId からの色引きをスキップ）。
    * 未指定ならこれまでどおり selfMemberId から色を引く（挙動不変）。
+   * tapTag を渡すと、その吹き出しだけ押せる対象になる（onBubbleTap 経由で通知が来る）。
+   * 未指定（既定）なら今までどおり押せない。
    */
-  spawnSelf: (color?: string) => void;
+  spawnSelf: (color?: string, tapTag?: string) => void;
+  /**
+   * 自分の色で「群衆と同じ見た目・大きさ」の吹き出しを1粒湧かす（spawnSelf の大きい自分✋とは別物）。
+   * 位置は spawnSelf と同じロジック（席/中央）を使う。tapTag を付けると押せる対象になる。
+   * コール集約センターの「下書きの！の再生表示」用に追加（ハイ！テンション側は未使用）。
+   */
+  spawnCrowdSelf: (color: string, tapTag?: string) => void;
   onTimeUpdate: (currentTime: number) => void;
   receiveLiveTap: (memberId: string, seatIndex: number, videoTime: number, lagMs: number) => void;
+  /**
+   * tapTag 付きの吹き出しをその場で静止させる（その粒だけ。他の粒・動画は動き続ける）。
+   * 見た目・当たり判定はそのまま、動きだけ止まる。resolveBubble で決着させるまで押しても何も起きない。
+   */
+  freezeBubble: (tag: string) => void;
+  /**
+   * freezeBubble 済みの吹き出しを決着させる。
+   * "resume" = 何もなかったことにして動きを再開（元のアニメの続きから）。
+   * "remove" = 縮めて消す。
+   * 凍結されていない tag（既に消えた等）に対しては何もしない。
+   */
+  resolveBubble: (tag: string, action: "remove" | "resume") => void;
 };
 
 interface Props {
@@ -111,10 +131,36 @@ interface Props {
    * 「他の人がいる」ことが見えなくなるのを避けるための処置。
    */
   avoidCenterX?: boolean;
+  /**
+   * tapTag 付きの吹き出しが押されたときに呼ばれる（既定なし＝当たり判定自体を作らない。
+   * ハイ！テンションの挙動は不変）。呼ばれた時点ではまだ何も止まらない・消えない。
+   * 呼び出し側が freezeBubble(tag) を呼んで初めてその粒の動きが止まる（呼ばなければ普通に消えていく）。
+   */
+  onBubbleTap?: (tag: string) => void;
+  /**
+   * 群衆✋（sessions由来）を1粒湧かすたびに、それを押せる対象にするか聞く関数。
+   * 文字列を返すとその粒だけ tapTag が付いて押せるようになる（undefined なら今までどおり押せない）。
+   * occurrenceIndex は同じ (session, bucket) から複数粒湧くときの通し番号(0始まり)。
+   * 未指定（既定）なら群衆✋は一切押せない＝ハイ！テンションの挙動は不変。
+   */
+  getBucketTapTag?: (session: HiSession, bucket: number, occurrenceIndex: number) => string | undefined;
 }
 
 // バケットインデックスに紐づく「(セッション, このバケットでの押下回数)」
 type BucketEntry = { session: HiSession; count: number };
+
+// tapTag 付きで湧いている吹き出し1粒ぶんの控え。freezeBubble/resolveBubble から参照する。
+type TrackedBubble = {
+  app: Application;
+  node: Sprite | Container;
+  onTick: (ticker: Ticker) => void;
+  frozen: boolean;
+};
+
+// tapTag 付きの吹き出しの当たり判定（ローカル座標・anchor(0.5,1.0)基準の円）。
+// 見た目(吹き出し本体)より一回り大きくして、スマホの指でも狙いやすくする。
+// テクスチャは256角、本体はおおむね x:[-104,104] y:[-248,-90] に収まる作りなので、それを覆う円で近似する。
+const TAP_HIT_AREA = new Circle(0, -170, 150);
 
 const BASE_SIZE = 84;
 const SELF_SIZE = 84; // 自分は群衆より明確に大きく（埋もれ防止。白フチも併用）
@@ -220,7 +266,7 @@ function pushOutOfCenterBand(xRatio: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor, centerSelfPeak = false, sideMargin = 0, bottomMargin = 0, skipSquash = false, alignBottom = false, iconScale = 1, avoidCenterX = false },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor, centerSelfPeak = false, sideMargin = 0, bottomMargin = 0, skipSquash = false, alignBottom = false, iconScale = 1, avoidCenterX = false, onBubbleTap, getBucketTapTag },
   ref,
 ) {
   // 絵の種類は起動時に1回だけ見る（途中で切り替える使い方はしない）
@@ -239,6 +285,12 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   useEffect(() => { iconScaleRef.current = iconScale; }, [iconScale]);
   const avoidCenterXRef = useRef<boolean>(avoidCenterX);
   useEffect(() => { avoidCenterXRef.current = avoidCenterX; }, [avoidCenterX]);
+  const onBubbleTapRef = useRef<typeof onBubbleTap>(onBubbleTap);
+  useEffect(() => { onBubbleTapRef.current = onBubbleTap; }, [onBubbleTap]);
+  const getBucketTapTagRef = useRef<typeof getBucketTapTag>(getBucketTapTag);
+  useEffect(() => { getBucketTapTagRef.current = getBucketTapTag; }, [getBucketTapTag]);
+  // tapTag 付きで今湧いている吹き出しの控え（freezeBubble/resolveBubble から参照）
+  const taggedBubblesRef = useRef<Map<string, TrackedBubble>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const textureRef = useRef<Texture | null>(null);
@@ -574,6 +626,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     rotation?: number;
     /** 跳ね量の倍率（80px に掛ける）。未指定=1。アリーナは動画裏に入らないよう抑える。 */
     jumpScale?: number;
+    /** 付けると押せる対象になる（当たり判定+pointerdownを付ける）。未指定=今までどおり押せない。 */
+    tapTag?: string;
   }) {
     const texture = textureRef.current;
     // 自分✋は自分用pixi(別キャンバス・✋ボタンより上)、群衆は群衆pixiに描く。
@@ -659,6 +713,18 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     node.y = baselineY;
 
     targetLayer.addChild(node);
+
+    // tapTag 付きなら押せるようにする（当たり判定は見た目より一回り大きく＝指用）。
+    // ここでは見た目・動きは一切変えない。凍結・削除は freezeBubble/resolveBubble 経由の別操作。
+    if (params.tapTag) {
+      const tag = params.tapTag;
+      node.eventMode = "static";
+      node.cursor = "pointer";
+      node.hitArea = TAP_HIT_AREA;
+      node.on("pointerdown", () => {
+        onBubbleTapRef.current?.(tag);
+      });
+    }
 
     // 溜め(squash) → 上昇 → 軽い滞空 → 下降しながらフェードアウト（二段ジャンプなし）。
     // タップした瞬間に一瞬グッと縮んでから勢いよく上がる「予備動作」で手応えを出し、
@@ -757,10 +823,15 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
 
       if (phase === "done") {
         app.ticker.remove(onTick);
+        if (params.tapTag) taggedBubblesRef.current.delete(params.tapTag);
         try { node.destroy({ children: true }); } catch { /* ignore */ }
       }
     };
 
+    // freezeBubble/resolveBubble から後で参照できるよう、押せる粒だけ控えておく
+    if (params.tapTag) {
+      taggedBubblesRef.current.set(params.tapTag, { app, node, onTick, frozen: false });
+    }
     app.ticker.add(onTick);
   }
 
@@ -792,6 +863,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         if (avoidCenterXRef.current) {
           xRatio = pushOutOfCenterBand(xRatio) + (Math.random() * 2 - 1) * CENTER_JITTER;
         }
+        const tapTag = getBucketTapTagRef.current?.(session, bucket, i);
         spawnHand({
           xRatio, yRatio, depthK: pos.depthK, rotation: pos.rotation, jumpScale: pos.jumpScale,
           color: overrideColorRef.current ?? memberColor,
@@ -799,13 +871,48 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
           isToday: session.is_today,
           playedDate: session.played_date,
           animationOffsetMs,
+          tapTag,
         });
       }
     }
   }
 
+  /**
+   * 自分の跳ねの位置（xRatio/yRatio）を決める。spawnSelf（大きい自分✋）と spawnCrowdSelf
+   * （群衆と同じ見た目の自分の粒）の両方で使う共通ロジック。中身は元の spawnSelf のままで挙動は不変。
+   * ※ centerSelfPeak の高さ計算は selfApp（自分用キャンバス）の画面高さを基準にしている。
+   *   spawnCrowdSelf は群衆キャンバスに描くが、centerSelfPeak を使う画面は今のところ無いため実害はない。
+   */
+  function resolveSelfPosition(): { xRatio: number; yRatio: number } {
+    // リアルタイム時は席ベースの等間隔、ソロ時は中段。横ではハイ！ボタン(右下)の近くから挙げる。
+    const seatIdx = selfSeatIndexRef.current;
+    let { xRatio, yRatio } =
+      seatIdx != null && seatIdx >= 0
+        ? seatIndexToPosition(seatIdx)
+        : landscapeRef.current
+          ? { xRatio: 0.85, yRatio: 0.93 } // 横：右下のボタン付近（アリーナ手前列あたり）で跳ねる
+          : { xRatio: 0.5, yRatio: SELF_Y_SOLO };
+
+    // alignBottom: 高さをランダムにせず、！ボタンのライン（使える領域の下端）へ揃える。
+    // centerSelfPeak（頂点を縦の真ん中に）より優先する（両方trueなら「ボタンから出る」を採る）。
+    if (alignBottomRef.current) {
+      yRatio = 1;
+    } else if (centerSelfPeakRef.current) {
+      // centerSelfPeak: 頂点(baselineY - jumpHeight)が面の縦の真ん中(h/2)に来るよう着地点を逆算する。
+      // baselineY = topMargin + yRatio×(h-topMargin-bottomMargin) なので、
+      // h/2 = baselineY - jumpHeight を yRatio について解く（spawnHand側の usableH と同じ式に揃える）。
+      // self の spawnHand 呼び出しは jumpScale を渡さない＝jumpHeight は既定の80固定。
+      const h = selfAppRef.current?.screen.height ?? 0;
+      if (h > 0) {
+        const usableH = Math.max(1, h - topMarginRef.current - bottomMarginRef.current);
+        yRatio = (h / 2 + 80 - topMarginRef.current) / usableH;
+      }
+    }
+    return { xRatio, yRatio };
+  }
+
   useImperativeHandle(ref, () => ({
-    spawnSelf(color?: string) {
+    spawnSelf(color?: string, tapTag?: string) {
       // color 指定があればそちらを使う（呼び出し側が自分で色を決めるケース＝コール集約センターの
       // ！ごとの色替え）。未指定ならこれまでどおり selfMemberId から findMember で引く（挙動不変）。
       let resolvedColor = color;
@@ -816,38 +923,61 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         if (!member) return;
         resolvedColor = member.color;
       }
-      // リアルタイム時は席ベースの等間隔、ソロ時は中段。横ではハイ！ボタン(右下)の近くから挙げる。
-      const seatIdx = selfSeatIndexRef.current;
-      let { xRatio, yRatio } =
-        seatIdx != null && seatIdx >= 0
-          ? seatIndexToPosition(seatIdx)
-          : landscapeRef.current
-            ? { xRatio: 0.85, yRatio: 0.93 } // 横：右下のボタン付近（アリーナ手前列あたり）で跳ねる
-            : { xRatio: 0.5, yRatio: SELF_Y_SOLO };
-
-      // alignBottom: 高さをランダムにせず、！ボタンのライン（使える領域の下端）へ揃える。
-      // centerSelfPeak（頂点を縦の真ん中に）より優先する（両方trueなら「ボタンから出る」を採る）。
-      if (alignBottomRef.current) {
-        yRatio = 1;
-      } else if (centerSelfPeakRef.current) {
-        // centerSelfPeak: 頂点(baselineY - jumpHeight)が面の縦の真ん中(h/2)に来るよう着地点を逆算する。
-        // baselineY = topMargin + yRatio×(h-topMargin-bottomMargin) なので、
-        // h/2 = baselineY - jumpHeight を yRatio について解く（spawnHand側の usableH と同じ式に揃える）。
-        // self の spawnHand 呼び出しは jumpScale を渡さない＝jumpHeight は既定の80固定。
-        const h = selfAppRef.current?.screen.height ?? 0;
-        if (h > 0) {
-          const usableH = Math.max(1, h - topMarginRef.current - bottomMarginRef.current);
-          yRatio = (h / 2 + 80 - topMarginRef.current) / usableH;
-        }
-      }
-
+      const { xRatio, yRatio } = resolveSelfPosition();
       spawnHand({
         xRatio, yRatio,
         color: overrideColorRef.current ?? resolvedColor,
         isSelf: true,
         isToday: true,
         depthK: SELF_DEPTH,
+        tapTag,
       });
+    },
+    spawnCrowdSelf(color: string, tapTag?: string) {
+      const { xRatio, yRatio } = resolveSelfPosition();
+      spawnHand({
+        xRatio, yRatio,
+        color: overrideColorRef.current ?? color,
+        isSelf: false,
+        isToday: true,
+        depthK: 1,
+        tapTag,
+      });
+    },
+    freezeBubble(tag: string) {
+      const entry = taggedBubblesRef.current.get(tag);
+      if (!entry || entry.frozen) return;
+      entry.frozen = true;
+      entry.app.ticker.remove(entry.onTick);
+      entry.node.eventMode = "none"; // 凍結中は再タップ不可（確認が出ているあいだの二重防止の保険）
+    },
+    resolveBubble(tag: string, action: "remove" | "resume") {
+      const entry = taggedBubblesRef.current.get(tag);
+      if (!entry || !entry.frozen) return;
+      taggedBubblesRef.current.delete(tag);
+      if (action === "resume") {
+        entry.node.eventMode = "static"; // 何もなかったことに＝また押せる状態へ戻す
+        entry.app.ticker.add(entry.onTick); // 元のonTickをそのまま再開＝続きから動く
+        return;
+      }
+      // remove: 凍結した位置からその場で縮めて消す（自然消滅とは別の、確認後の専用モーション）
+      const node = entry.node;
+      const app = entry.app;
+      const startScale = node.scale.x;
+      const startAlpha = node.alpha;
+      const shrinkDur = 160;
+      let t = 0;
+      const onShrink = (ticker: Ticker) => {
+        t += ticker.deltaMS;
+        const k = Math.min(1, t / shrinkDur);
+        node.scale.set(startScale * (1 - k));
+        node.alpha = startAlpha * (1 - k);
+        if (k >= 1) {
+          app.ticker.remove(onShrink);
+          try { node.destroy({ children: true }); } catch { /* ignore */ }
+        }
+      };
+      app.ticker.add(onShrink);
     },
     receiveLiveTap(memberId: string, seatIndex: number, videoTime: number, lagMs: number) {
       const now = currentTimeRef.current;
@@ -941,7 +1071,10 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
           left: 0,
           right: 0,
           bottom: 0,
-          pointerEvents: "none",
+          // tapTag 付きの吹き出しを押せるようにするときだけ通す（既定は今までどおり none＝
+          // ハイ！テンションはタップを透過し続ける）。この面自体には他に押せるものが無いので、
+          // auto にしても空振りタップで何かが起きることはない。
+          pointerEvents: onBubbleTap ? "auto" : "none",
           overflow: "hidden",
           zIndex: 2, // 「中断して戻る」(z:1)より上＝✋履歴がボタンに被る。
         }}
