@@ -67,6 +67,12 @@ interface Props {
    * 指定したときは、名簿に無いID（=undefined を返す）は白で湧かす（消さない）。
    */
   resolveColor?: (memberId: string) => string | undefined;
+  /**
+   * 自分の跳ねの頂点（一番高い瞬間）が、面の縦の真ん中に来るように着地点を逆算する。
+   * 未指定（既定 false）ならこれまでどおり SELF_Y / SELF_Y_SOLO / 席ベースの位置を使う（挙動不変）。
+   * 群衆（他の人の粒）の位置には影響しない。
+   */
+  centerSelfPeak?: boolean;
 }
 
 // バケットインデックスに紐づく「(セッション, このバケットでの押下回数)」
@@ -164,7 +170,7 @@ function easeOutCubic(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor, centerSelfPeak = false },
   ref,
 ) {
   // 絵の種類は起動時に1回だけ見る（途中で切り替える使い方はしない）
@@ -192,6 +198,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   useEffect(() => { overrideColorRef.current = overrideColor; }, [overrideColor]);
   const resolveColorRef = useRef<((memberId: string) => string | undefined) | undefined>(resolveColor);
   useEffect(() => { resolveColorRef.current = resolveColor; }, [resolveColor]);
+  const centerSelfPeakRef = useRef<boolean>(centerSelfPeak);
+  useEffect(() => { centerSelfPeakRef.current = centerSelfPeak; }, [centerSelfPeak]);
   const freezeAgeRef = useRef<boolean>(freezeAge);
   useEffect(() => { freezeAgeRef.current = freezeAge; }, [freezeAge]);
   const reduceMotionRef = useRef<boolean>(reduceMotion);
@@ -732,12 +740,24 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       }
       // リアルタイム時は席ベースの等間隔、ソロ時は中段。横ではハイ！ボタン(右下)の近くから挙げる。
       const seatIdx = selfSeatIndexRef.current;
-      const { xRatio, yRatio } =
+      let { xRatio, yRatio } =
         seatIdx != null && seatIdx >= 0
           ? seatIndexToPosition(seatIdx)
           : landscapeRef.current
             ? { xRatio: 0.85, yRatio: 0.93 } // 横：右下のボタン付近（アリーナ手前列あたり）で跳ねる
             : { xRatio: 0.5, yRatio: SELF_Y_SOLO };
+
+      // centerSelfPeak: 頂点(baselineY - jumpHeight)が面の縦の真ん中(h/2)に来るよう着地点を逆算する。
+      // baselineY = topMargin + yRatio×(h-topMargin) なので、h/2 = baselineY - jumpHeight を yRatio について解く。
+      // self の spawnHand 呼び出しは jumpScale を渡さない＝jumpHeight は既定の80固定。
+      if (centerSelfPeakRef.current) {
+        const h = selfAppRef.current?.screen.height ?? 0;
+        if (h > 0) {
+          const usableH = Math.max(1, h - topMarginRef.current);
+          yRatio = (h / 2 + 80 - topMarginRef.current) / usableH;
+        }
+      }
+
       spawnHand({
         xRatio, yRatio,
         color: overrideColorRef.current ?? resolvedColor,

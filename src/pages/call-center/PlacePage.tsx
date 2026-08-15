@@ -135,8 +135,41 @@ function tapRowsToSessions(rows: TapRow[]): HiSession[] {
   return out;
 }
 
-/** 見返すときに何秒巻き戻すか。BPMが無い曲がほとんどなのでカウントインは作らず固定秒にする ※仮 */
+/** 見返すときに何秒巻き戻すか。BPMが出せなかったときの代わり ※仮 */
 const REWIND_SEC = 5;
+
+/** 配列の中央値。採譜画面（ArigatoBeatTapPage）の同名の関数と同じ計算 */
+function median(xs: number[]): number {
+  if (xs.length === 0) return 0;
+  const a = [...xs].sort((x, y) => x - y);
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+/**
+ * この参加で叩いた間隔から、大まかな拍の長さ（秒）を見積もる。
+ * 採譜画面と同じやり方: 隣り合う間隔のうち 0.15〜3秒 のものだけを集めて中央値を取る。
+ * 倍・半分の取り違えはあり得るが、カウントインの用途なら細かい正確さは要らない。
+ * 有効な間隔が少なすぎるとき（4個未満 ※仮）は null＝BPMが出せない扱いにする。
+ */
+function estimateBeatSec(marks: MarkEntry[]): number | null {
+  const secs = [...marks].map((m) => m.sec).sort((a, b) => a - b);
+  const intervals: number[] = [];
+  for (let i = 1; i < secs.length; i++) {
+    const d = secs[i] - secs[i - 1];
+    if (d > 0.15 && d < 3) intervals.push(d);
+  }
+  if (intervals.length < 4) return null;
+  return median(intervals);
+}
+
+/** 見返しのカウントイン先。対象の秒・拍の長さ・その！の色（カウントイン明けに出す） */
+type PreviewTarget = { sec: number; beatSec: number; colorHex: string };
+
+/** エラーの中身を一行にする。理由が分からないまま「送れません」だけだと調べようがないため */
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 export default function PlacePage() {
   const { slug = "" } = useParams();
@@ -157,10 +190,15 @@ export default function PlacePage() {
   // 今選んでいる色（ペンライトの色替え）。null=色なし（既定＝グレー扱い）
   const [currentColor, setCurrentColor] = useState<string | null>(null);
   const [nowSec, setNowSec] = useState(0);
+  // 振り返りの「見返す」で、カウントイン中の対象。無ければ固定巻き戻しのまま（バナーも出さない）
+  const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
+  const [previewStep, setPreviewStep] = useState<string | null>(null);
 
   const [reviewTrigger, setReviewTrigger] = useState<ReviewTrigger | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // 送れたときの一言。これが無いと、数がゼロに戻るのが「消えた」ように見えて不安にさせる
+  const [sendDone, setSendDone] = useState<string | null>(null);
   // 人間確認を出しているあいだ、答えが返るまで待つための受け皿（SongTapPage と同じ形）
   const [gate, setGate] = useState<((t: string | null) => void) | null>(null);
 
@@ -314,6 +352,19 @@ export default function PlacePage() {
   const onTime = (sec: number) => {
     handsRef.current?.onTimeUpdate(sec);
     setNowSec(Math.max(0, sec - (video?.offset_sec ?? 0)));
+
+    // 見返しのカウントイン中なら、今どの段階か（5・6・7・8→！）を出す
+    if (previewTarget) {
+      const d = sec - previewTarget.sec; // + は対象を過ぎた
+      const b = previewTarget.beatSec;
+      let step: string | null = null;
+      if (d >= -4 * b && d < -3 * b) step = "5";
+      else if (d >= -3 * b && d < -2 * b) step = "6";
+      else if (d >= -2 * b && d < -1 * b) step = "7";
+      else if (d >= -1 * b && d < 0) step = "8";
+      else if (d >= 0 && d < b) step = "mark";
+      setPreviewStep((prev) => (prev === step ? prev : step));
+    }
   };
 
   const togglePlay = () => {
@@ -323,10 +374,16 @@ export default function PlacePage() {
     else { p.play(); setPlaying(true); }
   };
 
+  /** 見返しのカウントイン表示を消す（振り返り画面を開く・閉じる・離れるときに呼ぶ） */
+  const clearPreview = () => {
+    setPreviewTarget(null);
+    setPreviewStep(null);
+  };
+
   /** 動画が最後まで再生された。叩きが1個以上あれば振り返りを出す */
   const onEnded = () => {
     setPlaying(false);
-    if (marks.length > 0) setReviewTrigger("ended");
+    if (marks.length > 0) { clearPreview(); setReviewTrigger("ended"); }
   };
 
   /** 色えらびの丸を直接押す */
@@ -355,24 +412,41 @@ export default function PlacePage() {
 
   /** 「← 曲へ」。叩きが残っていれば振り返りを挟む。ゼロならそのまま戻る */
   const handleBack = () => {
-    if (marks.length > 0) { setReviewTrigger("back"); return; }
+    if (marks.length > 0) { clearPreview(); setReviewTrigger("back"); return; }
     navigate(`/call-center/song/${slug}`);
   };
 
   /**
-   * 振り返り画面の「見返す」。その時刻の少し前から再生する（一覧は出したまま）。
+   * 振り返り画面の「見返す」。
+   * この参加のタップ間隔からBPMが出せれば、対象の4拍前から再生してカウントイン
+   * （5・6・7・8→その！の色で！）を出す。出せない・間隔が足りないときは、
+   * これまでどおり固定 REWIND_SEC 秒の巻き戻しだけにする（カウントインのバナーも出さない）。
    * play() は「動画が終わった直後（ENDED状態）」だと内部で先頭(0秒)へ戻す仕様なので、
    * 先に play() を呼んでから seekTo で狙った位置へ上書きする（逆順だと 0秒に戻されて消える）。
    */
-  const seekPreview = (sec: number) => {
+  const seekPreview = (target: MarkEntry) => {
+    const beatSec = estimateBeatSec(marks);
     playerRef.current?.play();
-    playerRef.current?.seekTo(Math.max(0, sec - REWIND_SEC));
+    if (beatSec) {
+      playerRef.current?.seekTo(Math.max(0, target.sec - 4 * beatSec));
+      setPreviewTarget({ sec: target.sec, beatSec, colorHex: target.colorHex });
+      setPreviewStep(null);
+    } else {
+      playerRef.current?.seekTo(Math.max(0, target.sec - REWIND_SEC));
+      clearPreview();
+    }
     setPlaying(true);
   };
 
   /** 振り返り画面の「×」。棚にはまだ送っていないので、画面の中の並びから外すだけでよい */
   const removeMark = (id: number) => {
     setMarks((arr) => arr.filter((m) => m.id !== id));
+  };
+
+  /** 送信エラーを画面に出す。理由を読む時間を確保するため少し長めに出しておく */
+  const showSendError = (msg: string) => {
+    setSendError(msg);
+    setTimeout(() => setSendError(null), 9000);
   };
 
   /**
@@ -382,22 +456,39 @@ export default function PlacePage() {
    * 3) 送る本人（匿名ログインのID）を添えて1行として入れる（秒の並びと、メンバーIDの並びの2列）
    *
    * 棚（テーブル）がまだ適用されていなくても画面が壊れないよう、失敗したらその場に留まる。
+   * 失敗の理由（err.message）はそのまま画面に出す。原因が分からないまま握りつぶすと、
+   * 手が空くまで何度も無駄に試すことになるため（オーナーの実機テストで実際に起きた）。
+   * 「入場の確認」由来と「送信」由来を分けて出す。
    */
   const doSend = async (): Promise<boolean> => {
     if (!video || marks.length === 0) return false;
     setSendError(null);
     setSending(true);
-    try {
-      const ok = await ensureCanWrite(askForToken);
-      if (!ok) throw new Error("入場の確認をやめました");
 
+    let ok: boolean;
+    try {
+      ok = await ensureCanWrite(askForToken);
+    } catch (err) {
+      setSending(false);
+      showSendError(`入場の確認で止まりました（${errMessage(err)}）。時間をおいてもう一度`);
+      return false;
+    }
+    if (!ok) {
+      // 本人が確認をやめただけなので、失敗としては扱わない（赤いバナーは出さない）
+      setSending(false);
+      return false;
+    }
+
+    try {
       const db = getSupabase();
       const { data: row, error: e1 } = await db
         .from("song_structures").select("id").eq("slug", slug).maybeSingle();
-      if (e1 || !row) throw new Error("この曲はまだ棚に登録されていません");
+      if (e1) throw e1;
+      if (!row) throw new Error("この曲はまだ棚に登録されていません");
 
       const { data: userData, error: e2 } = await db.auth.getUser();
-      if (e2 || !userData.user) throw new Error("入場情報を取得できませんでした");
+      if (e2) throw e2;
+      if (!userData.user) throw new Error("入場情報を取得できませんでした");
 
       const { error: e3 } = await db.from("call_tap_sessions").insert({
         song_id: row.id,
@@ -408,14 +499,16 @@ export default function PlacePage() {
       });
       if (e3) throw e3;
 
-      // 送れた＝この参加は1行として棚に乗った。次の通しはゼロから数え直す
+      // 送れた＝この参加は1行として棚に乗った。次の通しはゼロから数え直す。
+      // 数がゼロに戻る前に「送れた」と言う（黙って消すと、消えたように見えて不安にさせる）
+      setSendDone(`！ ${marks.length}個 を送りました。ありがとうございました`);
+      setTimeout(() => setSendDone(null), 6000);
       setMarks([]);
       setSending(false);
       return true;
-    } catch {
+    } catch (err) {
       setSending(false);
-      setSendError("送れませんでした。時間をおいてもう一度");
-      setTimeout(() => setSendError(null), 6000);
+      showSendError(`送信で止まりました（${errMessage(err)}）。時間をおいてもう一度`);
       return false;
     }
   };
@@ -423,15 +516,20 @@ export default function PlacePage() {
   const onReviewSend = async () => {
     const ok = await doSend();
     if (!ok) return; // 失敗。振り返り画面は開いたまま、その場に留まる
+    clearPreview();
     setReviewTrigger(null);
     if (reviewTrigger === "back") navigate(`/call-center/song/${slug}`);
   };
 
   /** 「まだ叩く」：振り返り画面を閉じるだけ、その場に留まって続きを叩ける */
-  const onReviewKeepTapping = () => setReviewTrigger(null);
+  const onReviewKeepTapping = () => {
+    clearPreview();
+    setReviewTrigger(null);
+  };
 
   /** 「送らずに戻る」（back起点のみ）：送らずに離脱する */
   const onReviewLeaveWithoutSending = () => {
+    clearPreview();
     setReviewTrigger(null);
     navigate(`/call-center/song/${slug}`);
   };
@@ -457,6 +555,7 @@ export default function PlacePage() {
     <div style={S.page}>
       {gate && <HumanCheckGate onDone={gate} />}
       {sendError && <div style={S.errorBanner}>{sendError}</div>}
+      {sendDone && <div style={S.doneBanner}>{sendDone}</div>}
 
       <div style={S.head}>
         <button style={S.back} onClick={handleBack}>← 曲へ</button>
@@ -484,12 +583,20 @@ export default function PlacePage() {
         /* 振り返り画面。動画は上に出たままなので「見返す」で流しながら一覧を読める */
         <div style={S.reviewWrap}>
           <div style={S.reviewHeading}>！ {marks.length}個</div>
+          {previewTarget && (
+            /* 見返しのカウントイン。動画の上には重ねない（一覧の上に小さく出すだけ） */
+            <div style={S.countBanner}>
+              <span style={{ color: previewStep === "mark" ? previewTarget.colorHex : "#cbd2dc" }}>
+                {previewStep === "mark" ? "！" : previewStep ?? "▶ 見返し中…"}
+              </span>
+            </div>
+          )}
           <div style={S.reviewList}>
             {sortedMarks.map((m) => (
               <div key={m.id} style={S.reviewRow}>
                 <span style={S.reviewTime}>{fmt(m.sec)}</span>
                 <span style={{ ...S.reviewDot, background: m.colorHex }} />
-                <button type="button" style={S.reviewLink} onClick={() => seekPreview(m.sec)}>見返す</button>
+                <button type="button" style={S.reviewLink} onClick={() => seekPreview(m)}>見返す</button>
                 <button type="button" style={S.reviewRemove} onClick={() => removeMark(m.id)} aria-label="この！を消す">×</button>
               </div>
             ))}
@@ -518,6 +625,7 @@ export default function PlacePage() {
               selfMemberId="nishida"
               selfSeatHash={7}
               resolveColor={resolveMemberColor}
+              centerSelfPeak
               scaleCount={300}
               topMargin={150}
               freezeAge
@@ -590,6 +698,12 @@ const S: Record<string, React.CSSProperties> = {
   mark: { flex: 1, background: "#d0d0d0", color: "#000", border: 0, padding: "22px 10px", fontSize: 30, fontWeight: 900, lineHeight: 1, cursor: "pointer", fontFamily: "inherit" },
   reviewWrap: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", marginTop: 8 },
   reviewHeading: { fontSize: 13, fontWeight: 800, color: "#eee", flex: "0 0 auto", marginBottom: 4 },
+  countBanner: {
+    flex: "0 0 auto", height: 40, marginBottom: 6,
+    background: "rgba(255,255,255,0.06)", boxShadow: "inset 0 0 0 1px #333",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: 22, fontWeight: 900, lineHeight: 1,
+  },
   reviewList: { flex: "1 1 auto", minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 },
   reviewRow: { display: "flex", alignItems: "center", gap: 10, padding: "9px 4px", boxShadow: "inset 0 -1px 0 #222" },
   reviewTime: { fontSize: 13, fontFamily: "ui-monospace,Menlo,Consolas,monospace", color: "#eee", width: 62, flex: "0 0 auto" },
@@ -605,5 +719,11 @@ const S: Record<string, React.CSSProperties> = {
     position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 150,
     background: "#000", color: "#fff", fontSize: 13, fontWeight: 700,
     padding: "12px 16px", textAlign: "center", boxShadow: "inset 0 1px 0 #333",
+  },
+  /** 送れたときの一言（エラーと同じ場所・白地で区別） */
+  doneBanner: {
+    position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 150,
+    background: "#fff", color: "#000", fontSize: 13, fontWeight: 700,
+    padding: "12px 16px", textAlign: "center",
   },
 };
