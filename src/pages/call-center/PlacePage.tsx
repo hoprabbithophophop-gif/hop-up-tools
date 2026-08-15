@@ -1073,9 +1073,12 @@ export default function PlacePage() {
     setReviewTrigger(null);
   };
 
-  /** 「送らずに戻る」（back起点のみ）：送らずに離脱する。捨てる選択なので下書きも消す */
+  /**
+   * 「送らずに戻る」（back起点のみ）：送らずに離脱する。
+   * 下書きは消さずに残す（端末の中のメモなので容量の実害なし。戻ってきたら続きから編集できる。
+   * 消えるのは送信が成功したときだけ）。オーナー決定 2026-08-16。
+   */
   const onReviewLeaveWithoutSending = () => {
-    if (video) clearDraft(slug, video.video_id);
     clearPreview();
     cancelWordEdit();
     setReviewTrigger(null);
