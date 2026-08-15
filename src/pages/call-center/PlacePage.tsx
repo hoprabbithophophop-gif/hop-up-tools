@@ -443,6 +443,17 @@ export default function PlacePage() {
     setMarks((arr) => arr.filter((m) => m.id !== id));
   };
 
+  /**
+   * 振り返り画面で、その行の色の丸を押したときの塗り替え。
+   * 今チップ列で選んでいる色（currentColor）で、その！を上書きするだけ。
+   * まだ送信前の画面内の値なので、取り消しは作らず「選び直して押し直せば済む」でよい。
+   */
+  const recolorMark = (id: number) => {
+    const colorHex = colorIdToHex(currentColor);
+    const memberId = colorIdToMemberId(currentColor);
+    setMarks((arr) => arr.map((m) => (m.id === id ? { ...m, colorHex, memberId } : m)));
+  };
+
   /** 送信エラーを画面に出す。理由を読む時間を確保するため少し長めに出しておく */
   const showSendError = (msg: string) => {
     setSendError(msg);
@@ -551,6 +562,37 @@ export default function PlacePage() {
   // 時刻順に並べて見せる（叩いた順とは限らない＝巻き戻して見返した後にまた叩く、があるため）
   const sortedMarks = [...marks].sort((a, b) => a.sec - b.sec);
 
+  // 色えらび（丸だけ・名前は出さない）。公式ペンライトと同じく矢印でも送れる。
+  // 振り返り画面でも出す＝行ごとの色の塗り直しに使うチップ列と同じもの（画面を増やさない）
+  const colorPicker = (
+    <div style={S.colorPickerRow}>
+      <button type="button" style={S.arrowBtn} onClick={() => moveColor(-1)} aria-label="前の色">◀</button>
+      <div style={S.dotsRow}>
+        {colorOptions.map((opt) => {
+          const selected = opt.id === currentColor;
+          return (
+            <button
+              key={opt.id ?? "neutral"}
+              type="button"
+              onClick={() => pickColor(opt.id)}
+              aria-label={opt.id === null ? "色なし" : opt.id}
+              style={{
+                ...S.dot,
+                background: opt.hex,
+                transform: selected ? "scale(1.35)" : "scale(1)",
+                boxShadow: selected
+                  ? "0 0 0 2px #fff, inset 0 0 0 1px rgba(0,0,0,0.35)"
+                  : "inset 0 0 0 1px rgba(0,0,0,0.35)",
+                zIndex: selected ? 1 : 0,
+              }}
+            />
+          );
+        })}
+      </div>
+      <button type="button" style={S.arrowBtn} onClick={() => moveColor(1)} aria-label="次の色">▶</button>
+    </div>
+  );
+
   return (
     <div style={S.page}>
       {gate && <HumanCheckGate onDone={gate} />}
@@ -595,12 +637,19 @@ export default function PlacePage() {
             {sortedMarks.map((m) => (
               <div key={m.id} style={S.reviewRow}>
                 <span style={S.reviewTime}>{fmt(m.sec)}</span>
-                <span style={{ ...S.reviewDot, background: m.colorHex }} />
+                <button
+                  type="button"
+                  style={{ ...S.reviewDot, background: m.colorHex }}
+                  onClick={() => recolorMark(m.id)}
+                  aria-label="この！の色を、今えらんでいる色に塗り替える"
+                />
                 <button type="button" style={S.reviewLink} onClick={() => seekPreview(m)}>見返す</button>
                 <button type="button" style={S.reviewRemove} onClick={() => removeMark(m.id)} aria-label="この！を消す">×</button>
               </div>
             ))}
           </div>
+          {/* 行の色を塗り直すのに使う。振り返り中も見える必要があるのでここにも出す */}
+          {colorPicker}
           <div style={S.reviewFooter}>
             <p style={S.reviewLede}>ちょっとタイミングずれたかも、とかはライブ感ということでいいじゃない。</p>
             <div style={S.reviewActions}>
@@ -632,33 +681,7 @@ export default function PlacePage() {
             />
           </div>
 
-          {/* 色えらび（丸だけ・名前は出さない）。公式ペンライトと同じく矢印でも送れる */}
-          <div style={S.colorPickerRow}>
-            <button type="button" style={S.arrowBtn} onClick={() => moveColor(-1)} aria-label="前の色">◀</button>
-            <div style={S.dotsRow}>
-              {colorOptions.map((opt) => {
-                const selected = opt.id === currentColor;
-                return (
-                  <button
-                    key={opt.id ?? "neutral"}
-                    type="button"
-                    onClick={() => pickColor(opt.id)}
-                    aria-label={opt.id === null ? "色なし" : opt.id}
-                    style={{
-                      ...S.dot,
-                      background: opt.hex,
-                      transform: selected ? "scale(1.35)" : "scale(1)",
-                      boxShadow: selected
-                        ? "0 0 0 2px #fff, inset 0 0 0 1px rgba(0,0,0,0.35)"
-                        : "inset 0 0 0 1px rgba(0,0,0,0.35)",
-                      zIndex: selected ? 1 : 0,
-                    }}
-                  />
-                );
-              })}
-            </div>
-            <button type="button" style={S.arrowBtn} onClick={() => moveColor(1)} aria-label="次の色">▶</button>
-          </div>
+          {colorPicker}
 
           <div style={S.btnRow}>
             <button
@@ -707,7 +730,11 @@ const S: Record<string, React.CSSProperties> = {
   reviewList: { flex: "1 1 auto", minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 },
   reviewRow: { display: "flex", alignItems: "center", gap: 10, padding: "9px 4px", boxShadow: "inset 0 -1px 0 #222" },
   reviewTime: { fontSize: 13, fontFamily: "ui-monospace,Menlo,Consolas,monospace", color: "#eee", width: 62, flex: "0 0 auto" },
-  reviewDot: { width: 16, height: 16, borderRadius: "50%", flex: "0 0 auto", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.3)" },
+  // ボタン化（塗り直せる）ので、押せると分かるよう薄い輪郭を足す。地色が近いと見えにくいので二重にする
+  reviewDot: {
+    width: 18, height: 18, borderRadius: "50%", flex: "0 0 auto", padding: 0, border: 0, cursor: "pointer",
+    boxShadow: "0 0 0 1px rgba(255,255,255,0.5), inset 0 0 0 1px rgba(0,0,0,0.35)",
+  },
   reviewLink: { flex: "1 1 auto", textAlign: "left", background: "none", border: 0, color: "#7cf", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "4px 0" },
   reviewRemove: { flex: "0 0 auto", width: 30, height: 30, background: "none", color: "#9aa0a6", border: 0, boxShadow: "inset 0 0 0 1px #444", fontSize: 16, cursor: "pointer", fontFamily: "inherit" },
   reviewFooter: { flex: "0 0 auto", paddingTop: 10 },
