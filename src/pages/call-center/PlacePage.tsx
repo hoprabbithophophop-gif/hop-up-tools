@@ -287,8 +287,11 @@ function estimateBeatSec(marks: MarkEntry[]): number | null {
  * ！が積み重なる。手で大量削除させないよう、16分音符未満（beatSec/4。出せなければ0.1秒）の
  * 間隔で近接するものを鎖状にまとめる（本物の最速連打=8分・約0.2秒間隔は巻き込まない）。
  *
- * 統合ルール: 塊の先頭の秒を残す。word は塊の中で最初に付いているもの（nullでないもの）を優先。
- * memberId/colorHex は「色付き（memberId!=null）があればそれを優先、無ければ先頭のもの」。
+ * 統合ルール: 代表は id が最大（＝一番後から追加された）markの秒を残す。
+ * オーナーの使い方は「タイミングを直すために後から叩き直す」ので、修正のつもりの新しい叩きが
+ * 古い方に吸収されて消えてしまわないよう、先頭（早い秒）ではなく新しい方を優先する。
+ * word は塊の中で非nullのもののうち、複数あれば新しい方（idが大きい方）を優先。
+ * memberId/colorHex は「色付き（memberId!=null）のうち、複数あれば新しい方を優先。色付きが無ければ新しい方（代表）」。
  */
 function mergeCloseMarks(marksIn: MarkEntry[], beatSec: number | null): { merged: MarkEntry[]; removedCount: number } {
   if (marksIn.length === 0) return { merged: marksIn, removedCount: 0 };
@@ -298,14 +301,19 @@ function mergeCloseMarks(marksIn: MarkEntry[], beatSec: number | null): { merged
   let cluster: MarkEntry[] = [sorted[0]];
   const flush = () => {
     if (cluster.length === 1) { merged.push(cluster[0]); return; }
-    const head = cluster[0];
-    const word = cluster.find((m) => m.word !== null)?.word ?? null;
-    const colored = cluster.find((m) => m.memberId !== null);
+    // 代表 = id最大（一番後から叩いた）もの
+    const newest = cluster.reduce((a, b) => (b.id > a.id ? b : a));
+    // word: 非nullのうち id が一番大きい（新しい）もの
+    const worded = cluster.filter((m) => m.word !== null).sort((a, b) => b.id - a.id);
+    const word = worded.length > 0 ? worded[0].word : null;
+    // memberId/colorHex: 色付きのうち id が一番大きい（新しい）もの。無ければ代表(newest)のまま
+    const colored = cluster.filter((m) => m.memberId !== null).sort((a, b) => b.id - a.id);
+    const pick = colored.length > 0 ? colored[0] : newest;
     merged.push({
-      id: head.id,
-      sec: head.sec,
-      colorHex: colored ? colored.colorHex : head.colorHex,
-      memberId: colored ? colored.memberId : head.memberId,
+      id: newest.id,
+      sec: newest.sec,
+      colorHex: pick.colorHex,
+      memberId: pick.memberId,
       word,
     });
   };
@@ -555,6 +563,12 @@ export default function PlacePage() {
   const [previewStep, setPreviewStep] = useState<string | null>(null);
   // 見返し中、この秒を過ぎたら自動で止める（！の瞬間から4拍・BPM不明なら2秒ぶん流したら止める）
   const [previewStopAt, setPreviewStopAt] = useState<number | null>(null);
+  // previewStopAt の判定を「一度でも狙った巻き戻し位置を下回ってから」だけ有効にする安全弁。
+  // seekTo() は非同期なので、直後の数tickは着地前の古い再生位置（＝曲の終わり付近など、
+  // 狙った停止位置よりずっと先）を getCurrentTime() が返すことがある。無条件に
+  // sec >= previewStopAt を見ていると、着地前のこの古い値で即座に誤爆して「見返し」が
+  // 実質1tickで終わってしまう（＝叩き足す間もなく振り返りへ戻る）事故になる。
+  const previewArmedRef = useRef(false);
   // 棚から読んだ、他の参加者が付けた「秒と言葉の対」。候補チップの元データ
   const [crowdWords, setCrowdWords] = useState<WordPair[]>([]);
   // 振り返り画面で、今どの！の言葉を編集中か。行の本体を押すと開く（別画面にはしない）
@@ -764,13 +778,19 @@ export default function PlacePage() {
       setPreviewStep((prev) => (prev === step ? prev : step));
     }
 
-    // 見返し中、！の瞬間から決めた秒数ぶん流したら自動で止めて振り返りへ戻す
-    if (previewStopAt !== null && sec >= previewStopAt) {
-      playerRef.current?.pause();
-      setPlaying(false);
-      clearPreview();
-      // 見返し中に叩き足した！があれば、振り返りに戻る時点で統合・自動補完を通す
-      if (reviewTrigger) refineMarks();
+    // 見返し中、！の瞬間から決めた秒数ぶん流したら自動で止めて振り返りへ戻す。
+    // ただし seekTo() 直後で着地前の古い位置を拾っているだけの可能性があるので、
+    // 一度でも狙った停止位置を下回るのを見てから（＝着地を確認してから）だけ判定する
+    if (previewStopAt !== null) {
+      if (!previewArmedRef.current) {
+        if (sec < previewStopAt) previewArmedRef.current = true;
+      } else if (sec >= previewStopAt) {
+        playerRef.current?.pause();
+        setPlaying(false);
+        clearPreview();
+        // 見返し中に叩き足した！があれば、振り返りに戻る時点で統合・自動補完を通す
+        if (reviewTrigger) refineMarks();
+      }
     }
   };
 
@@ -801,6 +821,7 @@ export default function PlacePage() {
     setPreviewTarget(null);
     setPreviewStep(null);
     setPreviewStopAt(null);
+    previewArmedRef.current = false;
   };
 
   /**
@@ -874,6 +895,7 @@ export default function PlacePage() {
    */
   const seekPreview = (target: MarkEntry) => {
     const beatSec = estimateBeatSec(marks);
+    previewArmedRef.current = false; // 新しい見返しを始めるので、着地確認をやり直す
     playerRef.current?.play();
     if (beatSec) {
       playerRef.current?.seekTo(Math.max(0, target.sec - 4 * beatSec));
@@ -1201,6 +1223,18 @@ export default function PlacePage() {
                 </div>
               )
             )}
+            {/* これで送る／送らずに戻る／まだ叩く: 一覧の一番下（全行の後ろ）に置く。
+                固定表示にせず、スクロールして最後まで届いて初めて押せる位置にすることで
+                「一通り見てから送る」動線にする（常時アクティブで画面内にいるのはおかしい、という指摘） */}
+            <div style={S.reviewActionsInList}>
+              <button style={S.modalPrimary} onClick={onReviewSend} disabled={sending || marks.length === 0}>
+                {sending ? "送っています…" : "これで送る"}
+              </button>
+              {reviewTrigger === "back" && (
+                <button style={S.modalSecondary} onClick={onReviewLeaveWithoutSending} disabled={sending}>送らずに戻る</button>
+              )}
+              <button style={S.modalSecondary} onClick={onReviewKeepTapping} disabled={sending}>まだ叩く</button>
+            </div>
           </div>
           {/* 色チップは常時は出さない。言葉の編集中・見返し中（プレビュー再生中）のどちらかで出す
               （二重に出ないよう条件を1つにまとめる。色直しの丸押し／見返し中の追加叩きに使う）。
@@ -1223,17 +1257,6 @@ export default function PlacePage() {
               )}
             </>
           )}
-          <div style={S.reviewFooter}>
-            <div style={S.reviewActions}>
-              <button style={S.modalPrimary} onClick={onReviewSend} disabled={sending || marks.length === 0}>
-                {sending ? "送っています…" : "これで送る"}
-              </button>
-              {reviewTrigger === "back" && (
-                <button style={S.modalSecondary} onClick={onReviewLeaveWithoutSending} disabled={sending}>送らずに戻る</button>
-              )}
-              <button style={S.modalSecondary} onClick={onReviewKeepTapping} disabled={sending}>まだ叩く</button>
-            </div>
-          </div>
         </div>
       ) : (
         // 動画より下を、高さ1/3ずつの3段に割る（上=言葉レーン／中=跳ねる面／下=色えらび＋！ボタン）。
@@ -1381,9 +1404,12 @@ const S: Record<string, React.CSSProperties> = {
   wordConfirm: { flex: "0 0 auto", background: "none", color: "#7cf", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "6px 10px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
   wordChipRow: { display: "flex", gap: 6, flexWrap: "wrap", paddingLeft: 70 },
   wordChip: { background: "none", color: "#cbd2dc", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
-  reviewFooter: { flex: "0 0 auto", paddingTop: 10 },
   reviewLede: { fontSize: 12, lineHeight: 1.7, color: "#9aa0a6", margin: "0 0 10px" },
-  reviewActions: { display: "flex", flexDirection: "column", gap: 8 },
+  // 送信ボタン一式。一覧の最後の行として置く（スクロールしないと届かない位置）
+  reviewActionsInList: {
+    display: "flex", flexDirection: "column", gap: 8,
+    marginTop: 12, paddingTop: 14, boxShadow: "inset 0 1px 0 #222",
+  },
   modalPrimary: { background: "#fff", color: "#000", border: 0, padding: "12px 14px", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" },
   modalSecondary: { background: "none", color: "#9aa0a6", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "12px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
   errorBanner: {
