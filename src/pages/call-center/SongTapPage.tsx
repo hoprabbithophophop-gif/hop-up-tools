@@ -259,7 +259,7 @@ function Notice({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ background: "#000", color: "#eee", minHeight: "100dvh", padding: "24px 20px", fontFamily: "Inter, system-ui, sans-serif" }}>
       <p style={{ fontSize: 14 }}>{children}</p>
-      <a href="/call-center" style={{ fontSize: 13, color: "#7cf" }}>← 曲の一覧へ</a>
+      <a href="/call-center" style={{ fontSize: 13, color: "#7cf" }}>曲の一覧へ</a>
     </div>
   );
 }

@@ -15,9 +15,12 @@ import { isLight } from "@/lib/colorUtils";
  * 置く画面。
  *
  * 画面いっぱいに収める（スクロールしない）。上から順に、動画・色えらび・跳ねる面／振り返り・！ボタン。
- * 常時出るのは3つだけ（← 曲へ／▶再生・停止／！）。
+ * 常時出るのは3つだけ（曲へ／再生・停止／！）。
  * 跳ねる面はハイ！テンションの客席（HandsCanvas）をそのまま使い、絵だけ「！の入った吹き出し」にしている。
  * 動画の上には何も重ねない。
+ *
+ * 止まっているあいだは、狙いやすいように大きな再生ボタンを叩く面の上に前面表示する
+ * （動画の上には重ねない）。再生が始まったら消え、いまの小さい停止ボタンだけが残る。
  *
  * すでに集まっているぶん（登録済みのコール・過去の参加者の叩き）は、跳ねる面にそのまま流す。
  *
@@ -28,7 +31,7 @@ import { isLight } from "@/lib/colorUtils";
  *
  * 叩いた結果（棚に置く1行=1曲を通しで叩いたぶん）は、
  *   ・動画が終わったとき
- *   ・叩きが1個以上ある状態で「← 曲へ」で離れようとしたとき
+ *   ・叩きが1個以上ある状態で「曲へ」で離れようとしたとき
  * に振り返りの画面（置いたものが時刻順に並ぶ一覧）を挟んでから送る。
  * 文言はすべて仮置き（あとで差し替える前提。※【仮】マークはUIに出さない）。
  */
@@ -410,7 +413,7 @@ export default function PlacePage() {
     setMarks((arr) => [...arr, { id, sec, colorHex, memberId: colorIdToMemberId(currentColor) }]);
   };
 
-  /** 「← 曲へ」。叩きが残っていれば振り返りを挟む。ゼロならそのまま戻る */
+  /** 「曲へ」。叩きが残っていれば振り返りを挟む。ゼロならそのまま戻る */
   const handleBack = () => {
     if (marks.length > 0) { clearPreview(); setReviewTrigger("back"); return; }
     navigate(`/call-center/song/${slug}`);
@@ -551,7 +554,7 @@ export default function PlacePage() {
     return (
       <div style={{ ...S.page, justifyContent: "center", alignItems: "center" }}>
         <p style={{ fontSize: 14 }}>{error}</p>
-        <button style={S.play} onClick={() => navigate(`/call-center/song/${slug}`)}>← 曲へ</button>
+        <button style={S.play} onClick={() => navigate(`/call-center/song/${slug}`)}>曲へ</button>
       </div>
     );
   }
@@ -600,7 +603,7 @@ export default function PlacePage() {
       {sendDone && <div style={S.doneBanner}>{sendDone}</div>}
 
       <div style={S.head}>
-        <button style={S.back} onClick={handleBack}>← 曲へ</button>
+        <button style={S.back} onClick={handleBack}>曲へ</button>
         <span style={S.title}>{title}</span>
         <span style={S.count}>！ {marks.length}</span>
       </div>
@@ -617,7 +620,7 @@ export default function PlacePage() {
       </div>
 
       <div style={S.row}>
-        <button type="button" style={S.play} onClick={togglePlay}>{playing ? "⏸ 停止" : "▶ 再生"}</button>
+        <button type="button" style={S.play} onClick={togglePlay}>{playing ? "停止" : "再生"}</button>
         <span style={S.clock}>{fmt(nowSec)}</span>
       </div>
 
@@ -629,7 +632,7 @@ export default function PlacePage() {
             /* 見返しのカウントイン。動画の上には重ねない（一覧の上に小さく出すだけ） */
             <div style={S.countBanner}>
               <span style={{ color: previewStep === "mark" ? previewTarget.colorHex : "#cbd2dc" }}>
-                {previewStep === "mark" ? "！" : previewStep ?? "▶ 見返し中…"}
+                {previewStep === "mark" ? "！" : previewStep ?? "見返し中…"}
               </span>
             </div>
           )}
@@ -679,6 +682,12 @@ export default function PlacePage() {
               topMargin={150}
               freezeAge
             />
+            {!playing && (
+              /* 止まっているあいだだけ、狙いやすい大きな再生ボタンを前面に出す。
+                 叩く面（このstage）の上には重ねてよいが、動画の上には重ねない
+                 （stageは動画の外＝videoBoxの下なので問題ない）。再生が始まったら消える */
+              <button type="button" style={S.bigPlay} onClick={togglePlay}>再生</button>
+            )}
           </div>
 
           {colorPicker}
@@ -713,6 +722,13 @@ const S: Record<string, React.CSSProperties> = {
   play: { background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
   clock: { fontSize: 12, color: "#666", fontFamily: "ui-monospace,Menlo,Consolas,monospace" },
   stage: { position: "relative", flex: "1 1 auto", minHeight: 0, background: "#0a0a0c", overflow: "hidden" },
+  // 止まっているあいだだけ出す、狙いやすい大きな再生ボタン。stage(叩く面)の上端に重ねる。
+  // stageは動画(videoBox)の外なので、これは動画には重ならない
+  bigPlay: {
+    position: "absolute", top: 0, left: 0, right: 0, zIndex: 5,
+    height: 110, background: "rgba(255,255,255,0.96)", color: "#000",
+    border: 0, fontSize: 22, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
+  },
   colorPickerRow: { display: "flex", alignItems: "center", gap: 6, flex: "0 0 auto", padding: "8px 0 0" },
   arrowBtn: { flex: "0 0 auto", width: 26, height: 26, background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: 0 },
   dotsRow: { flex: "1 1 auto", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 3, padding: "0 6px" },

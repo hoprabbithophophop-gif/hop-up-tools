@@ -293,7 +293,7 @@ export default function SongPage() {
     return (
       <Shell>
         <div style={S.notice}>{error}</div>
-        <Link to="/call-center" style={S.back}>← 曲の一覧へ</Link>
+        <Link to="/call-center" style={S.back}>曲の一覧へ</Link>
       </Shell>
     );
   }
@@ -318,7 +318,7 @@ export default function SongPage() {
 
   return (
     <Shell>
-      <Link to="/call-center" style={S.back}>← 曲の一覧へ</Link>
+      <Link to="/call-center" style={S.back}>曲の一覧へ</Link>
 
       <div style={S.eyebrow}>{song.group_name}</div>
       <h1 style={S.h1}>{song.title}</h1>
@@ -363,7 +363,7 @@ export default function SongPage() {
               }}
               style={S.playBtn}
             >
-              {playing ? "■　停止" : "▶　再生"}
+              {playing ? "停止" : "再生"}
             </button>
             <button
               onClick={() => {
