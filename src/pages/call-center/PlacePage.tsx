@@ -322,6 +322,41 @@ function mergeCloseMarks(marksIn: MarkEntry[], beatSec: number | null): { merged
   return { merged, removedCount: marksIn.length - merged.length };
 }
 
+/**
+ * 言葉が空の！に、群衆（crowdWords）の言葉を自動で入れる。
+ * 1人目が言葉を入れてくれた曲では、2人目以降は入力を頑張らなくていい、というコンセプト。
+ *
+ * word が null の！だけが対象（自分で既に入れた言葉には触らない）。その！の秒の±半拍以内
+ * （beatSec/2。BPM不明なら0.25秒）にある群衆の言葉のうち、一番多いものを入れる
+ * （同数なら秒が一番近いもの）。自動で入った言葉も、行を押せば普通の言葉として編集・削除できる
+ * （特別扱いの状態は持たない）。
+ */
+function autoFillWords(marksIn: MarkEntry[], crowdWords: WordPair[], beatSec: number | null): MarkEntry[] {
+  const windowSec = beatSec ? beatSec / 2 : 0.25;
+  return marksIn.map((m) => {
+    if (m.word !== null) return m;
+    let bestWord: string | null = null;
+    let bestCount = 0;
+    let bestDist = Infinity;
+    const counts = new Map<string, { count: number; minDist: number }>();
+    for (const cw of crowdWords) {
+      const dist = Math.abs(cw.sec - m.sec);
+      if (dist > windowSec) continue;
+      const entry = counts.get(cw.word);
+      if (entry) { entry.count += 1; entry.minDist = Math.min(entry.minDist, dist); }
+      else counts.set(cw.word, { count: 1, minDist: dist });
+    }
+    for (const [word, { count, minDist }] of counts) {
+      if (count > bestCount || (count === bestCount && minDist < bestDist)) {
+        bestWord = word;
+        bestCount = count;
+        bestDist = minDist;
+      }
+    }
+    return bestWord ? { ...m, word: bestWord } : m;
+  });
+}
+
 /** 見返しのカウントイン先。対象の秒・拍の長さ・その！の色（カウントイン明けに出す） */
 type PreviewTarget = { sec: number; beatSec: number; colorHex: string };
 
@@ -535,6 +570,9 @@ export default function PlacePage() {
   const [sendDone, setSendDone] = useState<string | null>(null);
   // 振り返りを開くときに近すぎる！を統合したら、その一言（控えめに一時表示）
   const [mergeNotice, setMergeNotice] = useState<string | null>(null);
+  // 振り返りの「×」で消した行の取り置き（直近が末尾）。誤って消した事故の取り消し用
+  const [removedMarks, setRemovedMarks] = useState<MarkEntry[]>([]);
+  const removedClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 人間確認を出しているあいだ、答えが返るまで待つための受け皿（SongTapPage と同じ形）
   const [gate, setGate] = useState<((t: string | null) => void) | null>(null);
 
@@ -731,6 +769,8 @@ export default function PlacePage() {
       playerRef.current?.pause();
       setPlaying(false);
       clearPreview();
+      // 見返し中に叩き足した！があれば、振り返りに戻る時点で統合・自動補完を通す
+      if (reviewTrigger) refineMarks();
     }
   };
 
@@ -751,6 +791,8 @@ export default function PlacePage() {
     else if (state === 2) {
       setPlaying(false);
       if (previewTarget || previewStopAt !== null) clearPreview();
+      // 見返し中に手動で止めたときも、自動停止と同じく振り返りに戻る扱いにする
+      if (reviewTrigger) refineMarks();
     }
   };
 
@@ -762,16 +804,24 @@ export default function PlacePage() {
   };
 
   /**
-   * 振り返り画面を開く。開く前に、近すぎる！（やり直しの重複）を統合する。
-   * 統合が起きたら控えめな一言を一時表示する。
+   * marks を整える: ①近すぎる！（やり直しの重複）を統合 ②言葉が空の！に、群衆の言葉があれば
+   * 自動で補う。振り返り画面を開くとき・見返し（プレビュー）から戻るときの両方から呼ぶ。
+   * 統合が起きたら控えめな一言を一時表示する（自動補完は無言＝目立たせる話ではないため）。
    */
-  const openReview = (trigger: ReviewTrigger) => {
-    const { merged, removedCount } = mergeCloseMarks(marks, estimateBeatSec(marks));
+  const refineMarks = () => {
+    const beatSec = estimateBeatSec(marks);
+    const { merged, removedCount } = mergeCloseMarks(marks, beatSec);
+    const filled = autoFillWords(merged, crowdWords, beatSec);
+    setMarks(filled);
     if (removedCount > 0) {
-      setMarks(merged);
       setMergeNotice(`近すぎる！を ${removedCount}個 まとめました`);
       setTimeout(() => setMergeNotice(null), 6000);
     }
+  };
+
+  /** 振り返り画面を開く。開く前に refineMarks を通す */
+  const openReview = (trigger: ReviewTrigger) => {
+    refineMarks();
     clearPreview();
     setReviewTrigger(trigger);
   };
@@ -838,9 +888,34 @@ export default function PlacePage() {
     setPlaying(true);
   };
 
-  /** 振り返り画面の「×」。棚にはまだ送っていないので、画面の中の並びから外すだけでよい */
+  /**
+   * 振り返り画面の「×」。棚にはまだ送っていないので、画面の中の並びから外すだけでよい。
+   * 誤って消した事故に備えて、消した行を6秒だけ取り置いて「取り消す」で戻せるようにする
+   * （連続で消したら配列に積む。6秒は最後に消した時点から数え直す）。
+   */
   const removeMark = (id: number) => {
+    const target = marks.find((m) => m.id === id);
     setMarks((arr) => arr.filter((m) => m.id !== id));
+    if (!target) return;
+    setRemovedMarks((prev) => [...prev, target]);
+    if (removedClearTimerRef.current) clearTimeout(removedClearTimerRef.current);
+    removedClearTimerRef.current = setTimeout(() => {
+      setRemovedMarks([]);
+      removedClearTimerRef.current = null;
+    }, 6000);
+  };
+
+  /** 「取り消す」：直近に消した行から順に marks へ戻す（秒順の位置には表示側のソートで自然に戻る） */
+  const undoRemove = () => {
+    if (removedMarks.length === 0) return;
+    const last = removedMarks[removedMarks.length - 1];
+    setMarks((arr) => [...arr, last]);
+    const rest = removedMarks.slice(0, -1);
+    setRemovedMarks(rest);
+    if (rest.length === 0 && removedClearTimerRef.current) {
+      clearTimeout(removedClearTimerRef.current);
+      removedClearTimerRef.current = null;
+    }
   };
 
   /**
@@ -1064,6 +1139,13 @@ export default function PlacePage() {
             /* 近すぎる！を統合したときの一言。控えめに一時表示（エラーバナーと同じ流儀） */
             <div style={S.mergeNotice}>{mergeNotice}</div>
           )}
+          {removedMarks.length > 0 && (
+            /* ×で消した行の取り消し案内。誤って消した事故対策 */
+            <div style={S.mergeNotice}>
+              {removedMarks.length}件 消しました
+              <button type="button" style={S.undoLink} onClick={undoRemove}>取り消す</button>
+            </div>
+          )}
           {previewTarget && (
             /* 見返しのカウントイン。動画の上には重ねない（一覧の上に小さく出すだけ） */
             <div style={S.countBanner}>
@@ -1120,11 +1202,25 @@ export default function PlacePage() {
               )
             )}
           </div>
-          {/* 色チップと一言は常時は出さない。言葉の編集中だけ出す（色直しの丸押しもそのあいだにできれば足りる） */}
-          {editingMarkId !== null && (
+          {/* 色チップは常時は出さない。言葉の編集中・見返し中（プレビュー再生中）のどちらかで出す
+              （二重に出ないよう条件を1つにまとめる。色直しの丸押し／見返し中の追加叩きに使う）。
+              見返し中だけ！ボタンも出す＝叩き足せる。編集中だけ一言も出す */}
+          {(editingMarkId !== null || playing) && (
             <>
               {colorPicker}
-              <p style={S.reviewLede}>ちょっとタイミングずれたかも、とかはライブ感ということでいいじゃない。</p>
+              {playing && (
+                <div style={S.btnRow}>
+                  <button
+                    type="button"
+                    style={{ ...S.mark, background: markBg, color: markFg }}
+                    onPointerDown={pressMark}
+                    onContextMenu={(e) => e.preventDefault()}
+                  >！</button>
+                </div>
+              )}
+              {editingMarkId !== null && (
+                <p style={S.reviewLede}>ちょっとタイミングずれたかも、とかはライブ感ということでいいじゃない。</p>
+              )}
             </>
           )}
           <div style={S.reviewFooter}>
@@ -1254,6 +1350,7 @@ const S: Record<string, React.CSSProperties> = {
   mark: { flex: 1, background: "#d0d0d0", color: "#000", border: 0, padding: "22px 10px", fontSize: 30, fontWeight: 900, lineHeight: 1, cursor: "pointer", fontFamily: "inherit" },
   reviewWrap: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", marginTop: 8 },
   mergeNotice: { flex: "0 0 auto", fontSize: 11, color: "#9aa0a6", textAlign: "center", marginBottom: 6 },
+  undoLink: { background: "none", border: 0, color: "#7cf", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "0 0 0 6px" },
   countBanner: {
     flex: "0 0 auto", height: 40, marginBottom: 6,
     background: "rgba(255,255,255,0.06)", boxShadow: "inset 0 0 0 1px #333",
