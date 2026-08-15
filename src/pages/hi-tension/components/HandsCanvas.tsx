@@ -97,6 +97,12 @@ interface Props {
    * として扱う。横位置(xRatio)・奥行き(depthK)には影響しない。centerSelfPeak より優先する。
    */
   alignBottom?: boolean;
+  /**
+   * 絵の最終サイズに一律掛ける倍率。既定は 1（＝ハイ！テンションのこれまでどおり）。
+   * 自分・群衆とも、spawnHand が決める最終スケールに掛かる（跳躍量80pxなど位置には影響しない）。
+   * 面が低いときに絵だけ縮めて頭からしっぽまで収めたい場合に使う。
+   */
+  iconScale?: number;
 }
 
 // バケットインデックスに紐づく「(セッション, このバケットでの押下回数)」
@@ -194,7 +200,7 @@ function easeOutCubic(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor, centerSelfPeak = false, sideMargin = 0, bottomMargin = 0, skipSquash = false, alignBottom = false },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor, centerSelfPeak = false, sideMargin = 0, bottomMargin = 0, skipSquash = false, alignBottom = false, iconScale = 1 },
   ref,
 ) {
   // 絵の種類は起動時に1回だけ見る（途中で切り替える使い方はしない）
@@ -209,6 +215,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   useEffect(() => { bottomMarginRef.current = bottomMargin; }, [bottomMargin]);
   const alignBottomRef = useRef<boolean>(alignBottom);
   useEffect(() => { alignBottomRef.current = alignBottom; }, [alignBottom]);
+  const iconScaleRef = useRef<number>(iconScale);
+  useEffect(() => { iconScaleRef.current = iconScale; }, [iconScale]);
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const textureRef = useRef<Texture | null>(null);
@@ -560,7 +568,9 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     const crowdK = crowdScale(scaleCountRef.current ?? sessionsRef.current.length);
     const ageK = (freezeAgeRef.current || !params.playedDate) ? 1.0 : ageScale(params.playedDate);
     const depthK = params.depthK ?? 1.0;
-    const targetSize = (params.isSelf ? SELF_SIZE : BASE_SIZE) * viewK * crowdK * ageK * depthK;
+    // iconScale: 絵の最終サイズだけに一律掛ける倍率（既定1＝ハイ！テンションのこれまでどおり）。
+    // 跳躍量(80px)など位置には影響しない
+    const targetSize = (params.isSelf ? SELF_SIZE : BASE_SIZE) * viewK * crowdK * ageK * depthK * iconScaleRef.current;
     const texMax = Math.max(texture.width, texture.height) || 1;
     const spriteScale = targetSize / texMax;
     const colorTint = hexToTint(params.color);

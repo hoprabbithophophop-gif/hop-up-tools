@@ -281,6 +281,47 @@ function estimateBeatSec(marks: MarkEntry[]): number | null {
   return estimateBeatSecFromSecs(marks.map((m) => m.sec));
 }
 
+/**
+ * 近すぎる！を1個に統合する（やり直しの重複対策）。
+ * 下書きは中断・やり直しでも消えない作りなので、同じ曲を何度もやり直すと同じ場所に
+ * ！が積み重なる。手で大量削除させないよう、16分音符未満（beatSec/4。出せなければ0.1秒）の
+ * 間隔で近接するものを鎖状にまとめる（本物の最速連打=8分・約0.2秒間隔は巻き込まない）。
+ *
+ * 統合ルール: 塊の先頭の秒を残す。word は塊の中で最初に付いているもの（nullでないもの）を優先。
+ * memberId/colorHex は「色付き（memberId!=null）があればそれを優先、無ければ先頭のもの」。
+ */
+function mergeCloseMarks(marksIn: MarkEntry[], beatSec: number | null): { merged: MarkEntry[]; removedCount: number } {
+  if (marksIn.length === 0) return { merged: marksIn, removedCount: 0 };
+  const threshold = beatSec ? beatSec / 4 : 0.1;
+  const sorted = [...marksIn].sort((a, b) => a.sec - b.sec);
+  const merged: MarkEntry[] = [];
+  let cluster: MarkEntry[] = [sorted[0]];
+  const flush = () => {
+    if (cluster.length === 1) { merged.push(cluster[0]); return; }
+    const head = cluster[0];
+    const word = cluster.find((m) => m.word !== null)?.word ?? null;
+    const colored = cluster.find((m) => m.memberId !== null);
+    merged.push({
+      id: head.id,
+      sec: head.sec,
+      colorHex: colored ? colored.colorHex : head.colorHex,
+      memberId: colored ? colored.memberId : head.memberId,
+      word,
+    });
+  };
+  for (let i = 1; i < sorted.length; i++) {
+    const prevInCluster = cluster[cluster.length - 1];
+    if (sorted[i].sec - prevInCluster.sec < threshold) {
+      cluster.push(sorted[i]);
+    } else {
+      flush();
+      cluster = [sorted[i]];
+    }
+  }
+  flush();
+  return { merged, removedCount: marksIn.length - merged.length };
+}
+
 /** 見返しのカウントイン先。対象の秒・拍の長さ・その！の色（カウントイン明けに出す） */
 type PreviewTarget = { sec: number; beatSec: number; colorHex: string };
 
@@ -492,6 +533,8 @@ export default function PlacePage() {
   const [sendError, setSendError] = useState<string | null>(null);
   // 送れたときの一言。これが無いと、数がゼロに戻るのが「消えた」ように見えて不安にさせる
   const [sendDone, setSendDone] = useState<string | null>(null);
+  // 振り返りを開くときに近すぎる！を統合したら、その一言（控えめに一時表示）
+  const [mergeNotice, setMergeNotice] = useState<string | null>(null);
   // 人間確認を出しているあいだ、答えが返るまで待つための受け皿（SongTapPage と同じ形）
   const [gate, setGate] = useState<((t: string | null) => void) | null>(null);
 
@@ -718,10 +761,25 @@ export default function PlacePage() {
     setPreviewStopAt(null);
   };
 
+  /**
+   * 振り返り画面を開く。開く前に、近すぎる！（やり直しの重複）を統合する。
+   * 統合が起きたら控えめな一言を一時表示する。
+   */
+  const openReview = (trigger: ReviewTrigger) => {
+    const { merged, removedCount } = mergeCloseMarks(marks, estimateBeatSec(marks));
+    if (removedCount > 0) {
+      setMarks(merged);
+      setMergeNotice(`近すぎる！を ${removedCount}個 まとめました`);
+      setTimeout(() => setMergeNotice(null), 6000);
+    }
+    clearPreview();
+    setReviewTrigger(trigger);
+  };
+
   /** 動画が最後まで再生された。叩きが1個以上あれば振り返りを出す */
   const onEnded = () => {
     setPlaying(false);
-    if (marks.length > 0) { clearPreview(); setReviewTrigger("ended"); }
+    if (marks.length > 0) openReview("ended");
   };
 
   /** 色えらびの丸を直接押す */
@@ -750,7 +808,7 @@ export default function PlacePage() {
 
   /** 「曲へ」。叩きが残っていれば振り返りを挟む。ゼロならそのまま戻る */
   const handleBack = () => {
-    if (marks.length > 0) { clearPreview(); setReviewTrigger("back"); return; }
+    if (marks.length > 0) { openReview("back"); return; }
     navigate(`/call-center/song/${slug}`);
   };
 
@@ -874,19 +932,23 @@ export default function PlacePage() {
       if (e2) throw e2;
       if (!userData.user) throw new Error("入場情報を取得できませんでした");
 
+      // 送信直前にも念のため近すぎる！の統合を通す（振り返り後に追加で叩いて重ねた場合の保険）。
+      // ここでは一言は出さない（振り返りを開いたときの一言で十分。ここは保険なので静かに）
+      const { merged } = mergeCloseMarks(marks, estimateBeatSec(marks));
+
       const { error: e3 } = await db.from("call_tap_sessions").insert({
         song_id: row.id,
         video_id: video.video_id,
-        mark_secs: marks.map((m) => m.sec),
-        mark_member_ids: marks.map((m) => m.memberId),
-        mark_words: marks.map((m) => m.word),
+        mark_secs: merged.map((m) => m.sec),
+        mark_member_ids: merged.map((m) => m.memberId),
+        mark_words: merged.map((m) => m.word),
         created_by: userData.user.id,
       });
       if (e3) throw e3;
 
       // 送れた＝この参加は1行として棚に乗った。次の通しはゼロから数え直す。
       // 数がゼロに戻る前に「送れた」と言う（黙って消すと、消えたように見えて不安にさせる）
-      setSendDone(`！ ${marks.length}個 を送りました。ありがとうございました`);
+      setSendDone(`！ ${merged.length}個 を送りました。ありがとうございました`);
       setTimeout(() => setSendDone(null), 6000);
       setMarks([]);
       setSending(false);
@@ -998,6 +1060,10 @@ export default function PlacePage() {
       {reviewTrigger ? (
         /* 振り返り画面。動画は上に出たままなので「見返す」で流しながら一覧を読める */
         <div style={S.reviewWrap}>
+          {mergeNotice && (
+            /* 近すぎる！を統合したときの一言。控えめに一時表示（エラーバナーと同じ流儀） */
+            <div style={S.mergeNotice}>{mergeNotice}</div>
+          )}
           {previewTarget && (
             /* 見返しのカウントイン。動画の上には重ねない（一覧の上に小さく出すだけ） */
             <div style={S.countBanner}>
@@ -1093,6 +1159,8 @@ export default function PlacePage() {
               resolveColor={resolveMemberColor}
               alignBottom
               skipSquash
+              // 中段が低くなった分、絵自体を約半分に縮めて頭からしっぽまで収める（跳躍量は変えない）
+              iconScale={0.5}
               scaleCount={300}
               // 段が1/3に狭まった分、上下の余白はごく小さくする。跳躍80px＋吹き出し自体の高さは
               // この段(だいたい100〜120px程度を想定)に収まりきらないことがあるが、余白を大きく取って
@@ -1108,10 +1176,8 @@ export default function PlacePage() {
             />
           </div>
 
-          {/* 下段: 色えらび＋！ボタン（並びは今まで通り） */}
+          {/* 下段: ！ボタン＋色えらび（！を先に） */}
           <div style={S.bottomSection}>
-            {colorPicker}
-
             <div style={S.btnRow}>
               <button
                 type="button"
@@ -1121,6 +1187,8 @@ export default function PlacePage() {
                 disabled={!playing}
               >！</button>
             </div>
+
+            {colorPicker}
           </div>
 
           {!playing && (
@@ -1156,12 +1224,12 @@ const S: Record<string, React.CSSProperties> = {
   laneSection: { position: "relative", flex: 1, minHeight: 0, overflow: "hidden" },
   // 中段: 跳ねる面
   stage: { position: "relative", flex: 1, minHeight: 0, background: "#0a0a0c", overflow: "hidden" },
-  // 下段: 色えらび＋！ボタン。並びは今まで通り、段の中で縦中央寄せ
+  // 下段: ！ボタン＋色えらび。段の中で縦中央寄せ
   bottomSection: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center" },
-  // 止まっている（一時停止含む）あいだ、中段(跳ねる面)だけを覆う1枚の再生ボタン。
+  // 止まっている（一時停止含む）あいだ、中段(跳ねる面)を中心に高さ1/2ぶんを覆う1枚の再生ボタン。
   // 上段・下段は透過のまま（言葉レーン・色えらび・！ボタンが見える。！ボタン自体は別途disabled）
   midPlayOverlay: {
-    position: "absolute", left: 0, right: 0, top: "33.3333%", height: "33.3334%", zIndex: 20,
+    position: "absolute", left: 0, right: 0, top: "25%", height: "50%", zIndex: 20,
     background: "#fff", color: "#000",
     border: 0, fontSize: 24, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
   },
@@ -1185,6 +1253,7 @@ const S: Record<string, React.CSSProperties> = {
   btnRow: { display: "flex", gap: 8, flex: "0 0 auto", marginTop: 8 },
   mark: { flex: 1, background: "#d0d0d0", color: "#000", border: 0, padding: "22px 10px", fontSize: 30, fontWeight: 900, lineHeight: 1, cursor: "pointer", fontFamily: "inherit" },
   reviewWrap: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", marginTop: 8 },
+  mergeNotice: { flex: "0 0 auto", fontSize: 11, color: "#9aa0a6", textAlign: "center", marginBottom: 6 },
   countBanner: {
     flex: "0 0 auto", height: 40, marginBottom: 6,
     background: "rgba(255,255,255,0.06)", boxShadow: "inset 0 0 0 1px #333",
