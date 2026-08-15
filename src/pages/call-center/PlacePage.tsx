@@ -1081,6 +1081,7 @@ export default function PlacePage() {
               selfSeatHash={7}
               resolveColor={resolveMemberColor}
               centerSelfPeak
+              skipSquash
               scaleCount={300}
               topMargin={150}
               // 吹き出しの表示幅の半分＋数px（！のテクスチャは吹き出し本体が256px角の枠に208px幅で

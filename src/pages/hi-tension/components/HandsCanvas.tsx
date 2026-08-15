@@ -84,6 +84,12 @@ interface Props {
    * 着地帯の下端をこのぶん画面の内側へ引き上げる。0だと着地点が画面の最下端まで使われうる。
    */
   bottomMargin?: number;
+  /**
+   * 溜め（squash＝跳ぶ前に一瞬縮む予備動作）を省いて、タップした瞬間から上昇を始める。
+   * 既定は false（＝ハイ！テンションのこれまでどおり、溜めてから跳ぶ）。
+   * コール集約センターの！は「置けた」の即時確認が目的なので、溜めが遅延に見える。
+   */
+  skipSquash?: boolean;
 }
 
 // バケットインデックスに紐づく「(セッション, このバケットでの押下回数)」
@@ -181,11 +187,13 @@ function easeOutCubic(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor, centerSelfPeak = false, sideMargin = 0, bottomMargin = 0 },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor, centerSelfPeak = false, sideMargin = 0, bottomMargin = 0, skipSquash = false },
   ref,
 ) {
   // 絵の種類は起動時に1回だけ見る（途中で切り替える使い方はしない）
   const iconRef = useRef<"hand" | "mark">(icon);
+  const skipSquashRef = useRef<boolean>(skipSquash);
+  useEffect(() => { skipSquashRef.current = skipSquash; }, [skipSquash]);
   const topMarginRef = useRef<number>(topMargin);
   useEffect(() => { topMarginRef.current = topMargin; }, [topMargin]);
   const sideMarginRef = useRef<number>(sideMargin);
@@ -646,7 +654,10 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       return;
     }
 
-    let phase: "squash" | "up" | "hold" | "downfade" | "done" = "squash";
+    // skipSquash 指定時は溜めを飛ばして即上昇（！の即時確認用）。
+    // up フェーズのスケール式は SQUASH_SCALE→1 の戻しなので、飛ばす場合は縮み幅0として扱う
+    const squashFrom = skipSquashRef.current ? 1 : SQUASH_SCALE;
+    let phase: "squash" | "up" | "hold" | "downfade" | "done" = skipSquashRef.current ? "up" : "squash";
     let phaseStart = 0;
     // 遅延した✋はアニメを先に進めた状態から開始（FPS式の予測）
     let totalMs = params.animationOffsetMs ?? 0;
@@ -672,8 +683,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
           if (local < upDur) {
             const k = easeOutCubic(local / upDur);
             node.y = baselineY - jumpHeight * k;
-            // 縮んだスケールを上昇とともに通常へ戻す（伸び＝stretch感）
-            node.scale.set(baseScale * (SQUASH_SCALE + (1 - SQUASH_SCALE) * k));
+            // 縮んだスケールを上昇とともに通常へ戻す（伸び＝stretch感）。skipSquash時は縮んでいないので等倍のまま
+            node.scale.set(baseScale * (squashFrom + (1 - squashFrom) * k));
           } else {
             node.y = baselineY - jumpHeight;
             node.scale.set(baseScale);
