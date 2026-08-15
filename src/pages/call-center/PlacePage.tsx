@@ -580,8 +580,8 @@ export default function PlacePage() {
   const [reviewTrigger, setReviewTrigger] = useState<ReviewTrigger | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  // 送れたときの一言。これが無いと、数がゼロに戻るのが「消えた」ように見えて不安にさせる
-  const [sendDone, setSendDone] = useState<string | null>(null);
+  // 送信成功後のお礼画面。無ければ通常表示（振り返り画面／叩く画面）のまま
+  const [thankYou, setThankYou] = useState<{ count: number } | null>(null);
   // 振り返りを開くときに近すぎる！を統合したら、その一言（控えめに一時表示）
   const [mergeNotice, setMergeNotice] = useState<string | null>(null);
   // 振り返りの「×」で消した行の取り置き（直近が末尾）。誤って消した事故の取り消し用
@@ -748,9 +748,9 @@ export default function PlacePage() {
               const words = extractWordPairs(rows);
               if (words.length > 0) setCrowdWords((prev) => [...prev, ...words]);
             }, () => { /* 読めなくても置く画面は成り立つ */ });
-        }, () => { if (alive && !openBuiltIn()) setError("いま通信できていません（集まったコールを読み込めません）"); });
+        }, () => { if (alive && !openBuiltIn()) setError("現在通信できていません（集まったコールを読み込めません）"); });
     } catch {
-      if (!openBuiltIn()) setError("いま通信できていません（集まったコールを読み込めません）");
+      if (!openBuiltIn()) setError("現在通信できていません（集まったコールを読み込めません）");
     }
     return () => { alive = false; };
   }, [slug]);
@@ -1044,10 +1044,9 @@ export default function PlacePage() {
       if (e3) throw e3;
 
       // 送れた＝この参加は1行として棚に乗った。次の通しはゼロから数え直す。
-      // 数がゼロに戻る前に「送れた」と言う（黙って消すと、消えたように見えて不安にさせる）
-      setSendDone(`！ ${merged.length}個 を受け付けました。ご協力ありがとうございます`);
-      setTimeout(() => setSendDone(null), 6000);
+      // 黙って数がゼロに戻ると「消えた」ように見えて不安にさせるので、お礼の画面に切り替える
       setMarks([]);
+      setThankYou({ count: merged.length });
       setSending(false);
       return true;
     } catch (err) {
@@ -1096,6 +1095,30 @@ export default function PlacePage() {
     );
   }
 
+  if (thankYou) {
+    // 送信成功後のお礼画面（振り返り画面の代わりに出す）。storyboard v4 SCREEN 5（オーナー承認済み）。
+    // Xへの投稿はあくまで任意＝「しない」でも一覧へ普通に戻れる
+    const shareText = `${title}のコールの情報を提供しました、情報をお持ちの方はご協力お願いします #コール情報集約センター`;
+    const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
+    return (
+      <div style={{ ...S.page, justifyContent: "center" }}>
+        <h1 style={S.thankYouTitle}>ご協力ありがとうございます。</h1>
+        <p style={S.thankYouBody}>また情報提供いただけますよう職員一同お待ちしております。</p>
+        <p style={S.thankYouCount}>！ {thankYou.count}個 を受け付けました</p>
+        <div style={S.thankYouTweetBox}>{shareText}</div>
+        <div style={S.thankYouActions}>
+          <a
+            href={tweetUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ ...S.modalPrimary, display: "block", textAlign: "center", textDecoration: "none" }}
+          >Xに投稿する</a>
+          <button type="button" style={S.modalSecondary} onClick={() => navigate("/call-center")}>しない</button>
+        </div>
+      </div>
+    );
+  }
+
   const currentColorHex = colorIdToHex(currentColor);
   const markBg = currentColorHex;
   const markFg = isLight(currentColorHex) ? "#000" : "#fff";
@@ -1137,7 +1160,6 @@ export default function PlacePage() {
     <div style={S.page}>
       {gate && <HumanCheckGate onDone={gate} />}
       {sendError && <div style={S.errorBanner}>{sendError}</div>}
-      {sendDone && <div style={S.doneBanner}>{sendDone}</div>}
 
       <div style={S.head}>
         <button style={S.back} onClick={handleBack}>曲の一覧へ</button>
@@ -1420,10 +1442,13 @@ const S: Record<string, React.CSSProperties> = {
     background: "#000", color: "#fff", fontSize: 13, fontWeight: 700,
     padding: "12px 16px", textAlign: "center", boxShadow: "inset 0 1px 0 #333",
   },
-  /** 送れたときの一言（エラーと同じ場所・白地で区別） */
-  doneBanner: {
-    position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 150,
-    background: "#fff", color: "#000", fontSize: 13, fontWeight: 700,
-    padding: "12px 16px", textAlign: "center",
+  // 送信成功後のお礼画面
+  thankYouTitle: { fontSize: 19, fontWeight: 900, margin: "0 0 10px" },
+  thankYouBody: { fontSize: 13, lineHeight: 1.8, color: "#cbd2dc", margin: "0 0 16px" },
+  thankYouCount: { fontSize: 12, color: "#8a8a92", fontFamily: "ui-monospace,Menlo,Consolas,monospace", margin: "0 0 20px" },
+  thankYouTweetBox: {
+    fontSize: 13, lineHeight: 1.7, color: "#eee",
+    boxShadow: "inset 0 0 0 1px #444", padding: "12px 14px", marginBottom: 20,
   },
+  thankYouActions: { display: "flex", flexDirection: "column", gap: 8 },
 };
