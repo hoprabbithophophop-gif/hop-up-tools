@@ -67,6 +67,40 @@ function setLastSelectedColorId(id: string | null): void {
   } catch { /* ignore (プライベートモード等) */ }
 }
 
+/**
+ * 送信前の下書き（叩いたぶん一式）。端末に置くだけで棚には送らない。
+ * 曲・動画ごとに分ける（動画を切り替えると秒の物差しが変わるため、混ぜない）。
+ */
+function draftKey(slug: string, videoId: string): string {
+  return `call_center:draft:${slug}:${videoId}`;
+}
+/** 壊れた下書きで画面を死なせないよう、形が怪しい要素は捨てて読む */
+function loadDraft(slug: string, videoId: string): MarkEntry[] {
+  try {
+    const raw = localStorage.getItem(draftKey(slug, videoId));
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((m): m is MarkEntry =>
+      !!m && typeof m === "object"
+      && typeof (m as MarkEntry).id === "number"
+      && typeof (m as MarkEntry).sec === "number"
+      && typeof (m as MarkEntry).colorHex === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+function saveDraft(slug: string, videoId: string, marks: MarkEntry[]): void {
+  try {
+    if (marks.length === 0) { localStorage.removeItem(draftKey(slug, videoId)); return; }
+    localStorage.setItem(draftKey(slug, videoId), JSON.stringify(marks));
+  } catch { /* ignore (プライベートモード等) */ }
+}
+function clearDraft(slug: string, videoId: string): void {
+  try { localStorage.removeItem(draftKey(slug, videoId)); } catch { /* ignore */ }
+}
+
 /** 明るいグレー。値の発明はしない前提の1つ ※仮の明度 */
 const NEUTRAL_HEX = "#d0d0d0";
 
@@ -187,6 +221,16 @@ function candidateWords(target: MarkEntry, marks: MarkEntry[], crowdWords: WordP
     .map(([w]) => w);
 }
 
+/**
+ * 直前に確定した言葉は、4拍の窓に関係なく常に先頭のチップに出す（連続する同じコールに効く）。
+ * すでに候補に入っていれば先頭へ移すだけ、無ければ足して先頭に置く（最大8個は維持）。
+ */
+function withPinnedFirst(list: string[], pinned: string | null): string[] {
+  if (!pinned) return list;
+  const rest = list.filter((w) => w !== pinned);
+  return [pinned, ...rest].slice(0, 8);
+}
+
 /** 見返すときに何秒巻き戻すか。BPMが出せなかったときの代わり ※仮 */
 const REWIND_SEC = 5;
 
@@ -261,11 +305,15 @@ export default function PlacePage() {
   // 振り返りの「見返す」で、カウントイン中の対象。無ければ固定巻き戻しのまま（バナーも出さない）
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
   const [previewStep, setPreviewStep] = useState<string | null>(null);
+  // 見返し中、この秒を過ぎたら自動で止める（！の瞬間から4拍・BPM不明なら2秒ぶん流したら止める）
+  const [previewStopAt, setPreviewStopAt] = useState<number | null>(null);
   // 棚から読んだ、他の参加者が付けた「秒と言葉の対」。候補チップの元データ
   const [crowdWords, setCrowdWords] = useState<WordPair[]>([]);
   // 振り返り画面で、今どの！の言葉を編集中か。行の本体を押すと開く（別画面にはしない）
   const [editingMarkId, setEditingMarkId] = useState<number | null>(null);
   const [wordDraft, setWordDraft] = useState("");
+  // 直前に確定した言葉。次の候補チップの先頭に常に出す（同じコールの連続に効く）
+  const [lastConfirmedWord, setLastConfirmedWord] = useState<string | null>(null);
 
   const [reviewTrigger, setReviewTrigger] = useState<ReviewTrigger | null>(null);
   const [sending, setSending] = useState(false);
@@ -307,6 +355,16 @@ export default function PlacePage() {
     let alive = true;
     setError(null);
 
+    // 画面を開いたとき、同じ曲・動画の下書きがあれば黙って復元する
+    // （！の個数がヘッダーに出るので、復元されたことには気づける）。
+    // 新しいIDが下書きのIDと衝突しないよう、採番カウンタを続きから始める
+    const restoreDraft = (videoId: string) => {
+      const draft = loadDraft(slug, videoId);
+      if (draft.length === 0) return;
+      setMarks(draft);
+      markIdRef.current = Math.max(0, ...draft.map((m) => m.id));
+    };
+
     // 棚に入っていない曲は同梱データで開く
     const builtIn = findBuiltInSong(slug);
     const openBuiltIn = () => {
@@ -316,7 +374,10 @@ export default function PlacePage() {
       // 同梱データには曲もツアーも紐付いていない＝棚に繋がらない時と同じ代用でよい
       setChipMembers(fallbackChipMembers(builtIn.groupName));
       const v = builtIn.videos[0];
-      if (v) setVideo({ video_id: v.videoId, offset_sec: v.offsetSec, rate: 1, label: v.label });
+      if (v) {
+        setVideo({ video_id: v.videoId, offset_sec: v.offsetSec, rate: 1, label: v.label });
+        restoreDraft(v.videoId);
+      }
       return true;
     };
 
@@ -335,6 +396,7 @@ export default function PlacePage() {
           const v = d.song_video_offsets?.[0];
           if (!v) { setError("この曲にはまだ動画が結び付いていません"); return; }
           setVideo({ video_id: v.video_id, offset_sec: Number(v.offset_sec), rate: Number(v.rate) || 1, label: v.label });
+          restoreDraft(v.video_id);
 
           /**
            * 色えらびに出すメンバー。3段のフォールバック:
@@ -426,6 +488,13 @@ export default function PlacePage() {
     return () => { alive = false; };
   }, [slug]);
 
+  // 叩いたぶんが変わるたびに下書きを端末へ保存する（送信前の保険）。
+  // marksが空になったとき（送信成功後など）は保存側で自動的にキーごと消える
+  useEffect(() => {
+    if (!video) return;
+    saveDraft(slug, video.video_id, marks);
+  }, [marks, video, slug]);
+
   const onTime = (sec: number) => {
     handsRef.current?.onTimeUpdate(sec);
     setNowSec(Math.max(0, sec - (video?.offset_sec ?? 0)));
@@ -442,6 +511,13 @@ export default function PlacePage() {
       else if (d >= 0 && d < b) step = "mark";
       setPreviewStep((prev) => (prev === step ? prev : step));
     }
+
+    // 見返し中、！の瞬間から決めた秒数ぶん流したら自動で止めて振り返りへ戻す
+    if (previewStopAt !== null && sec >= previewStopAt) {
+      playerRef.current?.pause();
+      setPlaying(false);
+      clearPreview();
+    }
   };
 
   const togglePlay = () => {
@@ -451,10 +527,24 @@ export default function PlacePage() {
     else { p.play(); setPlaying(true); }
   };
 
-  /** 見返しのカウントイン表示を消す（振り返り画面を開く・閉じる・離れるときに呼ぶ） */
+  /**
+   * YouTube側の状態変化。ネイティブの再生バーで手動停止したときも拾うため
+   * （見返し中に手動で止めたときも、見返しの状態を終える）。
+   * YT.PlayerState: 1=PLAYING, 2=PAUSED, 0=ENDED（ENDEDは既存の onEnded 側で扱う）
+   */
+  const onPlayerStateChange = (state: number) => {
+    if (state === 1) setPlaying(true);
+    else if (state === 2) {
+      setPlaying(false);
+      if (previewTarget || previewStopAt !== null) clearPreview();
+    }
+  };
+
+  /** 見返しのカウントイン表示・自動停止の予約を消す（振り返り画面を開く・閉じる・離れるとき、手動停止時に呼ぶ） */
   const clearPreview = () => {
     setPreviewTarget(null);
     setPreviewStep(null);
+    setPreviewStopAt(null);
   };
 
   /** 動画が最後まで再生された。叩きが1個以上あれば振り返りを出す */
@@ -498,6 +588,8 @@ export default function PlacePage() {
    * この参加のタップ間隔からBPMが出せれば、対象の4拍前から再生してカウントイン
    * （5・6・7・8→その！の色で！）を出す。出せない・間隔が足りないときは、
    * これまでどおり固定 REWIND_SEC 秒の巻き戻しだけにする（カウントインのバナーも出さない）。
+   * どちらの場合も、！の瞬間から一定時間（BPMが出せれば4拍・出せなければ2秒）流したら
+   * 自動で止めて振り返りへ戻す（動画を最後まで見ないと戻れない、を避けるため）。
    * play() は「動画が終わった直後（ENDED状態）」だと内部で先頭(0秒)へ戻す仕様なので、
    * 先に play() を呼んでから seekTo で狙った位置へ上書きする（逆順だと 0秒に戻されて消える）。
    */
@@ -508,9 +600,11 @@ export default function PlacePage() {
       playerRef.current?.seekTo(Math.max(0, target.sec - 4 * beatSec));
       setPreviewTarget({ sec: target.sec, beatSec, colorHex: target.colorHex });
       setPreviewStep(null);
+      setPreviewStopAt(target.sec + 4 * beatSec);
     } else {
       playerRef.current?.seekTo(Math.max(0, target.sec - REWIND_SEC));
       clearPreview();
+      setPreviewStopAt(target.sec + 2);
     }
     setPlaying(true);
   };
@@ -537,10 +631,20 @@ export default function PlacePage() {
     setWordDraft(m.word ?? "");
   };
 
-  /** 言葉の「確定」。空で確定＝言葉を消す */
+  /** 言葉の「確定」（入力欄から）。空で確定＝言葉を消す */
   const confirmWord = () => {
     const trimmed = wordDraft.trim();
-    setMarks((arr) => arr.map((m) => (m.id === editingMarkId ? { ...m, word: trimmed === "" ? null : trimmed } : m)));
+    const word = trimmed === "" ? null : trimmed;
+    setMarks((arr) => arr.map((m) => (m.id === editingMarkId ? { ...m, word } : m)));
+    if (word) setLastConfirmedWord(word);
+    setEditingMarkId(null);
+    setWordDraft("");
+  };
+
+  /** 候補チップを押したとき。確定の1タップを省き、押したら即その言葉で決めて閉じる */
+  const chooseWord = (word: string) => {
+    setMarks((arr) => arr.map((m) => (m.id === editingMarkId ? { ...m, word } : m)));
+    setLastConfirmedWord(word);
     setEditingMarkId(null);
     setWordDraft("");
   };
@@ -639,8 +743,9 @@ export default function PlacePage() {
     setReviewTrigger(null);
   };
 
-  /** 「送らずに戻る」（back起点のみ）：送らずに離脱する */
+  /** 「送らずに戻る」（back起点のみ）：送らずに離脱する。捨てる選択なので下書きも消す */
   const onReviewLeaveWithoutSending = () => {
+    if (video) clearDraft(slug, video.video_id);
     clearPreview();
     cancelWordEdit();
     setReviewTrigger(null);
@@ -714,12 +819,17 @@ export default function PlacePage() {
             videoId={video.video_id}
             onEnded={onEnded}
             onTimeUpdate={onTime}
+            onPlayerStateChange={onPlayerStateChange}
           />
         )}
       </div>
 
       <div style={S.row}>
-        <button type="button" style={S.play} onClick={togglePlay}>{playing ? "停止" : "再生"}</button>
+        {/* 止まっているときは大きい再生ボタン（叩く面側）だけに任せて、ここには出さない。
+            再生中だけ「停止」を出す。振り返り中はどちらも出さない（自動で止まる・戻るため） */}
+        {!reviewTrigger && playing && (
+          <button type="button" style={S.play} onClick={togglePlay}>停止</button>
+        )}
         <span style={S.clock}>{fmt(nowSec)}</span>
       </div>
 
@@ -755,11 +865,13 @@ export default function PlacePage() {
                     <button type="button" style={S.reviewRemove} onClick={cancelWordEdit} aria-label="やめる">×</button>
                   </div>
                   {(() => {
-                    const candidates = candidateWords(m, marks, crowdWords);
+                    // 押したら即その言葉で確定して閉じる（入力欄に入れるだけの1手を省く）。
+                    // 直前に確定した言葉は、窓に入っていなくても常に先頭に出す
+                    const candidates = withPinnedFirst(candidateWords(m, marks, crowdWords), lastConfirmedWord);
                     return candidates.length > 0 ? (
                       <div style={S.wordChipRow}>
                         {candidates.map((w) => (
-                          <button key={w} type="button" style={S.wordChip} onClick={() => setWordDraft(w)}>{w}</button>
+                          <button key={w} type="button" style={S.wordChip} onClick={() => chooseWord(w)}>{w}</button>
                         ))}
                       </div>
                     ) : null;
@@ -781,10 +893,14 @@ export default function PlacePage() {
               )
             )}
           </div>
-          {/* 行の色を塗り直すのに使う。振り返り中も見える必要があるのでここにも出す */}
-          {colorPicker}
+          {/* 色チップと一言は常時は出さない。言葉の編集中だけ出す（色直しの丸押しもそのあいだにできれば足りる） */}
+          {editingMarkId !== null && (
+            <>
+              {colorPicker}
+              <p style={S.reviewLede}>ちょっとタイミングずれたかも、とかはライブ感ということでいいじゃない。</p>
+            </>
+          )}
           <div style={S.reviewFooter}>
-            <p style={S.reviewLede}>ちょっとタイミングずれたかも、とかはライブ感ということでいいじゃない。</p>
             <div style={S.reviewActions}>
               <button style={S.modalPrimary} onClick={onReviewSend} disabled={sending || marks.length === 0}>
                 {sending ? "送っています…" : "これで送る"}
@@ -889,7 +1005,11 @@ const S: Record<string, React.CSSProperties> = {
   // 言葉の入力中の行。押しても再度開かない（reviewRow と違い onClick を持たせない別の見た目）
   reviewRowEditing: { display: "flex", flexDirection: "column", gap: 6, padding: "9px 4px", boxShadow: "inset 0 -1px 0 #222" },
   reviewRowEditingTop: { display: "flex", alignItems: "center", gap: 8 },
-  wordInput: { flex: "1 1 auto", minWidth: 0, background: "#111", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "6px 8px", fontSize: 13, fontFamily: "inherit" },
+  // 枠をはっきり出す（太め・白）＋背景を地色と地続きにしない。fontSize16px以上（未満だとiOSでズームが走る）
+  wordInput: {
+    flex: "1 1 auto", minWidth: 0, background: "#1c1c1e", color: "#fff",
+    border: 0, boxShadow: "inset 0 0 0 2px #fff", padding: "8px 10px", fontSize: 16, fontFamily: "inherit",
+  },
   wordConfirm: { flex: "0 0 auto", background: "none", color: "#7cf", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "6px 10px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
   wordChipRow: { display: "flex", gap: 6, flexWrap: "wrap", paddingLeft: 70 },
   wordChip: { background: "none", color: "#cbd2dc", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
