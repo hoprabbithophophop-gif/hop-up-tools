@@ -1074,10 +1074,15 @@ export default function PlacePage() {
           </div>
         </div>
       ) : (
-        // 動画より下の全部（色えらび・跳ねる面・！ボタン）をまとめて包む。
-        // 止まっているあいだは、この全体を1枚の再生ボタンで覆う（下は再生ボタン以外押せない）
+        // 動画より下を、高さ1/3ずつの3段に割る（上=言葉レーン／中=跳ねる面／下=色えらび＋！ボタン）。
+        // 吹き出しが！ボタンの真後ろから跳んで隠れる問題を、段を分けることで解消する
         <div style={S.belowVideo}>
-          {/* 跳ねる面。残りの高さを全部使う。動画の上には重ねない */}
+          {/* 上段: 言葉レーン。段の縦中央=レーンの縦中央（WordLane内部は親いっぱいに広がる作り） */}
+          <div style={S.laneSection}>
+            <WordLane playerRef={playerRef} crowdWords={crowdWords} active={playing} />
+          </div>
+
+          {/* 中段: 跳ねる面。alignBottomのまま＝この段の下端から跳び上がる。動画の上には重ねない */}
           <div style={S.stage}>
             <HandsCanvas
               ref={handsRef}
@@ -1089,40 +1094,41 @@ export default function PlacePage() {
               alignBottom
               skipSquash
               scaleCount={300}
-              // WordLane（高さ70px・stage上端）にかぶらない程度の上余白。
-              // alignBottom で着地点は使える領域の下端(yRatio=1)に固定されるため、
-              // 跳躍の高さ(80px)ぶんが topMargin より上に突き抜けないよう、
-              // 跳ねる面の実際の高さ（iPhone SE相当の狭い画面で見積もり）に合わせて
-              // topMargin+bottomMargin を抑えている（旧: 150/40 → 突き抜ける計算になっていた）。
-              // ※実機での見た目確認はできていない
-              topMargin={90}
+              // 段が1/3に狭まった分、上下の余白はごく小さくする。跳躍80px＋吹き出し自体の高さは
+              // この段(だいたい100〜120px程度を想定)に収まりきらないことがあるが、余白を大きく取って
+              // 吹き出しを潰すより、多少上の段(言葉レーン)に跳躍がはみ出すほうを優先する
+              // （オーナー指定）。※実機での見た目確認はできていない
+              topMargin={10}
               // 吹き出しの表示幅の半分＋数px（！のテクスチャは吹き出し本体が256px角の枠に208px幅で
               // 収まる作り。BASE_SIZE基準の典型的な表示サイズの半分程度を見込んだ値）。
               // 端いっぱいに湧いても本体が枠外に出て文字が読めなくなるのを防ぐ
               sideMargin={50}
-              bottomMargin={20}
+              bottomMargin={10}
               freezeAge
             />
-            {/* 「大きい文字」レーン。再生中だけ（停止中・止まっているときは出さない） */}
-            <WordLane playerRef={playerRef} crowdWords={crowdWords} active={playing} />
           </div>
 
-          {colorPicker}
+          {/* 下段: 色えらび＋！ボタン（並びは今まで通り） */}
+          <div style={S.bottomSection}>
+            {colorPicker}
 
-          <div style={S.btnRow}>
-            <button
-              type="button"
-              style={{ ...S.mark, background: markBg, color: markFg }}
-              onPointerDown={pressMark}
-              onContextMenu={(e) => e.preventDefault()}
-            >！</button>
+            <div style={S.btnRow}>
+              <button
+                type="button"
+                style={{ ...S.mark, background: markBg, color: markFg, opacity: playing ? 1 : 0.4 }}
+                onPointerDown={pressMark}
+                onContextMenu={(e) => e.preventDefault()}
+                disabled={!playing}
+              >！</button>
+            </div>
           </div>
 
           {!playing && (
-            /* 再生していない（一時停止中も含む）あいだ、動画より下の全部を1枚の再生ボタンで覆う。
+            /* 再生していない（一時停止中も含む）あいだ、中段（跳ねる面）だけを1枚の再生ボタンで覆う。
+               上段（言葉レーン）・下段（色えらび・！ボタン）は透過。！ボタン自体は disabled で押せない。
                HandsCanvasはアンマウントしない（覆いの下でPixiJSはそのまま動き続ける＝作り直しを避ける）。
                動画自体はこの外(videoBox)にあるので、動画の上には重ならない */
-            <button type="button" style={S.fullPlayOverlay} onClick={togglePlay}>再生</button>
+            <button type="button" style={S.midPlayOverlay} onClick={togglePlay}>再生</button>
           )}
         </div>
       )}
@@ -1143,21 +1149,26 @@ const S: Record<string, React.CSSProperties> = {
   count: { marginLeft: "auto", fontSize: 12, color: "#8a8a92", fontFamily: "ui-monospace,Menlo,Consolas,monospace", flexShrink: 0 },
   videoBox: { flex: "0 0 auto" },
   play: { background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
-  // 動画より下の全部（色えらび・跳ねる面・！ボタン）を包む器。止まっているとき、この上に
-  // fullPlayOverlay を重ねて全面を覆う
+  // 動画より下の全部（言葉レーン・跳ねる面・色えらび＋！ボタン）を包む器。3段は各 flex:1 で
+  // 高さ1/3ずつに均等分割する。止まっているとき、中段(跳ねる面)だけを midPlayOverlay で覆う
   belowVideo: { position: "relative", flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" },
-  stage: { position: "relative", flex: "1 1 auto", minHeight: 0, background: "#0a0a0c", overflow: "hidden" },
-  // 止まっている（一時停止含む）あいだ、動画より下の全部を覆う1枚の再生ボタン。
-  // belowVideo の inset:0 いっぱいに重ねる。動画(videoBox)はこの外なので重ならない
-  fullPlayOverlay: {
-    position: "absolute", inset: 0, zIndex: 20,
+  // 上段: 言葉レーン専用の器（WordLane はこの中いっぱいに広がる）
+  laneSection: { position: "relative", flex: 1, minHeight: 0, overflow: "hidden" },
+  // 中段: 跳ねる面
+  stage: { position: "relative", flex: 1, minHeight: 0, background: "#0a0a0c", overflow: "hidden" },
+  // 下段: 色えらび＋！ボタン。並びは今まで通り、段の中で縦中央寄せ
+  bottomSection: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center" },
+  // 止まっている（一時停止含む）あいだ、中段(跳ねる面)だけを覆う1枚の再生ボタン。
+  // 上段・下段は透過のまま（言葉レーン・色えらび・！ボタンが見える。！ボタン自体は別途disabled）
+  midPlayOverlay: {
+    position: "absolute", left: 0, right: 0, top: "33.3333%", height: "33.3334%", zIndex: 20,
     background: "#fff", color: "#000",
-    border: 0, fontSize: 26, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
+    border: 0, fontSize: 24, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
   },
-  // 「大きい文字」レーン。跳ねる面の上部だけ・動画には重ねない。タップは透過（吹き出しや！ボタンを塞がない）
+  // 「大きい文字」レーン。段(laneSection)いっぱいに広がる。タップは透過（下の段のボタンを塞がない）
   wordLane: {
-    position: "absolute", top: 0, left: 0, right: 0, height: 70,
-    zIndex: 3, overflow: "hidden", pointerEvents: "none",
+    position: "absolute", inset: 0,
+    overflow: "hidden", pointerEvents: "none",
   },
   // 1行だけ（上下の段分けはしない）。縦は常に中央
   wordLaneItem: {
