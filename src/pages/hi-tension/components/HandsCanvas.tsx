@@ -103,6 +103,14 @@ interface Props {
    * 面が低いときに絵だけ縮めて頭からしっぽまで収めたい場合に使う。
    */
   iconScale?: number;
+  /**
+   * 群衆の横位置(xRatio)が、自分の跳ね(中央固定)とぴったり重ならないようにする。
+   * 既定は false（＝ハイ！テンションのこれまでどおり、群衆位置は無加工）。自分の位置には影響しない。
+   * true のとき、群衆が湧くたびに: ①中央帯(|xRatio-0.5|<0.05程度)に入っていたら帯の外へ押し出す
+   * ②さらに小さな左右ゆらぎ(±3〜5%)を足す。少し重なるのは良いが、完全に同じ位置に重なって
+   * 「他の人がいる」ことが見えなくなるのを避けるための処置。
+   */
+  avoidCenterX?: boolean;
 }
 
 // バケットインデックスに紐づく「(セッション, このバケットでの押下回数)」
@@ -199,8 +207,20 @@ function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
 
+// 群衆の横位置が自分(中央固定)とぴったり重ならないようにする調整。avoidCenterX 用
+const CENTER_BAND = 0.05;   // この帯(0.5±0.05)に入っていたら押し出す
+const CENTER_JITTER = 0.04; // 湧くたびに足す左右ゆらぎの幅(±)
+
+/** 中央帯(|x-0.5|<CENTER_BAND)に入っていたら、近い方の帯の外側へ押し出す */
+function pushOutOfCenterBand(xRatio: number): number {
+  if (Math.abs(xRatio - 0.5) < CENTER_BAND) {
+    return xRatio < 0.5 ? 0.5 - CENTER_BAND : 0.5 + CENTER_BAND;
+  }
+  return xRatio;
+}
+
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor, centerSelfPeak = false, sideMargin = 0, bottomMargin = 0, skipSquash = false, alignBottom = false, iconScale = 1 },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor, centerSelfPeak = false, sideMargin = 0, bottomMargin = 0, skipSquash = false, alignBottom = false, iconScale = 1, avoidCenterX = false },
   ref,
 ) {
   // 絵の種類は起動時に1回だけ見る（途中で切り替える使い方はしない）
@@ -217,6 +237,8 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   useEffect(() => { alignBottomRef.current = alignBottom; }, [alignBottom]);
   const iconScaleRef = useRef<number>(iconScale);
   useEffect(() => { iconScaleRef.current = iconScale; }, [iconScale]);
+  const avoidCenterXRef = useRef<boolean>(avoidCenterX);
+  useEffect(() => { avoidCenterXRef.current = avoidCenterX; }, [avoidCenterX]);
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const textureRef = useRef<Texture | null>(null);
@@ -764,8 +786,14 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       // alignBottom: 高さをランダムにせず、！ボタンのライン（使える領域の下端）へ揃える
       const yRatio = alignBottomRef.current ? 1 : pos.yRatio;
       for (let i = 0; i < count; i++) {
+        // avoidCenterX: 自分(中央固定)とぴったり重ならないよう、中央帯を避けてから
+        // 湧くたびに小さな左右ゆらぎを足す（少し重なるのは良いが、完全一致は避けたい）
+        let xRatio = pos.xRatio;
+        if (avoidCenterXRef.current) {
+          xRatio = pushOutOfCenterBand(xRatio) + (Math.random() * 2 - 1) * CENTER_JITTER;
+        }
         spawnHand({
-          xRatio: pos.xRatio, yRatio, depthK: pos.depthK, rotation: pos.rotation, jumpScale: pos.jumpScale,
+          xRatio, yRatio, depthK: pos.depthK, rotation: pos.rotation, jumpScale: pos.jumpScale,
           color: overrideColorRef.current ?? memberColor,
           isSelf: false,
           isToday: session.is_today,

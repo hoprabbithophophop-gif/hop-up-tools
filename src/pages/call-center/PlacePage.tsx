@@ -180,8 +180,12 @@ function tapRowsToSessions(rows: TapRow[]): HiSession[] {
   return out;
 }
 
-/** 秒と言葉の対。候補チップの元データ（跳ねる面には使わない。tapRowsToSessions とは別に保持する） */
-type WordPair = { sec: number; word: string };
+/**
+ * 秒と言葉の対。候補チップの元データ（跳ねる面には使わない。tapRowsToSessions とは別に保持する）。
+ * rowId = どの参加（棚の1行）の言葉か。1人が連続で並べた言葉（歌詞・コールの順番）を、
+ * 別の参加者どうしの「同じ瞬間の競合候補」と誤認しないための手がかりに使う（WordLaneの束ね判定）。
+ */
+type WordPair = { sec: number; word: string; rowId: string };
 
 /** 棚から読んだ行から「秒と言葉の対」だけを抜き出す（言葉が付いていないものは除く） */
 function extractWordPairs(rows: TapRow[]): WordPair[] {
@@ -191,7 +195,7 @@ function extractWordPairs(rows: TapRow[]): WordPair[] {
     const words = row.mark_words ?? [];
     secs.forEach((sec, i) => {
       const w = words[i];
-      if (w) out.push({ sec, word: w });
+      if (w) out.push({ sec, word: w, rowId: row.id });
     });
   }
   return out;
@@ -378,57 +382,82 @@ function errMessage(err: unknown): string {
 // 2位・3位はその上に小さく積む段（rank-1がそのまま段数）。4位以降は束から外す＝出さない。
 type LaneGroup = { id: string; word: string; sec: number; count: number; rank: number };
 
+/** 束ね判定で「同じ参加が絡んでいるか」を見るための小さなヘルパー */
+function hasCommonRow(a: Set<string>, b: Set<string>): boolean {
+  for (const r of a) if (b.has(r)) return true;
+  return false;
+}
+
 /**
  * crowdWords を「同じ言葉を複数の人が同じ瞬間に叩いたぶん」でまとめる。
  * 言葉ごとに秒を昇順に並べ、塊の先頭から半拍以内なら同じ塊として吸収する。
  * 1拍ごとの連続コール（それ それ それ それ）は別々の粒として残す（1拍以内の鎖式でまとめると
- * これらがくっついてしまう）。代表秒は塊の中央値、人数は塊に入った件数。
+ * これらがくっついてしまう）。代表秒は塊の中央値、人数は塊に入った件数。塊に絡んだ rowId も控える。
  *
  * その後、時刻順に並べた塊どうしをさらに「同じ瞬間（互いに±半拍以内）」で束ねる
- * （＝別々の言葉が同じタイミングの候補として並ぶケース。「それ」「オイ」等の言い方違いを想定）。
+ * （＝別々の言葉が同じタイミングの競合候補として並ぶケース。「それ」「オイ」等の言い方違いを想定）。
+ * ただし、1人が細かく並べた連続の言葉（歌詞・コールの決まった順番。例:「あーるじゃなしー」の
+ * 「な」、「そーれでいいー」の1つ目の「い」）は競合候補ではないので、**すでに束の中にいる塊と
+ * rowId が1つでも重なる塊は、その束には絶対に加えない**（＝束ねない・積まない・常に本線扱い）。
  * 束の中は人数の多い順（同数なら秒が早い方）で rank を振り、最大3件まで（4件目以降は出さない）。
  */
 function buildWordGroups(crowdWords: WordPair[], beatSec: number): LaneGroup[] {
-  const byWord = new Map<string, number[]>();
+  const byWord = new Map<string, { sec: number; rowId: string }[]>();
   for (const cw of crowdWords) {
     const arr = byWord.get(cw.word) ?? [];
-    arr.push(cw.sec);
+    arr.push({ sec: cw.sec, rowId: cw.rowId });
     byWord.set(cw.word, arr);
   }
-  const out: { id: string; word: string; sec: number; count: number }[] = [];
-  for (const [word, secsIn] of byWord) {
-    const secs = [...secsIn].sort((a, b) => a - b);
-    let cluster: number[] = [];
+  const out: { id: string; word: string; sec: number; count: number; rowIds: Set<string> }[] = [];
+  for (const [word, entriesIn] of byWord) {
+    const entries = [...entriesIn].sort((a, b) => a.sec - b.sec);
+    let cluster: { sec: number; rowId: string }[] = [];
     let seq = 0;
     const flush = () => {
       if (cluster.length === 0) return;
-      out.push({ id: `${word}:${seq++}`, word, sec: median(cluster), count: cluster.length });
+      out.push({
+        id: `${word}:${seq++}`,
+        word,
+        sec: median(cluster.map((c) => c.sec)),
+        count: cluster.length,
+        rowIds: new Set(cluster.map((c) => c.rowId)),
+      });
       cluster = [];
     };
-    for (const s of secs) {
+    for (const e of entries) {
       // まとめてよいのは「複数の人が同じ瞬間を叩いたぶん」だけ＝塊の先頭から半拍以内。
       // 前の点から1拍以内の鎖式だと、「それ それ それ それ」のような1拍ごとの連続コールが
       // 境目の揺れ次第でくっつき、4個が2塊に化ける実バグになった（実機で報告あり）。
       // 先頭から測ることで、塊がずるずる伸びて後続のコールを飲み込むことも防ぐ。
-      if (cluster.length === 0 || s - cluster[0] <= beatSec / 2) cluster.push(s);
-      else { flush(); cluster.push(s); }
+      if (cluster.length === 0 || e.sec - cluster[0].sec <= beatSec / 2) cluster.push(e);
+      else { flush(); cluster.push(e); }
     }
     flush();
   }
   const sorted = out.sort((a, b) => a.sec - b.sec);
 
-  // 「同じ瞬間の束」にまとめて rank を振る（同じ考え方で先頭からの半拍以内をひとまとめにする）
+  // 「同じ瞬間の束」にまとめて rank を振る（同じ考え方で先頭からの半拍以内をひとまとめにする）。
+  // ただし rowId が既存メンバーと重なる塊は、その束には加えず単独の束として扱う（＝rank1固定）
   const ranked: LaneGroup[] = [];
   let bundle: typeof sorted = [];
   const flushBundle = () => {
     if (bundle.length === 0) return;
     const orderedByRank = [...bundle].sort((a, b) => (b.count !== a.count ? b.count - a.count : a.sec - b.sec));
-    orderedByRank.slice(0, 3).forEach((g, i) => ranked.push({ ...g, rank: i + 1 }));
+    orderedByRank.slice(0, 3).forEach((g, i) => {
+      ranked.push({ id: g.id, word: g.word, sec: g.sec, count: g.count, rank: i + 1 });
+    });
     bundle = [];
   };
   for (const g of sorted) {
-    if (bundle.length === 0 || g.sec - bundle[0].sec <= beatSec / 2) bundle.push(g);
-    else { flushBundle(); bundle.push(g); }
+    const sameRowAsExisting = bundle.some((b) => hasCommonRow(b.rowIds, g.rowIds));
+    if (bundle.length === 0) {
+      bundle.push(g);
+    } else if (!sameRowAsExisting && g.sec - bundle[0].sec <= beatSec / 2) {
+      bundle.push(g);
+    } else {
+      flushBundle();
+      bundle.push(g);
+    }
   }
   flushBundle();
   return ranked.sort((a, b) => a.sec - b.sec);
@@ -585,6 +614,11 @@ export default function PlacePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [playing, setPlaying] = useState(false);
+  // 振り返り画面の「！＋色チップ」置き場の表示可否。playing を直接使わずワンクッション置く。
+  // playing が一瞬だけ true→false と揺れても（YouTube側のseek中の中間状態など）、この置き場が
+  // 一瞬だけ出て消える＝再描画が入ってレイアウトが揺れる、を避けるための保険（250msだけ消灯を待つ）
+  const [previewToolsVisible, setPreviewToolsVisible] = useState(false);
+  const previewToolsHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 叩いたもの一つひとつ。棚へ送るときはここから秒の列・メンバーIDの列を取り出す。
   const [marks, setMarks] = useState<MarkEntry[]>([]);
   // 今選んでいる色（ペンライトの色替え）。null=色なし（既定＝グレー扱い）
@@ -625,6 +659,22 @@ export default function PlacePage() {
     new Promise<string | null>((resolve) => {
       setGate(() => (t: string | null) => { setGate(null); resolve(t); });
     });
+
+  // playing → previewToolsVisible。true化は即座、false化は250ms待ってから（瞬間的な揺り戻し対策）
+  useEffect(() => {
+    if (playing) {
+      if (previewToolsHideTimerRef.current) { clearTimeout(previewToolsHideTimerRef.current); previewToolsHideTimerRef.current = null; }
+      setPreviewToolsVisible(true);
+    } else {
+      previewToolsHideTimerRef.current = setTimeout(() => {
+        setPreviewToolsVisible(false);
+        previewToolsHideTimerRef.current = null;
+      }, 250);
+    }
+    return () => {
+      if (previewToolsHideTimerRef.current) { clearTimeout(previewToolsHideTimerRef.current); previewToolsHideTimerRef.current = null; }
+    };
+  }, [playing]);
 
   // 色えらびに出すメンバー。曲に紐づくツアーの固定名簿→今の在籍→（棚に繋がらない時だけ）
   // members.ts の代用、の順で決まる。詳しくは effect 内のコメントを参照。
@@ -1096,10 +1146,19 @@ export default function PlacePage() {
     if (reviewTrigger === "back") navigate("/call-center");
   };
 
-  /** 「まだ叩く」：振り返り画面を閉じるだけ、その場に留まって続きを叩ける */
+  /**
+   * 「まだ叩く（もう一度頭から）」：ラベルどおり必ず頭から再生し直す。
+   * 見返し（プレビュー）を途中で止めた状態でこれを押すと、直前の見返し位置から再生される
+   * 食い違いが実機で報告されたため、seekTo(0) を必ず通す。
+   * play() は「動画が終わった直後(ENDED状態)」だと内部で先頭(0秒)へ戻す仕様があるので、
+   * 先に play() を呼んでから seekTo(0) で確実に頭へ上書きする（seekPreview と同じ順序）。
+   */
   const onReviewKeepTapping = () => {
     clearPreview();
     cancelWordEdit();
+    playerRef.current?.play();
+    playerRef.current?.seekTo(0);
+    setPlaying(true);
     setReviewTrigger(null);
   };
 
@@ -1292,13 +1351,17 @@ export default function PlacePage() {
               <button style={S.modalSecondary} onClick={onReviewKeepTapping} disabled={sending}>まだ叩く（もう一度頭から）</button>
             </div>
           </div>
-          {/* 色チップは常時は出さない。言葉の編集中・見返し中（プレビュー再生中）のどちらかで出す
+          {/* 色チップ＋！ボタンの専用置き場。振り返りリスト(reviewList)とは別の、通常フローの
+              置き場（このdiv自体はここに書いた条件でしか現れない普通の兄弟要素。absoluteでリストの
+              裏に敷いていない）。出ているあいだ、上の reviewList はその分だけ高さが縮む。
+              常時は出さない。言葉の編集中・見返し中（プレビュー再生中）のどちらかで出す
               （二重に出ないよう条件を1つにまとめる。色直しの丸押し／見返し中の追加叩きに使う）。
-              見返し中だけ！ボタンも出す＝叩き足せる。編集中だけ一言も出す */}
-          {(editingMarkId !== null || playing) && (
+              見返し中だけ！ボタンも出す＝叩き足せる。編集中だけ一言も出す。
+              見返し中の判定は playing を直接使わず previewToolsVisible（250msのワンクッション）を使う。 */}
+          {(editingMarkId !== null || previewToolsVisible) && (
             <>
               {colorPicker}
-              {playing && (
+              {previewToolsVisible && (
                 <div style={S.btnRow}>
                   <button
                     type="button"
@@ -1334,6 +1397,9 @@ export default function PlacePage() {
               resolveColor={resolveMemberColor}
               alignBottom
               skipSquash
+              // 自分の！は中央固定なので、群衆の粒がたまたま中央に湧くと完全に重なって見えなくなる。
+              // 中央帯を避け、湧くたびに小さな左右ゆらぎを足す（少し重なるのは良いが完全一致は避ける）
+              avoidCenterX
               // 中段が低くなった分、絵自体を約半分に縮めて頭からしっぽまで収める（跳躍量は変えない）
               iconScale={0.5}
               scaleCount={300}
