@@ -293,10 +293,10 @@ function errMessage(err: unknown): string {
 type LaneGroup = { id: string; word: string; sec: number; count: number };
 
 /**
- * crowdWords を「同じ言葉が近い時刻に複数」でまとめる。
- * 言葉ごとに秒を昇順に並べ、直前の点から beatSec 以内なら同じ塊として吸収する
- * （鎖状の簡単なクラスタリング。凝った物理は要らないという方針に合わせた作り）。
- * 代表秒は塊の中央値、人数は塊に入った件数。
+ * crowdWords を「同じ言葉を複数の人が同じ瞬間に叩いたぶん」でまとめる。
+ * 言葉ごとに秒を昇順に並べ、塊の先頭から半拍以内なら同じ塊として吸収する。
+ * 1拍ごとの連続コール（それ それ それ それ）は別々の粒として残す（1拍以内の鎖式でまとめると
+ * これらがくっついてしまう）。代表秒は塊の中央値、人数は塊に入った件数。
  */
 function buildWordGroups(crowdWords: WordPair[], beatSec: number): LaneGroup[] {
   const byWord = new Map<string, number[]>();
@@ -316,7 +316,11 @@ function buildWordGroups(crowdWords: WordPair[], beatSec: number): LaneGroup[] {
       cluster = [];
     };
     for (const s of secs) {
-      if (cluster.length === 0 || s - cluster[cluster.length - 1] <= beatSec) cluster.push(s);
+      // まとめてよいのは「複数の人が同じ瞬間を叩いたぶん」だけ＝塊の先頭から半拍以内。
+      // 前の点から1拍以内の鎖式だと、「それ それ それ それ」のような1拍ごとの連続コールが
+      // 境目の揺れ次第でくっつき、4個が2塊に化ける実バグになった（実機で報告あり）。
+      // 先頭から測ることで、塊がずるずる伸びて後続のコールを飲み込むことも防ぐ。
+      if (cluster.length === 0 || s - cluster[0] <= beatSec / 2) cluster.push(s);
       else { flush(); cluster.push(s); }
     }
     flush();
