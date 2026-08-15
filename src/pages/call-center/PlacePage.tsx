@@ -41,6 +41,17 @@ type ReviewTrigger = "ended" | "back";
 /** 1回の「！」。時刻・そのとき選んでいた色・その色が誰の色か（棚に送る用） */
 type MarkEntry = { id: number; sec: number; colorHex: string; memberId: string | null };
 
+/** 色えらびの1粒（＝チップ）。表示名は出さないので色さえ引ければよい */
+type ChipMember = { name: string; color: string };
+
+/**
+ * 色えらびの読み元が棚に繋がらないとき用の代わり。src/data/members.ts の今の並び。
+ * ツアー時点の名簿でも今の在籍でもないので最後の手段（画面を死なせないためだけに使う）。
+ */
+function fallbackChipMembers(groupName: string): ChipMember[] {
+  return ALL_MEMBERS.filter((m) => m.group === groupName).map((m) => ({ name: m.name, color: m.color }));
+}
+
 /** 端末に覚えさせる「最後に選んでいた色」。並び順やお気に入りまでは作り込まない。 */
 const LAST_COLOR_KEY = "call_center:last_selected_member_id";
 function getLastSelectedColorId(): string | null {
@@ -158,11 +169,9 @@ export default function PlacePage() {
       setGate(() => (t: string | null) => { setGate(null); resolve(t); });
     });
 
-  // この曲のグループのメンバーだけを色えらびに出す（公式の並び順のまま）
-  const chipMembers = useMemo(
-    () => ALL_MEMBERS.filter((m) => m.group === groupName),
-    [groupName],
-  );
+  // 色えらびに出すメンバー。曲に紐づくツアーの固定名簿→今の在籍→（棚に繋がらない時だけ）
+  // members.ts の代用、の順で決まる。詳しくは effect 内のコメントを参照。
+  const [chipMembers, setChipMembers] = useState<ChipMember[]>([]);
 
   // 色えらびの選択肢。グレー（色なし）・メンバー（公式の並び順）、の順で固定。
   // 白は既定色にしない（松本わかな・井上玲音・石井泉羽・中山夏月姫・橋田歩果の現役メンカラと衝突するため）
@@ -181,7 +190,7 @@ export default function PlacePage() {
     if (remembered && chipMembers.some((m) => m.name === remembered)) {
       setCurrentColor(remembered);
     }
-  }, [groupName, chipMembers]);
+  }, [chipMembers]);
 
   useEffect(() => {
     let alive = true;
@@ -193,6 +202,8 @@ export default function PlacePage() {
       if (!builtIn) return false;
       setTitle(builtIn.title);
       setGroupName(builtIn.groupName);
+      // 同梱データには曲もツアーも紐付いていない＝棚に繋がらない時と同じ代用でよい
+      setChipMembers(fallbackChipMembers(builtIn.groupName));
       const v = builtIn.videos[0];
       if (v) setVideo({ video_id: v.videoId, offset_sec: v.offsetSec, rate: 1, label: v.label });
       return true;
@@ -201,18 +212,61 @@ export default function PlacePage() {
     try {
       getSupabase()
         .from("song_structures")
-        .select("id, title, group_name, song_video_offsets(video_id, offset_sec, rate, label)")
+        .select("id, title, group_name, tour_key, song_video_offsets(video_id, offset_sec, rate, label)")
         .eq("slug", slug)
         .maybeSingle()
         .then(({ data }) => {
           if (!alive) return;
           if (!data) { if (!openBuiltIn()) setError("この曲は見つかりませんでした"); return; }
-          const d = data as unknown as { id: string; title: string; group_name: string; song_video_offsets: Video[] };
+          const d = data as unknown as { id: string; title: string; group_name: string; tour_key: string | null; song_video_offsets: Video[] };
           setTitle(d.title);
           setGroupName(d.group_name);
           const v = d.song_video_offsets?.[0];
           if (!v) { setError("この曲にはまだ動画が結び付いていません"); return; }
           setVideo({ video_id: v.video_id, offset_sec: Number(v.offset_sec), rate: Number(v.rate) || 1, label: v.label });
+
+          /**
+           * 色えらびに出すメンバー。3段のフォールバック:
+           * 1) 曲にツアーの紐付きがあれば tour_rosters（ツアー時点の固定名簿）
+           * 2) 無ければ hello_members の今の在籍（並び順の欄が無いので、members.ts と
+           *    同じ並びの名前はその順、無い名前は名前順で末尾に置く）
+           * 3) どちらも読めなければ（棚に繋がらない等）members.ts の代用（画面を死なせない）
+           */
+          if (d.tour_key) {
+            getSupabase()
+              .from("tour_rosters")
+              .select("name, color, display_order")
+              .eq("tour_key", d.tour_key)
+              .order("display_order", { ascending: true })
+              .then(({ data: rosterRows }) => {
+                if (!alive) return;
+                if (!rosterRows || rosterRows.length === 0) { setChipMembers(fallbackChipMembers(d.group_name)); return; }
+                setChipMembers((rosterRows as { name: string; color: string }[]).map((r) => ({ name: r.name, color: r.color })));
+              }, () => { if (alive) setChipMembers(fallbackChipMembers(d.group_name)); });
+          } else {
+            getSupabase()
+              .from("hello_members")
+              .select("name, color")
+              .eq("group_name", d.group_name)
+              .eq("active", true)
+              .not("color", "is", null)
+              .then(({ data: activeRows }) => {
+                if (!alive) return;
+                if (!activeRows) { setChipMembers(fallbackChipMembers(d.group_name)); return; }
+                const rows = (activeRows as { name: string; color: string | null }[])
+                  .filter((r): r is { name: string; color: string } => !!r.color);
+                if (rows.length === 0) { setChipMembers(fallbackChipMembers(d.group_name)); return; }
+                // members.ts に同じ名前があればその並び順、無い名前は名前順で末尾に置く
+                const order = new Map(ALL_MEMBERS.filter((m) => m.group === d.group_name).map((m, i) => [m.name, i]));
+                rows.sort((a, b) => {
+                  const ai = order.get(a.name) ?? Number.MAX_SAFE_INTEGER;
+                  const bi = order.get(b.name) ?? Number.MAX_SAFE_INTEGER;
+                  if (ai !== bi) return ai - bi;
+                  return a.name.localeCompare(b.name, "ja");
+                });
+                setChipMembers(rows);
+              }, () => { if (alive) setChipMembers(fallbackChipMembers(d.group_name)); });
+          }
 
           // すでに登録されているコールを、跳ねる面に流すぶんとして読む
           getSupabase()
