@@ -243,9 +243,10 @@ function median(xs: number[]): number {
 }
 
 /**
- * 間隔を 0.30〜0.60秒（＝100〜200BPM）の窓へ、倍・半分で折り返す。
- * 曲は100〜200BPMの範囲という前提（オーナー承認済み）。遅いバラードは倍に読むことになるが、
- * カウントイン用途では拍として破綻しない（2拍を1拍と数えるだけで、数字がズレても実害は無い）。
+ * 間隔を 0.375〜0.75秒（＝80〜160BPM）の窓へ、倍・半分で折り返す。
+ * 80〜160BPMの窓。これより速い曲は半分に読まれるが、カウントイン用途では拍として破綻しない。
+ * 倍・半分の完全な判別は叩きだけでは原理的にできないので、いずれ曲ごとの確定BPMを棚に持つ
+ * （その時はそちらを最優先）。
  *
  * 単純な「全間隔の中央値」だと、1拍ごとに叩いた山（0.4秒台）と2拍ごとに叩いた山（0.8秒台）の
  * 谷間に中央値が落ちる欠陥がある（実データで確認済み: 素の中央値0.667秒=90BPM、実際は146BPM）。
@@ -253,8 +254,8 @@ function median(xs: number[]): number {
  */
 function foldToBeatWindow(x: number): number {
   let y = x;
-  while (y < 0.30) y *= 2;
-  while (y >= 0.60) y /= 2;
+  while (y < 0.375) y *= 2;
+  while (y >= 0.75) y /= 2;
   return y;
 }
 
@@ -836,7 +837,6 @@ export default function PlacePage() {
       {reviewTrigger ? (
         /* 振り返り画面。動画は上に出たままなので「見返す」で流しながら一覧を読める */
         <div style={S.reviewWrap}>
-          <div style={S.reviewHeading}>！ {marks.length}個</div>
           {previewTarget && (
             /* 見返しのカウントイン。動画の上には重ねない（一覧の上に小さく出すだけ） */
             <div style={S.countBanner}>
@@ -926,6 +926,11 @@ export default function PlacePage() {
               centerSelfPeak
               scaleCount={300}
               topMargin={150}
+              // 吹き出しの表示幅の半分＋数px（！のテクスチャは吹き出し本体が256px角の枠に208px幅で
+              // 収まる作り。BASE_SIZE基準の典型的な表示サイズの半分程度を見込んだ値）。
+              // 端いっぱいに湧いても本体が枠外に出て文字が読めなくなるのを防ぐ
+              sideMargin={50}
+              bottomMargin={40}
               freezeAge
             />
             {!playing && (
@@ -982,7 +987,6 @@ const S: Record<string, React.CSSProperties> = {
   btnRow: { display: "flex", gap: 8, flex: "0 0 auto", marginTop: 8 },
   mark: { flex: 1, background: "#d0d0d0", color: "#000", border: 0, padding: "22px 10px", fontSize: 30, fontWeight: 900, lineHeight: 1, cursor: "pointer", fontFamily: "inherit" },
   reviewWrap: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", marginTop: 8 },
-  reviewHeading: { fontSize: 13, fontWeight: 800, color: "#eee", flex: "0 0 auto", marginBottom: 4 },
   countBanner: {
     flex: "0 0 auto", height: 40, marginBottom: 6,
     background: "rgba(255,255,255,0.06)", boxShadow: "inset 0 0 0 1px #333",

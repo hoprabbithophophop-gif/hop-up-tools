@@ -73,6 +73,17 @@ interface Props {
    * 群衆（他の人の粒）の位置には影響しない。
    */
   centerSelfPeak?: boolean;
+  /**
+   * 左右に空けておく余白(px)。既定は 0（＝ハイ！テンションのこれまでどおり、xRatio=0〜1がそのまま画面幅）。
+   * 0より大きいと、xRatio=0〜1 の範囲をこの余白ぶん内側（画面の中）に押し込めてから配置する。
+   * 絵の表示幅の半分ぶんを指定すると、絵の中心が画面端に来ても本体が枠外にはみ出さない。
+   */
+  sideMargin?: number;
+  /**
+   * 下に空けておく余白(px)。既定は 0（＝ハイ！テンションのこれまでどおり）。topMargin の下版。
+   * 着地帯の下端をこのぶん画面の内側へ引き上げる。0だと着地点が画面の最下端まで使われうる。
+   */
+  bottomMargin?: number;
 }
 
 // バケットインデックスに紐づく「(セッション, このバケットでの押下回数)」
@@ -170,13 +181,17 @@ function easeOutCubic(t: number): number {
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor, centerSelfPeak = false },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent, icon = "hand", topMargin = TOP_MARGIN, resolveColor, centerSelfPeak = false, sideMargin = 0, bottomMargin = 0 },
   ref,
 ) {
   // 絵の種類は起動時に1回だけ見る（途中で切り替える使い方はしない）
   const iconRef = useRef<"hand" | "mark">(icon);
   const topMarginRef = useRef<number>(topMargin);
   useEffect(() => { topMarginRef.current = topMargin; }, [topMargin]);
+  const sideMarginRef = useRef<number>(sideMargin);
+  useEffect(() => { sideMarginRef.current = sideMargin; }, [sideMargin]);
+  const bottomMarginRef = useRef<number>(bottomMargin);
+  useEffect(() => { bottomMarginRef.current = bottomMargin; }, [bottomMargin]);
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const textureRef = useRef<Texture | null>(null);
@@ -584,11 +599,14 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     }
     node.alpha = baseAlpha;
 
-    // 上端に TOP_MARGIN 分の余白を確保した残り領域に着地点を配置する。
-    // これで yRatio が小さい(=上寄りの)席でも、跳躍が上端で見切れない。
-    const usableH = Math.max(1, h - topMarginRef.current);
+    // 上端に TOP_MARGIN 分、下端に bottomMargin 分の余白を確保した残り領域に着地点を配置する。
+    // これで yRatio が小さい(=上寄りの)席でも、跳躍が上端で見切れない。bottomMargin は既定0＝従来どおり。
+    const usableH = Math.max(1, h - topMarginRef.current - bottomMarginRef.current);
     const baselineY = topMarginRef.current + params.yRatio * usableH;
-    node.x = params.xRatio * w;
+    // 左右に sideMargin 分の余白を確保した残り幅に配置する。既定0のときは xRatio×w と完全に同じ
+    // （0 + xRatio×(w-0) = xRatio×w）＝ハイ！テンションの見た目は1pxも変わらない。
+    const usableW = Math.max(1, w - 2 * sideMarginRef.current);
+    node.x = sideMarginRef.current + params.xRatio * usableW;
     node.y = baselineY;
 
     targetLayer.addChild(node);
@@ -748,12 +766,13 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
             : { xRatio: 0.5, yRatio: SELF_Y_SOLO };
 
       // centerSelfPeak: 頂点(baselineY - jumpHeight)が面の縦の真ん中(h/2)に来るよう着地点を逆算する。
-      // baselineY = topMargin + yRatio×(h-topMargin) なので、h/2 = baselineY - jumpHeight を yRatio について解く。
+      // baselineY = topMargin + yRatio×(h-topMargin-bottomMargin) なので、
+      // h/2 = baselineY - jumpHeight を yRatio について解く（spawnHand側の usableH と同じ式に揃える）。
       // self の spawnHand 呼び出しは jumpScale を渡さない＝jumpHeight は既定の80固定。
       if (centerSelfPeakRef.current) {
         const h = selfAppRef.current?.screen.height ?? 0;
         if (h > 0) {
-          const usableH = Math.max(1, h - topMarginRef.current);
+          const usableH = Math.max(1, h - topMarginRef.current - bottomMarginRef.current);
           yRatio = (h / 2 + 80 - topMarginRef.current) / usableH;
         }
       }
