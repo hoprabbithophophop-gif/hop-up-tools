@@ -289,22 +289,14 @@ function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/**
- * 「大きい文字」レーンの1粒。id は言葉ごとに振り直す通し番号で作る安定キー。
- * row（上下2段のどちらに置くか）は buildWordGroups の中で1回だけ決めて、以後は変えない
- * （再生位置が動くたびに窓に出入りする言葉の並びで row を決め直すと、そのつど段が入れ替わって
- * 縦にガタガタ動いて見える事故になる。実際に置く画面の実機で「言葉が縦に流れる」と報告があり、
- * 原因はこれだった）。
- */
-type LaneGroup = { id: string; word: string; sec: number; count: number; row: number };
+/** 「大きい文字」レーンの1粒。id は言葉ごとに振り直す通し番号で作る安定キー */
+type LaneGroup = { id: string; word: string; sec: number; count: number };
 
 /**
  * crowdWords を「同じ言葉が近い時刻に複数」でまとめる。
  * 言葉ごとに秒を昇順に並べ、直前の点から beatSec 以内なら同じ塊として吸収する
  * （鎖状の簡単なクラスタリング。凝った物理は要らないという方針に合わせた作り）。
  * 代表秒は塊の中央値、人数は塊に入った件数。
- * 最後に全体を時刻順に並べ、隣り合う塊が同じ段にならないよう上下2段を交互に割り当てる
- * （crowdWords が変わったときしか呼ばないので、ここで決めた row は再生中ずっと固定）。
  */
 function buildWordGroups(crowdWords: WordPair[], beatSec: number): LaneGroup[] {
   const byWord = new Map<string, number[]>();
@@ -313,7 +305,7 @@ function buildWordGroups(crowdWords: WordPair[], beatSec: number): LaneGroup[] {
     arr.push(cw.sec);
     byWord.set(cw.word, arr);
   }
-  const out: { id: string; word: string; sec: number; count: number }[] = [];
+  const out: LaneGroup[] = [];
   for (const [word, secsIn] of byWord) {
     const secs = [...secsIn].sort((a, b) => a - b);
     let cluster: number[] = [];
@@ -329,30 +321,33 @@ function buildWordGroups(crowdWords: WordPair[], beatSec: number): LaneGroup[] {
     }
     flush();
   }
-  return out
-    .sort((a, b) => a.sec - b.sec)
-    .map((g, i) => ({ ...g, row: i % 2 }));
+  return out.sort((a, b) => a.sec - b.sec);
 }
 
 /**
  * レーン上の1粒の見た目（横位置・大きさ・色・不透明度）を、いまの再生秒から計算してDOMへ直接書く。
- * 横位置は「その言葉の秒 − いまの再生秒」で決める: +4拍先＝右端、0拍（いま）＝中央、−4拍過去＝左端。
- * 縦位置(row)はここでは触らない（buildWordGroups で決めた固定値のまま。CSSのtopが受け持つ）。
- * 窓の端（±4拍）に近いところはフェード（入ってくる／出ていく）にする。
+ * 1行だけ（上下の段分けはしない）で、遠近を「大きさ×速さ」で表現する。
+ *
+ * 横位置は非線形: x = sign(d) × sqrt(|d|/窓) × 半幅（d=その言葉の秒−いまの秒）。
+ * 線形(d/窓)と違い、遠い言葉ほど端の方でゆっくり、自分の瞬間が近づくほど速く中央を通り抜ける
+ * （＝「近いほど動きが大きい」の遠近感）。
+ *
+ * 大きさ・不透明度は t=|d|/窓（0=いま〜1=窓の端）の連続値で決める:
+ *   通常scale = 0.7 + 0.5×(1−t)（遠い=0.7倍、直近=1.2倍）
+ *   その瞬間（±半拍）は通常scaleの2倍＋人数ボーナス（上限3倍）、色は白。それ以外はグレー(#888)
+ *   不透明度 = 0.4 + 0.6×(1−t)（遠い端=0.4、中央付近=1）
+ * 1行なので言葉どうしが重なる瞬間はあるが、遠い言葉は小さく薄いので許容する（回避ロジックは作らない）。
  */
 function positionLaneItem(el: HTMLDivElement, g: LaneGroup, now: number, beatSec: number, halfW: number) {
   const windowSec = 4 * beatSec;
   const d = g.sec - now; // + は未来（右）、− は過去（左）
-  const offsetPx = (d / windowSec) * halfW;
+  const t = Math.min(1, Math.abs(d) / windowSec);
+  const x = Math.sign(d) * Math.sqrt(Math.abs(d) / windowSec) * halfW;
   const isPeak = Math.abs(d) <= beatSec / 2;
-  const scale = isPeak ? Math.min(3, 1.6 + (g.count - 1) * 0.3) : 1;
-  // 窓の端の手前1拍でフェード。入ってくる言葉／出ていく言葉が唐突に現れ・消えないように
-  const fadeZone = Math.min(beatSec, windowSec);
-  const dist = Math.abs(d);
-  const opacity = dist > windowSec - fadeZone
-    ? Math.max(0, 1 - (dist - (windowSec - fadeZone)) / fadeZone)
-    : 1;
-  el.style.transform = `translate(-50%, -50%) translateX(${offsetPx}px) scale(${scale})`;
+  const baseScale = 0.7 + 0.5 * (1 - t);
+  const scale = isPeak ? Math.min(3, baseScale * 2 + (g.count - 1) * 0.2) : baseScale;
+  const opacity = 0.4 + 0.6 * (1 - t);
+  el.style.transform = `translate(-50%, -50%) translateX(${x}px) scale(${scale})`;
   el.style.color = isPeak ? "#fff" : "#888";
   el.style.opacity = String(opacity);
 }
@@ -410,8 +405,7 @@ function WordLane({ playerRef, crowdWords, active }: {
       const now = playerRef.current?.getCurrentTime() ?? 0;
       const inWindow = groups.filter((g) => Math.abs(g.sec - now) <= windowSec);
 
-      // 窓に入っている集合が変わったときだけReactを再描画。row は既に固定値として付いているので
-      // ここでは並び替え・割り当て直しは一切しない（縦のガタつき事故の再発防止）
+      // 窓に入っている集合が変わったときだけReactを再描画する（毎フレームは再描画しない）
       const key = inWindow.map((g) => g.id).join(",");
       if (key !== lastKey) {
         lastKey = key;
@@ -449,7 +443,7 @@ function WordLane({ playerRef, crowdWords, active }: {
               itemRefs.current.delete(it.id);
             }
           }}
-          style={{ ...S.wordLaneItem, top: it.row === 0 ? "30%" : "70%" }}
+          style={S.wordLaneItem}
         >
           {it.word}
         </div>
@@ -1148,8 +1142,9 @@ const S: Record<string, React.CSSProperties> = {
     position: "absolute", top: 0, left: 0, right: 0, height: 70,
     zIndex: 3, overflow: "hidden", pointerEvents: "none",
   },
+  // 1行だけ（上下の段分けはしない）。縦は常に中央
   wordLaneItem: {
-    position: "absolute", left: "50%", top: "30%",
+    position: "absolute", left: "50%", top: "50%",
     transform: "translate(-50%, -50%)",
     fontSize: 14, fontWeight: 800, color: "#888",
     whiteSpace: "nowrap", willChange: "transform, opacity",
