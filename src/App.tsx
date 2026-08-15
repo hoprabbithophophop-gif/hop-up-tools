@@ -18,7 +18,6 @@ const ArigatoBeatTapPage = lazy(() => import("./pages/hi-tension/ArigatoBeatTapP
 const ArigatoBeatCallPage = lazy(() => import("./pages/hi-tension/ArigatoBeatCallPage"));
 const ArigatoBeatQuizPage = lazy(() => import("./pages/hi-tension/ArigatoBeatQuizPage"));
 const CallCenterPage  = lazy(() => import("./pages/call-center/CallCenterPage"));
-const CallCenterSongPage = lazy(() => import("./pages/call-center/SongPage"));
 const CallCenterSongTapPage = lazy(() => import("./pages/call-center/SongTapPage"));
 const CallCenterPlacePage = lazy(() => import("./pages/call-center/PlacePage"));
 // 判断用の試作（！が跳ねる見え方を決めるためだけのもの。答えが出たら消す）
@@ -47,7 +46,8 @@ function AnimatedRoutes() {
         <Route path="/arigato-beat/call" element={<ArigatoBeatCallPage />} />
         <Route path="/arigato-beat" element={<ArigatoBeatQuizPage />} />
         <Route path="/call-center" element={<CallCenterPage />} />
-        <Route path="/call-center/song/:slug" element={<CallCenterSongPage />} />
+        {/* 曲ページは廃止（覗く役割は置く画面に統合）。共有済みの古いURLは置く画面がそのまま開く */}
+        <Route path="/call-center/song/:slug" element={<CallCenterPlacePage />} />
         <Route path="/call-center/song/:slug/tap" element={<CallCenterSongTapPage />} />
         <Route path="/call-center/song/:slug/place" element={<CallCenterPlacePage />} />
         <Route path="/call-center/pop-prototype" element={<CallCenterPopPrototypePage />} />

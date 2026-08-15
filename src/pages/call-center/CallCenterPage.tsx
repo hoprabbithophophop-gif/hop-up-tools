@@ -103,7 +103,7 @@ export default function CallCenterPage() {
             <h2 style={S.pickupH}>コールが入っている曲</h2>
             <div style={S.grid}>
               {filled.map(({ song, n }) => (
-                <Link key={song.id} to={`/call-center/song/${song.slug}`} style={{ ...S.card, ...S.cardOn }}>
+                <Link key={song.id} to={`/call-center/song/${song.slug}/place`} style={{ ...S.card, ...S.cardOn }}>
                   <div style={S.cardTitle}>{song.title}</div>
                   <div style={S.cardMetaOn}>{song.group_name}　コール {n}件</div>
                 </Link>
@@ -127,7 +127,7 @@ export default function CallCenterPage() {
               {list.map((s) => {
                 const n = countOf(s.slug);
                 return (
-                  <Link key={s.id} to={`/call-center/song/${s.slug}`} style={S.card}>
+                  <Link key={s.id} to={`/call-center/song/${s.slug}/place`} style={S.card}>
                     <div style={S.cardTitle}>{s.title}</div>
                     {/* 中身の有無を先に出す。※文言は後から差し替える前提の仮置き */}
                     <div style={n > 0 ? S.cardMetaHas : S.cardMeta}>

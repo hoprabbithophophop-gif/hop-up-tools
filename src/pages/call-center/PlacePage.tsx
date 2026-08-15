@@ -880,7 +880,7 @@ export default function PlacePage() {
   /** 「曲へ」。叩きが残っていれば振り返りを挟む。ゼロならそのまま戻る */
   const handleBack = () => {
     if (marks.length > 0) { openReview("back"); return; }
-    navigate(`/call-center/song/${slug}`);
+    navigate("/call-center");
   };
 
   /**
@@ -1063,7 +1063,7 @@ export default function PlacePage() {
     clearPreview();
     cancelWordEdit();
     setReviewTrigger(null);
-    if (reviewTrigger === "back") navigate(`/call-center/song/${slug}`);
+    if (reviewTrigger === "back") navigate("/call-center");
   };
 
   /** 「まだ叩く」：振り返り画面を閉じるだけ、その場に留まって続きを叩ける */
@@ -1082,7 +1082,7 @@ export default function PlacePage() {
     clearPreview();
     cancelWordEdit();
     setReviewTrigger(null);
-    navigate(`/call-center/song/${slug}`);
+    navigate("/call-center");
   };
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(2).padStart(5, "0")}`;
@@ -1091,7 +1091,7 @@ export default function PlacePage() {
     return (
       <div style={{ ...S.page, justifyContent: "center", alignItems: "center" }}>
         <p style={{ fontSize: 14 }}>{error}</p>
-        <button style={S.play} onClick={() => navigate(`/call-center/song/${slug}`)}>曲へ</button>
+        <button style={S.play} onClick={() => navigate("/call-center")}>曲の一覧へ</button>
       </div>
     );
   }
@@ -1140,7 +1140,7 @@ export default function PlacePage() {
       {sendDone && <div style={S.doneBanner}>{sendDone}</div>}
 
       <div style={S.head}>
-        <button style={S.back} onClick={handleBack}>曲へ</button>
+        <button style={S.back} onClick={handleBack}>曲の一覧へ</button>
         <span style={S.title}>{title}</span>
         <span style={S.count}>！ {marks.length}</span>
       </div>
