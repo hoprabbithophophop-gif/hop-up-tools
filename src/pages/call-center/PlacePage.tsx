@@ -383,14 +383,23 @@ function WordLane({ playerRef, crowdWords, active }: {
   const groups = useMemo(() => buildWordGroups(crowdWords, beatSec), [crowdWords, beatSec]);
 
   // レーンの実際の幅を控えておく（毎フレーム clientWidth を読むと余計なレイアウト計算になるため）
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    widthRef.current = el.clientWidth;
-    const ro = new ResizeObserver(() => { widthRef.current = el.clientWidth; });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  // 注意: このコンポーネントは「窓に言葉が無いあいだは null を返す」ので、マウント時の
+  // useEffect で一度だけ測る作りだと、まだ何も描いていない時点（幅0）を掴んだまま二度と
+  // 測り直さない。幅0だと全言葉の横位置が中央に固定され「縦に流れて見える」実バグになった。
+  // そのため測定は容器の ref コールバック（実際にDOMが生えた瞬間）で行う。
+  const roRef = useRef<ResizeObserver | null>(null);
+  const attachContainer = (el: HTMLDivElement | null) => {
+    containerRef.current = el;
+    roRef.current?.disconnect();
+    roRef.current = null;
+    if (el) {
+      widthRef.current = el.clientWidth;
+      const ro = new ResizeObserver(() => { widthRef.current = el.clientWidth; });
+      ro.observe(el);
+      roRef.current = ro;
+    }
+  };
+  useEffect(() => () => { roRef.current?.disconnect(); }, []);
 
   useEffect(() => {
     if (!active) { setVisibleItems([]); return; }
@@ -410,6 +419,8 @@ function WordLane({ playerRef, crowdWords, active }: {
       }
 
       // 位置・大きさ・色・不透明度は毎フレーム、DOMへ直接書く（Reactを経由しない）
+      // 保険: 何かの理由で幅が0のままなら、その場で測り直す（幅0＝全部中央＝縦流れ事故の再発防止）
+      if (widthRef.current === 0 && containerRef.current) widthRef.current = containerRef.current.clientWidth;
       const halfW = widthRef.current / 2;
       for (const g of inWindow) {
         const el = itemRefs.current.get(g.id);
@@ -425,7 +436,7 @@ function WordLane({ playerRef, crowdWords, active }: {
   if (!active || visibleItems.length === 0) return null;
 
   return (
-    <div ref={containerRef} style={S.wordLane}>
+    <div ref={attachContainer} style={S.wordLane}>
       {visibleItems.map((it) => (
         <div
           key={it.id}
