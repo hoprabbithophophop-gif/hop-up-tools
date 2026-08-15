@@ -302,7 +302,6 @@ export default function PlacePage() {
   const [marks, setMarks] = useState<MarkEntry[]>([]);
   // 今選んでいる色（ペンライトの色替え）。null=色なし（既定＝グレー扱い）
   const [currentColor, setCurrentColor] = useState<string | null>(null);
-  const [nowSec, setNowSec] = useState(0);
   // 振り返りの「見返す」で、カウントイン中の対象。無ければ固定巻き戻しのまま（バナーも出さない）
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
   const [previewStep, setPreviewStep] = useState<string | null>(null);
@@ -498,7 +497,6 @@ export default function PlacePage() {
 
   const onTime = (sec: number) => {
     handsRef.current?.onTimeUpdate(sec);
-    setNowSec(Math.max(0, sec - (video?.offset_sec ?? 0)));
 
     // 見返しのカウントイン中なら、今どの段階か（5・6・7・8→！）を出す
     if (previewTarget) {
@@ -825,15 +823,6 @@ export default function PlacePage() {
         )}
       </div>
 
-      <div style={S.row}>
-        {/* 止まっているときは大きい再生ボタン（叩く面側）だけに任せて、ここには出さない。
-            再生中だけ「停止」を出す。振り返り中はどちらも出さない（自動で止まる・戻るため） */}
-        {!reviewTrigger && playing && (
-          <button type="button" style={S.play} onClick={togglePlay}>停止</button>
-        )}
-        <span style={S.clock}>{fmt(nowSec)}</span>
-      </div>
-
       {reviewTrigger ? (
         /* 振り返り画面。動画は上に出たままなので「見返す」で流しながら一覧を読める */
         <div style={S.reviewWrap}>
@@ -969,9 +958,7 @@ const S: Record<string, React.CSSProperties> = {
   title: { fontSize: 15, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   count: { marginLeft: "auto", fontSize: 12, color: "#8a8a92", fontFamily: "ui-monospace,Menlo,Consolas,monospace", flexShrink: 0 },
   videoBox: { flex: "0 0 auto" },
-  row: { display: "flex", alignItems: "center", gap: 10, flex: "0 0 auto", margin: "6px 0" },
   play: { background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
-  clock: { fontSize: 12, color: "#666", fontFamily: "ui-monospace,Menlo,Consolas,monospace" },
   stage: { position: "relative", flex: "1 1 auto", minHeight: 0, background: "#0a0a0c", overflow: "hidden" },
   // 止まっているあいだだけ出す、狙いやすい大きな再生ボタン。stage(叩く面)の上端に重ねる。
   // stageは動画(videoBox)の外なので、これは動画には重ならない
