@@ -748,9 +748,9 @@ export default function PlacePage() {
               const words = extractWordPairs(rows);
               if (words.length > 0) setCrowdWords((prev) => [...prev, ...words]);
             }, () => { /* 読めなくても置く画面は成り立つ */ });
-        }, () => { if (alive && !openBuiltIn()) setError("いま棚に繋がりません"); });
+        }, () => { if (alive && !openBuiltIn()) setError("いま通信できていません（集まったコールを読み込めません）"); });
     } catch {
-      if (!openBuiltIn()) setError("いま棚に繋がりません");
+      if (!openBuiltIn()) setError("いま通信できていません（集まったコールを読み込めません）");
     }
     return () => { alive = false; };
   }, [slug]);
@@ -835,7 +835,7 @@ export default function PlacePage() {
     const filled = autoFillWords(merged, crowdWords, beatSec);
     setMarks(filled);
     if (removedCount > 0) {
-      setMergeNotice(`近すぎる！を ${removedCount}個 まとめました`);
+      setMergeNotice(`重なっていた！を ${removedCount}個 まとめました`);
       setTimeout(() => setMergeNotice(null), 6000);
     }
   };
@@ -1009,7 +1009,7 @@ export default function PlacePage() {
       ok = await ensureCanWrite(askForToken);
     } catch (err) {
       setSending(false);
-      showSendError(`入場の確認で止まりました（${errMessage(err)}）。時間をおいてもう一度`);
+      showSendError(`確認の手続きで止まりました（${errMessage(err)}）。時間をおいてもう一度`);
       return false;
     }
     if (!ok) {
@@ -1023,11 +1023,11 @@ export default function PlacePage() {
       const { data: row, error: e1 } = await db
         .from("song_structures").select("id").eq("slug", slug).maybeSingle();
       if (e1) throw e1;
-      if (!row) throw new Error("この曲はまだ棚に登録されていません");
+      if (!row) throw new Error("この曲はまだ受付を始めていません");
 
       const { data: userData, error: e2 } = await db.auth.getUser();
       if (e2) throw e2;
-      if (!userData.user) throw new Error("入場情報を取得できませんでした");
+      if (!userData.user) throw new Error("確認の手続きがうまくいきませんでした");
 
       // 送信直前にも念のため近すぎる！の統合を通す（振り返り後に追加で叩いて重ねた場合の保険）。
       // ここでは一言は出さない（振り返りを開いたときの一言で十分。ここは保険なので静かに）
@@ -1045,7 +1045,7 @@ export default function PlacePage() {
 
       // 送れた＝この参加は1行として棚に乗った。次の通しはゼロから数え直す。
       // 数がゼロに戻る前に「送れた」と言う（黙って消すと、消えたように見えて不安にさせる）
-      setSendDone(`！ ${merged.length}個 を送りました。ありがとうございました`);
+      setSendDone(`！ ${merged.length}個 を受け付けました。ご協力ありがとうございます`);
       setTimeout(() => setSendDone(null), 6000);
       setMarks([]);
       setSending(false);
@@ -1191,7 +1191,7 @@ export default function PlacePage() {
                       value={wordDraft}
                       onChange={(e) => setWordDraft(e.target.value)}
                       maxLength={12}
-                      placeholder="ここに書く…"
+                      placeholder="コールの言葉（12文字まで）"
                       style={S.wordInput}
                       autoFocus
                     />
@@ -1234,9 +1234,9 @@ export default function PlacePage() {
                 {sending ? "送っています…" : "これで送る"}
               </button>
               {reviewTrigger === "back" && (
-                <button style={S.modalSecondary} onClick={onReviewLeaveWithoutSending} disabled={sending}>送らずに戻る</button>
+                <button style={S.modalSecondary} onClick={onReviewLeaveWithoutSending} disabled={sending}>送らずに戻る（続きはあとで）</button>
               )}
-              <button style={S.modalSecondary} onClick={onReviewKeepTapping} disabled={sending}>まだ叩く</button>
+              <button style={S.modalSecondary} onClick={onReviewKeepTapping} disabled={sending}>まだ叩く（もう一度頭から）</button>
             </div>
           </div>
           {/* 色チップは常時は出さない。言葉の編集中・見返し中（プレビュー再生中）のどちらかで出す
@@ -1318,7 +1318,7 @@ export default function PlacePage() {
                上段（言葉レーン）・下段（色えらび・！ボタン）は透過。！ボタン自体は disabled で押せない。
                HandsCanvasはアンマウントしない（覆いの下でPixiJSはそのまま動き続ける＝作り直しを避ける）。
                動画自体はこの外(videoBox)にあるので、動画の上には重ならない */
-            <button type="button" style={S.midPlayOverlay} onClick={togglePlay}>再生</button>
+            <button type="button" style={S.midPlayOverlay} onClick={togglePlay}>▶ 再生してコールを見る</button>
           )}
         </div>
       )}

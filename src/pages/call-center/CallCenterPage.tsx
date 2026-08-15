@@ -100,7 +100,7 @@ export default function CallCenterPage() {
         {/* 中身のある曲への近道。※見出しの文言は後から差し替える前提の仮置き */}
         {filled.length > 0 && (
           <section style={S.pickup}>
-            <h2 style={S.pickupH}>コールが入っている曲</h2>
+            <h2 style={S.pickupH}>コールが集まっている曲</h2>
             <div style={S.grid}>
               {filled.map(({ song, n }) => (
                 <Link key={song.id} to={`/call-center/song/${song.slug}/place`} style={{ ...S.card, ...S.cardOn }}>
