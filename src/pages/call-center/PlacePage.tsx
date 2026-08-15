@@ -260,13 +260,13 @@ function foldToBeatWindow(x: number): number {
 }
 
 /**
- * この参加で叩いた間隔から、大まかな拍の長さ（秒）を見積もる。
+ * 秒の並びから、大まかな拍の長さ（秒）を見積もる。
  * 採譜画面と同じやり方: 隣り合う間隔のうち 0.15〜3秒 のものだけを集め（ふるい）、
  * それぞれを foldToBeatWindow で折り返してから中央値を取る。
  * 有効な間隔が少なすぎるとき（4個未満 ※仮）は null＝BPMが出せない扱いにする。
  */
-function estimateBeatSec(marks: MarkEntry[]): number | null {
-  const secs = [...marks].map((m) => m.sec).sort((a, b) => a - b);
+function estimateBeatSecFromSecs(secsIn: number[]): number | null {
+  const secs = [...secsIn].sort((a, b) => a - b);
   const intervals: number[] = [];
   for (let i = 1; i < secs.length; i++) {
     const d = secs[i] - secs[i - 1];
@@ -276,12 +276,141 @@ function estimateBeatSec(marks: MarkEntry[]): number | null {
   return median(intervals.map(foldToBeatWindow));
 }
 
+/** この参加で叩いた間隔から拍の長さを見積もる（自分の marks 版） */
+function estimateBeatSec(marks: MarkEntry[]): number | null {
+  return estimateBeatSecFromSecs(marks.map((m) => m.sec));
+}
+
 /** 見返しのカウントイン先。対象の秒・拍の長さ・その！の色（カウントイン明けに出す） */
 type PreviewTarget = { sec: number; beatSec: number; colorHex: string };
 
 /** エラーの中身を一行にする。理由が分からないまま「送れません」だけだと調べようがないため */
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** 「大きい文字」レーンの1粒。id は言葉ごとに振り直す通し番号で作る安定キー */
+type LaneGroup = { id: string; word: string; sec: number; count: number };
+
+/**
+ * crowdWords を「同じ言葉が近い時刻に複数」でまとめる。
+ * 言葉ごとに秒を昇順に並べ、直前の点から beatSec 以内なら同じ塊として吸収する
+ * （鎖状の簡単なクラスタリング。凝った物理は要らないという方針に合わせた作り）。
+ * 代表秒は塊の中央値、人数は塊に入った件数。
+ */
+function buildWordGroups(crowdWords: WordPair[], beatSec: number): LaneGroup[] {
+  const byWord = new Map<string, number[]>();
+  for (const cw of crowdWords) {
+    const arr = byWord.get(cw.word) ?? [];
+    arr.push(cw.sec);
+    byWord.set(cw.word, arr);
+  }
+  const out: LaneGroup[] = [];
+  for (const [word, secsIn] of byWord) {
+    const secs = [...secsIn].sort((a, b) => a - b);
+    let cluster: number[] = [];
+    let seq = 0;
+    const flush = () => {
+      if (cluster.length === 0) return;
+      out.push({ id: `${word}:${seq++}`, word, sec: median(cluster), count: cluster.length });
+      cluster = [];
+    };
+    for (const s of secs) {
+      if (cluster.length === 0 || s - cluster[cluster.length - 1] <= beatSec) cluster.push(s);
+      else { flush(); cluster.push(s); }
+    }
+    flush();
+  }
+  return out.sort((a, b) => a.sec - b.sec);
+}
+
+/**
+ * 「大きい文字」レーン。再生中、いまの位置の前後4拍にある言葉を左→右に流す
+ * （カラオケのレーンと同じ考え方。いまの再生位置がレーンの中央）。
+ * 該当の拍の瞬間（代表秒の±半拍）だけ大きく・白くなる。停止中・振り返り中は出さない。
+ *
+ * 毎フレームReactを再描画しない: 位置・大きさ・色は直接DOM（ref経由でtransform/color）を動かし、
+ * Reactの再描画（state更新）は「窓に入っている言葉の集合が変わったとき」だけに絞る。
+ */
+function WordLane({ playerRef, crowdWords, active }: {
+  playerRef: { current: YouTubePlayerApi | null };
+  crowdWords: WordPair[];
+  active: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const widthRef = useRef(0);
+  const itemRefs = useRef(new Map<string, HTMLDivElement>());
+  const [visibleItems, setVisibleItems] = useState<(LaneGroup & { row: number })[]>([]);
+
+  // 拍の長さは群衆の秒から見積もる（自分の marks ではない）。出せなければ0.5秒で仮置き
+  const beatSec = useMemo(
+    () => estimateBeatSecFromSecs(crowdWords.map((w) => w.sec)) ?? 0.5,
+    [crowdWords],
+  );
+  const groups = useMemo(() => buildWordGroups(crowdWords, beatSec), [crowdWords, beatSec]);
+
+  // レーンの実際の幅を控えておく（毎フレーム clientWidth を読むと余計なレイアウト計算になるため）
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    widthRef.current = el.clientWidth;
+    const ro = new ResizeObserver(() => { widthRef.current = el.clientWidth; });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!active) { setVisibleItems([]); return; }
+    let raf = 0;
+    let lastKey = "";
+    const windowSec = 4 * beatSec;
+    const tick = () => {
+      const now = playerRef.current?.getCurrentTime() ?? 0;
+      const inWindow = groups.filter((g) => Math.abs(g.sec - now) <= windowSec);
+
+      // 窓に入っている集合が変わったときだけReactを再描画（行の割り当てもここでまとめて決める。
+      // 時間順に交互の段へ逃がすだけの簡単な衝突回避）
+      const key = inWindow.map((g) => g.id).join(",");
+      if (key !== lastKey) {
+        lastKey = key;
+        setVisibleItems(inWindow.map((g, i) => ({ ...g, row: i % 2 })));
+      }
+
+      // 位置・大きさ・色は毎フレーム、DOMへ直接書く（Reactを経由しない）
+      const halfW = widthRef.current / 2;
+      for (const g of inWindow) {
+        const el = itemRefs.current.get(g.id);
+        if (!el) continue;
+        const offsetPx = ((g.sec - now) / windowSec) * halfW;
+        const isPeak = Math.abs(now - g.sec) <= beatSec / 2;
+        const scale = isPeak ? Math.min(3, 1.6 + (g.count - 1) * 0.3) : 1;
+        el.style.transform = `translate(-50%, -50%) translateX(${offsetPx}px) scale(${scale})`;
+        el.style.color = isPeak ? "#fff" : "#888";
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [active, groups, beatSec, playerRef]);
+
+  if (!active || visibleItems.length === 0) return null;
+
+  return (
+    <div ref={containerRef} style={S.wordLane}>
+      {visibleItems.map((it) => (
+        <div
+          key={it.id}
+          ref={(el) => {
+            if (el) itemRefs.current.set(it.id, el);
+            else itemRefs.current.delete(it.id);
+          }}
+          style={{ ...S.wordLaneItem, top: it.row === 0 ? "30%" : "70%" }}
+        >
+          {it.word}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function PlacePage() {
@@ -922,6 +1051,8 @@ export default function PlacePage() {
               bottomMargin={40}
               freezeAge
             />
+            {/* 「大きい文字」レーン。再生中だけ（停止中・止まっているときは出さない） */}
+            <WordLane playerRef={playerRef} crowdWords={crowdWords} active={playing} />
             {!playing && (
               /* 止まっているあいだだけ、狙いやすい大きな再生ボタンを前面に出す。
                  叩く面（このstage）の上には重ねてよいが、動画の上には重ねない
@@ -966,6 +1097,18 @@ const S: Record<string, React.CSSProperties> = {
     position: "absolute", top: 0, left: 0, right: 0, zIndex: 5,
     height: 110, background: "rgba(255,255,255,0.96)", color: "#000",
     border: 0, fontSize: 22, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
+  },
+  // 「大きい文字」レーン。跳ねる面の上部だけ・動画には重ねない。タップは透過（吹き出しや！ボタンを塞がない）
+  wordLane: {
+    position: "absolute", top: 0, left: 0, right: 0, height: 70,
+    zIndex: 3, overflow: "hidden", pointerEvents: "none",
+  },
+  wordLaneItem: {
+    position: "absolute", left: "50%", top: "30%",
+    transform: "translate(-50%, -50%)",
+    fontSize: 14, fontWeight: 800, color: "#888",
+    whiteSpace: "nowrap", willChange: "transform",
+    transition: "transform 150ms ease-out, color 150ms ease-out",
   },
   colorPickerRow: { display: "flex", alignItems: "center", gap: 6, flex: "0 0 auto", padding: "8px 0 0" },
   arrowBtn: { flex: "0 0 auto", width: 26, height: 26, background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: 0 },
