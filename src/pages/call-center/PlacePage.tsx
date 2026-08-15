@@ -53,24 +53,25 @@ function setLastSelectedColorId(id: string | null): void {
   } catch { /* ignore (プライベートモード等) */ }
 }
 
-/** メンバーIDから色を引く。src/data/members.ts（/profile と同じメンバー表）が正。ID=氏名。 */
-function resolveMemberColor(id: string): string | undefined {
-  return ALL_MEMBERS.find((m) => m.name === id)?.color;
+/** 明るいグレー。値の発明はしない前提の1つ ※仮の明度 */
+const NEUTRAL_HEX = "#d0d0d0";
+
+/**
+ * メンバーIDから色を引く。src/data/members.ts（/profile と同じメンバー表）が正。ID=氏名。
+ * 見つからなければ（＝メンバーではない）中立のグレーを返す。白は現役メンバーカラー
+ * （松本わかな・井上玲音・石井泉羽・中山夏月姫・橋田歩果）と衝突するので使わない。
+ */
+function resolveMemberColor(id: string): string {
+  return ALL_MEMBERS.find((m) => m.name === id)?.color ?? NEUTRAL_HEX;
 }
 
-/** 中立色（メンバーではない）の色id。棚には「メンバーではない」＝nullとして送る */
-const NEUTRAL_ID = "neutral";
-const NEUTRAL_HEX = "#d0d0d0"; // 明るいグレー。値の発明はしない前提の1つ ※仮の明度
-
-/** 選んでいる色（白＝null／中立＝NEUTRAL_ID／メンバー＝氏名）から、実際に表示する色を引く */
+/** 選んでいる色（未選択＝null／メンバー＝氏名）から、実際に表示する色を引く */
 function colorIdToHex(id: string | null): string {
-  if (id === null) return "#ffffff";
-  if (id === NEUTRAL_ID) return NEUTRAL_HEX;
-  return resolveMemberColor(id) ?? "#ffffff";
+  if (id === null) return NEUTRAL_HEX;
+  return resolveMemberColor(id);
 }
-/** 選んでいる色から、棚に送る「メンバーID」を引く。白・中立はどちらもメンバーではないのでnull */
+/** 選んでいる色から、棚に送る「メンバーID」を引く。未選択はメンバーではないのでnull */
 function colorIdToMemberId(id: string | null): string | null {
-  if (id === null || id === NEUTRAL_ID) return null;
   return id;
 }
 
@@ -100,7 +101,7 @@ function tapRowsToSessions(rows: TapRow[]): HiSession[] {
   for (const row of rows) {
     const secs = (row.mark_secs ?? []).map(Number);
     const memberIds = row.mark_member_ids ?? [];
-    // メンバーID（未選択は "" ＝白）ごとに秒をまとめる
+    // メンバーID（未選択は "" ＝グレー）ごとに秒をまとめる
     const byMember = new Map<string, number[]>();
     secs.forEach((sec, i) => {
       const key = memberIds[i] ?? "";
@@ -112,7 +113,7 @@ function tapRowsToSessions(rows: TapRow[]): HiSession[] {
     for (const [key, memberSecs] of byMember) {
       out.push({
         session_hash: hashSessionKey(row.id, key),
-        member_id: key, // "" は resolveMemberColor が undefined を返し、白になる
+        member_id: key, // "" は resolveMemberColor がメンバー無しとしてグレーを返す
         is_today: playedDate === today,
         bucket_indices: memberSecs.map((t) => Math.round(t * 10)),
         bucket_indices_20: memberSecs.map((t) => Math.round(t * 20)),
@@ -142,7 +143,7 @@ export default function PlacePage() {
   const [playing, setPlaying] = useState(false);
   // 叩いたもの一つひとつ。棚へ送るときはここから秒の列・メンバーIDの列を取り出す。
   const [marks, setMarks] = useState<MarkEntry[]>([]);
-  // 今選んでいる色（ペンライトの色替え）。null=白（既定＝未選択と同じ扱い）
+  // 今選んでいる色（ペンライトの色替え）。null=色なし（既定＝グレー扱い）
   const [currentColor, setCurrentColor] = useState<string | null>(null);
   const [nowSec, setNowSec] = useState(0);
 
@@ -163,24 +164,23 @@ export default function PlacePage() {
     [groupName],
   );
 
-  // 色えらびの選択肢。白・中立（明るいグレー）・メンバー、の順で固定
+  // 色えらびの選択肢。グレー（色なし）・メンバー（公式の並び順）、の順で固定。
+  // 白は既定色にしない（松本わかな・井上玲音・石井泉羽・中山夏月姫・橋田歩果の現役メンカラと衝突するため）
   const colorOptions = useMemo(
     () => [
-      { id: null as string | null, hex: "#ffffff" },
-      { id: NEUTRAL_ID as string | null, hex: NEUTRAL_HEX },
+      { id: null as string | null, hex: NEUTRAL_HEX },
       ...chipMembers.map((m) => ({ id: m.name as string | null, hex: m.color })),
     ],
     [chipMembers],
   );
 
-  // 端末に覚えている色を復元。中立色はどの曲でも復元してよいが、メンバー色は
-  // この曲の色えらびに無ければ復元しない（どの丸も光っていないのに！ボタンだけ
-  // 色付いている、という食い違いを避けるため）
+  // 端末に覚えている色を復元。この曲の色えらびに無ければ復元しない
+  // （どの丸も光っていないのに！ボタンだけ色付いている、という食い違いを避けるため）
   useEffect(() => {
     const remembered = getLastSelectedColorId();
-    if (!remembered) return;
-    if (remembered === NEUTRAL_ID) { setCurrentColor(NEUTRAL_ID); return; }
-    if (chipMembers.some((m) => m.name === remembered)) setCurrentColor(remembered);
+    if (remembered && chipMembers.some((m) => m.name === remembered)) {
+      setCurrentColor(remembered);
+    }
   }, [groupName, chipMembers]);
 
   useEffect(() => {
@@ -225,7 +225,7 @@ export default function PlacePage() {
               if (secs.length === 0) return;
               setSessions((prev) => [...prev, {
                 session_hash: 424242,
-                member_id: "", // 誰の色でもない＝白（resolveMemberColorが見つけられないIDにしている）
+                member_id: "", // 誰の色でもない＝グレー（resolveMemberColorが見つけられないIDにしている）
                 is_today: true,
                 bucket_indices: secs.map((t) => Math.round(t * 10)),
                 bucket_indices_20: secs.map((t) => Math.round(t * 20)),
@@ -478,10 +478,10 @@ export default function PlacePage() {
                 const selected = opt.id === currentColor;
                 return (
                   <button
-                    key={opt.id ?? "white"}
+                    key={opt.id ?? "neutral"}
                     type="button"
                     onClick={() => pickColor(opt.id)}
-                    aria-label={opt.id === null ? "白" : opt.id === NEUTRAL_ID ? "グレー" : opt.id}
+                    aria-label={opt.id === null ? "色なし" : opt.id}
                     style={{
                       ...S.dot,
                       background: opt.hex,
@@ -533,7 +533,7 @@ const S: Record<string, React.CSSProperties> = {
   dotsRow: { flex: "1 1 auto", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 3, padding: "0 6px" },
   dot: { flex: "0 1 22px", aspectRatio: "1", minWidth: 12, maxWidth: 22, borderRadius: "50%", border: 0, cursor: "pointer", padding: 0 },
   btnRow: { display: "flex", gap: 8, flex: "0 0 auto", marginTop: 8 },
-  mark: { flex: 1, background: "#fff", color: "#000", border: 0, padding: "22px 10px", fontSize: 30, fontWeight: 900, lineHeight: 1, cursor: "pointer", fontFamily: "inherit" },
+  mark: { flex: 1, background: "#d0d0d0", color: "#000", border: 0, padding: "22px 10px", fontSize: 30, fontWeight: 900, lineHeight: 1, cursor: "pointer", fontFamily: "inherit" },
   reviewWrap: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", marginTop: 8 },
   reviewHeading: { fontSize: 13, fontWeight: 800, color: "#eee", flex: "0 0 auto", marginBottom: 4 },
   reviewList: { flex: "1 1 auto", minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 },
