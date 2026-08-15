@@ -1138,8 +1138,11 @@ const S: Record<string, React.CSSProperties> = {
   // 止まっているあいだだけ出す、狙いやすい大きな再生ボタン。stage(叩く面)の上端に重ねる。
   // stageは動画(videoBox)の外なので、これは動画には重ならない
   bigPlay: {
-    position: "absolute", top: 0, left: 0, right: 0, zIndex: 5,
-    height: 110, background: "rgba(255,255,255,0.96)", color: "#000",
+    // 四辺に余白を空けて「面に浮いたボタン」に見せる（縁いっぱいに貼ると隣の！と
+    // くっついて押せる感じがしない、と実機で指摘があった）。面が低いときは高さも譲る
+    position: "absolute", top: 10, left: 10, right: 10, zIndex: 5,
+    height: "min(110px, calc(100% - 20px))",
+    background: "rgba(255,255,255,0.96)", color: "#000",
     border: 0, fontSize: 22, fontWeight: 900, cursor: "pointer", fontFamily: "inherit",
   },
   // 「大きい文字」レーン。跳ねる面の上部だけ・動画には重ねない。タップは透過（吹き出しや！ボタンを塞がない）
