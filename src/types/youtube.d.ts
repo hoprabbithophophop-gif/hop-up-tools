@@ -36,6 +36,8 @@ declare namespace YT {
     playsinline?: 0 | 1;
     start?: number;
     end?: number;
+    /** 字幕(caption)の初期表示。0=出さない。付けないと視聴者の前回設定次第で勝手にONになることがある */
+    cc_load_policy?: 0 | 1;
   }
 
   interface PlayerEvent {

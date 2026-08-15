@@ -185,6 +185,7 @@ export function useYouTubePlayer({
           rel: 0,
           modestbranding: 1,
           playsinline: 1,
+          cc_load_policy: 0, // 字幕をデフォルト非表示（勝手にオンになるのを防ぐ）
         },
         events: {
           onReady: () => {
@@ -208,6 +209,13 @@ export function useYouTubePlayer({
               setIsTransitioning(false);
               startPolling();
               onPlayStateChangeRef.current?.(true);
+              // 勝手にオンになる字幕(captions)を無効化。動画切替後もPLAYING毎に効かせる
+              try {
+                (playerRef.current as unknown as { unloadModule?: (m: string) => void })?.unloadModule?.('captions');
+                (playerRef.current as unknown as { unloadModule?: (m: string) => void })?.unloadModule?.('cc');
+              } catch {
+                // ignore
+              }
             } else if (state === YT.PlayerState.PAUSED) {
               stopPolling();
               onPlayStateChangeRef.current?.(false);

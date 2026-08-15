@@ -106,6 +106,7 @@ const Player = forwardRef<PlayerApi, Props>(function Player(
           rel: 0,
           modestbranding: 1,
           playsinline: 1,
+          cc_load_policy: 0, // 字幕をデフォルト非表示（勝手にオンになるのを防ぐ）
           start: Math.max(0, Math.floor(firstVideo.current.startSeconds)),
           ...(firstVideo.current.endSeconds
             ? { end: Math.ceil(firstVideo.current.endSeconds) }
@@ -135,6 +136,13 @@ const Player = forwardRef<PlayerApi, Props>(function Player(
           onStateChange: (e) => {
             if (!alive) return;
             onPlayingChangeRef.current?.(e.data === 1);
+            if (e.data === 1) {
+              // 勝手にオンになる字幕(captions)を無効化。動画切替後もPLAYING毎に効かせる
+              try {
+                (playerRef.current as unknown as { unloadModule?: (m: string) => void })?.unloadModule?.("captions");
+                (playerRef.current as unknown as { unloadModule?: (m: string) => void })?.unloadModule?.("cc");
+              } catch { /* ignore */ }
+            }
           },
         },
       });
