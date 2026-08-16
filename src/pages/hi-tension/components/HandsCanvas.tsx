@@ -940,7 +940,9 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         color: overrideColorRef.current ?? color,
         isSelf: false,
         isToday: true,
-        depthK: 1,
+        // 群衆の席は奥行きで0.5〜0.92倍に縮む。等倍(1)だとこの粒だけ全群衆より大きくなり
+        // 「同じ見た目」にならないので、一番手前の席と同じ縮尺に合わせる
+        depthK: 0.9,
         tapTag,
       });
     },
