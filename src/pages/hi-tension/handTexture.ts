@@ -101,10 +101,13 @@ export function getMarkTexture(): Texture {
 export function getMarkOutlineTexture(): { texture: Texture; anchorX: number; anchorY: number } {
   if (cachedMarkOutline) return cachedMarkOutline;
   const pad = 14;
+  // キャンバスは四方に pad を足した (256+pad*2) 角。基準点は「中身の下端中央」＝
+  // 色付き本体(anchor 0.5,1.0)とぴったり重なる位置を、✋の白フチ版と同じ式で逆算する。
+  // （固定値 0.5,1.0 だと余白ぶん白フチが上にずれて重なり、塗りが遅れて見える）
   return (cachedMarkOutline = {
     texture: buildBubble(true, pad),
-    anchorX: 0.5,
-    anchorY: 1.0,
+    anchorX: (pad + 256 / 2) / (256 + pad * 2),
+    anchorY: (pad + 256) / (256 + pad * 2),
   });
 }
 
