@@ -1374,15 +1374,19 @@ export default function PlacePage() {
 
   if (thankYou) {
     // 送信成功後のお礼画面（振り返り画面の代わりに出す）。storyboard v4 SCREEN 5（オーナー承認済み）。
-    // Xへの投稿はあくまで任意＝「しない」でも一覧へ普通に戻れる
-    const shareText = `${title}のコールの情報を提供しました、情報をお持ちの方はご協力お願いします #コール情報集約センター`;
-    const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
+    // Xへの投稿はあくまで任意＝「しない」でも一覧へ普通に戻れる。文言はオーナー確定分（2026-08-17）。
+    const shareText = `${title}のコール、登録してみました。\n知っているコールへの一票も、まだ無いコールの追加もできます。\n再生して、コールのタイミングで「！」をタップ。見返して、言葉も入力できます。\n#コール情報集約センター`;
+    const pageUrl = `${window.location.origin}/call-center/song/${slug}/place`;
+    const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(pageUrl)}`;
     return (
       <div style={{ ...S.page, justifyContent: "center" }}>
         <h1 style={S.thankYouTitle}>ご協力ありがとうございます。</h1>
         <p style={S.thankYouBody}>また情報提供いただけますよう職員一同お待ちしております。</p>
         <p style={S.thankYouCount}>！ {thankYou.count}個 を受け付けました</p>
-        <div style={S.thankYouTweetBox}>{shareText}</div>
+        <div style={S.thankYouTweetBox}>
+          {shareText}
+          <div style={S.thankYouTweetLink}>{pageUrl}</div>
+        </div>
         <div style={S.thankYouActions}>
           <a
             href={tweetUrl}
@@ -1752,8 +1756,9 @@ const S: Record<string, React.CSSProperties> = {
   thankYouBody: { fontSize: 13, lineHeight: 1.8, color: "#cbd2dc", margin: "0 0 16px" },
   thankYouCount: { fontSize: 12, color: "#8a8a92", fontFamily: "ui-monospace,Menlo,Consolas,monospace", margin: "0 0 20px" },
   thankYouTweetBox: {
-    fontSize: 13, lineHeight: 1.7, color: "#eee",
+    fontSize: 13, lineHeight: 1.7, color: "#eee", whiteSpace: "pre-line",
     boxShadow: "inset 0 0 0 1px #444", padding: "12px 14px", marginBottom: 20,
   },
+  thankYouTweetLink: { fontSize: 12, color: "#7cf", marginTop: 8, wordBreak: "break-all" },
   thankYouActions: { display: "flex", flexDirection: "column", gap: 8 },
 };
