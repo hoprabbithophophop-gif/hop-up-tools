@@ -115,30 +115,9 @@ export default function CallCenterPage() {
           正解を決める場ではなく、観測を集める場です。
         </p>
 
-        {/* 中身のある曲への近道。※見出しの文言は後から差し替える前提の仮置き */}
-        {filled.length > 0 && (
-          <section style={S.pickup}>
-            <h2 style={S.pickupH}>コールが集まっている曲</h2>
-            <div style={S.grid}>
-              {filled.map(({ song, n }) => (
-                <Link key={song.id} to={`/call-center/song/${song.slug}/place`} style={{ ...S.card, ...S.cardOn }}>
-                  <div style={S.cardTitle}>{song.title}</div>
-                  <div style={S.cardMetaOn}>{song.group_name}　コール {n}件</div>
-                </Link>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {error && <div style={S.notice}>読み込みに失敗しました（{error}）</div>}
-
-        {songs === null && !error && <div style={S.notice}>読み込み中…</div>}
-
-        {songs !== null && songs.length === 0 && (
-          <div style={S.notice}>まだ曲がありません。</div>
-        )}
-
-        {/* 曲名の検索とグループの絞り込み。曲数が増えても目当ての曲に辿り着けるようにする */}
+        {/* 曲名の検索とグループの絞り込み。ページの入口に置き、下の近道・一覧どちらを
+            探すときも最初に使える形にする（近道セクション自体は絞り込みの対象外＝固定表示）。
+            曲数が増えても目当ての曲に辿り着けるようにする */}
         {groupNames.length > 0 && (
           <div style={S.filterBar}>
             <input
@@ -164,6 +143,30 @@ export default function CallCenterPage() {
               ))}
             </div>
           </div>
+        )}
+
+        {error && <div style={S.notice}>読み込みに失敗しました（{error}）</div>}
+
+        {songs === null && !error && <div style={S.notice}>読み込み中…</div>}
+
+        {songs !== null && songs.length === 0 && (
+          <div style={S.notice}>まだ曲がありません。</div>
+        )}
+
+        {/* 中身のある曲への近道。検索・グループ絞り込みの対象外（固定表示）。
+            ※見出しの文言は後から差し替える前提の仮置き */}
+        {filled.length > 0 && (
+          <section style={S.pickup}>
+            <h2 style={S.pickupH}>コールが集まっている曲</h2>
+            <div style={S.grid}>
+              {filled.map(({ song, n }) => (
+                <Link key={song.id} to={`/call-center/song/${song.slug}/place`} style={{ ...S.card, ...S.cardOn }}>
+                  <div style={S.cardTitle}>{song.title}</div>
+                  <div style={S.cardMetaOn}>{song.group_name}　コール {n}件</div>
+                </Link>
+              ))}
+            </div>
+          </section>
         )}
 
         {isFiltering && visibleGroups.length === 0 && (
