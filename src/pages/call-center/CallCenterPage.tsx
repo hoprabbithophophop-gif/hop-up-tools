@@ -24,6 +24,10 @@ export default function CallCenterPage() {
   const [error, setError] = useState<string | null>(null);
   /** 曲ごとに、棚に入っているコールの数 */
   const [counts, setCounts] = useState<Record<string, number>>({});
+  /** 曲名の検索欄。空なら絞り込まない */
+  const [query, setQuery] = useState("");
+  /** グループの絞り込み。null＝全て */
+  const [groupFilter, setGroupFilter] = useState<string | null>(null);
 
   useEffect(() => {
     // 棚に繋がらなくても、同梱している曲は出す。
@@ -81,11 +85,25 @@ export default function CallCenterPage() {
     byGroup.set(s.group_name, list);
   }
 
-  // 中身がある曲を、一覧の一等地に出す
+  // 中身がある曲を、一覧の一等地に出す（検索・グループ絞り込みの影響を受けない固定の近道）
   const filled = [...byGroup.values()].flat()
     .map((s) => ({ song: s, n: countOf(s.slug) }))
     .filter((x) => x.n > 0)
     .sort((a, b) => b.n - a.n);
+
+  // チップに並べるグループ名（曲が来た順＝group_nameの五十音順）
+  const groupNames = [...byGroup.keys()];
+
+  const q = query.trim();
+  const matchesQuery = (title: string) => q === "" || title.includes(q);
+
+  // 検索・グループ絞り込みを適用した後の一覧（表示するグループだけ残す）
+  const visibleGroups = [...byGroup.entries()]
+    .filter(([group]) => groupFilter === null || group === groupFilter)
+    .map(([group, list]) => [group, list.filter((s) => matchesQuery(s.title))] as const)
+    .filter(([, list]) => list.length > 0);
+
+  const isFiltering = groupFilter !== null || q !== "";
 
   return (
     <div style={S.page}>
@@ -120,7 +138,39 @@ export default function CallCenterPage() {
           <div style={S.notice}>まだ曲がありません。</div>
         )}
 
-        {[...byGroup.entries()].map(([group, list]) => (
+        {/* 曲名の検索とグループの絞り込み。曲数が増えても目当ての曲に辿り着けるようにする */}
+        {groupNames.length > 0 && (
+          <div style={S.filterBar}>
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="曲名で検索"
+              style={S.searchInput}
+            />
+            <div style={S.chipRow}>
+              <button
+                type="button"
+                style={groupFilter === null ? { ...S.chip, ...S.chipOn } : S.chip}
+                onClick={() => setGroupFilter(null)}
+              >全て</button>
+              {groupNames.map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  style={groupFilter === g ? { ...S.chip, ...S.chipOn } : S.chip}
+                  onClick={() => setGroupFilter(g)}
+                >{g}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {isFiltering && visibleGroups.length === 0 && (
+          <div style={S.notice}>この条件に合う曲は見つかりませんでした。</div>
+        )}
+
+        {visibleGroups.map(([group, list]) => (
           <section key={group} style={S.section}>
             <h2 style={S.h2}>{group}</h2>
             <div style={S.grid}>
@@ -200,4 +250,19 @@ const S: Record<string, React.CSSProperties> = {
   },
   notice: { background: "#fff", padding: "16px 18px", fontSize: 14, marginTop: 24 },
   foot: { fontSize: 12, color: "#585f6c", marginTop: 56, lineHeight: 1.8 },
+
+  /** 検索・グループ絞り込み */
+  filterBar: { marginTop: 28, display: "flex", flexDirection: "column", gap: 10 },
+  searchInput: {
+    display: "block", width: "100%", boxSizing: "border-box",
+    background: "#fff", color: "#000", border: 0,
+    padding: "12px 14px", fontSize: 14, fontFamily: "inherit",
+  },
+  chipRow: { display: "flex", flexWrap: "wrap", gap: 6 },
+  chip: {
+    background: "#fff", color: "#000", border: 0,
+    padding: "7px 12px", fontSize: 12, fontWeight: 800,
+    cursor: "pointer", fontFamily: "inherit",
+  },
+  chipOn: { background: "#000", color: "#fff" },
 };
