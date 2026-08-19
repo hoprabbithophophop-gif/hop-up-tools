@@ -1,0 +1,263 @@
+<!doctype html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: #f5f5f5;
+      color: #222;
+      font-size: 16px;
+    }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    .notice {
+      background: #fff8e1;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    #tokenBox { margin-bottom: 16px; }
+    #tokenBox input {
+      width: 100%;
+      padding: 10px;
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+    #tokenBox button, .row button {
+      padding: 10px 16px;
+      font-size: 16px;
+      background: #333;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+    }
+    .row button.secondary { background: #fff; color: #333; border: 1px solid #333; }
+    .row button:disabled { background: #bbb; border-color: #bbb; color: #fff; }
+    #statusLine { font-size: 14px; margin: 8px 0; min-height: 1.2em; color: #555; }
+    .row {
+      background: #fff;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .row.done { opacity: 0.55; }
+    .meta { font-size: 13px; color: #666; margin-bottom: 6px; }
+    .badge {
+      display: inline-block;
+      padding: 1px 6px;
+      font-size: 12px;
+      background: #333;
+      color: #fff;
+      margin-left: 6px;
+    }
+    .badge.skipped { background: #999; }
+    .text {
+      font-size: 15px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+    .actions { display: flex; gap: 8px; }
+    .actions button { flex: 1; }
+    #empty { font-size: 14px; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>X投稿キュー 一覧</h1>
+  <div class="notice">
+    この一覧は、シートに書き出された時点の内容。先読み生成した日など、Xで実際にはもう予約済みでもここでは反映が遅れることがある。念のためXの「予約済み」一覧側でも実際の状態を確認してから使うこと。
+  </div>
+
+  <div id="tokenBox">
+    <input type="password" id="tokenInput" placeholder="合言葉（token）" autocomplete="off">
+    <button onclick="loadQueue()">読み込む</button>
+  </div>
+
+  <div id="statusLine"></div>
+  <div id="list"></div>
+
+<script>
+  // URLに ?token=... を付けて開いた場合、サーバー側（doGet）で埋め込まれた値。
+  // ブラウザ側のJavaScriptからは元のURLのクエリパラメータを直接読めない作りに
+  // なっている（GASのページはgoogleusercontent.com経由で表示されるため）ので、
+  // このように事前にサーバー側で埋め込んでもらう形にしている。
+  var INITIAL_TOKEN = <?!= JSON.stringify(initialToken || '') ?>;
+
+  function getSavedToken() {
+    try { return localStorage.getItem('xq_token') || ''; } catch (e) { return ''; }
+  }
+  function saveToken(t) {
+    try { localStorage.setItem('xq_token', t); } catch (e) { /* 保存できなくても動作は続ける */ }
+  }
+
+  document.getElementById('tokenInput').value = INITIAL_TOKEN || getSavedToken();
+
+  function setStatus(msg) {
+    document.getElementById('statusLine').textContent = msg;
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function loadQueue() {
+    var token = document.getElementById('tokenInput').value.trim();
+    if (!token) { setStatus('合言葉を入れてください'); return; }
+    saveToken(token);
+    setStatus('読み込み中…');
+    google.script.run
+      .withSuccessHandler(function (res) { onQueueLoaded(res, token); })
+      .withFailureHandler(function (err) { setStatus('通信エラー: ' + err); })
+      .pageGetQueue(token);
+  }
+
+  function onQueueLoaded(res, token) {
+    if (!res || !res.ok) {
+      setStatus('エラー: ' + (res && res.error || '不明なエラー'));
+      return;
+    }
+    setStatus(res.count + '件（' + res.serverDateJst + ' 時点）');
+    var items = res.items.slice().sort(function (a, b) {
+      var ka = a.scheduledDate + ' ' + a.scheduledTime;
+      var kb = b.scheduledDate + ' ' + b.scheduledTime;
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
+    renderList(items, token);
+  }
+
+  function renderList(items, token) {
+    var listEl = document.getElementById('list');
+    if (items.length === 0) {
+      listEl.innerHTML = '<div id="empty">キューは空です</div>';
+      return;
+    }
+    listEl.innerHTML = '';
+    items.forEach(function (item) {
+      listEl.appendChild(renderRow(item, token));
+    });
+  }
+
+  function renderRow(item, token) {
+    var isDone = item.status === '予約済み';
+    var isSkipped = item.status === '見送り';
+    var row = document.createElement('div');
+    row.className = 'row' + (isDone || isSkipped ? ' done' : '');
+
+    var meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = item.scheduledDate + ' ' + item.scheduledTime;
+    if (isDone || isSkipped) {
+      var badge = document.createElement('span');
+      badge.className = 'badge' + (isSkipped ? ' skipped' : '');
+      badge.textContent = isSkipped ? '見送り済み' : '予約済み';
+      meta.appendChild(badge);
+    }
+    row.appendChild(meta);
+
+    var textEl = document.createElement('div');
+    textEl.className = 'text';
+    textEl.textContent = item.text;
+    row.appendChild(textEl);
+
+    var actions = document.createElement('div');
+    actions.className = 'actions';
+
+    var copyBtn = document.createElement('button');
+    copyBtn.textContent = 'コピー';
+    copyBtn.onclick = function () { copyText(item.text, copyBtn); };
+    actions.appendChild(copyBtn);
+
+    var doneBtn = document.createElement('button');
+    doneBtn.textContent = isDone ? '済み✓' : '済み';
+    doneBtn.disabled = isDone || isSkipped;
+    doneBtn.onclick = function () { markRow(item.id, token, 'pageMarkScheduled', doneBtn, [skipBtn], row); };
+    actions.appendChild(doneBtn);
+
+    var skipBtn = document.createElement('button');
+    skipBtn.className = 'secondary';
+    skipBtn.textContent = isSkipped ? '見送り済み✓' : '見送る';
+    skipBtn.disabled = isDone || isSkipped;
+    skipBtn.onclick = function () {
+      if (!confirm('この回を見送りますか？（今日はもう出てきません）')) return;
+      markRow(item.id, token, 'pageMarkSkipped', skipBtn, [doneBtn], row);
+    };
+    actions.appendChild(skipBtn);
+
+    row.appendChild(actions);
+    return row;
+  }
+
+  function copyText(text, btn) {
+    var original = btn.textContent;
+    function ok() {
+      btn.textContent = 'コピーした！';
+      setTimeout(function () { btn.textContent = original; }, 1500);
+    }
+    function fail() {
+      alert('コピーに失敗しました。本文を長押しして手動でコピーしてください。');
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(ok).catch(fail);
+      return;
+    }
+    // 古いSafari等、Clipboard APIが無い場合のフォールバック
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+      document.execCommand('copy');
+      ok();
+    } catch (e) {
+      fail();
+    }
+    document.body.removeChild(ta);
+  }
+
+  // serverFn: 'pageMarkScheduled' または 'pageMarkSkipped'。
+  // otherBtns: 成功時に一緒に無効化する（押した方じゃない方の）ボタン群。
+  function markRow(id, token, serverFn, btn, otherBtns, row) {
+    var doneLabel = btn.textContent;
+    btn.disabled = true;
+    otherBtns.forEach(function (b) { b.disabled = true; });
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (res && res.ok) {
+          btn.textContent = doneLabel.indexOf('✓') >= 0 ? doneLabel : doneLabel + '✓';
+          row.classList.add('done');
+        } else {
+          btn.disabled = false;
+          otherBtns.forEach(function (b) { b.disabled = false; });
+          alert('失敗しました: ' + (res && res.error || '不明なエラー'));
+        }
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false;
+        otherBtns.forEach(function (b) { b.disabled = false; });
+        alert('通信エラー: ' + err);
+      })
+      [serverFn](token, id);
+  }
+
+  // URL経由でtokenが渡された場合は、入力欄ごと隠して自動で読み込む
+  // （ホーム画面のブックマークから開いた時、一切タップせず一覧が出るように）。
+  // それが無ければ、前回ブラウザに保存したtokenがあれば自動で読み込む。
+  if (INITIAL_TOKEN) {
+    saveToken(INITIAL_TOKEN);
+    document.getElementById('tokenBox').style.display = 'none';
+    loadQueue();
+  } else if (getSavedToken()) {
+    loadQueue();
+  }
+</script>
+</body>
+</html>

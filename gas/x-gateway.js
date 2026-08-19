@@ -12,22 +12,43 @@
  *   x-bot.js には手を入れず、既存シート（本文A/ステータスB/予約投稿日C/書き出し日時D）を
  *   そのまま読み書きする。
  *
- * 行の指し方（id）:
- *   idは「シート内の行の位置番号（データ1行目=1）」。K番目の投稿時刻は決定論的に
- *   予約日 07:00 +(K-1)分。getQueue はその日の全行（予約済みを含む）を位置順に返し、
- *   K は全行での位置。予約済みで飛ばしても番号は詰め直さない（＝毎回同じ時刻計算になる）。
- *   時刻の分計算は呼び出し側=エージェントが k から出す。ここでは k(=id) を返すだけ。
+ * 行の指し方（id）と時刻:
+ *   idは「シート内の行の位置番号（データ1行目=1）」。予約済みで飛ばしても番号は
+ *   詰め直さない（＝markScheduled が指す行が毎回ズレない）。
+ *   投稿時刻は「予約投稿日ごとに07:00から1分刻み」で決定論的に決まる（同じ日の中で
+ *   何番目かで 07:00 +(何番目-1)分）。この計算はゲートウェイ側で行い、getQueue の
+ *   各行に scheduledTime（"HH:mm"）として結果をそのまま返す。呼び出し側（エージェント／
+ *   ツール）は一切計算せず、返ってきた値をそのまま使う。
  *
  * エンドポイント（すべてGET。ブラウザでURLを開けば動く）:
  *   ?action=getQueue&token=…
- *     → その日の全行を位置順で返す。各行に k と id(=位置番号) と status を付ける。
+ *     → 全行を位置順で返す。各行に k と id(=位置番号)、status、scheduledTime(=07:00起点で
+ *       その日の中の順番から計算した予約時刻)を付ける。
+ *   ?action=getQueue&token=…&date=YYYY-MM-DD
+ *     → 指定した「予約投稿日」の行だけに絞って返す（dateを省略した場合と挙動は変えない）。
+ *       絞り込んでも k/id は全行での位置のままズラさない（markScheduled が同じ位置を指せるように）。
  *
  *   ?action=markScheduled&id=…&token=…
  *     → 指定位置の行のステータスを「予約済み」に上書き（追記しない＝誤連結しない）。
  *       冪等（2回叩いても同じ）。範囲外の位置は not_found。
  *
+ *   ?action=markSkipped&id=…&token=…
+ *     → 指定位置の行のステータスを「見送り」に上書き。markScheduledと同じ仕組みで、
+ *       「今日はもう出さない」という記帳だけを行う（投稿はしない）。
+ *       getQueueがこのステータスの行を「残り」から除外するのは呼び出し側（台本）の役目。
+ *
  *   ?action=reportRun&token=…&ok=…&scheduled=…&failed=…&note=…
  *     → 実行結果をログシート「実行ログ」に1行追記し、GAS無料メールで通知する。
+ *
+ * スマホ用一覧ページ（JSON窓口とは別の入口）:
+ *   ?token=…（actionを付けない）でこのURLを開くと、x-queue-page.html を返す。
+ *   PCのTampermonkeyが使えない時（外泊等）に、スマホのブラウザだけで一覧確認・
+ *   本文コピー・「済み／見送り」の記帳ができる。ホーム画面にtoken入りのURLを
+ *   ブックマークしておけば、以後はタップするだけで開く。
+ *   ページ内部は google.script.run 経由で pageGetQueue/pageMarkScheduled/
+ *   pageMarkSkipped を呼ぶ（URLのクエリパラメータではなくこの3関数の引数として
+ *   tokenを渡す方式。ページ自体はgoogleusercontent.com経由で表示されるため、
+ *   クライアント側のJavaScriptから元のURLのクエリを直接読めないことへの対処）。
  *
  * 認証:
  *   URLに token を付け、スクリプトプロパティ GATEWAY_TOKEN と一致するか照合する。
@@ -73,8 +94,24 @@ var COL = {
   writtenAt: '書き出し日時',
 };
 var STATUS_SCHEDULED = '予約済み';
+var STATUS_SKIPPED = '見送り'; // 台本(xpostassistant.user.js)のSTATUS_SKIPPEDと一致させること
 
 function doGet(e) {
+  var params = (e && e.parameter) ? e.parameter : {};
+  // actionが無いアクセスはスマホ用一覧ページを返す（JSON窓口とは別の入口）。
+  // ページの外枠自体は誰でも開けるが、中の一覧データは合言葉が無いと読み込まれない
+  // （中身はgoogle.script.run経由でpageGetQueue等を呼ぶ時にだけ照合する）。
+  // URLに ?token=… が付いていれば、ページ側のJavaScriptが直接読めないため
+  // （googleusercontent.com経由の表示なのでURLのクエリを見れない）、テンプレートで
+  // サーバー側からページに埋め込む。ホーム画面に「トークン入りのURL」をブックマーク
+  // しておけば、以後は毎回の手入力が要らなくなる。
+  if (!params.action) {
+    var template = HtmlService.createTemplateFromFile('x-queue-page');
+    template.initialToken = params.token || '';
+    return template.evaluate()
+      .setTitle('X投稿キュー')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  }
   return handleRequest(e);
 }
 
@@ -93,13 +130,31 @@ function handleRequest(e) {
   }
 
   try {
-    if (action === 'getQueue') return jsonOut(getQueue());
+    if (action === 'getQueue') return jsonOut(getQueue(params.date));
     if (action === 'markScheduled') return jsonOut(markScheduled(params.id));
+    if (action === 'markSkipped') return jsonOut(markSkipped(params.id));
     if (action === 'reportRun') return jsonOut(reportRun(params));
     return jsonOut({ ok: false, error: 'unknown_action', action: action });
   } catch (err) {
     return jsonOut({ ok: false, error: 'exception', message: String(err && err.message || err) });
   }
+}
+
+// ===== スマホ用一覧ページから呼ばれるサーバー関数（google.script.run経由）=====
+// URLのクエリパラメータを介さないので、ここで個別にトークン照合する。
+function pageGetQueue(token) {
+  if (!checkToken(token)) return { ok: false, error: 'unauthorized' };
+  return getQueue(null);
+}
+
+function pageMarkScheduled(token, id) {
+  if (!checkToken(token)) return { ok: false, error: 'unauthorized' };
+  return markScheduled(id);
+}
+
+function pageMarkSkipped(token, id) {
+  if (!checkToken(token)) return { ok: false, error: 'unauthorized' };
+  return markSkipped(id);
 }
 
 // ===== 認証 =====
@@ -117,13 +172,15 @@ function checkToken(given) {
 }
 
 // ===== キュー読み出し =====
-function getQueue() {
+// dateFilter を渡すと「予約投稿日」がその値と一致する行だけに絞る。省略時は今まで通り全行。
+// 絞り込んでも k/id は「全行での位置」のまま採番する（= markScheduled が指す位置がズレない）。
+function getQueue(dateFilter) {
   var sheet = openQueueSheet();
   if (!sheet) return { ok: false, error: 'queue_sheet_missing' };
 
   var values = sheet.getDataRange().getValues();
   if (values.length < 2) {
-    return { ok: true, action: 'getQueue', serverDateJst: todayJst(), count: 0, items: [] };
+    return { ok: true, action: 'getQueue', serverDateJst: todayJst(), date: dateFilter || null, count: 0, items: [] };
   }
 
   var idx = resolveColumns(values[0]);
@@ -132,17 +189,24 @@ function getQueue() {
   }
 
   var items = [];
+  var position = 0;
+  var rankByDate = {};                                      // 予約投稿日ごとの「その日の中で何番目か」カウンタ
   for (var r = 1; r < values.length; r++) {
     var row = values[r];
     // 空行はスキップ（本文が空なら行として扱わない）
     if (String(row[idx.text]).trim() === '') continue;
-    var position = items.length + 1;                       // 全行での位置(1始まり)。時刻= 07:00 +(k-1)分
+    position++;                                             // 全行での位置(1始まり)。markScheduled はこれを使う
+    var scheduledDate = idx.scheduledDate >= 0 ? formatDateCell(row[idx.scheduledDate]) : '';
+    rankByDate[scheduledDate] = (rankByDate[scheduledDate] || 0) + 1;
+    var rankInDay = rankByDate[scheduledDate];                // 同じ日の中での順番(1始まり)。時刻計算はこちらを使う
+    if (dateFilter && scheduledDate !== dateFilter) continue; // 指定日以外は結果に含めない（位置番号は詰め直さない）
     items.push({
       k: position,
       id: String(position),                                // markScheduled で使う。位置番号そのもの
       text: String(row[idx.text]),
       status: String(row[idx.status]),
-      scheduledDate: idx.scheduledDate >= 0 ? formatDateCell(row[idx.scheduledDate]) : '',
+      scheduledDate: scheduledDate,
+      scheduledTime: computeScheduledTime(rankInDay),        // "HH:mm"。予約投稿日 07:00 +(その日の順番-1)分
     });
   }
 
@@ -150,6 +214,7 @@ function getQueue() {
     ok: true,
     action: 'getQueue',
     serverDateJst: todayJst(),
+    date: dateFilter || null,
     count: items.length,
     items: items,
   };
@@ -158,6 +223,16 @@ function getQueue() {
 // ===== ステータス更新（冪等）=====
 // id は getQueue が返した位置番号(1始まり)。同じ数え方でシート行を割り出して更新する。
 function markScheduled(id) {
+  return setRowStatus(id, STATUS_SCHEDULED, 'markScheduled');
+}
+
+// 「今日はもう出さない」の記帳。markScheduledと同じ位置指定・同じ上書き方式で、
+// ステータスだけ「見送り」にする（投稿は一切しない）。
+function markSkipped(id) {
+  return setRowStatus(id, STATUS_SKIPPED, 'markSkipped');
+}
+
+function setRowStatus(id, targetStatus, actionName) {
   var position = parseInt(id, 10);
   if (!id || isNaN(position) || position < 1) return { ok: false, error: 'missing_id' };
 
@@ -188,13 +263,13 @@ function markScheduled(id) {
       count++;
       if (count === position) {
         var current = String(values[r][idx.status]);
-        if (current === STATUS_SCHEDULED) {
-          return { ok: true, action: 'markScheduled', id: String(position), status: STATUS_SCHEDULED, already: true };
+        if (current === targetStatus) {
+          return { ok: true, action: actionName, id: String(position), status: targetStatus, already: true };
         }
         // 追記ではなく上書きセット（「未投稿予約済み」のような誤連結を防ぐ）
-        sheet.getRange(r + 1, idx.status + 1).setValue(STATUS_SCHEDULED);
+        sheet.getRange(r + 1, idx.status + 1).setValue(targetStatus);
         SpreadsheetApp.flush();
-        return { ok: true, action: 'markScheduled', id: String(position), status: STATUS_SCHEDULED, already: false };
+        return { ok: true, action: actionName, id: String(position), status: targetStatus, already: false };
       }
     }
     return { ok: false, error: 'not_found', id: String(position) };
@@ -263,6 +338,15 @@ function resolveColumns(header) {
     status: header.indexOf(COL.status),
     scheduledDate: header.indexOf(COL.scheduledDate),
   };
+}
+
+// 予約投稿日の中でrankInDay番目(1始まり)の投稿時刻を "HH:mm" で返す。
+// 決まり: 07:00始まりで1分刻み（同じ日の中でだけ数える。日をまたいでも07:00に戻る）。
+function computeScheduledTime(rankInDay) {
+  var totalMinutes = 7 * 60 + (rankInDay - 1);
+  var hh = Math.floor(totalMinutes / 60) % 24;
+  var mm = totalMinutes % 60;
+  return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
 }
 
 // 予約投稿日セルは、シート側で日付型に変換されていることがある。
