@@ -378,3 +378,56 @@ function jsonOut(obj) {
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
 }
+
+// ===== 動作確認用の一時関数（2026-08-19、確認後に削除すること）=====
+// 【テスト】マーク付きの行を2件シートに追加→markSkipped/markScheduledを直接呼んで
+// ステータスが実際に書き換わるか確認→最後に追加した行を自分で消す。
+// トークンを介さず関数を直接呼ぶので、doGet/handleRequestの認証層は通らない
+// （そこは別途「合言葉なし→unauthorized」で確認済み）。あくまでmarkSkipped/
+// markScheduled/getQueueの書き込み・読み出し自体が正しく動くかの確認用。
+function debugTestMarkFlow() {
+  var sheet = openQueueSheet();
+  if (!sheet) { Logger.log('シートが見つかりません'); return { ok: false, error: 'no_sheet' }; }
+  var header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var idx = resolveColumns(header);
+  if (idx.text < 0 || idx.status < 0) {
+    Logger.log('ヘッダーが想定と違います: ' + JSON.stringify(header));
+    return { ok: false, error: 'header_mismatch' };
+  }
+
+  function buildRow(text) {
+    var row = new Array(header.length).fill('');
+    row[idx.text] = text;
+    return row;
+  }
+  sheet.appendRow(buildRow('【テスト】見送る確認用'));
+  sheet.appendRow(buildRow('【テスト】済み確認用'));
+  SpreadsheetApp.flush();
+
+  var before = getQueue(null).items.filter(function (it) { return it.text.indexOf('【テスト】') === 0; });
+  var skipItem = before.filter(function (it) { return it.text.indexOf('見送る確認用') >= 0; })[0];
+  var doneItem = before.filter(function (it) { return it.text.indexOf('済み確認用') >= 0; })[0];
+
+  var results = {
+    skipCall: skipItem ? markSkipped(skipItem.id) : { ok: false, error: 'row_not_found' },
+    doneCall: doneItem ? markScheduled(doneItem.id) : { ok: false, error: 'row_not_found' },
+  };
+
+  var after = getQueue(null).items.filter(function (it) { return it.text.indexOf('【テスト】') === 0; });
+  results.afterStatuses = after.map(function (it) { return { text: it.text, status: it.status }; });
+
+  // 後片付け：追加した【テスト】行だけを消す（下から消さないと行番号がズレる）
+  var values = sheet.getDataRange().getValues();
+  var deleted = 0;
+  for (var r = values.length - 1; r >= 1; r--) {
+    if (String(values[r][idx.text]).indexOf('【テスト】') === 0) {
+      sheet.deleteRow(r + 1);
+      deleted++;
+    }
+  }
+  SpreadsheetApp.flush();
+  results.cleanedUpRows = deleted;
+
+  Logger.log(JSON.stringify(results, null, 2));
+  return results;
+}
