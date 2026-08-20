@@ -8,6 +8,7 @@ const TopPage         = lazy(() => import("./pages/TopPage"));
 const ProfilePage     = lazy(() => import("./pages/profile/ProfilePage"));
 const SlugPage        = lazy(() => import("./pages/profile/SlugPage"));
 const FcTicketPage    = lazy(() => import("./pages/fc-ticket/FcTicketPage"));
+const SchedulePage    = lazy(() => import("./pages/schedule/SchedulePage"));
 const YouTubePage     = lazy(() => import("./pages/youtube/YouTubePage"));
 const YouTubePickupPage = lazy(() => import("./pages/youtube/YouTubePickupPage"));
 const HiTensionPage   = lazy(() => import("./pages/hi-tension/HiTensionPage"));
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/p/:slug" element={<SlugPage />} />
             <Route path="/fc-ticket" element={<FcTicketPage />} />
+            <Route path="/schedule" element={<SchedulePage />} />
             <Route path="/youtube" element={<YouTubePage />} />
             <Route path="/youtube/pickup" element={<YouTubePickupPage />} />
             <Route path="/hi-tension" element={<HiTensionPage />} />
