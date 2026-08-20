@@ -336,17 +336,18 @@ function FilterBar(props: {
   customStart: string; customEnd: string; onCustomStart: (s: string) => void; onCustomEnd: (s: string) => void;
   todayOnly: boolean; onTodayOnly: (b: boolean) => void;
 }) {
-  const capLabel: React.CSSProperties = { fontSize: "0.625rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#777", margin: "0 0 0.4rem" };
+  const capLabel: React.CSSProperties = { fontSize: "0.625rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#777", margin: 0, flexShrink: 0, width: "5.5rem" };
+  const row: React.CSSProperties = { display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.5rem", padding: "0.45rem 0" };
   return (
-    <div style={{ background: "#fff", padding: "1.2rem", marginBottom: "0.4rem" }}>
+    <div style={{ background: "#fff", padding: "0.9rem 1.2rem", marginBottom: "0.4rem" }}>
       {/* 今日のアクション期限ショートカット */}
       <button
         onClick={() => props.onTodayOnly(!props.todayOnly)}
         style={{
           display: "inline-flex", alignItems: "center", gap: "0.4rem",
           background: props.todayOnly ? "#ba1a1a" : "#000", color: "#fff", border: "none",
-          padding: "0.6rem 1.2rem", fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase",
-          letterSpacing: "0.1em", cursor: "pointer", marginBottom: "1.2rem", borderRadius: 0,
+          padding: "0.5rem 1rem", fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase",
+          letterSpacing: "0.1em", cursor: "pointer", marginBottom: "0.6rem", borderRadius: 0,
         }}
       >
         <span className="material-symbols-outlined" style={{ fontSize: "1rem" }}>today</span>
@@ -354,48 +355,54 @@ function FilterBar(props: {
       </button>
 
       {/* グループ */}
-      <p style={capLabel}>Group</p>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "1rem" }}>
-        {GROUPS.map((g) => (
-          <Chip key={g} label={g} active={props.groups.has(g)} onClick={() => props.onToggleGroup(g)} />
-        ))}
+      <div style={{ ...row, borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+        <p style={capLabel}>Group</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+          {GROUPS.map((g) => (
+            <Chip key={g} label={g} active={props.groups.has(g)} onClick={() => props.onToggleGroup(g)} />
+          ))}
+        </div>
       </div>
 
       {/* FC限定 */}
-      <p style={capLabel}>Membership</p>
-      <div style={{ display: "flex", gap: "0.4rem", marginBottom: "1rem" }}>
-        {([["all", "全部"], ["fc", "FCのみ"], ["nonfc", "FC以外"]] as [FcMode, string][]).map(([m, l]) => (
-          <Chip key={m} label={l} active={props.fcMode === m} onClick={() => props.onFcMode(m)} />
-        ))}
+      <div style={{ ...row, borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+        <p style={capLabel}>Membership</p>
+        <div style={{ display: "flex", gap: "0.35rem" }}>
+          {([["all", "全部"], ["fc", "FCのみ"], ["nonfc", "FC以外"]] as [FcMode, string][]).map(([m, l]) => (
+            <Chip key={m} label={l} active={props.fcMode === m} onClick={() => props.onFcMode(m)} />
+          ))}
+        </div>
       </div>
 
       {/* 形式 */}
       {props.availFormats.length > 0 && (
-        <>
+        <div style={{ ...row, borderTop: "1px solid rgba(0,0,0,0.06)" }}>
           <p style={capLabel}>Format</p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "1rem" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
             {props.availFormats.map((f) => (
               <Chip key={f} label={FORMAT_LABELS[f] ?? f} active={props.formats.has(f)} onClick={() => props.onToggleFormat(f)} />
             ))}
           </div>
-        </>
+        </div>
       )}
 
       {/* 期間 */}
-      <p style={capLabel}>Period</p>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", alignItems: "center" }}>
-        {([["today", "今日"], ["week", "今週"], ["month", "今月"], ["custom", "カスタム"]] as [PeriodKey, string][]).map(([p, l]) => (
-          <Chip key={p} label={l} active={!props.todayOnly && props.period === p} onClick={() => { props.onTodayOnly(false); props.onPeriod(p); }} />
-        ))}
-        {props.period === "custom" && !props.todayOnly && (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", marginLeft: "0.4rem" }}>
-            <input type="date" value={props.customStart} onChange={(e) => props.onCustomStart(e.target.value)}
-              style={{ fontSize: "0.75rem", padding: "0.3rem 0.4rem", border: "1px solid rgba(0,0,0,0.15)", borderRadius: 0, fontFamily: "inherit" }} />
-            <span style={{ color: "#777" }}>→</span>
-            <input type="date" value={props.customEnd} onChange={(e) => props.onCustomEnd(e.target.value)}
-              style={{ fontSize: "0.75rem", padding: "0.3rem 0.4rem", border: "1px solid rgba(0,0,0,0.15)", borderRadius: 0, fontFamily: "inherit" }} />
-          </span>
-        )}
+      <div style={{ ...row, borderTop: "1px solid rgba(0,0,0,0.06)", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
+        <p style={capLabel}>Period</p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", alignItems: "center" }}>
+          {([["today", "今日"], ["week", "今週"], ["month", "今月"], ["custom", "カスタム"]] as [PeriodKey, string][]).map(([p, l]) => (
+            <Chip key={p} label={l} active={!props.todayOnly && props.period === p} onClick={() => { props.onTodayOnly(false); props.onPeriod(p); }} />
+          ))}
+          {props.period === "custom" && !props.todayOnly && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem", marginLeft: "0.2rem" }}>
+              <input type="date" value={props.customStart} onChange={(e) => props.onCustomStart(e.target.value)}
+                style={{ fontSize: "0.75rem", padding: "0.3rem 0.4rem", border: "1px solid rgba(0,0,0,0.15)", borderRadius: 0, fontFamily: "inherit" }} />
+              <span style={{ color: "#777" }}>→</span>
+              <input type="date" value={props.customEnd} onChange={(e) => props.onCustomEnd(e.target.value)}
+                style={{ fontSize: "0.75rem", padding: "0.3rem 0.4rem", border: "1px solid rgba(0,0,0,0.15)", borderRadius: 0, fontFamily: "inherit" }} />
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
