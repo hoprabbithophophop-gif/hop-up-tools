@@ -31,9 +31,11 @@ interface Props {
   onSearchClose: () => void;
   formatFilter: 'all' | 'regular' | 'short';
   showPlayerAtTop: boolean;
+  /** URLの ?q= から渡ってきた初期検索語。指定があれば検索欄に入れた状態で開く */
+  initialQuery?: string;
 }
 
-export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayerAtTop }: Props) {
+export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayerAtTop, initialQuery }: Props) {
   const { state, addItem, insertNext, removeFromQueue } = useChapterPlaylistContext();
   const hasQueue = state.queue.length > 0;
 
@@ -301,6 +303,15 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayer
       setFilter({ group: '', member: '', type: '', channel: '', year: 0, sort: 'desc', isShort: 'all' });
     }
   }, [searchOpen]);
+
+  // ?q= 付きで開いたときだけ、検索欄に初期値を入れる（一度だけ）
+  useEffect(() => {
+    if (initialQuery) {
+      setSearchInput(initialQuery);
+      setSearchQuery(initialQuery);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // RECENT長押し
   const handleRecentLongPress = useCallback(async (videoId: string) => {

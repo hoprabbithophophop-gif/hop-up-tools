@@ -38,13 +38,15 @@ function LoadingScreen() {
 function ChapterPickupContent() {
   const [searchParams, setSearchParams] = useSearchParams();
   const playlistId = searchParams.get('p');
+  // ?q=曲名 で開くと、検索欄にその言葉を入れた状態で検索を開く（動画候補の共有用リンク）
+  const initialSearchQuery = searchParams.get('q');
 
   const [pageState, setPageState] = useState<PageState>('home');
   const [restoreStatus, setRestoreStatus] = useState<RestoreStatus>(
     playlistId ? 'loading' : 'idle'
   );
   const [sharedPlaylist, setSharedPlaylist] = useState<SharedPlaylist | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(!!initialSearchQuery);
   const [formatFilter, setFormatFilter] = useState<'all' | 'regular' | 'short'>('all');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLandscape, setIsLandscape] = useState(isWideLandscape);
@@ -354,7 +356,7 @@ function ChapterPickupContent() {
             : undefined
         }
       >
-        <BrowseView searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} formatFilter={formatFilter} showPlayerAtTop={showPlayerAtTop} />
+        <BrowseView searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} formatFilter={formatFilter} showPlayerAtTop={showPlayerAtTop} initialQuery={initialSearchQuery ?? undefined} />
       </div>
 
       {/* PlayView */}
