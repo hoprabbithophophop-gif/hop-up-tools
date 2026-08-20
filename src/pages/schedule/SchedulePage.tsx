@@ -443,7 +443,7 @@ function Gantt(props: {
   };
 
   return (
-    <div style={{ background: "#fff", overflowX: "auto", position: "relative" }}>
+    <div style={{ background: "#fff", overflowX: "auto", overflowY: "hidden", position: "relative" }}>
       <div style={{ width: fullW, position: "relative" }}>
         {/* ── ヘッダー行 ── */}
         <div style={{ display: "flex", height: HEADER_H, borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
