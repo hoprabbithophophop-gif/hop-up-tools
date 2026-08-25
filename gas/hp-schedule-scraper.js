@@ -128,7 +128,9 @@ function stripTags(s) {
 
 /**
  * イベント詳細HTMLをパースして {hash, group_name, title, range, shows[], venues{}} を返す。
- * 公演日程テーブル(ScheduleTable)が無ければ shows=[] を返す。
+ * 公演日程テーブル(ScheduleTable)があればコンサート形式、無ければ
+ * 「■会場名＋【日程】【会場】【時間】+内容テーブル」形式（チェキ・サイン・お話し会等の
+ * 発売記念イベント）としてパースを試みる。どちらも無ければ shows=[] を返す。
  */
 function parseEventHtml(html, hash, groupName, url) {
   const h = hpDecode(html);
@@ -143,7 +145,10 @@ function parseEventHtml(html, hash, groupName, url) {
   const years = (range.match(/20\d\d/g) || []).map(Number);
   const startYear = years[0] || null;
 
-  const shows = parseScheduleTable(h, startYear);
+  let shows = parseScheduleTable(h, startYear);
+  if (shows.length === 0) {
+    shows = parseReleaseEventBlocks(h);
+  }
 
   return {
     hash: hash,
@@ -152,6 +157,7 @@ function parseEventHtml(html, hash, groupName, url) {
     range: range,
     detail_url: url,
     shows: shows,
+    sales_service: detectSalesService(h),
   };
 }
 
@@ -226,11 +232,102 @@ function parseScheduleTable(h, startYear) {
       venue: curVenue ? curVenue.name : null,
       prefecture: curVenue ? curVenue.prefecture : null,
       venue_url: curVenue ? curVenue.url : null,
+      venue_address: null,
+      part_label: null,
+      event_format: 'concert',
       ended: ended,
     });
   }
 
   return shows;
+}
+
+/**
+ * 「■会場名」ブロック形式（発売記念のチェキ会/サイン会/お話し会等、複数種別が
+ * 1会場内で入り乱れる複合イベント）をパースする。
+ * HTML例:
+ *   <h2>イベント開催日時</h2><p><strong>■東京会場①</strong><br>
+ *   【日程】2026年8月15日(土)<br>【会場】<a href="...">会場名</a><br>
+ *   (〒000-0000 都道府県市区町村...)<br><br>【時間】</p>
+ *   <table><tbody><tr><th>内容</th><th>開場</th><th>入場締切</th><th>イベント開始</th></tr>
+ *   <tr><td>第1部 個別お話し会</td><td>13:15</td><td>13:25</td><td>13:20</td></tr>...
+ */
+function parseReleaseEventBlocks(h) {
+  const sectionM = h.match(/イベント開催日時<\/(?:h2|strong)>([\s\S]*?)(?:<h2[^>]*>|$)/);
+  if (!sectionM) return [];
+  const section = sectionM[1];
+
+  const blocks = section.split('■').slice(1);
+  const shows = [];
+
+  for (const block of blocks) {
+    const dateM = block.match(/【日程】\s*(\d{4})年(\d{1,2})月(\d{1,2})日/);
+    if (!dateM) continue;
+    const dateStr = dateM[1] + '-' + pad2(Number(dateM[2])) + '-' + pad2(Number(dateM[3]));
+
+    const venueM = block.match(/【会場】\s*(?:<a[^>]*href="([^"]*)"[^>]*>([^<]+)<\/a>|([^<\n]+))/);
+    const venueUrl = venueM ? (venueM[1] || null) : null;
+    const venueName = venueM ? stripTags(venueM[2] || venueM[3] || '').trim() : null;
+
+    const addrM = block.match(/(〒[\d-]+\s*[^)<]+)/);
+    const address = addrM ? addrM[1].trim() : null;
+    const prefM = address ? address.match(/(北海道|東京都|京都府|大阪府|.{2,3}県)/) : null;
+    const prefecture = prefM ? prefM[1] : null;
+
+    const tableM = block.match(/<table>([\s\S]*?)<\/table>/);
+    if (!tableM || !venueName) continue;
+
+    const rows = tableM[1].match(/<tr[\s\S]*?<\/tr>/g) || [];
+    for (const tr of rows) {
+      const cells = (tr.match(/<td[^>]*>([\s\S]*?)<\/td>/g) || []).map(stripTags);
+      if (cells.length < 4) continue; // 見出し行（<th>のみ）はスキップ
+      const [content, openTime, , startTime] = cells;
+      const openM = openTime.match(/(\d{1,2}:\d{2})/);
+      const startM = startTime.match(/(\d{1,2}:\d{2})/);
+      if (!startM) continue;
+
+      shows.push({
+        date: dateStr,
+        open_time: openM ? openM[1] : null,
+        start_time: startM[1],
+        venue: venueName,
+        prefecture: prefecture,
+        venue_url: venueUrl,
+        venue_address: address,
+        part_label: content || null,
+        event_format: detectEventFormat(content),
+        ended: false,
+      });
+    }
+  }
+
+  return shows;
+}
+
+/** 「内容」セルの文言からイベント形式を判定する */
+function detectEventFormat(content) {
+  const s = String(content || '');
+  if (/お絵描き/.test(s)) return 'other';
+  if (/お見送り/.test(s)) return 'send_off';
+  if (/抽選/.test(s)) return 'draw';
+  if (/サイン/.test(s)) return 'sign';
+  if (/グループ(お話し会|トーク)/.test(s)) return 'group_talk';
+  if (/個別(お話し会|トーク)/.test(s)) return 'individual_talk';
+  if (/チェキ/.test(s) || /shot/i.test(s)) {
+    if (/グループ/.test(s)) return 'group_shot_cheki';
+    if (/[34]\s*[・&]?\s*[34]?\s*shot/i.test(s) || /3ショット|4ショット/.test(s)) return 'three_shot_cheki';
+    return 'cheki';
+  }
+  return 'other';
+}
+
+/** 本文中のサービス名からイベント運営元(sales_service)を判定する */
+function detectSalesService(h) {
+  if (/forTUNE\s*music/i.test(h)) return 'fortune_music';
+  if (/ポニーキャニオンショッピングクラブ/.test(h)) return 'ponycanyon_shopping_club';
+  if (/リミスタ/.test(h)) return 'limista';
+  if (/WithLIVE/i.test(h)) return 'withlive';
+  return null;
 }
 
 function pad2(n) {
@@ -250,7 +347,8 @@ function upsertEventToSupabase(supabaseUrl, supabaseKey, ev) {
   // 1) 親イベント UPSERT（external_id=hash がユニーク）
   // event_category は仕様の語彙に合わせる（tour / release_event / fc_event / other）
   const releaseDate = ev.shows.length ? ev.shows[0].date : null;
-  const category = /ツアー|tour/i.test(ev.title) ? 'tour' : 'other';
+  const hasNonConcert = ev.shows.some((s) => s.event_format !== 'concert');
+  const category = /ツアー|tour/i.test(ev.title) ? 'tour' : (hasNonConcert ? 'release_event' : 'other');
   const parentRows = sbUpsert(supabaseUrl, headers,
     'schedule_parent_events?on_conflict=external_id', [{
       group_name: ev.group_name,
@@ -265,16 +363,32 @@ function upsertEventToSupabase(supabaseUrl, supabaseKey, ev) {
   if (!parentId) throw new Error('親IDが取得できず: ' + ev.title);
 
   // 2) 会場マスタ UPSERT（name がユニーク）→ name→id を作る
+  // 座標が未登録の会場は、ここで venue-watch.js と同じ厳格ジオコーディング（strictGeocode）を
+  // 即座に試す。コンサート・発売記念イベントどちらの会場も対象（prefecture があれば可）。
+  // 取れなければ座標なしのまま保存（実害なし。/schedule の地図リンクは会場名＋住所で作るため
+  // 座標は使わない。fc_deadlines 側に同じ会場名が出てくれば、そちらは venue-watch.js が拾う）。
   const venueId = {};
   const uniqVenues = {};
   for (const s of ev.shows) {
     if (s.venue && !uniqVenues[s.venue]) {
-      uniqVenues[s.venue] = { name: s.venue, prefecture: s.prefecture, official_url: s.venue_url };
+      uniqVenues[s.venue] = { name: s.venue, prefecture: s.prefecture, official_url: s.venue_url, address: s.venue_address || null };
     }
   }
-  for (const name of Object.keys(uniqVenues)) {
-    const rows = sbUpsert(supabaseUrl, headers,
-      'schedule_venues?on_conflict=name', [uniqVenues[name]]);
+  const venueNames = Object.keys(uniqVenues);
+  const existingCoords = venueNames.length ? fetchExistingVenueCoords(supabaseUrl, headers, venueNames) : {};
+  for (const name of venueNames) {
+    const row = uniqVenues[name];
+    if (existingCoords[name] == null && row.prefecture) {
+      const hit = strictGeocode(name, row.prefecture);
+      if (hit) {
+        row.latitude = hit.lat;
+        row.longitude = hit.lon;
+        Logger.log('会場ジオコーディング成功: ' + name + ' → ' + hit.lat + ',' + hit.lon + ' (' + hit.label + ')');
+      } else {
+        Logger.log('会場ジオコーディング失敗（座標なしのまま）: ' + name);
+      }
+    }
+    const rows = sbUpsert(supabaseUrl, headers, 'schedule_venues?on_conflict=name', [row]);
     if (rows && rows[0]) venueId[name] = rows[0].id;
   }
 
@@ -283,13 +397,17 @@ function upsertEventToSupabase(supabaseUrl, supabaseKey, ev) {
   const seenEid = {};
   const childRows = [];
   for (const s of ev.shows) {
-    const eid = ev.hash + ':' + s.date + ':' + (s.start_time || '');
+    // part_label がある回だけ末尾に付与する（無い＝コンサート分は既存の external_id 形式を維持し、
+    // 既に登録済みのコンサートデータが「別IDの新規行」として重複登録されるのを防ぐ）
+    const eid = ev.hash + ':' + s.date + ':' + (s.start_time || '') + (s.part_label ? ':' + s.part_label : '');
     if (seenEid[eid]) continue;
     seenEid[eid] = true;
     childRows.push({
       parent_event_id: parentId,
       venue_id: s.venue ? (venueId[s.venue] || null) : null,
-      event_format: 'concert',
+      event_format: s.event_format || 'concert',
+      sales_service: ev.sales_service || null,
+      part_label: s.part_label || null,
       event_date: s.date,
       event_open_time: s.open_time || null,
       event_start_time: s.start_time || null,
@@ -320,8 +438,35 @@ function sbUpsert(supabaseUrl, headers, pathWithQuery, rows) {
   try { return JSON.parse(body); } catch (e) { return null; }
 }
 
+/** 会場名一覧から、既に座標が入っているものだけを {name: latitude} で返す（無駄なジオコーディングを避ける） */
+function fetchExistingVenueCoords(supabaseUrl, headers, names) {
+  const inList = names.map((n) => '"' + n.replace(/"/g, '\\"') + '"').join(',');
+  const res = UrlFetchApp.fetch(
+    supabaseUrl + '/rest/v1/schedule_venues?select=name,latitude&name=in.(' + encodeURIComponent(inList) + ')',
+    { headers: headers, muteHttpExceptions: true }
+  );
+  if (res.getResponseCode() !== 200) return {};
+  const rows = JSON.parse(res.getContentText());
+  const map = {};
+  for (const r of rows) map[r.name] = r.latitude;
+  return map;
+}
+
+// 座標検索そのものは venue-watch.js の strictGeocode() を使う（同一GASプロジェクト内で共有）。
+// 住所文字列をそのまま Nominatim に投げる方式も試したが、日本の番地レベル住所はヒット率が
+// 低く（実地検証で0件）、会場名＋都道府県で検索する strictGeocode の方が的中率が高かったため
+// 採用しなかった。
+
 // ─── ローカル/Node 検証用エクスポート ──────────────────
 // （GAS では module が無いので無視される）
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parseEventHtml: parseEventHtml, parseScheduleTable: parseScheduleTable, hpDecode: hpDecode, stripTags: stripTags };
+  module.exports = {
+    parseEventHtml: parseEventHtml,
+    parseScheduleTable: parseScheduleTable,
+    parseReleaseEventBlocks: parseReleaseEventBlocks,
+    detectEventFormat: detectEventFormat,
+    detectSalesService: detectSalesService,
+    hpDecode: hpDecode,
+    stripTags: stripTags,
+  };
 }
