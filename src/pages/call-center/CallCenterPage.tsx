@@ -17,6 +17,8 @@ type Song = {
   title: string;
   group_name: string;
   bpm: number | null;
+  /** 動画が1本でも結び付いているか。無ければ開いても叩けないので、一覧の時点で伝える */
+  hasVideo: boolean;
 };
 
 export default function CallCenterPage() {
@@ -35,12 +37,13 @@ export default function CallCenterPage() {
     try {
       getSupabase()
         .from("song_structures")
-        .select("id, slug, title, group_name, bpm")
+        .select("id, slug, title, group_name, bpm, song_video_offsets(video_id)")
         .order("group_name", { ascending: true })
         .order("title", { ascending: true })
         .then(({ data, error }) => {
-          if (error) setError(error.message);
-          else setSongs((data as Song[]) ?? []);
+          if (error) { setError(error.message); return; }
+          const rows = (data ?? []) as unknown as (Omit<Song, "hasVideo"> & { song_video_offsets: { video_id: string }[] })[];
+          setSongs(rows.map((r) => ({ ...r, hasVideo: r.song_video_offsets.length > 0 })));
         });
 
       // 曲ごとのコール数。開く前に中身の有無が分かるようにする。
@@ -76,7 +79,7 @@ export default function CallCenterPage() {
   // まだ棚に入れていない曲（アプリに同梱しているもの）も一緒に並べる
   for (const b of BUILT_IN_SONGS.filter((x) => !x.inShelf)) {
     byGroup.set(b.groupName, [
-      { id: b.slug, slug: b.slug, title: b.title, group_name: b.groupName, bpm: b.bpm },
+      { id: b.slug, slug: b.slug, title: b.title, group_name: b.groupName, bpm: b.bpm, hasVideo: b.videos.length > 0 },
     ]);
   }
   for (const s of songs ?? []) {
@@ -183,8 +186,9 @@ export default function CallCenterPage() {
                   <Link key={s.id} to={`/call-center/song/${s.slug}/place`} style={S.card}>
                     <div style={S.cardTitle}>{s.title}</div>
                     {/* 中身の有無を先に出す。※文言は後から差し替える前提の仮置き */}
+                    {/* 動画が無い曲は開いても叩けないので、その旨をコール件数より先に出す */}
                     <div style={n > 0 ? S.cardMetaHas : S.cardMeta}>
-                      {n > 0 ? `コール ${n}件` : "コールはまだありません"}
+                      {!s.hasVideo ? "まだ動画が結び付いていません" : n > 0 ? `コール ${n}件` : "コールはまだありません"}
                     </div>
                   </Link>
                 );

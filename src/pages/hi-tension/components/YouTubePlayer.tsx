@@ -45,6 +45,10 @@ interface Props {
   onTimeUpdate?: (currentTime: number) => void;
   /** YT.PlayerState の値(1=PLAYING, 2=PAUSED, 3=BUFFERING, 0=ENDED) */
   onPlayerStateChange?: (state: number) => void;
+  /** 初期化時の頭出し秒（整数のみ有効・YouTube側の制約）。未指定=0（従来どおり） */
+  startSeconds?: number;
+  /** 指定秒に達したら自動で止める（整数のみ有効）。未指定=最後まで（従来どおり） */
+  endSeconds?: number;
 }
 
 function loadYouTubeAPI(): Promise<void> {
@@ -70,9 +74,15 @@ function loadYouTubeAPI(): Promise<void> {
 }
 
 const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer(
-  { videoId, onEnded, onTimeUpdate, onPlayerStateChange },
+  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, startSeconds, endSeconds },
   ref,
 ) {
+  // videoId が変わった時だけ player を作り直す設計（下のuseEffectの依存配列）に合わせ、
+  // 初期化時にしか使わないこの2値も ref で持つ（onEnded 等の既存の流儀と同じ）
+  const startSecondsRef = useRef(startSeconds);
+  const endSecondsRef = useRef(endSeconds);
+  startSecondsRef.current = startSeconds;
+  endSecondsRef.current = endSeconds;
   const [isReady, setIsReady] = useState(false);
   // 初回 play() から LOADING_MIN_MS 経過したかを保持。
   // 再生がすぐ始まるとローディングアニメが見えないため、最低2秒は表示する。
@@ -144,6 +154,10 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
           modestbranding: 1,
           playsinline: 1,
           cc_load_policy: 0,     // 字幕をデフォルト非表示（勝手にオンになるのを防ぐ）
+          // 長尺動画（ハロステ等）の途中から曲だけを見せるための頭出し・自動停止。
+          // YouTube側の制約で整数秒のみ有効（handover.mdの罠を踏襲）
+          ...(startSecondsRef.current ? { start: Math.round(startSecondsRef.current) } : {}),
+          ...(endSecondsRef.current !== undefined ? { end: Math.round(endSecondsRef.current) } : {}),
         },
         events: {
           onReady: () => {

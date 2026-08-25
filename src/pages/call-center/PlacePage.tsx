@@ -36,7 +36,7 @@ import { isLight } from "@/lib/colorUtils";
  * 文言はすべて仮置き（あとで差し替える前提。※【仮】マークはUIに出さない）。
  */
 
-type Video = { video_id: string; offset_sec: number; rate: number; label: string | null };
+type Video = { video_id: string; offset_sec: number; rate: number; label: string | null; end_sec: number | null };
 
 /** 振り返り画面を何が呼び出したか。ボタンの並びが変わる */
 type ReviewTrigger = "ended" | "back";
@@ -802,7 +802,7 @@ export default function PlacePage() {
       setChipMembers(fallbackChipMembers(builtIn.groupName));
       const v = builtIn.videos[0];
       if (v) {
-        setVideo({ video_id: v.videoId, offset_sec: v.offsetSec, rate: 1, label: v.label });
+        setVideo({ video_id: v.videoId, offset_sec: v.offsetSec, rate: 1, label: v.label, end_sec: null });
         restoreDraft(v.videoId);
         setSentRowIds(loadSentRowIds(slug, v.videoId));
       }
@@ -812,7 +812,7 @@ export default function PlacePage() {
     try {
       getSupabase()
         .from("song_structures")
-        .select("id, title, group_name, tour_key, song_video_offsets(video_id, offset_sec, rate, label)")
+        .select("id, title, group_name, tour_key, song_video_offsets(video_id, offset_sec, rate, label, end_sec)")
         .eq("slug", slug)
         .maybeSingle()
         .then(({ data }) => {
@@ -823,7 +823,7 @@ export default function PlacePage() {
           setGroupName(d.group_name);
           const v = d.song_video_offsets?.[0];
           if (!v) { setError("この曲にはまだ動画が結び付いていません"); return; }
-          setVideo({ video_id: v.video_id, offset_sec: Number(v.offset_sec), rate: Number(v.rate) || 1, label: v.label });
+          setVideo({ video_id: v.video_id, offset_sec: Number(v.offset_sec), rate: Number(v.rate) || 1, label: v.label, end_sec: v.end_sec !== null ? Number(v.end_sec) : null });
           restoreDraft(v.video_id);
           setSentRowIds(loadSentRowIds(slug, v.video_id));
 
@@ -939,6 +939,13 @@ export default function PlacePage() {
       }
     }
     lastPlaySecRef.current = sec;
+
+    // 長尺動画の終了位置（end_sec）を過ぎたら止める。YouTube側のendパラメータに任せているが、
+    // 環境によっては効かないことがあるための保険（見返し機能のprevious StopAtと同じ考え方）。
+    // 見返し中は別の停止ロジック(previewStopAt)が担当するので、通常再生中だけ見る
+    if (!reviewTrigger && video?.end_sec != null && sec >= video.end_sec && playerRef.current?.isPlaying()) {
+      playerRef.current.pause();
+    }
 
     // 見返しのカウントイン中なら、今どの段階か（5・6・7・8→！）を出す
     if (previewTarget) {
@@ -1466,6 +1473,8 @@ export default function PlacePage() {
             onEnded={onEnded}
             onTimeUpdate={onTime}
             onPlayerStateChange={onPlayerStateChange}
+            startSeconds={video.offset_sec}
+            endSeconds={video.end_sec ?? undefined}
           />
         )}
       </div>
