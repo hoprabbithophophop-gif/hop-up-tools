@@ -65,8 +65,21 @@ try {
 }
 
 // 3) ファイル一覧の突き合わせ
-const localFiles = fs.readdirSync(gasDir).filter((f) => !f.startsWith('.') && fs.statSync(path.join(gasDir, f)).isFile());
-const prodFiles = fs.readdirSync(tmpDir).filter((f) => !f.startsWith('.'));
+// clasp push が実際に送るのは .clasp.json の scriptExtensions/htmlExtensions/jsonExtensions
+// (+ appsscript.json)だけ。.test.mjs 等のローカル専用ファイルまで対象にすると、
+// 本番に無いだけの「新規」誤検出が出て manifest への信頼が薄れるため、ここで絞る。
+const claspConfig = JSON.parse(fs.readFileSync(path.join(gasDir, '.clasp.json'), 'utf8'));
+const pushExtensions = [
+  ...(claspConfig.scriptExtensions || ['.js', '.gs']),
+  ...(claspConfig.htmlExtensions || ['.html']),
+  ...(claspConfig.jsonExtensions || ['.json']),
+];
+function isPushedFile(name) {
+  if (name === 'appsscript.json') return true;
+  return pushExtensions.some((ext) => name.endsWith(ext));
+}
+const localFiles = fs.readdirSync(gasDir).filter((f) => !f.startsWith('.') && isPushedFile(f) && fs.statSync(path.join(gasDir, f)).isFile());
+const prodFiles = fs.readdirSync(tmpDir).filter((f) => !f.startsWith('.') && isPushedFile(f));
 
 const onlyInLocal = localFiles.filter((f) => !prodFiles.includes(f)); // 新規追加（安全）
 const onlyInProd = prodFiles.filter((f) => !localFiles.includes(f));  // 本番から消える
