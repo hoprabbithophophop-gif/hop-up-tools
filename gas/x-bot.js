@@ -123,6 +123,7 @@ function shouldNotify(type, daysLeft) {
   if (type === 'apply_end') return [0, 1, 3].indexOf(daysLeft) !== -1;
   if (type === 'payment') return [0, 1].indexOf(daysLeft) !== -1;
   if (type === 'result') return daysLeft === 0;
+  if (type === 'goods_sale_end') return [0, 1].indexOf(daysLeft) !== -1; // グッズ: 1日前・当日
   return false;
 }
 
@@ -131,6 +132,7 @@ function emojiFor(type) {
   if (type === 'apply_end') return '📝';
   if (type === 'payment') return '💰';
   if (type === 'result') return '🎯';
+  if (type === 'goods_sale_end') return '🛍️';
   return '⏰';
 }
 
@@ -139,6 +141,7 @@ function hashtagFor(type) {
   if (type === 'apply_end') return '#ハロプロ申込締切のお知らせ';
   if (type === 'payment') return '#ハロプロ入金期限のお知らせ';
   if (type === 'result') return '#ハロプロ当落発表のお知らせ';
+  if (type === 'goods_sale_end') return '#ハロプログッズ締切のお知らせ';
   return '';
 }
 
@@ -159,12 +162,16 @@ function XBmain() {
   var jstOffset = 9 * 60 * 60 * 1000;
   var todayJst = new Date(Math.floor((now.getTime() + jstOffset) / 86400000) * 86400000 - jstOffset);
 
-  // ── 3日以内の申込締切・入金期限・当落発表 ──
+  // ── 3日以内の申込締切・入金期限・当落発表・グッズ通販締切 ──
+  // グッズ通販締切(goods_sale_end)は、2026年7月7日のFCショップ移転までは e-LineUP!Mall 側の
+  // 商品ページからしか取れず、専用の別ブロックで elineup_goods を読んでいた。
+  // 移転後は締切もUPFCのニュース記事本文に載るようになり fc_deadlines に入るため、
+  // 他の締切と同じこのループで扱う（別ブロックは廃止）。
   var in4daysJst = new Date(todayJst.getTime() + 4 * 86400000); // 3日前まで拾うため余裕をみて4日
   var dlRes = UrlFetchApp.fetch(
     supabaseUrl + '/rest/v1/fc_deadlines'
     + '?select=type,label,deadline_at,fc_news(uid,title,detail_url)'
-    + '&type=in.(apply_end,payment,result)'
+    + '&type=in.(apply_end,payment,result,goods_sale_end)'
     + '&deadline_at=gte.' + todayJst.toISOString()
     + '&deadline_at=lt.' + in4daysJst.toISOString()
     + '&order=deadline_at.asc',
@@ -248,10 +255,11 @@ function XBmain() {
   });
 
   // 締切ツイートがあった場合のみツール紹介を1回投稿
+  // 同じ文言を毎日投稿するとspam判定されやすいので、4バリエーション × 2URL の組み合わせをシーケンシャルに使う
   if (notifiedCount > 0) {
     Utilities.sleep(2000);
     try {
-      postTweet('締切管理ツールとして使えます🐰\nhttps://x.com/hop_rabbit_hop/status/2041114959590101294?s=20');
+      postTweet(buildPromoTweet());
       Logger.log('[X] ツール紹介ツイート成功');
     } catch (e) {
       Logger.log('[X] ツール紹介ツイート失敗: ' + e.message);
@@ -260,6 +268,42 @@ function XBmain() {
 
   flushEmailNotify();
   flushSheetQueue();
+}
+
+// ===== 宣伝ツイートのシーケンシャル切替 =====
+// 同じ定型文の連投を避けるため、4文言 × 2URLの4ペアを順番に使い回す
+function buildPromoTweet() {
+  var VARIANTS = [
+    { text: 'FCチケットの申込・入金期限、まとめて確認できるツールあるよ🐰', url: 'https://x.com/hop_rabbit_hop/status/2041114959590101294' },
+    { text: 'ガントチャートで申込期間と入金期間を可視化してます🐰', url: 'https://x.com/hop_rabbit_hop/status/2058673226100936928' },
+    { text: 'UPFCの申込状況を貼り付けるだけで締切一覧化できるツール、こちら🐰', url: 'https://x.com/hop_rabbit_hop/status/2041114959590101294' },
+    { text: 'スマホ標準カレンダーと自動同期できる機能を追加しました🐰', url: 'https://x.com/hop_rabbit_hop/status/2058673226100936928' },
+  ];
+  var props = PropertiesService.getScriptProperties();
+  var lastIndex = parseInt(props.getProperty('X_PROMO_LAST_INDEX') || '-1', 10);
+  if (isNaN(lastIndex)) lastIndex = -1;
+  var nextIndex = (lastIndex + 1) % VARIANTS.length;
+  props.setProperty('X_PROMO_LAST_INDEX', String(nextIndex));
+  var v = VARIANTS[nextIndex];
+  return v.text + '\n' + v.url;
+}
+
+// ===== デバッグ用: 宣伝ツイートのローテーション確認 =====
+// X_DRY_RUN不要、postTweet()を呼ばないのでX投稿もしない
+// 元のindexを保存→5回ローテ→indexを元に戻す
+function debugPromoRotation() {
+  var props = PropertiesService.getScriptProperties();
+  var saved = props.getProperty('X_PROMO_LAST_INDEX');
+  for (var i = 0; i < 5; i++) {
+    var t = buildPromoTweet();
+    Logger.log('--- 回 ' + (i + 1) + ' ---\n' + t);
+  }
+  if (saved === null) {
+    props.deleteProperty('X_PROMO_LAST_INDEX');
+  } else {
+    props.setProperty('X_PROMO_LAST_INDEX', saved);
+  }
+  Logger.log('（テスト完了。X_PROMO_LAST_INDEX を元に戻しました）');
 }
 
 // ===== JST 日付フォーマット（"4/5(土)" 形式）=====
