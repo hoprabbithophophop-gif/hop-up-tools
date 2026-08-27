@@ -642,6 +642,12 @@ export default function PlacePage() {
   const [title, setTitle] = useState("");
   const [groupName, setGroupName] = useState("");
   const [video, setVideo] = useState<Video | null>(null);
+  // 同じ曲に複数の動画が結び付いている場合の候補一覧。1本しか無ければチップは出さない
+  const [videoOptions, setVideoOptions] = useState<Video[]>([]);
+  // 動画を切り替えるとき、跳ねる面のデータを同じ曲IDで読み直すために控えておく
+  const songIdRef = useRef<string | null>(null);
+  // 動画依存の読み込み関数（useEffect内で定義）を、チップの切り替えハンドラから呼べるようにする受け皿
+  const loadForVideoRef = useRef<((songId: string, v: Video) => void) | null>(null);
   // 棚から読んだ生の行（跳ねる面のsessions・候補チップのcrowdWords・送信済み！のタップ判定は
   // すべてここから作る＝派生値。棚の値を書き換えたとき(送信済み！の削除)ここだけ更新すれば
   // 他は自動で追従する（appendで積むとリフェッチのたびに二重表示になるため、置き換え式にした）
@@ -792,6 +798,51 @@ export default function PlacePage() {
       markIdRef.current = Math.max(0, ...draft.map((m) => m.id));
     };
 
+    // 動画に紐づく分の読み込み（跳ねる面のデータ・下書き・送信済み印）。
+    // 初回表示と、チップでの動画切り替えの両方から呼ぶ
+    const loadForVideo = (songId: string, v: Video) => {
+      setVideo(v);
+      setMarks([]); // 切り替え前の曲の！を持ち越さない（下書きが無ければ空のまま）
+      restoreDraft(v.video_id);
+      setSentRowIds(loadSentRowIds(slug, v.video_id));
+
+      getSupabase()
+        .rpc("get_song_calls", { p_song_id: songId })
+        .then(({ data: rows }) => {
+          if (!alive) return;
+          setRegisteredCallsSession(null);
+          if (!rows) return;
+          const secs = (rows as { start_sec: number | null }[])
+            .filter((r) => r.start_sec !== null)
+            .map((r) => toVideoSec(Number(r.start_sec), Number(v.offset_sec), Number(v.rate) || 1));
+          if (secs.length === 0) return;
+          setRegisteredCallsSession({
+            session_hash: 424242,
+            member_id: "", // 誰の色でもない＝グレー（resolveMemberColorが見つけられないIDにしている）
+            is_today: true,
+            bucket_indices: secs.map((t) => Math.round(t * 10)),
+            bucket_indices_20: secs.map((t) => Math.round(t * 20)),
+            played_date: new Date().toISOString().slice(0, 10),
+          });
+        }, () => { /* 読めなくても置く画面は成り立つ */ });
+
+      // 過去の参加者が叩いたぶんも、同じ動画のものだけ跳ねる面に流す
+      // （動画が違うと秒の物差しも違うので混ぜない＝ハイ！テンションの「動画ごとに客席を分ける」流儀と同じ）。
+      // 件数はキリなく増えるので直近200行に絞る（過去のディスク負荷事故の再発防止）。
+      getSupabase()
+        .from("call_tap_sessions")
+        .select("id, mark_secs, mark_member_ids, mark_words, created_at")
+        .eq("song_id", songId)
+        .eq("video_id", v.video_id)
+        .order("created_at", { ascending: false })
+        .limit(200)
+        .then(({ data: tapRows }) => {
+          if (!alive) return;
+          setRawTapRows((tapRows as TapRow[]) ?? []);
+        }, () => { /* 読めなくても置く画面は成り立つ */ });
+    };
+    loadForVideoRef.current = loadForVideo;
+
     // 棚に入っていない曲は同梱データで開く
     const builtIn = findBuiltInSong(slug);
     const openBuiltIn = () => {
@@ -821,11 +872,15 @@ export default function PlacePage() {
           const d = data as unknown as { id: string; title: string; group_name: string; tour_key: string | null; song_video_offsets: Video[] };
           setTitle(d.title);
           setGroupName(d.group_name);
-          const v = d.song_video_offsets?.[0];
+          const options = (d.song_video_offsets ?? []).map((v) => ({
+            video_id: v.video_id, offset_sec: Number(v.offset_sec), rate: Number(v.rate) || 1,
+            label: v.label, end_sec: v.end_sec !== null ? Number(v.end_sec) : null,
+          }));
+          const v = options[0];
           if (!v) { setError("この曲にはまだ動画が結び付いていません"); return; }
-          setVideo({ video_id: v.video_id, offset_sec: Number(v.offset_sec), rate: Number(v.rate) || 1, label: v.label, end_sec: v.end_sec !== null ? Number(v.end_sec) : null });
-          restoreDraft(v.video_id);
-          setSentRowIds(loadSentRowIds(slug, v.video_id));
+          songIdRef.current = d.id;
+          setVideoOptions(options);
+          loadForVideo(d.id, v);
 
           /**
            * 色えらびに出すメンバー。3段のフォールバック:
@@ -869,43 +924,6 @@ export default function PlacePage() {
                 setChipMembers(rows);
               }, () => { if (alive) setChipMembers(fallbackChipMembers(d.group_name)); });
           }
-
-          // すでに登録されているコールを、跳ねる面に流すぶんとして読む
-          getSupabase()
-            .rpc("get_song_calls", { p_song_id: d.id })
-            .then(({ data: rows }) => {
-              if (!alive || !rows) return;
-              const secs = (rows as { start_sec: number | null }[])
-                .filter((r) => r.start_sec !== null)
-                .map((r) => toVideoSec(Number(r.start_sec), Number(v.offset_sec), Number(v.rate) || 1));
-              if (secs.length === 0) return;
-              setRegisteredCallsSession({
-                session_hash: 424242,
-                member_id: "", // 誰の色でもない＝グレー（resolveMemberColorが見つけられないIDにしている）
-                is_today: true,
-                bucket_indices: secs.map((t) => Math.round(t * 10)),
-                bucket_indices_20: secs.map((t) => Math.round(t * 20)),
-                played_date: new Date().toISOString().slice(0, 10),
-              });
-            }, () => { /* 読めなくても置く画面は成り立つ */ });
-
-          // 過去の参加者が叩いたぶんも、同じ動画のものだけ跳ねる面に流す
-          // （動画が違うと秒の物差しも違うので混ぜない＝ハイ！テンションの「動画ごとに客席を分ける」流儀と同じ）。
-          // 件数はキリなく増えるので直近200行に絞る（過去のディスク負荷事故の再発防止）。
-          // 読みに失敗しても置く画面は成り立つよう、黙って諦める（跳ねと候補が出ないだけ）。
-          // mark_words は跳ねる面には使わない（tapRowsToSessions は今までどおり）。
-          // 候補チップに使う「秒と言葉の対」だけ別途 crowdWords に持っておく。
-          getSupabase()
-            .from("call_tap_sessions")
-            .select("id, mark_secs, mark_member_ids, mark_words, created_at")
-            .eq("song_id", d.id)
-            .eq("video_id", v.video_id)
-            .order("created_at", { ascending: false })
-            .limit(200)
-            .then(({ data: tapRows }) => {
-              if (!alive || !tapRows) return;
-              setRawTapRows(tapRows as TapRow[]);
-            }, () => { /* 読めなくても置く画面は成り立つ */ });
         }, () => { if (alive && !openBuiltIn()) setError("現在通信できていません（集まったコールを読み込めません）"); });
     } catch {
       if (!openBuiltIn()) setError("現在通信できていません（集まったコールを読み込めません）");
@@ -974,6 +992,16 @@ export default function PlacePage() {
         if (reviewTrigger) refineMarks();
       }
     }
+  };
+
+  /** 動画の候補が複数あるとき、チップで切り替える。切り替えた動画は先頭からの再生に戻る */
+  const switchVideo = (v: Video) => {
+    if (video?.video_id === v.video_id) return;
+    const songId = songIdRef.current;
+    if (!songId) return;
+    setPlaying(false);
+    lastPlaySecRef.current = 0;
+    loadForVideoRef.current?.(songId, v);
   };
 
   const togglePlay = () => {
@@ -1479,6 +1507,20 @@ export default function PlacePage() {
         )}
       </div>
 
+      {/* 動画の候補が複数あるときだけ出す。1本しか無い曲では何も表示しない（今までどおり） */}
+      {videoOptions.length > 1 && (
+        <div style={S.videoChipRow}>
+          {videoOptions.map((v, i) => (
+            <button
+              key={v.video_id}
+              type="button"
+              style={v.video_id === video?.video_id ? { ...S.videoChip, ...S.videoChipOn } : S.videoChip}
+              onClick={() => switchVideo(v)}
+            >{v.label || `動画${i + 1}`}</button>
+          ))}
+        </div>
+      )}
+
       {reviewTrigger ? (
         /* 振り返り画面。動画は上に出たままなので「見返す」で流しながら一覧を読める */
         <div style={S.reviewWrap}>
@@ -1669,6 +1711,14 @@ const S: Record<string, React.CSSProperties> = {
   title: { fontSize: 15, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   count: { marginLeft: "auto", fontSize: 12, color: "#8a8a92", fontFamily: "ui-monospace,Menlo,Consolas,monospace", flexShrink: 0 },
   videoBox: { flex: "0 0 auto" },
+  // 動画の複数候補チップ。動画エリアのすぐ下、迷わない程度に控えめに
+  videoChipRow: { flex: "0 0 auto", display: "flex", gap: 6, padding: "6px 0", overflowX: "auto" },
+  videoChip: {
+    flex: "0 0 auto", background: "none", color: "#9aa0a6",
+    boxShadow: "inset 0 0 0 1px #444", padding: "5px 10px", fontSize: 11, fontWeight: 700,
+    cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
+  },
+  videoChipOn: { background: "#fff", color: "#000", boxShadow: "none" },
   play: { background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
   // 動画より下の全部（言葉レーン・跳ねる面・色えらび＋！ボタン）を包む器。3段は各 flex:1 で
   // 高さ1/3ずつに均等分割する。止まっているとき、中段(跳ねる面)だけを midPlayOverlay で覆う
