@@ -107,6 +107,46 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
       `前田こころさん お誕生日おめでとう🎂🩵\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
     enterLabel: "先頭切って！！！！！",
   },
+  {
+    key: "eguchi_bd_2026",
+    title: "江口紗耶さんバースデースペシャル",
+    shortTitle: "江口紗耶さん💛",
+    heart: "💛",
+    color: "#fdda24",
+    targetMemberId: "eguchi",
+    kind: "birthday",
+    // 誕生日当日(8/1)の公開が遅れたため、日付境界ではなく公開時刻から24時間に設定。
+    start: "2026-08-01T23:15:00+09:00",
+    end: "2026-08-02T23:15:00+09:00",
+    // バースデーメッセージカードの締切（翌月15日）に合わせ、9/15いっぱいまで参加可。
+    joinableUntil: "2026-09-16T00:00:00+09:00",
+    endCardCongrats: "江口紗耶さん お誕生日おめでとう🎂💛",
+    shareText: (count: number) =>
+      `江口紗耶さん お誕生日おめでとう🎂💛\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
+    enterLabel: "君ならやれます私がついてる",
+  },
+  {
+    key: "kobayashi_bd_2026",
+    title: "小林萌花さんバースデースペシャル",
+    shortTitle: "小林萌花さん🍀",
+    // ハートの代わりに🍀（緑ハートは大坪さん回で使用済み。🍀はご本人のブログによく登場する）
+    heart: "🍀",
+    color: "#007749",
+    targetMemberId: "kobayashi",
+    kind: "birthday",
+    start: "2026-08-16T00:00:00+09:00",
+    // 公開が当日朝にずれ込んだぶん、主役で迎える期間を翌朝6時まで延長（Hop指示 2026-08-16）
+    end: "2026-08-17T06:00:00+09:00",
+    // バースデーメッセージカードの締切（翌月15日）に合わせ、9/15いっぱいまで参加可。
+    joinableUntil: "2026-09-16T00:00:00+09:00",
+    endCardCongrats: "小林萌花さん お誕生日おめでとう🎂🍀",
+    shareText: (count: number) =>
+      `小林萌花さん お誕生日おめでとう🎂🍀
+ハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️
+#ハイテンションPractice
+${SHARE_URL}`,
+    enterLabel: "音楽の力を信じている人〜？",
+  },
 ];
 
 export function getEvent(key: string | null | undefined): SpecialEvent | null {
