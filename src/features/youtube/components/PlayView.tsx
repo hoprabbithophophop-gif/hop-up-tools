@@ -207,7 +207,8 @@ export function PlayView({ sharedPlaylist, onGoHome, isLandscapePlay }: Props) {
               </div>
             )}
             <div className="px-4">
-              <div className="flex flex-col">
+              {/* 行をカード状に分離（2026-09-01 Hop指示「行の区切りデザインもつけて、影とか」） */}
+              <div className="flex flex-col gap-1.5">
                 {queue.map((item, idx) => {
                   const isCurrent = idx === currentIndex;
                   const isFirst = idx === 0;
@@ -222,7 +223,7 @@ export function PlayView({ sharedPlaylist, onGoHome, isLandscapePlay }: Props) {
                         ? SWIPE_REORDER_WIDTH
                         : 0;
                   return (
-                    <div key={item.id} className="relative overflow-hidden group">
+                    <div key={item.id} className="relative overflow-hidden group bg-white border border-black/5 shadow-[0_1px_3px_rgba(0,0,0,0.10)]">
                       {/* 左スワイプで右側に現れる削除ボタン */}
                       <button
                         onClick={e => {
@@ -284,12 +285,21 @@ export function PlayView({ sharedPlaylist, onGoHome, isLandscapePlay }: Props) {
                             : 'py-1.5 px-2 border-l-2 border-transparent hover:bg-neutral-50 active:bg-neutral-100'
                         }`}
                       >
+                        {/* 行の情報量: サムネ＋時間・所属動画名（2026-09-01 pick採用案B） */}
+                        <div className="shrink-0 w-16">
+                          <img src={item.thumbnailUrl} alt="" className="w-full aspect-video object-cover" loading="lazy" />
+                        </div>
                         <div className="flex-1 min-w-0">
                           <p className={`leading-snug line-clamp-3 ${
                             isCurrent
                               ? 'text-[0.65rem] font-normal first-line:text-[0.8rem] first-line:font-bold'
                               : 'text-[0.62rem] font-normal text-black/40 first-line:text-[0.75rem] first-line:text-black/60'
                           }`}>{item.chapterLabel}</p>
+                          <p className="text-[0.58rem] text-black/35 truncate mt-0.5">
+                            {item.isFullVideo
+                              ? item.channelName
+                              : `${item.chapterTimestamp}・${item.videoTitle}`}
+                          </p>
                         </div>
                       </div>
                       {/* PC（hoverデバイス）のみ右端に絶対配置で ↑ / ↓ / × が出る */}
