@@ -203,7 +203,8 @@ function ChapterPickupContent() {
     : isPlayLandscape
       ? { width: '45vw' }
     : pageState === 'play'
-      ? { height: state.currentIndex !== null ? 'calc(100vw * 9 / 16)' : '0px', overflow: 'hidden' }
+      // PLAYLISTタブでは未再生でもプレイヤー枠を常時確保する（動画切り替え時のガタつき防止。2026-09-01 過去判断の移植）
+      ? { height: 'calc(100vw * 9 / 16)', overflow: 'hidden' }
     : landscapeSplit
       ? { width: '45vw' }
       : {

@@ -2,7 +2,8 @@ import React from 'react';
 import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistContext';
 
 export function Player() {
-  const { playerReady, isTransitioning } = useChapterPlaylistContext();
+  const { playerReady, isTransitioning, state } = useChapterPlaylistContext();
+  const hasCurrent = state.currentIndex !== null;
 
   return (
     <div className="relative w-full h-full bg-black">
@@ -11,6 +12,14 @@ export function Player() {
         <div className="absolute inset-0 flex items-center justify-center bg-black pointer-events-none">
           <span className="text-[0.65rem] text-white/40 uppercase tracking-widest">
             Loading...
+          </span>
+        </div>
+      )}
+      {/* 未再生時はプレイヤー枠を空けたまま案内を出す（2026-09-01 過去判断の移植） */}
+      {playerReady && !hasCurrent && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black pointer-events-none">
+          <span className="text-[0.65rem] text-white/30 uppercase tracking-widest">
+            動画を選んでください
           </span>
         </div>
       )}

@@ -133,9 +133,10 @@ export function PlayView({ sharedPlaylist, onGoHome, isLandscapePlay }: Props) {
       )}
 
       {!isLandscapePlay && (
+        // プレイヤー枠は未再生でも常時確保する（YouTubePage側のplayerStyleと対応。2026-09-01 過去判断の移植）
         <div
           className="w-full bg-black shrink-0 overflow-hidden"
-          style={{ height: currentIndex !== null ? 'calc(100vw * 9 / 16)' : '0px' }}
+          style={{ height: 'calc(100vw * 9 / 16)' }}
         />
       )}
 
@@ -157,15 +158,29 @@ export function PlayView({ sharedPlaylist, onGoHome, isLandscapePlay }: Props) {
       {/* ── スクロール領域（リスト + フッター操作） ── */}
       <div className="flex-1 overflow-y-auto">
         {queue.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-48 gap-3 px-4 text-center">
+          /* 空状態: 追加手順の2ステップ図解（2026-09-01 pick採用案B。文言はHome=タップでシートが開く実装に合わせる） */
+          <div className="flex flex-col items-center gap-5 px-6 pt-10 text-center">
             <p className="text-[0.7rem] font-thin text-black/40 uppercase tracking-widest">キューが空です</p>
-            <p className="text-[0.7rem] font-thin text-black/30">
-              HOME画面で動画を長押ししてチャプターを追加してください
-            </p>
+            <div className="w-full max-w-[260px] flex flex-col gap-3">
+              <div className="flex items-center gap-3 border border-black/10 p-3 text-left">
+                <span className="material-symbols-outlined text-black/60">touch_app</span>
+                <p className="text-[0.72rem] text-black/60 leading-relaxed">
+                  <span className="font-bold text-black">1. HOMEの動画をタップ</span>
+                  <br />チャプター一覧が開きます
+                </p>
+              </div>
+              <div className="flex items-center gap-3 border border-black/10 p-3 text-left">
+                <span className="material-symbols-outlined text-black/60">playlist_add</span>
+                <p className="text-[0.72rem] text-black/60 leading-relaxed">
+                  <span className="font-bold text-black">2. ＋ でキューに追加</span>
+                  <br />ここに順番に並びます
+                </p>
+              </div>
+            </div>
             {onGoHome && (
               <button
                 onClick={onGoHome}
-                className="mt-2 px-6 py-2.5 bg-black text-white text-[0.8rem] font-bold uppercase cursor-pointer"
+                className="mt-1 px-6 py-2.5 bg-black text-white text-[0.8rem] font-bold uppercase cursor-pointer"
               >
                 動画を探す
               </button>
