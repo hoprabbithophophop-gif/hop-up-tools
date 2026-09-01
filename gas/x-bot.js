@@ -15,8 +15,11 @@
  * X_DRY_RUN             : "true" にするとログ出力のみ（投稿・メール送信ともしない）
  *
  * 【トリガー設定】
- * XBmain               : 毎日 0〜1時 JST に実行（時間主導型トリガー）
- *                         → 3日以内の申込締切・入金期限・当落発表を通知
+ * XBmain               : 毎日 22〜23時 JST に実行（時間主導型トリガー）
+ *                         → 翌日が対象。3日以内の申込締切・入金期限・当落発表を通知
+ *                         （日付は BASE_SHIFT_MS で2時間進めて判定するので、0時台のままでも動く）
+ * XBguard              : 毎日 XBmain の1〜2時間後 JST に実行（時間主導型トリガー）
+ *                         → 見張り役。XBmain が丸ごと落ちた日だけ、代わりに1回やり直す
  *
  * 【通知ルール（バランス案）】
  *   申込締切（apply_end）: 3日前・1日前・当日
@@ -24,6 +27,13 @@
  *   当落発表（result）   : 当日のみ
  *   当日通知は「あとN時間」表記（24時間未満を時間単位で表示）
  */
+
+// ===== 「どの日の分か」を決める基準時刻のずらし幅 =====
+// このバッチは「実行した日の分」を書き出す作りだが、実行時刻を 0時台から 22時台へ
+// 前倒ししたため、素直に実行日で数えると前日の分として書き出してしまう。
+// そこで日付を決めるときだけ実行時刻を2時間進めて判定する。
+// 22時台に動けば翌日、0時台に動いても当日と、どちらの時刻でも正しい日付になる。
+var BASE_SHIFT_MS = 2 * 60 * 60 * 1000;
 
 // ===== メール通知キュー（EMAIL_NOTIFY=true のとき使用）=====
 // 1回の実行で溜まったツイート文面をまとめて1通のメールで送る
@@ -61,12 +71,17 @@ function flushSheetQueue() {
   var ss = SpreadsheetApp.openById(sheetId);
   var sheet = ss.getSheetByName('X投稿キュー') || ss.insertSheet('X投稿キュー');
 
-  // GAS実行時のJST日付（=予約投稿日）。GASが午前0〜1時に動く想定なので「今日」になる
+  // 予約投稿日は「実行時刻を2時間進めたJST日付」で決める（BASE_SHIFT_MS の説明を参照）。
+  // 22時台に動けば翌日、0時台に動けば当日になる。
+  var baseJst = new Date(Date.now() + 9 * 60 * 60 * 1000 + BASE_SHIFT_MS);
+  var scheduledDate = baseJst.getUTCFullYear() + '-'
+    + String(baseJst.getUTCMonth() + 1).padStart(2, '0') + '-'
+    + String(baseJst.getUTCDate()).padStart(2, '0');
+  // 書き出し日時は「実際に動いた時刻」をそのまま記録する（ずらさない）
   var nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  var scheduledDate = nowJst.getUTCFullYear() + '-'
+  var nowStr = nowJst.getUTCFullYear() + '-'
     + String(nowJst.getUTCMonth() + 1).padStart(2, '0') + '-'
-    + String(nowJst.getUTCDate()).padStart(2, '0');
-  var nowStr = scheduledDate + ' '
+    + String(nowJst.getUTCDate()).padStart(2, '0') + ' '
     + String(nowJst.getUTCHours()).padStart(2, '0') + ':'
     + String(nowJst.getUTCMinutes()).padStart(2, '0');
 
@@ -100,6 +115,50 @@ function flushSheetQueue() {
   _sheetQueue = [];
 }
 
+
+// ===== 外部取得を1回だけやり直す =====
+// 相手側の一時的な不調（5xx など）で丸ごと空振りするのを防ぐ。
+// 例外そのものも1回は飲み込んで、少し待ってからもう一度だけ叩く。
+function fetchWithRetry(url, options) {
+  for (var attempt = 1; attempt <= 2; attempt++) {
+    try {
+      var res = UrlFetchApp.fetch(url, options);
+      if (res.getResponseCode() === 200 || attempt === 2) return res;
+      Logger.log('[X] 取得やり直し(' + res.getResponseCode() + ')');
+    } catch (e) {
+      if (attempt === 2) {
+        Logger.log('[X] 取得やり直しも失敗: ' + e.message);
+        return null;
+      }
+      Logger.log('[X] 取得で例外、やり直します: ' + e.message);
+    }
+    Utilities.sleep(5000);
+  }
+  return null;
+}
+
+// ===== 「その日の分」を書き出した日付の記録 =====
+// 見張り役(XBguard)が「今日の分がもう用意できているか」を判断するために使う。
+function baseDateString() {
+  var baseJst = new Date(Date.now() + 9 * 60 * 60 * 1000 + BASE_SHIFT_MS);
+  return baseJst.getUTCFullYear() + '-'
+    + String(baseJst.getUTCMonth() + 1).padStart(2, '0') + '-'
+    + String(baseJst.getUTCDate()).padStart(2, '0');
+}
+
+// ===== 見張り役（XBmain の少し後の時刻にトリガー設定する）=====
+// XBmain が Google 側の不調などで丸ごと落ちた日に、代わりに1回だけ動かし直す。
+// すでに今日の分が用意できていれば何もしない（毎日空振りするのが正常な姿）。
+function XBguard() {
+  var props = PropertiesService.getScriptProperties();
+  var today = baseDateString();
+  if (props.getProperty('X_LAST_RUN_DATE') === today) {
+    Logger.log('[X GUARD] 今日の分は用意済み（' + today + '）。何もしません');
+    return;
+  }
+  Logger.log('[X GUARD] 今日の分が未実行（' + today + '）。XBmain をやり直します');
+  XBmain();
+}
 
 // ===== ツイート済みUID管理（Script Properties に保存）=====
 function hasBeenTweeted(uid) {
@@ -157,10 +216,11 @@ function XBmain() {
 
   var headers = { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey };
 
-  // 今日 JST の 00:00〜翌 00:00
+  // 「どの日の分か」= 実行時刻を2時間進めたJST日付（BASE_SHIFT_MS の説明を参照）
   var now = new Date();
   var jstOffset = 9 * 60 * 60 * 1000;
-  var todayJst = new Date(Math.floor((now.getTime() + jstOffset) / 86400000) * 86400000 - jstOffset);
+  var baseMs = now.getTime() + BASE_SHIFT_MS;
+  var todayJst = new Date(Math.floor((baseMs + jstOffset) / 86400000) * 86400000 - jstOffset);
 
   // ── 3日以内の申込締切・入金期限・当落発表・グッズ通販締切 ──
   // グッズ通販締切(goods_sale_end)は、2026年7月7日のFCショップ移転までは e-LineUP!Mall 側の
@@ -168,17 +228,16 @@ function XBmain() {
   // 移転後は締切もUPFCのニュース記事本文に載るようになり fc_deadlines に入るため、
   // 他の締切と同じこのループで扱う（別ブロックは廃止）。
   var in4daysJst = new Date(todayJst.getTime() + 4 * 86400000); // 3日前まで拾うため余裕をみて4日
-  var dlRes = UrlFetchApp.fetch(
-    supabaseUrl + '/rest/v1/fc_deadlines'
+  var dlUrl = supabaseUrl + '/rest/v1/fc_deadlines'
     + '?select=type,label,deadline_at,fc_news(uid,title,detail_url)'
     + '&type=in.(apply_end,payment,result,goods_sale_end)'
     + '&deadline_at=gte.' + todayJst.toISOString()
     + '&deadline_at=lt.' + in4daysJst.toISOString()
-    + '&order=deadline_at.asc',
-    { headers: headers, muteHttpExceptions: true }
-  );
-  if (dlRes.getResponseCode() !== 200) {
-    Logger.log('[X] fc_deadlines 取得失敗: ' + dlRes.getContentText());
+    + '&order=deadline_at.asc';
+  // 取得は1回だけやり直す（相手側の一時的な不調で丸ごと空振りするのを防ぐ）
+  var dlRes = fetchWithRetry(dlUrl, { headers: headers, muteHttpExceptions: true });
+  if (!dlRes || dlRes.getResponseCode() !== 200) {
+    Logger.log('[X] fc_deadlines 取得失敗: ' + (dlRes ? dlRes.getContentText() : '応答なし'));
     flushEmailNotify();
     return;
   }
@@ -264,10 +323,22 @@ function XBmain() {
     } catch (e) {
       Logger.log('[X] ツール紹介ツイート失敗: ' + e.message);
     }
+  } else {
+    // 対象が1件も無かった日も「今日は無い」と分かる1本を用意する。
+    // 空のまま終わると、バッチが動いたのか落ちたのか区別が付かないため。
+    try {
+      postTweet('本日締切のお知らせはありません🐰');
+      Logger.log('[X] 0件のお知らせツイートを用意');
+    } catch (e) {
+      Logger.log('[X] 0件のお知らせツイート失敗: ' + e.message);
+    }
   }
 
   flushEmailNotify();
   flushSheetQueue();
+
+  // ここまで来たら「今日の分は用意できた」と記録する（見張り役 XBguard の判断材料）
+  props.setProperty('X_LAST_RUN_DATE', baseDateString());
 }
 
 // ===== 宣伝ツイートのシーケンシャル切替 =====
