@@ -186,6 +186,16 @@ function shouldNotify(type, daysLeft) {
   return false;
 }
 
+// ===== 重複判定用にタイトルをならす =====
+// 「【8/26更新】」のような先頭の注記や、全角空白・連続する空白の違いを吸収して、
+// 同じお知らせが別物として2本通ってしまうのを防ぐ。
+function normalizeNoticeTitle(title) {
+  return String(title || '')
+    .replace(/^[\s　]*【[^】]*】[\s　]*/, '')  // 先頭の【…更新】等を落とす
+    .replace(/[\s　]+/g, ' ')                   // 空白の違いをならす
+    .trim();
+}
+
 // ===== 種類別絵文字 =====
 function emojiFor(type) {
   if (type === 'apply_end') return '📝';
@@ -247,6 +257,10 @@ function XBmain() {
   }
 
   var notifiedCount = 0;
+  // 同じ内容のお知らせが別記事として2本立つのを防ぐ見張り。
+  // UPFC側が同一内容の記事を別uidで2つ出すことがあり（2026-09-02のつばきCONCERT等）、
+  // そのままだと同じ文面のツイートが2本並ぶため、この実行の中で1本目だけを通す。
+  var seenNotices = {};
 
   deadlines.forEach(function (d) {
     var uid = d.fc_news ? d.fc_news.uid : d.type + '_' + d.deadline_at;
@@ -264,6 +278,14 @@ function XBmain() {
       Logger.log('[X] 対象外スキップ: ' + newsTitle + ' (' + d.type + ', あと' + daysLeft + '日)');
       return;
     }
+
+    // 中身が同じお知らせ（種類・締切時刻・タイトルが一致）は最初の1本だけにする
+    var noticeKey = d.type + '|' + d.deadline_at + '|' + normalizeNoticeTitle(newsTitle);
+    if (seenNotices[noticeKey]) {
+      Logger.log('[X] 重複スキップ（同内容の別記事）: ' + newsTitle);
+      return;
+    }
+    seenNotices[noticeKey] = true;
 
     // 日数/時間ラベル
     // 当日：「あとN時間」のみ
