@@ -239,7 +239,7 @@ function XBmain() {
   // 他の締切と同じこのループで扱う（別ブロックは廃止）。
   var in4daysJst = new Date(todayJst.getTime() + 4 * 86400000); // 3日前まで拾うため余裕をみて4日
   var dlUrl = supabaseUrl + '/rest/v1/fc_deadlines'
-    + '?select=type,label,deadline_at,fc_news(uid,title,detail_url)'
+    + '?select=type,label,deadline_at,fc_news(uid,title,detail_url,scraped_at)'
     + '&type=in.(apply_end,payment,result,goods_sale_end)'
     + '&deadline_at=gte.' + todayJst.toISOString()
     + '&deadline_at=lt.' + in4daysJst.toISOString()
@@ -259,7 +259,21 @@ function XBmain() {
   var notifiedCount = 0;
   // 同じ内容のお知らせが別記事として2本立つのを防ぐ見張り。
   // UPFC側が同一内容の記事を別uidで2つ出すことがあり（2026-09-02のつばきCONCERT等）、
-  // そのままだと同じ文面のツイートが2本並ぶため、この実行の中で1本目だけを通す。
+  // そのままだと同じ文面のツイートが2本並ぶため、1本だけを通す。
+  //
+  // どちらを残すかが重要。古い方の記事は、UPFCが取り下げて中身が空になっていることが
+  // ある（ページは200を返すが本文が消える）。空のページへ誘導しないよう、
+  // 「あとから取り込まれた方（scraped_at が新しい方）」を残す。
+  var bestByNotice = {};
+  deadlines.forEach(function (d) {
+    var t = d.fc_news ? d.fc_news.title : '';
+    var key = d.type + '|' + d.deadline_at + '|' + normalizeNoticeTitle(t);
+    var scraped = (d.fc_news && d.fc_news.scraped_at) ? String(d.fc_news.scraped_at) : '';
+    var cur = bestByNotice[key];
+    if (!cur || scraped > cur.scraped) {
+      bestByNotice[key] = { uid: d.fc_news ? d.fc_news.uid : '', scraped: scraped };
+    }
+  });
   var seenNotices = {};
 
   deadlines.forEach(function (d) {
@@ -279,8 +293,14 @@ function XBmain() {
       return;
     }
 
-    // 中身が同じお知らせ（種類・締切時刻・タイトルが一致）は最初の1本だけにする
+    // 中身が同じお知らせ（種類・締切時刻・タイトルが一致）は1本だけにする。
+    // 残すのは、あとから取り込まれた記事（古い方は中身が空になっていることがあるため）。
     var noticeKey = d.type + '|' + d.deadline_at + '|' + normalizeNoticeTitle(newsTitle);
+    var best = bestByNotice[noticeKey];
+    if (best && best.uid && uid !== best.uid) {
+      Logger.log('[X] 重複スキップ（同内容で古い方の記事）: ' + newsTitle);
+      return;
+    }
     if (seenNotices[noticeKey]) {
       Logger.log('[X] 重複スキップ（同内容の別記事）: ' + newsTitle);
       return;
