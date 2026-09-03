@@ -20,6 +20,8 @@
  *                         （日付は BASE_SHIFT_MS で2時間進めて判定するので、0時台のままでも動く）
  * XBguard              : 毎日 XBmain の1〜2時間後 JST に実行（時間主導型トリガー）
  *                         → 見張り役。XBmain が丸ごと落ちた日だけ、代わりに1回やり直す
+ * XBredoToday          : トリガーなし（手動専用）。XBmain が落ちて予約シートが空／0件だけの日に、
+ *                         「通知済み」の印を無視して同じ日の分を作り直す。22:00 JST より前に実行
  *
  * 【通知ルール（バランス案）】
  *   申込締切（apply_end）: 3日前・1日前・当日
@@ -68,6 +70,25 @@ function flushSheetQueue() {
     Logger.log('[X SHEET] SHEET_ID 未設定');
     return;
   }
+  // Google スプレッドシート側の一時的な不調（"Service Spreadsheets failed while accessing
+  // document" 等）で丸ごと落ちるのを防ぐため、書き出し全体を最大3回まで試す。
+  // 書き出しは「データ行を全部消してから追記」なので、途中で失敗した回があっても
+  // 次の回で最初からやり直せば最終形は同じになる（2026-09-03 22:52 に実際に発生）。
+  var lastError = null;
+  for (var attempt = 1; attempt <= 3; attempt++) {
+    try {
+      writeSheetQueue(sheetId);
+      return;
+    } catch (e) {
+      lastError = e;
+      Logger.log('[X SHEET] 書き出し失敗(' + attempt + '回目): ' + e.message);
+      if (attempt < 3) Utilities.sleep(10000);
+    }
+  }
+  throw lastError;
+}
+
+function writeSheetQueue(sheetId) {
   var ss = SpreadsheetApp.openById(sheetId);
   var sheet = ss.getSheetByName('X投稿キュー') || ss.insertSheet('X投稿キュー');
 
@@ -161,7 +182,11 @@ function XBguard() {
 }
 
 // ===== ツイート済みUID管理（Script Properties に保存）=====
+// XBredoToday() から呼ばれたときだけ true になり、「通知済み」の印を無視して作り直す
+var _ignoreTweetedMarks = false;
+
 function hasBeenTweeted(uid) {
+  if (_ignoreTweetedMarks) return false;
   var tweeted = JSON.parse(
     PropertiesService.getScriptProperties().getProperty('X_TWEETED_UIDS') || '[]'
   );
@@ -171,9 +196,27 @@ function hasBeenTweeted(uid) {
 function markAsTweeted(uid) {
   var props = PropertiesService.getScriptProperties();
   var tweeted = JSON.parse(props.getProperty('X_TWEETED_UIDS') || '[]');
+  if (tweeted.indexOf(uid) !== -1) return; // 作り直しで同じ印を二重に付けない
   tweeted.push(uid);
   if (tweeted.length > 500) tweeted = tweeted.slice(-500); // 上限500件
   props.setProperty('X_TWEETED_UIDS', JSON.stringify(tweeted));
+}
+
+// ===== 復旧用: 今日の分を「通知済み」の印を無視して作り直す =====
+// XBmain が予約シートへの書き出しで落ちた日に使う（Apps Script エディタから手で実行）。
+// 使いどころ: 実行数の画面で XBmain が「失敗しました」になっていて、
+//   予約シートに「本日締切のお知らせはありません」しか無い／空のとき。
+// 注意: 「どの日の分か」は実行時刻+2時間で決まるので、22:00 JST より前に実行すること
+//   （22:00 を過ぎると翌日の分を作ってしまう）。
+// 印の付け方が「書き出し成功後」に変わった今は、XBguard の自動やり直しで
+// 済むはずだが、それでも復旧できなかった日の最後の手段として残す。
+function XBredoToday() {
+  _ignoreTweetedMarks = true;
+  try {
+    XBmain();
+  } finally {
+    _ignoreTweetedMarks = false;
+  }
 }
 
 // ===== 通知対象判定（バランス案）=====
@@ -257,6 +300,12 @@ function XBmain() {
   }
 
   var notifiedCount = 0;
+  // 「通知済み」の印を付けるタイミング:
+  //   X に直接投稿したものは、その場で印を付ける（二重投稿を防ぐため）。
+  //   シート／メール／DRY RUN に積んだだけのものは、書き出しが成功してから印を付ける。
+  //   （積んだ時点で印を付けると、書き出しで落ちた日に印だけ残り、やり直しても
+  //   全部「通知済み」で飛ばされて空のシートになる。2026-09-03 に実際に発生）
+  var pendingMarks = [];
   // 同じ内容のお知らせが別記事として2本立つのを防ぐ見張り。
   // UPFC側が同一内容の記事を別uidで2つ出すことがあり（2026-09-02のつばきCONCERT等）、
   // そのままだと同じ文面のツイートが2本並ぶため、1本だけを通す。
@@ -345,8 +394,12 @@ function XBmain() {
     }
 
     try {
-      postTweet(text);
-      markAsTweeted(tweetKey);
+      var result = postTweet(text);
+      if (result && result.queued) {
+        pendingMarks.push(tweetKey);   // 書き出し成功後に印を付ける
+      } else {
+        markAsTweeted(tweetKey);       // X に投稿済みなので即座に印を付ける
+      }
       notifiedCount++;
       Logger.log('[X] ツイート成功: ' + newsTitle + ' (' + daysLabel + ')');
     } catch (e) {
@@ -378,6 +431,9 @@ function XBmain() {
 
   flushEmailNotify();
   flushSheetQueue();
+
+  // 書き出しまで通ったので、積んでおいた分に「通知済み」の印を付ける
+  pendingMarks.forEach(function (key) { markAsTweeted(key); });
 
   // ここまで来たら「今日の分は用意できた」と記録する（見張り役 XBguard の判断材料）
   props.setProperty('X_LAST_RUN_DATE', baseDateString());
@@ -439,24 +495,28 @@ function formatJstTime(isoString) {
 function postTweet(text) {
   var props = PropertiesService.getScriptProperties();
 
+  // 返り値: { queued: true } = キューに積んだだけ（まだ外に出ていない）
+  //         X API の応答オブジェクト = 実際に X へ投稿した
+  // 呼び出し側（XBmain）はこの違いで「通知済み」の印を付けるタイミングを変える。
+
   // X_DRY_RUN=true のときは投稿せずログに出すだけ
   if (props.getProperty('X_DRY_RUN') === 'true') {
     Logger.log('[X DRY RUN] --- 文面確認 ---\n' + text + '\n--- ここまで ---');
-    return;
+    return { queued: true };
   }
 
   // EMAIL_NOTIFY=true のときはメールキューに積んで後でまとめて送信
   if (props.getProperty('EMAIL_NOTIFY') === 'true') {
     _emailQueue.push({ label: text.split('\n')[0], text: text });
     Logger.log('[X EMAIL] キュー追加: ' + text.split('\n')[0]);
-    return;
+    return { queued: true };
   }
 
   // SHEET_MODE=true のときはスプシキューに積んで後でまとめて書き出し
   if (props.getProperty('SHEET_MODE') === 'true') {
     _sheetQueue.push({ text: text });
     Logger.log('[X SHEET] キュー追加: ' + text.split('\n')[0]);
-    return;
+    return { queued: true };
   }
 
   var apiKey = props.getProperty('X_API_KEY');
