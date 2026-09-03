@@ -175,8 +175,12 @@ test("parseDeadlinesFromHtml: 26イベント分が並ぶグッズ一覧記事(�
   assert.equal(deadlines.length, 0, `見送られていない: ${JSON.stringify(deadlines)}`);
 });
 
-test("UF_BACKFILL_TARGETS: 名指し読み直しの対象は24件・重複UIDなし・タイトル欠けなし", () => {
+// 開場時刻の名指し読み直し(UFbackfillOpenAt)は 2026-09-04 に役目を終えて gas/archive/ へ移した。
+// 対象リストの整合性チェックは、また使うときに壊れていないか分かるよう保管庫側を読んで続ける。
+test("UF_BACKFILL_TARGETS(保管庫): 名指し読み直しの対象は24件・重複UIDなし・タイトル欠けなし", () => {
   const sandbox = loadScraper();
+  const archiveSrc = readFileSync(join(__dirname, "archive", "upfc-backfill-open-at.js"), "utf8");
+  vm.runInContext(archiveSrc, sandbox, { filename: "archive/upfc-backfill-open-at.js" });
   const targets = readScraperConst(sandbox, "UF_BACKFILL_TARGETS");
   assert.equal(targets.length, 24);
   const uids = targets.map((t) => t.uid);
