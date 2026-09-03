@@ -6,7 +6,11 @@
  *  2. 通らない会場だけオーナーにメール（地図検索リンク＋座標を貼るだけのSQL付き）
  *  同じ会場の通知は1回だけ（スクリプトプロパティで通知済みを記録）。
  *
- * セットアップ: GASエディタで VENUEsetupTrigger() を一度実行（毎日朝9時に VENUEmain が回る）
+ * トリガー: VENUEmain の日次トリガー（毎朝9時台）は設定済み。作り直すときは
+ *   Apps Script の「トリガー」画面から手で作るか、gas/archive/venue-setup-trigger.js を使う。
+ *
+ * 【保管庫へ移した関数（gas/archive/venue-setup-trigger.js にそのまま残してある）】
+ * VENUEsetupTrigger（2026-09-04。トリガー作成が済み、二度目は要らないため）
  *
  * 自動採用の厳格ルール（手作業ジオコーディング時の事故から導出）:
  *  - 都道府県が一致（「（東京）」と返ってきた住所の都道府県を照合）
@@ -154,13 +158,4 @@ function strictGeocode(name, pref) {
     }
   }
   return null;
-}
-
-/** 日次トリガーを作る（GASエディタから一度だけ実行） */
-function VENUEsetupTrigger() {
-  for (const t of ScriptApp.getProjectTriggers()) {
-    if (t.getHandlerFunction() === 'VENUEmain') ScriptApp.deleteTrigger(t);
-  }
-  ScriptApp.newTrigger('VENUEmain').timeBased().everyDays(1).atHour(9).create();
-  Logger.log('VENUEmain の日次トリガー（毎朝9時台）を設定しました');
 }

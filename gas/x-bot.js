@@ -28,6 +28,9 @@
  *   入金期限（payment）  : 1日前・当日
  *   当落発表（result）   : 当日のみ
  *   当日通知は「あとN時間」表記（24時間未満を時間単位で表示）
+ *
+ * 【保管庫へ移した関数（gas/archive/x-bot-debug.js にそのまま残してある）】
+ * debugPromoRotation（2026-09-04。宣伝文言の順番切替の確認が済んだため）
  */
 
 // ===== 「どの日の分か」を決める基準時刻のずらし幅 =====
@@ -455,24 +458,6 @@ function buildPromoTweet() {
   props.setProperty('X_PROMO_LAST_INDEX', String(nextIndex));
   var v = VARIANTS[nextIndex];
   return v.text + '\n' + v.url;
-}
-
-// ===== デバッグ用: 宣伝ツイートのローテーション確認 =====
-// X_DRY_RUN不要、postTweet()を呼ばないのでX投稿もしない
-// 元のindexを保存→5回ローテ→indexを元に戻す
-function debugPromoRotation() {
-  var props = PropertiesService.getScriptProperties();
-  var saved = props.getProperty('X_PROMO_LAST_INDEX');
-  for (var i = 0; i < 5; i++) {
-    var t = buildPromoTweet();
-    Logger.log('--- 回 ' + (i + 1) + ' ---\n' + t);
-  }
-  if (saved === null) {
-    props.deleteProperty('X_PROMO_LAST_INDEX');
-  } else {
-    props.setProperty('X_PROMO_LAST_INDEX', saved);
-  }
-  Logger.log('（テスト完了。X_PROMO_LAST_INDEX を元に戻しました）');
 }
 
 // ===== JST 日付フォーマット（"4/5(土)" 形式）=====

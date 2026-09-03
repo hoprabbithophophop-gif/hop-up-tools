@@ -3,3 +3,6 @@
 **/*.test.mjs
 fixtures/
 fixtures/**
+# 保管庫（役目を終えた一時関数）。GitHubには残すが本番には送らない
+archive/
+archive/**
