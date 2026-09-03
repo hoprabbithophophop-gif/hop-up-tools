@@ -883,47 +883,74 @@ export default function PlacePage() {
           loadForVideo(d.id, v);
 
           /**
-           * 色えらびに出すメンバー。3段のフォールバック:
+           * 色えらびに出すメンバー。4段のフォールバック:
+           * 0) member_color_overrides（臨時ユニット用の色の上書き。本来のメンカラと別の色を
+           *    使う ConChu! 等はここにだけ名簿がある）。group_name から末尾の年号を落とした
+           *    group_name_key で突き合わせ、1件以上あればここで確定して先へは進まない。
+           *    並び順の欄が無いので 2) と同じ規則で並べる
            * 1) 曲にツアーの紐付きがあれば tour_rosters（ツアー時点の固定名簿）
            * 2) 無ければ hello_members の今の在籍（並び順の欄が無いので、members.ts と
            *    同じ並びの名前はその順、無い名前は名前順で末尾に置く）
            * 3) どちらも読めなければ（棚に繋がらない等）members.ts の代用（画面を死なせない）
+           * 0) が0件・読めないときは 1)〜3) へそのまま進む（上書きが無いだけで名簿は別にあるため）
            */
-          if (d.tour_key) {
-            getSupabase()
-              .from("tour_rosters")
-              .select("name, color, display_order")
-              .eq("tour_key", d.tour_key)
-              .order("display_order", { ascending: true })
-              .then(({ data: rosterRows }) => {
-                if (!alive) return;
-                if (!rosterRows || rosterRows.length === 0) { setChipMembers(fallbackChipMembers(d.group_name)); return; }
-                setChipMembers((rosterRows as { name: string; color: string }[]).map((r) => ({ name: r.name, color: r.color })));
-              }, () => { if (alive) setChipMembers(fallbackChipMembers(d.group_name)); });
-          } else {
-            getSupabase()
-              .from("hello_members")
-              .select("name, color")
-              .eq("group_name", d.group_name)
-              .eq("active", true)
-              .not("color", "is", null)
-              .then(({ data: activeRows }) => {
-                if (!alive) return;
-                if (!activeRows) { setChipMembers(fallbackChipMembers(d.group_name)); return; }
-                const rows = (activeRows as { name: string; color: string | null }[])
-                  .filter((r): r is { name: string; color: string } => !!r.color);
-                if (rows.length === 0) { setChipMembers(fallbackChipMembers(d.group_name)); return; }
-                // members.ts に同じ名前があればその並び順、無い名前は名前順で末尾に置く
-                const order = new Map(ALL_MEMBERS.filter((m) => m.group === d.group_name).map((m, i) => [m.name, i]));
-                rows.sort((a, b) => {
-                  const ai = order.get(a.name) ?? Number.MAX_SAFE_INTEGER;
-                  const bi = order.get(b.name) ?? Number.MAX_SAFE_INTEGER;
-                  if (ai !== bi) return ai - bi;
-                  return a.name.localeCompare(b.name, "ja");
-                });
-                setChipMembers(rows);
-              }, () => { if (alive) setChipMembers(fallbackChipMembers(d.group_name)); });
-          }
+          const loadFromRosterOrActive = () => {
+            if (d.tour_key) {
+              getSupabase()
+                .from("tour_rosters")
+                .select("name, color, display_order")
+                .eq("tour_key", d.tour_key)
+                .order("display_order", { ascending: true })
+                .then(({ data: rosterRows }) => {
+                  if (!alive) return;
+                  if (!rosterRows || rosterRows.length === 0) { setChipMembers(fallbackChipMembers(d.group_name)); return; }
+                  setChipMembers((rosterRows as { name: string; color: string }[]).map((r) => ({ name: r.name, color: r.color })));
+                }, () => { if (alive) setChipMembers(fallbackChipMembers(d.group_name)); });
+            } else {
+              getSupabase()
+                .from("hello_members")
+                .select("name, color")
+                .eq("group_name", d.group_name)
+                .eq("active", true)
+                .not("color", "is", null)
+                .then(({ data: activeRows }) => {
+                  if (!alive) return;
+                  if (!activeRows) { setChipMembers(fallbackChipMembers(d.group_name)); return; }
+                  const rows = (activeRows as { name: string; color: string | null }[])
+                    .filter((r): r is { name: string; color: string } => !!r.color);
+                  if (rows.length === 0) { setChipMembers(fallbackChipMembers(d.group_name)); return; }
+                  // members.ts に同じ名前があればその並び順、無い名前は名前順で末尾に置く
+                  const order = new Map(ALL_MEMBERS.filter((m) => m.group === d.group_name).map((m, i) => [m.name, i]));
+                  rows.sort((a, b) => {
+                    const ai = order.get(a.name) ?? Number.MAX_SAFE_INTEGER;
+                    const bi = order.get(b.name) ?? Number.MAX_SAFE_INTEGER;
+                    if (ai !== bi) return ai - bi;
+                    return a.name.localeCompare(b.name, "ja");
+                  });
+                  setChipMembers(rows);
+                }, () => { if (alive) setChipMembers(fallbackChipMembers(d.group_name)); });
+            }
+          };
+          const groupNameKey = d.group_name.replace(/\s*['’′]\d{2}\s*$/, "").trim();
+          getSupabase()
+            .from("member_color_overrides")
+            .select("member_name, color")
+            .eq("group_name_key", groupNameKey)
+            .then(({ data: overrideRows }) => {
+              if (!alive) return;
+              if (!overrideRows || overrideRows.length === 0) { loadFromRosterOrActive(); return; }
+              const rows = (overrideRows as { member_name: string; color: string }[])
+                .map((r) => ({ name: r.member_name, color: r.color }));
+              // members.ts に同じ名前があればその並び順、無い名前は名前順で末尾に置く
+              const order = new Map(ALL_MEMBERS.filter((m) => m.group === d.group_name).map((m, i) => [m.name, i]));
+              rows.sort((a, b) => {
+                const ai = order.get(a.name) ?? Number.MAX_SAFE_INTEGER;
+                const bi = order.get(b.name) ?? Number.MAX_SAFE_INTEGER;
+                if (ai !== bi) return ai - bi;
+                return a.name.localeCompare(b.name, "ja");
+              });
+              setChipMembers(rows);
+            }, () => { if (alive) loadFromRosterOrActive(); });
         }, () => { if (alive && !openBuiltIn()) setError("現在通信できていません（集まったコールを読み込めません）"); });
     } catch {
       if (!openBuiltIn()) setError("現在通信できていません（集まったコールを読み込めません）");
