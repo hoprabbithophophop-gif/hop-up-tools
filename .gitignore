@@ -58,5 +58,3 @@ gas/.clasp.json
 # 解析スクリプトの副産物
 scripts/song-structure/**/__pycache__/
 
-# GAS反映時に控えた本番の中身（消える恐れのあるものの現物控え）
-/.gas-push-backup

@@ -1,179 +1,40 @@
 #!/usr/bin/env node
 /**
- * GAS(gas/)を本番Apps Scriptへ反映する唯一の入口。
- * 生の `clasp push` は .claude/hooks/check-gas-commit.sh で拒否される
- * （CLAUDE.md「GASの反映は必ず npm run gas:push を使う」）。
+ * GAS(gas/)を本番Apps Scriptへ反映する入口（呼び出し用の薄い取次ぎ）。
  *
- * clasp push は差分ではなく「今のgas/フォルダで本番を丸ごと入れ替える」動作なので、
- * 古いブランチ（mainから分岐した各worktree等）から実行すると事故になる。ここでは
- *   1. gas/配下の未コミット差分チェック
- *   2. 本番を一時ディレクトリに clasp pull して、ローカルのgas/と全ファイル突き合わせ
- *   3. 本番にあってローカルに無いファイル（削除される）→ --force-delete が無ければ中止
- *   4. 内容が違うファイル → 本番の中身がこのブランチのgit履歴に存在するか調べ、
- *      「安全（本番は過去のこのブランチの内容の巻き戻し）」か
- *      「危険（本番にこのブランチが持ったことのない内容がある＝上書きすると消える）」かを
- *      ラベル付けして提示。差分がある限り --confirm が無ければ中止
- *   5. 危険と判定した変更と、本番にしか無いファイル（--force-delete で消える分）について、
- *      本番の中身を .gas-push-backup/<日時>/ に控える（表示の警告は読み飛ばされうるため、
- *      警告に頼らず現物を残す。--check でも控える）
- * を行ってから実際に push する。
+ * 中身の本体は、このリポジトリの中ではなく ~/.claude/scripts/gas-push.mjs にある。
  *
- * 使い方:
- *   node scripts/gas-push.mjs --check           実際にはpushせず、差分の確認だけ行う
- *   node scripts/gas-push.mjs --confirm          内容差分があっても続行する
- *   node scripts/gas-push.mjs --confirm --force-delete   本番にしか無いファイルの削除も許可する
+ * なぜ外に置いたか:
+ *   このファイルがリポジトリの中にあると、ブランチごとに中身が分かれる。そのため
+ *   安全確認を足しても、それを持たない枝で作業している間はまったく効かない。
+ *   2026-09-04 に実際の状態を数えたところ、作業フォルダ13個・ブランチ28個のうち、
+ *   この仕組みを持っていたのは1つだけだった。ユーザー設定側（どの枝にも属さない場所）に
+ *   置けば、どの枝・どの作業フォルダで作業していても同じ確認が走る。
+ *   本体を移す前の最後の版は commit 2fa5073。中身の変遷はそこまでのgit履歴に残っている。
+ *
+ * 使い方（今までどおり）:
+ *   npm run gas:push -- --check                     差分の確認だけ（送信しない）
+ *   npm run gas:push -- --confirm                   内容差分があっても続行する
+ *   npm run gas:push -- --confirm --force-delete    本番にしか無いファイルの削除も許可
+ *
+ * gas:push が用意されていない枝では、本体を直に呼ぶ:
+ *   node ~/.claude/scripts/gas-push.mjs --check
+ *
+ * 生の `clasp push` は ~/.claude/hooks/check-gas-push.sh が拒否する。
  */
-import { execSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { homedir } from 'node:os';
 
-const args = process.argv.slice(2);
-const checkOnly = args.includes('--check');
-const confirmed = args.includes('--confirm');
-const forceDelete = args.includes('--force-delete');
+const target = path.join(homedir(), '.claude', 'scripts', 'gas-push.mjs');
 
-function run(cmd, opts = {}) {
-  return execSync(cmd, { encoding: 'utf8', ...opts });
-}
-
-function normalize(bufOrStr) {
-  return String(bufOrStr).replace(/\r\n/g, '\n');
-}
-
-const repoRoot = run('git rev-parse --show-toplevel').trim();
-const gasDir = path.join(repoRoot, 'gas');
-
-// 1) 未コミット差分チェック
-const dirty = run('git status --porcelain -- gas/', { cwd: repoRoot }).trim();
-if (dirty) {
-  console.error('gas/配下に未コミットの変更があります。先に git commit してください:\n' + dirty);
+if (!fs.existsSync(target)) {
+  console.error('反映の本体が見つかりません: ' + target);
+  console.error('このパソコンの ~/.claude/scripts/ に gas-push.mjs を置いてください。');
+  console.error('（本体を移す前の版は、このリポジトリの commit 2fa5073 の scripts/gas-push.mjs にあります）');
   process.exit(1);
 }
 
-// 2) 本番を一時ディレクトリへ取得
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gas-push-check-'));
-fs.copyFileSync(path.join(gasDir, '.clasp.json'), path.join(tmpDir, '.clasp.json'));
-const claspignore = path.join(gasDir, '.claspignore');
-if (fs.existsSync(claspignore)) fs.copyFileSync(claspignore, path.join(tmpDir, '.claspignore'));
-
-try {
-  run('clasp pull', { cwd: tmpDir, stdio: 'pipe' });
-} catch (e) {
-  console.error('本番の取得(clasp pull)に失敗しました。ネットワークやログイン状態を確認してください。');
-  console.error('本番の状態が確認できない以上、安全のため push は行いません。');
-  console.error(e.message || e);
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-  process.exit(1);
-}
-
-// 3) ファイル一覧の突き合わせ
-// clasp push が実際に送るのは .clasp.json の scriptExtensions/htmlExtensions/jsonExtensions
-// (+ appsscript.json)だけ。.test.mjs 等のローカル専用ファイルまで対象にすると、
-// 本番に無いだけの「新規」誤検出が出て manifest への信頼が薄れるため、ここで絞る。
-const claspConfig = JSON.parse(fs.readFileSync(path.join(gasDir, '.clasp.json'), 'utf8'));
-const pushExtensions = [
-  ...(claspConfig.scriptExtensions || ['.js', '.gs']),
-  ...(claspConfig.htmlExtensions || ['.html']),
-  ...(claspConfig.jsonExtensions || ['.json']),
-];
-function isPushedFile(name) {
-  if (name === 'appsscript.json') return true;
-  return pushExtensions.some((ext) => name.endsWith(ext));
-}
-const localFiles = fs.readdirSync(gasDir).filter((f) => !f.startsWith('.') && isPushedFile(f) && fs.statSync(path.join(gasDir, f)).isFile());
-const prodFiles = fs.readdirSync(tmpDir).filter((f) => !f.startsWith('.') && isPushedFile(f));
-
-const onlyInLocal = localFiles.filter((f) => !prodFiles.includes(f)); // 新規追加（安全）
-const onlyInProd = prodFiles.filter((f) => !localFiles.includes(f));  // 本番から消える
-const inBoth = localFiles.filter((f) => prodFiles.includes(f));
-
-// 4) 内容差分の方向判定（本番の中身が、このブランチの過去コミットに実在するか）
-function fileHistory(relPath) {
-  const out = run(`git log --format=%H -- "${relPath}"`, { cwd: repoRoot }).trim();
-  return out ? out.split('\n') : [];
-}
-function contentAtCommit(commit, relPath) {
-  try {
-    return normalize(run(`git show ${commit}:"${relPath}"`, { cwd: repoRoot }));
-  } catch {
-    return null; // そのコミット時点でファイルが無い
-  }
-}
-function prodContentIsInHistory(relPath, prodContent) {
-  for (const c of fileHistory(relPath)) {
-    if (contentAtCommit(c, relPath) === prodContent) return true;
-  }
-  return false;
-}
-
-const changed = [];
-for (const f of inBoth) {
-  const localContent = normalize(fs.readFileSync(path.join(gasDir, f)));
-  const prodContent = normalize(fs.readFileSync(path.join(tmpDir, f)));
-  if (localContent === prodContent) continue;
-  const safe = prodContentIsInHistory(`gas/${f}`, prodContent);
-  changed.push({
-    file: f,
-    direction: safe ? 'safe' : 'danger',
-    localLines: localContent.split('\n').length,
-    prodLines: prodContent.split('\n').length,
-  });
-}
-
-// 5) manifest表示
-console.log('=== gas push manifest ===');
-if (onlyInLocal.length) console.log('[新規]  ' + onlyInLocal.join(', '));
-for (const c of changed) {
-  const label = c.direction === 'safe'
-    ? '安全（本番は過去のこのブランチの内容＝巻き戻し）'
-    : '★危険（本番にこのブランチが持ったことのない内容あり＝上書きすると消える）';
-  console.log(`[変更]  ${c.file} — ${label}（本番${c.prodLines}行 → ローカル${c.localLines}行）`);
-}
-if (onlyInProd.length) console.log('[削除]  ' + onlyInProd.join(', ') + '（本番からこのファイルが消えます）');
-if (!onlyInLocal.length && !changed.length && !onlyInProd.length) console.log('差分なし。');
-
-const hasDanger = changed.some((c) => c.direction === 'danger');
-const hasChange = changed.length > 0;
-const hasDelete = onlyInProd.length > 0;
-
-// 5.5) 消える恐れのある本番の中身を、手元に控えてから先へ進む
-// 対象は「★危険」と判定した変更（本番にこの枝が持ったことのない内容がある）と、
-// 本番にしか無いファイル（--force-delete で消える）の2つ。
-// 表示の警告は読み飛ばされうるので、警告に頼らず現物を残す。ここで控えを取っておけば、
-// あとから中身を見て取り込むか捨てるかを決められる。控えはgitに入れない（.gitignore済み）。
-const atRisk = changed.filter((c) => c.direction === 'danger').map((c) => c.file).concat(onlyInProd);
-if (atRisk.length) {
-  // フォルダ名は日本時間。世界標準時のままだと、控えた日付が手元の感覚と9時間ずれる
-  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  const stamp = jst.toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
-  const backupDir = path.join(repoRoot, '.gas-push-backup', stamp);
-  fs.mkdirSync(backupDir, { recursive: true });
-  for (const f of atRisk) fs.copyFileSync(path.join(tmpDir, f), path.join(backupDir, f));
-  console.log('\n消える恐れのある本番の中身を控えました（' + atRisk.length + '件）:');
-  console.log('  ' + path.relative(repoRoot, backupDir).split(path.sep).join('/') + '/');
-  console.log('  ' + atRisk.join(', '));
-}
-
-if (hasDelete && !forceDelete) {
-  console.error('\n本番にあってローカルに無いファイルがあります。削除してよければ --force-delete を付けて再実行してください。');
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-  process.exit(1);
-}
-if (hasChange && !confirmed) {
-  console.error('\n内容の差分があります。上の一覧を確認し、問題なければ --confirm を付けて再実行してください。');
-  if (hasDanger) console.error('★危険方向の変更が含まれています。本当にこれで良いか、特によく確認してください。');
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-  process.exit(1);
-}
-
-fs.rmSync(tmpDir, { recursive: true, force: true });
-
-if (checkOnly) {
-  console.log('\n--check モードのため、ここで終了します（実際の push はしていません）。');
-  process.exit(0);
-}
-
-console.log('\npush します...');
-run('clasp push', { cwd: gasDir, stdio: 'inherit' });
-console.log('push完了。');
+const res = spawnSync(process.execPath, [target, ...process.argv.slice(2)], { stdio: 'inherit' });
+process.exit(res.status === null ? 1 : res.status);
