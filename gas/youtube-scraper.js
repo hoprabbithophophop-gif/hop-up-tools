@@ -657,9 +657,13 @@ function syncMembers() {
       // 列が違うと「All object keys must match」で書き込みごと弾かれる。なので color・joined_on は
       // 全員ぶん必ず持たせておき、取れなかった／変わらなかった人は「今の値をそのまま入れ直す」
       // （実質書き換えなし）ことで列を揃える。
+      // display_order（一覧ページの掲載順＝グループ内で何番目か）も同じく全員ぶん必ず持たせる。
+      // こちらは parseMembers が返した配列の添字+1（1始まり）を使うだけで、個人ページを
+      // 開かなくても分かる値なので「取れなかった場合」の分岐は無い。
       var record = {
         name: mem.name, group_name: gp.group, active: true, synced_at: now,
         color: beforeColor || null, joined_on: existingJoined || null,
+        display_order: i + 1,
       };
 
       if (page.getResponseCode() !== 200) {
@@ -679,12 +683,15 @@ function syncMembers() {
           skippedGroups.push(gp.group + '(' + miss + '人続けて色なし)');
           // このグループは色を持たないとみなす。残りの人は個人ページを開かず、
           // 今の値のまま(色・加入日とも)在籍登録だけする。
+          // display_order は一覧ページの並び（parseMembers の添字+1）だけで決まるので、
+          // 個人ページを開かないこの打ち切り後の人たちにも変わらず入れる。
           for (var j = i; j < members.length; j++) {
             var mj = members[j];
             groupRecords.push({
               name: mj.name, group_name: gp.group, active: true, synced_at: now,
               color: (known[mj.name] && known[mj.name].color) || null,
               joined_on: (known[mj.name] && known[mj.name].joined_on) || null,
+              display_order: j + 1,
             });
             scrapedNames.push(mj.name);
           }
