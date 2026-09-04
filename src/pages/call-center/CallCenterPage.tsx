@@ -125,8 +125,11 @@ export default function CallCenterPage() {
   const modalCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modalBoxRef = useRef<HTMLDivElement>(null);
   const modalOverlayRef = useRef<HTMLDivElement>(null);
-  const modalNavRef = useRef<HTMLDivElement>(null);
+  const modalTitleRef = useRef<HTMLDivElement>(null);
+  const modalArrowLeftWrapRef = useRef<HTMLDivElement>(null);
+  const modalArrowRightWrapRef = useRef<HTMLDivElement>(null);
   const modalLabelRef = useRef<HTMLDivElement>(null);
+  const modalButtonsWrapRef = useRef<HTMLDivElement>(null);
   /** 開くときに発火したWeb Animations APIのアニメーション一式（閉じるときに逆再生する） */
   const modalAnimsRef = useRef<Animation[]>([]);
   const reduceMotion = typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -209,7 +212,13 @@ export default function CallCenterPage() {
       const anims = [boxAnim, overlayAnim];
       const textDuration = reduceMotion ? 0 : 150;
       const textDelay = reduceMotion ? 0 : 150;
-      for (const el of [modalNavRef.current, modalLabelRef.current]) {
+      for (const el of [
+        modalTitleRef.current,
+        modalArrowLeftWrapRef.current,
+        modalArrowRightWrapRef.current,
+        modalLabelRef.current,
+        modalButtonsWrapRef.current,
+      ]) {
         if (!el) continue;
         anims.push(
           el.animate(
@@ -223,8 +232,11 @@ export default function CallCenterPage() {
       // Web Animations API 非対応。アニメーションなしで即座に開いた状態にする
       box.style.transform = "none";
       overlay.style.opacity = "1";
-      if (modalNavRef.current) modalNavRef.current.style.opacity = "1";
+      if (modalTitleRef.current) modalTitleRef.current.style.opacity = "1";
+      if (modalArrowLeftWrapRef.current) modalArrowLeftWrapRef.current.style.opacity = "1";
+      if (modalArrowRightWrapRef.current) modalArrowRightWrapRef.current.style.opacity = "1";
       if (modalLabelRef.current) modalLabelRef.current.style.opacity = "1";
+      if (modalButtonsWrapRef.current) modalButtonsWrapRef.current.style.opacity = "1";
     }
   }, [modalSong, modalOrigin]);
 
@@ -466,8 +478,8 @@ export default function CallCenterPage() {
       {modalSong && (() => {
         const idx = Math.min(modalIdx, modalSong.videos.length - 1);
         const v = modalSong.videos[idx];
-        const finalWidth = Math.min(window.innerWidth * 0.92, 480);
-        const finalHeight = finalWidth * 9 / 16;
+        const atStart = idx <= 0;
+        const atEnd = idx >= modalSong.videos.length - 1;
         return (
           <div
             ref={modalOverlayRef}
@@ -476,39 +488,48 @@ export default function CallCenterPage() {
             style={S.modalOverlay}
             onClick={closeModal}
           >
-            <div style={S.modalInner} onClick={(e) => e.stopPropagation()}>
-              <div
-                ref={modalBoxRef}
-                style={{
-                  width: finalWidth, height: finalHeight, background: "#e5e5e5",
-                  position: "relative", overflow: "hidden",
-                  transformOrigin: "top left",
-                }}
-              >
-                <Link to={`/call-center/song/${modalSong.slug}/place?v=${v.video_id}`} style={S.videoPickLink}>
+            <div style={S.modalWindow} onClick={(e) => e.stopPropagation()}>
+              <div ref={modalTitleRef} style={S.modalTitle}>{modalSong.title}</div>
+              <div style={S.modalRow}>
+                <div ref={modalArrowLeftWrapRef} style={S.modalArrowWrap}>
+                  <button
+                    type="button"
+                    style={{ ...S.arrowBtn, opacity: atStart ? 0.3 : 1, cursor: atStart ? "default" : "pointer" }}
+                    disabled={atStart}
+                    onClick={() => { if (!atStart) { setModalDir("left"); setModalIdx(idx - 1); } }}
+                    aria-label="前の動画"
+                  >◀</button>
+                </div>
+                <div
+                  ref={modalBoxRef}
+                  style={{
+                    ...S.modalThumbBox,
+                    transformOrigin: "top left",
+                  }}
+                >
                   <Thumb videoId={v.video_id} direction={modalDir} />
-                </Link>
-              </div>
-              <div ref={modalNavRef} style={{ ...S.videoPickNav, color: "#fff" }}>
-                <button
-                  type="button"
-                  style={S.arrowBtn}
-                  onClick={() => { if (idx > 0) { setModalDir("left"); setModalIdx(idx - 1); } }}
-                  aria-label="前の動画"
-                >◀</button>
-                <div style={S.videoPickCount}>{idx + 1} / {modalSong.videos.length}</div>
-                <button
-                  type="button"
-                  style={S.arrowBtn}
-                  onClick={() => { if (idx < modalSong.videos.length - 1) { setModalDir("right"); setModalIdx(idx + 1); } }}
-                  aria-label="次の動画"
-                >▶</button>
+                </div>
+                <div ref={modalArrowRightWrapRef} style={S.modalArrowWrap}>
+                  <button
+                    type="button"
+                    style={{ ...S.arrowBtn, opacity: atEnd ? 0.3 : 1, cursor: atEnd ? "default" : "pointer" }}
+                    disabled={atEnd}
+                    onClick={() => { if (!atEnd) { setModalDir("right"); setModalIdx(idx + 1); } }}
+                    aria-label="次の動画"
+                  >▶</button>
+                </div>
               </div>
               {v.label && (
-                <div ref={modalLabelRef} style={{ ...S.videoPickLabel, color: "#fff" }}>
+                <div ref={modalLabelRef} style={S.videoPickLabel}>
                   {v.label}
                 </div>
               )}
+              <div ref={modalButtonsWrapRef}>
+                <Link to={`/call-center/song/${modalSong.slug}/place?v=${v.video_id}`} style={S.modalRegisterBtn}>
+                  この動画にコールを登録
+                </Link>
+                <button type="button" style={S.modalCloseBtn} onClick={closeModal}>閉じる</button>
+              </div>
             </div>
           </div>
         );
@@ -607,11 +628,23 @@ const S: Record<string, React.CSSProperties> = {
     display: "flex", alignItems: "center", justifyContent: "center",
     cursor: "pointer",
   },
-  modalInner: { display: "flex", flexDirection: "column", alignItems: "center", gap: 8, cursor: "default" },
-  videoPickLink: { display: "block", width: "100%", height: "100%" },
-  videoPickNav: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 8 },
+  // 白い小窓本体
+  modalWindow: { background: "#fff", padding: 14, width: "min(92vw, 300px)", boxSizing: "border-box", cursor: "default" },
+  modalTitle: { fontSize: 15, fontWeight: 900, margin: "0 0 10px" },
+  modalRow: { display: "flex", alignItems: "center", gap: 8 },
+  modalArrowWrap: { flex: "0 0 auto" },
+  modalThumbBox: { flex: "1 1 auto", aspectRatio: "16 / 9", background: "#e5e5e5", position: "relative", overflow: "hidden" },
   // PlacePageの色切り替え矢印と同じ見た目
   arrowBtn: { flex: "0 0 auto", width: 26, height: 26, background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: 0 },
-  videoPickCount: { fontFamily: "Inter, system-ui, sans-serif", fontSize: 12, fontWeight: 800, color: "inherit", opacity: 0.7 },
-  videoPickLabel: { fontSize: 12, fontWeight: 800, marginTop: 4 },
+  videoPickLabel: { fontSize: 12, fontWeight: 800, marginTop: 8 },
+  modalRegisterBtn: {
+    display: "block", width: "100%", boxSizing: "border-box", textAlign: "center", textDecoration: "none",
+    background: "#000", color: "#fff", border: 0, padding: "12px 14px", fontSize: 14, fontWeight: 800,
+    marginTop: 12, cursor: "pointer", fontFamily: "inherit",
+  },
+  modalCloseBtn: {
+    display: "block", width: "100%", boxSizing: "border-box",
+    background: "none", color: "#9aa0a6", border: 0, boxShadow: "inset 0 0 0 1px #ccc",
+    padding: 10, fontSize: 13, fontWeight: 700, marginTop: 8, cursor: "pointer", fontFamily: "inherit",
+  },
 };
