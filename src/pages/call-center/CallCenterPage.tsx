@@ -24,40 +24,77 @@ type Song = {
   videos: SongVideo[];
 };
 
-/** サムネイル切り替え間隔（秒）の既定値。?thumb=3 / ?thumb=5 で見比べるための仕掛け（UIには出さない） */
-const DEFAULT_THUMB_INTERVAL_SEC = 3;
+/** サムネイル切り替え間隔（秒）の既定値。?thumb=<秒> で上書きできる仕掛けは残す（UIには出さない） */
+const DEFAULT_THUMB_INTERVAL_SEC = 5;
 
 function thumbUrl(videoId: string): string {
   return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
 }
 
 /**
- * カード左のサムネイル（正方形）。動画が切り替わったら、消してから入れ替えて出す
- * （0.3秒ぶんの短いフェード。全カード共通のタイマーで動画自体は既に切り替わっている前提）。
+ * カード左のサムネイル（正方形）。動画が切り替わったら、新しい画像を右から入れて
+ * 古い画像を左へ抜く横スライドで入れ替える（全カード共通のタイマーで動画自体は
+ * 既に切り替わっている前提）。動画が1本しかない曲はそもそも呼ばれない側で弾く。
  */
 function Thumb({ videoId }: { videoId: string }) {
-  const [shownId, setShownId] = useState(videoId);
-  const [visible, setVisible] = useState(true);
-  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 表示中の1枚（prev===nullのとき）と、切り替え中の新旧2枚（prev!==nullのとき）を持つ
+  const [pair, setPair] = useState<{ current: string; prev: string | null }>({
+    current: videoId,
+    prev: null,
+  });
+  const [animating, setAnimating] = useState(false);
+  const shownIdRef = useRef(videoId);
+  const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (videoId === shownId) return;
-    setVisible(false);
-    fadeTimerRef.current = setTimeout(() => {
-      setShownId(videoId);
-      setVisible(true);
-    }, 300);
+    if (videoId === shownIdRef.current) return;
+    const old = shownIdRef.current;
+    shownIdRef.current = videoId;
+
+    setPair({ current: videoId, prev: old });
+    setAnimating(false);
+    if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current);
+
+    // 新旧2枚を初期位置（旧=中央、新=右外）で1度描かせてから、次フレームで
+    // 旧を左外・新を中央へ動かす。1回のrequestAnimationFrameだとブラウザが
+    // 初期位置の描画とまとめてしまいtransitionが走らないことがあるので2重に呼ぶ
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setAnimating(true));
+    });
+    cleanupTimerRef.current = setTimeout(() => {
+      setPair((p) => ({ current: p.current, prev: null }));
+      setAnimating(false);
+    }, 380);
+
     return () => {
-      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
     };
-  }, [videoId, shownId]);
+  }, [videoId]);
+
+  // アンマウント時の後片付け
+  useEffect(() => () => {
+    if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current);
+  }, []);
+
+  if (pair.prev === null) {
+    return <img src={thumbUrl(pair.current)} alt="" style={S.thumbImg} />;
+  }
 
   return (
-    <img
-      src={thumbUrl(shownId)}
-      alt=""
-      style={{ ...S.thumbImg, opacity: visible ? 1 : 0 }}
-    />
+    <>
+      <img
+        src={thumbUrl(pair.prev)}
+        alt=""
+        style={{ ...S.thumbImgSlide, transform: animating ? "translateX(-100%)" : "translateX(0)" }}
+      />
+      <img
+        src={thumbUrl(pair.current)}
+        alt=""
+        style={{ ...S.thumbImgSlide, transform: animating ? "translateX(0)" : "translateX(100%)" }}
+      />
+    </>
   );
 }
 
@@ -344,8 +381,14 @@ const S: Record<string, React.CSSProperties> = {
   // サムネイル（正方形）。動画が無い曲は今までどおり画像を出さない
   thumbWrap: {
     width: 60, height: 60, flexShrink: 0, overflow: "hidden", background: "#e5e5e5",
+    position: "relative",
   },
-  thumbImg: { width: "100%", height: "100%", objectFit: "cover", display: "block", transition: "opacity 0.3s" },
+  thumbImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+  // 切り替え中の新旧2枚（横スライド用）。枠に重ねて敷き、transformだけで動かす
+  thumbImgSlide: {
+    position: "absolute", inset: 0, width: "100%", height: "100%",
+    objectFit: "cover", display: "block", transition: "transform 0.35s ease",
+  },
   cardTitle: { fontSize: 15, fontWeight: 900, lineHeight: 1.4 },
   cardMeta: {
     fontFamily: "Inter, system-ui, sans-serif",
