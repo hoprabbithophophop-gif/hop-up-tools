@@ -13,6 +13,9 @@
  *      「安全（本番は過去のこのブランチの内容の巻き戻し）」か
  *      「危険（本番にこのブランチが持ったことのない内容がある＝上書きすると消える）」かを
  *      ラベル付けして提示。差分がある限り --confirm が無ければ中止
+ *   5. 危険と判定した変更と、本番にしか無いファイル（--force-delete で消える分）について、
+ *      本番の中身を .gas-push-backup/<日時>/ に控える（表示の警告は読み飛ばされうるため、
+ *      警告に頼らず現物を残す。--check でも控える）
  * を行ってから実際に push する。
  *
  * 使い方:
@@ -133,6 +136,24 @@ if (!onlyInLocal.length && !changed.length && !onlyInProd.length) console.log('�
 const hasDanger = changed.some((c) => c.direction === 'danger');
 const hasChange = changed.length > 0;
 const hasDelete = onlyInProd.length > 0;
+
+// 5.5) 消える恐れのある本番の中身を、手元に控えてから先へ進む
+// 対象は「★危険」と判定した変更（本番にこの枝が持ったことのない内容がある）と、
+// 本番にしか無いファイル（--force-delete で消える）の2つ。
+// 表示の警告は読み飛ばされうるので、警告に頼らず現物を残す。ここで控えを取っておけば、
+// あとから中身を見て取り込むか捨てるかを決められる。控えはgitに入れない（.gitignore済み）。
+const atRisk = changed.filter((c) => c.direction === 'danger').map((c) => c.file).concat(onlyInProd);
+if (atRisk.length) {
+  // フォルダ名は日本時間。世界標準時のままだと、控えた日付が手元の感覚と9時間ずれる
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const stamp = jst.toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
+  const backupDir = path.join(repoRoot, '.gas-push-backup', stamp);
+  fs.mkdirSync(backupDir, { recursive: true });
+  for (const f of atRisk) fs.copyFileSync(path.join(tmpDir, f), path.join(backupDir, f));
+  console.log('\n消える恐れのある本番の中身を控えました（' + atRisk.length + '件）:');
+  console.log('  ' + path.relative(repoRoot, backupDir).split(path.sep).join('/') + '/');
+  console.log('  ' + atRisk.join(', '));
+}
 
 if (hasDelete && !forceDelete) {
   console.error('\n本番にあってローカルに無いファイルがあります。削除してよければ --force-delete を付けて再実行してください。');
