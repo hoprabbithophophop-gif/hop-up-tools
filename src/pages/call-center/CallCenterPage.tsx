@@ -120,16 +120,16 @@ export default function CallCenterPage() {
   const [modalDir, setModalDir] = useState<"left" | "right">("right");
   /** 開いた瞬間にタップされたカードのサムネ矩形（拡大アニメーションの起点） */
   const [modalOrigin, setModalOrigin] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
-  /** 起点矩形とモーダル最終矩形の差から求めた初期transform（初期状態のまま。開閉のたびに作り直す） */
-  const [modalInitTransform, setModalInitTransform] = useState("none");
-  /** true＝拡大しきった開いた状態（このフラグの反転でtransform/opacityをtransitionさせる） */
-  const [modalShown, setModalShown] = useState(false);
   /** 閉じるアニメーション中（この間は二重タップ・多重オープンを無視） */
   const [modalClosing, setModalClosing] = useState(false);
   const modalCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modalBoxRef = useRef<HTMLDivElement>(null);
+  const modalOverlayRef = useRef<HTMLDivElement>(null);
+  const modalNavRef = useRef<HTMLDivElement>(null);
+  const modalLabelRef = useRef<HTMLDivElement>(null);
+  /** 開くときに発火したWeb Animations APIのアニメーション一式（閉じるときに逆再生する） */
+  const modalAnimsRef = useRef<Animation[]>([]);
   const reduceMotion = typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  const modalTransDur = reduceMotion ? "0s" : "0.3s";
 
   /** カードのサムネ枠（[data-thumb-anchor]）の画面上の位置から、画面中央へ拡大しながらモーダルを開く */
   const openModal = (song: Song, cardEl: HTMLElement) => {
@@ -137,51 +137,96 @@ export default function CallCenterPage() {
     const anchor = (cardEl.querySelector("[data-thumb-anchor]") as HTMLElement | null) ?? cardEl;
     const rect = anchor.getBoundingClientRect();
     setModalOrigin({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
-    setModalInitTransform("none");
     setModalIdx(tick % song.videos.length);
     setModalDir("right");
-    setModalShown(reduceMotion); // reduced motionなら最初から開いた状態にして拡大アニメーションを省く
     setModalSong(song);
     document.body.style.overflow = "hidden";
   };
 
-  /** 起点矩形へ縮みながら閉じる。閉じ切ったらDOMから外す */
+  /** アニメーションを待たず即座に閉じ切る（WAA非対応時のフォールバック用） */
+  const finishCloseImmediately = (delayMs: number) => {
+    if (modalCloseTimerRef.current) clearTimeout(modalCloseTimerRef.current);
+    modalCloseTimerRef.current = setTimeout(() => {
+      setModalSong(null);
+      setModalOrigin(null);
+      setModalClosing(false);
+    }, delayMs);
+  };
+
+  /** 起点矩形へ縮みながら閉じる（開いたときのアニメーションを逆再生）。閉じ切ったらDOMから外す */
   const closeModal = () => {
     setModalClosing((closing) => {
       if (closing) return closing;
-      setModalShown(false);
       document.body.style.overflow = "";
-      if (modalCloseTimerRef.current) clearTimeout(modalCloseTimerRef.current);
-      modalCloseTimerRef.current = setTimeout(() => {
-        setModalSong(null);
-        setModalOrigin(null);
-        setModalClosing(false);
-      }, reduceMotion ? 0 : 300);
+      const anims = modalAnimsRef.current;
+      const duration = reduceMotion ? 0 : 300;
+      if (anims.length > 0 && typeof anims[0].reverse === "function") {
+        try {
+          anims.forEach((a) => a.reverse());
+          Promise.all(anims.map((a) => a.finished.catch(() => {}))).then(() => {
+            setModalSong(null);
+            setModalOrigin(null);
+            setModalClosing(false);
+            modalAnimsRef.current = [];
+          });
+        } catch {
+          finishCloseImmediately(duration);
+        }
+      } else {
+        finishCloseImmediately(duration);
+      }
       return true;
     });
   };
 
-  // 開いたサムネ要素の実際の最終矩形を測って、起点矩形との差から初期transformを作る
-  // （2重rAF: 1回だと初期transformの描画とtransition解除がブラウザにまとめられ、拡大が走らないことがある）
+  // 開いたサムネ要素の実際の最終矩形を測って、起点矩形との差から開始transformを作り、
+  // Web Animations APIで「起点矩形→中央」の拡大と、幕・矢印行・ラベルのフェードを走らせる。
   useLayoutEffect(() => {
-    if (!modalSong || !modalOrigin || modalShown) return;
+    if (!modalSong || !modalOrigin) return;
     const box = modalBoxRef.current;
-    if (!box) return;
+    const overlay = modalOverlayRef.current;
+    if (!box || !overlay) return;
+
+    modalAnimsRef.current.forEach((a) => a.cancel());
+    modalAnimsRef.current = [];
+
     const finalRect = box.getBoundingClientRect();
     const dx = modalOrigin.left - finalRect.left;
     const dy = modalOrigin.top - finalRect.top;
     const sx = modalOrigin.width / finalRect.width;
     const sy = modalOrigin.height / finalRect.height;
-    setModalInitTransform(`translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`);
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => setModalShown(true));
-    });
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-    };
-  }, [modalSong, modalOrigin, modalShown]);
+    const duration = reduceMotion ? 0 : 300;
+
+    try {
+      const boxAnim = box.animate(
+        [{ transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})` }, { transform: "none" }],
+        { duration, easing: "ease", fill: "both" },
+      );
+      const overlayAnim = overlay.animate(
+        [{ opacity: 0 }, { opacity: 1 }],
+        { duration, easing: "ease", fill: "both" },
+      );
+      const anims = [boxAnim, overlayAnim];
+      const textDuration = reduceMotion ? 0 : 150;
+      const textDelay = reduceMotion ? 0 : 150;
+      for (const el of [modalNavRef.current, modalLabelRef.current]) {
+        if (!el) continue;
+        anims.push(
+          el.animate(
+            [{ opacity: 0 }, { opacity: 1 }],
+            { duration: textDuration, delay: textDelay, easing: "ease", fill: "both" },
+          ),
+        );
+      }
+      modalAnimsRef.current = anims;
+    } catch {
+      // Web Animations API 非対応。アニメーションなしで即座に開いた状態にする
+      box.style.transform = "none";
+      overlay.style.opacity = "1";
+      if (modalNavRef.current) modalNavRef.current.style.opacity = "1";
+      if (modalLabelRef.current) modalLabelRef.current.style.opacity = "1";
+    }
+  }, [modalSong, modalOrigin]);
 
   // 開いている間はEscで閉じる
   useEffect(() => {
@@ -194,6 +239,7 @@ export default function CallCenterPage() {
   // アンマウント時の後片付け（開いたままページを離れた場合に備える）
   useEffect(() => () => {
     if (modalCloseTimerRef.current) clearTimeout(modalCloseTimerRef.current);
+    modalAnimsRef.current.forEach((a) => a.cancel());
     document.body.style.overflow = "";
   }, []);
 
@@ -422,12 +468,12 @@ export default function CallCenterPage() {
         const v = modalSong.videos[idx];
         const finalWidth = Math.min(window.innerWidth * 0.92, 480);
         const finalHeight = finalWidth * 9 / 16;
-        const textDelay = modalShown ? "0.15s" : "0s";
         return (
           <div
+            ref={modalOverlayRef}
             role="button"
             aria-label="閉じる"
-            style={{ ...S.modalOverlay, opacity: modalShown ? 1 : 0, transition: `opacity ${modalTransDur} ease` }}
+            style={S.modalOverlay}
             onClick={closeModal}
           >
             <div style={S.modalInner} onClick={(e) => e.stopPropagation()}>
@@ -436,16 +482,14 @@ export default function CallCenterPage() {
                 style={{
                   width: finalWidth, height: finalHeight, background: "#e5e5e5",
                   position: "relative", overflow: "hidden",
-                  transform: modalShown ? "none" : modalInitTransform,
                   transformOrigin: "top left",
-                  transition: `transform ${modalTransDur} ease`,
                 }}
               >
                 <Link to={`/call-center/song/${modalSong.slug}/place?v=${v.video_id}`} style={S.videoPickLink}>
                   <Thumb videoId={v.video_id} direction={modalDir} />
                 </Link>
               </div>
-              <div style={{ ...S.videoPickNav, color: "#fff", opacity: modalShown ? 1 : 0, transition: reduceMotion ? "none" : `opacity 0.15s ease ${textDelay}` }}>
+              <div ref={modalNavRef} style={{ ...S.videoPickNav, color: "#fff" }}>
                 <button
                   type="button"
                   style={S.arrowBtn}
@@ -461,7 +505,7 @@ export default function CallCenterPage() {
                 >▶</button>
               </div>
               {v.label && (
-                <div style={{ ...S.videoPickLabel, color: "#fff", opacity: modalShown ? 1 : 0, transition: reduceMotion ? "none" : `opacity 0.15s ease ${textDelay}` }}>
+                <div ref={modalLabelRef} style={{ ...S.videoPickLabel, color: "#fff" }}>
                   {v.label}
                 </div>
               )}
