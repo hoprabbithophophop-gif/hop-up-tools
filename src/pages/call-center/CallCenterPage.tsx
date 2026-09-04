@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { getSupabase } from "@/lib/supabase";
 import { BUILT_IN_SONGS } from "./builtInSongs";
 import { loadLocalCalls } from "./localCalls";
@@ -11,15 +11,55 @@ import { loadLocalCalls } from "./localCalls";
  * 公演から辿る導線は、公演データの整形が済んでから足す。
  */
 
+/** 動画候補の1本。サムネイルの切り替え・複数動画があるときの選択表示に使う */
+type SongVideo = { video_id: string; label: string | null };
+
 type Song = {
   id: string;
   slug: string;
   title: string;
   group_name: string;
   bpm: number | null;
-  /** 動画が1本でも結び付いているか。無ければ開いても叩けないので、一覧の時点で伝える */
-  hasVideo: boolean;
+  /** 結び付いている動画。サムネイル表示・選択表示に使う。無ければ今までどおり画像を出さない */
+  videos: SongVideo[];
 };
+
+/** サムネイル切り替え間隔（秒）の既定値。?thumb=3 / ?thumb=5 で見比べるための仕掛け（UIには出さない） */
+const DEFAULT_THUMB_INTERVAL_SEC = 3;
+
+function thumbUrl(videoId: string): string {
+  return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+}
+
+/**
+ * カード左のサムネイル（正方形）。動画が切り替わったら、消してから入れ替えて出す
+ * （0.3秒ぶんの短いフェード。全カード共通のタイマーで動画自体は既に切り替わっている前提）。
+ */
+function Thumb({ videoId }: { videoId: string }) {
+  const [shownId, setShownId] = useState(videoId);
+  const [visible, setVisible] = useState(true);
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (videoId === shownId) return;
+    setVisible(false);
+    fadeTimerRef.current = setTimeout(() => {
+      setShownId(videoId);
+      setVisible(true);
+    }, 300);
+    return () => {
+      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+    };
+  }, [videoId, shownId]);
+
+  return (
+    <img
+      src={thumbUrl(shownId)}
+      alt=""
+      style={{ ...S.thumbImg, opacity: visible ? 1 : 0 }}
+    />
+  );
+}
 
 export default function CallCenterPage() {
   const [songs, setSongs] = useState<Song[] | null>(null);
@@ -30,6 +70,21 @@ export default function CallCenterPage() {
   const [query, setQuery] = useState("");
   /** グループの絞り込み。null＝全て */
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
+  /** 動画が2本以上ある曲のカードを開いて選択表示（A）にしているとき、そのslug。null＝どれも開いていない */
+  const [openSlug, setOpenSlug] = useState<string | null>(null);
+
+  const [searchParams] = useSearchParams();
+  const thumbIntervalSec = (() => {
+    const raw = Number(searchParams.get("thumb"));
+    return raw > 0 ? raw : DEFAULT_THUMB_INTERVAL_SEC;
+  })();
+
+  // サムネイルの動画切り替えは全カード共通の1本のタイマーで進める（バラバラにチカつかないように）
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), thumbIntervalSec * 1000);
+    return () => clearInterval(id);
+  }, [thumbIntervalSec]);
 
   useEffect(() => {
     // 棚に繋がらなくても、同梱している曲は出す。
@@ -37,13 +92,13 @@ export default function CallCenterPage() {
     try {
       getSupabase()
         .from("song_structures")
-        .select("id, slug, title, group_name, bpm, song_video_offsets(video_id)")
+        .select("id, slug, title, group_name, bpm, song_video_offsets(video_id, label)")
         .order("group_name", { ascending: true })
         .order("title", { ascending: true })
         .then(({ data, error }) => {
           if (error) { setError(error.message); return; }
-          const rows = (data ?? []) as unknown as (Omit<Song, "hasVideo"> & { song_video_offsets: { video_id: string }[] })[];
-          setSongs(rows.map((r) => ({ ...r, hasVideo: r.song_video_offsets.length > 0 })));
+          const rows = (data ?? []) as unknown as (Omit<Song, "videos"> & { song_video_offsets: SongVideo[] })[];
+          setSongs(rows.map((r) => ({ ...r, videos: r.song_video_offsets })));
         });
 
       // 曲ごとのコール数。開く前に中身の有無が分かるようにする。
@@ -79,7 +134,10 @@ export default function CallCenterPage() {
   // まだ棚に入れていない曲（アプリに同梱しているもの）も一緒に並べる
   for (const b of BUILT_IN_SONGS.filter((x) => !x.inShelf)) {
     byGroup.set(b.groupName, [
-      { id: b.slug, slug: b.slug, title: b.title, group_name: b.groupName, bpm: b.bpm, hasVideo: b.videos.length > 0 },
+      {
+        id: b.slug, slug: b.slug, title: b.title, group_name: b.groupName, bpm: b.bpm,
+        videos: b.videos.map((v) => ({ video_id: v.videoId, label: v.label })),
+      },
     ]);
   }
   for (const s of songs ?? []) {
@@ -107,6 +165,75 @@ export default function CallCenterPage() {
     .filter(([, list]) => list.length > 0);
 
   const isFiltering = groupFilter !== null || q !== "";
+
+  /** カード本文（左サムネイル＋右の曲名・メタ行）の中身だけを組み立てる */
+  const renderCardBody = (song: Song, metaText: string, metaStyle: React.CSSProperties) => (
+    <div style={S.cardRow}>
+      {song.videos.length > 0 && (
+        <div style={S.thumbWrap}>
+          <Thumb videoId={song.videos[tick % song.videos.length].video_id} />
+        </div>
+      )}
+      <div style={S.cardBody}>
+        <div style={S.cardTitle}>{song.title}</div>
+        <div style={metaStyle}>{metaText}</div>
+      </div>
+    </div>
+  );
+
+  /**
+   * 曲名の1枚のカード。動画が0〜1本なら今までどおりリンクで曲ページへ。
+   * 2本以上ある曲はタップで選択表示（横長サムネイルの縦並び）を開く。
+   */
+  const renderSongCard = (song: Song, n: number, variant: "normal" | "on") => {
+    const metaStyle = variant === "on" ? S.cardMetaOn : (n > 0 ? S.cardMetaHas : S.cardMeta);
+    const metaText = variant === "on"
+      ? `${song.group_name}　コール ${n}件`
+      : (song.videos.length === 0 ? "まだ動画が結び付いていません" : n > 0 ? `コール ${n}件` : "コールはまだありません");
+    const cardStyle = variant === "on" ? { ...S.card, ...S.cardOn } : S.card;
+
+    if (song.videos.length < 2) {
+      return (
+        <Link key={song.id} to={`/call-center/song/${song.slug}/place`} style={cardStyle}>
+          {renderCardBody(song, metaText, metaStyle)}
+        </Link>
+      );
+    }
+
+    if (openSlug === song.slug) {
+      // 選択表示（A）: 横長サムネイルを動画の数だけ縦に並べる。曲名部分を押すと閉じる
+      return (
+        <div key={song.id} style={cardStyle}>
+          <div style={S.cardTitle} onClick={() => setOpenSlug(null)}>{song.title}</div>
+          <div style={S.videoPickList}>
+            {song.videos.map((v) => (
+              <Link
+                key={v.video_id}
+                to={`/call-center/song/${song.slug}/place?v=${v.video_id}`}
+                style={S.videoPickItem}
+              >
+                <img src={thumbUrl(v.video_id)} alt="" style={S.videoPickImg} />
+                {v.label && <div style={S.videoPickLabel}>{v.label}</div>}
+              </Link>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={song.id}
+        role="button"
+        tabIndex={0}
+        style={cardStyle}
+        onClick={() => setOpenSlug(song.slug)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setOpenSlug(song.slug); }}
+      >
+        {renderCardBody(song, metaText, metaStyle)}
+      </div>
+    );
+  };
 
   return (
     <div style={S.page}>
@@ -162,12 +289,7 @@ export default function CallCenterPage() {
           <section style={S.pickup}>
             <h2 style={S.pickupH}>コールが集まっている曲</h2>
             <div style={S.grid}>
-              {filled.map(({ song, n }) => (
-                <Link key={song.id} to={`/call-center/song/${song.slug}/place`} style={{ ...S.card, ...S.cardOn }}>
-                  <div style={S.cardTitle}>{song.title}</div>
-                  <div style={S.cardMetaOn}>{song.group_name}　コール {n}件</div>
-                </Link>
-              ))}
+              {filled.map(({ song, n }) => renderSongCard(song, n, "on"))}
             </div>
           </section>
         )}
@@ -180,19 +302,7 @@ export default function CallCenterPage() {
           <section key={group} style={S.section}>
             <h2 style={S.h2}>{group}</h2>
             <div style={S.grid}>
-              {list.map((s) => {
-                const n = countOf(s.slug);
-                return (
-                  <Link key={s.id} to={`/call-center/song/${s.slug}/place`} style={S.card}>
-                    <div style={S.cardTitle}>{s.title}</div>
-                    {/* 中身の有無を先に出す。※文言は後から差し替える前提の仮置き */}
-                    {/* 動画が無い曲は開いても叩けないので、その旨をコール件数より先に出す */}
-                    <div style={n > 0 ? S.cardMetaHas : S.cardMeta}>
-                      {!s.hasVideo ? "まだ動画が結び付いていません" : n > 0 ? `コール ${n}件` : "コールはまだありません"}
-                    </div>
-                  </Link>
-                );
-              })}
+              {list.map((s) => renderSongCard(s, countOf(s.slug), "normal"))}
             </div>
           </section>
         ))}
@@ -226,7 +336,16 @@ const S: Record<string, React.CSSProperties> = {
     padding: "16px 18px",
     textDecoration: "none",
     color: "inherit",
+    cursor: "pointer",
   },
+  // カード本文（サムネイル＋曲名・メタ行）の並び
+  cardRow: { display: "flex", alignItems: "center", gap: 12 },
+  cardBody: { minWidth: 0, flex: "1 1 auto" },
+  // サムネイル（正方形）。動画が無い曲は今までどおり画像を出さない
+  thumbWrap: {
+    width: 60, height: 60, flexShrink: 0, overflow: "hidden", background: "#e5e5e5",
+  },
+  thumbImg: { width: "100%", height: "100%", objectFit: "cover", display: "block", transition: "opacity 0.3s" },
   cardTitle: { fontSize: 15, fontWeight: 900, lineHeight: 1.4 },
   cardMeta: {
     fontFamily: "Inter, system-ui, sans-serif",
@@ -272,4 +391,10 @@ const S: Record<string, React.CSSProperties> = {
     cursor: "pointer", fontFamily: "inherit",
   },
   chipOn: { background: "#000", color: "#fff" },
+
+  /** 動画が2本以上ある曲の選択表示（A）。横長サムネイルを縦に並べる */
+  videoPickList: { display: "flex", flexDirection: "column", gap: 8, marginTop: 12 },
+  videoPickItem: { display: "block", textDecoration: "none", color: "inherit" },
+  videoPickImg: { display: "block", width: "100%", aspectRatio: "16 / 9", objectFit: "cover", background: "#e5e5e5" },
+  videoPickLabel: { fontSize: 12, fontWeight: 800, marginTop: 4 },
 };

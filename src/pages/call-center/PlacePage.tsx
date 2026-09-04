@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { getSupabase } from "@/lib/supabase";
 import YouTubePlayer, { type YouTubePlayerApi } from "../hi-tension/components/YouTubePlayer";
 import HandsCanvas, { type HandsCanvasApi } from "../hi-tension/components/HandsCanvas";
@@ -624,6 +624,10 @@ function WordLane({ playerRef, crowdWords, active }: {
 export default function PlacePage() {
   const { slug = "" } = useParams();
   const navigate = useNavigate();
+  // 曲一覧の選択表示（サムネイルをタップ）から来たとき、どの動画を選んでいたか。
+  // 見つからなければ（直接この曲を開いた等）先頭の動画を使う（既存のSongTapPageと同じ流儀）
+  const [searchParams] = useSearchParams();
+  const wantVideo = searchParams.get("v");
   const playerRef = useRef<YouTubePlayerApi>(null);
   const handsRef = useRef<HandsCanvasApi>(null);
   const markIdRef = useRef(0);
@@ -853,7 +857,7 @@ export default function PlacePage() {
       setGroupName(builtIn.groupName);
       // 同梱データには曲もツアーも紐付いていない＝棚に繋がらない時と同じ代用でよい
       setChipMembers(fallbackChipMembers(builtIn.groupName));
-      const v = builtIn.videos[0];
+      const v = builtIn.videos.find((x) => x.videoId === wantVideo) ?? builtIn.videos[0];
       if (v) {
         setVideo({ video_id: v.videoId, offset_sec: v.offsetSec, rate: 1, label: v.label, end_sec: null });
         restoreDraft(v.videoId);
@@ -878,7 +882,7 @@ export default function PlacePage() {
             video_id: v.video_id, offset_sec: Number(v.offset_sec), rate: Number(v.rate) || 1,
             label: v.label, end_sec: v.end_sec !== null ? Number(v.end_sec) : null,
           }));
-          const v = options[0];
+          const v = options.find((o) => o.video_id === wantVideo) ?? options[0];
           if (!v) { setError("この曲にはまだ動画が結び付いていません"); return; }
           songIdRef.current = d.id;
           setVideoOptions(options);
@@ -1115,6 +1119,17 @@ export default function PlacePage() {
     const id = ++markIdRef.current;
     setMarks((arr) => [...arr, { id, sec, colorHex, memberId: colorIdToMemberId(currentColor), word: null }]);
   };
+
+  // ！ボタンの押し込み見た目（HiTapButtonと同じ、白リング＋押下でわずかに縮む）。
+  const [markPressed, setMarkPressed] = useState(false);
+  const handleMarkDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    setMarkPressed(true);
+    pressMark(e);
+  };
+  const handleMarkUp = () => setMarkPressed(false);
+  const markBoxShadow = markPressed
+    ? "0 0 0 3px rgba(255,255,255,0.92), 0 0 0 11px rgba(255,255,255,0.14)"
+    : "0 0 0 3px rgba(255,255,255,0.92), 0 6px 20px rgba(0,0,0,0.4)";
 
   /** 「曲へ」。叩きが残っていれば振り返りを挟む。ゼロならそのまま戻る */
   const handleBack = () => {
@@ -1646,8 +1661,11 @@ export default function PlacePage() {
                 <div style={S.btnRow}>
                   <button
                     type="button"
-                    style={{ ...S.mark, background: markBg, color: markFg }}
-                    onPointerDown={pressMark}
+                    style={{ ...S.mark, background: markBg, color: markFg, boxShadow: markBoxShadow, transform: markPressed ? "scale(0.92)" : "scale(1)" }}
+                    onPointerDown={handleMarkDown}
+                    onPointerUp={handleMarkUp}
+                    onPointerLeave={handleMarkUp}
+                    onPointerCancel={handleMarkUp}
                     onContextMenu={(e) => e.preventDefault()}
                   >！</button>
                 </div>
@@ -1705,8 +1723,11 @@ export default function PlacePage() {
             <div style={S.btnRow}>
               <button
                 type="button"
-                style={{ ...S.mark, background: markBg, color: markFg, opacity: playing ? 1 : 0.4 }}
-                onPointerDown={pressMark}
+                style={{ ...S.mark, background: markBg, color: markFg, opacity: playing ? 1 : 0.4, boxShadow: markBoxShadow, transform: markPressed ? "scale(0.92)" : "scale(1)" }}
+                onPointerDown={handleMarkDown}
+                onPointerUp={handleMarkUp}
+                onPointerLeave={handleMarkUp}
+                onPointerCancel={handleMarkUp}
                 onContextMenu={(e) => e.preventDefault()}
                 disabled={!playing}
               >！</button>
@@ -1782,8 +1803,15 @@ const S: Record<string, React.CSSProperties> = {
   arrowBtn: { flex: "0 0 auto", width: 26, height: 26, background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: 0 },
   dotsRow: { flex: "1 1 auto", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 3, padding: "0 6px" },
   dot: { flex: "0 1 22px", aspectRatio: "1", minWidth: 12, maxWidth: 22, borderRadius: "50%", border: 0, cursor: "pointer", padding: 0 },
-  btnRow: { display: "flex", gap: 8, flex: "0 0 auto", marginTop: 8 },
-  mark: { flex: 1, background: "#d0d0d0", color: "#000", border: 0, padding: "22px 10px", fontSize: 30, fontWeight: 900, lineHeight: 1, cursor: "pointer", fontFamily: "inherit" },
+  btnRow: { display: "flex", gap: 8, flex: "0 0 auto", marginTop: 8, justifyContent: "center" },
+  // ！ボタン。ハイ！テンションの✋ボタン（HiTapButton）と同じ丸い見た目に揃える
+  mark: {
+    width: 120, height: 120, flexShrink: 0, borderRadius: "50%",
+    border: 0, fontSize: 60, fontWeight: 900, lineHeight: 1, cursor: "pointer", fontFamily: "inherit",
+    display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+    touchAction: "manipulation", userSelect: "none", WebkitTapHighlightColor: "transparent",
+    transition: "transform 0.12s, box-shadow 0.12s",
+  },
   reviewWrap: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", marginTop: 8 },
   mergeNotice: { flex: "0 0 auto", fontSize: 11, color: "#9aa0a6", textAlign: "center", marginBottom: 6 },
   undoLink: { background: "none", border: 0, color: "#7cf", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "0 0 0 6px" },
