@@ -32,11 +32,12 @@ function thumbUrl(videoId: string): string {
 }
 
 /**
- * カード左のサムネイル（正方形）。動画が切り替わったら、新しい画像を右から入れて
- * 古い画像を左へ抜く横スライドで入れ替える（全カード共通のタイマーで動画自体は
- * 既に切り替わっている前提）。動画が1本しかない曲はそもそも呼ばれない側で弾く。
+ * カード左のサムネイル（16:9）。動画が切り替わったら、新しい画像を横から入れて
+ * 古い画像を反対側へ抜く横スライドで入れ替える。direction="right"（既定）は新が右から
+ * （通常表示の自動切替、選択表示の▶）、"left"は新が左から（選択表示の◀）。
+ * 動画が1本しかない曲はそもそも呼ばれない側で弾く。
  */
-function Thumb({ videoId }: { videoId: string }) {
+function Thumb({ videoId, direction = "right" }: { videoId: string; direction?: "left" | "right" }) {
   // 表示中の1枚（prev===nullのとき）と、切り替え中の新旧2枚（prev!==nullのとき）を持つ
   const [pair, setPair] = useState<{ current: string; prev: string | null }>({
     current: videoId,
@@ -82,17 +83,21 @@ function Thumb({ videoId }: { videoId: string }) {
     return <img src={thumbUrl(pair.current)} alt="" style={S.thumbImg} />;
   }
 
+  // 右から新が来る場合: 旧は0→-100%、新は100%→0。左から新が来る場合はその逆
+  const prevTo = direction === "left" ? "translateX(100%)" : "translateX(-100%)";
+  const curFrom = direction === "left" ? "translateX(-100%)" : "translateX(100%)";
+
   return (
     <>
       <img
         src={thumbUrl(pair.prev)}
         alt=""
-        style={{ ...S.thumbImgSlide, transform: animating ? "translateX(-100%)" : "translateX(0)" }}
+        style={{ ...S.thumbImgSlide, transform: animating ? prevTo : "translateX(0)" }}
       />
       <img
         src={thumbUrl(pair.current)}
         alt=""
-        style={{ ...S.thumbImgSlide, transform: animating ? "translateX(0)" : "translateX(100%)" }}
+        style={{ ...S.thumbImgSlide, transform: animating ? "translateX(0)" : curFrom }}
       />
     </>
   );
@@ -109,6 +114,10 @@ export default function CallCenterPage() {
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
   /** 動画が2本以上ある曲のカードを開いて選択表示（A）にしているとき、そのslug。null＝どれも開いていない */
   const [openSlug, setOpenSlug] = useState<string | null>(null);
+  /** 選択表示（A）でいま出している動画のインデックス */
+  const [openIdx, setOpenIdx] = useState(0);
+  /** 選択表示（A）のサムネ切り替え方向。◀→"left"、▶→"right" */
+  const [openDir, setOpenDir] = useState<"left" | "right">("right");
 
   const [searchParams] = useSearchParams();
   const thumbIntervalSec = (() => {
@@ -238,22 +247,33 @@ export default function CallCenterPage() {
     }
 
     if (openSlug === song.slug) {
-      // 選択表示（A）: 横長サムネイルを動画の数だけ縦に並べる。曲名部分を押すと閉じる
+      // 選択表示（A）: 横長サムネイル1枚＋◀▶で動画を切り替える。曲名部分を押すと閉じる
+      const idx = Math.min(openIdx, song.videos.length - 1);
+      const v = song.videos[idx];
       return (
         <div key={song.id} style={cardStyle}>
           <div style={S.cardTitle} onClick={() => setOpenSlug(null)}>{song.title}</div>
-          <div style={S.videoPickList}>
-            {song.videos.map((v) => (
-              <Link
-                key={v.video_id}
-                to={`/call-center/song/${song.slug}/place?v=${v.video_id}`}
-                style={S.videoPickItem}
-              >
-                <img src={thumbUrl(v.video_id)} alt="" style={S.videoPickImg} />
-                {v.label && <div style={S.videoPickLabel}>{v.label}</div>}
-              </Link>
-            ))}
+          <div style={S.videoPickThumbWrap}>
+            <Link to={`/call-center/song/${song.slug}/place?v=${v.video_id}`} style={S.videoPickLink}>
+              <Thumb videoId={v.video_id} direction={openDir} />
+            </Link>
           </div>
+          <div style={S.videoPickNav}>
+            <button
+              type="button"
+              style={S.arrowBtn}
+              onClick={() => { if (idx > 0) { setOpenDir("left"); setOpenIdx(idx - 1); } }}
+              aria-label="前の動画"
+            >◀</button>
+            <div style={S.videoPickCount}>{idx + 1} / {song.videos.length}</div>
+            <button
+              type="button"
+              style={S.arrowBtn}
+              onClick={() => { if (idx < song.videos.length - 1) { setOpenDir("right"); setOpenIdx(idx + 1); } }}
+              aria-label="次の動画"
+            >▶</button>
+          </div>
+          {v.label && <div style={S.videoPickLabel}>{v.label}</div>}
         </div>
       );
     }
@@ -264,8 +284,8 @@ export default function CallCenterPage() {
         role="button"
         tabIndex={0}
         style={cardStyle}
-        onClick={() => setOpenSlug(song.slug)}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setOpenSlug(song.slug); }}
+        onClick={() => { setOpenSlug(song.slug); setOpenIdx(tick % song.videos.length); }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setOpenSlug(song.slug); setOpenIdx(tick % song.videos.length); } }}
       >
         {renderCardBody(song, metaText, metaStyle)}
       </div>
@@ -378,9 +398,9 @@ const S: Record<string, React.CSSProperties> = {
   // カード本文（サムネイル＋曲名・メタ行）の並び
   cardRow: { display: "flex", alignItems: "center", gap: 12 },
   cardBody: { minWidth: 0, flex: "1 1 auto" },
-  // サムネイル（正方形）。動画が無い曲は今までどおり画像を出さない
+  // サムネイル（16:9）。動画が無い曲は今までどおり画像を出さない
   thumbWrap: {
-    width: 60, height: 60, flexShrink: 0, overflow: "hidden", background: "#e5e5e5",
+    width: 96, height: 54, flexShrink: 0, overflow: "hidden", background: "#e5e5e5",
     position: "relative",
   },
   thumbImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
@@ -435,9 +455,15 @@ const S: Record<string, React.CSSProperties> = {
   },
   chipOn: { background: "#000", color: "#fff" },
 
-  /** 動画が2本以上ある曲の選択表示（A）。横長サムネイルを縦に並べる */
-  videoPickList: { display: "flex", flexDirection: "column", gap: 8, marginTop: 12 },
-  videoPickItem: { display: "block", textDecoration: "none", color: "inherit" },
-  videoPickImg: { display: "block", width: "100%", aspectRatio: "16 / 9", objectFit: "cover", background: "#e5e5e5" },
+  /** 動画が2本以上ある曲の選択表示（A）。横長サムネイル1枚＋◀▶で切り替える */
+  videoPickThumbWrap: {
+    width: "100%", aspectRatio: "16 / 9", overflow: "hidden", background: "#e5e5e5",
+    position: "relative", marginTop: 12,
+  },
+  videoPickLink: { display: "block", width: "100%", height: "100%" },
+  videoPickNav: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 8 },
+  // PlacePageの色切り替え矢印と同じ見た目
+  arrowBtn: { flex: "0 0 auto", width: 26, height: 26, background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: 0 },
+  videoPickCount: { fontFamily: "Inter, system-ui, sans-serif", fontSize: 12, fontWeight: 800, color: "inherit", opacity: 0.7 },
   videoPickLabel: { fontSize: 12, fontWeight: 800, marginTop: 4 },
 };
