@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getSupabase } from "@/lib/supabase";
 import { BUILT_IN_SONGS } from "./builtInSongs";
@@ -112,12 +112,90 @@ export default function CallCenterPage() {
   const [query, setQuery] = useState("");
   /** グループの絞り込み。null＝全て */
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
-  /** 動画が2本以上ある曲のカードを開いて選択表示（A）にしているとき、そのslug。null＝どれも開いていない */
-  const [openSlug, setOpenSlug] = useState<string | null>(null);
-  /** 選択表示（A）でいま出している動画のインデックス */
-  const [openIdx, setOpenIdx] = useState(0);
-  /** 選択表示（A）のサムネ切り替え方向。◀→"left"、▶→"right" */
-  const [openDir, setOpenDir] = useState<"left" | "right">("right");
+  /** 動画が2本以上ある曲のカードをタップして開いた、画面全体の動画選びモーダル。null＝閉じている */
+  const [modalSong, setModalSong] = useState<Song | null>(null);
+  /** モーダルでいま出している動画のインデックス */
+  const [modalIdx, setModalIdx] = useState(0);
+  /** モーダルのサムネ切り替え方向。◀→"left"、▶→"right" */
+  const [modalDir, setModalDir] = useState<"left" | "right">("right");
+  /** 開いた瞬間にタップされたカードのサムネ矩形（拡大アニメーションの起点） */
+  const [modalOrigin, setModalOrigin] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  /** 起点矩形とモーダル最終矩形の差から求めた初期transform（初期状態のまま。開閉のたびに作り直す） */
+  const [modalInitTransform, setModalInitTransform] = useState("none");
+  /** true＝拡大しきった開いた状態（このフラグの反転でtransform/opacityをtransitionさせる） */
+  const [modalShown, setModalShown] = useState(false);
+  /** 閉じるアニメーション中（この間は二重タップ・多重オープンを無視） */
+  const [modalClosing, setModalClosing] = useState(false);
+  const modalCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modalBoxRef = useRef<HTMLDivElement>(null);
+  const reduceMotion = typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const modalTransDur = reduceMotion ? "0s" : "0.3s";
+
+  /** カードのサムネ枠（[data-thumb-anchor]）の画面上の位置から、画面中央へ拡大しながらモーダルを開く */
+  const openModal = (song: Song, cardEl: HTMLElement) => {
+    if (modalClosing) return;
+    const anchor = (cardEl.querySelector("[data-thumb-anchor]") as HTMLElement | null) ?? cardEl;
+    const rect = anchor.getBoundingClientRect();
+    setModalOrigin({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+    setModalInitTransform("none");
+    setModalIdx(tick % song.videos.length);
+    setModalDir("right");
+    setModalShown(reduceMotion); // reduced motionなら最初から開いた状態にして拡大アニメーションを省く
+    setModalSong(song);
+    document.body.style.overflow = "hidden";
+  };
+
+  /** 起点矩形へ縮みながら閉じる。閉じ切ったらDOMから外す */
+  const closeModal = () => {
+    setModalClosing((closing) => {
+      if (closing) return closing;
+      setModalShown(false);
+      document.body.style.overflow = "";
+      if (modalCloseTimerRef.current) clearTimeout(modalCloseTimerRef.current);
+      modalCloseTimerRef.current = setTimeout(() => {
+        setModalSong(null);
+        setModalOrigin(null);
+        setModalClosing(false);
+      }, reduceMotion ? 0 : 300);
+      return true;
+    });
+  };
+
+  // 開いたサムネ要素の実際の最終矩形を測って、起点矩形との差から初期transformを作る
+  // （2重rAF: 1回だと初期transformの描画とtransition解除がブラウザにまとめられ、拡大が走らないことがある）
+  useLayoutEffect(() => {
+    if (!modalSong || !modalOrigin || modalShown) return;
+    const box = modalBoxRef.current;
+    if (!box) return;
+    const finalRect = box.getBoundingClientRect();
+    const dx = modalOrigin.left - finalRect.left;
+    const dy = modalOrigin.top - finalRect.top;
+    const sx = modalOrigin.width / finalRect.width;
+    const sy = modalOrigin.height / finalRect.height;
+    setModalInitTransform(`translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`);
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setModalShown(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [modalSong, modalOrigin, modalShown]);
+
+  // 開いている間はEscで閉じる
+  useEffect(() => {
+    if (!modalSong) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeModal(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modalSong]);
+
+  // アンマウント時の後片付け（開いたままページを離れた場合に備える）
+  useEffect(() => () => {
+    if (modalCloseTimerRef.current) clearTimeout(modalCloseTimerRef.current);
+    document.body.style.overflow = "";
+  }, []);
 
   const [searchParams] = useSearchParams();
   const thumbIntervalSec = (() => {
@@ -216,7 +294,7 @@ export default function CallCenterPage() {
   const renderCardBody = (song: Song, metaText: string, metaStyle: React.CSSProperties) => (
     <div style={S.cardRow}>
       {song.videos.length > 0 && (
-        <div style={S.thumbWrap}>
+        <div style={S.thumbWrap} data-thumb-anchor="true">
           <Thumb videoId={song.videos[tick % song.videos.length].video_id} />
         </div>
       )}
@@ -246,46 +324,15 @@ export default function CallCenterPage() {
       );
     }
 
-    if (openSlug === song.slug) {
-      // 選択表示（A）: 横長サムネイル1枚＋◀▶で動画を切り替える。曲名部分を押すと閉じる
-      const idx = Math.min(openIdx, song.videos.length - 1);
-      const v = song.videos[idx];
-      return (
-        <div key={song.id} style={cardStyle}>
-          <div style={S.cardTitle} onClick={() => setOpenSlug(null)}>{song.title}</div>
-          <div style={S.videoPickThumbWrap}>
-            <Link to={`/call-center/song/${song.slug}/place?v=${v.video_id}`} style={S.videoPickLink}>
-              <Thumb videoId={v.video_id} direction={openDir} />
-            </Link>
-          </div>
-          <div style={S.videoPickNav}>
-            <button
-              type="button"
-              style={S.arrowBtn}
-              onClick={() => { if (idx > 0) { setOpenDir("left"); setOpenIdx(idx - 1); } }}
-              aria-label="前の動画"
-            >◀</button>
-            <div style={S.videoPickCount}>{idx + 1} / {song.videos.length}</div>
-            <button
-              type="button"
-              style={S.arrowBtn}
-              onClick={() => { if (idx < song.videos.length - 1) { setOpenDir("right"); setOpenIdx(idx + 1); } }}
-              aria-label="次の動画"
-            >▶</button>
-          </div>
-          {v.label && <div style={S.videoPickLabel}>{v.label}</div>}
-        </div>
-      );
-    }
-
+    // 動画が2本以上ある曲: タップで画面全体のモーダルを開く（カードの高さ自体は変わらない）
     return (
       <div
         key={song.id}
         role="button"
         tabIndex={0}
         style={cardStyle}
-        onClick={() => { setOpenSlug(song.slug); setOpenIdx(tick % song.videos.length); }}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setOpenSlug(song.slug); setOpenIdx(tick % song.videos.length); } }}
+        onClick={(e) => openModal(song, e.currentTarget)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openModal(song, e.currentTarget); }}
       >
         {renderCardBody(song, metaText, metaStyle)}
       </div>
@@ -368,6 +415,60 @@ export default function CallCenterPage() {
           ハロー！プロジェクトの非公式ファンツールです。運営は公式とは関係ありません。
         </p>
       </div>
+
+      {/* 動画えらびモーダル。動画が2本以上ある曲のカードをタップすると画面全体を覆って開く */}
+      {modalSong && (() => {
+        const idx = Math.min(modalIdx, modalSong.videos.length - 1);
+        const v = modalSong.videos[idx];
+        const finalWidth = Math.min(window.innerWidth * 0.92, 480);
+        const finalHeight = finalWidth * 9 / 16;
+        const textDelay = modalShown ? "0.15s" : "0s";
+        return (
+          <div
+            role="button"
+            aria-label="閉じる"
+            style={{ ...S.modalOverlay, opacity: modalShown ? 1 : 0, transition: `opacity ${modalTransDur} ease` }}
+            onClick={closeModal}
+          >
+            <div style={S.modalInner} onClick={(e) => e.stopPropagation()}>
+              <div
+                ref={modalBoxRef}
+                style={{
+                  width: finalWidth, height: finalHeight, background: "#e5e5e5",
+                  position: "relative", overflow: "hidden",
+                  transform: modalShown ? "none" : modalInitTransform,
+                  transformOrigin: "top left",
+                  transition: `transform ${modalTransDur} ease`,
+                }}
+              >
+                <Link to={`/call-center/song/${modalSong.slug}/place?v=${v.video_id}`} style={S.videoPickLink}>
+                  <Thumb videoId={v.video_id} direction={modalDir} />
+                </Link>
+              </div>
+              <div style={{ ...S.videoPickNav, color: "#fff", opacity: modalShown ? 1 : 0, transition: reduceMotion ? "none" : `opacity 0.15s ease ${textDelay}` }}>
+                <button
+                  type="button"
+                  style={S.arrowBtn}
+                  onClick={() => { if (idx > 0) { setModalDir("left"); setModalIdx(idx - 1); } }}
+                  aria-label="前の動画"
+                >◀</button>
+                <div style={S.videoPickCount}>{idx + 1} / {modalSong.videos.length}</div>
+                <button
+                  type="button"
+                  style={S.arrowBtn}
+                  onClick={() => { if (idx < modalSong.videos.length - 1) { setModalDir("right"); setModalIdx(idx + 1); } }}
+                  aria-label="次の動画"
+                >▶</button>
+              </div>
+              {v.label && (
+                <div style={{ ...S.videoPickLabel, color: "#fff", opacity: modalShown ? 1 : 0, transition: reduceMotion ? "none" : `opacity 0.15s ease ${textDelay}` }}>
+                  {v.label}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -455,11 +556,14 @@ const S: Record<string, React.CSSProperties> = {
   },
   chipOn: { background: "#000", color: "#fff" },
 
-  /** 動画が2本以上ある曲の選択表示（A）。横長サムネイル1枚＋◀▶で切り替える */
-  videoPickThumbWrap: {
-    width: "100%", aspectRatio: "16 / 9", overflow: "hidden", background: "#e5e5e5",
-    position: "relative", marginTop: 12,
+  /** 動画えらびモーダル。画面全体を覆う幕 */
+  modalOverlay: {
+    position: "fixed", inset: 0, zIndex: 150,
+    background: "rgba(0,0,0,0.7)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    cursor: "pointer",
   },
+  modalInner: { display: "flex", flexDirection: "column", alignItems: "center", gap: 8, cursor: "default" },
   videoPickLink: { display: "block", width: "100%", height: "100%" },
   videoPickNav: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 8 },
   // PlacePageの色切り替え矢印と同じ見た目
