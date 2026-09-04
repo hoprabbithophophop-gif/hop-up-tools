@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getSupabase } from "@/lib/supabase";
 import YouTubePlayer, { type YouTubePlayerApi } from "../hi-tension/components/YouTubePlayer";
@@ -139,11 +139,6 @@ function resolveMemberColor(id: string): string {
   return ALL_MEMBERS.find((m) => m.name === id)?.color ?? NEUTRAL_HEX;
 }
 
-/** 選んでいる色（未選択＝null／メンバー＝氏名）から、実際に表示する色を引く */
-function colorIdToHex(id: string | null): string {
-  if (id === null) return NEUTRAL_HEX;
-  return resolveMemberColor(id);
-}
 /** 選んでいる色から、棚に送る「メンバーID」を引く。未選択はメンバーではないのでnull */
 function colorIdToMemberId(id: string | null): string | null {
   return id;
@@ -775,6 +770,13 @@ export default function PlacePage() {
     [chipMembers],
   );
 
+  // 今の色えらびに居る人はその色（臨時ユニットの上書き・公演時点の名簿を反映）。居なければ members.ts
+  const resolveChipColor = useCallback(
+    (id: string) => chipMembers.find((m) => m.name === id)?.color ?? resolveMemberColor(id),
+    [chipMembers],
+  );
+  const chipColorIdToHex = (id: string | null) => (id === null ? NEUTRAL_HEX : resolveChipColor(id));
+
   // 端末に覚えている色を復元。この曲の色えらびに無ければ復元しない
   // （どの丸も光っていないのに！ボタンだけ色付いている、という食い違いを避けるため）
   useEffect(() => {
@@ -1107,7 +1109,7 @@ export default function PlacePage() {
   /** 押した瞬間（onPointerDown）に出す。指を離すのを待つとその分そのまま遅れて感じる。 */
   const pressMark = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
-    const colorHex = colorIdToHex(currentColor);
+    const colorHex = chipColorIdToHex(currentColor);
     handsRef.current?.spawnSelf(colorHex);
     const sec = Math.round((playerRef.current?.getCurrentTime() ?? 0) * 1000) / 1000;
     const id = ++markIdRef.current;
@@ -1273,7 +1275,7 @@ export default function PlacePage() {
    * まだ送信前の画面内の値なので、取り消しは作らず「選び直して押し直せば済む」でよい。
    */
   const recolorMark = (id: number) => {
-    const colorHex = colorIdToHex(currentColor);
+    const colorHex = chipColorIdToHex(currentColor);
     const memberId = colorIdToMemberId(currentColor);
     setMarks((arr) => arr.map((m) => (m.id === id ? { ...m, colorHex, memberId } : m)));
   };
@@ -1462,7 +1464,7 @@ export default function PlacePage() {
     );
   }
 
-  const currentColorHex = colorIdToHex(currentColor);
+  const currentColorHex = chipColorIdToHex(currentColor);
   const markBg = currentColorHex;
   const markFg = isLight(currentColorHex) ? "#000" : "#fff";
   // 時刻順に並べて見せる（叩いた順とは限らない＝巻き戻して見返した後にまた叩く、があるため）
@@ -1673,7 +1675,7 @@ export default function PlacePage() {
               sessions={sessions}
               selfMemberId="nishida"
               selfSeatHash={7}
-              resolveColor={resolveMemberColor}
+              resolveColor={resolveChipColor}
               alignBottom
               skipSquash
               // 自分の！は中央固定なので、群衆の粒がたまたま中央に湧くと完全に重なって見えなくなる。
