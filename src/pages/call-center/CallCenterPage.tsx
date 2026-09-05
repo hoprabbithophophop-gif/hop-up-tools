@@ -24,6 +24,31 @@ type Song = {
   videos: SongVideo[];
 };
 
+/** ツアー本体（concertsテーブルの1行） */
+type Concert = {
+  concert_key: string;
+  name: string;
+  group_name: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  shows: number | null;
+  source_url: string | null;
+  display_order: number | null;
+  note: string | null;
+};
+
+/** ツアーのセトリ1行（concert_songsテーブルの1行） */
+type ConcertSong = {
+  concert_key: string;
+  seq: number;
+  kind: string;
+  title: string;
+  performer: string | null;
+  song_id: string | null;
+  show_date: string | null;
+  show_venue: string | null;
+};
+
 /** サムネイル切り替え間隔（秒）の既定値。?thumb=<秒> で上書きできる仕掛けは残す（UIには出さない） */
 const DEFAULT_THUMB_INTERVAL_SEC = 5;
 
@@ -103,11 +128,167 @@ function Thumb({ videoId, direction = "right" }: { videoId: string; direction?: 
   );
 }
 
+/**
+ * 「ツアーから探す」で開いた段の中身。動画のある曲だけをseq順に並べ、
+ * カード列を2周ぶん描いて半周でtranslateXを折り返す＝輪にして行き止まりをなくす。
+ * ポインタのドラッグと右端の◀▶（1回で1カードぶん158px）でめくれる。
+ * 開いてから約1.2秒だけ右から左へ25px/秒で流れ、触ると即止まる。
+ */
+function TourRow({
+  items,
+  onOpenModal,
+}: {
+  items: { seq: number; song: Song }[];
+  onOpenModal: (song: Song, el: HTMLElement) => void;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const xRef = useRef(0);
+  const dragRef = useRef<{ sx: number; x0: number; moved: number } | null>(null);
+  /** 開いた直後の自動で流れる演出を続けてよいか。触る／矢印を押すとfalseにして止め、再開はしない */
+  const driftRef = useRef(true);
+  /** ドラッグで8px以上動いた直後の1回だけ、続くクリックを無効にする */
+  const suppressClickRef = useRef(false);
+
+  const apply = () => {
+    const track = trackRef.current;
+    if (!track) return;
+    const half = track.scrollWidth / 2;
+    if (half > 0) xRef.current = ((xRef.current % half) + half) % half;
+    track.style.transform = `translateX(${-xRef.current}px)`;
+  };
+
+  const step = (n: number) => {
+    driftRef.current = false;
+    const track = trackRef.current;
+    if (!track) return;
+    track.style.transition = "transform .3s ease";
+    xRef.current += n * 158;
+    apply();
+    setTimeout(() => { if (track) track.style.transition = ""; }, 320);
+  };
+
+  useEffect(() => {
+    apply();
+    const reduceMotion = typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduceMotion) return;
+    let raf = 0;
+    let last = performance.now();
+    let elapsed = 0;
+    const tick = (now: number) => {
+      const dt = Math.min(now - last, 50);
+      last = now;
+      elapsed += dt;
+      if (!driftRef.current || elapsed >= 1200) return;
+      xRef.current += dt * 0.025;
+      apply();
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    driftRef.current = false;
+    dragRef.current = { sx: e.clientX, x0: xRef.current, moved: 0 };
+    (e.target as Element).setPointerCapture(e.pointerId);
+    if (trackRef.current) trackRef.current.style.transition = "";
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.sx;
+    d.moved = Math.max(d.moved, Math.abs(dx));
+    xRef.current = d.x0 - dx;
+    apply();
+  };
+  const endDrag = () => {
+    const d = dragRef.current;
+    if (d && d.moved >= 8) suppressClickRef.current = true;
+    dragRef.current = null;
+  };
+
+  /** ドラッグ直後のクリックなら握りつぶす。trueを返したときは呼び出し側も何もしない */
+  const guardClick = (e: React.MouseEvent): boolean => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      e.preventDefault();
+      return true;
+    }
+    return false;
+  };
+
+  const renderCard = (item: { seq: number; song: Song }, dupKey: string) => {
+    const videoId = item.song.videos[0]?.video_id;
+    const body = (
+      <>
+        <div style={S.scThumb} data-thumb-anchor="true">
+          {videoId && <img src={thumbUrl(videoId)} alt="" style={S.scThumbImg} />}
+        </div>
+        <div style={S.scTitle}>{item.song.title}</div>
+        <div style={S.scNo}>{item.seq}曲目</div>
+      </>
+    );
+    if (item.song.videos.length < 2) {
+      return (
+        <Link
+          key={dupKey}
+          to={`/call-center/song/${item.song.slug}/place`}
+          style={S.scCard}
+          onClick={(e) => { guardClick(e); }}
+        >
+          {body}
+        </Link>
+      );
+    }
+    const activate = (e: React.SyntheticEvent) => { onOpenModal(item.song, e.currentTarget as HTMLElement); };
+    return (
+      <div
+        key={dupKey}
+        role="button"
+        tabIndex={0}
+        style={S.scCard}
+        onClick={(e) => { if (guardClick(e)) return; activate(e); }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") activate(e); }}
+      >
+        {body}
+      </div>
+    );
+  };
+
+  return (
+    <div style={S.tourOpen}>
+      <div style={S.tourArrows}>
+        <button type="button" style={S.arrowBtn} onClick={() => step(-1)} aria-label="前へ">◀</button>
+        <button type="button" style={S.arrowBtn} onClick={() => step(1)} aria-label="次へ">▶</button>
+      </div>
+      <div
+        style={S.tourRowWrap}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onDragStart={(e) => e.preventDefault()}
+      >
+        <div ref={trackRef} style={S.tourTrack}>
+          {items.map((it) => renderCard(it, `${it.seq}-a`))}
+          {items.map((it) => renderCard(it, `${it.seq}-b`))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CallCenterPage() {
   const [songs, setSongs] = useState<Song[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** 曲ごとに、棚に入っているコールの数 */
   const [counts, setCounts] = useState<Record<string, number>>({});
+  /** ツアー本体（display_order順）。読み込めなければ空のまま＝「ツアーから探す」段ごと出さない */
+  const [concerts, setConcerts] = useState<Concert[]>([]);
+  /** concert_key → そのツアーのセトリ（seq順） */
+  const [concertSongsByKey, setConcertSongsByKey] = useState<Record<string, ConcertSong[]>>({});
+  /** 開いているツアーのconcert_key。null＝どれも開いていない（1段だけ開く） */
+  const [openConcert, setOpenConcert] = useState<string | null>(null);
   /** 曲名の検索欄。空なら絞り込まない */
   const [query, setQuery] = useState("");
   /** グループの絞り込み。null＝全て */
@@ -298,6 +479,38 @@ export default function CallCenterPage() {
     }
   }, []);
 
+  useEffect(() => {
+    // ここで失敗しても曲一覧自体には触らない。「ツアーから探す」段が出ないだけにする
+    try {
+      getSupabase()
+        .from("concerts")
+        .select("concert_key, name, group_name, period_start, period_end, shows, source_url, display_order, note")
+        .order("display_order", { ascending: true })
+        .then(({ data, error }) => {
+          if (error || !data) return;
+          setConcerts(data as Concert[]);
+        });
+
+      getSupabase()
+        .from("concert_songs")
+        .select("concert_key, seq, kind, title, performer, song_id, show_date, show_venue")
+        .order("concert_key", { ascending: true })
+        .order("seq", { ascending: true })
+        .then(({ data, error }) => {
+          if (error || !data) return;
+          const m: Record<string, ConcertSong[]> = {};
+          for (const row of data as ConcertSong[]) {
+            const list = m[row.concert_key] ?? [];
+            list.push(row);
+            m[row.concert_key] = list;
+          }
+          setConcertSongsByKey(m);
+        });
+    } catch {
+      // 何もしない。段は出ないままになる
+    }
+  }, []);
+
   /*
    * どの曲に中身があるかを、一覧の時点で分かるようにする。
    *
@@ -347,6 +560,28 @@ export default function CallCenterPage() {
     .filter(([, list]) => list.length > 0);
 
   const isFiltering = groupFilter !== null || q !== "";
+
+  // concert_songs.song_id → song_structures.id なので、棚から読んだ曲（built-inは対象外）だけで引く
+  const songById = new Map<string, Song>();
+  for (const s of songs ?? []) songById.set(s.id, s);
+
+  /** そのツアーで、動画が結び付いている曲だけをseq順に */
+  const playableSongs = (key: string): { seq: number; song: Song }[] => {
+    const out: { seq: number; song: Song }[] = [];
+    for (const row of concertSongsByKey[key] ?? []) {
+      if (!row.song_id) continue;
+      const song = songById.get(row.song_id);
+      if (!song || song.videos.length === 0) continue;
+      out.push({ seq: row.seq, song });
+    }
+    return out;
+  };
+
+  /** noteの「代表公演: 日付 会場」から会場名だけを取り出す。形が違えばnote全文をそのまま出す */
+  const venueOf = (note: string): string => {
+    const m = note.match(/^代表公演[:：]\s*\S+\s+(.+)$/);
+    return m ? m[1] : note;
+  };
 
   /** カード本文（左サムネイル＋右の曲名・メタ行）の中身だけを組み立てる */
   const renderCardBody = (song: Song, metaText: string, metaStyle: React.CSSProperties) => (
@@ -452,6 +687,39 @@ export default function CallCenterPage() {
             <h2 style={S.pickupH}>コールが集まっている曲</h2>
             <div style={S.grid}>
               {filled.map(({ song, n }) => renderSongCard(song, n, "on"))}
+            </div>
+          </section>
+        )}
+
+        {/* ツアーから探す。検索・グループ絞り込み中は出さない（曲が直接出るので）。
+            タイトルだけ並べ、押すとそのツアーのセトリが横スクロールで開く（1段だけ） */}
+        {!isFiltering && concerts.length > 0 && (
+          <section style={S.section}>
+            <h2 style={S.h2}>ツアーから探す</h2>
+            <div>
+              {concerts.map((c) => {
+                const rowItems = playableSongs(c.concert_key);
+                const isOpen = openConcert === c.concert_key;
+                return (
+                  <div key={c.concert_key} style={S.tourBlock}>
+                    <button
+                      type="button"
+                      style={S.tourTitleBtn}
+                      onClick={() => setOpenConcert(isOpen ? null : c.concert_key)}
+                    >
+                      {c.group_name && <div style={S.tourGroup}>{c.group_name}</div>}
+                      <div style={S.tourName}>{c.name}</div>
+                      <div style={S.tourMeta}>
+                        動画あり {rowItems.length}曲
+                        {c.note && <span style={S.tourNote}>　{venueOf(c.note)}</span>}
+                      </div>
+                    </button>
+                    {isOpen && rowItems.length > 0 && (
+                      <TourRow items={rowItems} onOpenModal={openModal} />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </section>
         )}
@@ -604,6 +872,31 @@ const S: Record<string, React.CSSProperties> = {
     marginTop: 6,
   },
   notice: { background: "#fff", padding: "16px 18px", fontSize: 14, marginTop: 24 },
+
+  /** ツアーから探す */
+  tourBlock: { marginBottom: 2 },
+  tourTitleBtn: {
+    display: "block", width: "100%", boxSizing: "border-box", textAlign: "left",
+    background: "#fff", color: "inherit", border: 0,
+    padding: "14px 18px", cursor: "pointer", fontFamily: "inherit",
+  },
+  tourGroup: { fontSize: 11, fontWeight: 800, color: "#9aa1aa" },
+  tourName: { fontSize: 15, fontWeight: 900, marginTop: 2, lineHeight: 1.3 },
+  tourMeta: { fontSize: 11, color: "#9aa1aa", marginTop: 4 },
+  tourNote: { color: "#9aa1aa" },
+  tourOpen: { marginTop: 2, marginBottom: 6 },
+  tourArrows: { display: "flex", justifyContent: "flex-end", gap: 6, padding: "0 18px 6px" },
+  tourRowWrap: { position: "relative", overflow: "hidden", touchAction: "pan-y", cursor: "grab" },
+  tourTrack: { display: "flex", gap: 8, padding: "0 18px", willChange: "transform" },
+  scCard: {
+    display: "block", flex: "0 0 150px", background: "#fff", padding: 8,
+    boxSizing: "border-box", userSelect: "none", textDecoration: "none",
+    color: "inherit", cursor: "pointer",
+  },
+  scThumb: { width: "100%", aspectRatio: "16 / 9", background: "#e5e5e5", overflow: "hidden" },
+  scThumbImg: { width: "100%", height: "100%", objectFit: "cover", display: "block", pointerEvents: "none" },
+  scTitle: { fontSize: 12, fontWeight: 900, lineHeight: 1.3, marginTop: 6, height: 31, overflow: "hidden" },
+  scNo: { fontSize: 10, color: "#9aa1aa", fontWeight: 800, marginTop: 4 },
   foot: { fontSize: 12, color: "#585f6c", marginTop: 56, lineHeight: 1.8 },
 
   /** 検索・グループ絞り込み */
