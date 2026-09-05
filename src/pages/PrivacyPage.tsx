@@ -92,7 +92,7 @@ export default function PrivacyPage() {
 
       <h2 style={s.h2}>3. YouTube API サービスの利用</h2>
       <p style={s.p}>
-        本サービスの「HELLO! VIDEOS」機能は、YouTube API サービスを利用して動画情報を取得・表示しています。
+        本サービスの「HELLO! VIDEO」機能は、YouTube API サービスを利用して動画情報を取得・表示しています。
         YouTube API サービスの利用により、以下の規約が適用されます。
       </p>
       <ul style={s.ul}>
