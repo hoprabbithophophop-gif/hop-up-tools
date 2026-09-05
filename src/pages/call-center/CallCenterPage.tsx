@@ -132,7 +132,7 @@ function Thumb({ videoId, direction = "right" }: { videoId: string; direction?: 
  * 「ツアーから探す」で開いた段の中身。動画のある曲だけをseq順に並べ、
  * カード列を2周ぶん描いて半周でtranslateXを折り返す＝輪にして行き止まりをなくす。
  * ポインタのドラッグと右端の◀▶（1回で1カードぶん158px）でめくれる。
- * 開いてから約1.2秒だけ右から左へ25px/秒で流れ、触ると即止まる。
+ * 開いている間は右から左へ25px/秒で流れ続け、触ったか矢印を押したら止めて以後は再開しない。
  */
 function TourRow({
   items,
@@ -173,12 +173,10 @@ function TourRow({
     if (reduceMotion) return;
     let raf = 0;
     let last = performance.now();
-    let elapsed = 0;
     const tick = (now: number) => {
       const dt = Math.min(now - last, 50);
       last = now;
-      elapsed += dt;
-      if (!driftRef.current || elapsed >= 1200) return;
+      if (!driftRef.current) return;
       xRef.current += dt * 0.025;
       apply();
       raf = requestAnimationFrame(tick);
@@ -225,7 +223,6 @@ function TourRow({
           {videoId && <img src={thumbUrl(videoId)} alt="" style={S.scThumbImg} />}
         </div>
         <div style={S.scTitle}>{item.song.title}</div>
-        <div style={S.scNo}>{item.seq}曲目</div>
       </>
     );
     if (item.song.videos.length < 2) {
@@ -278,6 +275,119 @@ function TourRow({
   );
 }
 
+/**
+ * 「ツアーから探す」の1段の開閉。開くときは高さ0→中身の高さへ0.3秒で伸ばし、
+ * 閉じるときは逆に縮めてから外す（外し終わったらonExitedで親に伝える）。
+ * 同時にカード列（中身全体）を右へ24pxずれた透明な状態から定位置・不透明へ0.3秒で寄せる。
+ * このtransform/opacityは段のラッパーに掛けており、TourRow内部の輪のtranslateXとは別要素。
+ */
+function TourRowShell({
+  open,
+  onExited,
+  children,
+}: {
+  open: boolean;
+  onExited: () => void;
+  children: React.ReactNode;
+}) {
+  const outerRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const wasOpenRef = useRef<boolean | null>(null);
+  const [entered, setEntered] = useState(false);
+  const reduceMotion = typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  // 再レンダーのたびに作り直されるonExitedをそのままeffectの依存に入れると、
+  // 遷移の途中でリスナーが張り直されてtransitionendを取り逃がすので、refで最新版だけ持つ
+  const onExitedRef = useRef(onExited);
+  onExitedRef.current = onExited;
+
+  useLayoutEffect(() => {
+    const outer = outerRef.current;
+    const inner = innerRef.current;
+    if (!outer || !inner) return;
+    const prevOpen = wasOpenRef.current;
+    wasOpenRef.current = open;
+
+    if (reduceMotion) {
+      outer.style.transition = "";
+      outer.style.height = "auto";
+      outer.style.overflow = "visible";
+      setEntered(open);
+      if (!open) onExitedRef.current();
+      return;
+    }
+
+    if (open && !prevOpen) {
+      // 開く: 0 → 中身の高さ
+      outer.style.transition = "";
+      outer.style.overflow = "hidden";
+      outer.style.height = "0px";
+      setEntered(false);
+      let raf2 = 0;
+      const raf1 = requestAnimationFrame(() => {
+        const h = inner.scrollHeight;
+        raf2 = requestAnimationFrame(() => {
+          outer.style.transition = "height 0.3s ease";
+          outer.style.height = `${h}px`;
+          setEntered(true);
+        });
+      });
+      const onEnd = (e: TransitionEvent) => {
+        if (e.propertyName !== "height") return;
+        outer.style.transition = "";
+        outer.style.height = "auto";
+        outer.style.overflow = "visible";
+      };
+      outer.addEventListener("transitionend", onEnd);
+      return () => {
+        cancelAnimationFrame(raf1);
+        cancelAnimationFrame(raf2);
+        outer.removeEventListener("transitionend", onEnd);
+      };
+    }
+
+    if (!open && prevOpen) {
+      // 閉じる: 中身の高さ → 0、終わったら外す
+      const h = inner.scrollHeight;
+      outer.style.transition = "";
+      outer.style.overflow = "hidden";
+      outer.style.height = `${h}px`;
+      let raf2 = 0;
+      const raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => {
+          outer.style.transition = "height 0.3s ease";
+          outer.style.height = "0px";
+        });
+      });
+      const onEnd = (e: TransitionEvent) => {
+        if (e.propertyName !== "height") return;
+        onExitedRef.current();
+      };
+      outer.addEventListener("transitionend", onEnd);
+      return () => {
+        cancelAnimationFrame(raf1);
+        cancelAnimationFrame(raf2);
+        outer.removeEventListener("transitionend", onEnd);
+      };
+    }
+  }, [open, reduceMotion]);
+
+  return (
+    <div ref={outerRef} style={{ overflow: "hidden" }}>
+      <div ref={innerRef}>
+        <div
+          style={{
+            transition: reduceMotion ? undefined : "transform 0.3s ease, opacity 0.3s ease",
+            transform: entered ? "translateX(0)" : "translateX(24px)",
+            opacity: entered ? 1 : 0,
+          }}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CallCenterPage() {
   const [songs, setSongs] = useState<Song[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -289,6 +399,8 @@ export default function CallCenterPage() {
   const [concertSongsByKey, setConcertSongsByKey] = useState<Record<string, ConcertSong[]>>({});
   /** 開いているツアーのconcert_key。null＝どれも開いていない（1段だけ開く） */
   const [openConcert, setOpenConcert] = useState<string | null>(null);
+  /** 閉じるアニメーション中のconcert_key（閉じ終わるまでDOMに残す）。開閉アニメーションのため */
+  const [closingConcerts, setClosingConcerts] = useState<Record<string, true>>({});
   /** 曲名の検索欄。空なら絞り込まない */
   const [query, setQuery] = useState("");
   /** グループの絞り込み。null＝全て */
@@ -577,10 +689,20 @@ export default function CallCenterPage() {
     return out;
   };
 
-  /** noteの「代表公演: 日付 会場」から会場名だけを取り出す。形が違えばnote全文をそのまま出す */
-  const venueOf = (note: string): string => {
-    const m = note.match(/^代表公演[:：]\s*\S+\s+(.+)$/);
-    return m ? m[1] : note;
+  /**
+   * ツアーのタイトルボタンを押したときの開閉。同じツアーを閉じるときも、別のツアーへ
+   * 切り替えるときも、それまで開いていたキーは即座にDOMから外さず「閉じるアニメーション中」
+   * に回してから、TourRowShellのonExitedで外す
+   */
+  const toggleConcert = (key: string) => {
+    if (openConcert && openConcert !== key) {
+      setClosingConcerts((s) => ({ ...s, [openConcert]: true }));
+    }
+    setOpenConcert((prev) => {
+      const next = prev === key ? null : key;
+      if (prev === key) setClosingConcerts((s) => ({ ...s, [key]: true }));
+      return next;
+    });
   };
 
   /** カード本文（左サムネイル＋右の曲名・メタ行）の中身だけを組み立てる */
@@ -700,22 +822,30 @@ export default function CallCenterPage() {
               {concerts.map((c) => {
                 const rowItems = playableSongs(c.concert_key);
                 const isOpen = openConcert === c.concert_key;
+                const isClosing = !!closingConcerts[c.concert_key];
                 return (
                   <div key={c.concert_key} style={S.tourBlock}>
                     <button
                       type="button"
                       style={S.tourTitleBtn}
-                      onClick={() => setOpenConcert(isOpen ? null : c.concert_key)}
+                      onClick={() => toggleConcert(c.concert_key)}
                     >
                       {c.group_name && <div style={S.tourGroup}>{c.group_name}</div>}
                       <div style={S.tourName}>{c.name}</div>
-                      <div style={S.tourMeta}>
-                        動画あり {rowItems.length}曲
-                        {c.note && <span style={S.tourNote}>　{venueOf(c.note)}</span>}
-                      </div>
+                      <div style={S.tourMeta}>動画あり {rowItems.length}曲</div>
                     </button>
-                    {isOpen && rowItems.length > 0 && (
-                      <TourRow items={rowItems} onOpenModal={openModal} />
+                    {(isOpen || isClosing) && rowItems.length > 0 && (
+                      <TourRowShell
+                        open={isOpen}
+                        onExited={() => setClosingConcerts((s) => {
+                          if (!s[c.concert_key]) return s;
+                          const n = { ...s };
+                          delete n[c.concert_key];
+                          return n;
+                        })}
+                      >
+                        <TourRow items={rowItems} onOpenModal={openModal} />
+                      </TourRowShell>
                     )}
                   </div>
                 );
@@ -883,7 +1013,6 @@ const S: Record<string, React.CSSProperties> = {
   tourGroup: { fontSize: 11, fontWeight: 800, color: "#9aa1aa" },
   tourName: { fontSize: 15, fontWeight: 900, marginTop: 2, lineHeight: 1.3 },
   tourMeta: { fontSize: 11, color: "#9aa1aa", marginTop: 4 },
-  tourNote: { color: "#9aa1aa" },
   tourOpen: { marginTop: 2, marginBottom: 6 },
   tourArrows: { display: "flex", justifyContent: "flex-end", gap: 6, padding: "0 18px 6px" },
   tourRowWrap: { position: "relative", overflow: "hidden", touchAction: "pan-y", cursor: "grab" },
@@ -896,7 +1025,6 @@ const S: Record<string, React.CSSProperties> = {
   scThumb: { width: "100%", aspectRatio: "16 / 9", background: "#e5e5e5", overflow: "hidden" },
   scThumbImg: { width: "100%", height: "100%", objectFit: "cover", display: "block", pointerEvents: "none" },
   scTitle: { fontSize: 12, fontWeight: 900, lineHeight: 1.3, marginTop: 6, height: 31, overflow: "hidden" },
-  scNo: { fontSize: 10, color: "#9aa1aa", fontWeight: 800, marginTop: 4 },
   foot: { fontSize: 12, color: "#585f6c", marginTop: 56, lineHeight: 1.8 },
 
   /** 検索・グループ絞り込み */
