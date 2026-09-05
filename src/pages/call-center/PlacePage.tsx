@@ -38,8 +38,9 @@ import { isLight } from "@/lib/colorUtils";
 
 type Video = { video_id: string; offset_sec: number; rate: number; label: string | null; end_sec: number | null };
 
-/** 振り返り画面を何が呼び出したか。ボタンの並びが変わる */
-type ReviewTrigger = "ended" | "back";
+/** 振り返り画面を何が呼び出したか。ボタンの並びが変わる。
+ * "manual" = 曲を離れずに、右上の「！ N」から自分で開いたとき（＝曲ページに留まる前提）。 */
+type ReviewTrigger = "ended" | "back" | "manual";
 
 /** 1回の「！」。時刻・そのとき選んでいた色・その色が誰の色か・付けた言葉（棚に送る用） */
 type MarkEntry = { id: number; sec: number; colorHex: string; memberId: string | null; word: string | null };
@@ -129,6 +130,18 @@ function addSentRowId(slug: string, videoId: string, id: string): Set<string> {
 
 /** 明るいグレー。値の発明はしない前提の1つ ※仮の明度 */
 const NEUTRAL_HEX = "#d0d0d0";
+
+/**
+ * #rrggbb を rgba() 文字列に変換する。見返しで通過した行の背景を、その行の色で薄く塗るために使う
+ * （文字の可読性を保つため、塗りは呼び出し側で低い不透明度を渡す前提）。
+ */
+function hexToRgba(hex: string, alpha: number): string {
+  if (!hex || hex.length < 7) return `rgba(255,255,255,${alpha})`;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
 
 /**
  * メンバーIDから色を引く。src/data/members.ts（/profile と同じメンバー表）が正。ID=氏名。
@@ -639,6 +652,29 @@ export default function PlacePage() {
   const bubbleConfirmTagRef = useRef<string | null>(null);
   // 言葉の入力行（reviewRowEditing）。開いたときにreviewListの見える範囲へ入るようscrollIntoViewする
   const editingRowRef = useRef<HTMLDivElement>(null);
+  // 振り返り一覧の各行のDOM。見返し（プレビュー）中の自動スクロール先を引くための索引
+  const reviewRowRefs = useRef(new Map<number, HTMLDivElement>());
+  // scrollIntoViewを自分で呼んだ直後だけtrueにし、その間のonScrollは「ユーザーが触った」判定から除く
+  const suppressReviewScrollRef = useRef(false);
+  // 見返し（プレビュー）中にユーザーが一覧を手で触ったか。触ったら、その見返しが終わるまで自動スクロールを止める。
+  // 新しい見返しを始めるたび（seekPreview）にリセットする
+  const userTouchedReviewListRef = useRef(false);
+  // 見返し中の置き場（！＋色チップ）を一覧の下に半透明で重ねるための高さ計測。
+  // 一覧側のpaddingBottomに使い、最終行が板の裏に隠れっぱなしにならないようにする
+  const previewToolsOverlayRoRef = useRef<ResizeObserver | null>(null);
+  const [previewToolsOverlayHeight, setPreviewToolsOverlayHeight] = useState(0);
+  const attachPreviewToolsOverlay = (el: HTMLDivElement | null) => {
+    previewToolsOverlayRoRef.current?.disconnect();
+    previewToolsOverlayRoRef.current = null;
+    if (el) {
+      setPreviewToolsOverlayHeight(el.offsetHeight);
+      const ro = new ResizeObserver(() => setPreviewToolsOverlayHeight(el.offsetHeight));
+      ro.observe(el);
+      previewToolsOverlayRoRef.current = ro;
+    } else {
+      setPreviewToolsOverlayHeight(0);
+    }
+  };
 
   const [title, setTitle] = useState("");
   const [groupName, setGroupName] = useState("");
@@ -981,6 +1017,34 @@ export default function PlacePage() {
     if (editingMarkId !== null) editingRowRef.current?.scrollIntoView({ block: "nearest" });
   }, [editingMarkId]);
 
+  // 見返し中の置き場（！＋色チップ）の高さ計測用ResizeObserverの後始末
+  useEffect(() => () => { previewToolsOverlayRoRef.current?.disconnect(); }, []);
+
+  /** 振り返り一覧の指定した！の行へスクロールする。呼んだ直後のonScrollは自分発のものとして無視する */
+  const scrollReviewRowIntoView = (id: number, block: ScrollLogicalPosition) => {
+    const el = reviewRowRefs.current.get(id);
+    if (!el) return;
+    suppressReviewScrollRef.current = true;
+    el.scrollIntoView({ block });
+    setTimeout(() => { suppressReviewScrollRef.current = false; }, 50);
+  };
+
+  /** 一覧を手でスクロールしたら、見返し中の自動追従を止める（自分で呼んだscrollIntoViewぶんは除く） */
+  const handleReviewListScroll = () => {
+    if (suppressReviewScrollRef.current) return;
+    userTouchedReviewListRef.current = true;
+  };
+
+  // 見返し中、通過した行が増えるたびに、最新の通過行が見えるところまで追従する。
+  // ユーザーが一覧を手で触っていたら（userTouchedReviewListRef）、その見返しが終わるまで追従しない
+  useEffect(() => {
+    if (!previewTarget || !previewPassedIds || previewPassedIds.size === 0) return;
+    if (userTouchedReviewListRef.current) return;
+    const passed = marks.filter((m) => previewPassedIds.has(m.id)).sort((a, b) => a.sec - b.sec);
+    const last = passed[passed.length - 1];
+    if (last) scrollReviewRowIntoView(last.id, "nearest");
+  }, [previewTarget, previewPassedIds, marks]);
+
   const onTime = (sec: number) => {
     handsRef.current?.onTimeUpdate(sec);
 
@@ -1178,6 +1242,8 @@ export default function PlacePage() {
     const beatSec = estimateBeatSec(marks);
     previewArmedRef.current = false; // 新しい見返しを始めるので、着地確認をやり直す
     setPreviewPassedIds(null); // 別の見返しを始めるので、前回の通過ハイライトを一旦消す
+    userTouchedReviewListRef.current = false; // 新しい見返しなので、自動スクロールをまた有効にする
+    scrollReviewRowIntoView(target.id, "center"); // 見返しの対象行を開始時に一覧の中央へ
     playerRef.current?.play();
     if (beatSec) {
       playerRef.current?.seekTo(Math.max(0, target.sec - 4 * beatSec));
@@ -1562,7 +1628,18 @@ export default function PlacePage() {
       <div style={S.head}>
         <button style={S.back} onClick={handleBack}>曲の一覧へ</button>
         <span style={S.title}>{title}</span>
-        <span style={S.count}>！ {marks.length}</span>
+        {/* 叩いたぶんが1個以上あり、まだ振り返りを開いていないときだけ、ここから振り返りへ入れる。
+            振り返りを開いている最中はボタン化しない（この表示自体は振り返り画面でも出続けるが、
+            そちらは reviewTrigger !== null なので押せない表示のまま） */}
+        {marks.length > 0 && reviewTrigger === null ? (
+          <button
+            type="button"
+            style={{ ...S.count, background: "none", border: 0, padding: 0, cursor: "pointer", fontFamily: "inherit", color: "#eee" }}
+            onClick={() => openReview("manual")}
+          >！ {marks.length}</button>
+        ) : (
+          <span style={S.count}>！ {marks.length}</span>
+        )}
       </div>
 
       <div style={S.videoBox}>
@@ -1616,7 +1693,16 @@ export default function PlacePage() {
               </span>
             </div>
           )}
-          <div style={S.reviewList}>
+          <div
+            style={
+              previewToolsVisible && editingMarkId === null
+                // 見返し中（編集中ではない）は、下に半透明で重なる置き場のぶんだけ余白を空ける。
+                // +8はその余白と置き場の間に薄い隙間を作るための控えめな値（詰まって見えないように）
+                ? { ...S.reviewList, paddingBottom: previewToolsOverlayHeight + 8 }
+                : S.reviewList
+            }
+            onScroll={handleReviewListScroll}
+          >
             {sortedMarks.map((m) =>
               editingMarkId === m.id ? (
                 /* 言葉の入力（行の本体を押すとここに変わる。別画面にはしない） */
@@ -1651,9 +1737,15 @@ export default function PlacePage() {
               ) : (
                 <div
                   key={m.id}
+                  ref={(el) => { if (el) reviewRowRefs.current.set(m.id, el); else reviewRowRefs.current.delete(m.id); }}
                   style={
                     previewPassedIds?.has(m.id)
-                      ? { ...S.reviewRow, background: "rgba(255,255,255,0.08)", boxShadow: `inset 3px 0 0 ${m.colorHex}, inset 0 -1px 0 #222` }
+                      ? {
+                          ...S.reviewRow,
+                          // 通過した行の印。その！の色を25%の不透明度で塗る（薄いグレーはさらに薄い白で代用）
+                          background: m.colorHex.toLowerCase() === NEUTRAL_HEX.toLowerCase() ? "rgba(255,255,255,0.2)" : hexToRgba(m.colorHex, 0.25),
+                          boxShadow: `inset 3px 0 0 ${m.colorHex}, inset 0 -1px 0 #222`,
+                        }
                       : S.reviewRow
                   }
                   onClick={() => startEditWord(m)}
@@ -1684,14 +1776,10 @@ export default function PlacePage() {
               <button style={S.modalSecondary} onClick={onReviewKeepTapping} disabled={sending}>まだ叩く（もう一度頭から）</button>
             </div>
           </div>
-          {/* 色チップ＋！ボタンの専用置き場。振り返りリスト(reviewList)とは別の、通常フローの
-              置き場（このdiv自体はここに書いた条件でしか現れない普通の兄弟要素。absoluteでリストの
-              裏に敷いていない）。出ているあいだ、上の reviewList はその分だけ高さが縮む。
-              常時は出さない。言葉の編集中・見返し中（プレビュー再生中）のどちらかで出す
-              （二重に出ないよう条件を1つにまとめる。色直しの丸押し／見返し中の追加叩きに使う）。
-              見返し中だけ！ボタンも出す＝叩き足せる。編集中だけ一言も出す。
-              見返し中の判定は playing を直接使わず previewToolsVisible（250msのワンクッション）を使う。 */}
-          {(editingMarkId !== null || previewToolsVisible) && (
+          {/* 言葉の編集中（editingMarkId !== null）は今までどおり、一覧を縮める形の普通の兄弟要素として
+              色チップを出す（＋見返しも同時に進行中なら！ボタンも出す）。reviewWrap は position:relative
+              にしてあるが、このブロック自体はabsoluteにしない＝一覧の高さはこのぶん縮む（今までどおり）。 */}
+          {editingMarkId !== null && (
             <>
               {/* colorPicker自体のS.colorPickerRowはbottomSection(通常の叩く画面)とも共有しているため、
                   そちらの余白は変えずにこの箱だけ上の余白を詰める。colorPickerRowの上パディング8pxを
@@ -1710,10 +1798,28 @@ export default function PlacePage() {
                   >！</button>
                 </div>
               )}
-              {editingMarkId !== null && (
-                <p style={S.reviewLede}>ちょっとタイミングずれたかも、とかはライブ感ということでいいじゃない。</p>
-              )}
+              <p style={S.reviewLede}>ちょっとタイミングずれたかも、とかはライブ感ということでいいじゃない。</p>
             </>
+          )}
+          {/* 見返し中（編集中ではない）は、一覧を縮めずに下端へ半透明の板として重ねる。
+              裏の行（通過の印・文字）が透けて見え、板の上のチップ＋！も今どおり押せる。
+              reviewList側は上のpaddingBottomで、この板の高さぶん最終行が隠れないようにしてある。
+              高さはResizeObserver（attachPreviewToolsOverlay）で測る＝内容が変わっても追従する。 */}
+          {previewToolsVisible && editingMarkId === null && (
+            <div ref={attachPreviewToolsOverlay} style={S.previewToolsOverlay}>
+              <div style={{ marginTop: -4 }}>{colorPicker}</div>
+              <div style={S.btnRow}>
+                <button
+                  type="button"
+                  style={{ ...S.mark, background: markBg, color: markFg, boxShadow: markBoxShadow, transform: markPressed ? "scale(0.92)" : "scale(1)" }}
+                  onPointerDown={handleMarkDown}
+                  onPointerUp={handleMarkUp}
+                  onPointerLeave={handleMarkUp}
+                  onPointerCancel={handleMarkUp}
+                  onContextMenu={(e) => e.preventDefault()}
+                >！</button>
+              </div>
+            </div>
           )}
         </div>
       ) : (
@@ -1854,7 +1960,8 @@ const S: Record<string, React.CSSProperties> = {
     touchAction: "manipulation", userSelect: "none", WebkitTapHighlightColor: "transparent",
     transition: "transform 0.12s, box-shadow 0.12s",
   },
-  reviewWrap: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", marginTop: 8 },
+  // position:relativeは、見返し中に下端へ重ねる半透明の置き場(previewToolsOverlay)の基準にするため
+  reviewWrap: { position: "relative", flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", marginTop: 8 },
   mergeNotice: { flex: "0 0 auto", fontSize: 11, color: "#9aa0a6", textAlign: "center", marginBottom: 6 },
   undoLink: { background: "none", border: 0, color: "#7cf", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "0 0 0 6px" },
   countBanner: {
@@ -1864,6 +1971,13 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: 22, fontWeight: 900, lineHeight: 1,
   },
   reviewList: { flex: "1 1 auto", minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 },
+  // 見返し中、一覧を縮めずに下端へ重ねる半透明の置き場。裏の行が透けて見える濃さにしてある
+  previewToolsOverlay: {
+    position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 5,
+    background: "rgba(0,0,0,0.55)",
+    display: "flex", flexDirection: "column",
+    paddingBottom: "calc(8px + env(safe-area-inset-bottom))",
+  },
   // 行の本体を押すと言葉の入力に変わる＝押せる行なのでポインタを出す
   reviewRow: { display: "flex", alignItems: "center", gap: 10, padding: "9px 4px", boxShadow: "inset 0 -1px 0 #222", cursor: "pointer" },
   reviewTime: { fontSize: 13, fontFamily: "ui-monospace,Menlo,Consolas,monospace", color: "#eee", width: 62, flex: "0 0 auto" },
