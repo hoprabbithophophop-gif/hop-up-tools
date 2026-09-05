@@ -637,6 +637,8 @@ export default function PlacePage() {
   // 吹き出しを押して確認モーダルが出ているあいだ、そのtapTagを控える（二重に開かないための判定用。
   // stateだけだと非同期のズレが心配なので、判定はこのrefで同期的に行う）
   const bubbleConfirmTagRef = useRef<string | null>(null);
+  // 言葉の入力行（reviewRowEditing）。開いたときにreviewListの見える範囲へ入るようscrollIntoViewする
+  const editingRowRef = useRef<HTMLDivElement>(null);
 
   const [title, setTitle] = useState("");
   const [groupName, setGroupName] = useState("");
@@ -672,6 +674,9 @@ export default function PlacePage() {
   const [previewStep, setPreviewStep] = useState<string | null>(null);
   // 見返し中、この秒を過ぎたら自動で止める（！の瞬間から4拍・BPM不明なら2秒ぶん流したら止める）
   const [previewStopAt, setPreviewStopAt] = useState<number | null>(null);
+  // 見返し中、いまの再生位置が通過した行（previewTargetの4拍前からpreviewStopAtまでの範囲）のID。
+  // 見返しが止まったら（previewStopAt到達・別の見返し開始・clearPreview）clearPreviewと一緒に消す
+  const [previewPassedIds, setPreviewPassedIds] = useState<Set<number> | null>(null);
   // previewStopAt の判定を「一度でも狙った巻き戻し位置を下回ってから」だけ有効にする安全弁。
   // seekTo() は非同期なので、直後の数tickは着地前の古い再生位置（＝曲の終わり付近など、
   // 狙った停止位置よりずっと先）を getCurrentTime() が返すことがある。無条件に
@@ -971,6 +976,11 @@ export default function PlacePage() {
     saveDraft(slug, video.video_id, marks);
   }, [marks, video, slug]);
 
+  // 言葉の入力行が開いたとき、reviewList（振り返り一覧）の見える範囲へ入るようスクロールする
+  useEffect(() => {
+    if (editingMarkId !== null) editingRowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [editingMarkId]);
+
   const onTime = (sec: number) => {
     handsRef.current?.onTimeUpdate(sec);
 
@@ -1009,6 +1019,22 @@ export default function PlacePage() {
       else if (d >= -1 * b && d < 0) step = "8";
       else if (d >= 0 && d < b) step = "mark";
       setPreviewStep((prev) => (prev === step ? prev : step));
+
+      // 見返し中、通過した行（previewTargetの4拍前からpreviewStopAtまでの範囲）にハイライトの印を付ける。
+      // 「通過した」＝今の再生位置(sec)がその行の秒(m.sec)以上になった瞬間から。
+      // previewArmedRef（下の自動停止と同じ安全弁）が立つ前は、seekTo()着地前の古いsec
+      // （曲の終わり付近など）を拾ってしまい、範囲内の全行が一瞬点灯する事故になるため、
+      // 着地確認が済んでからだけ判定する
+      if (previewStopAt !== null && previewArmedRef.current) {
+        const rangeStart = previewTarget.sec - 4 * b;
+        const passedIds = new Set(
+          marks.filter((m) => m.sec >= rangeStart && m.sec <= previewStopAt && sec >= m.sec).map((m) => m.id),
+        );
+        setPreviewPassedIds((prev) => {
+          if (prev && prev.size === passedIds.size && [...prev].every((id) => passedIds.has(id))) return prev;
+          return passedIds;
+        });
+      }
     }
 
     // 見返し中、！の瞬間から決めた秒数ぶん流したら自動で止めて振り返りへ戻す。
@@ -1064,6 +1090,7 @@ export default function PlacePage() {
     setPreviewTarget(null);
     setPreviewStep(null);
     setPreviewStopAt(null);
+    setPreviewPassedIds(null);
     previewArmedRef.current = false;
   };
 
@@ -1150,6 +1177,7 @@ export default function PlacePage() {
   const seekPreview = (target: MarkEntry) => {
     const beatSec = estimateBeatSec(marks);
     previewArmedRef.current = false; // 新しい見返しを始めるので、着地確認をやり直す
+    setPreviewPassedIds(null); // 別の見返しを始めるので、前回の通過ハイライトを一旦消す
     playerRef.current?.play();
     if (beatSec) {
       playerRef.current?.seekTo(Math.max(0, target.sec - 4 * beatSec));
@@ -1580,9 +1608,10 @@ export default function PlacePage() {
             </div>
           )}
           {previewTarget && (
-            /* 見返しのカウントイン。動画の上には重ねない（一覧の上に小さく出すだけ） */
-            <div style={S.countBanner}>
-              <span style={{ color: previewStep === "mark" ? previewTarget.colorHex : "#cbd2dc" }}>
+            /* 見返しのカウントイン。動画の上には重ねない（一覧の上に小さく出すだけ）。
+               ！のタイミング(previewStep==="mark")だけ帯の背景をその！の色で塗る。それ以外は今までどおり */
+            <div style={previewStep === "mark" ? { ...S.countBanner, background: previewTarget.colorHex } : S.countBanner}>
+              <span style={{ color: previewStep === "mark" ? (isLight(previewTarget.colorHex) ? "#000" : "#fff") : "#cbd2dc" }}>
                 {previewStep === "mark" ? "！" : previewStep ?? "見返し中…"}
               </span>
             </div>
@@ -1591,7 +1620,7 @@ export default function PlacePage() {
             {sortedMarks.map((m) =>
               editingMarkId === m.id ? (
                 /* 言葉の入力（行の本体を押すとここに変わる。別画面にはしない） */
-                <div key={m.id} style={S.reviewRowEditing}>
+                <div key={m.id} ref={editingRowRef} style={S.reviewRowEditing}>
                   <div style={S.reviewRowEditingTop}>
                     <span style={S.reviewTime}>{fmt(m.sec)}</span>
                     <input
@@ -1620,7 +1649,15 @@ export default function PlacePage() {
                   })()}
                 </div>
               ) : (
-                <div key={m.id} style={S.reviewRow} onClick={() => startEditWord(m)}>
+                <div
+                  key={m.id}
+                  style={
+                    previewPassedIds?.has(m.id)
+                      ? { ...S.reviewRow, background: "rgba(255,255,255,0.08)", boxShadow: `inset 3px 0 0 ${m.colorHex}, inset 0 -1px 0 #222` }
+                      : S.reviewRow
+                  }
+                  onClick={() => startEditWord(m)}
+                >
                   <span style={S.reviewTime}>{fmt(m.sec)}</span>
                   <button
                     type="button"
@@ -1656,7 +1693,10 @@ export default function PlacePage() {
               見返し中の判定は playing を直接使わず previewToolsVisible（250msのワンクッション）を使う。 */}
           {(editingMarkId !== null || previewToolsVisible) && (
             <>
-              {colorPicker}
+              {/* colorPicker自体のS.colorPickerRowはbottomSection(通常の叩く画面)とも共有しているため、
+                  そちらの余白は変えずにこの箱だけ上の余白を詰める。colorPickerRowの上パディング8pxを
+                  marginTopの負値で相殺し、実質4px（半分）にする */}
+              <div style={{ marginTop: -4 }}>{colorPicker}</div>
               {previewToolsVisible && (
                 <div style={S.btnRow}>
                   <button
@@ -1847,7 +1887,8 @@ const S: Record<string, React.CSSProperties> = {
   wordConfirm: { flex: "0 0 auto", background: "none", color: "#7cf", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "6px 10px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
   wordChipRow: { display: "flex", gap: 6, flexWrap: "wrap", paddingLeft: 70 },
   wordChip: { background: "none", color: "#cbd2dc", border: 0, boxShadow: "inset 0 0 0 1px #444", padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" },
-  reviewLede: { fontSize: 12, lineHeight: 1.7, color: "#9aa0a6", margin: "0 0 10px" },
+  // 下の余白は元10pxから半分の5pxへ（振り返りの箱だけで使う専用スタイルなので、他画面への影響なし）
+  reviewLede: { fontSize: 12, lineHeight: 1.7, color: "#9aa0a6", margin: "0 0 5px" },
   // 送信ボタン一式。一覧の最後の行として置く（スクロールしないと届かない位置）
   reviewActionsInList: {
     display: "flex", flexDirection: "column", gap: 8,
