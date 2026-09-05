@@ -681,7 +681,7 @@ export default function CallCenterPage() {
   const playableSongs = (key: string): { seq: number; song: Song }[] => {
     const out: { seq: number; song: Song }[] = [];
     for (const row of concertSongsByKey[key] ?? []) {
-      if (!row.song_id) continue;
+      if (row.kind !== "song" || !row.song_id) continue; // シャッフルコーナー等（corner）は段に出さない
       const song = songById.get(row.song_id);
       if (!song || song.videos.length === 0) continue;
       out.push({ seq: row.seq, song });
