@@ -1778,7 +1778,9 @@ const S: Record<string, React.CSSProperties> = {
   // 中段: 跳ねる面
   stage: { position: "relative", flex: 1, minHeight: 0, background: "#0a0a0c", overflow: "hidden" },
   // 下段: ！ボタン＋色えらび。段の中で縦中央寄せ
-  bottomSection: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center" },
+  // 下段は中身の高さぶんだけ。余りは中段（舞台）に回す。等分にすると iPhone の縦幅で
+  // 円形の！＋色えらびが収まらず、色えらびが Safari の下バーに隠れる
+  bottomSection: { flex: "0 0 auto", display: "flex", flexDirection: "column", paddingBottom: "calc(8px + env(safe-area-inset-bottom))" },
   // 止まっている（一時停止含む）あいだ、中段(跳ねる面)を中心に高さ1/2ぶんを覆う1枚の再生ボタン。
   // 上段・下段は透過のまま（言葉レーン・色えらび・！ボタンが見える。！ボタン自体は別途disabled）
   midPlayOverlay: {
@@ -1803,7 +1805,7 @@ const S: Record<string, React.CSSProperties> = {
   arrowBtn: { flex: "0 0 auto", width: 26, height: 26, background: "#1a1a1a", color: "#eee", border: 0, boxShadow: "inset 0 0 0 1px #444", fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: 0 },
   dotsRow: { flex: "1 1 auto", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 3, padding: "0 6px" },
   dot: { flex: "0 1 22px", aspectRatio: "1", minWidth: 12, maxWidth: 22, borderRadius: "50%", border: 0, cursor: "pointer", padding: 0 },
-  btnRow: { display: "flex", gap: 8, flex: "0 0 auto", marginTop: 8, justifyContent: "center" },
+  btnRow: { display: "flex", gap: 8, flex: "0 0 auto", marginTop: 4, justifyContent: "center" },
   // ！ボタン。ハイ！テンションの✋ボタン（HiTapButton）と同じ丸い見た目に揃える
   mark: {
     width: 120, height: 120, flexShrink: 0, borderRadius: "50%",
