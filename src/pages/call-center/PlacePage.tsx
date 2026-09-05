@@ -333,7 +333,9 @@ function estimateBeatSec(marks: MarkEntry[]): number | null {
  */
 function mergeCloseMarks(marksIn: MarkEntry[], beatSec: number | null): { merged: MarkEntry[]; removedCount: number } {
   if (marksIn.length === 0) return { merged: marksIn, removedCount: 0 };
-  const threshold = beatSec ? beatSec / 4 : 0.1;
+  // しきい値は固定 0.1 秒。拍の推定に頼ると、名前コールのようにまばらな叩きで推定が狂い、
+  // 8分音符の連打（約0.18秒）まで巻き込んで「み・よ・ちゃん」の「よ」が消えた（2026-09-06）
+  const threshold = 0.1;
   const sorted = [...marksIn].sort((a, b) => a.sec - b.sec);
   const merged: MarkEntry[] = [];
   let cluster: MarkEntry[] = [sorted[0]];
