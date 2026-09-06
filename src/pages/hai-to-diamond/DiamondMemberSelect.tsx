@@ -3,7 +3,19 @@
 import { useEffect, useState } from "react";
 import { faGem } from "@fortawesome/free-solid-svg-icons";
 import FaIcon from "../hi-tension/components/FaIcon";
-import { UNIT_ROWS, NEW_MEMBERS, ARENA_BG, findMember } from "../hi-tension/data";
+import { ARENA_BG, findMember, type HiTensionMember } from "../hi-tension/data";
+
+// 色の並び（Hop指定 2026-09-06）。新メンバーが各ユニットに加入した後の並びで、高瀬さんは卒業のため入れない。
+// 1行目: ホットピンク・デイジー・ライトグリーン・レッド / 2行目: シーブルー・ピンク・オレンジ・ホワイト / 3行目: パープル・グリーン・ミディアムブルー
+const ROW_IDS: readonly string[][] = [
+  ["nishida", "eguchi", "otsubo", "sugiyama"],
+  ["maeda", "okamura", "kiyono", "kojima"],
+  ["hirai", "kobayashi", "satoyoshi"],
+];
+const DIAMOND_ROWS: { unit: string; members: HiTensionMember[] }[] = ROW_IDS.map((ids, i) => ({
+  unit: `row${i + 1}`,
+  members: ids.map((id) => findMember(id)).filter((m): m is HiTensionMember => m != null),
+}));
 
 interface Props {
   initialSelectedId: string | null;
@@ -31,8 +43,8 @@ export default function DiamondMemberSelect({ initialSelectedId, onConfirm, onOp
 
   const selectedColor = findMember(selectedId)?.color ?? null;
   const rows = isLandscape
-    ? [{ unit: "all", members: [...UNIT_ROWS.flatMap((r) => r.members), ...NEW_MEMBERS] }]
-    : [...UNIT_ROWS, { unit: "new", members: [...NEW_MEMBERS] }];
+    ? [{ unit: "all", members: DIAMOND_ROWS.flatMap((r) => r.members) }]
+    : DIAMOND_ROWS;
   const circleSize = isLandscape ? "clamp(44px, 14dvh, 52px)" : "clamp(44px, 7.5dvh, 56px)";
 
   return (
