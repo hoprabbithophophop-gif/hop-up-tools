@@ -1,8 +1,8 @@
 // 灰toダイヤモンド 💎 — 第0段（記録なし）
 //
-// 入口でメンバーカラーを選び（ハイ！テンションと同じ）、動画の下の💎ボタンを押すと
-// その色の💎が額縁の直下から降る。💎の向きに光の筋が伸び、動画の額縁を照らす
-// （動画本体の上には何も描かない）。
+// 入口でメンバーカラーを選び（ハイ！テンションと同じ）、画面下の💎ボタンを押すと
+// その色の💎が画面の上から降る。💎は動画の裏を通って画面の下に積もり、曲が進むにつれて
+// カメラが引いて山が動画の背景になる。動画は真ん中に固定（動画本体の上には何も描かない）。
 // 再生開始はハイ！テンションと同じ流儀: ユーザーのタップの中で同期的に play() を呼ぶ。
 import { useCallback, useRef, useState } from "react";
 import { faPlay } from "@fortawesome/free-solid-svg-icons";
@@ -64,6 +64,11 @@ export default function HaiToDiamondPage() {
     else if (state === 0) setPlayingBoth(false);
   }, []);
 
+  const handleTimeUpdate = useCallback((t: number) => {
+    const d = playerRef.current?.getDuration() ?? 0;
+    if (d > 0) canvasRef.current?.setProgress(t / d);
+  }, []);
+
   /** 💎ボタン1回ぶん。再生中だけ受け付ける */
   const handleRecord = useCallback((): boolean => {
     if (!playingRef.current) return false;
@@ -92,31 +97,36 @@ export default function HaiToDiamondPage() {
       {/* 光と💎の層。動画の裏（zIndex 0） */}
       <DiamondCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={FRAME} />
 
-      {/* 動画。額縁ぶんの余白を空けて置く。背景は透明にして裏のキャンバスの額縁を見せる */}
+      {/* 動画。画面の縦の真ん中に固定。額縁ぶんの余白を空け、背景は透明にして裏のキャンバスの額縁を見せる */}
       <div
         style={{
-          position: "relative",
+          position: "absolute",
           zIndex: 2,
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
           padding: FRAME,
-          ...(isTouchDevice() ? {} : { width: PC_VIDEO_WIDTH + FRAME * 2, maxWidth: "100%", margin: "0 auto" }),
+          width: isTouchDevice() ? "100%" : PC_VIDEO_WIDTH + FRAME * 2,
+          maxWidth: "100%",
+          boxSizing: "border-box",
         }}
       >
         <div ref={videoBoxRef}>
-          <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onPlayerStateChange={handlePlayerStateChange} />
+          <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} />
         </div>
       </div>
 
-      {/* 床。💎が降る場所。再生前は開始ボタン、再生中は💎ボタン */}
+      {/* 画面下。再生前は開始ボタン、再生中は💎ボタン */}
       <div
         style={{
-          position: "relative",
-          zIndex: 1,
-          flex: 1,
+          position: "absolute",
+          zIndex: 3,
+          left: 0,
+          right: 0,
+          bottom: "1.6rem",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          justifyContent: "flex-end",
-          paddingBottom: "2.2rem",
           gap: "0.6rem",
           pointerEvents: "none",
         }}
@@ -147,7 +157,7 @@ export default function HaiToDiamondPage() {
         </div>
       </div>
 
-      <footer style={{ position: "relative", zIndex: 1, padding: "0.4rem 0.8rem", fontSize: 11, color: "#8a8e98", textAlign: "center" }}>
+      <footer style={{ position: "absolute", zIndex: 3, left: 0, right: 0, bottom: 0, padding: "0.4rem 0.8rem", fontSize: 11, color: "#8a8e98", textAlign: "center" }}>
         Gem icon by Font Awesome (CC BY 4.0)
       </footer>
     </div>
