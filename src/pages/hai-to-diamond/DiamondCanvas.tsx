@@ -60,9 +60,12 @@ const COUNT_REF = 120;         // この数を超えたら、降った数の平�
 const FINALE_TIME = 206;       // 動画時刻 3:26（曲が一番盛り上がる所）からゆっくり寄り始める（Hop指定 2026-09-06）
 const FLOOR_DEPTH = 1.0;       // 床の位置（画面高さの倍数）。カメラの軸が床なので 1.0＝画面の下端が床
 const COL_W = 10;              // 積もり高さの帳簿の列幅
-const PACK_STEP = 0.62;        // 💎1個ぶんで山がどれだけ高くなるか（size 倍）。小さいほど深く重なって「ぎっしり」【仮】
+const PACK_RADIUS = 0.6;       // 積もり計算で💎を丸い粒とみなす時の半径（size 倍）。見た目の半径(約1.0)より小さくして深く重ねる＝「ぎっしり」【仮】
 const SLOPE = 0.06;            // 山の傾き。小さいほど平らで、瓶に詰めるように下から隙間なく埋まる【仮】
-const MAX_GEMS = 4000;
+const OUTSIDE_SLOPE = 1.5;     // 画面の端より外へ 1px 出るごとに、積もり高さ何px分の損と数えるか＝端の外の裾野の急さ【仮】
+const MAX_GEMS = 4000;         // 1つずつ描く💎の上限。超えたぶんは古い順に後ろの絵へ焼き込む
+const BAKE_BATCH = 1000;       // 一度に焼き込む個数
+const BAKE_HEIGHT = 2.5;       // 焼き込み用の絵の高さ（画面高さの倍数・床から上へ）
 
 // 宝石の面（Font Awesome gem の外形に合わせた 5+3 面）。座標は -1..1。n は擬似的な法線
 type Facet = { pts: [number, number][]; n: [number, number, number] };
@@ -158,7 +161,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   /** 寄り始めの時点の倍率。そこから曲の終わりの倍率へなめらかに寄る */
   const finaleFromRef = useRef(1);
   /** 着地先を決める関数（キャンバスの寸法を知っている useEffect 内で差し替える） */
-  const slotRef = useRef<(x: number, size: number, scale: number) => { tx: number; ty: number }>(() => ({ tx: 0, ty: 0 }));
+  const slotRef = useRef<(x: number, size: number, scale: number, self: boolean) => { tx: number; ty: number }>(() => ({ tx: 0, ty: 0 }));
   const sizeRef = useRef({ W: 0, H: 0 });
   const camRef = useRef({ scale: 1, cx: 0, cy: 0 });
 
@@ -181,7 +184,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       let y = self ? topWorld + (60 + Math.random() * 40) / scale : topWorld - size * 2;
       if (pileTop !== Infinity) y = Math.min(y, pileTop - size * 3);
       const gems = gemsRef.current;
-      const slot = slotRef.current(x, size, scale);
+      const slot = slotRef.current(x, size, scale, self);
       if (self) flashesRef.current.push({ x: slot.tx, y, t0: performance.now(), rgb: hexToRgb(color), size });
       gems.push({
         x: slot.tx,
@@ -197,7 +200,6 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         settled: false,
         seed: Math.random() * 1000,
       });
-      if (gems.length > MAX_GEMS) gems.shift();
     },
     setTime(t: number, duration: number) {
       timeRef.current = { t: Math.max(0, t), d: Math.max(1, duration) };
@@ -212,6 +214,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
 
     let W = 0, H = 0, dpr = 1;
     let floorY = 0, worldX0 = 0, worldW = 0;
+    // 焼き込み用の絵（世界座標そのまま・1px=1px）。上限を超えた古い💎はここへ描き移して配列から外す。
+    // 以前は古い順に配列から消していたので、帳簿の高さはそのままなのに山が床側からくり抜かれて宙に浮いた
+    let bake: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; x0: number; y0: number } | null = null;
     const cols: number[] = [];
     const resize = () => {
       const r = canvas.getBoundingClientRect();
@@ -230,27 +235,52 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
 
-    // 着地先の割り当て。cols[c] は列 c の積もった高さ(px)。
-    // 「いま見えている横幅」の中で、高さ＋中心からの距離の分だけ重み付けした一番低い列を選ぶ
-    // ＝真ん中から広がる山の形で、しかも隙間なく詰まる。💎は横幅が列幅より広いので隣の列にも高さを足す。
-    slotRef.current = (x: number, size: number, scale: number) => {
+    // 着地先の割り当て。cols[c] は列 c の積もった高さ(px)＝地形。
+    // 💎を半径 R の丸い粒として、「その列に落としたら地形のどこで止まるか（中心の高さ hc）」を
+    // 粒の下側が地形に触れる条件から求める。いま見えている横幅の中で、止まる高さ hc が一番低い列を選ぶ
+    // （中心からの距離と散らした位置で軽く重み付け）＝瓶に砂を入れるように下から隙間なく埋まる。
+    // 以前は候補を見えている列に限り、土台を「隣の列の一番高い所」にしていたので、カメラが引いて
+    // 新しく見えた端の1列に💎が縦に積み上がって塔になり、次の列はその塔の肩に乗る…の連鎖で
+    // 山の底辺が斜めに削れて空洞ができていた（Hop指摘 2026-09-07）。
+    const restHeight = (c: number, R: number): number => {
+      const hc = Math.ceil(R / COL_W);
+      let h = 0;
+      for (let j = c - hc; j <= c + hc; j++) {
+        const dx = (j - c) * COL_W;
+        if (Math.abs(dx) > R) continue;
+        const ground = j >= 0 && j < cols.length ? cols[j] : 0;
+        const v = ground + Math.sqrt(R * R - dx * dx);
+        if (v > h) h = v;
+      }
+      return h;
+    };
+    slotRef.current = (x: number, size: number, scale: number, self: boolean) => {
       const cx = camRef.current.cx || W / 2;
-      const visibleHalf = (W / 2) / scale;
-      const cL = Math.max(0, Math.round((cx - visibleHalf * 0.97 - worldX0) / COL_W));
-      const cR = Math.min(cols.length - 1, Math.round((cx + visibleHalf * 0.97 - worldX0) / COL_W));
+      const visibleCols = (W / 2) / scale / COL_W;
       const cC = (x - worldX0) / COL_W; // 押した位置ではなく散らした位置を中心の目安に使う（山が偏らない）
       const cMid = (cx - worldX0) / COL_W;
-      let best = cL, bestScore = Infinity;
-      for (let c = cL; c <= cR; c++) {
-        const score = cols[c] + Math.abs(c - cMid) * COL_W * SLOPE + Math.abs(c - cC) * COL_W * 0.15 + Math.random() * size * 0.4;
-        if (score < bestScore) { bestScore = score; best = c; }
+      const R = size * PACK_RADIUS;
+      let best = 0, bestScore = Infinity, bestH = 0;
+      // 候補は見えている範囲に限らず世界の全列。範囲の外は「端から離れるほど損」にして、
+      // 端に塔が立つ代わりに裾野が外へ伸びる（カメラが引くと裾野が見えて、そこが埋まっていく）。
+      // 自分の💎だけは必ず画面の中に落とす（押した手応えと閃光が見えなくなるのを防ぐ）
+      for (let c = 0; c < cols.length; c++) {
+        const off = Math.abs(c - cMid) - visibleCols;
+        if (self && off > 0) continue;
+        const h = restHeight(c, R);
+        const outside = Math.max(0, off) * COL_W * OUTSIDE_SLOPE;
+        const score = h + outside + Math.abs(c - cMid) * COL_W * SLOPE + Math.abs(c - cC) * COL_W * 0.15 + Math.random() * size * 0.4;
+        if (score < bestScore) { bestScore = score; best = c; bestH = h; }
       }
-      const halfCols = Math.max(1, Math.round((size * 0.75) / COL_W));
-      let base = 0;
-      for (let j = best - halfCols; j <= best + halfCols; j++) if (j >= 0 && j < cols.length) base = Math.max(base, cols[j]);
-      const ty = floorY - base - size * 0.5;
-      const newTop = base + size * PACK_STEP;
-      for (let j = best - halfCols; j <= best + halfCols; j++) if (j >= 0 && j < cols.length) cols[j] = Math.max(cols[j], newTop - Math.abs(j - best) * COL_W * 0.2);
+      // 止まった粒の上側の丸みを地形に足す
+      const hc = Math.ceil(R / COL_W);
+      for (let j = best - hc; j <= best + hc; j++) {
+        if (j < 0 || j >= cols.length) continue;
+        const dx = (j - best) * COL_W;
+        if (Math.abs(dx) > R) continue;
+        cols[j] = Math.max(cols[j], bestH + Math.sqrt(R * R - dx * dx));
+      }
+      const ty = floorY - bestH;
       const tx = worldX0 + best * COL_W + (Math.random() - 0.5) * COL_W * 0.6;
       return { tx, ty };
     };
@@ -265,12 +295,33 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       ctx.restore();
     };
     /** 積もった💎: スプライトを貼る */
-    const drawGemSettled = (g: Gem) => {
+    const drawGemSettled = (g: Gem, target: CanvasRenderingContext2D = ctx) => {
       const sprites = getSprites(g.rgb);
       const i = ((Math.round((g.ang / (Math.PI * 2)) * SPRITE_STEPS) % SPRITE_STEPS) + SPRITE_STEPS) % SPRITE_STEPS;
       const w = (g.size * 2 / 0.95) * 1.12;              // 少し大きめに貼って継ぎ目の隙間を埋める【仮】
-      ctx.drawImage(sprites[i], g.x - w / 2, g.y - w / 2, w, w);
+      target.drawImage(sprites[i], g.x - w / 2, g.y - w / 2, w, w);
       // 山の瞬きは十字の閃光（flashes）に統一。ここでは点を打たない（Hop指摘 2026-09-06）
+    };
+    /** 上限を超えたら、古い順に積もった💎を焼き込み用の絵へ描き移して配列から外す */
+    const bakeOldest = (gems: Gem[]) => {
+      if (!bake) {
+        const c = document.createElement("canvas");
+        c.width = Math.ceil(worldW);
+        c.height = Math.ceil(H * BAKE_HEIGHT);
+        const bctx = c.getContext("2d");
+        if (!bctx) { gems.splice(0, gems.length - MAX_GEMS); return; } // 絵が作れない環境では従来どおり消す
+        bake = { canvas: c, ctx: bctx, x0: worldX0, y0: floorY - c.height };
+        bctx.translate(-bake.x0, -bake.y0);
+      }
+      let n = 0;
+      for (let i = 0; i < gems.length && n < BAKE_BATCH; i++) {
+        const g = gems[i];
+        if (!g.settled || g.y - g.size < bake.y0) continue; // 絵の枠より上に積もった分は1つずつ描き続ける
+        drawGemSettled(g, bake.ctx);
+        gems.splice(i, 1);
+        i--;
+        n++;
+      }
     };
 
     let raf = 0;
@@ -374,6 +425,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       ctx.translate(cx, H);
       ctx.scale(scale, scale);
       ctx.translate(-cx, -floorY);
+      if (gems.length > MAX_GEMS) bakeOldest(gems);
+      if (bake) ctx.drawImage(bake.canvas, bake.x0, bake.y0);
       for (const g of gems) {
         if (g.settled) drawGemSettled(g);
         else drawGemLive(g, lightAng);
