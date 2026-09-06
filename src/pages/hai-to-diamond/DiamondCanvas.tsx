@@ -5,7 +5,8 @@
 // 💎そのものは動画の裏を通る（隠れる）だけで、動画の上には出ない。
 //
 // 世界座標: カメラ倍率1のときの画面座標と同じ。y は画面上端=0 で下へ正。
-// 床は画面の下（見えない所）にあり、カメラは動画の中心を基準に縮む＝動画は動かず周りだけ縮む。
+// カメラの軸は「床（画面の下端）」。引くほど山は画面の下に縮んで留まり、動画（固定）の下に収まる。
+// 動画の中心を軸にすると、引くほど山の頂上が動画の中心に寄ってしまい、山を動画の下に留められない。
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 export type DiamondCanvasApi = {
@@ -46,8 +47,10 @@ const SPIN_MIN = 0.6;          // rad/s
 const SPIN_RANGE = 3.2;
 const SIZE_MIN = 22;
 const SIZE_RANGE = 14;
-const MIN_SCALE = 0.5;         // 曲の終わりのカメラ倍率
-const FLOOR_DEPTH = 1.5;       // 床の位置（画面高さの倍数）
+const MIN_SCALE = 0.5;         // 曲の終わりのカメラ倍率（曲の進みだけで決まる分）
+const HARD_MIN_SCALE = 0.2;    // 山の高さで引く時の下限
+const FINALE_START = 0.9;      // ここから先は山の高さで引かない（山が動画の背景になる）
+const FLOOR_DEPTH = 1.0;       // 床の位置（画面高さの倍数）。カメラの軸が床なので 1.0＝画面の下端が床
 const COL_W = 10;              // 積もり高さの帳簿の列幅
 const MAX_GEMS = 4000;
 
@@ -138,21 +141,28 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   useEffect(() => { reduceMotionRef.current = reduceMotion; }, [reduceMotion]);
   const gemsRef = useRef<Gem[]>([]);
   const progressRef = useRef(0);
+  /** 山の頂上の世界座標（低いほど高い山）。自分の💎を山より上に出すために使う */
+  const pileTopRef = useRef(Infinity);
+  const fitScaleRef = useRef(1);
   const sizeRef = useRef({ W: 0, H: 0 });
   const camRef = useRef({ scale: 1, cx: 0, cy: 0 });
 
   useImperativeHandle(ref, () => ({
     spawn(color: string, self = false) {
-      const { W } = sizeRef.current;
-      const { scale, cx, cy } = camRef.current;
+      const { W, H } = sizeRef.current;
+      const { scale, cx } = camRef.current;
       if (!W) return;
       const size = SIZE_MIN + Math.random() * SIZE_RANGE;
       // いま見えている範囲の横幅に散らす（引くほど広がる）
       const visibleHalf = (W / 2) / scale;
       const x = cx + (Math.random() * 2 - 1) * visibleHalf * 0.94;
-      // 自分の💎は画面内（上端から少し下）に出して、出た瞬間の光が見えるようにする。他人は画面の上の外から
-      const topWorld = cy - cy / scale;                      // 画面上端の世界座標
-      const y = self ? topWorld + (60 + Math.random() * 40) / scale : -size * 2;
+      // 自分の💎は画面内（上端から少し下）に出して、出た瞬間の光が見えるようにする。他人は画面の上の外から。
+      // ただし山がそこまで届いていたら山の中に出てしまう（上書きに見える）ので、山の頂上より上に出す
+      const floorY = H * FLOOR_DEPTH;
+      const topWorld = floorY - H / scale;                   // 画面上端の世界座標（軸は床）
+      const pileTop = pileTopRef.current;
+      let y = self ? topWorld + (60 + Math.random() * 40) / scale : topWorld - size * 2;
+      if (pileTop !== Infinity) y = Math.min(y, pileTop - size * 3);
       if (self) flashesRef.current.push({ x, y, t0: performance.now(), rgb: hexToRgb(color), size });
       const gems = gemsRef.current;
       gems.push({
@@ -215,21 +225,13 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       paintFacets(ctx, g.rgb, g.ang, lightAng);
       ctx.restore();
     };
-    /** 積もった💎: スプライトを貼る。たまに白く瞬く */
-    const drawGemSettled = (g: Gem, now: number) => {
+    /** 積もった💎: スプライトを貼る */
+    const drawGemSettled = (g: Gem) => {
       const sprites = getSprites(g.rgb);
       const i = ((Math.round((g.ang / (Math.PI * 2)) * SPRITE_STEPS) % SPRITE_STEPS) + SPRITE_STEPS) % SPRITE_STEPS;
       const w = g.size * 2 / 0.95;
       ctx.drawImage(sprites[i], g.x - w / 2, g.y - w / 2, w, w);
-      const tw = reduceMotionRef.current ? 0 : Math.sin((now / 1000) * 1.7 + g.seed);
-      if (tw > 0.93) {
-        ctx.globalAlpha = (tw - 0.93) / 0.07 * 0.8;
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.arc(g.x + Math.cos(g.seed) * g.size * 0.3, g.y + Math.sin(g.seed) * g.size * 0.3, g.size * 0.22, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      }
+      // 山の瞬きは十字の閃光（flashes）に統一。ここでは点を打たない（Hop指摘 2026-09-06）
     };
 
     let raf = 0;
@@ -249,7 +251,34 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       const f = { x: v.x - frame, y: v.y - frame, w: v.w + frame * 2, h: v.h + frame * 2 };
       const cx = v.x + v.w / 2, cy = v.y + v.h / 2;
       const p = progressRef.current;
-      const scale = 1 - (1 - MIN_SCALE) * p * p;
+      // カメラ: 曲の進みで引く ＋ 山の高さでも引く。
+      // 山の頂上が動画の下端（＋余白）を越えそうなら、越えない倍率まで引く。
+      // 曲の最後の1割は「高さで引く」のをやめ、山が動画の裏に上がって背景になるのを許す【仮: 0.9】。
+      // 引きすぎて💎が粒になりすぎないよう下限あり【仮: 0.2】。
+      const scaleByProgress = 1 - (1 - MIN_SCALE) * p * p;
+      let scale = scaleByProgress;
+      let pileTopWorld = Infinity;
+      for (let j = 0; j < cols.length; j++) if (cols[j] < pileTopWorld) pileTopWorld = cols[j];
+      // 山の高さで引く: 軸が床なので、山の頂上の画面位置 = H - (床 - 頂上)·s。
+      // これが動画の下端（＋余白）より下に留まる s を直接求める（引くほど山は下に縮む）
+      if (p < FINALE_START && pileTopWorld !== Infinity) {
+        const limitScreenY = v.y + v.h + frame + 24;
+        const pileHeight = floorY - pileTopWorld;
+        if (pileHeight > 0) {
+          const need = (H - limitScreenY) / pileHeight;
+          if (need < scale) scale = need;
+        }
+        scale = Math.max(HARD_MIN_SCALE, scale);
+        fitScaleRef.current = scale;
+      } else if (p >= FINALE_START) {
+        // 最後の1割: 引くのをやめ、逆にゆっくり寄っていく（倍率1へ）。山が動画の裏へせり上がって背景になる
+        const t = Math.min(1, (p - FINALE_START) / (1 - FINALE_START));
+        scale = fitScaleRef.current + (1 - fitScaleRef.current) * t * t;
+      }
+      // 急に縮まないよう、前フレームからなめらかに寄せる
+      const prev = camRef.current.scale || scale;
+      scale = prev + (scale - prev) * Math.min(1, dt * 4);
+      pileTopRef.current = pileTopWorld;
       camRef.current = { scale, cx, cy };
 
       // 物理（世界座標）。塔にならないよう、低い方へ「滑って」転がり、山になる（瞬間移動はしない）
@@ -267,8 +296,10 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         if (g.y + R < top) { g.vx *= 0.98; continue; }  // まだ空中
         // 表面に触れた。左右どちらかが一段低ければ、そちらへ滑る速度を付ける
         g.y = top - R;
-        const leftTop = colTop(ci - half * 2, half), rightTop = colTop(ci + half * 2, half);
-        const drop = R * 0.8;
+        // 少し先まで見て、低い方へ流れやすくする（塔にならず横に広がる）【仮: 見る幅 3R・段差 0.45R】
+        const leftTop = Math.max(colTop(ci - half * 2, half), colTop(ci - half * 3, half));
+        const rightTop = Math.max(colTop(ci + half * 2, half), colTop(ci + half * 3, half));
+        const drop = R * 0.45;
         const goLeft = leftTop > top + drop, goRight = rightTop > top + drop;
         if (goLeft || goRight) {
           const dir = goLeft && goRight ? (Math.random() < 0.5 ? -1 : 1) : goLeft ? -1 : 1;
@@ -310,7 +341,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       ctx.globalCompositeOperation = "lighter";
       for (const g of gems) {
         if (g.settled) continue;
-        const sx = cx + (g.x - cx) * scale, sy = cy + (g.y - cy) * scale;
+        const sx = cx + (g.x - cx) * scale, sy = H + (g.y - floorY) * scale;
         const r = g.size * scale * 1.6;
         const [cr_, cg, cb] = g.rgb;
         const halo = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
@@ -335,13 +366,13 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       }
       ctx.restore();
 
-      // 💎本体（世界座標をカメラで縮めて描く）
+      // 💎本体（世界座標をカメラで縮めて描く。軸は床＝画面の下端、横は動画の中心）
       ctx.save();
-      ctx.translate(cx, cy);
+      ctx.translate(cx, H);
       ctx.scale(scale, scale);
-      ctx.translate(-cx, -cy);
+      ctx.translate(-cx, -floorY);
       for (const g of gems) {
-        if (g.settled) drawGemSettled(g, now);
+        if (g.settled) drawGemSettled(g);
         else drawGemLive(g, lightAng);
       }
       // 山のきらめき: 積もった💎からランダムに1つ選び、押した時と同じ閃光を出す。

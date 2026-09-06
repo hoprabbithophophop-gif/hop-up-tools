@@ -67,6 +67,8 @@ export default function HaiToDiamondPage() {
   /** 曲が終わった後の画面（自分の回数・最初に戻る・シェア）。再生開始で消える */
   const [ended, setEnded] = useState(false);
   const [finalCount, setFinalCount] = useState(0);
+  /** 再生中の自分の回数（動画の上に出す）。ページは小さいのでタップごとの再描画で足りる */
+  const [liveCount, setLiveCount] = useState(0);
   /** みんなの累計（集計の合計）。終了画面の「歴代累計」に自分の分を足して出す */
   const [othersTotal, setOthersTotal] = useState(0);
   const [settings, setSettings] = useState<DiamondSettings>(getDiamondSettings);
@@ -76,7 +78,7 @@ export default function HaiToDiamondPage() {
   const numbersRef = useRef<HTMLDivElement>(null);
   const [numbersBottom, setNumbersBottom] = useState<number | string>("60%");
   useEffect(() => {
-    if (!ended) return;
+    if (!memberId) return;
     const measure = () => {
       const box = videoBoxRef.current;
       const root = box?.parentElement?.parentElement; // 額縁の div → ページの div
@@ -88,7 +90,7 @@ export default function HaiToDiamondPage() {
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [ended]);
+  }, [memberId]);
   const handleSettingsChange = useCallback((next: DiamondSettings) => {
     settingsRef.current = next;
     setSettings(next);
@@ -125,6 +127,7 @@ export default function HaiToDiamondPage() {
     lastBucketRef.current = -1;
     submittedRef.current = false;
     tapButtonRef.current?.reset();
+    setLiveCount(0);
     setEnded(false);
     setPlayingBoth(true);
   }, []);
@@ -190,6 +193,7 @@ export default function HaiToDiamondPage() {
     if (!playingRef.current) return false;
     tapsRef.current.push(playerRef.current?.getCurrentTime() ?? 0);
     canvasRef.current?.spawn(color, true);
+    setLiveCount(tapsRef.current.length);
     return true;
   }, [color]);
 
@@ -238,8 +242,8 @@ export default function HaiToDiamondPage() {
         </div>
       </div>
 
-      {/* 曲が終わったら、動画の上の空きに数字（あなたの💎・歴代累計）を置く（Hop指示 2026-09-06） */}
-      {ended && (
+      {/* 数字は動画の上の空きに置く（Hop指示 2026-09-06）。再生中は自分の回数、曲が終わったら歴代累計も並ぶ */}
+      {memberId && (playing || ended) && (
         <div
           ref={numbersRef}
           style={{
@@ -259,12 +263,14 @@ export default function HaiToDiamondPage() {
         >
           <div>
             <p style={endLabelStyle}>あなたの💎</p>
-            <BouncyNumber value={finalCount} color={color} size="2.2rem" />
+            <BouncyNumber value={ended ? finalCount : liveCount} color={color} size="2.2rem" />
           </div>
-          <div>
-            <p style={endLabelStyle}>歴代累計</p>
-            <BouncyNumber value={othersTotal + finalCount} color={color} size="1.6rem" />
-          </div>
+          {ended && (
+            <div>
+              <p style={endLabelStyle}>歴代累計</p>
+              <BouncyNumber value={othersTotal + finalCount} color={color} size="1.6rem" />
+            </div>
+          )}
         </div>
       )}
 
@@ -295,7 +301,7 @@ export default function HaiToDiamondPage() {
           }}
         >
           {playing ? (
-            <DiamondTapButton ref={tapButtonRef} accentColor={color} onRecord={handleRecord} />
+            <DiamondTapButton ref={tapButtonRef} accentColor={color} onRecord={handleRecord} hideCount />
           ) : ended ? (
             // 縦に積むと小さい画面で動画と重なる（iPhone SE 幅で実際に重なった）ので、数字とボタンは横並び
             <>

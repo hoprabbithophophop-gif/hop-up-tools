@@ -17,9 +17,11 @@ interface Props {
   accentColor: string;
   /** 1タップ（または長押しの1刻み）ごとに呼ぶ。true を返したら回数を進める */
   onRecord: (autoRepeat?: boolean) => boolean;
+  /** 回数をボタンの上に出さない（親が別の場所＝動画の上に出す時） */
+  hideCount?: boolean;
 }
 
-const DiamondTapButton = forwardRef<DiamondTapButtonApi, Props>(function DiamondTapButton({ accentColor, onRecord }, ref) {
+const DiamondTapButton = forwardRef<DiamondTapButtonApi, Props>(function DiamondTapButton({ accentColor, onRecord, hideCount = false }, ref) {
   const [count, setCount] = useState(0);
   const [isPressed, setIsPressed] = useState(false);
   const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -60,9 +62,11 @@ const DiamondTapButton = forwardRef<DiamondTapButtonApi, Props>(function Diamond
 
   return (
     <>
-      <div style={{ position: "relative", zIndex: 3 }}>
-        <BouncyNumber value={count} color={accentColor} size="2rem" />
-      </div>
+      {!hideCount && (
+        <div style={{ position: "relative", zIndex: 3 }}>
+          <BouncyNumber value={count} color={accentColor} size="2rem" />
+        </div>
+      )}
       <button
         type="button"
         onPointerDown={handlePressStart}
