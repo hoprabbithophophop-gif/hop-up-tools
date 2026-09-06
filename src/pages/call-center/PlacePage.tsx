@@ -758,6 +758,14 @@ export default function PlacePage() {
   // 棚から読んだ、他の参加者が付けた「秒と言葉の対」。候補チップの元データ
   const crowdWords = useMemo<WordPair[]>(() => extractWordPairs(rawTapRows), [rawTapRows]);
 
+  // 見返し中のレーンに流す言葉。群衆(crowdWords)ではなく自分のmarksから作る（言葉が無い！は含めない）。
+  // rowIdは全部同じ値("self")にする。buildWordGroupsは「rowIdが重なる塊は競合候補として束ねない」ので、
+  // これで自分の一連のコール（歌詞・コールの決まった順番）が互いに競合候補として束ねられるのを防ぐ
+  const selfWordPairs = useMemo<WordPair[]>(
+    () => marks.filter((m): m is MarkEntry & { word: string } => m.word !== null).map((m) => ({ sec: m.sec, word: m.word, rowId: "self" })),
+    [marks],
+  );
+
   // 自分が送った行のうち、跳ねる面のどの粒がどの(行ID, その行の中でのindex)に対応するかの索引。
   // tapRowsToSessions と同じ session_hash / bucket の作り方に合わせて組む（ずれると違う！を消してしまう）。
   const sentTapIndex = useMemo(() => {
@@ -1687,18 +1695,27 @@ export default function PlacePage() {
             </div>
           )}
           {previewTarget && (
-            /* 見返しのカウントイン。動画の上には重ねない（一覧の上に小さく出すだけ）。
-               ！のタイミング(previewStep==="mark")だけ帯の背景をその！の色で塗る。それ以外は今までどおり */
-            <div style={previewStep === "mark" ? { ...S.countBanner, background: previewTarget.colorHex } : S.countBanner}>
-              <span style={{ color: previewStep === "mark" ? (isLight(previewTarget.colorHex) ? "#000" : "#fff") : "#cbd2dc" }}>
-                {previewStep === "mark" ? "！" : previewStep ?? "見返し中…"}
-              </span>
-            </div>
+            <>
+              {/* 見返しのカウントイン。動画の上には重ねない（一覧の上に小さく出すだけ）。
+                 ！のタイミング(previewStep==="mark")だけ帯の背景をその！の色で塗る。それ以外は今までどおり。
+                 5・6・7・8・！は秒とともに横へ流れる言葉と違い「今どの段階か」の状態表示なので、
+                 下のレーンとは別の帯として残す（レーンの左端に数字を重ねると、常に位置・大きさが
+                 変わる言葉の粒に紛れて読みにくくなるため）。高さは40pxから28pxに詰める */}
+              <div style={previewStep === "mark" ? { ...S.countBanner, background: previewTarget.colorHex } : S.countBanner}>
+                <span style={{ color: previewStep === "mark" ? (isLight(previewTarget.colorHex) ? "#000" : "#fff") : "#cbd2dc" }}>
+                  {previewStep === "mark" ? "！" : previewStep ?? "見返し中…"}
+                </span>
+              </div>
+              {/* 見返し中の言葉レーン。群衆ではなく自分のmarksを流す（叩く画面のWordLaneと同じ部品） */}
+              <div style={S.previewLaneWrap}>
+                <WordLane playerRef={playerRef} crowdWords={selfWordPairs} active={playing} />
+              </div>
+            </>
           )}
           <div
             style={
-              previewToolsVisible && editingMarkId === null
-                // 見返し中（編集中ではない）は、下に半透明で重なる置き場のぶんだけ余白を空ける。
+              editingMarkId === null
+                // 振り返り中（編集中ではない）は常に、下に半透明で重なる置き場のぶんだけ余白を空ける。
                 // +8はその余白と置き場の間に薄い隙間を作るための控えめな値（詰まって見えないように）
                 ? { ...S.reviewList, paddingBottom: previewToolsOverlayHeight + 8 }
                 : S.reviewList
@@ -1780,13 +1797,10 @@ export default function PlacePage() {
           </div>
           {/* 言葉の編集中（editingMarkId !== null）は今までどおり、一覧を縮める形の普通の兄弟要素として
               色チップを出す（＋見返しも同時に進行中なら！ボタンも出す）。reviewWrap は position:relative
-              にしてあるが、このブロック自体はabsoluteにしない＝一覧の高さはこのぶん縮む（今までどおり）。 */}
+              にしてあるが、このブロック自体はabsoluteにしない＝一覧の高さはこのぶん縮む（今までどおり）。
+              並びは叩く画面のbottomSectionと同じ「！→色チップ」に揃える */}
           {editingMarkId !== null && (
             <>
-              {/* colorPicker自体のS.colorPickerRowはbottomSection(通常の叩く画面)とも共有しているため、
-                  そちらの余白は変えずにこの箱だけ上の余白を詰める。colorPickerRowの上パディング8pxを
-                  marginTopの負値で相殺し、実質4px（半分）にする */}
-              <div style={{ marginTop: -4 }}>{colorPicker}</div>
               {previewToolsVisible && (
                 <div style={S.btnRow}>
                   <button
@@ -1800,27 +1814,32 @@ export default function PlacePage() {
                   >！</button>
                 </div>
               )}
+              {colorPicker}
               <p style={S.reviewLede}>ちょっとタイミングずれたかも、とかはライブ感ということでいいじゃない。</p>
             </>
           )}
-          {/* 見返し中（編集中ではない）は、一覧を縮めずに下端へ半透明の板として重ねる。
-              裏の行（通過の印・文字）が透けて見え、板の上のチップ＋！も今どおり押せる。
+          {/* 振り返り中（編集中ではない）は常に、一覧を縮めずに下端へ半透明の板として重ねる。
+              見返し中（previewToolsVisible）は！＋色チップ、見返していないときは色チップだけ
+              （！ボタンは出さない＝再生していないのに叩ける状態を見せない）。並びは！→色チップ。
+              裏の行（通過の印・文字）が透けて見え、板の上のチップ（＋！）も今どおり押せる。
               reviewList側は上のpaddingBottomで、この板の高さぶん最終行が隠れないようにしてある。
               高さはResizeObserver（attachPreviewToolsOverlay）で測る＝内容が変わっても追従する。 */}
-          {previewToolsVisible && editingMarkId === null && (
+          {editingMarkId === null && (
             <div ref={attachPreviewToolsOverlay} style={S.previewToolsOverlay}>
-              <div style={{ marginTop: -4 }}>{colorPicker}</div>
-              <div style={S.btnRow}>
-                <button
-                  type="button"
-                  style={{ ...S.mark, background: markBg, color: markFg, boxShadow: markBoxShadow, transform: markPressed ? "scale(0.92)" : "scale(1)" }}
-                  onPointerDown={handleMarkDown}
-                  onPointerUp={handleMarkUp}
-                  onPointerLeave={handleMarkUp}
-                  onPointerCancel={handleMarkUp}
-                  onContextMenu={(e) => e.preventDefault()}
-                >！</button>
-              </div>
+              {previewToolsVisible && (
+                <div style={S.btnRow}>
+                  <button
+                    type="button"
+                    style={{ ...S.mark, background: markBg, color: markFg, boxShadow: markBoxShadow, transform: markPressed ? "scale(0.92)" : "scale(1)" }}
+                    onPointerDown={handleMarkDown}
+                    onPointerUp={handleMarkUp}
+                    onPointerLeave={handleMarkUp}
+                    onPointerCancel={handleMarkUp}
+                    onContextMenu={(e) => e.preventDefault()}
+                  >！</button>
+                </div>
+              )}
+              {colorPicker}
             </div>
           )}
         </div>
@@ -1967,11 +1986,15 @@ const S: Record<string, React.CSSProperties> = {
   mergeNotice: { flex: "0 0 auto", fontSize: 11, color: "#9aa0a6", textAlign: "center", marginBottom: 6 },
   undoLink: { background: "none", border: 0, color: "#7cf", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: "0 0 0 6px" },
   countBanner: {
-    flex: "0 0 auto", height: 40, marginBottom: 6,
+    // 見返しのレーンを足した分、高さは40pxから28pxに詰める（下にレーンが続くのでこの帯自体は薄くてよい）
+    flex: "0 0 auto", height: 28, marginBottom: 6,
     background: "rgba(255,255,255,0.06)", boxShadow: "inset 0 0 0 1px #333",
     display: "flex", alignItems: "center", justifyContent: "center",
     fontSize: 22, fontWeight: 900, lineHeight: 1,
   },
+  // 見返し中の言葉レーンの器。countBannerの下・reviewListの上に置く固定高さの帯
+  // （WordLane自身はposition:absolute inset:0で親いっぱいに広がる作りなので、器に高さが要る）
+  previewLaneWrap: { position: "relative", flex: "0 0 auto", height: 64, marginBottom: 6, overflow: "hidden" },
   reviewList: { flex: "1 1 auto", minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 },
   // 見返し中、一覧を縮めずに下端へ重ねる半透明の置き場。裏の行が透けて見える濃さにしてある
   previewToolsOverlay: {
