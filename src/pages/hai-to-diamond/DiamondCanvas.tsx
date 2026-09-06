@@ -9,8 +9,9 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 export type DiamondCanvasApi = {
-  /** その色の💎を1つ、画面の上から降らせる。速さ・回転の向きと速さは1つずつ違う */
-  spawn: (color: string) => void;
+  /** その色の💎を1つ、画面の上から降らせる。速さ・回転の向きと速さは1つずつ違う。
+   *  self=true は自分の💎: 画面内の上寄りに出て、出た瞬間にピカッと光る（押した手応え） */
+  spawn: (color: string, self?: boolean) => void;
   /** 曲の進み 0..1。カメラの引きに使う */
   setProgress: (p: number) => void;
 };
@@ -131,6 +132,8 @@ function getSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
 
 const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas({ videoBoxRef, frame, reduceMotion = false }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  /** 押した瞬間の閃光（世界座標）。短時間で消える */
+  const flashesRef = useRef<{ x: number; y: number; t0: number; rgb: [number, number, number]; size: number }[]>([]);
   const reduceMotionRef = useRef(reduceMotion);
   useEffect(() => { reduceMotionRef.current = reduceMotion; }, [reduceMotion]);
   const gemsRef = useRef<Gem[]>([]);
@@ -139,18 +142,22 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const camRef = useRef({ scale: 1, cx: 0, cy: 0 });
 
   useImperativeHandle(ref, () => ({
-    spawn(color: string) {
+    spawn(color: string, self = false) {
       const { W } = sizeRef.current;
-      const { scale, cx } = camRef.current;
+      const { scale, cx, cy } = camRef.current;
       if (!W) return;
       const size = SIZE_MIN + Math.random() * SIZE_RANGE;
       // いま見えている範囲の横幅に散らす（引くほど広がる）
       const visibleHalf = (W / 2) / scale;
       const x = cx + (Math.random() * 2 - 1) * visibleHalf * 0.94;
+      // 自分の💎は画面内（上端から少し下）に出して、出た瞬間の光が見えるようにする。他人は画面の上の外から
+      const topWorld = cy - cy / scale;                      // 画面上端の世界座標
+      const y = self ? topWorld + (60 + Math.random() * 40) / scale : -size * 2;
+      if (self) flashesRef.current.push({ x, y, t0: performance.now(), rgb: hexToRgb(color), size });
       const gems = gemsRef.current;
       gems.push({
         x,
-        y: -size * 2,
+        y,
         vx: 0,
         vy: FALL_SPEED_MIN + Math.random() * FALL_SPEED_RANGE,
         ang: Math.random() * Math.PI * 2,
@@ -336,6 +343,33 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       for (const g of gems) {
         if (g.settled) drawGemSettled(g, now);
         else drawGemLive(g, lightAng);
+      }
+      // 押した瞬間の閃光: 白い芯＋その色の輪が広がって消える（約320ms）。動き軽減でも出す（手応えなので）
+      const flashes = flashesRef.current;
+      if (flashes.length) {
+        ctx.globalCompositeOperation = "lighter";
+        for (let i = flashes.length - 1; i >= 0; i--) {
+          const fl = flashes[i];
+          const k = (now - fl.t0) / 320;
+          if (k >= 1) { flashes.splice(i, 1); continue; }
+          const r = fl.size * (1.2 + 2.6 * k);
+          const a = 1 - k;
+          const rg = ctx.createRadialGradient(fl.x, fl.y, 0, fl.x, fl.y, r);
+          rg.addColorStop(0, `rgba(255,255,255,${0.95 * a})`);
+          rg.addColorStop(0.35, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},${0.7 * a})`);
+          rg.addColorStop(1, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},0)`);
+          ctx.fillStyle = rg;
+          ctx.fillRect(fl.x - r, fl.y - r, r * 2, r * 2);
+          // 十字の光条
+          ctx.strokeStyle = `rgba(255,255,255,${0.8 * a})`;
+          ctx.lineWidth = 2 / Math.max(scale, 0.01);
+          const L = fl.size * (2 + 3 * k);
+          ctx.beginPath();
+          ctx.moveTo(fl.x - L, fl.y); ctx.lineTo(fl.x + L, fl.y);
+          ctx.moveTo(fl.x, fl.y - L); ctx.lineTo(fl.x, fl.y + L);
+          ctx.stroke();
+        }
+        ctx.globalCompositeOperation = "source-over";
       }
       ctx.restore();
     };

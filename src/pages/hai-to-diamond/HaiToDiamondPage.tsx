@@ -189,7 +189,7 @@ export default function HaiToDiamondPage() {
   const handleRecord = useCallback((): boolean => {
     if (!playingRef.current) return false;
     tapsRef.current.push(playerRef.current?.getCurrentTime() ?? 0);
-    canvasRef.current?.spawn(color);
+    canvasRef.current?.spawn(color, true);
     return true;
   }, [color]);
 
