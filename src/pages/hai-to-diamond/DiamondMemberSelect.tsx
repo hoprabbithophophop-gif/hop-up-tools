@@ -155,8 +155,9 @@ export default function DiamondMemberSelect({ initialSelectedId, onConfirm }: Pr
           style={{
             width: "100%",
             padding: "1rem",
-            background: selectedId ? "#f5f7fa" : "#3a3f47",
-            color: selectedId ? "#111" : "#8a8e98",
+            // ハイ！テンションの入口と同じ色
+            background: selectedId ? "#f1f3f5" : "#2a2f37",
+            color: selectedId ? "#0e1016" : "#6b7178",
             border: "none",
             fontSize: "0.875rem",
             fontWeight: 700,

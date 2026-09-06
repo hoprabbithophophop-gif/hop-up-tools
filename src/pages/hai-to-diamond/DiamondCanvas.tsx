@@ -71,6 +71,62 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
+/** 面ごとの明るさを計算して 2D コンテキストに宝石を描く（座標は宝石中心・半径1） */
+function paintFacets(ctx: CanvasRenderingContext2D, rgb: [number, number, number], ang: number, lightAng: number) {
+  const L: [number, number, number] = [Math.cos(lightAng - ang), Math.sin(lightAng - ang), 0.8];
+  const ll = Math.hypot(L[0], L[1], L[2]);
+  L[0] /= ll; L[1] /= ll; L[2] /= ll;
+  for (const f of FACETS) {
+    const d = Math.max(0, f.n[0] * L[0] + f.n[1] * L[1] + f.n[2] * L[2]);
+    const k = 0.35 + 0.65 * d * d;
+    ctx.fillStyle = `rgb(${(rgb[0] * k) | 0},${(rgb[1] * k) | 0},${(rgb[2] * k) | 0})`;
+    ctx.beginPath();
+    ctx.moveTo(f.pts[0][0], f.pts[0][1]);
+    ctx.lineTo(f.pts[1][0], f.pts[1][1]);
+    ctx.lineTo(f.pts[2][0], f.pts[2][1]);
+    ctx.closePath();
+    ctx.fill();
+    // 面がちょうど光を返す瞬間だけ白く瞬く
+    if (d > 0.965) {
+      ctx.fillStyle = `rgba(255,255,255,${((d - 0.965) / 0.035) * 0.95})`;
+      ctx.fill();
+    }
+  }
+  ctx.lineWidth = 0.06;
+  ctx.strokeStyle = "rgba(255,255,255,0.55)";
+  ctx.beginPath();
+  ctx.moveTo(-0.55, -0.35); ctx.lineTo(0.55, -0.35); ctx.lineTo(0.9, 0); ctx.lineTo(0, 0.9); ctx.lineTo(-0.9, 0);
+  ctx.closePath();
+  ctx.stroke();
+}
+
+// 積もった💎は毎フレーム面を計算せず、色×向き(24段階)ごとに一度描いた小さな絵(スプライト)を貼る。
+// 数千個積もっても drawImage の回数が増えるだけで、面の計算は増えない（重さ対策）。
+const SPRITE_STEPS = 24;
+const SPRITE_PX = 96;           // スプライトの1辺（世界座標で最大 size 36 × 2 ≒ 72px を余裕込みで）
+const SPRITE_LIGHT = -Math.PI / 3; // 固定の光の向き（左上から）
+const spriteCache = new Map<string, HTMLCanvasElement[]>();
+function getSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
+  const key = rgb.join(",");
+  let arr = spriteCache.get(key);
+  if (arr) return arr;
+  arr = [];
+  for (let i = 0; i < SPRITE_STEPS; i++) {
+    const c = document.createElement("canvas");
+    c.width = SPRITE_PX; c.height = SPRITE_PX;
+    const cx = c.getContext("2d");
+    if (cx) {
+      cx.translate(SPRITE_PX / 2, SPRITE_PX / 2);
+      cx.rotate((i / SPRITE_STEPS) * Math.PI * 2);
+      cx.scale(SPRITE_PX / 2 / 1.0 * 0.95, SPRITE_PX / 2 / 1.0 * 0.95);
+      paintFacets(cx, rgb, (i / SPRITE_STEPS) * Math.PI * 2, SPRITE_LIGHT);
+    }
+    arr.push(c);
+  }
+  spriteCache.set(key, arr);
+  return arr;
+}
+
 const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas({ videoBoxRef, frame }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gemsRef = useRef<Gem[]>([]);
@@ -139,37 +195,30 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       return top;
     };
 
-    const drawGem = (g: Gem, lightAng: number) => {
-      const L: [number, number, number] = [Math.cos(lightAng - g.ang), Math.sin(lightAng - g.ang), 0.8];
-      const ll = Math.hypot(L[0], L[1], L[2]);
-      L[0] /= ll; L[1] /= ll; L[2] /= ll;
+    /** 降っている💎: 面を毎フレーム計算して描く（数は少ない） */
+    const drawGemLive = (g: Gem, lightAng: number) => {
       ctx.save();
       ctx.translate(g.x, g.y);
       ctx.rotate(g.ang);
       ctx.scale(g.size, g.size);
-      for (const f of FACETS) {
-        const d = Math.max(0, f.n[0] * L[0] + f.n[1] * L[1] + f.n[2] * L[2]);
-        const k = 0.35 + 0.65 * d * d;
-        ctx.fillStyle = `rgb(${(g.rgb[0] * k) | 0},${(g.rgb[1] * k) | 0},${(g.rgb[2] * k) | 0})`;
-        ctx.beginPath();
-        ctx.moveTo(f.pts[0][0], f.pts[0][1]);
-        ctx.lineTo(f.pts[1][0], f.pts[1][1]);
-        ctx.lineTo(f.pts[2][0], f.pts[2][1]);
-        ctx.closePath();
-        ctx.fill();
-        // 面がちょうど光を返す瞬間だけ白く瞬く
-        if (d > 0.965) {
-          ctx.fillStyle = `rgba(255,255,255,${((d - 0.965) / 0.035) * 0.95})`;
-          ctx.fill();
-        }
-      }
-      ctx.lineWidth = 0.06;
-      ctx.strokeStyle = "rgba(255,255,255,0.55)";
-      ctx.beginPath();
-      ctx.moveTo(-0.55, -0.35); ctx.lineTo(0.55, -0.35); ctx.lineTo(0.9, 0); ctx.lineTo(0, 0.9); ctx.lineTo(-0.9, 0);
-      ctx.closePath();
-      ctx.stroke();
+      paintFacets(ctx, g.rgb, g.ang, lightAng);
       ctx.restore();
+    };
+    /** 積もった💎: スプライトを貼る。たまに白く瞬く */
+    const drawGemSettled = (g: Gem, now: number) => {
+      const sprites = getSprites(g.rgb);
+      const i = ((Math.round((g.ang / (Math.PI * 2)) * SPRITE_STEPS) % SPRITE_STEPS) + SPRITE_STEPS) % SPRITE_STEPS;
+      const w = g.size * 2 / 0.95;
+      ctx.drawImage(sprites[i], g.x - w / 2, g.y - w / 2, w, w);
+      const tw = Math.sin((now / 1000) * 1.7 + g.seed);
+      if (tw > 0.93) {
+        ctx.globalAlpha = (tw - 0.93) / 0.07 * 0.8;
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(g.x + Math.cos(g.seed) * g.size * 0.3, g.y + Math.sin(g.seed) * g.size * 0.3, g.size * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
     };
 
     let raf = 0;
@@ -200,7 +249,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         g.y += g.vy * dt;
         g.x += g.vx * dt;
         g.ang += g.spin * dt;
-        const R = g.size * 0.55;                       // 積もる時の実効半径（少し重なる＝隙間が減る）
+        const R = g.size * 0.5;                        // 積もる時の実効半径（深めに重ねる＝隙間が減る）
         const ci = Math.max(0, Math.min(cols.length - 1, Math.round((g.x - worldX0) / COL_W)));
         const half = Math.max(1, Math.round(R / COL_W));
         const top = colTop(ci, half);
@@ -217,11 +266,19 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           g.spin = dir * Math.abs(g.spin || 1.5);
           continue;
         }
-        // 落ち着いた
+        // 落ち着く前に、すぐ隣のくぼみ（少しだけ低い所）へ寄せて隙間を埋める
+        let bestJ = ci, bestTop = top;
+        for (let j = ci - half * 2; j <= ci + half * 2; j++) {
+          if (j < 0 || j >= cols.length) continue;
+          const t = colTop(j, half);
+          if (t > bestTop + R * 0.15) { bestTop = t; bestJ = j; }
+        }
+        if (bestJ !== ci) { g.x = worldX0 + bestJ * COL_W; g.y = bestTop - R; }
         g.settled = true;
         g.vx = 0;
-        for (let j = ci - half; j <= ci + half; j++) {
-          if (j >= 0 && j < cols.length) cols[j] = Math.min(cols[j], g.y - R * 0.9);
+        const cj = bestJ;
+        for (let j = cj - half; j <= cj + half; j++) {
+          if (j >= 0 && j < cols.length) cols[j] = Math.min(cols[j], g.y - R * 0.8 + Math.abs(j - cj) * COL_W * 0.35);
         }
       }
 
@@ -273,7 +330,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       ctx.scale(scale, scale);
       ctx.translate(-cx, -cy);
       for (const g of gems) {
-        drawGem(g, g.settled ? lightAng + Math.sin((now / 1000) * 0.9 + g.seed) * 0.6 : lightAng);
+        if (g.settled) drawGemSettled(g, now);
+        else drawGemLive(g, lightAng);
       }
       ctx.restore();
     };

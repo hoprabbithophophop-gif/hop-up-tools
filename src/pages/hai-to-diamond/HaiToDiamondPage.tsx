@@ -218,22 +218,25 @@ export default function HaiToDiamondPage() {
           {playing ? (
             <DiamondTapButton ref={tapButtonRef} accentColor={color} onRecord={handleRecord} />
           ) : ended ? (
+            // 縦に積むと小さい画面で動画と重なる（iPhone SE 幅で実際に重なった）ので、ボタンは横並び
             <>
-              <div style={{ fontSize: "2rem", fontWeight: 700, color, lineHeight: 1 }}>{finalCount.toLocaleString()}</div>
-              <button
-                type="button"
-                onClick={handleBackToStart}
-                style={{ padding: "0.8rem 1.6rem", background: "#f5f7fa", color: "#111", border: "none", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
-              >
-                最初に戻る
-              </button>
-              <button
-                type="button"
-                onClick={() => shareToX(finalCount)}
-                style={{ marginTop: "0.6rem", padding: "0.8rem 1.6rem", background: "transparent", color: "#f5f7fa", border: "1px solid rgba(255,255,255,0.5)", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
-              >
-                𝕏 でシェアする
-              </button>
+              <div style={{ fontSize: "1.75rem", fontWeight: 700, color, lineHeight: 1, textShadow: "0 0 12px rgba(0,0,0,0.6)" }}>{finalCount.toLocaleString()}</div>
+              <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", justifyContent: "center" }}>
+                <button
+                  type="button"
+                  onClick={handleBackToStart}
+                  style={{ padding: "0.7rem 1.2rem", background: "#f1f3f5", color: "#0e1016", border: "none", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
+                >
+                  最初に戻る
+                </button>
+                <button
+                  type="button"
+                  onClick={() => shareToX(finalCount)}
+                  style={{ padding: "0.7rem 1.2rem", background: "rgba(14,16,22,0.85)", color: "#f5f7fa", border: "1px solid rgba(255,255,255,0.5)", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
+                >
+                  𝕏 でシェアする
+                </button>
+              </div>
             </>
           ) : null}
         </div>
