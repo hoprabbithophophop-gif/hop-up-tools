@@ -23,8 +23,9 @@ const FRAME = 14;
 /** PCでは動画を縮めて置く（ハイ！テンションと同じ幅） */
 const PC_VIDEO_WIDTH = 480;
 /** シェア文面（Hop確定 2026-09-06・A案）。タグとURLは指定のものだけ。URLは仮のルート名。
- *  タグは公式のリリース用タグ #輝きなビヨちゃん を上書きしないよう別のものに（Hop案 2026-09-06・【仮】） */
-export const SHARE_TAG = "#遠慮せず輝きなビヨちゃん";
+ *  タグは公式のリリース用タグ #輝きなビヨちゃん を含まず、歌詞そのままでもないものに。
+ *  「届くよ」を「届けよ」に変えたひねり入り（Hop決定 2026-09-07） */
+export const SHARE_TAG = "#銀河to銀河届けよ";
 const SHARE_URL = "https://hop-up-tools.pages.dev/hai-to-diamond";
 function buildShareText(count: number): string {
   return `灰toダイヤモンドに合わせて 💎を ${count.toLocaleString()}個 降らせました\n${SHARE_TAG}\n${SHARE_URL}`;
@@ -305,22 +306,22 @@ export default function HaiToDiamondPage() {
           {playing ? (
             <DiamondTapButton ref={tapButtonRef} accentColor={color} onRecord={handleRecord} hideCount />
           ) : ended ? (
-            // 数字は動画の上に移したので、ボタンはハイ！テンションの終了画面と同じ縦並び
+            // ボタンは横並び。縦に積むと帯が高くなって動画に重なる（Hop指示 2026-09-07）
             <>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", alignItems: "center" }}>
+              <div style={{ display: "flex", flexDirection: "row", gap: "0.6rem", alignItems: "center", justifyContent: "center", width: "min(100%, 360px)" }}>
                 <button
                   type="button"
                   onClick={handleBackToStart}
-                  style={{ width: 220, padding: "0.8rem 1.2rem", background: "#f1f3f5", color: "#0e1016", border: "none", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
+                  style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", padding: "0.8rem 0.4rem", background: "#f1f3f5", color: "#0e1016", border: "none", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
                 >
                   最初に戻る
                 </button>
                 <button
                   type="button"
                   onClick={() => shareToX(finalCount)}
-                  style={{ width: 220, padding: "0.8rem 1.2rem", background: "rgba(14,16,22,0.85)", color: "#f5f7fa", border: "1px solid rgba(255,255,255,0.5)", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
+                  style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", padding: "0.8rem 0.4rem", background: "rgba(14,16,22,0.85)", color: "#f5f7fa", border: "1px solid rgba(255,255,255,0.5)", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
                 >
-                  𝕏 でシェアする
+                  𝕏 でシェア
                 </button>
               </div>
               {/* 元の映像を YouTube で開く（プレイヤーの外＝規約OK）。別タブ */}

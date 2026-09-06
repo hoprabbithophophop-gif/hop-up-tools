@@ -63,9 +63,11 @@ const COL_W = 10;              // 積もり高さの帳簿の列幅
 const PACK_RADIUS = 0.6;       // 積もり計算で💎を丸い粒とみなす時の半径（size 倍）。見た目の半径(約1.0)より小さくして深く重ねる＝「ぎっしり」【仮】
 const SLOPE = 0.06;            // 山の傾き。小さいほど平らで、瓶に詰めるように下から隙間なく埋まる【仮】
 const OUTSIDE_SLOPE = 1.5;     // 画面の端より外へ 1px 出るごとに、積もり高さ何px分の損と数えるか＝端の外の裾野の急さ【仮】
-const MAX_GEMS = 4000;         // 1つずつ描く💎の上限。超えたぶんは古い順に後ろの絵へ焼き込む
-const BAKE_BATCH = 1000;       // 一度に焼き込む個数
-const BAKE_HEIGHT = 2.5;       // 焼き込み用の絵の高さ（画面高さの倍数・床から上へ）
+const MAX_GEMS = 4000;         // 配列に持つ💎の上限（焼き込みの絵が作れない環境での保険）
+const LIVE_KEEP = 300;         // 1つずつ描き続ける積もった💎の数（山の表面ぶん）。それより古いものは後ろの絵へ焼き込む
+const BAKE_BATCH = 200;        // 1フレームで焼き込む上限（一度に大量に描いて引っかからないように）
+const BAKE_HEIGHT = 2.0;       // 焼き込み用の絵の高さ（画面高さの倍数・床から上へ）
+const BAKE_MAX_AREA = 12e6;    // 焼き込み用の絵の画素数の上限（iOS Safari の1枚あたりの限界より下）
 
 // 宝石の面（Font Awesome gem の外形に合わせた 5+3 面）。座標は -1..1。n は擬似的な法線
 type Facet = { pts: [number, number][]; n: [number, number, number] };
@@ -125,6 +127,34 @@ const SPRITE_STEPS = 24;
 const SPRITE_PX = 96;           // スプライトの1辺（世界座標で最大 size 36 × 2 ≒ 72px を余裕込みで）
 const SPRITE_LIGHT = -Math.PI / 3; // 固定の光の向き（左上から）
 const spriteCache = new Map<string, HTMLCanvasElement[]>();
+// 落ちている💎の光の輪と、動画の裏を通る時の額縁の灯りも、色ごとに一度だけ描いた絵を貼る。
+// 毎フレーム createRadialGradient を作るのは1個ごとに重く、大勢の💎が降る時に効く（発熱対策 2026-09-07）
+const GLOW_PX = 64;
+const glowCache = new Map<string, { halo: HTMLCanvasElement; edge: HTMLCanvasElement }>();
+function getGlow(rgb: [number, number, number]): { halo: HTMLCanvasElement; edge: HTMLCanvasElement } {
+  const key = rgb.join(",");
+  let g = glowCache.get(key);
+  if (g) return g;
+  const [r, gg, b] = rgb;
+  const make = (stops: [number, string][]) => {
+    const c = document.createElement("canvas");
+    c.width = GLOW_PX; c.height = GLOW_PX;
+    const cx = c.getContext("2d");
+    if (cx) {
+      const grad = cx.createRadialGradient(GLOW_PX / 2, GLOW_PX / 2, 0, GLOW_PX / 2, GLOW_PX / 2, GLOW_PX / 2);
+      for (const [o, col] of stops) grad.addColorStop(o, col);
+      cx.fillStyle = grad;
+      cx.fillRect(0, 0, GLOW_PX, GLOW_PX);
+    }
+    return c;
+  };
+  g = {
+    halo: make([[0, `rgba(${r},${gg},${b},0.35)`], [1, `rgba(${r},${gg},${b},0)`]]),
+    edge: make([[0, "rgba(255,255,255,0.5)"], [0.3, `rgba(${r},${gg},${b},0.55)`], [1, `rgba(${r},${gg},${b},0)`]]),
+  };
+  glowCache.set(key, g);
+  return g;
+}
 function getSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
   const key = rgb.join(",");
   let arr = spriteCache.get(key);
@@ -216,7 +246,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     let floorY = 0, worldX0 = 0, worldW = 0;
     // 焼き込み用の絵（世界座標そのまま・1px=1px）。上限を超えた古い💎はここへ描き移して配列から外す。
     // 以前は古い順に配列から消していたので、帳簿の高さはそのままなのに山が床側からくり抜かれて宙に浮いた
-    let bake: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; x0: number; y0: number } | null = null;
+    let bake: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; x0: number; y0: number; w: number; h: number } | null = null;
     const cols: number[] = [];
     const resize = () => {
       const r = canvas.getBoundingClientRect();
@@ -302,19 +332,25 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       target.drawImage(sprites[i], g.x - w / 2, g.y - w / 2, w, w);
       // 山の瞬きは十字の閃光（flashes）に統一。ここでは点を打たない（Hop指摘 2026-09-06）
     };
-    /** 上限を超えたら、古い順に積もった💎を焼き込み用の絵へ描き移して配列から外す */
-    const bakeOldest = (gems: Gem[]) => {
+    /** 積もった💎のうち新しい LIVE_KEEP 個を残し、古い順に焼き込み用の絵へ描き移して配列から外す。
+     *  止まった💎は動かないのに毎フレーム1つずつ貼り直すのが、長い曲でスマホが熱くなる主因だった（Hop報告 2026-09-07） */
+    const bakeOldest = (gems: Gem[], count: number) => {
       if (!bake) {
+        // 画面の細かさ(dpr)に合わせた解像度で焼く。1px=1pxだと寄った時に写真部分だけぼやける。画素数の上限内に収める
+        const bw = worldW, bh = H * BAKE_HEIGHT;
+        const res = Math.min(dpr, 2, Math.sqrt(BAKE_MAX_AREA / (bw * bh)));
         const c = document.createElement("canvas");
-        c.width = Math.ceil(worldW);
-        c.height = Math.ceil(H * BAKE_HEIGHT);
+        c.width = Math.ceil(bw * res);
+        c.height = Math.ceil(bh * res);
         const bctx = c.getContext("2d");
         if (!bctx) { gems.splice(0, gems.length - MAX_GEMS); return; } // 絵が作れない環境では従来どおり消す
-        bake = { canvas: c, ctx: bctx, x0: worldX0, y0: floorY - c.height };
+        bake = { canvas: c, ctx: bctx, x0: worldX0, y0: floorY - bh, w: bw, h: bh };
+        bctx.scale(res, res);
         bctx.translate(-bake.x0, -bake.y0);
       }
       let n = 0;
-      for (let i = 0; i < gems.length && n < BAKE_BATCH; i++) {
+      const limit = Math.min(count, BAKE_BATCH);
+      for (let i = 0; i < gems.length && n < limit; i++) {
         const g = gems[i];
         if (!g.settled || g.y - g.size < bake.y0) continue; // 絵の枠より上に積もった分は1つずつ描き続ける
         drawGemSettled(g, bake.ctx);
@@ -397,12 +433,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         if (g.settled) continue;
         const sx = cx + (g.x - cx) * scale, sy = H + (g.y - floorY) * scale;
         const r = g.size * scale * 1.6;
-        const [cr_, cg, cb] = g.rgb;
-        const halo = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
-        halo.addColorStop(0, `rgba(${cr_},${cg},${cb},0.35)`);
-        halo.addColorStop(1, `rgba(${cr_},${cg},${cb},0)`);
-        ctx.fillStyle = halo;
-        ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+        const glow = getGlow(g.rgb);
+        ctx.drawImage(glow.halo, sx - r, sy - r, r * 2, r * 2);
         // 動画の裏を通っている？
         if (sx > v.x && sx < v.x + v.w && sy > v.y && sy < v.y + v.h) {
           const dl = sx - v.x, dr = v.x + v.w - sx, dtp = sy - v.y, db = v.y + v.h - sy;
@@ -410,12 +442,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           const hit = m === dl ? { x: v.x, y: sy } : m === dr ? { x: v.x + v.w, y: sy } : m === dtp ? { x: sx, y: v.y } : { x: sx, y: v.y + v.h };
           const reach = 90 * scale;
           const k = Math.max(0, 1 - m / Math.max(1, Math.min(v.w, v.h) / 2)) * 0.9;
-          const rg = ctx.createRadialGradient(hit.x, hit.y, 0, hit.x, hit.y, reach);
-          rg.addColorStop(0, `rgba(255,255,255,${0.5 * k})`);
-          rg.addColorStop(0.3, `rgba(${cr_},${cg},${cb},${0.55 * k})`);
-          rg.addColorStop(1, `rgba(${cr_},${cg},${cb},0)`);
-          ctx.fillStyle = rg;
-          ctx.fillRect(hit.x - reach, hit.y - reach, reach * 2, reach * 2);
+          ctx.globalAlpha = k;   // 灯りの強さは色の濃さの掛け算なので、絵を1枚にして全体の透明度で代える
+          ctx.drawImage(glow.edge, hit.x - reach, hit.y - reach, reach * 2, reach * 2);
+          ctx.globalAlpha = 1;
         }
       }
       ctx.restore();
@@ -425,8 +454,11 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       ctx.translate(cx, H);
       ctx.scale(scale, scale);
       ctx.translate(-cx, -floorY);
-      if (gems.length > MAX_GEMS) bakeOldest(gems);
-      if (bake) ctx.drawImage(bake.canvas, bake.x0, bake.y0);
+      let settledCount = 0;
+      for (const g of gems) if (g.settled) settledCount++;
+      if (settledCount > LIVE_KEEP) bakeOldest(gems, settledCount - LIVE_KEEP);
+      else if (gems.length > MAX_GEMS) bakeOldest(gems, gems.length - MAX_GEMS);
+      if (bake) ctx.drawImage(bake.canvas, bake.x0, bake.y0, bake.w, bake.h);
       for (const g of gems) {
         if (g.settled) drawGemSettled(g);
         else drawGemLive(g, lightAng);
@@ -434,7 +466,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       // 山のきらめき: 積もった💎からランダムに1つ選び、押した時と同じ閃光を出す。
       // 曲が進むほど頻度が上がり、最後の山で一番ピカピカする【仮: 毎秒 0.5〜6回】。動き軽減では出さない（飾りなので）
       if (!reduceMotionRef.current) {
-        const settledCount = gems.reduce((n, g) => n + (g.settled ? 1 : 0), 0);
+        settledCount = 0;
+        for (const g of gems) if (g.settled) settledCount++;
         if (settledCount > 0) {
           const rate = 0.5 + 5.5 * p * p;
           if (Math.random() < rate * dt) {
