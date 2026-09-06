@@ -25,6 +25,7 @@ interface Props {
 type Gem = {
   x: number;
   y: number;
+  vx: number;
   vy: number;
   ang: number;
   spin: number;
@@ -90,6 +91,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       gems.push({
         x,
         y: -size * 2,
+        vx: 0,
         vy: FALL_SPEED_MIN + Math.random() * FALL_SPEED_RANGE,
         ang: Math.random() * Math.PI * 2,
         spin: (Math.random() < 0.5 ? -1 : 1) * (SPIN_MIN + Math.random() * SPIN_RANGE),
@@ -190,36 +192,36 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       const scale = 1 - (1 - MIN_SCALE) * p * p;
       camRef.current = { scale, cx, cy };
 
-      // 物理（世界座標）。塔にならないよう、低い方へ転がって山になる
+      // 物理（世界座標）。塔にならないよう、低い方へ「滑って」転がり、山になる（瞬間移動はしない）
       const gems = gemsRef.current;
       for (const g of gems) {
         if (g.settled) continue;
         g.vy += GRAVITY * dt;
         g.y += g.vy * dt;
+        g.x += g.vx * dt;
         g.ang += g.spin * dt;
+        const R = g.size * 0.55;                       // 積もる時の実効半径（少し重なる＝隙間が減る）
         const ci = Math.max(0, Math.min(cols.length - 1, Math.round((g.x - worldX0) / COL_W)));
-        const half = Math.max(1, Math.round((g.size * 0.8) / COL_W));
+        const half = Math.max(1, Math.round(R / COL_W));
         const top = colTop(ci, half);
-        if (g.y + g.size * 0.8 < top) continue;
-        let bestJ = ci, bestTop = top;
-        for (const d of [-1, 1]) {
-          for (let k = half + 1; k <= half * 3; k++) {
-            const j = ci + d * k;
-            if (j < 0 || j >= cols.length) continue;
-            const t = colTop(j, half);
-            if (t > bestTop + g.size * 0.9) { bestTop = t; bestJ = j; }
-          }
+        if (g.y + R < top) { g.vx *= 0.98; continue; }  // まだ空中
+        // 表面に触れた。左右どちらかが一段低ければ、そちらへ滑る速度を付ける
+        g.y = top - R;
+        const leftTop = colTop(ci - half * 2, half), rightTop = colTop(ci + half * 2, half);
+        const drop = R * 0.8;
+        const goLeft = leftTop > top + drop, goRight = rightTop > top + drop;
+        if (goLeft || goRight) {
+          const dir = goLeft && goRight ? (Math.random() < 0.5 ? -1 : 1) : goLeft ? -1 : 1;
+          g.vx = dir * (60 + Math.random() * 60);
+          g.vy = 20;
+          g.spin = dir * Math.abs(g.spin || 1.5);
+          continue;
         }
-        if (bestJ !== ci) {
-          g.x += (bestJ - ci) * COL_W * (0.6 + Math.random() * 0.4);
-          g.vy = Math.max(g.vy * 0.4, 25);
-          g.y = Math.min(g.y, top - g.size * 0.8);
-        } else {
-          g.y = top - g.size * 0.8;
-          g.settled = true;
-          for (let j = ci - half; j <= ci + half; j++) {
-            if (j >= 0 && j < cols.length) cols[j] = Math.min(cols[j], g.y - g.size * 0.35 + Math.abs(j - ci) * COL_W * 0.5);
-          }
+        // 落ち着いた
+        g.settled = true;
+        g.vx = 0;
+        for (let j = ci - half; j <= ci + half; j++) {
+          if (j >= 0 && j < cols.length) cols[j] = Math.min(cols[j], g.y - R * 0.9);
         }
       }
 
