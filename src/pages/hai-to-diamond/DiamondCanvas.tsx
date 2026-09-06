@@ -292,10 +292,13 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       scale = prev + (scale - prev) * Math.min(1, dt * 4);
       pileTopRef.current = pileTopWorld;
       camRef.current = { scale, cx, cy };
-      // 見えている範囲の両端＝見えない壁。転がった💎が画面の外へ流れて消えないようにする
+      // 見えている範囲の両端＝見えない壁。転がった💎が画面の外へ流れて消えないようにする。
+      // 壁は外へ広がるだけで内側へは戻さない（寄る時に山が真ん中へ寄り集まって端が空くのを防ぐ）
       const visibleHalf = (W / 2) / scale;
-      wallLeftRef.current = Math.max(0, Math.round((cx - visibleHalf - worldX0) / COL_W));
-      wallRightRef.current = Math.min(cols.length - 1, Math.round((cx + visibleHalf - worldX0) / COL_W));
+      const wl = Math.max(0, Math.round((cx - visibleHalf - worldX0) / COL_W));
+      const wr = Math.min(cols.length - 1, Math.round((cx + visibleHalf - worldX0) / COL_W));
+      wallLeftRef.current = Math.min(wallLeftRef.current || wl, wl);
+      wallRightRef.current = wallRightRef.current === Infinity ? wr : Math.max(wallRightRef.current, wr);
 
       // 物理（世界座標）。塔にならないよう、低い方へ「滑って」転がり、山になる（瞬間移動はしない）
       const gems = gemsRef.current;
@@ -315,10 +318,13 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         if (g.y + R < top) { g.vx *= 0.98; continue; }  // まだ空中
         // 表面に触れた。左右どちらかが一段低ければ、そちらへ滑る速度を付ける
         g.y = top - R;
-        // 少し先まで見て、低い方へ流れやすくする（塔にならず横に広がる）【仮: 見る幅 3R・段差 0.45R】
-        const leftTop = Math.max(colTop(ci - half * 2, half), colTop(ci - half * 3, half));
-        const rightTop = Math.max(colTop(ci + half * 2, half), colTop(ci + half * 3, half));
-        const drop = R * 0.45;
+        // 少し先まで見て、低い方へ流れやすくする（塔や谷を作らず、表面が平らに近づく）【仮: 見る幅 4R・段差 0.25R】
+        let leftTop = -Infinity, rightTop = -Infinity;
+        for (let k = 2; k <= 4; k++) {
+          leftTop = Math.max(leftTop, colTop(ci - half * k, half));
+          rightTop = Math.max(rightTop, colTop(ci + half * k, half));
+        }
+        const drop = R * 0.25;
         const goLeft = leftTop > top + drop, goRight = rightTop > top + drop;
         if (goLeft || goRight) {
           const dir = goLeft && goRight ? (Math.random() < 0.5 ? -1 : 1) : goLeft ? -1 : 1;
