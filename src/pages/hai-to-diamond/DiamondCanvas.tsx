@@ -10,8 +10,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { faGem } from "@fortawesome/free-solid-svg-icons";
 
 export type DiamondCanvasApi = {
-  /** 額縁の直下から、キャンバス座標 x の位置に💎を1つ降らせる */
-  spawn: (x: number) => void;
+  /** 額縁の直下、横位置はランダムに、その色の💎を1つ降らせる【仮：出る位置】 */
+  spawn: (color: string) => void;
 };
 
 interface Props {
@@ -28,11 +28,20 @@ type Gem = {
   ang: number;
   spin: number;
   size: number;
+  /** 0-255 の RGB。光と💎の着色に使う */
+  rgb: [number, number, number];
 };
 
 const GRAVITY = 260; // px/s^2 【仮】本番の落下速度は要調整
 const MAX_GEMS = 40;
 const GEM_SIZE = 16;
+
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace(/^#/, "");
+  const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+  if (!Number.isFinite(n)) return [255, 255, 255];
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
 
 // Font Awesome Free Solid "gem" (CC BY 4.0)。帰属表示はページのフッターに記載。
 function buildGemPath(): { path: Path2D; w: number; h: number } {
@@ -47,7 +56,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const reduceMotionRef = useRef(false);
 
   useImperativeHandle(ref, () => ({
-    spawn(x: number) {
+    spawn(color: string) {
       const canvas = canvasRef.current;
       const box = videoBoxRef.current;
       if (!canvas || !box) return;
@@ -55,8 +64,10 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       const vr = box.getBoundingClientRect();
       const frameBottom = vr.bottom - cr.top + frame;
       const gems = gemsRef.current;
+      const x = cr.width * (0.08 + Math.random() * 0.84);
       gems.push({
         x,
+        rgb: hexToRgb(color),
         y: frameBottom + GEM_SIZE,
         vy: 0,
         ang: Math.random() * Math.PI * 2,
@@ -136,9 +147,10 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const dir = g.ang;                                          // 針の向き＝光の向き（360度）
         const cos = Math.cos(dir), sin = Math.sin(dir);
         const ex = g.x + cos * len, ey = g.y + sin * len;
+        const [r, gg, b] = g.rgb;
         const grad = ctx.createLinearGradient(g.x, g.y, ex, ey);
-        grad.addColorStop(0, `rgba(255,255,255,${0.35 * k})`);
-        grad.addColorStop(1, "rgba(255,255,255,0)");
+        grad.addColorStop(0, `rgba(${r},${gg},${b},${0.45 * k})`);
+        grad.addColorStop(1, `rgba(${r},${gg},${b},0)`);
         ctx.strokeStyle = grad;
         ctx.lineWidth = 6 + 10 * k;
         ctx.lineCap = "round";
@@ -162,8 +174,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         }
         if (hit) {
           const rg = ctx.createRadialGradient(hit.x, hit.y, 0, hit.x, hit.y, 60);
-          rg.addColorStop(0, `rgba(255,255,255,${0.8 * k})`);
-          rg.addColorStop(1, "rgba(255,255,255,0)");
+          rg.addColorStop(0, `rgba(255,255,255,${0.55 * k})`);
+          rg.addColorStop(0.3, `rgba(${r},${gg},${b},${0.6 * k})`);
+          rg.addColorStop(1, `rgba(${r},${gg},${b},0)`);
           ctx.fillStyle = rg;
           ctx.fillRect(hit.x - 60, hit.y - 60, 120, 120);
         }
@@ -178,8 +191,12 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         ctx.rotate(g.ang + Math.PI / 2);                            // 宝石の先端が針の向きを指す
         ctx.scale(s / gem.w, s / gem.h);
         ctx.translate(-gem.w / 2, -gem.h / 2);
-        ctx.fillStyle = "rgba(255,255,255,0.95)";
+        ctx.fillStyle = `rgb(${g.rgb[0]},${g.rgb[1]},${g.rgb[2]})`;
         ctx.fill(gem.path);
+        // 白い縁取りで暗い床・濃いメンカラでも埋もれないようにする
+        ctx.lineWidth = 28;
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.stroke(gem.path);
         ctx.restore();
       }
     };
