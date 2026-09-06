@@ -72,6 +72,23 @@ export default function HaiToDiamondPage() {
   const [settings, setSettings] = useState<DiamondSettings>(getDiamondSettings);
   const settingsRef = useRef(settings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 数字ブロックの下端＝動画の額縁の上端。動画の位置を測って決める（画面サイズで変わる） */
+  const numbersRef = useRef<HTMLDivElement>(null);
+  const [numbersBottom, setNumbersBottom] = useState<number | string>("60%");
+  useEffect(() => {
+    if (!ended) return;
+    const measure = () => {
+      const box = videoBoxRef.current;
+      const root = box?.parentElement?.parentElement; // 額縁の div → ページの div
+      if (!box || !root) return;
+      const vr = box.getBoundingClientRect();
+      const rr = root.getBoundingClientRect();
+      setNumbersBottom(rr.bottom - vr.top + FRAME + 12);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [ended]);
   const handleSettingsChange = useCallback((next: DiamondSettings) => {
     settingsRef.current = next;
     setSettings(next);
@@ -221,7 +238,37 @@ export default function HaiToDiamondPage() {
         </div>
       </div>
 
-      {/* 画面下。再生中は💎ボタン、曲が終わったら回数・最初に戻る・シェア */}
+      {/* 曲が終わったら、動画の上の空きに数字（あなたの💎・歴代累計）を置く（Hop指示 2026-09-06） */}
+      {ended && (
+        <div
+          ref={numbersRef}
+          style={{
+            position: "absolute",
+            zIndex: 3,
+            left: 0,
+            right: 0,
+            bottom: numbersBottom,
+            display: "flex",
+            gap: "1.8rem",
+            justifyContent: "center",
+            alignItems: "flex-end",
+            textAlign: "center",
+            textShadow: "0 0 12px rgba(0,0,0,0.6)",
+            pointerEvents: "none",
+          }}
+        >
+          <div>
+            <p style={endLabelStyle}>あなたの💎</p>
+            <BouncyNumber value={finalCount} color={color} size="2.2rem" />
+          </div>
+          <div>
+            <p style={endLabelStyle}>歴代累計</p>
+            <BouncyNumber value={othersTotal + finalCount} color={color} size="1.6rem" />
+          </div>
+        </div>
+      )}
+
+      {/* 画面下。再生中は💎ボタン、曲が終わったら最初に戻る・シェア・本編リンク・断り書き */}
       <div
         style={{
           position: "absolute",
@@ -242,16 +289,6 @@ export default function HaiToDiamondPage() {
           ) : ended ? (
             // 縦に積むと小さい画面で動画と重なる（iPhone SE 幅で実際に重なった）ので、数字とボタンは横並び
             <>
-              <div style={{ display: "flex", gap: "1.6rem", alignItems: "flex-end", textAlign: "center", textShadow: "0 0 12px rgba(0,0,0,0.6)" }}>
-                <div>
-                  <p style={endLabelStyle}>あなたの💎</p>
-                  <BouncyNumber value={finalCount} color={color} size="1.9rem" />
-                </div>
-                <div>
-                  <p style={endLabelStyle}>歴代累計</p>
-                  <BouncyNumber value={othersTotal + finalCount} color={color} size="1.4rem" />
-                </div>
-              </div>
               <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", justifyContent: "center" }}>
                 <button
                   type="button"
