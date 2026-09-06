@@ -37,6 +37,9 @@ type Gem = {
   rgb: [number, number, number];
   settled: boolean;
   seed: number;
+  /** 着地先（世界座標）。降る前に決めて、隙間なく詰まる位置へはめ込む */
+  tx: number;
+  ty: number;
 };
 
 // 【仮】見本の値。実機で見て決める
@@ -51,12 +54,14 @@ const MIN_SCALE = 0.3;         // いちばん引いた時のカメラ倍率【�
 const FINALE_END_SCALE = 0.7;  // 曲の終わりの倍率【仮】。0.3から一気に1まで寄ると急なので途中で止める
 // 数が増えるほど💎を小さくする（ハイ！テンションで人が増えると✋が縮むのと同じ考え・Hop決定 2026-09-06）。
 // SHRINK_REF 個までは等倍、それ以降は個数の平方根に反比例して縮み、SHRINK_MIN で止まる【仮】
-const SHRINK_REF = 150;
-const SHRINK_MIN = 0.35;
+const SHRINK_REF = 400;
+const SHRINK_MIN = 0.6;          // 縮みすぎると面の影で黒っぽく見えるので、この辺で止める
 const COUNT_REF = 120;         // この数を超えたら、降った数の平方根に反比例してカメラを引く【仮】
 const FINALE_TIME = 206;       // 動画時刻 3:26（曲が一番盛り上がる所）からゆっくり寄り始める（Hop指定 2026-09-06）
 const FLOOR_DEPTH = 1.0;       // 床の位置（画面高さの倍数）。カメラの軸が床なので 1.0＝画面の下端が床
 const COL_W = 10;              // 積もり高さの帳簿の列幅
+const PACK_STEP = 0.62;        // 💎1個ぶんで山がどれだけ高くなるか（size 倍）。小さいほど深く重なって「ぎっしり」【仮】
+const SLOPE = 0.06;            // 山の傾き。小さいほど平らで、瓶に詰めるように下から隙間なく埋まる【仮】
 const MAX_GEMS = 4000;
 
 // 宝石の面（Font Awesome gem の外形に合わせた 5+3 面）。座標は -1..1。n は擬似的な法線
@@ -89,7 +94,7 @@ function paintFacets(ctx: CanvasRenderingContext2D, rgb: [number, number, number
   L[0] /= ll; L[1] /= ll; L[2] /= ll;
   for (const f of FACETS) {
     const d = Math.max(0, f.n[0] * L[0] + f.n[1] * L[1] + f.n[2] * L[2]);
-    const k = 0.35 + 0.65 * d * d;
+    const k = 0.5 + 0.5 * d * d;   // 影の側も暗くしすぎない（小さい💎が黒っぽく見えないように）
     ctx.fillStyle = `rgb(${(rgb[0] * k) | 0},${(rgb[1] * k) | 0},${(rgb[2] * k) | 0})`;
     ctx.beginPath();
     ctx.moveTo(f.pts[0][0], f.pts[0][1]);
@@ -152,9 +157,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const spawnedRef = useRef(0);
   /** 寄り始めの時点の倍率。そこから曲の終わりの倍率へなめらかに寄る */
   const finaleFromRef = useRef(1);
-  /** 見えない壁の列番号（この外へは転がらない） */
-  const wallLeftRef = useRef(0);
-  const wallRightRef = useRef(Infinity);
+  /** 着地先を決める関数（キャンバスの寸法を知っている useEffect 内で差し替える） */
+  const slotRef = useRef<(x: number, size: number, scale: number) => { tx: number; ty: number }>(() => ({ tx: 0, ty: 0 }));
   const sizeRef = useRef({ W: 0, H: 0 });
   const camRef = useRef({ scale: 1, cx: 0, cy: 0 });
 
@@ -176,11 +180,14 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       const pileTop = pileTopRef.current;
       let y = self ? topWorld + (60 + Math.random() * 40) / scale : topWorld - size * 2;
       if (pileTop !== Infinity) y = Math.min(y, pileTop - size * 3);
-      if (self) flashesRef.current.push({ x, y, t0: performance.now(), rgb: hexToRgb(color), size });
       const gems = gemsRef.current;
+      const slot = slotRef.current(x, size, scale);
+      if (self) flashesRef.current.push({ x: slot.tx, y, t0: performance.now(), rgb: hexToRgb(color), size });
       gems.push({
-        x,
+        x: slot.tx,
         y,
+        tx: slot.tx,
+        ty: slot.ty,
         vx: 0,
         vy: FALL_SPEED_MIN + Math.random() * FALL_SPEED_RANGE,
         ang: Math.random() * Math.PI * 2,
@@ -217,18 +224,35 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       worldW = W / MIN_SCALE;
       worldX0 = W / 2 - worldW / 2;
       const n = Math.ceil(worldW / COL_W) + 1;
-      while (cols.length < n) cols.push(floorY);
+      while (cols.length < n) cols.push(0);
     };
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
 
-    /** その列の付近の表面の高さ。壁の外は「とても高い（= -Infinity 側）」扱いで、転がり先にならない */
-    const colTop = (ci: number, half: number) => {
-      if (ci < wallLeftRef.current || ci > wallRightRef.current) return -Infinity;
-      let top = Infinity;
-      for (let j = ci - half; j <= ci + half; j++) if (j >= 0 && j < cols.length) top = Math.min(top, cols[j]);
-      return top;
+    // 着地先の割り当て。cols[c] は列 c の積もった高さ(px)。
+    // 「いま見えている横幅」の中で、高さ＋中心からの距離の分だけ重み付けした一番低い列を選ぶ
+    // ＝真ん中から広がる山の形で、しかも隙間なく詰まる。💎は横幅が列幅より広いので隣の列にも高さを足す。
+    slotRef.current = (x: number, size: number, scale: number) => {
+      const cx = camRef.current.cx || W / 2;
+      const visibleHalf = (W / 2) / scale;
+      const cL = Math.max(0, Math.round((cx - visibleHalf * 0.97 - worldX0) / COL_W));
+      const cR = Math.min(cols.length - 1, Math.round((cx + visibleHalf * 0.97 - worldX0) / COL_W));
+      const cC = (x - worldX0) / COL_W; // 押した位置ではなく散らした位置を中心の目安に使う（山が偏らない）
+      const cMid = (cx - worldX0) / COL_W;
+      let best = cL, bestScore = Infinity;
+      for (let c = cL; c <= cR; c++) {
+        const score = cols[c] + Math.abs(c - cMid) * COL_W * SLOPE + Math.abs(c - cC) * COL_W * 0.15 + Math.random() * size * 0.4;
+        if (score < bestScore) { bestScore = score; best = c; }
+      }
+      const halfCols = Math.max(1, Math.round((size * 0.75) / COL_W));
+      let base = 0;
+      for (let j = best - halfCols; j <= best + halfCols; j++) if (j >= 0 && j < cols.length) base = Math.max(base, cols[j]);
+      const ty = floorY - base - size * 0.5;
+      const newTop = base + size * PACK_STEP;
+      for (let j = best - halfCols; j <= best + halfCols; j++) if (j >= 0 && j < cols.length) cols[j] = Math.max(cols[j], newTop - Math.abs(j - best) * COL_W * 0.2);
+      const tx = worldX0 + best * COL_W + (Math.random() - 0.5) * COL_W * 0.6;
+      return { tx, ty };
     };
 
     /** 降っている💎: 面を毎フレーム計算して描く（数は少ない） */
@@ -244,7 +268,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     const drawGemSettled = (g: Gem) => {
       const sprites = getSprites(g.rgb);
       const i = ((Math.round((g.ang / (Math.PI * 2)) * SPRITE_STEPS) % SPRITE_STEPS) + SPRITE_STEPS) % SPRITE_STEPS;
-      const w = g.size * 2 / 0.95;
+      const w = (g.size * 2 / 0.95) * 1.12;              // 少し大きめに貼って継ぎ目の隙間を埋める【仮】
       ctx.drawImage(sprites[i], g.x - w / 2, g.y - w / 2, w, w);
       // 山の瞬きは十字の閃光（flashes）に統一。ここでは点を打たない（Hop指摘 2026-09-06）
     };
@@ -285,68 +309,22 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         scale = from + (FINALE_END_SCALE - from) * (k * k * (3 - 2 * k)); // なめらかに寄る
       }
       void p;
-      let pileTopWorld = Infinity;
-      for (let j = 0; j < cols.length; j++) if (cols[j] < pileTopWorld) pileTopWorld = cols[j];
+      let maxH = 0;
+      for (let j = 0; j < cols.length; j++) if (cols[j] > maxH) maxH = cols[j];
+      const pileTopWorld = maxH > 0 ? floorY - maxH : Infinity;
       // 急に変わらないよう、前フレームからなめらかに寄せる
       const prev = camRef.current.scale || scale;
       scale = prev + (scale - prev) * Math.min(1, dt * 4);
       pileTopRef.current = pileTopWorld;
       camRef.current = { scale, cx, cy };
-      // 見えている範囲の両端＝見えない壁。転がった💎が画面の外へ流れて消えないようにする。
-      // 壁は外へ広がるだけで内側へは戻さない（寄る時に山が真ん中へ寄り集まって端が空くのを防ぐ）
-      const visibleHalf = (W / 2) / scale;
-      const wl = Math.max(0, Math.round((cx - visibleHalf - worldX0) / COL_W));
-      const wr = Math.min(cols.length - 1, Math.round((cx + visibleHalf - worldX0) / COL_W));
-      wallLeftRef.current = Math.min(wallLeftRef.current || wl, wl);
-      wallRightRef.current = wallRightRef.current === Infinity ? wr : Math.max(wallRightRef.current, wr);
-
-      // 物理（世界座標）。塔にならないよう、低い方へ「滑って」転がり、山になる（瞬間移動はしない）
+      // 落下（世界座標）: 着地先まで落ちて止まる。横には流れない（着地先が最初から詰まる位置なので）
       const gems = gemsRef.current;
       for (const g of gems) {
         if (g.settled) continue;
         g.vy += GRAVITY * dt;
         g.y += g.vy * dt;
-        g.x += g.vx * dt;
         if (!reduceMotionRef.current) g.ang += g.spin * dt;
-        const R = g.size * 0.5;                        // 積もる時の実効半径（深めに重ねる＝隙間が減る）
-        // 壁: 見えている範囲の外へは出ない（当たったら止まって、その場に積もる）
-        const wl = worldX0 + wallLeftRef.current * COL_W + R, wr = worldX0 + wallRightRef.current * COL_W - R;
-        if (g.x < wl) { g.x = wl; g.vx = 0; } else if (g.x > wr) { g.x = wr; g.vx = 0; }
-        const ci = Math.max(0, Math.min(cols.length - 1, Math.round((g.x - worldX0) / COL_W)));
-        const half = Math.max(1, Math.round(R / COL_W));
-        const top = colTop(ci, half);
-        if (g.y + R < top) { g.vx *= 0.98; continue; }  // まだ空中
-        // 表面に触れた。左右どちらかが一段低ければ、そちらへ滑る速度を付ける
-        g.y = top - R;
-        // 少し先まで見て、低い方へ流れやすくする（塔や谷を作らず、表面が平らに近づく）【仮: 見る幅 4R・段差 0.25R】
-        let leftTop = -Infinity, rightTop = -Infinity;
-        for (let k = 2; k <= 4; k++) {
-          leftTop = Math.max(leftTop, colTop(ci - half * k, half));
-          rightTop = Math.max(rightTop, colTop(ci + half * k, half));
-        }
-        const drop = R * 0.25;
-        const goLeft = leftTop > top + drop, goRight = rightTop > top + drop;
-        if (goLeft || goRight) {
-          const dir = goLeft && goRight ? (Math.random() < 0.5 ? -1 : 1) : goLeft ? -1 : 1;
-          g.vx = dir * (60 + Math.random() * 60);
-          g.vy = 20;
-          g.spin = dir * Math.abs(g.spin || 1.5);
-          continue;
-        }
-        // 落ち着く前に、すぐ隣のくぼみ（少しだけ低い所）へ寄せて隙間を埋める
-        let bestJ = ci, bestTop = top;
-        for (let j = ci - half * 2; j <= ci + half * 2; j++) {
-          if (j < 0 || j >= cols.length) continue;
-          const t = colTop(j, half);
-          if (t > bestTop + R * 0.15) { bestTop = t; bestJ = j; }
-        }
-        if (bestJ !== ci) { g.x = worldX0 + bestJ * COL_W; g.y = bestTop - R; }
-        g.settled = true;
-        g.vx = 0;
-        const cj = bestJ;
-        for (let j = cj - half; j <= cj + half; j++) {
-          if (j >= 0 && j < cols.length) cols[j] = Math.min(cols[j], g.y - R * 0.8 + Math.abs(j - cj) * COL_W * 0.35);
-        }
+        if (g.y >= g.ty) { g.y = g.ty; g.settled = true; g.vx = 0; }
       }
 
       // 額縁の地色（画面座標・カメラの外）
