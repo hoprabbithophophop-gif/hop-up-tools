@@ -1,15 +1,16 @@
-// 灰toダイヤモンド 💎 — 第0段（記録なし）
+// 灰toダイヤモンド 💎 — 第1段（記録あり・みんなの💎も降る）
 //
 // 入口でメンバーカラーを選び（ハイ！テンションと同じ）、画面下の💎ボタンを押すと
 // その色の💎が画面の上から降る。💎は動画の裏を通って画面の下に積もり、曲が進むにつれて
 // カメラが引いて山が動画の背景になる。動画は真ん中に固定（動画本体の上には何も描かない）。
 // 再生開始はハイ！テンションと同じ流儀: ユーザーのタップの中で同期的に play() を呼ぶ。
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { faPlay } from "@fortawesome/free-solid-svg-icons";
 import YouTubePlayer, { type YouTubePlayerApi } from "../hi-tension/components/YouTubePlayer";
 import FaIcon from "../hi-tension/components/FaIcon";
 import { findMember, ARENA_BG } from "../hi-tension/data";
-import { getLastSelectedMemberId, setLastSelectedMemberId } from "../hi-tension/storage";
+import { getLastSelectedMemberId, setLastSelectedMemberId, getOrCreateAnonymousSessionId } from "../hi-tension/storage";
+import { fetchHiSessions, submitHiSession, type HiSession } from "../hi-tension/api";
 import DiamondCanvas, { type DiamondCanvasApi } from "./DiamondCanvas";
 import DiamondMemberSelect from "./DiamondMemberSelect";
 import DiamondTapButton, { type DiamondTapButtonApi } from "./DiamondTapButton";
@@ -20,6 +21,23 @@ const VIDEO_ID = "ImXkCr22kCU";
 const FRAME = 14;
 /** PCでは動画を縮めて置く（ハイ！テンションと同じ幅） */
 const PC_VIDEO_WIDTH = 480;
+/** 他の人の💎を1回の時刻更新（0.1秒）で出す上限。大勢の同時押しで一気に固まらないための蓋【仮】 */
+const MAX_OTHERS_PER_TICK = 25;
+
+/** みんなの記録を「0.05秒刻みの時刻 → その時押した人の色」の帳簿にする */
+function buildBucketMap(sessions: HiSession[]): Map<number, string[]> {
+  const map = new Map<number, string[]>();
+  for (const s of sessions) {
+    const c = findMember(s.member_id)?.color;
+    if (!c) continue;
+    const buckets = s.bucket_indices_20 ?? s.bucket_indices.map((b) => b * 2);
+    for (const b of buckets) {
+      const arr = map.get(b);
+      if (arr) arr.push(c); else map.set(b, [c]);
+    }
+  }
+  return map;
+}
 
 function isTouchDevice(): boolean {
   return /iPhone|iPad|iPod|Android/.test(navigator.userAgent);
@@ -30,11 +48,25 @@ export default function HaiToDiamondPage() {
   const canvasRef = useRef<DiamondCanvasApi>(null);
   const tapButtonRef = useRef<DiamondTapButtonApi>(null);
   const videoBoxRef = useRef<HTMLDivElement>(null);
-  /** タップした動画時刻（秒）。第1段で記録を送るときに使う。今は保持のみ。 */
+  /** 自分がタップした動画時刻（秒）。曲の終わりに記録として送る */
   const tapsRef = useRef<number[]>([]);
   const [memberId, setMemberId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
+  /** みんなの記録（動画時刻の帳簿）。読み込み前は空 */
+  const bucketMapRef = useRef<Map<number, string[]>>(new Map());
+  const lastBucketRef = useRef(-1);
+  const submittedRef = useRef(false);
+
+  // 入口を抜けたら、この動画の池からみんなの記録を読む（ハイ！テンションと同じ窓口）
+  useEffect(() => {
+    if (!memberId) return;
+    let cancelled = false;
+    fetchHiSessions(VIDEO_ID).then((rows) => {
+      if (!cancelled) bucketMapRef.current = buildBucketMap(rows);
+    }).catch((e) => console.warn("[hai-to-diamond] fetch sessions failed:", e));
+    return () => { cancelled = true; };
+  }, [memberId]);
 
   const member = findMember(memberId);
   const color = member?.color ?? "#ffffff";
@@ -50,23 +82,52 @@ export default function HaiToDiamondPage() {
     // タップの中で同期的に呼ぶ
     playerRef.current?.play();
     tapsRef.current = [];
+    lastBucketRef.current = -1;
+    submittedRef.current = false;
     tapButtonRef.current?.reset();
     setPlayingBoth(true);
   }, []);
 
+  /** 曲が終わったら自分の記録を送る（1回だけ・押していなければ送らない） */
+  const submitOnce = useCallback(() => {
+    if (submittedRef.current || !memberId || tapsRef.current.length === 0) return;
+    submittedRef.current = true;
+    submitHiSession({
+      memberId,
+      timestamps: tapsRef.current.slice(),
+      anonymousSessionId: getOrCreateAnonymousSessionId(),
+      videoId: VIDEO_ID,
+    }).then((r) => {
+      if (!r.ok) { console.warn("[hai-to-diamond] save failed:", r.error); submittedRef.current = false; }
+    }).catch((e) => { console.warn("[hai-to-diamond] save failed:", e); submittedRef.current = false; });
+  }, [memberId]);
+
   const handleEnded = useCallback(() => {
     setPlayingBoth(false);
-  }, []);
+    submitOnce();
+  }, [submitOnce]);
 
   // 動画上の YouTube 純正の再生ボタンから始めた場合も拾う。1=PLAYING / 0=ENDED。PAUSED は触らない【仮】
   const handlePlayerStateChange = useCallback((state: number) => {
     if (state === 1) setPlayingBoth(true);
-    else if (state === 0) setPlayingBoth(false);
-  }, []);
+    else if (state === 0) { setPlayingBoth(false); submitOnce(); }
+  }, [submitOnce]);
 
   const handleTimeUpdate = useCallback((t: number) => {
     const d = playerRef.current?.getDuration() ?? 0;
     if (d > 0) canvasRef.current?.setProgress(t / d);
+    // みんなの💎: 前回の時刻からいままでに押された分を、その人の色で降らせる
+    const cur = Math.floor(t * 20);
+    let last = lastBucketRef.current;
+    if (cur < last) last = cur - 1;                 // 巻き戻し（頭出し等）
+    if (cur - last > 40) last = cur - 40;           // 大きく飛んだ時は直近2秒ぶんだけ
+    let budget = MAX_OTHERS_PER_TICK;
+    for (let b = last + 1; b <= cur && budget > 0; b++) {
+      const colors = bucketMapRef.current.get(b);
+      if (!colors) continue;
+      for (const c of colors) { if (budget-- <= 0) break; canvasRef.current?.spawn(c); }
+    }
+    lastBucketRef.current = cur;
   }, []);
 
   /** 💎ボタン1回ぶん。再生中だけ受け付ける */
