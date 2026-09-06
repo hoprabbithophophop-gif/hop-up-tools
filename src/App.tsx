@@ -12,6 +12,7 @@ const YouTubePage     = lazy(() => import("./pages/youtube/YouTubePage"));
 const YouTubePickupPage = lazy(() => import("./pages/youtube/YouTubePickupPage"));
 const TheBalladPage   = lazy(() => import("./pages/the-ballad/TheBalladPage"));
 const HiTensionPage   = lazy(() => import("./pages/hi-tension/HiTensionPage"));
+const HaiToDiamondPage = lazy(() => import("./pages/hai-to-diamond/HaiToDiamondPage"));
 const HiTensionAuthorPage = lazy(() => import("./pages/hi-tension/HiTensionAuthorPage"));
 const HiTensionPracticePage = lazy(() => import("./pages/hi-tension/HiTensionPracticePage"));
 const ArigatoBeatTapPage = lazy(() => import("./pages/hi-tension/ArigatoBeatTapPage"));
@@ -35,6 +36,7 @@ function AnimatedRoutes() {
         <Route path="/youtube/pickup" element={<YouTubePickupPage />} />
         <Route path="/the-ballad" element={<TheBalladPage />} />
         <Route path="/hi-tension" element={<HiTensionPage />} />
+        <Route path="/hai-to-diamond" element={<HaiToDiamondPage />} />
         <Route path="/hi-tension/author" element={<HiTensionAuthorPage />} />
         <Route path="/hi-tension/practice" element={<HiTensionPracticePage />} />
         <Route path="/arigato-beat/beat" element={<ArigatoBeatTapPage />} />
