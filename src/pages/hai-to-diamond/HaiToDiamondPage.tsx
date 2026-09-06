@@ -8,7 +8,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "../hi-tension/components/YouTubePlayer";
 import { findMember, ARENA_BG } from "../hi-tension/data";
 import { getLastSelectedMemberId, setLastSelectedMemberId, getOrCreateAnonymousSessionId } from "../hi-tension/storage";
-import { fetchHiSessions, submitHiSession, type HiSession } from "../hi-tension/api";
+import { submitHiSession } from "../hi-tension/api";
+import { fetchReplay, type ReplayRow } from "./replay";
 import DiamondCanvas, { type DiamondCanvasApi } from "./DiamondCanvas";
 import DiamondMemberSelect from "./DiamondMemberSelect";
 import DiamondTapButton, { type DiamondTapButtonApi } from "./DiamondTapButton";
@@ -30,16 +31,18 @@ function shareToX(count: number) {
 /** 他の人の💎を1回の時刻更新（0.1秒）で出す上限。大勢の同時押しで一気に固まらないための蓋【仮】 */
 const MAX_OTHERS_PER_TICK = 25;
 
-/** みんなの記録を「0.05秒刻みの時刻 → その時押した人の色」の帳簿にする */
-function buildBucketMap(sessions: HiSession[]): Map<number, string[]> {
-  const map = new Map<number, string[]>();
-  for (const s of sessions) {
-    const c = findMember(s.member_id)?.color;
+/** みんなの記録（集計）を「0.05秒刻みの時刻 → [色, 個数] の並び」の帳簿にする */
+type BucketEntry = [color: string, count: number];
+function buildBucketMap(rows: ReplayRow[]): Map<number, BucketEntry[]> {
+  const map = new Map<number, BucketEntry[]>();
+  for (const r of rows) {
+    const c = findMember(r.member_id)?.color;
     if (!c) continue;
-    const buckets = s.bucket_indices_20 ?? s.bucket_indices.map((b) => b * 2);
-    for (const b of buckets) {
+    for (let i = 0; i < r.buckets.length; i++) {
+      const b = r.buckets[i];
       const arr = map.get(b);
-      if (arr) arr.push(c); else map.set(b, [c]);
+      const e: BucketEntry = [c, r.counts[i] ?? 0];
+      if (arr) arr.push(e); else map.set(b, [e]);
     }
   }
   return map;
@@ -63,19 +66,18 @@ export default function HaiToDiamondPage() {
   const [ended, setEnded] = useState(false);
   const [finalCount, setFinalCount] = useState(0);
   /** みんなの記録（動画時刻の帳簿）。読み込み前は空 */
-  const bucketMapRef = useRef<Map<number, string[]>>(new Map());
+  const bucketMapRef = useRef<Map<number, BucketEntry[]>>(new Map());
   const lastBucketRef = useRef(-1);
   const submittedRef = useRef(false);
 
-  // 入口を抜けたら、この動画の池からみんなの記録を読む（ハイ！テンションと同じ窓口）
+  // 入口の間に、この動画の池からみんなの記録（集計）を読んでおく
   useEffect(() => {
-    if (!memberId) return;
     let cancelled = false;
-    fetchHiSessions(VIDEO_ID).then((rows) => {
+    fetchReplay(VIDEO_ID).then((rows) => {
       if (!cancelled) bucketMapRef.current = buildBucketMap(rows);
-    }).catch((e) => console.warn("[hai-to-diamond] fetch sessions failed:", e));
+    }).catch((e) => console.warn("[hai-to-diamond] replay fetch failed:", e));
     return () => { cancelled = true; };
-  }, [memberId]);
+  }, []);
 
   const member = findMember(memberId);
   const color = member?.color ?? "#ffffff";
@@ -142,9 +144,12 @@ export default function HaiToDiamondPage() {
     if (cur - last > 40) last = cur - 40;           // 大きく飛んだ時は直近2秒ぶんだけ
     let budget = MAX_OTHERS_PER_TICK;
     for (let b = last + 1; b <= cur && budget > 0; b++) {
-      const colors = bucketMapRef.current.get(b);
-      if (!colors) continue;
-      for (const c of colors) { if (budget-- <= 0) break; canvasRef.current?.spawn(c); }
+      const entries = bucketMapRef.current.get(b);
+      if (!entries) continue;
+      for (const [c, n] of entries) {
+        for (let k = 0; k < n; k++) { if (budget-- <= 0) break; canvasRef.current?.spawn(c); }
+        if (budget <= 0) break;
+      }
     }
     lastBucketRef.current = cur;
   }, []);
