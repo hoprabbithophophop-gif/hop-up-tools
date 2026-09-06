@@ -88,7 +88,7 @@ const DiamondTapButton = forwardRef<DiamondTapButtonApi, Props>(function Diamond
             : "0 0 0 3px rgba(255,255,255,0.92), 0 6px 20px rgba(0,0,0,0.4)",
           transform: isPressed ? "scale(0.92)" : "scale(1)",
           transition: "transform 0.12s, box-shadow 0.12s",
-          touchAction: "manipulation",
+          touchAction: "none",   // 連打中に指が滑ってもスクロールにしない（Hop報告 2026-09-07）
           userSelect: "none",
           WebkitUserSelect: "none",
           WebkitTouchCallout: "none",

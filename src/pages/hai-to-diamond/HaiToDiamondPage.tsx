@@ -104,16 +104,16 @@ export default function HaiToDiamondPage() {
   const lastBucketRef = useRef(-1);
   const submittedRef = useRef(false);
 
-  // 入口の間に、この動画の池からみんなの記録（集計）を読んでおく
-  useEffect(() => {
-    let cancelled = false;
+  // みんなの記録（集計）を読む。入口を開いた時と、「はじめる」のたびに読み直す。
+  // 開いた時の1回だけだと、同じページで2回目を遊んだ時や、その間に他の人（別の端末の自分も）が遊んだ分が
+  // 歴代累計に入らない（Hop報告 2026-09-07: PCで1287→8619、続けてスマホで1317→8649）
+  const loadReplay = useCallback(() => {
     fetchReplay(VIDEO_ID).then((rows) => {
-      if (cancelled) return;
       bucketMapRef.current = buildBucketMap(rows);
       setOthersTotal(rows.reduce((acc, r) => acc + r.counts.reduce((a, c) => a + c, 0), 0));
     }).catch((e) => console.warn("[hai-to-diamond] replay fetch failed:", e));
-    return () => { cancelled = true; };
   }, []);
+  useEffect(() => { loadReplay(); }, [loadReplay]);
 
   const member = findMember(memberId);
   const color = member?.color ?? "#ffffff";
@@ -127,6 +127,7 @@ export default function HaiToDiamondPage() {
     setLastSelectedMemberId(id);
     setMemberId(id);
     canvasRef.current?.reset();   // 前の回の山を消して最初から（Hop報告 2026-09-07）
+    loadReplay();
     tapsRef.current = [];
     lastBucketRef.current = -1;
     submittedRef.current = false;
@@ -134,7 +135,7 @@ export default function HaiToDiamondPage() {
     setLiveCount(0);
     setEnded(false);
     setPlayingBoth(true);
-  }, []);
+  }, [loadReplay]);
 
   /** 曲が終わったら自分の記録を送る（1回だけ・押していなければ送らない） */
   const submitOnce = useCallback(() => {
@@ -207,6 +208,7 @@ export default function HaiToDiamondPage() {
         position: "relative",
         height: "100dvh",
         overflow: "hidden",
+        overscrollBehavior: "none",   // 連打中に指が滑っても画面が引っ張られないように（Hop報告 2026-09-07）
         background: ARENA_BG,
         color: "#e8eaed",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",

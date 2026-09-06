@@ -66,6 +66,7 @@ const PILE_MAX_ON_SCREEN = 0.7; // 山の頂上が画面のこの高さ（画面
 const COL_W = 10;              // 積もり高さの帳簿の列幅
 const PACK_RADIUS = 0.6;       // 積もり計算で💎を丸い粒とみなす時の半径（size 倍）。見た目の半径(約1.0)より小さくして深く重ねる＝「ぎっしり」【仮】
 const SLOPE = 0.06;            // 山の傾き。小さいほど平らで、瓶に詰めるように下から隙間なく埋まる【仮】
+const NEAR_SPAWN = 0.5;        // 散らした位置の近くに落とす強さ。小さいと一番低い所（引いた直後は画面の端）に集まり、動画の周りが寂しくなる【仮】
 const OUTSIDE_SLOPE = 1.5;     // 画面の端より外へ 1px 出るごとに、積もり高さ何px分の損と数えるか＝端の外の裾野の急さ【仮】
 const MAX_GEMS = 4000;         // 配列に持つ💎の上限（焼き込みの絵が作れない環境での保険）
 const LIVE_KEEP = 300;         // 1つずつ描き続ける積もった💎の数（山の表面ぶん）。それより古いものは後ろの絵へ焼き込む
@@ -192,6 +193,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const pileTopRef = useRef(Infinity);
   /** これまでに降った💎の総数（自分＋みんな）。縮み具合の元 */
   const spawnedRef = useRef(0);
+  /** 積もった💎の位置の控え（焼き込んだ分も含む）。山のきらめきの抽選に使う */
+  const sparkPointsRef = useRef<{ x: number; y: number; rgb: [number, number, number]; size: number }[]>([]);
   /** 寄り始めの時点の倍率。そこから曲の終わりの倍率へなめらかに寄る */
   const finaleFromRef = useRef(1);
   /** 着地先を決める関数（キャンバスの寸法を知っている useEffect 内で差し替える） */
@@ -243,6 +246,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     reset() {
       gemsRef.current = [];
       flashesRef.current = [];
+      sparkPointsRef.current = [];
       spawnedRef.current = 0;
       finaleFromRef.current = 1;
       pileTopRef.current = Infinity;
@@ -319,7 +323,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         if (self && off > 0) continue;
         const h = restHeight(c, R);
         const outside = Math.max(0, off) * COL_W * OUTSIDE_SLOPE;
-        const score = h + outside + Math.abs(c - cMid) * COL_W * SLOPE + Math.abs(c - cC) * COL_W * 0.15 + Math.random() * size * 0.4;
+        const score = h + outside + Math.abs(c - cMid) * COL_W * SLOPE + Math.abs(c - cC) * COL_W * NEAR_SPAWN + Math.random() * size * 0.4;
         if (score < bestScore) { bestScore = score; best = c; bestH = h; }
       }
       // 止まった粒の上側の丸みを地形に足す
@@ -433,7 +437,10 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         g.vy += GRAVITY * dt;
         g.y += g.vy * dt;
         if (!reduceMotionRef.current) g.ang += g.spin * dt;
-        if (g.y >= g.ty) { g.y = g.ty; g.settled = true; g.vx = 0; }
+        if (g.y >= g.ty) {
+          g.y = g.ty; g.settled = true; g.vx = 0;
+          sparkPointsRef.current.push({ x: g.x, y: g.y, rgb: g.rgb, size: g.size });
+        }
       }
 
       // 額縁の地色（画面座標・カメラの外）
@@ -485,18 +492,21 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         if (g.settled) drawGemSettled(g);
         else drawGemLive(g, lightAng);
       }
-      // 山のきらめき: 積もった💎からランダムに1つ選び、押した時と同じ閃光を出す。
+      // 山のきらめき: 積もった💎（焼き込んだ分も含む）からランダムに1つ選び、押した時と同じ閃光を出す。
+      // 画面の外や動画の裏にある💎を選んでも見えないので、画面内のものが当たるまで数回引き直す（Hop報告 2026-09-07）。
       // 曲が進むほど頻度が上がり、最後の山で一番ピカピカする【仮: 毎秒 0.5〜6回】。動き軽減では出さない（飾りなので）
       if (!reduceMotionRef.current) {
-        settledCount = 0;
-        for (const g of gems) if (g.settled) settledCount++;
-        if (settledCount > 0) {
+        const pts = sparkPointsRef.current;
+        if (pts.length > 0) {
           const rate = 0.5 + 5.5 * p * p;
           if (Math.random() < rate * dt) {
-            let idx = Math.floor(Math.random() * settledCount);
-            for (const g of gems) {
-              if (!g.settled) continue;
-              if (idx-- === 0) { flashesRef.current.push({ x: g.x, y: g.y, t0: now, rgb: g.rgb, size: g.size * 0.8 }); break; }
+            for (let tries = 0; tries < 12; tries++) {
+              const pt = pts[Math.floor(Math.random() * pts.length)];
+              const sx = cx + (pt.x - cx) * scale, sy = H + (pt.y - floorY) * scale;
+              if (sx < 0 || sx > W || sy < 0 || sy > H) continue;
+              if (sx > v.x && sx < v.x + v.w && sy > v.y && sy < v.y + v.h) continue;
+              flashesRef.current.push({ x: pt.x, y: pt.y, t0: now, rgb: pt.rgb, size: pt.size * 0.8 });
+              break;
             }
           }
         }
