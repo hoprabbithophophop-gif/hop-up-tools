@@ -17,6 +17,9 @@ export default function DiamondMemberSelect({ initialSelectedId, onConfirm }: Pr
     try { return window.matchMedia("(orientation: landscape)").matches; } catch { return false; }
   });
   useEffect(() => {
+    document.title = "灰toダイヤモンド | hop-up-tools";
+  }, []);
+  useEffect(() => {
     let mq: MediaQueryList;
     try { mq = window.matchMedia("(orientation: landscape)"); } catch { return; }
     const onChange = (e: MediaQueryListEvent) => setIsLandscape(e.matches);
@@ -53,6 +56,33 @@ export default function DiamondMemberSelect({ initialSelectedId, onConfirm }: Pr
           100% { transform: translate(-50%, -50%) scale(1); }
         }
       `}</style>
+
+      {/* 見出しと副題（Hop指定 2026-09-06） */}
+      <h1
+        style={{
+          fontSize: "clamp(1.3rem, 6.5vw, 1.6rem)",
+          fontWeight: 700,
+          letterSpacing: "-0.02em",
+          margin: 0,
+          textAlign: "center",
+          color: "#f5f7fa",
+          lineHeight: 1.2,
+        }}
+      >
+        灰toダイヤモンド
+      </h1>
+      <p
+        style={{
+          fontSize: "0.8125rem",
+          fontWeight: 600,
+          letterSpacing: "0.04em",
+          margin: "0.3rem 0 0",
+          textAlign: "center",
+          color: "#aab0b6",
+        }}
+      >
+        #輝きなビヨちゃん
+      </p>
 
       <div
         style={{

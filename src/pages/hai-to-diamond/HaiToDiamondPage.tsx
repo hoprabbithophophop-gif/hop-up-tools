@@ -5,9 +5,7 @@
 // カメラが引いて山が動画の背景になる。動画は真ん中に固定（動画本体の上には何も描かない）。
 // 再生開始はハイ！テンションと同じ流儀: ユーザーのタップの中で同期的に play() を呼ぶ。
 import { useCallback, useEffect, useRef, useState } from "react";
-import { faPlay } from "@fortawesome/free-solid-svg-icons";
 import YouTubePlayer, { type YouTubePlayerApi } from "../hi-tension/components/YouTubePlayer";
-import FaIcon from "../hi-tension/components/FaIcon";
 import { findMember, ARENA_BG } from "../hi-tension/data";
 import { getLastSelectedMemberId, setLastSelectedMemberId, getOrCreateAnonymousSessionId } from "../hi-tension/storage";
 import { fetchHiSessions, submitHiSession, type HiSession } from "../hi-tension/api";
@@ -21,6 +19,14 @@ const VIDEO_ID = "ImXkCr22kCU";
 const FRAME = 14;
 /** PCでは動画を縮めて置く（ハイ！テンションと同じ幅） */
 const PC_VIDEO_WIDTH = 480;
+/** シェア文面（Hop確定 2026-09-06・A案）。タグとURLは指定のものだけ。URLは仮のルート名 */
+const SHARE_URL = "https://hop-up-tools.pages.dev/hai-to-diamond";
+function buildShareText(count: number): string {
+  return `灰toダイヤモンドに合わせて 💎を ${count.toLocaleString()}個 降らせました\n#輝きなビヨちゃん\n${SHARE_URL}`;
+}
+function shareToX(count: number) {
+  window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(buildShareText(count))}`, "_blank", "noopener,noreferrer");
+}
 /** 他の人の💎を1回の時刻更新（0.1秒）で出す上限。大勢の同時押しで一気に固まらないための蓋【仮】 */
 const MAX_OTHERS_PER_TICK = 25;
 
@@ -53,6 +59,9 @@ export default function HaiToDiamondPage() {
   const [memberId, setMemberId] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
+  /** 曲が終わった後の画面（自分の回数・最初に戻る・シェア）。再生開始で消える */
+  const [ended, setEnded] = useState(false);
+  const [finalCount, setFinalCount] = useState(0);
   /** みんなの記録（動画時刻の帳簿）。読み込み前は空 */
   const bucketMapRef = useRef<Map<number, string[]>>(new Map());
   const lastBucketRef = useRef(-1);
@@ -71,20 +80,19 @@ export default function HaiToDiamondPage() {
   const member = findMember(memberId);
   const color = member?.color ?? "#ffffff";
 
-  const handleConfirmMember = useCallback((id: string) => {
-    setLastSelectedMemberId(id);
-    setMemberId(id);
-  }, []);
-
   const setPlayingBoth = (v: boolean) => { playingRef.current = v; setPlaying(v); };
 
-  const handleStart = useCallback(() => {
-    // タップの中で同期的に呼ぶ
+  /** 「はじめる」＝ハイ！テンションと同じく、このタップの中で同期的に再生を始める（iOS Safari 対策）。
+   *  プレイヤーは入口の裏で先に読み込み済み */
+  const handleConfirmMember = useCallback((id: string) => {
     playerRef.current?.play();
+    setLastSelectedMemberId(id);
+    setMemberId(id);
     tapsRef.current = [];
     lastBucketRef.current = -1;
     submittedRef.current = false;
     tapButtonRef.current?.reset();
+    setEnded(false);
     setPlayingBoth(true);
   }, []);
 
@@ -102,16 +110,27 @@ export default function HaiToDiamondPage() {
     }).catch((e) => { console.warn("[hai-to-diamond] save failed:", e); submittedRef.current = false; });
   }, [memberId]);
 
-  const handleEnded = useCallback(() => {
+  const finish = useCallback(() => {
     setPlayingBoth(false);
+    setFinalCount(tapsRef.current.length);
+    setEnded(true);
     submitOnce();
   }, [submitOnce]);
 
+  const handleEnded = useCallback(() => { finish(); }, [finish]);
+
   // 動画上の YouTube 純正の再生ボタンから始めた場合も拾う。1=PLAYING / 0=ENDED。PAUSED は触らない【仮】
   const handlePlayerStateChange = useCallback((state: number) => {
-    if (state === 1) setPlayingBoth(true);
-    else if (state === 0) { setPlayingBoth(false); submitOnce(); }
-  }, [submitOnce]);
+    if (state === 1) { setEnded(false); setPlayingBoth(true); }
+    else if (state === 0) finish();
+  }, [finish]);
+
+  /** 最初に戻る＝入口の色選びへ */
+  const handleBackToStart = useCallback(() => {
+    setEnded(false);
+    setPlayingBoth(false);
+    setMemberId(null);
+  }, []);
 
   const handleTimeUpdate = useCallback((t: number) => {
     const d = playerRef.current?.getDuration() ?? 0;
@@ -138,10 +157,6 @@ export default function HaiToDiamondPage() {
     return true;
   }, [color]);
 
-  if (!memberId) {
-    return <DiamondMemberSelect initialSelectedId={getLastSelectedMemberId()} onConfirm={handleConfirmMember} />;
-  }
-
   return (
     <div
       style={{
@@ -155,6 +170,13 @@ export default function HaiToDiamondPage() {
         flexDirection: "column",
       }}
     >
+      {/* 入口。本編（プレイヤー込み）は常時マウントし、その上に重ねる＝「はじめる」の時点でプレイヤーが準備済み */}
+      {!memberId && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
+          <DiamondMemberSelect initialSelectedId={getLastSelectedMemberId()} onConfirm={handleConfirmMember} />
+        </div>
+      )}
+
       {/* 光と💎の層。動画の裏（zIndex 0） */}
       <DiamondCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={FRAME} />
 
@@ -177,7 +199,7 @@ export default function HaiToDiamondPage() {
         </div>
       </div>
 
-      {/* 画面下。再生前は開始ボタン、再生中は💎ボタン */}
+      {/* 画面下。再生中は💎ボタン、曲が終わったら回数・最初に戻る・シェア */}
       <div
         style={{
           position: "absolute",
@@ -195,26 +217,25 @@ export default function HaiToDiamondPage() {
         <div style={{ pointerEvents: "auto", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.6rem" }}>
           {playing ? (
             <DiamondTapButton ref={tapButtonRef} accentColor={color} onRecord={handleRecord} />
-          ) : (
-            <button
-              type="button"
-              onClick={handleStart}
-              aria-label="再生"
-              style={{
-                width: 88,
-                height: 88,
-                borderRadius: "50%",
-                border: "none",
-                background: "rgba(255,255,255,0.08)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
-              }}
-            >
-              <FaIcon icon={faPlay} size={36} color="#ffffff" />
-            </button>
-          )}
+          ) : ended ? (
+            <>
+              <div style={{ fontSize: "2rem", fontWeight: 700, color, lineHeight: 1 }}>{finalCount.toLocaleString()}</div>
+              <button
+                type="button"
+                onClick={handleBackToStart}
+                style={{ padding: "0.8rem 1.6rem", background: "#f5f7fa", color: "#111", border: "none", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
+              >
+                最初に戻る
+              </button>
+              <button
+                type="button"
+                onClick={() => shareToX(finalCount)}
+                style={{ marginTop: "0.6rem", padding: "0.8rem 1.6rem", background: "transparent", color: "#f5f7fa", border: "1px solid rgba(255,255,255,0.5)", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
+              >
+                𝕏 でシェアする
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
 
