@@ -344,7 +344,22 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         if (g.settled) drawGemSettled(g, now);
         else drawGemLive(g, lightAng);
       }
-      // 押した瞬間の閃光: 白い芯＋その色の輪が広がって消える（約320ms）。動き軽減でも出す（手応えなので）
+      // 山のきらめき: 積もった💎からランダムに1つ選び、押した時と同じ閃光を出す。
+      // 曲が進むほど頻度が上がり、最後の山で一番ピカピカする【仮: 毎秒 0.5〜6回】。動き軽減では出さない（飾りなので）
+      if (!reduceMotionRef.current) {
+        const settledCount = gems.reduce((n, g) => n + (g.settled ? 1 : 0), 0);
+        if (settledCount > 0) {
+          const rate = 0.5 + 5.5 * p * p;
+          if (Math.random() < rate * dt) {
+            let idx = Math.floor(Math.random() * settledCount);
+            for (const g of gems) {
+              if (!g.settled) continue;
+              if (idx-- === 0) { flashesRef.current.push({ x: g.x, y: g.y, t0: now, rgb: g.rgb, size: g.size * 0.8 }); break; }
+            }
+          }
+        }
+      }
+      // 閃光: 白い芯＋その色の輪が広がって消える（約320ms）。押した手応えの分は動き軽減でも出す
       const flashes = flashesRef.current;
       if (flashes.length) {
         ctx.globalCompositeOperation = "lighter";
