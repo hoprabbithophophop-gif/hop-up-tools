@@ -13,8 +13,8 @@ export type DiamondCanvasApi = {
   /** その色の💎を1つ、画面の上から降らせる。速さ・回転の向きと速さは1つずつ違う。
    *  self=true は自分の💎: 画面内の上寄りに出て、出た瞬間にピカッと光る（押した手応え） */
   spawn: (color: string, self?: boolean) => void;
-  /** 曲の進み 0..1。カメラの引きに使う */
-  setProgress: (p: number) => void;
+  /** 動画の現在時刻と総尺（秒）。カメラの引き・寄りに使う */
+  setTime: (t: number, duration: number) => void;
 };
 
 interface Props {
@@ -45,11 +45,16 @@ const FALL_SPEED_MIN = 40;     // 初速 px/s
 const FALL_SPEED_RANGE = 90;
 const SPIN_MIN = 0.6;          // rad/s
 const SPIN_RANGE = 3.2;
-const SIZE_MIN = 22;
-const SIZE_RANGE = 14;
-const MIN_SCALE = 0.5;         // 曲の終わりのカメラ倍率（曲の進みだけで決まる分）
-const HARD_MIN_SCALE = 0.2;    // 山の高さで引く時の下限
-const FINALE_START = 0.9;      // ここから先は山の高さで引かない（山が動画の背景になる）
+const SIZE_MIN = 16;
+const SIZE_RANGE = 8;
+const MIN_SCALE = 0.3;         // いちばん引いた時のカメラ倍率【仮】
+const FINALE_END_SCALE = 0.7;  // 曲の終わりの倍率【仮】。0.3から一気に1まで寄ると急なので途中で止める
+// 数が増えるほど💎を小さくする（ハイ！テンションで人が増えると✋が縮むのと同じ考え・Hop決定 2026-09-06）。
+// SHRINK_REF 個までは等倍、それ以降は個数の平方根に反比例して縮み、SHRINK_MIN で止まる【仮】
+const SHRINK_REF = 150;
+const SHRINK_MIN = 0.35;
+const COUNT_REF = 120;         // この数を超えたら、降った数の平方根に反比例してカメラを引く【仮】
+const FINALE_TIME = 206;       // 動画時刻 3:26（曲が一番盛り上がる所）からゆっくり寄り始める（Hop指定 2026-09-06）
 const FLOOR_DEPTH = 1.0;       // 床の位置（画面高さの倍数）。カメラの軸が床なので 1.0＝画面の下端が床
 const COL_W = 10;              // 積もり高さの帳簿の列幅
 const MAX_GEMS = 4000;
@@ -140,10 +145,16 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const reduceMotionRef = useRef(reduceMotion);
   useEffect(() => { reduceMotionRef.current = reduceMotion; }, [reduceMotion]);
   const gemsRef = useRef<Gem[]>([]);
-  const progressRef = useRef(0);
+  const timeRef = useRef({ t: 0, d: 284 });
   /** 山の頂上の世界座標（低いほど高い山）。自分の💎を山より上に出すために使う */
   const pileTopRef = useRef(Infinity);
-  const fitScaleRef = useRef(1);
+  /** これまでに降った💎の総数（自分＋みんな）。縮み具合の元 */
+  const spawnedRef = useRef(0);
+  /** 寄り始めの時点の倍率。そこから曲の終わりの倍率へなめらかに寄る */
+  const finaleFromRef = useRef(1);
+  /** 見えない壁の列番号（この外へは転がらない） */
+  const wallLeftRef = useRef(0);
+  const wallRightRef = useRef(Infinity);
   const sizeRef = useRef({ W: 0, H: 0 });
   const camRef = useRef({ scale: 1, cx: 0, cy: 0 });
 
@@ -152,7 +163,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       const { W, H } = sizeRef.current;
       const { scale, cx } = camRef.current;
       if (!W) return;
-      const size = SIZE_MIN + Math.random() * SIZE_RANGE;
+      spawnedRef.current += 1;
+      const shrink = Math.max(SHRINK_MIN, Math.min(1, Math.sqrt(SHRINK_REF / spawnedRef.current)));
+      const size = (SIZE_MIN + Math.random() * SIZE_RANGE) * shrink;
       // いま見えている範囲の横幅に散らす（引くほど広がる）
       const visibleHalf = (W / 2) / scale;
       const x = cx + (Math.random() * 2 - 1) * visibleHalf * 0.94;
@@ -179,8 +192,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       });
       if (gems.length > MAX_GEMS) gems.shift();
     },
-    setProgress(p: number) {
-      progressRef.current = Math.max(0, Math.min(1, p));
+    setTime(t: number, duration: number) {
+      timeRef.current = { t: Math.max(0, t), d: Math.max(1, duration) };
     },
   }), []);
 
@@ -210,7 +223,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
 
+    /** その列の付近の表面の高さ。壁の外は「とても高い（= -Infinity 側）」扱いで、転がり先にならない */
     const colTop = (ci: number, half: number) => {
+      if (ci < wallLeftRef.current || ci > wallRightRef.current) return -Infinity;
       let top = Infinity;
       for (let j = ci - half; j <= ci + half; j++) if (j >= 0 && j < cols.length) top = Math.min(top, cols[j]);
       return top;
@@ -250,36 +265,37 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       const v = { x: vr.left - cr.left, y: vr.top - cr.top, w: vr.width, h: vr.height };
       const f = { x: v.x - frame, y: v.y - frame, w: v.w + frame * 2, h: v.h + frame * 2 };
       const cx = v.x + v.w / 2, cy = v.y + v.h / 2;
-      const p = progressRef.current;
-      // カメラ: 曲の進みで引く ＋ 山の高さでも引く。
-      // 山の頂上が動画の下端（＋余白）を越えそうなら、越えない倍率まで引く。
-      // 曲の最後の1割は「高さで引く」のをやめ、山が動画の裏に上がって背景になるのを許す【仮: 0.9】。
-      // 引きすぎて💎が粒になりすぎないよう下限あり【仮: 0.2】。
-      const scaleByProgress = 1 - (1 - MIN_SCALE) * p * p;
-      let scale = scaleByProgress;
+      const { t, d } = timeRef.current;
+      const p = Math.min(1, t / d);
+      // カメラ: 3:26 までは曲の進みで 1 → MIN_SCALE へ引く。3:26 から曲の終わりまでかけてゆっくり 1 へ寄る。
+      // 山の高さでは引かない（山が動画の裏へ上がっていくのを許す＝育っていくのが見える）
+      const finaleStart = Math.min(FINALE_TIME, d * 0.9);
+      let scale: number;
+      if (t < finaleStart) {
+        const q = t / finaleStart;
+        const byTime = 1 - (1 - MIN_SCALE) * q * q;
+        // 序盤から長押し連打されると、時間だけの引きでは間に合わず山が画面を埋める。
+        // 降った数でも引く（数が増えるほど先回りして広く）。両方の小さい方を採る【仮: COUNT_REF】
+        const byCount = Math.max(MIN_SCALE, Math.min(1, Math.sqrt(COUNT_REF / Math.max(1, spawnedRef.current))));
+        scale = Math.min(byTime, byCount);
+        finaleFromRef.current = scale;
+      } else {
+        const k = Math.min(1, (t - finaleStart) / Math.max(1, d - finaleStart));
+        const from = finaleFromRef.current;
+        scale = from + (FINALE_END_SCALE - from) * (k * k * (3 - 2 * k)); // なめらかに寄る
+      }
+      void p;
       let pileTopWorld = Infinity;
       for (let j = 0; j < cols.length; j++) if (cols[j] < pileTopWorld) pileTopWorld = cols[j];
-      // 山の高さで引く: 軸が床なので、山の頂上の画面位置 = H - (床 - 頂上)·s。
-      // これが動画の下端（＋余白）より下に留まる s を直接求める（引くほど山は下に縮む）
-      if (p < FINALE_START && pileTopWorld !== Infinity) {
-        const limitScreenY = v.y + v.h + frame + 24;
-        const pileHeight = floorY - pileTopWorld;
-        if (pileHeight > 0) {
-          const need = (H - limitScreenY) / pileHeight;
-          if (need < scale) scale = need;
-        }
-        scale = Math.max(HARD_MIN_SCALE, scale);
-        fitScaleRef.current = scale;
-      } else if (p >= FINALE_START) {
-        // 最後の1割: 引くのをやめ、逆にゆっくり寄っていく（倍率1へ）。山が動画の裏へせり上がって背景になる
-        const t = Math.min(1, (p - FINALE_START) / (1 - FINALE_START));
-        scale = fitScaleRef.current + (1 - fitScaleRef.current) * t * t;
-      }
-      // 急に縮まないよう、前フレームからなめらかに寄せる
+      // 急に変わらないよう、前フレームからなめらかに寄せる
       const prev = camRef.current.scale || scale;
       scale = prev + (scale - prev) * Math.min(1, dt * 4);
       pileTopRef.current = pileTopWorld;
       camRef.current = { scale, cx, cy };
+      // 見えている範囲の両端＝見えない壁。転がった💎が画面の外へ流れて消えないようにする
+      const visibleHalf = (W / 2) / scale;
+      wallLeftRef.current = Math.max(0, Math.round((cx - visibleHalf - worldX0) / COL_W));
+      wallRightRef.current = Math.min(cols.length - 1, Math.round((cx + visibleHalf - worldX0) / COL_W));
 
       // 物理（世界座標）。塔にならないよう、低い方へ「滑って」転がり、山になる（瞬間移動はしない）
       const gems = gemsRef.current;
@@ -290,6 +306,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         g.x += g.vx * dt;
         if (!reduceMotionRef.current) g.ang += g.spin * dt;
         const R = g.size * 0.5;                        // 積もる時の実効半径（深めに重ねる＝隙間が減る）
+        // 壁: 見えている範囲の外へは出ない（当たったら止まって、その場に積もる）
+        const wl = worldX0 + wallLeftRef.current * COL_W + R, wr = worldX0 + wallRightRef.current * COL_W - R;
+        if (g.x < wl) { g.x = wl; g.vx = 0; } else if (g.x > wr) { g.x = wr; g.vx = 0; }
         const ci = Math.max(0, Math.min(cols.length - 1, Math.round((g.x - worldX0) / COL_W)));
         const half = Math.max(1, Math.round(R / COL_W));
         const top = colTop(ci, half);

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { faGem } from "@fortawesome/free-solid-svg-icons";
 import FaIcon from "../hi-tension/components/FaIcon";
 import { ARENA_BG, findMember, type HiTensionMember } from "../hi-tension/data";
+import { SHARE_TAG } from "./HaiToDiamondPage";
 
 // 色の並び（Hop指定 2026-09-06）。新メンバーが各ユニットに加入した後の並びで、高瀬さんは卒業のため入れない。
 // 1行目: ホットピンク・デイジー・ライトグリーン・レッド / 2行目: シーブルー・ピンク・オレンジ・ホワイト / 3行目: パープル・グリーン・ミディアムブルー
@@ -112,7 +113,7 @@ export default function DiamondMemberSelect({ initialSelectedId, onConfirm, onOp
           color: "#aab0b6",
         }}
       >
-        #輝きなビヨちゃん
+        {SHARE_TAG}
       </p>
 
       <div

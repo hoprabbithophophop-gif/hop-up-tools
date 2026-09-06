@@ -22,10 +22,12 @@ const VIDEO_ID = "ImXkCr22kCU";
 const FRAME = 14;
 /** PCでは動画を縮めて置く（ハイ！テンションと同じ幅） */
 const PC_VIDEO_WIDTH = 480;
-/** シェア文面（Hop確定 2026-09-06・A案）。タグとURLは指定のものだけ。URLは仮のルート名 */
+/** シェア文面（Hop確定 2026-09-06・A案）。タグとURLは指定のものだけ。URLは仮のルート名。
+ *  タグは公式のリリース用タグ #輝きなビヨちゃん を上書きしないよう別のものに（Hop案 2026-09-06・【仮】） */
+export const SHARE_TAG = "#遠慮せず輝きなビヨちゃん";
 const SHARE_URL = "https://hop-up-tools.pages.dev/hai-to-diamond";
 function buildShareText(count: number): string {
-  return `灰toダイヤモンドに合わせて 💎を ${count.toLocaleString()}個 降らせました\n#輝きなビヨちゃん\n${SHARE_URL}`;
+  return `灰toダイヤモンドに合わせて 💎を ${count.toLocaleString()}個 降らせました\n${SHARE_TAG}\n${SHARE_URL}`;
 }
 function shareToX(count: number) {
   window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(buildShareText(count))}`, "_blank", "noopener,noreferrer");
@@ -170,7 +172,7 @@ export default function HaiToDiamondPage() {
 
   const handleTimeUpdate = useCallback((t: number) => {
     const d = playerRef.current?.getDuration() ?? 0;
-    if (d > 0) canvasRef.current?.setProgress(t / d);
+    if (d > 0) canvasRef.current?.setTime(t, d);
     // みんなの💎: 前回の時刻からいままでに押された分を、その人の色で降らせる
     const cur = Math.floor(t * 20);
     let last = lastBucketRef.current;
@@ -303,20 +305,20 @@ export default function HaiToDiamondPage() {
           {playing ? (
             <DiamondTapButton ref={tapButtonRef} accentColor={color} onRecord={handleRecord} hideCount />
           ) : ended ? (
-            // 縦に積むと小さい画面で動画と重なる（iPhone SE 幅で実際に重なった）ので、数字とボタンは横並び
+            // 数字は動画の上に移したので、ボタンはハイ！テンションの終了画面と同じ縦並び
             <>
-              <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", justifyContent: "center" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", alignItems: "center" }}>
                 <button
                   type="button"
                   onClick={handleBackToStart}
-                  style={{ padding: "0.7rem 1.2rem", background: "#f1f3f5", color: "#0e1016", border: "none", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
+                  style={{ width: 220, padding: "0.8rem 1.2rem", background: "#f1f3f5", color: "#0e1016", border: "none", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
                 >
                   最初に戻る
                 </button>
                 <button
                   type="button"
                   onClick={() => shareToX(finalCount)}
-                  style={{ padding: "0.7rem 1.2rem", background: "rgba(14,16,22,0.85)", color: "#f5f7fa", border: "1px solid rgba(255,255,255,0.5)", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
+                  style={{ width: 220, padding: "0.8rem 1.2rem", background: "rgba(14,16,22,0.85)", color: "#f5f7fa", border: "1px solid rgba(255,255,255,0.5)", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
                 >
                   𝕏 でシェアする
                 </button>
