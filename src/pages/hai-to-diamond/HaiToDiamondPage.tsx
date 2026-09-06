@@ -42,6 +42,13 @@ export default function HaiToDiamondPage() {
     setPlaying(false);
   }, []);
 
+  // プレイヤー内の再生ボタン（動画上のYouTube純正）から始めた場合も拾う。
+  // 1=PLAYING で床を有効に、0=ENDED で開始ボタンを戻す。PAUSED は触らない【仮】
+  const handlePlayerStateChange = useCallback((state: number) => {
+    if (state === 1) setPlaying(true);
+    else if (state === 0) setPlaying(false);
+  }, []);
+
   const handleFloorTap = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (!playing) return;
     const floor = floorRef.current;
@@ -77,7 +84,7 @@ export default function HaiToDiamondPage() {
         }}
       >
         <div ref={videoBoxRef}>
-          <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} />
+          <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onPlayerStateChange={handlePlayerStateChange} />
         </div>
       </div>
 
