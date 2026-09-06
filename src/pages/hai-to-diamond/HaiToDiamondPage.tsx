@@ -13,6 +13,8 @@ import { fetchReplay, type ReplayRow } from "./replay";
 import DiamondCanvas, { type DiamondCanvasApi } from "./DiamondCanvas";
 import DiamondMemberSelect from "./DiamondMemberSelect";
 import DiamondTapButton, { type DiamondTapButtonApi } from "./DiamondTapButton";
+import DiamondSettingsSheet, { getDiamondSettings, setDiamondSettings, type DiamondSettings } from "./DiamondSettingsSheet";
+import BouncyNumber from "../hi-tension/components/BouncyNumber";
 
 /** BEYOOOOONDS『灰toダイヤモンド』Promotion Edit（公式）。https://youtu.be/ImXkCr22kCU */
 const VIDEO_ID = "ImXkCr22kCU";
@@ -28,8 +30,8 @@ function buildShareText(count: number): string {
 function shareToX(count: number) {
   window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(buildShareText(count))}`, "_blank", "noopener,noreferrer");
 }
-/** 他の人の💎を1回の時刻更新（0.1秒）で出す上限。大勢の同時押しで一気に固まらないための蓋【仮】 */
-const MAX_OTHERS_PER_TICK = 25;
+/** 他の人の💎を1回の時刻更新（0.1秒）で出す上限。大勢の同時押しで一気に固まらないための蓋【仮】。設定「みんなの💎」で変わる */
+const OTHERS_PER_TICK: Record<DiamondSettings["crowd"], number> = { full: 25, light: 6, self: 0 };
 
 /** みんなの記録（集計）を「0.05秒刻みの時刻 → [色, 個数] の並び」の帳簿にする */
 type BucketEntry = [color: string, count: number];
@@ -65,6 +67,16 @@ export default function HaiToDiamondPage() {
   /** 曲が終わった後の画面（自分の回数・最初に戻る・シェア）。再生開始で消える */
   const [ended, setEnded] = useState(false);
   const [finalCount, setFinalCount] = useState(0);
+  /** みんなの累計（集計の合計）。終了画面の「歴代累計」に自分の分を足して出す */
+  const [othersTotal, setOthersTotal] = useState(0);
+  const [settings, setSettings] = useState<DiamondSettings>(getDiamondSettings);
+  const settingsRef = useRef(settings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const handleSettingsChange = useCallback((next: DiamondSettings) => {
+    settingsRef.current = next;
+    setSettings(next);
+    setDiamondSettings(next);
+  }, []);
   /** みんなの記録（動画時刻の帳簿）。読み込み前は空 */
   const bucketMapRef = useRef<Map<number, BucketEntry[]>>(new Map());
   const lastBucketRef = useRef(-1);
@@ -74,7 +86,9 @@ export default function HaiToDiamondPage() {
   useEffect(() => {
     let cancelled = false;
     fetchReplay(VIDEO_ID).then((rows) => {
-      if (!cancelled) bucketMapRef.current = buildBucketMap(rows);
+      if (cancelled) return;
+      bucketMapRef.current = buildBucketMap(rows);
+      setOthersTotal(rows.reduce((acc, r) => acc + r.counts.reduce((a, c) => a + c, 0), 0));
     }).catch((e) => console.warn("[hai-to-diamond] replay fetch failed:", e));
     return () => { cancelled = true; };
   }, []);
@@ -142,7 +156,7 @@ export default function HaiToDiamondPage() {
     let last = lastBucketRef.current;
     if (cur < last) last = cur - 1;                 // 巻き戻し（頭出し等）
     if (cur - last > 40) last = cur - 40;           // 大きく飛んだ時は直近2秒ぶんだけ
-    let budget = MAX_OTHERS_PER_TICK;
+    let budget = OTHERS_PER_TICK[settingsRef.current.crowd];
     for (let b = last + 1; b <= cur && budget > 0; b++) {
       const entries = bucketMapRef.current.get(b);
       if (!entries) continue;
@@ -178,12 +192,15 @@ export default function HaiToDiamondPage() {
       {/* 入口。本編（プレイヤー込み）は常時マウントし、その上に重ねる＝「はじめる」の時点でプレイヤーが準備済み */}
       {!memberId && (
         <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
-          <DiamondMemberSelect initialSelectedId={getLastSelectedMemberId()} onConfirm={handleConfirmMember} />
+          <DiamondMemberSelect initialSelectedId={getLastSelectedMemberId()} onConfirm={handleConfirmMember} onOpenSettings={() => setSettingsOpen(true)} />
         </div>
+      )}
+      {settingsOpen && (
+        <DiamondSettingsSheet settings={settings} onChange={handleSettingsChange} onClose={() => setSettingsOpen(false)} />
       )}
 
       {/* 光と💎の層。動画の裏（zIndex 0） */}
-      <DiamondCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={FRAME} />
+      <DiamondCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={FRAME} reduceMotion={settings.reduceMotion} />
 
       {/* 動画。画面の縦の真ん中に固定。額縁ぶんの余白を空け、背景は透明にして裏のキャンバスの額縁を見せる */}
       <div
@@ -223,9 +240,18 @@ export default function HaiToDiamondPage() {
           {playing ? (
             <DiamondTapButton ref={tapButtonRef} accentColor={color} onRecord={handleRecord} />
           ) : ended ? (
-            // 縦に積むと小さい画面で動画と重なる（iPhone SE 幅で実際に重なった）ので、ボタンは横並び
+            // 縦に積むと小さい画面で動画と重なる（iPhone SE 幅で実際に重なった）ので、数字とボタンは横並び
             <>
-              <div style={{ fontSize: "1.75rem", fontWeight: 700, color, lineHeight: 1, textShadow: "0 0 12px rgba(0,0,0,0.6)" }}>{finalCount.toLocaleString()}</div>
+              <div style={{ display: "flex", gap: "1.6rem", alignItems: "flex-end", textAlign: "center", textShadow: "0 0 12px rgba(0,0,0,0.6)" }}>
+                <div>
+                  <p style={endLabelStyle}>あなたの💎</p>
+                  <BouncyNumber value={finalCount} color={color} size="1.9rem" />
+                </div>
+                <div>
+                  <p style={endLabelStyle}>歴代累計</p>
+                  <BouncyNumber value={othersTotal + finalCount} color={color} size="1.4rem" />
+                </div>
+              </div>
               <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", justifyContent: "center" }}>
                 <button
                   type="button"
@@ -242,14 +268,34 @@ export default function HaiToDiamondPage() {
                   𝕏 でシェアする
                 </button>
               </div>
+              {/* 元の映像を YouTube で開く（プレイヤーの外＝規約OK）。別タブ */}
+              <a
+                href={`https://youtu.be/${VIDEO_ID}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: "0.75rem", fontWeight: 600, color: "#9aa0a6", textDecoration: "underline", textUnderlineOffset: "0.2rem" }}
+              >
+                ▶ 本編の映像を見る
+              </a>
+              {/* 断り書き＋Font Awesome の帰属（CC BY 4.0）。ハイ！テンションの終了画面と同じ文言 */}
+              <p style={{ margin: "0.2rem 0 0", fontSize: "0.625rem", color: "#777", textAlign: "center", lineHeight: 1.6, textShadow: "0 0 8px rgba(0,0,0,0.8)" }}>
+                楽曲・映像の著作権は権利者に帰属します。<br />
+                権利者からの申し出により直ちに公開を停止します。<br />
+                <span style={{ fontSize: "0.5rem", color: "#999" }}>Gem icon by Font Awesome (CC BY 4.0)</span>
+              </p>
             </>
           ) : null}
         </div>
       </div>
-
-      <footer style={{ position: "absolute", zIndex: 3, left: 0, right: 0, bottom: 0, padding: "0.4rem 0.8rem", fontSize: 11, color: "#8a8e98", textAlign: "center" }}>
-        Gem icon by Font Awesome (CC BY 4.0)
-      </footer>
     </div>
   );
 }
+
+const endLabelStyle: React.CSSProperties = {
+  fontSize: "0.6875rem",
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: "0.1em",
+  color: "#aab0b6",
+  margin: "0 0 0.3rem",
+};

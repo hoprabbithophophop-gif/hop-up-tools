@@ -8,9 +8,11 @@ import { UNIT_ROWS, NEW_MEMBERS, ARENA_BG, findMember } from "../hi-tension/data
 interface Props {
   initialSelectedId: string | null;
   onConfirm: (memberId: string) => void;
+  /** 右上の歯車（表示設定）。 */
+  onOpenSettings?: () => void;
 }
 
-export default function DiamondMemberSelect({ initialSelectedId, onConfirm }: Props) {
+export default function DiamondMemberSelect({ initialSelectedId, onConfirm, onOpenSettings }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [popTick, setPopTick] = useState(0);
   const [isLandscape, setIsLandscape] = useState<boolean>(() => {
@@ -57,6 +59,23 @@ export default function DiamondMemberSelect({ initialSelectedId, onConfirm }: Pr
         }
       `}</style>
 
+      {/* 版番号。main 以外の枝のプレビューでだけ出る（vite.config の __SHOW_VERSION__）。ハイ！テンションと同じ */}
+      {__SHOW_VERSION__ && (
+        <span style={{ position: "absolute", bottom: 4, right: 8, fontSize: "0.5rem", color: "#c6c6c6", letterSpacing: "0.02em", pointerEvents: "none" }}>
+          v.{__COMMIT_SHA__}
+        </span>
+      )}
+      {/* 表示設定を開く歯車。右上に控えめに（ハイ！テンションと同じ） */}
+      {onOpenSettings && (
+        <button
+          type="button"
+          aria-label="表示設定"
+          onClick={onOpenSettings}
+          style={{ position: "absolute", top: 10, right: 10, zIndex: 2, background: "none", border: "none", fontSize: "1.25rem", lineHeight: 1, color: "#9aa0a6", cursor: "pointer", padding: "0.3rem" }}
+        >
+          ⚙
+        </button>
+      )}
       {/* 見出しと副題（Hop指定 2026-09-06） */}
       <h1
         style={{

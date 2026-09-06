@@ -20,6 +20,8 @@ interface Props {
   videoBoxRef: React.RefObject<HTMLElement | null>;
   /** 額縁の太さ(px) */
   frame: number;
+  /** 動き軽減：回転と瞬きを止める（軽量・酔い対策） */
+  reduceMotion?: boolean;
 }
 
 type Gem = {
@@ -127,8 +129,10 @@ function getSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
   return arr;
 }
 
-const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas({ videoBoxRef, frame }, ref) {
+const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas({ videoBoxRef, frame, reduceMotion = false }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const reduceMotionRef = useRef(reduceMotion);
+  useEffect(() => { reduceMotionRef.current = reduceMotion; }, [reduceMotion]);
   const gemsRef = useRef<Gem[]>([]);
   const progressRef = useRef(0);
   const sizeRef = useRef({ W: 0, H: 0 });
@@ -210,7 +214,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       const i = ((Math.round((g.ang / (Math.PI * 2)) * SPRITE_STEPS) % SPRITE_STEPS) + SPRITE_STEPS) % SPRITE_STEPS;
       const w = g.size * 2 / 0.95;
       ctx.drawImage(sprites[i], g.x - w / 2, g.y - w / 2, w, w);
-      const tw = Math.sin((now / 1000) * 1.7 + g.seed);
+      const tw = reduceMotionRef.current ? 0 : Math.sin((now / 1000) * 1.7 + g.seed);
       if (tw > 0.93) {
         ctx.globalAlpha = (tw - 0.93) / 0.07 * 0.8;
         ctx.fillStyle = "#ffffff";
@@ -248,7 +252,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         g.vy += GRAVITY * dt;
         g.y += g.vy * dt;
         g.x += g.vx * dt;
-        g.ang += g.spin * dt;
+        if (!reduceMotionRef.current) g.ang += g.spin * dt;
         const R = g.size * 0.5;                        // 積もる時の実効半径（深めに重ねる＝隙間が減る）
         const ci = Math.max(0, Math.min(cols.length - 1, Math.round((g.x - worldX0) / COL_W)));
         const half = Math.max(1, Math.round(R / COL_W));
@@ -287,7 +291,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       ctx.fillRect(f.x, f.y, f.w, f.h);
 
       if (gems.length === 0) return;
-      const lightAng = (now / 1000) * 0.35; // 全体の光の向きをゆっくり回す＝山の面が順番に瞬く
+      const lightAng = reduceMotionRef.current ? SPRITE_LIGHT : (now / 1000) * 0.35; // 全体の光の向きをゆっくり回す＝面が順番に瞬く
 
       // 光（画面座標）: 💎のまわりの小さな輪。動画の裏を通っている間は、いちばん近い額縁の辺を灯す。
       // どちらも動画の矩形を除外して描く
