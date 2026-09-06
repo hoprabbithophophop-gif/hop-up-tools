@@ -15,6 +15,8 @@ export type DiamondCanvasApi = {
   spawn: (color: string, self?: boolean) => void;
   /** 動画の現在時刻と総尺（秒）。カメラの引き・寄りに使う */
   setTime: (t: number, duration: number) => void;
+  /** 山・降っている💎・カメラをすべて最初の状態に戻す（「最初に戻る」→ もう一度はじめる時） */
+  reset: () => void;
 };
 
 interface Props {
@@ -59,6 +61,8 @@ const SHRINK_MIN = 0.6;          // 縮みすぎると面の影で黒っぽく�
 const COUNT_REF = 120;         // この数を超えたら、降った数の平方根に反比例してカメラを引く【仮】
 const FINALE_TIME = 206;       // 動画時刻 3:26（曲が一番盛り上がる所）からゆっくり寄り始める（Hop指定 2026-09-06）
 const FLOOR_DEPTH = 1.0;       // 床の位置（画面高さの倍数）。カメラの軸が床なので 1.0＝画面の下端が床
+const PILE_MAX_ON_SCREEN = 0.7; // 山の頂上が画面のこの高さ（画面高さの倍数）より上に行かないようカメラを抑える。
+                                // 終盤に寄った時、山が画面をはみ出すと降ってくる💎が画面の外で着地して見えなくなる（Hop報告 2026-09-07）【仮】
 const COL_W = 10;              // 積もり高さの帳簿の列幅
 const PACK_RADIUS = 0.6;       // 積もり計算で💎を丸い粒とみなす時の半径（size 倍）。見た目の半径(約1.0)より小さくして深く重ねる＝「ぎっしり」【仮】
 const SLOPE = 0.06;            // 山の傾き。小さいほど平らで、瓶に詰めるように下から隙間なく埋まる【仮】
@@ -192,6 +196,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const finaleFromRef = useRef(1);
   /** 着地先を決める関数（キャンバスの寸法を知っている useEffect 内で差し替える） */
   const slotRef = useRef<(x: number, size: number, scale: number, self: boolean) => { tx: number; ty: number }>(() => ({ tx: 0, ty: 0 }));
+  /** 帳簿と焼き込みの絵を空にする関数（useEffect 内で差し替える） */
+  const clearWorldRef = useRef<() => void>(() => {});
   const sizeRef = useRef({ W: 0, H: 0 });
   const camRef = useRef({ scale: 1, cx: 0, cy: 0 });
 
@@ -234,6 +240,16 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     setTime(t: number, duration: number) {
       timeRef.current = { t: Math.max(0, t), d: Math.max(1, duration) };
     },
+    reset() {
+      gemsRef.current = [];
+      flashesRef.current = [];
+      spawnedRef.current = 0;
+      finaleFromRef.current = 1;
+      pileTopRef.current = Infinity;
+      timeRef.current = { t: 0, d: timeRef.current.d };
+      camRef.current = { scale: 1, cx: camRef.current.cx, cy: camRef.current.cy };
+      clearWorldRef.current();
+    },
   }), []);
 
   useEffect(() => {
@@ -264,6 +280,10 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
+    clearWorldRef.current = () => {
+      cols.fill(0);
+      bake = null;   // 焼き込みの絵は捨てて、次に必要になった時に作り直す
+    };
 
     // 着地先の割り当て。cols[c] は列 c の積もった高さ(px)＝地形。
     // 💎を半径 R の丸い粒として、「その列に落としたら地形のどこで止まるか（中心の高さ hc）」を
@@ -399,6 +419,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       let maxH = 0;
       for (let j = 0; j < cols.length; j++) if (cols[j] > maxH) maxH = cols[j];
       const pileTopWorld = maxH > 0 ? floorY - maxH : Infinity;
+      // 山の頂上が画面の上の方まで来たら、寄りを抑えて降ってくる💎の居場所を残す
+      if (maxH > 0) scale = Math.min(scale, (H * PILE_MAX_ON_SCREEN) / maxH);
       // 急に変わらないよう、前フレームからなめらかに寄せる
       const prev = camRef.current.scale || scale;
       scale = prev + (scale - prev) * Math.min(1, dt * 4);

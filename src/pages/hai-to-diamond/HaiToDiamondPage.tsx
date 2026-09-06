@@ -126,6 +126,7 @@ export default function HaiToDiamondPage() {
     playerRef.current?.play();
     setLastSelectedMemberId(id);
     setMemberId(id);
+    canvasRef.current?.reset();   // 前の回の山を消して最初から（Hop報告 2026-09-07）
     tapsRef.current = [];
     lastBucketRef.current = -1;
     submittedRef.current = false;
