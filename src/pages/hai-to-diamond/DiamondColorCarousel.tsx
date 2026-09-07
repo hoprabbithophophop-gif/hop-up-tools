@@ -2,16 +2,28 @@
 //
 // メンバーの色で塗った💎の絵が横一列に並び、真ん中の1つだけが大きい。左右へ離れるほど小さく・暗くなる。
 // 丸い下地も輪も付けず、💎の絵そのものを並べる（入口の大きな💎と揃える・Hop指示 2026-09-07）。
-// 横にスワイプすると帯が流れ、指を離すと一番近い色が真ん中に吸い付く。端まで行くと先頭に戻って
-// 無限に回る。真ん中を押すと💎が1つ降り、真ん中以外を押すとその色が真ん中に来る（💎は降らない）。
+// 横にスワイプすると帯が流れ、指を離すと一番近い色が真ん中に吸い付く。速く払えば勢いのぶん数個先まで
+// 進んでから減速して止まる。端まで行くと先頭に戻って無限に回る。
+// 真ん中を押すと💎が1つ降り、真ん中以外を押すとその色が真ん中に来る（💎は降らない）。
 //
-// ループのやり方: 並びを何周ぶんも並べるのではなく、「真ん中の位置」を小数の目盛り offset で持ち、
-// その前後 WINDOW 個ぶんだけを毎回描き直している。何番目を描くかは色の数で割った余りで決めるので、
-// 目盛りがいくら進んでも先頭に戻るだけ＝継ぎ目が無い。並びの本数より窓が狭いので同じ色は一度しか出ない。
+// ループのやり方: 並びを何周ぶんも並べるのではなく、「真ん中の位置」を小数の目盛り offset で持つ。
+// 💎の絵は色の数だけ最初に1つずつ置いておき（並べ替えも作り直しもしない）、それぞれが真ん中から
+// 何個ぶん離れているかを、色の数で割った近い方の回り方で毎回計算して置き直す。目盛りがいくら進んでも
+// 一周ぶんの中に収まるので継ぎ目が無い。窓（WINDOW）より外に行った💎は透明になって消える。
+//
+// 滑らかさのための決めごと（Hop報告「指でスライドすると引っかかる」2026-09-07 の直し）:
+//  ・指を追っている間と、離れた後に滑っている間は、React に描き直しを頼まない。💎の要素の
+//    transform と opacity を直に書き換えるだけにする。指の動き1回ごとに React が11個のボタンと
+//    その中の絵を組み直していたのが引っかかりの正体だった（実測: CPU を4倍重くした状態で、
+//    1コマ 20ms 超えが3割。重りを付けない机上のブラウザでは元のままでも間に合っていた）。
+//  ・そのため、動きに関わる見た目（位置・大きさ・薄さ・重なりの順・脈打ち）は JSX に書かず、
+//    すべて paint() の中だけで触る。JSX にも書くと、React の描き直しの時に取り合いになって戻される。
+//  ・💎の大きさは要素の幅ではなく transform の scale で変える。幅を変えると毎コマ組み直しが起きる。
+//    scale は当たり判定にも効くので、押せる範囲は見えている大きさのまま。
 //
 // スクロールの仕組み（CSS の scroll-snap）はあえて使っていない。継ぎ目で位置を戻す細工が要るうえ、
 // iOS Safari では戻した瞬間に見た目が飛ぶことがあるため、指の動きから自前で位置を計算している。
-import { memo, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { faGem } from "@fortawesome/free-solid-svg-icons";
 import FaIcon from "../hi-tension/components/FaIcon";
 
@@ -21,19 +33,39 @@ const CENTER_SIZE = 76;
 const STEP_SIZES = [CENTER_SIZE, 46, 38, 34] as const;
 /** 💎同士のあいだの隙間(px)【仮】 */
 const GAP = 6;
-/** 真ん中の左右に何個ずつ描くか。色の数より狭くしないと同じ色が2つ出てしまう */
+/** 真ん中の左右に何個ずつ見せるか。これより外は透明にする */
 const WINDOW = 5;
 /** 帯の器の高さ(px)【仮】。真ん中の💎と、そのまわりに広がる光のぶん */
 const BAND_HEIGHT = 96;
 /** これだけ指が動いたらスワイプ扱いにして、ボタンの押し（色えらび）を取り消す(px)【仮】 */
 const DRAG_THRESHOLD = 8;
-/** 指を離してから一番近い色が真ん中に収まるまでの時間(ms)【仮】 */
+/** 指を離してから一番近い色が真ん中に収まるまでの時間(ms)【仮】。勢いが無かった時に使う */
 const SNAP_MS = 220;
+/** 勢いを付けて滑る時の、いちばん短い／長い時間(ms)【仮】。急に止まる・だらだら続くのを防ぐ */
+const GLIDE_MIN_MS = 160;
+const GLIDE_MAX_MS = 900;
+/** 指の速さを測る窓(ms)【仮】。これより古い動きは勢いの計算に入れない */
+const VELOCITY_WINDOW_MS = 100;
+/** 指が止まってからこれ以上経って離した場合は、勢い無し＝一番近い色へ吸い付くだけにする(ms)【仮】 */
+const VELOCITY_STALE_MS = 100;
+/** 指の速さから「この先どこまで滑るか」を見積もる時間(ms)【仮】。速さ×この時間ぶん先を行き先にする */
+const GLIDE_PROJECTION_MS = 100;
+/** 1回のスワイプで進める上限（個）【仮】。速く払っても行き過ぎないための蓋 */
+const GLIDE_MAX_STEPS = 6;
 /** 誘いの輪が1回広がって消えるまでの秒数【仮】。今までの💎ボタンと同じ */
 const INVITE_PULSE_SECONDS = 1.6;
 /** 真ん中以外をどれだけ暗くするか【仮】。1.0＝そのまま */
 const CENTER_OPACITY = 1;
 const SIDE_OPACITY = 0.7;
+/** 押された💎を少し縮めて手応えを出す倍率【仮】 */
+const PRESS_SCALE = 0.92;
+/** 帯の裏に敷く暗い下地【仮】。積もった💎の山に重なっても💎の列が読めるように（Hop指示 2026-09-07）。
+ *  終了画面の帯（rgba(7,8,12,0.72)）と同じ色味で、こちらは常時出るぶん少し薄い */
+const BAND_BG = "rgba(7,8,12,0.6)";
+/** 下地の上下の縁を透明へぼかす幅(px)【仮】。真四角の板に見えないよう背景へ溶かす */
+const BAND_FADE = 12;
+/** 下地の裏をぼかす強さ(px)【仮】。対応していない環境では暗い下地だけが残る */
+const BAND_BLUR = 6;
 
 export interface DiamondColorOption {
   id: string;
@@ -102,6 +134,17 @@ function indexAtX(px: number): number {
   return 0;
 }
 
+/** 差 d を「一周のうち近い方の回り方」に直す。例: 14色で 12 個先は、逆回りで 2 個手前 */
+function wrapDelta(d: number, n: number): number {
+  const x = ((d % n) + n) % n;
+  return x > n / 2 ? x - n : x;
+}
+
+/** 目盛りを 0 以上 n 未満に収める */
+function wrapIndex(v: number, n: number): number {
+  return ((v % n) + n) % n;
+}
+
 const DiamondColorCarousel = memo(function DiamondColorCarousel({
   options,
   selectedId,
@@ -112,48 +155,103 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
 }: Props) {
   const n = options.length;
   const containerRef = useRef<HTMLDivElement>(null);
-  /** 真ん中に来ている位置。整数なら色がぴたりと真ん中、小数はその途中 */
-  const [offset, setOffset] = useState(() => Math.max(0, options.findIndex((o) => o.id === selectedId)));
-  const offsetRef = useRef(offset);
-  const setOffsetBoth = useCallback((v: number) => { offsetRef.current = v; setOffset(v); }, []);
+  /** 💎の要素の控え。色の並び順にそのまま入れる（並べ替えないので番号＝色の番号） */
+  const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  /** 前回書き込んだ見た目。同じ値なら書き込まない＝無駄な書き換えを減らす */
+  const paintedRef = useRef<{ t: string; o: string; z: string; anim: string; v: string }[]>([]);
+  /** 真ん中に来ている位置。整数なら色がぴたりと真ん中、小数はその途中。
+   *  指を追っている間も滑っている間もこの値だけを動かし、画面へは paint() で直に書き込む */
+  const offsetRef = useRef(Math.max(0, options.findIndex((o) => o.id === selectedId)));
   /** 吸い付きの行き先。途中の色を「選ばれた」と誤解しないよう、外との突き合わせはこの値で見る */
   const targetIndexRef = useRef(offsetRef.current);
-  /** 指の情報。null なら触っていない */
-  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; startOffset: number; slot: number | null; moved: boolean } | null>(null);
-  /** 押されている見た目にするボタン（帯の通し番号）。null なら誰も押されていない */
-  const [pressedSlot, setPressedSlot] = useState<number | null>(null);
+  /** 指の情報。null なら触っていない。anchorX は「スワイプと認めた地点」で、ここからの差分で帯を動かす */
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; anchorX: number; startOffset: number; item: number | null; moved: boolean } | null>(null);
+  /** 指の速さを測るための、直前の動きの控え（時刻と目盛り） */
+  const samplesRef = useRef<{ t: number; o: number }[]>([]);
+  /** 押されている見た目にする💎（色の番号）。null なら誰も押されていない */
+  const pressedRef = useRef<number | null>(null);
   const animRef = useRef<number | null>(null);
+  /** 脈打ちの誘いを出すか。paint() から読むので控えにも置く */
+  const invitingRef = useRef(inviting);
+  const reduceMotionRef = useRef(reduceMotion);
+  invitingRef.current = inviting;
+  reduceMotionRef.current = reduceMotion;
 
-  const idAt = useCallback((slot: number) => options[((slot % n) + n) % n].id, [options, n]);
+  /** いまの目盛りから、💎の位置・大きさ・薄さを画面へ直に書き込む。
+   *  React を通さないので、指を動かしている間も要素を作り直さずに済む */
+  const paint = useCallback(() => {
+    const off = offsetRef.current;
+    const half = Math.min(WINDOW, Math.floor((n - 1) / 2));
+    const base = wrapIndex(Math.round(off), n);
+    const pressed = pressedRef.current;
+    const pulse = invitingRef.current && !reduceMotionRef.current;
+    for (let i = 0; i < n; i++) {
+      const el = itemsRef.current[i];
+      if (!el) continue;
+      const d = wrapDelta(i - off, n);
+      const a = Math.abs(d);
+      const isPressed = pressed === i;
+      const scale = (sizeAt(d) / CENTER_SIZE) * (isPressed ? PRESS_SCALE : 1);
+      const near = Math.min(a, 1);
+      // 窓の外側は薄くして、色が出たり消えたりするのを目立たせない
+      const edge = Math.max(0, Math.min(1, half - a));
+      const t = `translate3d(${xAt(d).toFixed(2)}px, 0, 0) scale(${scale.toFixed(4)})`;
+      const o = ((CENTER_OPACITY + (SIDE_OPACITY - CENTER_OPACITY) * near) * edge).toFixed(3);
+      const z = i === base ? "2" : "1";
+      const anim = i === base && pulse && !isPressed ? `hai-to-diamond-band-invite ${INVITE_PULSE_SECONDS}s ease-out infinite` : "none";
+      // 透明になった💎は「無い」ことにする。置いたままだと、画面の広いPCでは
+      // 帯の左右の何も無いところを押した時に見えない💎が反応してしまう
+      const v = o === "0.000" ? "hidden" : "";
+      const prev = paintedRef.current[i];
+      if (!prev) paintedRef.current[i] = { t: "", o: "", z: "", anim: "", v: "" };
+      const p = paintedRef.current[i];
+      if (p.t !== t) { el.style.transform = t; p.t = t; }
+      if (p.o !== o) { el.style.opacity = o; p.o = o; }
+      if (p.v !== v) { el.style.visibility = v; p.v = v; }
+      if (p.z !== z) { el.style.zIndex = z; el.setAttribute("data-diamond-center", i === base ? "true" : "false"); el.setAttribute("aria-pressed", i === base ? "true" : "false"); p.z = z; }
+      if (p.anim !== anim) { el.style.animation = anim; p.anim = anim; }
+    }
+    containerRef.current?.setAttribute("data-center-id", options[base].id);
+  }, [n, options]);
+
+  // 描き直しのあと（最初に置かれた時も含む）に、いまの目盛りの見た目へ合わせ直す。
+  // 位置や薄さは JSX に書いていないので、React の描き直しでは元に戻らない
+  useLayoutEffect(paint);
+
+  const idAt = useCallback((i: number) => options[wrapIndex(i, n)].id, [options, n]);
 
   const stopAnim = useCallback(() => {
     if (animRef.current != null) { cancelAnimationFrame(animRef.current); animRef.current = null; }
   }, []);
 
-  /** 目盛りを行き先まで滑らせる。動き軽減なら一足飛び */
-  const animateTo = useCallback((target: number) => {
+  /** 目盛りを行き先まで滑らせる。終わりに向かってなめらかに減速する。動き軽減なら一足飛び。
+   *  ms を渡さなければ吸い付きの既定の速さ */
+  const glideTo = useCallback((target: number, ms: number = SNAP_MS) => {
     stopAnim();
-    targetIndexRef.current = ((target % n) + n) % n;
+    targetIndexRef.current = wrapIndex(target, n);
     const from = offsetRef.current;
     const dist = target - from;
     if (reduceMotion || Math.abs(dist) < 0.001) {
-      setOffsetBoth(((target % n) + n) % n);
+      offsetRef.current = wrapIndex(target, n);
+      paint();
       return;
     }
     const t0 = performance.now();
     const tick = () => {
-      const p = Math.min(1, (performance.now() - t0) / SNAP_MS);
+      const p = Math.min(1, (performance.now() - t0) / ms);
       const e = 1 - Math.pow(1 - p, 3);          // 終わりでゆっくり止まる
       if (p >= 1) {
         animRef.current = null;
-        setOffsetBoth(((target % n) + n) % n);   // 目盛りが際限なく伸びないよう、収まったところで色の数の範囲へ戻す
+        offsetRef.current = wrapIndex(target, n); // 目盛りが際限なく伸びないよう、収まったところで色の数の範囲へ戻す
+        paint();
         return;
       }
-      setOffsetBoth(from + dist * e);
+      offsetRef.current = from + dist * e;
+      paint();
       animRef.current = requestAnimationFrame(tick);
     };
     animRef.current = requestAnimationFrame(tick);
-  }, [n, reduceMotion, setOffsetBoth, stopAnim]);
+  }, [n, paint, reduceMotion, stopAnim]);
 
   useEffect(() => stopAnim, [stopAnim]);
 
@@ -166,10 +264,7 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
     const cur = targetIndexRef.current;
     if (Math.abs(cur - want) < 0.001) return;
     // 近い方の回り方で寄せる（端から端へ行くより先頭に戻った方が近いことがある）
-    let diff = want - cur;
-    if (diff > n / 2) diff -= n;
-    if (diff < -n / 2) diff += n;
-    animateTo(cur + diff);
+    glideTo(cur + wrapDelta(want - cur, n));
   });
 
   /** 指を離した／取り上げられた時の共通の後片付け。iOS は画面の操作を横取りする時に
@@ -179,51 +274,79 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
     if (!d) return;
     if (e && e.pointerId !== d.pointerId) return;
     dragRef.current = null;
-    setPressedSlot(null);
+    pressedRef.current = null;
     const base = Math.round(offsetRef.current);
     // 動かさずに真ん中以外を押した＝その色を真ん中に呼ぶ
-    if (commit && !d.moved && d.slot != null && d.slot !== base) {
-      animateTo(d.slot);
-      onSelect(idAt(d.slot));
+    if (commit && !d.moved && d.item != null && d.item !== wrapIndex(base, n)) {
+      glideTo(offsetRef.current + wrapDelta(d.item - offsetRef.current, n));
+      onSelect(idAt(d.item));
       return;
     }
-    animateTo(base);
-    if (idAt(base) !== selectedId) onSelect(idAt(base));
-  }, [animateTo, idAt, onSelect, selectedId]);
+    // 指の速さ（払った勢い）を測る。指が止まったまま離した時は勢い無しとして一番近い色へ
+    const now = performance.now();
+    const s = samplesRef.current;
+    let v = 0;                                     // 目盛り／ms
+    if (s.length >= 2 && now - s[s.length - 1].t <= VELOCITY_STALE_MS) {
+      const first = s[0];
+      const last = s[s.length - 1];
+      const dt = last.t - first.t;
+      if (dt > 0) v = (last.o - first.o) / dt;
+    }
+    const from = offsetRef.current;
+    // 速さのぶんだけ先を見て、そこから一番近い色を行き先にする＝必ずどれかの色の真ん中で止まる
+    const glide = Math.max(-GLIDE_MAX_STEPS, Math.min(GLIDE_MAX_STEPS, v * GLIDE_PROJECTION_MS));
+    const target = Math.round(from + glide);
+    const dist = Math.abs(target - from);
+    // 離した瞬間の速さと滑り出しの速さを揃えると、動き出しの段差が出ない
+    // （終わりでゆっくり止まる曲線では、滑り出しの速さ＝距離×3÷時間）
+    const ms = Math.abs(v) > 0.0005
+      ? Math.max(GLIDE_MIN_MS, Math.min(GLIDE_MAX_MS, (3 * dist) / Math.abs(v)))
+      : SNAP_MS;
+    samplesRef.current = [];
+    glideTo(target, ms);
+    if (idAt(target) !== selectedId) onSelect(idAt(target));
+  }, [glideTo, idAt, n, onSelect, selectedId]);
 
   /** 指が触れた瞬間。真ん中の💎なら、指を離すのを待たずにここで💎を1つ降らせる */
-  const beginDrag = useCallback((e: ReactPointerEvent<HTMLElement>, slot: number | null) => {
+  const beginDrag = useCallback((e: ReactPointerEvent<HTMLElement>, item: number | null) => {
     if (dragRef.current) return;
     stopAnim();
     containerRef.current?.setPointerCapture?.(e.pointerId);
-    dragRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, startOffset: offsetRef.current, slot, moved: false };
-    const base = Math.round(offsetRef.current);
-    if (slot != null) {
-      setPressedSlot(slot);
-      if (slot === base && onRecord) onRecord();
+    dragRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, anchorX: e.clientX, startOffset: offsetRef.current, item, moved: false };
+    samplesRef.current = [];
+    const base = wrapIndex(Math.round(offsetRef.current), n);
+    if (item != null) {
+      pressedRef.current = item;
+      paint();
+      if (item === base && onRecord) onRecord();
     }
-  }, [onRecord, stopAnim]);
+  }, [n, onRecord, paint, stopAnim]);
 
   const handleMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     const d = dragRef.current;
     if (!d || e.pointerId !== d.pointerId) return;
     const dx = e.clientX - d.startX;
     const dy = e.clientY - d.startY;
-    if (!d.moved && Math.hypot(dx, dy) >= DRAG_THRESHOLD) {
+    if (!d.moved) {
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       d.moved = true;
-      setPressedSlot(null);      // 指がぶれた＝押しではなくスワイプ
+      // ここを起点にする＝しきい値を越えた瞬間に帯が8pxぶん飛ばない
+      d.anchorX = e.clientX;
+      d.startOffset = offsetRef.current;
+      if (pressedRef.current != null) { pressedRef.current = null; }   // 指がぶれた＝押しではなくスワイプ
     }
-    if (!d.moved) return;
-    setOffsetBoth(d.startOffset - indexAtX(dx));
-  }, [setOffsetBoth]);
-
-  const base = Math.round(offset);
-  const half = Math.min(WINDOW, Math.floor((n - 1) / 2));
+    offsetRef.current = d.startOffset - indexAtX(e.clientX - d.anchorX);
+    // 指の速さを測るための控え。窓より古いものは捨てる
+    const now = performance.now();
+    const s = samplesRef.current;
+    s.push({ t: now, o: offsetRef.current });
+    while (s.length > 2 && now - s[0].t > VELOCITY_WINDOW_MS) s.shift();
+    paint();
+  }, [paint]);
 
   return (
     <div
       ref={containerRef}
-      data-center-id={idAt(base)}
       onPointerDown={(e) => beginDrag(e, null)}
       onPointerMove={handleMove}
       onPointerUp={(e) => endDrag(true, e)}
@@ -250,60 +373,59 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
         }
       `}</style>
 
-      {Array.from({ length: half * 2 + 1 }, (_, k) => {
-        const slot = base + k - half;
-        const d = slot - offset;
-        const opt = options[((slot % n) + n) % n];
-        const size = sizeAt(d);
-        const x = xAt(d);
-        const near = Math.min(Math.abs(d), 1);
-        // 窓の外側は薄くして、色が出たり消えたりするのを目立たせない
-        const edge = Math.max(0, Math.min(1, half - Math.abs(d)));
-        const opacity = (CENTER_OPACITY + (SIDE_OPACITY - CENTER_OPACITY) * near) * edge;
-        const isCenter = slot === base;
-        const pressed = pressedSlot === slot;
-        const showInvitePulse = isCenter && inviting && !reduceMotion && !pressed;
-        return (
-          <button
-            key={opt.id}
-            type="button"
-            aria-label={opt.id}
-            aria-pressed={isCenter}
-            data-diamond-color-id={opt.id}
-            data-diamond-center={isCenter ? "true" : "false"}
-            onPointerDown={(e) => { e.stopPropagation(); beginDrag(e, slot); }}
-            style={{
-              position: "absolute",
-              left: "50%",
-              top: "50%",
-              width: size,
-              height: size,
-              marginLeft: -size / 2,
-              marginTop: -size / 2,
-              transform: `translate3d(${x}px, 0, 0) scale(${pressed ? 0.92 : 1})`,
-              willChange: "transform",
-              opacity,
-              background: "none",
-              border: "none",
-              padding: 0,
-              cursor: "pointer",
-              zIndex: isCenter ? 2 : 1,
-              animation: showInvitePulse ? `hai-to-diamond-band-invite ${INVITE_PULSE_SECONDS}s ease-out infinite` : undefined,
-              transition: reduceMotion ? undefined : "opacity 0.12s",
-              touchAction: "none",
-              WebkitTapHighlightColor: "transparent",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            {/* 積もった💎の山に重なっても輪郭が分かるよう、絵の形に沿った薄い暗い縁取りを敷く【仮】 */}
-            <span style={{ display: "block", filter: "drop-shadow(0 0 2px rgba(0,0,0,0.75)) drop-shadow(0 2px 6px rgba(0,0,0,0.5))" }}>
-              <FaIcon icon={faGem} size={size} color={opt.color} />
-            </span>
-          </button>
-        );
-      })}
+      {/* 帯の裏の下地。積もった💎の山に💎の列が紛れないように敷く（Hop指示 2026-09-07）。
+          上下の縁はグラデーションで透明にして、板が浮いて見えないよう背景へ溶かす */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          zIndex: 0,
+          background: BAND_BG,
+          backdropFilter: `blur(${BAND_BLUR}px)`,
+          WebkitBackdropFilter: `blur(${BAND_BLUR}px)`,
+          maskImage: `linear-gradient(to bottom, transparent 0, #000 ${BAND_FADE}px, #000 calc(100% - ${BAND_FADE}px), transparent 100%)`,
+          WebkitMaskImage: `linear-gradient(to bottom, transparent 0, #000 ${BAND_FADE}px, #000 calc(100% - ${BAND_FADE}px), transparent 100%)`,
+          pointerEvents: "none",
+        }}
+      />
+
+      {/* 💎は色の数だけ最初に置いたきり、並べ替えも作り直しもしない。
+          動く見た目（位置・大きさ・薄さ・重なりの順・脈打ち）は paint() が直に書き込む */}
+      {options.map((opt, i) => (
+        <button
+          key={opt.id}
+          ref={(el) => { itemsRef.current[i] = el; }}
+          type="button"
+          aria-label={opt.id}
+          data-diamond-color-id={opt.id}
+          onPointerDown={(e) => { e.stopPropagation(); beginDrag(e, i); }}
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            width: CENTER_SIZE,
+            height: CENTER_SIZE,
+            marginLeft: -CENTER_SIZE / 2,
+            marginTop: -CENTER_SIZE / 2,
+            willChange: "transform, opacity",
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            touchAction: "none",
+            WebkitTapHighlightColor: "transparent",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {/* 積もった💎の山に重なっても輪郭が分かるよう、絵の形に沿った薄い暗い縁取りを敷く【仮】 */}
+          <span style={{ display: "block", filter: "drop-shadow(0 0 2px rgba(0,0,0,0.75)) drop-shadow(0 2px 6px rgba(0,0,0,0.5))" }}>
+            <FaIcon icon={faGem} size={CENTER_SIZE} color={opt.color} />
+          </span>
+        </button>
+      ))}
     </div>
   );
 });
