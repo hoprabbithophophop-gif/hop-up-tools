@@ -139,3 +139,30 @@ export async function fetchHiHeatmap(
     totalTaps: Number(row.total_taps ?? 0),
   };
 }
+
+/** 複数の色（メンバー）の記録を1回でまとめて送る（灰toダイヤモンド💎用。曲中に色を替えられるので、
+ *  色ごとに分けた記録を1件の送信にする。受け口は1つの回線から1分10件までなので、色の数だけ送ると溢れる） */
+export async function submitHiSessions(params: {
+  sessions: { memberId: string; timestamps: number[] }[];
+  anonymousSessionId: string;
+  videoId?: string;
+}): Promise<SubmitResult> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.functions.invoke("submit-hi-session", {
+    body: {
+      video_id: params.videoId ?? VIDEO_ID,
+      sessions: params.sessions.map((s) => ({ member_id: s.memberId, timestamps: s.timestamps })),
+      anonymous_session_id: params.anonymousSessionId,
+      special_event_key: null,
+      special_mode: false,
+    },
+  });
+  if (error) {
+    console.error("[hi-tension] submit failed:", error);
+    return { ok: false, error: error.message ?? "unknown" };
+  }
+  if (data && typeof data === "object" && "error" in data) {
+    return { ok: false, error: String((data as { error: unknown }).error) };
+  }
+  return { ok: true };
+}

@@ -19,10 +19,11 @@ export type DiamondCanvasApi = {
   reset: () => void;
   /** 色ごとの曲全体の総数（色のhex → 個数）。額縁の順位を「その色の普段の量と比べた倍率」で決めるための基準 */
   setColorTotals: (totals: Record<string, number>) => void;
-  /** 自分の選んだ色。この色の倍率が曲中で最大だった時刻を覚える（「選んだ色が一番輝いた瞬間」） */
+  /** いま自分が選んでいる色。getPeakTime を色の指定なしで呼んだ時の既定になる（色を替えるたびに呼ぶ） */
   setOwnColor: (hex: string) => void;
-  /** 自分の色の倍率が最大だった動画時刻（秒）。まだ無ければ null */
-  getPeakTime: () => number | null;
+  /** その色の倍率が曲中で最大だった動画時刻（秒）。まだ無ければ null。
+   *  記録は色ごとに全部覚えているので、hex を渡せば選んでいない色の瞬間も引ける。省略時はいま自分が選んでいる色 */
+  getPeakTime: (hex?: string) => number | null;
   /** カメラを今の状態で止める（ハイライト再生中に引き直さないように）。reset で解除 */
   setHoldCamera: (on: boolean) => void;
 };
@@ -229,9 +230,11 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const recentRef = useRef<{ t: number; key: string; rgb: [number, number, number] }[]>([]);
   /** 色ごとの曲全体の総数（"r,g,b" → 個数）。額縁の順位の基準。読み込み前は空＝全色同じ基準 */
   const colorTotalsRef = useRef<Map<string, number>>(new Map());
-  /** 自分の色（"r,g,b"）と、その倍率が最大だった時刻・値 */
+  /** いま自分が選んでいる色（"r,g,b"）。getPeakTime の既定の引き先 */
   const ownKeyRef = useRef<string | null>(null);
-  const peakRef = useRef<{ t: number; s: number } | null>(null);
+  /** 色ごとの「一番輝いた瞬間」。"r,g,b" → その色の倍率が最大だった時刻と、その時の倍率。
+   *  自分の色だけでなく全色ぶん覚える＝ハイライト再生中に色を切り替えても、その色の瞬間へ飛べる */
+  const peakRef = useRef<Map<string, { t: number; s: number }>>(new Map());
   const holdCameraRef = useRef(false);
   /** 額縁の区画（左から順位順）のいまの色と幅の割合（なめらかに移り変わる） */
   const frameSlotsRef = useRef(Array.from({ length: TINT_SLOTS }, () => ({ rgb: [...FRAME_BASE] as [number, number, number], w: 0 })));
@@ -298,7 +301,11 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       timeRef.current = { t: Math.max(0, t), d: Math.max(1, duration) };
     },
     setOwnColor(hex: string) { ownKeyRef.current = hexToRgb(hex).join(","); },
-    getPeakTime() { return peakRef.current ? peakRef.current.t : null; },
+    getPeakTime(hex?: string) {
+      const key = hex ? hexToRgb(hex).join(",") : ownKeyRef.current;
+      if (!key) return null;
+      return peakRef.current.get(key)?.t ?? null;
+    },
     setHoldCamera(on: boolean) { holdCameraRef.current = on; },
     setColorTotals(totals: Record<string, number>) {
       const m = new Map<string, number>();
@@ -309,7 +316,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       gemsRef.current = [];
       flashesRef.current = [];
       recentRef.current = [];
-      peakRef.current = null;
+      peakRef.current.clear();
       holdCameraRef.current = false;
       for (const sl of frameSlotsRef.current) { sl.rgb = [...FRAME_BASE] as [number, number, number]; sl.w = 0; }
       sparkPointsRef.current = [];
@@ -533,10 +540,15 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         // 順位は単純な数ではなく「その色の普段の量に対する倍率」。参加者が多い色がずっと上位に居座らないように
         const totals = colorTotalsRef.current;
         const scored = [...counts.entries()].map(([key, c]) => ({ rgb: c.rgb, s: c.n / ((totals.get(key) ?? 0) + TINT_BASE_TOTAL) }));
-        // 自分の色の倍率が曲中で最大だった瞬間を覚える（ハイライト再生中は更新しない）
-        if (ownKeyRef.current && !holdCameraRef.current) {
-          const own = scored.find((c) => c.rgb.join(",") === ownKeyRef.current);
-          if (own && (!peakRef.current || own.s > peakRef.current.s)) peakRef.current = { t: timeRef.current.t, s: own.s };
+        // 色ごとに「倍率が曲中で最大だった瞬間」を覚える（ハイライト再生中は更新しない）。
+        // 全色ぶん控えておくと、あとから色を切り替えてもその色の瞬間へ飛べる
+        if (!holdCameraRef.current) {
+          const peaks = peakRef.current;
+          for (const c of scored) {
+            const key = c.rgb.join(",");
+            const cur = peaks.get(key);
+            if (!cur || c.s > cur.s) peaks.set(key, { t: timeRef.current.t, s: c.s });
+          }
         }
         const top = scored.sort((a, b) => b.s - a.s).slice(0, TINT_SLOTS);
         const topSum = top.reduce((acc, c) => acc + c.s, 0);
