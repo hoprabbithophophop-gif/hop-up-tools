@@ -6,7 +6,7 @@
  * /api/hai-to-diamond-replay と同じく CDN エッジに置いて、訪問者ごとに YouTube を叩かないようにする。
  *
  * 返す形: [{ id, author, text, likeCount, timeSec }]
- *   text    … 元の本文のまま（改行だけ空白に畳み、長すぎるものは末尾を切って「…」を足す）
+ *   text    … 元の本文のまま（改行だけ空白に畳む。省略はしない・Hop決定 2026-09-08: 読みたい人がいる）
  *   timeSec … 本文に「2:31」のような分:秒があれば、その秒数。無ければ null
  *
  * 決め事:
@@ -27,8 +27,8 @@ const TTL_SECONDS = 600;
 const EMPTY_TTL_SECONDS = 60;
 /** 1回で取りに行くコメントの数。YouTube 側の上限が100 */
 const MAX_RESULTS = 100;
-/** 1件の本文の長さの上限（文字）【仮】。これを超えたら切って末尾に「…」を足す */
-const MAX_TEXT_LENGTH = 140;
+/** 1件の本文の長さの上限（文字）。極端に長いものだけ止める安全弁で、通常のコメントは丸ごと流す（Hop決定 2026-09-08: 省略しない） */
+const MAX_TEXT_LENGTH = 1000;
 
 /** 受け付ける動画ID（白い名簿）。ここに無いIDは YouTube を叩かずに空を返す */
 const ALLOWED_VIDEO_IDS = new Set([
@@ -103,7 +103,7 @@ function toComments(raw: unknown): { id: string; author: string; text: string; l
   return out;
 }
 
-/** 改行や続いた空白を1つの空白に畳み、長すぎるものは切って末尾に「…」を足す。
+/** 改行や続いた空白を1つの空白に畳む。極端に長いものだけ安全弁で切る。
  *  絵文字が入っていても途中で割れないよう、文字の数え方は Array.from（コードポイント単位）にする */
 function flatten(src: string): string {
   const one = src.replace(/\s+/g, ' ').trim();
