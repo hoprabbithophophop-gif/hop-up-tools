@@ -27,6 +27,16 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, type PointerEven
 import { faGem } from "@fortawesome/free-solid-svg-icons";
 import FaIcon from "../hi-tension/components/FaIcon";
 
+/** 誘いの光沢: 💎の形（Font Awesome の gem の輪郭）で切り抜くための型紙 */
+const GEM_MASK = (() => {
+  const [w, h, , , pathData] = faGem.icon;
+  const d = Array.isArray(pathData) ? pathData.join(" ") : pathData;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><path d="${d}" fill="#000"/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+})();
+/** 誘いの光沢: 太い斜線と細い斜線を1本ずつ（角度・太さ・明るさは【仮】） */
+const SHINE_STRIPES =
+  "linear-gradient(115deg, rgba(255,255,255,0) 30%, rgba(255,255,255,0.75) 38%, rgba(255,255,255,0.75) 46%, rgba(255,255,255,0) 50%, rgba(255,255,255,0) 56%, rgba(255,255,255,0.55) 58%, rgba(255,255,255,0.55) 61%, rgba(255,255,255,0) 65%)";
 /** 真ん中の💎の大きさ(px)【仮】。幅390の画面で7個が丸ごと見え、両端に次の色が覗く寸法（Hop指示 2026-09-07） */
 const CENTER_SIZE = 76;
 /** 真ん中から数えて1つ目・2つ目・3つ目以降の💎の大きさ(px)【仮】 */
@@ -373,9 +383,9 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
       {/* 誘いの脈打ち。丸い輪が無くなったので、💎の形に沿った光がまわりへ広がって消えるのを繰り返す【仮】 */}
       <style>{`
         @keyframes hai-to-diamond-band-invite {
-          0%   { box-shadow: 0 0 0 0 rgba(255,255,255,0.85); }
-          70%  { box-shadow: 0 0 0 26px rgba(255,255,255,0); }
-          100% { box-shadow: 0 0 0 26px rgba(255,255,255,0); }
+          0%   { transform: translate3d(-100%, 0, 0); }
+          55%  { transform: translate3d(100%, 0, 0); }
+          100% { transform: translate3d(100%, 0, 0); }
         }
       `}</style>
 
@@ -395,27 +405,6 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
           pointerEvents: "none",
         }}
       />
-
-      {/* 初回タップまでの誘い: 真ん中の💎の裏で白い輪が広がって消えるのを繰り返す（前の大きなボタンと同じ演出）。
-          1回押したら消える。動き軽減では出さない */}
-      {inviting && !reduceMotion && (
-        <div
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            left: "50%",
-            top: "50%",
-            width: CENTER_SIZE,
-            height: CENTER_SIZE,
-            marginLeft: -CENTER_SIZE / 2,
-            marginTop: -CENTER_SIZE / 2,
-            borderRadius: "50%",
-            zIndex: 1,
-            pointerEvents: "none",
-            animation: `hai-to-diamond-band-invite ${INVITE_PULSE_SECONDS}s ease-out infinite`,
-          }}
-        />
-      )}
 
       {/* 💎は色の数だけ最初に置いたきり、並べ替えも作り直しもしない。
           動く見た目（位置・大きさ・薄さ・重なりの順・脈打ち）は paint() が直に書き込む */}
@@ -448,8 +437,37 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
           }}
         >
           {/* 積もった💎の山に重なっても輪郭が分かるよう、絵の形に沿った薄い暗い縁取りを敷く【仮】 */}
-          <span style={{ display: "block", filter: "drop-shadow(0 0 2px rgba(0,0,0,0.75)) drop-shadow(0 2px 6px rgba(0,0,0,0.5))" }}>
+          <span style={{ display: "block", position: "relative", filter: "drop-shadow(0 0 2px rgba(0,0,0,0.75)) drop-shadow(0 2px 6px rgba(0,0,0,0.5))" }}>
             <FaIcon icon={faGem} size={CENTER_SIZE} color={opt.color} />
+            {/* 初回タップまでの誘い: 太さの違う白い斜線2本が💎の上を左から右へ流れ、面が光を受けているように見せる
+                （Hop指示 2026-09-08。💎の形で切り抜くので絵の外にはみ出さない）。選択中の💎にだけ出し、1回押したら消える */}
+            {inviting && !reduceMotion && opt.id === selectedId && (
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  overflow: "hidden",
+                  pointerEvents: "none",
+                  WebkitMaskImage: GEM_MASK,
+                  maskImage: GEM_MASK,
+                  WebkitMaskSize: "100% 100%",
+                  maskSize: "100% 100%",
+                  WebkitMaskRepeat: "no-repeat",
+                  maskRepeat: "no-repeat",
+                }}
+              >
+                <span
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: SHINE_STRIPES,
+                    animation: `hai-to-diamond-band-invite ${INVITE_PULSE_SECONDS}s ease-in-out infinite`,
+                    willChange: "transform",
+                  }}
+                />
+              </span>
+            )}
           </span>
         </button>
       ))}
