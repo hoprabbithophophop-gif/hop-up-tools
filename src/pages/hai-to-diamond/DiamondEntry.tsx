@@ -2,13 +2,32 @@
 // 見出し・副題・歯車は色を選ぶ版(DiamondMemberSelect.tsx)と同じものをそのまま移した。
 import { useEffect, useState } from "react";
 import { ARENA_BG } from "../hi-tension/data";
-import BouncyNumber from "../hi-tension/components/BouncyNumber";
 import FacetGem from "./FacetGem";
 import { SHARE_TAG } from "./HaiToDiamondPage";
 
-const GEM_SIZE = 160;             // 大きな💎ボタンの絵の大きさ【仮】
-const GEM_SIZE_LANDSCAPE = 108;   // 横向きの低い画面でも縦に収まるよう小さくする【仮】
-const BUTTON_RING_GAP = 24;       // 💎の絵とボタンの白い輪との間の余白【仮】
+const GEM_SIZE = 240;             // 大きな💎の絵の大きさ【仮】。丸で囲わず💎そのものを押す（Hop指示 2026-09-07）
+const GEM_SIZE_LANDSCAPE = 140;   // 横向きの低い画面でも縦に収まるよう小さくする【仮】
+const COUNT_UP_MS = 1400;         // 歴代累計が 0 から数え上がる時間【仮】
+
+/** 0 から目標の数まで、はじめ速く終わりゆっくり数え上げる。動き軽減では最初から目標の数を出す */
+function useCountUp(target: number | null, reduceMotion: boolean): number | null {
+  const [shown, setShown] = useState<number | null>(null);
+  useEffect(() => {
+    if (target === null) { setShown(null); return; }
+    if (reduceMotion) { setShown(target); return; }
+    let raf = 0;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const k = Math.min(1, (now - t0) / COUNT_UP_MS);
+      const eased = 1 - Math.pow(1 - k, 3);
+      setShown(Math.round(target * eased));
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, reduceMotion]);
+  return shown;
+}
 
 interface Props {
   /** みんなの累計（読み込み前は null） */
@@ -37,7 +56,7 @@ export default function DiamondEntry({ total, onStart, onOpenSettings, reduceMot
   }, []);
 
   const gemSize = isLandscape ? GEM_SIZE_LANDSCAPE : GEM_SIZE;
-  const buttonSize = gemSize + BUTTON_RING_GAP * 2;
+  const shownTotal = useCountUp(total, reduceMotion);
 
   return (
     <div
@@ -107,26 +126,29 @@ export default function DiamondEntry({ total, onStart, onOpenSettings, reduceMot
           aria-label="はじめる"
           onClick={onStart}
           style={{
-            width: buttonSize,
-            height: buttonSize,
+            width: gemSize,
+            height: gemSize,
             flexShrink: 0,
-            borderRadius: "50%",
-            background: "#2a2f3a",
-            border: "3px solid #ffffff",
+            background: "transparent",
+            border: "none",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             cursor: "pointer",
             padding: 0,
+            WebkitTapHighlightColor: "transparent",
           }}
         >
           <FacetGem size={gemSize} color="#e8eaed" animate={!reduceMotion} />
         </button>
         {/* 数字が読めるまではラベルも出さない（ラベルだけ浮くと壊れて見える） */}
-        {total !== null && (
+        {shownTotal !== null && (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.2rem" }}>
             <span style={{ fontSize: "0.75rem", color: "#9aa0a6" }}>歴代累計</span>
-            <BouncyNumber value={total} color="#f5f7fa" size="1.6rem" />
+            {/* 数え上げ中は桁が毎フレーム変わるので、桁ごとに跳ねる部品は使わず素の数字で出す */}
+            <span style={{ fontSize: "1.6rem", fontWeight: 800, letterSpacing: "-0.02em", color: "#f5f7fa", lineHeight: 1, fontVariantNumeric: "tabular-nums", textShadow: "0 2px 6px rgba(0,0,0,0.45)" }}>
+              {shownTotal.toLocaleString()}
+            </span>
           </div>
         )}
       </div>
