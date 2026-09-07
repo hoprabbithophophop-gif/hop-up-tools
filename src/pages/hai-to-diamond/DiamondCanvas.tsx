@@ -17,6 +17,14 @@ export type DiamondCanvasApi = {
   setTime: (t: number, duration: number) => void;
   /** 山・降っている💎・カメラをすべて最初の状態に戻す（「最初に戻る」→ もう一度はじめる時） */
   reset: () => void;
+  /** 色ごとの曲全体の総数（色のhex → 個数）。額縁の順位を「その色の普段の量と比べた倍率」で決めるための基準 */
+  setColorTotals: (totals: Record<string, number>) => void;
+  /** 自分の選んだ色。この色の倍率が曲中で最大だった時刻を覚える（「選んだ色が一番輝いた瞬間」） */
+  setOwnColor: (hex: string) => void;
+  /** 自分の色の倍率が最大だった動画時刻（秒）。まだ無ければ null */
+  getPeakTime: () => number | null;
+  /** カメラを今の状態で止める（ハイライト再生中に引き直さないように）。reset で解除 */
+  setHoldCamera: (on: boolean) => void;
 };
 
 interface Props {
@@ -61,8 +69,16 @@ const SHRINK_MIN = 0.6;          // 縮みすぎると面の影で黒っぽく�
 const COUNT_REF = 120;         // この数を超えたら、降った数の平方根に反比例してカメラを引く【仮】
 const FINALE_TIME = 206;       // 動画時刻 3:26（曲が一番盛り上がる所）からゆっくり寄り始める（Hop指定 2026-09-06）
 const FLOOR_DEPTH = 1.0;       // 床の位置（画面高さの倍数）。カメラの軸が床なので 1.0＝画面の下端が床
-const PILE_MAX_ON_SCREEN = 0.7; // 山の頂上が画面のこの高さ（画面高さの倍数）より上に行かないようカメラを抑える。
+const PILE_MAX_ON_SCREEN = 0.7; // 山の頂上が画面のこの高さ（画面高さの倍数）を超えたら、床を画面の下へ送り出して頂上をこの線に留める。
                                 // 終盤に寄った時、山が画面をはみ出すと降ってくる💎が画面の外で着地して見えなくなる（Hop報告 2026-09-07）【仮】
+                                // 寄りそのものを抑える方式は、山が大きいと最大の引きより引いてしまい両端に帯状の空白ができた（Hop報告 2026-09-07・2回目）
+const FRAME_BASE: [number, number, number] = [0x1a, 0x1d, 0x24]; // 額縁の地色
+const TINT_WINDOW_MS = 2500;   // 「その瞬間いちばん多い色」を数える直近の幅【仮】
+const TINT_STRENGTH = 0.45;    // 額縁の地色にその色をどれだけ混ぜるか（0=地色のまま、1=その色そのもの）【仮】
+const TINT_SLOTS = 4;          // 額縁に並べる色の数（4声コーラスに合わせて上位4色・Hop決定 2026-09-07）
+const TINT_BASE_TOTAL = 200;   // 順位を「直近の数 ÷ その色の曲全体の総数」で決める時に、総数に履かせる下駄。
+                               // 参加者がごく少ない色が1回押されただけで跳ね上がるのを抑える【仮】（Hop決定 2026-09-07: 人数の偏りをそのまま出さない）
+const MAX_DPR = 2;             // 描く画面の細かさの上限。3倍の端末で画素が2.25倍になり発熱の元になる。焼き込みの絵と同じ上限【仮】
 const COL_W = 10;              // 積もり高さの帳簿の列幅
 const PACK_RADIUS = 0.6;       // 積もり計算で💎を丸い粒とみなす時の半径（size 倍）。見た目の半径(約1.0)より小さくして深く重ねる＝「ぎっしり」【仮】
 const SLOPE = 0.06;            // 山の傾き。小さいほど平らで、瓶に詰めるように下から隙間なく埋まる【仮】
@@ -181,10 +197,44 @@ function getSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
   return arr;
 }
 
+// 降っている💎用: 自分の向きを0にした絵を、光との角度差(48段階)ごとに持つ。貼る時に自分の向きへ回す
+const LIVE_STEPS = 48;
+const liveSpriteCache = new Map<string, HTMLCanvasElement[]>();
+function getLiveSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
+  const key = rgb.join(",");
+  let arr = liveSpriteCache.get(key);
+  if (arr) return arr;
+  arr = [];
+  for (let i = 0; i < LIVE_STEPS; i++) {
+    const c = document.createElement("canvas");
+    c.width = SPRITE_PX; c.height = SPRITE_PX;
+    const cx = c.getContext("2d");
+    if (cx) {
+      cx.translate(SPRITE_PX / 2, SPRITE_PX / 2);
+      cx.scale(SPRITE_PX / 2 * 0.95, SPRITE_PX / 2 * 0.95);
+      // paintFacets は (lightAng - ang) しか見ないので、ang=0・lightAng=差 で描けばよい
+      paintFacets(cx, rgb, 0, (i / LIVE_STEPS) * Math.PI * 2);
+    }
+    arr.push(c);
+  }
+  liveSpriteCache.set(key, arr);
+  return arr;
+}
+
 const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas({ videoBoxRef, frame, reduceMotion = false }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** 押した瞬間の閃光（世界座標）。短時間で消える */
   const flashesRef = useRef<{ x: number; y: number; t0: number; rgb: [number, number, number]; size: number }[]>([]);
+  /** 直近に降った💎の色の控え。その瞬間いちばん多い色で額縁を染めるのに使う（名前も数字も出さない・Hop決定 2026-09-07） */
+  const recentRef = useRef<{ t: number; key: string; rgb: [number, number, number] }[]>([]);
+  /** 色ごとの曲全体の総数（"r,g,b" → 個数）。額縁の順位の基準。読み込み前は空＝全色同じ基準 */
+  const colorTotalsRef = useRef<Map<string, number>>(new Map());
+  /** 自分の色（"r,g,b"）と、その倍率が最大だった時刻・値 */
+  const ownKeyRef = useRef<string | null>(null);
+  const peakRef = useRef<{ t: number; s: number } | null>(null);
+  const holdCameraRef = useRef(false);
+  /** 額縁の区画（左から順位順）のいまの色と幅の割合（なめらかに移り変わる） */
+  const frameSlotsRef = useRef(Array.from({ length: TINT_SLOTS }, () => ({ rgb: [...FRAME_BASE] as [number, number, number], w: 0 })));
   const reduceMotionRef = useRef(reduceMotion);
   useEffect(() => { reduceMotionRef.current = reduceMotion; }, [reduceMotion]);
   const gemsRef = useRef<Gem[]>([]);
@@ -202,14 +252,18 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   /** 帳簿と焼き込みの絵を空にする関数（useEffect 内で差し替える） */
   const clearWorldRef = useRef<() => void>(() => {});
   const sizeRef = useRef({ W: 0, H: 0 });
-  const camRef = useRef({ scale: 1, cx: 0, cy: 0 });
+  const camRef = useRef({ scale: 1, cx: 0, cy: 0, oy: 0 });
 
   useImperativeHandle(ref, () => ({
     spawn(color: string, self = false) {
       const { W, H } = sizeRef.current;
-      const { scale, cx } = camRef.current;
+      const { scale, cx, oy } = camRef.current;
       if (!W) return;
       spawnedRef.current += 1;
+      {
+        const rgb = hexToRgb(color);
+        recentRef.current.push({ t: performance.now(), key: rgb.join(","), rgb });
+      }
       const shrink = Math.max(SHRINK_MIN, Math.min(1, Math.sqrt(SHRINK_REF / spawnedRef.current)));
       const size = (SIZE_MIN + Math.random() * SIZE_RANGE) * shrink;
       // いま見えている範囲の横幅に散らす（引くほど広がる）
@@ -218,7 +272,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       // 自分の💎は画面内（上端から少し下）に出して、出た瞬間の光が見えるようにする。他人は画面の上の外から。
       // ただし山がそこまで届いていたら山の中に出てしまう（上書きに見える）ので、山の頂上より上に出す
       const floorY = H * FLOOR_DEPTH;
-      const topWorld = floorY - H / scale;                   // 画面上端の世界座標（軸は床）
+      const topWorld = floorY - (H + oy) / scale;            // 画面上端の世界座標（軸は床。oy は床を画面の下へ送り出した分）
       const pileTop = pileTopRef.current;
       let y = self ? topWorld + (60 + Math.random() * 40) / scale : topWorld - size * 2;
       if (pileTop !== Infinity) y = Math.min(y, pileTop - size * 3);
@@ -243,15 +297,27 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     setTime(t: number, duration: number) {
       timeRef.current = { t: Math.max(0, t), d: Math.max(1, duration) };
     },
+    setOwnColor(hex: string) { ownKeyRef.current = hexToRgb(hex).join(","); },
+    getPeakTime() { return peakRef.current ? peakRef.current.t : null; },
+    setHoldCamera(on: boolean) { holdCameraRef.current = on; },
+    setColorTotals(totals: Record<string, number>) {
+      const m = new Map<string, number>();
+      for (const [hex, n] of Object.entries(totals)) m.set(hexToRgb(hex).join(","), n);
+      colorTotalsRef.current = m;
+    },
     reset() {
       gemsRef.current = [];
       flashesRef.current = [];
+      recentRef.current = [];
+      peakRef.current = null;
+      holdCameraRef.current = false;
+      for (const sl of frameSlotsRef.current) { sl.rgb = [...FRAME_BASE] as [number, number, number]; sl.w = 0; }
       sparkPointsRef.current = [];
       spawnedRef.current = 0;
       finaleFromRef.current = 1;
       pileTopRef.current = Infinity;
       timeRef.current = { t: 0, d: timeRef.current.d };
-      camRef.current = { scale: 1, cx: camRef.current.cx, cy: camRef.current.cy };
+      camRef.current = { scale: 1, cx: camRef.current.cx, cy: camRef.current.cy, oy: 0 };
       clearWorldRef.current();
     },
   }), []);
@@ -270,7 +336,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     const cols: number[] = [];
     const resize = () => {
       const r = canvas.getBoundingClientRect();
-      dpr = window.devicePixelRatio || 1;
+      dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
       W = r.width; H = r.height;
       canvas.width = Math.round(W * dpr);
       canvas.height = Math.round(H * dpr);
@@ -339,13 +405,17 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       return { tx, ty };
     };
 
-    /** 降っている💎: 面を毎フレーム計算して描く（数は少ない） */
+    /** 降っている💎: 面の明るさは「光の向き − 自分の向き」だけで決まるので、その差ごとに一度描いた絵を、自分の向きに回して貼る。
+     *  毎フレーム8面を塗るのは、みんなの💎がたくさん降る時に発熱の元になっていた（Hop報告 2026-09-07） */
     const drawGemLive = (g: Gem, lightAng: number) => {
+      const sprites = getLiveSprites(g.rgb);
+      const rel = lightAng - g.ang;
+      const i = ((Math.round((rel / (Math.PI * 2)) * LIVE_STEPS) % LIVE_STEPS) + LIVE_STEPS) % LIVE_STEPS;
+      const w = (g.size * 2 / 0.95);
       ctx.save();
       ctx.translate(g.x, g.y);
       ctx.rotate(g.ang);
-      ctx.scale(g.size, g.size);
-      paintFacets(ctx, g.rgb, g.ang, lightAng);
+      ctx.drawImage(sprites[i], -w / 2, -w / 2, w, w);
       ctx.restore();
     };
     /** 積もった💎: スプライトを貼る */
@@ -423,13 +493,16 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       let maxH = 0;
       for (let j = 0; j < cols.length; j++) if (cols[j] > maxH) maxH = cols[j];
       const pileTopWorld = maxH > 0 ? floorY - maxH : Infinity;
-      // 山の頂上が画面の上の方まで来たら、寄りを抑えて降ってくる💎の居場所を残す
-      if (maxH > 0) scale = Math.min(scale, (H * PILE_MAX_ON_SCREEN) / maxH);
       // 急に変わらないよう、前フレームからなめらかに寄せる
       const prev = camRef.current.scale || scale;
       scale = prev + (scale - prev) * Math.min(1, dt * 4);
+      // 山の頂上が画面の上の方まで来たら、床を画面の下へ送り出して頂上を留める（カメラが頂上について上がる）
+      const oyTarget = Math.max(0, maxH * scale - H * PILE_MAX_ON_SCREEN);
+      const prevOy = camRef.current.oy;
+      let oy = prevOy + (oyTarget - prevOy) * Math.min(1, dt * 4);
+      if (holdCameraRef.current) { scale = prev; oy = prevOy; }   // ハイライト再生中は動かさない
       pileTopRef.current = pileTopWorld;
-      camRef.current = { scale, cx, cy };
+      camRef.current = { scale, cx, cy, oy };
       // 落下（世界座標）: 着地先まで落ちて止まる。横には流れない（着地先が最初から詰まる位置なので）
       const gems = gemsRef.current;
       for (const g of gems) {
@@ -443,8 +516,62 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         }
       }
 
-      // 額縁の地色（画面座標・カメラの外）
-      ctx.fillStyle = "#1a1d24";
+      // 額縁の地色（画面座標・カメラの外）。直近に降った💎の色の上位4つを、左から順に幅＝割合で並べて染める。
+      // 4声コーラスのパートに合わせて色の順位が分かるように（Hop決定 2026-09-07・案1）。名前・数字は出さない。
+      // 順位や割合が変わる時は各区画の色と幅をなめらかに寄せ、境目はにじませる。降っていない時は地色に戻る
+      {
+        const recent = recentRef.current;
+        const cutoff = now - TINT_WINDOW_MS;
+        let drop = 0;
+        while (drop < recent.length && recent[drop].t < cutoff) drop++;
+        if (drop > 0) recent.splice(0, drop);
+        const counts = new Map<string, { n: number; rgb: [number, number, number] }>();
+        for (const r of recent) {
+          const c = counts.get(r.key);
+          if (c) c.n++; else counts.set(r.key, { n: 1, rgb: r.rgb });
+        }
+        // 順位は単純な数ではなく「その色の普段の量に対する倍率」。参加者が多い色がずっと上位に居座らないように
+        const totals = colorTotalsRef.current;
+        const scored = [...counts.entries()].map(([key, c]) => ({ rgb: c.rgb, s: c.n / ((totals.get(key) ?? 0) + TINT_BASE_TOTAL) }));
+        // 自分の色の倍率が曲中で最大だった瞬間を覚える（ハイライト再生中は更新しない）
+        if (ownKeyRef.current && !holdCameraRef.current) {
+          const own = scored.find((c) => c.rgb.join(",") === ownKeyRef.current);
+          if (own && (!peakRef.current || own.s > peakRef.current.s)) peakRef.current = { t: timeRef.current.t, s: own.s };
+        }
+        const top = scored.sort((a, b) => b.s - a.s).slice(0, TINT_SLOTS);
+        const topSum = top.reduce((acc, c) => acc + c.s, 0);
+        const slots = frameSlotsRef.current;
+        const k = Math.min(1, dt * 2);   // 約0.5秒かけて移り変わる
+        for (let i = 0; i < TINT_SLOTS; i++) {
+          const t = top[i];
+          const rgbT: [number, number, number] = t
+            ? [FRAME_BASE[0] + (t.rgb[0] - FRAME_BASE[0]) * TINT_STRENGTH, FRAME_BASE[1] + (t.rgb[1] - FRAME_BASE[1]) * TINT_STRENGTH, FRAME_BASE[2] + (t.rgb[2] - FRAME_BASE[2]) * TINT_STRENGTH]
+            : FRAME_BASE;
+          const wT = t ? t.s / topSum : 0;
+          const sl = slots[i];
+          sl.rgb[0] += (rgbT[0] - sl.rgb[0]) * k;
+          sl.rgb[1] += (rgbT[1] - sl.rgb[1]) * k;
+          sl.rgb[2] += (rgbT[2] - sl.rgb[2]) * k;
+          sl.w += (wT - sl.w) * k;
+        }
+        const wSum = slots.reduce((acc, sl) => acc + sl.w, 0);
+        if (wSum < 0.01) {
+          ctx.fillStyle = `rgb(${FRAME_BASE[0]},${FRAME_BASE[1]},${FRAME_BASE[2]})`;
+        } else {
+          const g = ctx.createLinearGradient(f.x, 0, f.x + f.w, 0);
+          const soft = 0.03;
+          let acc = 0;
+          for (const sl of slots) {
+            const w = sl.w / wSum;
+            if (w <= 0) continue;
+            const col = `rgb(${sl.rgb[0] | 0},${sl.rgb[1] | 0},${sl.rgb[2] | 0})`;
+            g.addColorStop(Math.min(1, acc + Math.min(soft, w / 2)), col);
+            g.addColorStop(Math.max(0, Math.min(1, acc + w - Math.min(soft, w / 2))), col);
+            acc += w;
+          }
+          ctx.fillStyle = g;
+        }
+      }
       ctx.fillRect(f.x, f.y, f.w, f.h);
 
       if (gems.length === 0) return;
@@ -460,7 +587,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       ctx.globalCompositeOperation = "lighter";
       for (const g of gems) {
         if (g.settled) continue;
-        const sx = cx + (g.x - cx) * scale, sy = H + (g.y - floorY) * scale;
+        const sx = cx + (g.x - cx) * scale, sy = H + oy + (g.y - floorY) * scale;
         const r = g.size * scale * 1.6;
         const glow = getGlow(g.rgb);
         ctx.drawImage(glow.halo, sx - r, sy - r, r * 2, r * 2);
@@ -480,7 +607,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
 
       // 💎本体（世界座標をカメラで縮めて描く。軸は床＝画面の下端、横は動画の中心）
       ctx.save();
-      ctx.translate(cx, H);
+      ctx.translate(cx, H + oy);
       ctx.scale(scale, scale);
       ctx.translate(-cx, -floorY);
       let settledCount = 0;
@@ -502,7 +629,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           if (Math.random() < rate * dt) {
             for (let tries = 0; tries < 12; tries++) {
               const pt = pts[Math.floor(Math.random() * pts.length)];
-              const sx = cx + (pt.x - cx) * scale, sy = H + (pt.y - floorY) * scale;
+              const sx = cx + (pt.x - cx) * scale, sy = H + oy + (pt.y - floorY) * scale;
               if (sx < 0 || sx > W || sy < 0 || sy > H) continue;
               if (sx > v.x && sx < v.x + v.w && sy > v.y && sy < v.y + v.h) continue;
               flashesRef.current.push({ x: pt.x, y: pt.y, t0: now, rgb: pt.rgb, size: pt.size * 0.8 });

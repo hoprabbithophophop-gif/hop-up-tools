@@ -6,7 +6,8 @@
 // 再生開始はハイ！テンションと同じ流儀: ユーザーのタップの中で同期的に play() を呼ぶ。
 import { useCallback, useEffect, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "../hi-tension/components/YouTubePlayer";
-import { findMember, ARENA_BG } from "../hi-tension/data";
+import { ARENA_BG } from "../hi-tension/data";
+import { findDiamondMember } from "./members";
 import { getLastSelectedMemberId, setLastSelectedMemberId, getOrCreateAnonymousSessionId } from "../hi-tension/storage";
 import { submitHiSession } from "../hi-tension/api";
 import { fetchReplay, type ReplayRow } from "./replay";
@@ -35,13 +36,18 @@ function shareToX(count: number) {
 }
 /** 他の人の💎を1回の時刻更新（0.1秒）で出す上限。大勢の同時押しで一気に固まらないための蓋【仮】。設定「みんなの💎」で変わる */
 const OTHERS_PER_TICK: Record<DiamondSettings["crowd"], number> = { full: 25, light: 6, self: 0 };
+/** 曲の終わり（秒）。プロモーション動画は音が終わった後に無音の黒画面（別動画への案内枠）が続くので、そこで終了扱いにする（Hop指定 2026-09-07: 4:35.9） */
+const SONG_END = 275.9;
+/** 「選んだ色が一番輝いた瞬間」の前後の幅（秒）【仮】 */
+const HIGHLIGHT_BEFORE = 5;
+const HIGHLIGHT_AFTER = 5;
 
 /** みんなの記録（集計）を「0.05秒刻みの時刻 → [色, 個数] の並び」の帳簿にする */
 type BucketEntry = [color: string, count: number];
 function buildBucketMap(rows: ReplayRow[]): Map<number, BucketEntry[]> {
   const map = new Map<number, BucketEntry[]>();
   for (const r of rows) {
-    const c = findMember(r.member_id)?.color;
+    const c = findDiamondMember(r.member_id)?.color;
     if (!c) continue;
     for (let i = 0; i < r.buckets.length; i++) {
       const b = r.buckets[i];
@@ -70,6 +76,11 @@ export default function HaiToDiamondPage() {
   /** 曲が終わった後の画面（自分の回数・最初に戻る・シェア）。再生開始で消える */
   const [ended, setEnded] = useState(false);
   const [finalCount, setFinalCount] = useState(0);
+  /** ハイライト再生中（終了画面から「選んだ色が一番輝いた瞬間」を見ている間）。終わる時刻を持つ */
+  const highlightRef = useRef<{ end: number } | null>(null);
+  const [highlighting, setHighlighting] = useState(false);
+  /** 自分の色が一番輝いた時刻（曲が終わった時点で確定）。無ければボタンを出さない */
+  const [peakTime, setPeakTime] = useState<number | null>(null);
   /** 再生中の自分の回数（動画の上に出す）。ページは小さいのでタップごとの再描画で足りる */
   const [liveCount, setLiveCount] = useState(0);
   /** みんなの累計（集計の合計）。終了画面の「歴代累計」に自分の分を足して出す */
@@ -111,11 +122,19 @@ export default function HaiToDiamondPage() {
     fetchReplay(VIDEO_ID).then((rows) => {
       bucketMapRef.current = buildBucketMap(rows);
       setOthersTotal(rows.reduce((acc, r) => acc + r.counts.reduce((a, c) => a + c, 0), 0));
+      // 色ごとの総数（額縁の順位の基準）。同じ色のメンバーが複数いれば合算
+      const totals: Record<string, number> = {};
+      for (const r of rows) {
+        const c = findDiamondMember(r.member_id)?.color;
+        if (!c) continue;
+        totals[c] = (totals[c] ?? 0) + r.counts.reduce((a, n) => a + n, 0);
+      }
+      canvasRef.current?.setColorTotals(totals);
     }).catch((e) => console.warn("[hai-to-diamond] replay fetch failed:", e));
   }, []);
   useEffect(() => { loadReplay(); }, [loadReplay]);
 
-  const member = findMember(memberId);
+  const member = findDiamondMember(memberId);
   const color = member?.color ?? "#ffffff";
 
   const setPlayingBoth = (v: boolean) => { playingRef.current = v; setPlaying(v); };
@@ -127,6 +146,10 @@ export default function HaiToDiamondPage() {
     setLastSelectedMemberId(id);
     setMemberId(id);
     canvasRef.current?.reset();   // 前の回の山を消して最初から（Hop報告 2026-09-07）
+    const c = findDiamondMember(id)?.color;
+    if (c) canvasRef.current?.setOwnColor(c);
+    highlightRef.current = null;
+    setHighlighting(false);
     loadReplay();
     tapsRef.current = [];
     lastBucketRef.current = -1;
@@ -154,6 +177,7 @@ export default function HaiToDiamondPage() {
   const finish = useCallback(() => {
     setPlayingBoth(false);
     setFinalCount(tapsRef.current.length);
+    setPeakTime(canvasRef.current?.getPeakTime() ?? null);
     setEnded(true);
     submitOnce();
   }, [submitOnce]);
@@ -162,20 +186,50 @@ export default function HaiToDiamondPage() {
 
   // 動画上の YouTube 純正の再生ボタンから始めた場合も拾う。1=PLAYING / 0=ENDED。PAUSED は触らない【仮】
   const handlePlayerStateChange = useCallback((state: number) => {
+    if (highlightRef.current) return;               // ハイライト再生中は再生扱いにしない（💎ボタンも記録も増やさない）
     if (state === 1) { setEnded(false); setPlayingBoth(true); }
     else if (state === 0) finish();
   }, [finish]);
 
   /** 最初に戻る＝入口の色選びへ */
   const handleBackToStart = useCallback(() => {
+    highlightRef.current = null;
+    setHighlighting(false);
     setEnded(false);
     setPlayingBoth(false);
     setMemberId(null);
   }, []);
 
+  /** 終了画面から、自分の色の倍率が一番高かった瞬間の前後を動画で見返す。山はそのまま、カメラも止める */
+  const handleHighlight = useCallback(() => {
+    const peak = canvasRef.current?.getPeakTime();
+    if (peak == null) return;
+    const start = Math.max(0, peak - HIGHLIGHT_BEFORE);
+    const end = Math.min(SONG_END, peak + HIGHLIGHT_AFTER);
+    highlightRef.current = { end };
+    setHighlighting(true);
+    canvasRef.current?.setHoldCamera(true);
+    lastBucketRef.current = Math.floor(start * 20) - 1;
+    playerRef.current?.seekTo(start);
+    playerRef.current?.play();
+  }, []);
+
   const handleTimeUpdate = useCallback((t: number) => {
-    const d = playerRef.current?.getDuration() ?? 0;
-    if (d > 0) canvasRef.current?.setTime(t, d);
+    canvasRef.current?.setTime(t, SONG_END);
+    // ハイライト再生: 区間の終わりで止めて終了画面に戻る
+    const hl = highlightRef.current;
+    if (hl) {
+      if (t >= hl.end) {
+        playerRef.current?.pause();
+        highlightRef.current = null;
+        setHighlighting(false);
+      }
+    } else if (playingRef.current && t >= SONG_END) {
+      // 音が終わった後の無音・黒画面は見せない
+      playerRef.current?.pause();
+      finish();
+      return;
+    }
     // みんなの💎: 前回の時刻からいままでに押された分を、その人の色で降らせる
     const cur = Math.floor(t * 20);
     let last = lastBucketRef.current;
@@ -191,7 +245,7 @@ export default function HaiToDiamondPage() {
       }
     }
     lastBucketRef.current = cur;
-  }, []);
+  }, [finish]);
 
   /** 💎ボタン1回ぶん。再生中だけ受け付ける */
   const handleRecord = useCallback((): boolean => {
@@ -259,23 +313,35 @@ export default function HaiToDiamondPage() {
             right: 0,
             bottom: numbersBottom,
             display: "flex",
-            gap: "1.8rem",
-            justifyContent: "center",
-            alignItems: "flex-end",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "0.7rem",
             textAlign: "center",
             textShadow: "0 0 12px rgba(0,0,0,0.6)",
             pointerEvents: "none",
           }}
         >
-          <div>
-            <p style={endLabelStyle}>あなたの💎</p>
-            <BouncyNumber value={ended ? finalCount : liveCount} color={color} size="2.2rem" />
-          </div>
-          {ended && (
+          <div style={{ display: "flex", gap: "1.8rem", justifyContent: "center", alignItems: "flex-end" }}>
             <div>
-              <p style={endLabelStyle}>歴代累計</p>
-              <BouncyNumber value={othersTotal + finalCount} color={color} size="1.6rem" />
+              <p style={endLabelStyle}>あなたの💎</p>
+              <BouncyNumber value={ended ? finalCount : liveCount} color={color} size="2.2rem" />
             </div>
+            {ended && (
+              <div>
+                <p style={endLabelStyle}>歴代累計</p>
+                <BouncyNumber value={othersTotal + finalCount} color={color} size="1.6rem" />
+              </div>
+            )}
+          </div>
+          {/* 上は数字の情報、下はこの画面を離れる操作、という分け方に合わせて、見返すボタンは数字の下に置く（Hop指示 2026-09-07） */}
+          {ended && !highlighting && peakTime != null && (
+            <button
+              type="button"
+              onClick={handleHighlight}
+              style={{ pointerEvents: "auto", whiteSpace: "nowrap", padding: "0.6rem 1.2rem", background: "rgba(14,16,22,0.85)", color: "#f5f7fa", border: "1px solid rgba(255,255,255,0.5)", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer", textShadow: "none" }}
+            >
+              選んだ色が一番輝いた瞬間
+            </button>
           )}
         </div>
       )}
@@ -303,12 +369,12 @@ export default function HaiToDiamondPage() {
             alignItems: "center",
             gap: "0.6rem",
             // 曲の終わりは山の💎が後ろに重なるので、文字が読めるよう薄い暗い帯を敷く（Hop決定 2026-09-06）
-            ...(ended ? { background: "rgba(7,8,12,0.72)", padding: "0.9rem 1.2rem 0.6rem", borderRadius: 4 } : {}),
+            ...(ended && !highlighting ? { background: "rgba(7,8,12,0.72)", padding: "0.9rem 1.2rem 0.6rem", borderRadius: 4 } : {}),
           }}
         >
           {playing ? (
             <DiamondTapButton ref={tapButtonRef} accentColor={color} onRecord={handleRecord} hideCount />
-          ) : ended ? (
+          ) : ended && !highlighting ? (
             // ボタンは横並び。縦に積むと帯が高くなって動画に重なる（Hop指示 2026-09-07）
             <>
               <div style={{ display: "flex", flexDirection: "row", gap: "0.6rem", alignItems: "center", justifyContent: "center", width: "min(100%, 360px)" }}>
