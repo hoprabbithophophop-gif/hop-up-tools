@@ -1,7 +1,7 @@
 // 灰toダイヤモンド 💎 — 第1段（記録あり・みんなの💎も降る）
 //
-// 入口は💎ひとつ。押すとその場で曲が始まる（色は選ばない）。色は再生中に、💎ボタンの上の
-// 「◀ 色の丸の列 ▶」で選ぶ。💎ボタンを押すと、その時に選んでいる色の💎が画面の上から降る。
+// 入口は💎ひとつ。押すとその場で曲が始まる（色は選ばない）。色は再生中に、画面下の
+// 「一列でループする💎の帯」で選ぶ。真ん中に来た💎を押すと、その色の💎が画面の上から降る。
 // 💎は動画の裏を通って画面の下に積もり、曲が進むにつれてカメラが引いて山が動画の背景になる。
 // 動画は真ん中に固定（動画本体の上には何も描かない）。
 // 再生開始はハイ！テンションと同じ流儀: ユーザーのタップの中で同期的に play() を呼ぶ。
@@ -14,9 +14,8 @@ import { submitHiSessions } from "../hi-tension/api";
 import { fetchReplay, type ReplayRow } from "./replay";
 import DiamondCanvas, { type DiamondCanvasApi } from "./DiamondCanvas";
 import DiamondEntry from "./DiamondEntry";
-import DiamondColorRow from "./DiamondColorRow";
+import DiamondColorCarousel from "./DiamondColorCarousel";
 import DiamondHeatStrip from "./DiamondHeatStrip";
-import DiamondTapButton, { type DiamondTapButtonApi } from "./DiamondTapButton";
 import DiamondSettingsSheet, { getDiamondSettings, setDiamondSettings, type DiamondSettings } from "./DiamondSettingsSheet";
 import BouncyNumber from "../hi-tension/components/BouncyNumber";
 
@@ -92,6 +91,9 @@ function buildHeatLevels(rows: ReplayRow[]): number[] {
   return sq.map((v) => v / max);
 }
 
+/** 画面下の帯に並べる色。並びは members.ts の DIAMOND_COLOR_ORDER のまま。中身は変わらないので1度だけ作る */
+const DIAMOND_COLOR_OPTIONS = DIAMOND_COLOR_ORDER.map((id) => ({ id, color: findDiamondMember(id)?.color ?? "#ffffff" }));
+
 function isTouchDevice(): boolean {
   return /iPhone|iPad|iPod|Android/.test(navigator.userAgent);
 }
@@ -105,7 +107,6 @@ function initialMemberId(): string {
 export default function HaiToDiamondPage() {
   const playerRef = useRef<YouTubePlayerApi>(null);
   const canvasRef = useRef<DiamondCanvasApi>(null);
-  const tapButtonRef = useRef<DiamondTapButtonApi>(null);
   const videoBoxRef = useRef<HTMLDivElement>(null);
   /** 自分がタップした「動画時刻（秒）」と「その時に選んでいた色のメンバーID」。曲の終わりに色ごとにまとめて送る */
   const tapsRef = useRef<{ t: number; memberId: string }[]>([]);
@@ -279,7 +280,6 @@ export default function HaiToDiamondPage() {
     resendCountRef.current = 0;
     if (resendTimerRef.current) { clearTimeout(resendTimerRef.current); resendTimerRef.current = null; }
     lastBucketRef.current = -1;
-    tapButtonRef.current?.reset();
     setLiveCount(0);
     setProgress(0);
     setPeakTime(null);
@@ -506,7 +506,7 @@ export default function HaiToDiamondPage() {
         </div>
       )}
 
-      {/* 画面下。再生中とハイライト中は色えらび（再生中はその下に💎ボタン）、
+      {/* 画面下。再生中とハイライト中は💎の帯（真ん中が今の色）、
           曲が終わったら最初に戻る・シェア・本編リンク・断り書き */}
       <div
         style={{
@@ -529,22 +529,33 @@ export default function HaiToDiamondPage() {
             flexDirection: "column",
             alignItems: "center",
             gap: "0.6rem",
-            // 中身（色の丸の列）の自然な幅は画面より広いので、画面幅で頭打ちにする。
-            // これが無いとこの塊自体が画面からはみ出し、左の◀が画面の外へ出て押せなくなる
+            // 中身（💎の帯）は画面の真ん中を基準に左右へ並ぶので、この塊は画面幅いっぱいに広げる。
+            // 幅が中身なりだと帯の真ん中が画面の真ん中からずれる
             maxWidth: "100%",
             boxSizing: "border-box",
+            ...(playing || highlighting ? { width: "100%" } : {}),
             // 曲の終わりは山の💎が後ろに重なるので、文字が読めるよう薄い暗い帯を敷く（Hop決定 2026-09-06）
             ...(ended && !highlighting ? { background: "rgba(7,8,12,0.72)", padding: "0.9rem 1.2rem 0.6rem", borderRadius: 4 } : {}),
           }}
         >
           {playing ? (
-            <>
-              <DiamondColorRow selectedId={memberId} onSelect={handlePickColor} />
-              <DiamondTapButton ref={tapButtonRef} accentColor={color} onRecord={handleRecord} hideCount inviting={liveCount === 0} reduceMotion={settings.reduceMotion} />
-            </>
+            <DiamondColorCarousel
+              options={DIAMOND_COLOR_OPTIONS}
+              selectedId={memberId}
+              onSelect={handlePickColor}
+              onRecord={handleRecord}
+              inviting={liveCount === 0}
+              reduceMotion={settings.reduceMotion}
+            />
           ) : highlighting ? (
-            // 見返している間も色を選び直せる。選ぶとその色が一番輝いた瞬間へ飛び直す
-            <DiamondColorRow selectedId={memberId} onSelect={handlePickColor} />
+            // 見返している間も色を選び直せる。選ぶとその色が一番輝いた瞬間へ飛び直す。
+            // onRecord を渡さない＝真ん中を押しても💎は降らない
+            <DiamondColorCarousel
+              options={DIAMOND_COLOR_OPTIONS}
+              selectedId={memberId}
+              onSelect={handlePickColor}
+              reduceMotion={settings.reduceMotion}
+            />
           ) : ended ? (
             // ボタンは横並び。縦に積むと帯が高くなって動画に重なる（Hop指示 2026-09-07）
             <>
