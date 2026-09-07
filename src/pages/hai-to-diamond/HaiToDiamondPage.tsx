@@ -43,6 +43,10 @@ const OTHERS_PER_TICK: Record<DiamondSettings["crowd"], number> = { full: 25, li
 const VIDEO_TOP = "42%";
 /** 曲の終わり（秒）。プロモーション動画は音が終わった後に無音の黒画面（別動画への案内枠）が続くので、そこで終了扱いにする（Hop指定 2026-09-07: 4:35.9） */
 const SONG_END = 280;   // Live Edit. は全長 280 秒。音が終わる時刻は未確認なので今は全長【仮】。Promotion Edit の時は 275.9 だった
+/** 積もった山を一斉に夜空へ放って星空にする時刻（秒）【仮】。
+ *  曲の最後のフレーズ「Let's Shine Together!」（4:29 付近）＝ハッシュタグ #銀河to銀河届けよ の「届けよ」に合わせる（Hop決定 2026-09-08）。
+ *  Live Edit. 基準の値なので、動画を差し替えたら測り直す */
+const LAUNCH_TIME = 269.5;
 /** 「選んだ色が一番輝いた瞬間」の前後の幅（秒）【仮】 */
 const HIGHLIGHT_BEFORE = 5;
 const HIGHLIGHT_AFTER = 5;
@@ -130,6 +134,8 @@ export default function HaiToDiamondPage() {
   /** ハイライト再生中（終了画面から「選んだ色が一番輝いた瞬間」を見ている間）。終わる時刻を持つ */
   const highlightRef = useRef<{ end: number } | null>(null);
   const [highlighting, setHighlighting] = useState(false);
+  /** その回で山を夜空へ放したか。1回だけ呼ぶための控え（「はじめる」でまた false に戻る） */
+  const launchedRef = useRef(false);
   /** 頭出し（seek）を頼んだ直後の控え。時刻は0.1秒ごとの見に行きなので、頭出しが効く前に
    *  古い時刻が届く。飛び先の近くに来るまで（または期限切れまで）その時刻は無視する */
   const seekPendingRef = useRef<{ target: number; until: number } | null>(null);
@@ -295,6 +301,7 @@ export default function HaiToDiamondPage() {
     if (hex) canvasRef.current?.setOwnColor(hex);
     highlightRef.current = null;
     seekPendingRef.current = null;
+    launchedRef.current = false;   // 次の回はまた山から
     setHighlighting(false);
     loadReplay();
     tapsRef.current = [];
@@ -383,6 +390,12 @@ export default function HaiToDiamondPage() {
     // 流れるコメントに渡す時刻。1秒刻みなので、秒が変わった時だけ知らせる
     const sec = Math.floor(t);
     setVideoTimeSec((prev) => (prev === sec ? prev : sec));
+    // 曲の最後のフレーズで、積もった山を一斉に夜空へ放って星空にする（1回だけ）。
+    // ハイライト再生中は起こさない（もう星空なので、山に戻ってはいない）
+    if (!highlightRef.current && playingRef.current && !launchedRef.current && t >= LAUNCH_TIME) {
+      launchedRef.current = true;
+      canvasRef.current?.launchToSky();
+    }
     // ハイライト再生: 区間の終わりで止めて終了画面に戻る
     const hl = highlightRef.current;
     if (hl) {

@@ -28,6 +28,9 @@ export type DiamondCanvasApi = {
   getPeakTime: (hex?: string) => number | null;
   /** カメラを今の状態で止める（ハイライト再生中に引き直さないように）。reset で解除 */
   setHoldCamera: (on: boolean) => void;
+  /** 積もった山を一斉に夜空へ放って星空にする（曲の最後のフレーズ「Let's Shine Together!」）。
+   *  山は空になり、以後に降る💎も積もらずそのまま星になる。カメラもここで止まる。1回だけ効く（reset で戻る） */
+  launchToSky: () => void;
 };
 
 interface Props {
@@ -54,6 +57,21 @@ type Gem = {
   tx: number;
   ty: number;
 };
+
+/** 夜空へ飛んでいる粒（画面座標）。飛び終わると星になって、星空の1枚の絵へ焼き込まれる */
+type SkyFly = {
+  x0: number; y0: number;   // 出発（画面座標）
+  x1: number; y1: number;   // 行き先（画面座標）
+  bow: number;              // 弧の膨らみ(px)。まっすぐ飛ばずに少し持ち上がる
+  t0: number;               // 飛び始めた時刻(ms)
+  dur: number;              // 飛ぶ時間(ms)
+  d: number;                // 粒の直径(px)
+  rgb: [number, number, number];
+  /** 自分が押した分。取り消し（スワイプの空振り）で消せるようにする */
+  self: boolean;
+};
+/** 夜空の星（画面座標）。位置は星空の絵へ焼き込んだ後も、瞬きの抽選のために覚えておく */
+type SkyStar = { x: number; y: number; d: number; rgb: [number, number, number] };
 
 // 【仮】見本の値。実機で見て決める
 const GRAVITY = 60;            // px/s^2（世界座標）
@@ -92,6 +110,25 @@ const LIVE_KEEP = 300;         // 1つずつ描き続ける積もった💎の�
 const BAKE_BATCH = 200;        // 1フレームで焼き込む上限（一度に大量に描いて引っかからないように）
 const BAKE_HEIGHT = 2.0;       // 焼き込み用の絵の高さ（画面高さの倍数・床から上へ）
 const BAKE_MAX_AREA = 12e6;    // 焼き込み用の絵の画素数の上限（iOS Safari の1枚あたりの限界より下）
+
+// 夜空へ放つ演出（曲の最後のフレーズ）の値。数字は全部【仮】、実機で見て決める
+const LAUNCH_MAX = 6000;         // 一斉に放つ粒の数の上限。これより多い山は等間隔に間引く
+const LAUNCH_FLY_MS = 1600;      // 山の粒が夜空の行き先へ着くまで
+const LAUNCH_FLY_JITTER = 500;   // 粒ごとの着く時刻のばらつき（全部が同時に着かないように）
+const SPAWN_FLY_MS = 800;        // 放った後に押した分が星になるまで
+const SKY_Y_BIAS = 1.25;         // 行き先の縦の偏り。1より大きいほど画面の上の方が密になる
+const FLY_BOW_MIN = 20;          // 弧の膨らみ(px)。まっすぐ飛ばずに少し持ち上がる
+const FLY_BOW_RANGE = 60;
+const FLY_DOT_MIN = 3;           // 飛んでいる粒の直径(px)。面の計算はせず色つきの小さな丸で描く
+const FLY_DOT_RANGE = 3;
+const STAR_MIN = 2;              // 星の点の直径(px)
+const STAR_RANGE = 2;
+const SELF_LAUNCH_Y = 140;       // 放った後の自分の💎の出発点。画面の下端からこれだけ上＝色の帯の少し上
+const SELF_LAUNCH_SPREAD = 40;   // 同上の縦のばらつき。押すたびに同じ高さから出ると、閃光が一直線に並んで機械的に見える
+const SKY_SPARK_RATE = 6;        // 星の瞬きの頻度（毎秒）。曲の終わりの山と同じ水準
+const SKY_SPARK_RATE_HL = 9;     // ハイライト再生中（選んだ色の星だけ）の頻度
+const SKY_SPARK_SIZE = 7;        // 星の瞬きの大きさ（閃光の半径の元・画面座標）
+const SKY_FLASH_SIZE = 10;       // 放った後に押した手応えの閃光の大きさ（画面座標）
 
 // 宝石の面（Font Awesome gem の外形に合わせた 5+3 面）。座標は -1..1。n は擬似的な法線
 type Facet = { pts: [number, number][]; n: [number, number, number] };
@@ -224,6 +261,61 @@ function getLiveSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
   return arr;
 }
 
+// 夜空の星と、飛んでいる粒の丸。どちらも面の計算はせず、色ごとに一度だけ描いた絵を大きさを変えて貼る。
+// 数千個が同時に動くので、1個ごとに描き方を組み立てないのが肝（発熱対策）。
+const STAR_PX = 64;
+const STAR_CORE = 0.16;   // 絵の中で「点」に見える芯の割合。芯の直径 d の星は d/STAR_CORE の大きさで貼る
+const starCache = new Map<string, HTMLCanvasElement>();
+const DOT_PX = 32;
+const DOT_CORE = 0.45;    // 同上（粒は芯が大きく、滲みは狭い）
+const dotCache = new Map<string, HTMLCanvasElement>();
+function makeRadial(px: number, stops: [number, string][]): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = px; c.height = px;
+  const cx = c.getContext("2d");
+  if (cx) {
+    const grad = cx.createRadialGradient(px / 2, px / 2, 0, px / 2, px / 2, px / 2);
+    for (const [o, col] of stops) grad.addColorStop(o, col);
+    cx.fillStyle = grad;
+    cx.fillRect(0, 0, px, px);
+  }
+  return c;
+}
+/** 星: 白い芯＋その人の色の、ごく薄い光の滲み */
+function getStar(rgb: [number, number, number]): HTMLCanvasElement {
+  const key = rgb.join(",");
+  let c = starCache.get(key);
+  if (c) return c;
+  const [r, g, b] = rgb;
+  c = makeRadial(STAR_PX, [
+    [0, "rgba(255,255,255,0.95)"],
+    [STAR_CORE, `rgba(${r},${g},${b},0.8)`],
+    [0.34, `rgba(${r},${g},${b},0.07)`],   // 滲みは「ごく薄い」。数千個を重ねる（lighter）ので、濃いと白く飽和する【仮】
+    [1, `rgba(${r},${g},${b},0)`],
+  ]);
+  starCache.set(key, c);
+  return c;
+}
+/** 飛んでいる粒: その色の小さな丸 */
+function getDot(rgb: [number, number, number]): HTMLCanvasElement {
+  const key = rgb.join(",");
+  let c = dotCache.get(key);
+  if (c) return c;
+  const [r, g, b] = rgb;
+  c = makeRadial(DOT_PX, [
+    [0, "rgba(255,255,255,0.9)"],
+    [DOT_CORE, `rgba(${r},${g},${b},0.9)`],
+    [0.75, `rgba(${r},${g},${b},0.25)`],
+    [1, `rgba(${r},${g},${b},0)`],
+  ]);
+  dotCache.set(key, c);
+  return c;
+}
+/** 夜空の行き先（画面座標）。画面全体に散らし、縦は上の方が少し密になるよう偏らせる */
+function skyTarget(W: number, H: number): { x: number; y: number } {
+  return { x: Math.random() * W, y: H * Math.pow(Math.random(), SKY_Y_BIAS) };
+}
+
 const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas({ videoBoxRef, frame, reduceMotion = false }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** 押した瞬間の閃光（世界座標）。短時間で消える */
@@ -254,8 +346,21 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const finaleFromRef = useRef(1);
   /** 着地先を決める関数（キャンバスの寸法を知っている useEffect 内で差し替える） */
   const slotRef = useRef<(x: number, size: number, scale: number, self: boolean) => { tx: number; ty: number }>(() => ({ tx: 0, ty: 0 }));
-  /** 帳簿と焼き込みの絵を空にする関数（useEffect 内で差し替える） */
+  /** 帳簿と焼き込みの絵、星空の絵を空にする関数（useEffect 内で差し替える） */
   const clearWorldRef = useRef<() => void>(() => {});
+  /** 山を夜空へ放つ関数（帳簿と焼き込みの絵を知っている useEffect 内で差し替える） */
+  const launchRef = useRef<() => void>(() => {});
+  /** 放った後か。true の間は山を作らず、降る💎はそのまま星になる。カメラも止まったまま */
+  const launchedRef = useRef(false);
+  /** 夜空へ飛んでいる途中の粒（画面座標） */
+  const flyRef = useRef<SkyFly[]>([]);
+  /** 夜空の星（画面座標）。焼き込んだ後も瞬きの抽選のために位置を覚えておく */
+  const starsRef = useRef<SkyStar[]>([]);
+  /** 色ごとの星の番号の控え（"r,g,b" → starsRef の添字）。
+   *  ハイライト再生中に「選んでいる色の星だけ」を抽選するのに使う。数の少ない色を引き当てに行くと当たらないので、先に色で分けておく */
+  const starsByColorRef = useRef<Map<string, number[]>>(new Map());
+  /** 夜空の閃光（画面座標）。山の閃光は世界座標なので別に持つ */
+  const skyFlashesRef = useRef<{ x: number; y: number; t0: number; rgb: [number, number, number]; size: number }[]>([]);
   const sizeRef = useRef({ W: 0, H: 0 });
   const camRef = useRef({ scale: 1, cx: 0, cy: 0, oy: 0 });
 
@@ -265,9 +370,25 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       const { scale, cx, oy } = camRef.current;
       if (!W) return;
       spawnedRef.current += 1;
-      {
-        const rgb = hexToRgb(color);
-        recentRef.current.push({ t: performance.now(), key: rgb.join(","), rgb });
+      const rgb = hexToRgb(color);
+      recentRef.current.push({ t: performance.now(), key: rgb.join(","), rgb });
+      // 放った後は山に積もらない。自分の分は色の帯の少し上から、他の人の分は画面の下端から出て、
+      // そのまま夜空の行き先へ飛んで星になる（曲の終わりの拍手代わりの押しが「星が増える」になる）
+      if (launchedRef.current) {
+        const now = performance.now();
+        const x0 = Math.random() * W;
+        const y0 = self ? H - SELF_LAUNCH_Y + (Math.random() - 0.5) * SELF_LAUNCH_SPREAD : H;
+        const tgt = skyTarget(W, H);
+        flyRef.current.push({
+          x0, y0, x1: tgt.x, y1: tgt.y,
+          bow: FLY_BOW_MIN + Math.random() * FLY_BOW_RANGE,
+          t0: now, dur: SPAWN_FLY_MS,
+          d: FLY_DOT_MIN + Math.random() * FLY_DOT_RANGE,
+          rgb, self,
+        });
+        // 押した手応えの閃光は今までどおり出す（画面座標）
+        if (self) skyFlashesRef.current.push({ x: x0, y: y0, t0: now, rgb, size: SKY_FLASH_SIZE });
+        return;
       }
       const shrink = Math.max(SHRINK_MIN, Math.min(1, Math.sqrt(SHRINK_REF / spawnedRef.current)));
       const size = (SIZE_MIN + Math.random() * SIZE_RANGE) * shrink;
@@ -283,7 +404,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       if (pileTop !== Infinity) y = Math.min(y, pileTop - size * 3);
       const gems = gemsRef.current;
       const slot = slotRef.current(x, size, scale, self);
-      if (self) flashesRef.current.push({ x: slot.tx, y, t0: performance.now(), rgb: hexToRgb(color), size });
+      if (self) flashesRef.current.push({ x: slot.tx, y, t0: performance.now(), rgb, size });
       gems.push({
         x: slot.tx,
         y,
@@ -294,7 +415,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         ang: Math.random() * Math.PI * 2,
         spin: (Math.random() < 0.5 ? -1 : 1) * (SPIN_MIN + Math.random() * SPIN_RANGE),
         size,
-        rgb: hexToRgb(color),
+        rgb,
         settled: false,
         seed: Math.random() * 1000,
       });
@@ -303,6 +424,19 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       timeRef.current = { t: Math.max(0, t), d: Math.max(1, duration) };
     },
     undoLastSpawn() {
+      // 放った後は山が無く、代わりに夜空へ飛んでいる粒がある。直前の自分の粒とその閃光を取り消す
+      if (launchedRef.current) {
+        const fly = flyRef.current;
+        const last = fly[fly.length - 1];
+        if (!last || !last.self) return;
+        fly.pop();
+        spawnedRef.current = Math.max(0, spawnedRef.current - 1);
+        recentRef.current.pop();
+        // 押した手応えの閃光も消す。星の瞬きが後から割り込んでいることがあるので、出発点が同じものだけ
+        const sf = skyFlashesRef.current;
+        if (sf.length && Math.abs(sf[sf.length - 1].x - last.x0) < 1) sf.pop();
+        return;
+      }
       const gems = gemsRef.current;
       const last = gems[gems.length - 1];
       if (!last || last.settled) return;
@@ -321,6 +455,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       return peakRef.current.get(key)?.t ?? null;
     },
     setHoldCamera(on: boolean) { holdCameraRef.current = on; },
+    launchToSky() { launchRef.current(); },
     setColorTotals(totals: Record<string, number>) {
       const m = new Map<string, number>();
       for (const [hex, n] of Object.entries(totals)) m.set(hexToRgb(hex).join(","), n);
@@ -334,6 +469,11 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       holdCameraRef.current = false;
       for (const sl of frameSlotsRef.current) { sl.rgb = [...FRAME_BASE] as [number, number, number]; sl.w = 0; }
       sparkPointsRef.current = [];
+      launchedRef.current = false;
+      flyRef.current = [];
+      starsRef.current = [];
+      starsByColorRef.current.clear();
+      skyFlashesRef.current = [];
       spawnedRef.current = 0;
       finaleFromRef.current = 1;
       pileTopRef.current = Infinity;
@@ -354,9 +494,13 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     // 焼き込み用の絵（世界座標そのまま・1px=1px）。上限を超えた古い💎はここへ描き移して配列から外す。
     // 以前は古い順に配列から消していたので、帳簿の高さはそのままなのに山が床側からくり抜かれて宙に浮いた
     let bake: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; x0: number; y0: number; w: number; h: number } | null = null;
+    // 星空の絵（画面座標そのまま）。星になった粒はここへ描き移し、以後は毎フレームこの1枚を貼るだけ
+    let sky: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null = null;
+    let skyBaked = 0;   // starsRef のうち何個目まで焼き込んだか。0 に戻すと全部焼き直す
     const cols: number[] = [];
     const resize = () => {
       const r = canvas.getBoundingClientRect();
+      const prevW = W, prevH = H;
       dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
       W = r.width; H = r.height;
       canvas.width = Math.round(W * dpr);
@@ -367,6 +511,15 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       worldX0 = W / 2 - worldW / 2;
       const n = Math.ceil(worldW / COL_W) + 1;
       while (cols.length < n) cols.push(0);
+      // 星と飛んでいる粒は画面座標なので、画面の大きさが変わったら比率で合わせ直し、星空の絵を焼き直す。
+      // iPhone は再生中にもアドレスバーの出入りで高さが変わる
+      if (prevW > 0 && prevH > 0 && (W !== prevW || H !== prevH)) {
+        const kx = W / prevW, ky = H / prevH;
+        for (const s of starsRef.current) { s.x *= kx; s.y *= ky; }
+        for (const f2 of flyRef.current) { f2.x0 *= kx; f2.x1 *= kx; f2.y0 *= ky; f2.y1 *= ky; }
+        sky = null;
+        skyBaked = 0;
+      }
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -374,6 +527,49 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     clearWorldRef.current = () => {
       cols.fill(0);
       bake = null;   // 焼き込みの絵は捨てて、次に必要になった時に作り直す
+      sky = null;
+      skyBaked = 0;
+    };
+    /** 飛び終わった粒を星にする。位置は色ごとの控えにも入れて、瞬きの抽選で色を絞れるようにする */
+    const addStar = (x: number, y: number, rgb: [number, number, number]) => {
+      const stars = starsRef.current;
+      stars.push({ x, y, d: STAR_MIN + Math.random() * STAR_RANGE, rgb });
+      const key = rgb.join(",");
+      const arr = starsByColorRef.current.get(key);
+      if (arr) arr.push(stars.length - 1); else starsByColorRef.current.set(key, [stars.length - 1]);
+    };
+    launchRef.current = () => {
+      if (launchedRef.current || !W) return;
+      launchedRef.current = true;
+      const { scale, cx, oy } = camRef.current;
+      const now = performance.now();
+      // 粒の元は「積もった💎の位置の控え（焼き込んだ分も含む）」＋「まだ落ちている途中の💎」
+      const src: { x: number; y: number; rgb: [number, number, number] }[] = sparkPointsRef.current.slice();
+      for (const g of gemsRef.current) if (!g.settled) src.push({ x: g.x, y: g.y, rgb: g.rgb });
+      const n = Math.min(src.length, LAUNCH_MAX);
+      const step = n > 0 ? src.length / n : 1;   // 多すぎる時は等間隔に間引く
+      const fly = flyRef.current;
+      for (let k = 0; k < n; k++) {
+        const s = src[Math.floor(k * step)];
+        const tgt = skyTarget(W, H);
+        fly.push({
+          x0: cx + (s.x - cx) * scale,          // 世界座標のいまの見え方＝画面座標から出発する
+          y0: H + oy + (s.y - floorY) * scale,
+          x1: tgt.x, y1: tgt.y,
+          bow: FLY_BOW_MIN + Math.random() * FLY_BOW_RANGE,
+          t0: now, dur: LAUNCH_FLY_MS + Math.random() * LAUNCH_FLY_JITTER,
+          d: FLY_DOT_MIN + Math.random() * FLY_DOT_RANGE,
+          rgb: s.rgb, self: false,
+        });
+      }
+      // 山を空にする（1つずつ描いている💎・位置の控え・積もり高さの帳簿・焼き込みの絵）。
+      // 帳簿を空にするので、以後は着地先の割り当ても走らない
+      gemsRef.current = [];
+      sparkPointsRef.current = [];
+      flashesRef.current = [];   // 山の閃光は行き場が無くなるので一緒に捨てる（放つ光に紛れて見えない）
+      pileTopRef.current = Infinity;
+      cols.fill(0);
+      bake = null;
     };
 
     // 着地先の割り当て。cols[c] は列 c の積もった高さ(px)＝地形。
@@ -521,7 +717,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       const oyTarget = Math.max(0, maxH * scale - H * PILE_MAX_ON_SCREEN);
       const prevOy = camRef.current.oy;
       let oy = prevOy + (oyTarget - prevOy) * Math.min(1, dt * 4);
-      if (holdCameraRef.current) { scale = prev; oy = prevOy; }   // ハイライト再生中は動かさない
+      // ハイライト再生中と、夜空へ放った後は動かさない
+      if (holdCameraRef.current || launchedRef.current) { scale = prev; oy = prevOy; }
       pileTopRef.current = pileTopWorld;
       camRef.current = { scale, cx, cy, oy };
       // 落下（世界座標）: 着地先まで落ちて止まる。横には流れない（着地先が最初から詰まる位置なので）
@@ -599,6 +796,105 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         }
       }
       ctx.fillRect(f.x, f.y, f.w, f.h);
+
+      // 夜空へ放った後（画面座標のまま描く。カメラの外なので世界座標の計算は要らない）。
+      // 星空は1枚の絵にして貼るだけ、1つずつ描くのは飛んでいる途中の粒だけ＝放つ2秒を過ぎたら山より軽い
+      if (launchedRef.current) {
+        const stars = starsRef.current;
+        const fly = flyRef.current;
+        // 飛び終わった粒を星にする（先に済ませて、この後の焼き込みに間に合わせる＝1コマ消える瞬間を作らない）
+        for (let i = fly.length - 1; i >= 0; i--) {
+          if (now - fly[i].t0 < fly[i].dur) continue;
+          addStar(fly[i].x1, fly[i].y1, fly[i].rgb);
+          fly.splice(i, 1);
+        }
+        // 新しく星になった分を1枚の絵へ焼き足す。重なった所は明るくなる
+        if (stars.length > skyBaked) {
+          if (!sky) {
+            const res = Math.min(dpr, MAX_DPR);
+            const c = document.createElement("canvas");
+            c.width = Math.ceil(W * res); c.height = Math.ceil(H * res);
+            const sctx = c.getContext("2d");
+            if (sctx) {
+              sctx.scale(res, res);
+              sctx.globalCompositeOperation = "lighter";
+              sky = { canvas: c, ctx: sctx };
+            }
+          }
+          if (sky) {
+            for (let i = skyBaked; i < stars.length; i++) {
+              const st = stars[i];
+              const w = st.d / STAR_CORE;
+              sky.ctx.drawImage(getStar(st.rgb), st.x - w / 2, st.y - w / 2, w, w);
+            }
+            skyBaked = stars.length;
+          }
+        }
+        if (sky) ctx.drawImage(sky.canvas, 0, 0, W, H);
+        // 飛んでいる粒。はじめ速く終わりゆっくり進み、まっすぐでなく少し弧を描く
+        if (fly.length) {
+          ctx.save();
+          ctx.globalCompositeOperation = "lighter";
+          for (const f2 of fly) {
+            const u = (now - f2.t0) / f2.dur;
+            const k = 1 - (1 - u) * (1 - u) * (1 - u);
+            const x = f2.x0 + (f2.x1 - f2.x0) * k;
+            const y = f2.y0 + (f2.y1 - f2.y0) * k - f2.bow * Math.sin(Math.PI * k);
+            const w = f2.d / DOT_CORE;
+            ctx.drawImage(getDot(f2.rgb), x - w / 2, y - w / 2, w, w);
+          }
+          ctx.restore();
+        }
+        // 星の瞬き: 星空からランダムに1つ選んで、山の時と同じ十字の閃光を出す。
+        // 画面の外や動画の裏の星を選んでも見えないので、当たるまで数回引き直す。
+        // ハイライト再生中（setHoldCamera(true) で入る）は、いま選んでいる色の星だけが光る（Hop決定 2026-09-08）
+        if (!reduceMotionRef.current && stars.length > 0) {
+          const onlyOwn = holdCameraRef.current;
+          if (Math.random() < (onlyOwn ? SKY_SPARK_RATE_HL : SKY_SPARK_RATE) * dt) {
+            const idx = onlyOwn ? (starsByColorRef.current.get(ownKeyRef.current ?? "") ?? []) : null;
+            const len = idx ? idx.length : stars.length;
+            for (let tries = 0; tries < 12 && len > 0; tries++) {
+              const st = stars[idx ? idx[(Math.random() * len) | 0] : (Math.random() * len) | 0];
+              if (st.x < 0 || st.x > W || st.y < 0 || st.y > H) continue;
+              if (st.x > v.x && st.x < v.x + v.w && st.y > v.y && st.y < v.y + v.h) continue;
+              skyFlashesRef.current.push({ x: st.x, y: st.y, t0: now, rgb: st.rgb, size: SKY_SPARK_SIZE });
+              break;
+            }
+          }
+        }
+        // 閃光（画面座標）。光の類なので動画の矩形は除外して描く
+        const sf = skyFlashesRef.current;
+        if (sf.length) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, 0, W, H);
+          ctx.rect(v.x, v.y, v.w, v.h);
+          ctx.clip("evenodd");
+          ctx.globalCompositeOperation = "lighter";
+          for (let i = sf.length - 1; i >= 0; i--) {
+            const fl = sf[i];
+            const k = (now - fl.t0) / 320;
+            if (k >= 1) { sf.splice(i, 1); continue; }
+            const r = fl.size * (1.2 + 2.6 * k);
+            const a = 1 - k;
+            const rg = ctx.createRadialGradient(fl.x, fl.y, 0, fl.x, fl.y, r);
+            rg.addColorStop(0, `rgba(255,255,255,${0.95 * a})`);
+            rg.addColorStop(0.35, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},${0.7 * a})`);
+            rg.addColorStop(1, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},0)`);
+            ctx.fillStyle = rg;
+            ctx.fillRect(fl.x - r, fl.y - r, r * 2, r * 2);
+            ctx.strokeStyle = `rgba(255,255,255,${0.8 * a})`;
+            ctx.lineWidth = 2;
+            const L = fl.size * (2 + 3 * k);
+            ctx.beginPath();
+            ctx.moveTo(fl.x - L, fl.y); ctx.lineTo(fl.x + L, fl.y);
+            ctx.moveTo(fl.x, fl.y - L); ctx.lineTo(fl.x, fl.y + L);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+        return;
+      }
 
       if (gems.length === 0) return;
       const lightAng = reduceMotionRef.current ? SPRITE_LIGHT : (now / 1000) * 0.35; // 全体の光の向きをゆっくり回す＝面が順番に瞬く
