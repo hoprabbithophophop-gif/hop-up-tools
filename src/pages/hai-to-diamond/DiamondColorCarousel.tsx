@@ -15,16 +15,16 @@ import { memo, useCallback, useEffect, useRef, useState, type PointerEvent as Re
 import { faGem } from "@fortawesome/free-solid-svg-icons";
 import FaIcon from "../hi-tension/components/FaIcon";
 
-/** 真ん中の💎の大きさ(px)【仮】。今までの大きな💎ボタンと同じ寸法 */
-const CENTER_SIZE = 120;
+/** 真ん中の💎の大きさ(px)【仮】。幅390の画面で7個が丸ごと見え、両端に次の色が覗く寸法（Hop指示 2026-09-07） */
+const CENTER_SIZE = 76;
 /** 真ん中から数えて1つ目・2つ目・3つ目以降の💎の大きさ(px)【仮】 */
-const STEP_SIZES = [CENTER_SIZE, 56, 44, 36] as const;
+const STEP_SIZES = [CENTER_SIZE, 46, 38, 34] as const;
 /** 💎同士のあいだの隙間(px)【仮】 */
-const GAP = 10;
+const GAP = 6;
 /** 真ん中の左右に何個ずつ描くか。色の数より狭くしないと同じ色が2つ出てしまう */
 const WINDOW = 5;
 /** 帯の器の高さ(px)【仮】。真ん中の💎と、そのまわりに広がる光のぶん */
-const BAND_HEIGHT = 134;
+const BAND_HEIGHT = 96;
 /** これだけ指が動いたらスワイプ扱いにして、ボタンの押し（色えらび）を取り消す(px)【仮】 */
 const DRAG_THRESHOLD = 8;
 /** 指を離してから一番近い色が真ん中に収まるまでの時間(ms)【仮】 */
