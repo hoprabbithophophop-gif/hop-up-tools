@@ -29,6 +29,8 @@ const EMPTY_TTL_SECONDS = 60;
 const MAX_RESULTS = 100;
 /** 1件の本文の長さの上限（文字）。極端に長いものだけ止める安全弁で、通常のコメントは丸ごと流す（Hop決定 2026-09-08: 省略しない） */
 const MAX_TEXT_LENGTH = 1000;
+/** 取るページ数【仮】。1ページ 100 件・1点。5ページで最大 500 件 */
+const MAX_PAGES = 5;
 
 /** 受け付ける動画ID（白い名簿）。ここに無いIDは YouTube を叩かずに空を返す */
 const ALLOWED_VIDEO_IDS = new Set([
@@ -58,23 +60,36 @@ export async function onRequest(context: {
   const cached = await cache.match(cacheKey);
   if (cached) return cached;
 
-  let raw: unknown;
+  // 上位100件だけだと毎回同じ顔ぶれになる（順番は画面側で混ぜている）ので、続きのページも取って 500 件ほど集める。
+  // 1ページ＝1点。5ページで5点（Hop決定 2026-09-08: 毎回違うコメントが流れるように）
+  const collected: unknown[] = [];
   try {
-    const upstream = new URL('https://www.googleapis.com/youtube/v3/commentThreads');
-    upstream.searchParams.set('part', 'snippet');
-    upstream.searchParams.set('videoId', videoId);
-    upstream.searchParams.set('maxResults', String(MAX_RESULTS));
-    upstream.searchParams.set('order', 'relevance');
-    upstream.searchParams.set('textFormat', 'plainText');
-    upstream.searchParams.set('key', env.YOUTUBE_API_KEY);
-    const res = await fetch(upstream.toString(), { headers: { Accept: 'application/json' } });
-    // コメント無効（403）・動画が見つからない（404）・上限超え などは全部「出さない」で揃える。
-    // 中身に鍵の手掛かりが混ざりうるので、返事にも記録にも中身は出さない
-    if (!res.ok) return cacheAndReturn(context, cacheKey, json('[]', EMPTY_TTL_SECONDS));
-    raw = await res.json();
+    let pageToken: string | null = null;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const upstream = new URL('https://www.googleapis.com/youtube/v3/commentThreads');
+      upstream.searchParams.set('part', 'snippet');
+      upstream.searchParams.set('videoId', videoId);
+      upstream.searchParams.set('maxResults', String(MAX_RESULTS));
+      upstream.searchParams.set('order', 'relevance');
+      upstream.searchParams.set('textFormat', 'plainText');
+      upstream.searchParams.set('key', env.YOUTUBE_API_KEY);
+      if (pageToken) upstream.searchParams.set('pageToken', pageToken);
+      const res = await fetch(upstream.toString(), { headers: { Accept: 'application/json' } });
+      // コメント無効（403）・動画が見つからない（404）・上限超え などは全部「出さない」で揃える。
+      // 中身に鍵の手掛かりが混ざりうるので、返事にも記録にも中身は出さない
+      if (!res.ok) {
+        if (collected.length === 0) return cacheAndReturn(context, cacheKey, json('[]', EMPTY_TTL_SECONDS));
+        break;   // 途中で失敗したら、取れたぶんだけで続ける
+      }
+      const raw = (await res.json()) as { items?: unknown[]; nextPageToken?: string } | null;
+      if (Array.isArray(raw?.items)) collected.push(...raw.items);
+      pageToken = raw?.nextPageToken ?? null;
+      if (!pageToken) break;
+    }
   } catch {
-    return json('[]', 0);
+    if (collected.length === 0) return json('[]', 0);
   }
+  const raw: unknown = { items: collected };
 
   const out = json(JSON.stringify(toComments(raw)), TTL_SECONDS);
   return cacheAndReturn(context, cacheKey, out);
