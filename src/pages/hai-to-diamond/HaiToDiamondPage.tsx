@@ -16,6 +16,7 @@ import DiamondCanvas, { type DiamondCanvasApi } from "./DiamondCanvas";
 import DiamondEntry from "./DiamondEntry";
 import DiamondColorCarousel from "./DiamondColorCarousel";
 import DiamondHeatStrip from "./DiamondHeatStrip";
+import DiamondCommentTicker, { type TickerComment } from "./DiamondCommentTicker";
 import DiamondSettingsSheet, { getDiamondSettings, setDiamondSettings, type DiamondSettings } from "./DiamondSettingsSheet";
 import BouncyNumber from "../hi-tension/components/BouncyNumber";
 
@@ -49,6 +50,9 @@ const HEAT_BINS = 200;
 const HEAT_GAP = 8;
 /** 帯の器の高さ(px)。額縁の余白＋隙間＋帯本体＋光の滲みのぶん【仮】 */
 const HEAT_BOX_HEIGHT = FRAME + HEAT_GAP + 6 + 10;
+/** 流れるコメントを、盛り上がりの帯の器の下からどれだけ空けて置くか(px)【仮】。
+ *  帯の器には光の滲みのぶんまで含まれているので、その下端を起点にする＝滲みに文字が重ならない */
+const COMMENT_GAP = 8;
 /** 記録が送れなかった時に、もう一度送るまで待つ時間(ms)。
  *  受け口は1つのIPにつき1分10件までなので、1分の窓が空くのを待ってから出し直す */
 const RESEND_WAIT_MS = 61_000;
@@ -136,6 +140,11 @@ export default function HaiToDiamondPage() {
   /** 盛り上がりの帯の元データ（区間ごとの0〜1）と、いま再生している位置（0〜1） */
   const [heatLevels, setHeatLevels] = useState<number[]>([]);
   const [progress, setProgress] = useState(0);
+  /** 動画に付いている YouTube のコメント。動画の下に流す。取れなければ空のまま＝何も出ない */
+  const [comments, setComments] = useState<TickerComment[]>([]);
+  /** 流れるコメントに渡す動画時刻（秒）。本文の分:秒と見比べるだけなので1秒刻みに丸める＝
+   *  0.1秒ごとの見に行きのたびにページ全体を描き直さない */
+  const [videoTimeSec, setVideoTimeSec] = useState(0);
   const [settings, setSettings] = useState<DiamondSettings>(getDiamondSettings);
   const settingsRef = useRef(settings);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -161,6 +170,18 @@ export default function HaiToDiamondPage() {
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
   }, [started]);
+  // 動画に付いているコメントを読む。再生が始まってから1回だけ（入口では要らない）。
+  // 失敗しても何も言わずに空のまま＝コメントの帯は出ない
+  useEffect(() => {
+    if (!started) return;
+    let stale = false;
+    fetch(`/api/hai-to-diamond-comments?video_id=${encodeURIComponent(VIDEO_ID)}`, { headers: { Accept: "application/json" } })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows) => { if (!stale && Array.isArray(rows)) setComments(rows as TickerComment[]); })
+      .catch(() => { /* コメントは無くても本編は成り立つので黙って諦める */ });
+    return () => { stale = true; };
+  }, [started]);
+
   const handleSettingsChange = useCallback((next: DiamondSettings) => {
     settingsRef.current = next;
     setSettings(next);
@@ -282,6 +303,7 @@ export default function HaiToDiamondPage() {
     lastBucketRef.current = -1;
     setLiveCount(0);
     setProgress(0);
+    setVideoTimeSec(0);
     setPeakTime(null);
     setEnded(false);
     setStarted(true);
@@ -304,6 +326,9 @@ export default function HaiToDiamondPage() {
     const end = Math.min(SONG_END, peak + HIGHLIGHT_AFTER);
     highlightRef.current = { end };
     seekPendingRef.current = { target: start, until: performance.now() + 800 };
+    // 流れるコメントに渡す時刻も飛び先へ合わせる。曲の終わりの時刻(280秒)のまま見返しを始めると、
+    // 曲の終わり際に付いた分:秒のコメントが、見返しの頭でまとめて流れてしまう
+    setVideoTimeSec(Math.floor(start));
     setHighlighting(true);
     canvasRef.current?.setHoldCamera(true);
     lastBucketRef.current = Math.floor(start * 20) - 1;
@@ -353,6 +378,9 @@ export default function HaiToDiamondPage() {
     // 盛り上がりの帯の印。0.1秒ごとに全部描き直すと重いので、位置が 1/500 変わった時だけ動かす
     const p = Math.min(1, Math.max(0, Math.round((t / SONG_END) * 500) / 500));
     setProgress((prev) => (prev === p ? prev : p));
+    // 流れるコメントに渡す時刻。1秒刻みなので、秒が変わった時だけ知らせる
+    const sec = Math.floor(t);
+    setVideoTimeSec((prev) => (prev === sec ? prev : sec));
     // ハイライト再生: 区間の終わりで止めて終了画面に戻る
     const hl = highlightRef.current;
     if (hl) {
@@ -459,6 +487,23 @@ export default function HaiToDiamondPage() {
           }}
         >
           <DiamondHeatStrip levels={heatLevels} progress={progress} />
+        </div>
+      )}
+
+      {/* 流れるコメント。盛り上がりの帯の器のさらに下（動画の矩形の外）に置く。
+          本文に分:秒があるものはその時刻に、無いものはランダムな順で右から左へ流れる */}
+      {started && heatBox && (playing || highlighting) && (
+        <div
+          style={{
+            position: "absolute",
+            zIndex: 3,
+            top: heatBox.top + HEAT_BOX_HEIGHT + COMMENT_GAP,
+            left: heatBox.left,
+            width: heatBox.width,
+            pointerEvents: "none",
+          }}
+        >
+          <DiamondCommentTicker comments={comments} currentTime={videoTimeSec} reduceMotion={settings.reduceMotion} />
         </div>
       )}
 
