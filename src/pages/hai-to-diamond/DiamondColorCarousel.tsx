@@ -71,11 +71,13 @@ const SIDE_OPACITY = 0.7;
 const PRESS_SCALE = 0.92;
 /** 帯の裏に敷く暗い下地【仮】。積もった💎の山に重なっても💎の列が読めるように（Hop指示 2026-09-07）。
  *  終了画面の帯（rgba(7,8,12,0.72)）と同じ色味で、こちらは常時出るぶん少し薄い */
-const BAND_BG = "rgba(7,8,12,0.6)";
+const BAND_BG = "rgba(7,8,12,0.42)";   // 山が向こうに見える程度の薄さ（Hop指摘 2026-09-08: 幅も濃さも取りすぎ）【仮】
 /** 下地の上下の縁を透明へぼかす幅(px)【仮】。真四角の板に見えないよう背景へ溶かす */
-const BAND_FADE = 12;
+const BAND_FADE = 10;
+/** 下地の高さは💎の列にぴったり寄せる。真ん中の💎の上下にこれだけ足した高さ【仮】 */
+const BAND_PAD = 6;
 /** 下地の裏をぼかす強さ(px)【仮】。対応していない環境では暗い下地だけが残る */
-const BAND_BLUR = 6;
+const BAND_BLUR = 2;
 
 export interface DiamondColorOption {
   id: string;
@@ -395,7 +397,11 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
         aria-hidden="true"
         style={{
           position: "absolute",
-          inset: 0,
+          left: 0,
+          right: 0,
+          top: "50%",
+          height: CENTER_SIZE + BAND_PAD * 2,
+          marginTop: -(CENTER_SIZE / 2 + BAND_PAD),
           zIndex: 0,
           background: BAND_BG,
           backdropFilter: `blur(${BAND_BLUR}px)`,
