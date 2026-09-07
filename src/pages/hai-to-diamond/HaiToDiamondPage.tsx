@@ -21,7 +21,7 @@ import DiamondSettingsSheet, { getDiamondSettings, setDiamondSettings, type Diam
 import BouncyNumber from "../hi-tension/components/BouncyNumber";
 
 /** BEYOOOOONDS『灰toダイヤモンド』Promotion Edit（公式）。https://youtu.be/ImXkCr22kCU */
-const VIDEO_ID = "ImXkCr22kCU";
+const VIDEO_ID = "_56xLKRcVYM";   // YOKOOOOOHAMA ARENA Live Edit.（2026-09-07 公開・Hop指定）。前の Promotion Edit は ImXkCr22kCU（記録の池は動画IDごとに別）
 /** 額縁（動画の周りの帯）の太さ(px) */
 const FRAME = 14;
 /** PCでは動画を縮めて置く（ハイ！テンションと同じ幅） */
@@ -40,7 +40,7 @@ function shareToX(count: number) {
 /** 他の人の💎を1回の時刻更新（0.1秒）で出す上限。大勢の同時押しで一気に固まらないための蓋【仮】。設定「みんなの💎」で変わる */
 const OTHERS_PER_TICK: Record<DiamondSettings["crowd"], number> = { full: 25, light: 6, self: 0 };
 /** 曲の終わり（秒）。プロモーション動画は音が終わった後に無音の黒画面（別動画への案内枠）が続くので、そこで終了扱いにする（Hop指定 2026-09-07: 4:35.9） */
-const SONG_END = 275.9;
+const SONG_END = 280;   // Live Edit. は全長 280 秒。音が終わる時刻は未確認なので今は全長【仮】。Promotion Edit の時は 275.9 だった
 /** 「選んだ色が一番輝いた瞬間」の前後の幅（秒）【仮】 */
 const HIGHLIGHT_BEFORE = 5;
 const HIGHLIGHT_AFTER = 5;
