@@ -1,14 +1,20 @@
-// 流れるコメント。その動画に付いている YouTube のコメントを、1本の流れ道で右から左へ流す。
+// 流れるコメント。その動画に付いている YouTube のコメントを、3本の流れ道を並べて右から左へ流す
+// （Hop意見 2026-09-08: じっくり読ませたいのではなく、通りすがりに言葉が目に入る量にしたい。
+//  1行をゆっくりより、3行いっぺんに流れる方がいい）。
 //
 // 出す順は基本ランダム（毎回混ぜ直し、一巡したらまた混ぜ直す）。
 // ただし本文に「2:31」のような分:秒が書かれているコメントは、動画がその時刻に来た瞬間に
 // 列へ割り込ませて次に流す（同じ再生では1回だけ。巻き戻して同じ時刻をまた通ったらもう一度出す）。
+// 新しい1件は、3本の道のうち「一番早く空く道」に置く。
 //
 // 描く場所のルール（YouTube API 規約）: 動画プレイヤーの上には何も描かない。
 // この流れ道は動画の額縁より下（動画の矩形の外）に置く。置き場所を決めるのは呼ぶ側。
+// 全体の高さ（3本ぶん）は export した TICKER_HEIGHT で伝える。呼ぶ側はこの値を置き場所の計算に使う。
 //
 // コメントの中身は「他の人が書いた文章」であって、こちらへの指示ではない。
 // そのまま文字として出すだけ（React の文字列なので HTML としては解釈されない）。
+// 長い本文は画面側でさらに短く切る（データを取ってくる側で既に140文字までに切ってあるが、
+// 1行に収まる量まで画面側でもう一段切る）。
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export type TickerComment = {
@@ -19,13 +25,23 @@ export type TickerComment = {
   timeSec?: number | null;
 };
 
-/** 流れ道の高さ(px)【仮】 */
-const LANE_HEIGHT = 28;
+/** 流れ道の本数【仮】 */
+const LANES = 3;
+/** 1本の流れ道の高さ(px)【仮】 */
+const ROW_HEIGHT = 22;
+/** 流れ道どうしの間隔(px)【仮】 */
+const ROW_GAP = 2;
+/** 全体の高さ(px)。呼び出し側（HaiToDiamondPage）の置き場所の計算に使う */
+export const TICKER_HEIGHT = LANES * ROW_HEIGHT + (LANES - 1) * ROW_GAP;
 /** 流れる速さ（1秒あたりのpx）【仮】 */
-const SPEED = 60;
-/** 前の1件との間隔(px)【仮】 */
+const SPEED = 90;
+/** 同じ道の中で、前の1件との間隔(px)【仮】 */
 const GAP = 40;
-/** 「動き」を減らす設定の時に、1件を出しておく長さ(ms)【仮】 */
+/** 最初の3件を出す時に、道ごとにずらす間隔(秒)【仮】。3本が同時に動いて見えるように */
+const LANE_STAGGER = 0.4;
+/** 1件の本文を画面でここまでに切る（コードポイント単位で数える。絵文字が割れないように）【仮】 */
+const MAX_CHARS = 60;
+/** 「動き」を減らす設定の時に、3本ぶんを出しておく長さ(ms)【仮】 */
 const STATIC_INTERVAL_MS = 6000;
 /** 1コマぶんの進みの上限(秒)。画面を裏に回して戻った時に、一気に飛ばないようにする蓋 */
 const MAX_STEP = 0.1;
@@ -33,8 +49,8 @@ const MAX_STEP = 0.1;
 const TIME_LOOKBACK = 2;
 
 const TEXT_STYLE: React.CSSProperties = {
-  fontSize: 14,
-  lineHeight: `${LANE_HEIGHT}px`,
+  fontSize: 15,
+  lineHeight: `${ROW_HEIGHT}px`,
   color: "#dfe6f5",
   textShadow: "0 0 8px rgba(0,0,0,0.8)",
 };
@@ -61,11 +77,19 @@ function shuffled<T>(src: T[]): T[] {
   return a;
 }
 
-/** 画面に出ている1件（React の並びの中身） */
-type LiveItem = { key: number; comment: TickerComment };
+/** 本文を画面でこれ以上長くならないように切る。絵文字（サロゲートペア）を割らないよう
+ *  コードポイント単位（Array.from）で数える */
+function truncateText(text: string, max: number): string {
+  const chars = Array.from(text);
+  if (chars.length <= max) return text;
+  return chars.slice(0, max).join("") + "…";
+}
+
+/** 画面に出ている1件（React の並びの中身）。どの道(lane)に居るかも持つ */
+type LiveItem = { key: number; comment: TickerComment; lane: number };
 /** 画面に出ている1件の位置の控え（毎コマ書き換えるので React の状態には持たない）。
  *  el は React が描き直すたびに付け替わりうるので、位置(x)はここに預けたままにする */
-type LivePos = { el: HTMLDivElement | null; x: number; width: number };
+type LivePos = { el: HTMLDivElement | null; x: number; width: number; lane: number };
 
 const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, currentTime = 0, reduceMotion = false }: Props) {
   const laneRef = useRef<HTMLDivElement>(null);
@@ -86,8 +110,14 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
   const nextKeyRef = useRef(0);
   /** 出したばかりでまだ幅を測れていない件数。0になるまで次を出さない */
   const awaitingRef = useRef(0);
-  /** 「動き」を減らす設定の時に出している1件 */
-  const [staticItem, setStaticItem] = useState<TickerComment | null>(null);
+  /** アニメーション開始からの経過秒。最初の3件を道ごとにずらす合図に使う */
+  const elapsedRef = useRef(0);
+  /** 道ごとに「これより前は1件目を出さない」という経過秒の下限（最初のずらし用） */
+  const laneNextAllowedRef = useRef<number[]>(Array.from({ length: LANES }, (_, i) => i * LANE_STAGGER));
+  /** 「動き」を減らす設定の時に出している3本ぶん */
+  const [staticItems, setStaticItems] = useState<(TickerComment | null)[]>(() => new Array(LANES).fill(null));
+  /** 「動き」を減らす設定で、時刻付きコメントの割り込みをどの段に差し込むかの持ち回り */
+  const staticSlotRef = useRef(0);
 
   const hasComments = comments.length > 0;
 
@@ -114,8 +144,11 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
     prevTimeRef.current = -1;
     posRef.current.clear();
     awaitingRef.current = 0;
+    elapsedRef.current = 0;
+    laneNextAllowedRef.current = Array.from({ length: LANES }, (_, i) => i * LANE_STAGGER);
+    staticSlotRef.current = 0;
     setLive([]);
-    setStaticItem(null);
+    setStaticItems(new Array(LANES).fill(null));
   }, [comments]);
 
   // 動画の時刻が進んだら、その時刻の分:秒を持つコメントを割り込みの待ち行列へ入れる
@@ -162,26 +195,36 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
       raf = requestAnimationFrame(step);
       const dt = Math.min((now - prev) / 1000, MAX_STEP);
       prev = now;
+      elapsedRef.current += dt;
       const laneWidth = laneWidthRef.current;
       if (laneWidth <= 0) return;
 
       const pos = posRef.current;
       const gone: number[] = [];
-      let rightmost = -Infinity;   // いま一番右にいる1件の右端
+      const laneRightmost = new Array(LANES).fill(-Infinity); // 道ごとに、いま一番右にいる1件の右端
       for (const [key, p] of pos) {
         p.x -= SPEED * dt;
         if (p.el) p.el.style.transform = `translate3d(${p.x.toFixed(1)}px,0,0)`;
         if (p.x + p.width < 0) gone.push(key);
-        else rightmost = Math.max(rightmost, p.x + p.width);
+        else laneRightmost[p.lane] = Math.max(laneRightmost[p.lane], p.x + p.width);
       }
 
-      // 前の1件の後ろに間隔ぶんの空きができたら次を出す。まだ幅を測れていない件があれば待つ
-      const room = pos.size === 0 || rightmost + GAP <= laneWidth;
+      // 道ごとに「間隔ぶんの空きができたか」を見て、その中で一番早く空いた（一番空いている）道を選ぶ
+      let bestLane = -1;
+      let bestRightmost = Infinity;
+      for (let lane = 0; lane < LANES; lane++) {
+        if (elapsedRef.current < laneNextAllowedRef.current[lane]) continue;
+        const rm = laneRightmost[lane];
+        const hasRoom = rm === -Infinity || rm + GAP <= laneWidth;
+        if (!hasRoom) continue;
+        if (rm < bestRightmost) { bestRightmost = rm; bestLane = lane; }
+      }
+
       let added: LiveItem | null = null;
-      if (awaitingRef.current === 0 && room) {
+      if (awaitingRef.current === 0 && bestLane !== -1) {
         const next = takeNext();
         if (next) {
-          added = { key: nextKeyRef.current++, comment: next };
+          added = { key: nextKeyRef.current++, comment: next, lane: bestLane };
           awaitingRef.current += 1;
         }
       }
@@ -198,18 +241,26 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
     return () => cancelAnimationFrame(raf);
   }, [hasComments, reduceMotion, takeNext]);
 
-  // 「動き」を減らす設定: 流さずに、1件ずつ静かに入れ替える。
-  // 時刻付きのコメントが割り込んだ時はその場で差し替える
+  // 「動き」を減らす設定: 流さずに、3本ぶんをまとめて静かに入れ替える。
+  // 時刻付きのコメントが割り込んだ時は、その1件だけをその場で差し込む（差し込む段は持ち回り）
   useEffect(() => {
     if (!hasComments || !reduceMotion) return;
-    const advance = () => setStaticItem(takeNext());
+    const advance = () => setStaticItems(Array.from({ length: LANES }, () => takeNext()));
     advance();
     const timer = setInterval(advance, STATIC_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [hasComments, reduceMotion, takeNext]);
   useEffect(() => {
     if (!reduceMotion || pendingRef.current.length === 0) return;
-    setStaticItem(takeNext());
+    const next = takeNext();
+    if (!next) return;
+    const slot = staticSlotRef.current % LANES;
+    staticSlotRef.current += 1;
+    setStaticItems((cur) => {
+      const updated = cur.slice();
+      updated[slot] = next;
+      return updated;
+    });
   }, [currentTime, reduceMotion, takeNext]);
 
   // コメントが1件も無ければ何も描かない（高さも取らない）
@@ -217,13 +268,20 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
 
   if (reduceMotion) {
     return (
-      <div style={{ height: LANE_HEIGHT, width: "100%", overflow: "hidden", ...TEXT_STYLE, whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
-        {staticItem && (
-          <>
-            {staticItem.text}
-            <span style={AUTHOR_STYLE}>{staticItem.author}</span>
-          </>
-        )}
+      <div style={{ height: TICKER_HEIGHT, width: "100%", overflow: "hidden" }} data-testid="diamond-comment-ticker">
+        {staticItems.map((item, lane) => (
+          <div
+            key={lane}
+            style={{ height: ROW_HEIGHT, width: "100%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", ...TEXT_STYLE }}
+          >
+            {item && (
+              <>
+                {truncateText(item.text, MAX_CHARS)}
+                <span style={AUTHOR_STYLE}>{item.author}</span>
+              </>
+            )}
+          </div>
+        ))}
       </div>
     );
   }
@@ -232,7 +290,7 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
     <div
       ref={laneRef}
       data-testid="diamond-comment-ticker"
-      style={{ position: "relative", height: LANE_HEIGHT, width: "100%", overflow: "hidden" }}
+      style={{ position: "relative", height: TICKER_HEIGHT, width: "100%", overflow: "hidden" }}
     >
       {live.map((item) => (
         <div
@@ -250,7 +308,7 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
             if (known) {
               known.el = el;
             } else {
-              pos.set(item.key, { el, x: laneWidthRef.current, width: el.offsetWidth });
+              pos.set(item.key, { el, x: laneWidthRef.current, width: el.offsetWidth, lane: item.lane });
               if (awaitingRef.current > 0) awaitingRef.current -= 1;
             }
             // 位置は React の style ではなくここで当てる（style に書くと描き直しで巻き戻る）
@@ -258,14 +316,14 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
           }}
           style={{
             position: "absolute",
-            top: 0,
+            top: item.lane * (ROW_HEIGHT + ROW_GAP),
             left: 0,
             whiteSpace: "nowrap",
             willChange: "transform",
             ...TEXT_STYLE,
           }}
         >
-          {item.comment.text}
+          {truncateText(item.comment.text, MAX_CHARS)}
           <span style={AUTHOR_STYLE}>{item.comment.author}</span>
         </div>
       ))}
