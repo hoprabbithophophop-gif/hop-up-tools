@@ -1,12 +1,10 @@
-// 💎ボタン＋回数。ハイ！テンションの✋ボタン(HiTapButton)と同じ作り・同じ手触り
-// （タップで1回、長押しで連打）。絵だけ gem に差し替えている。
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+// 💎ボタン＋回数。ハイ！テンションの✋ボタン(HiTapButton)と同じ作り・同じ手触り。絵だけ gem に差し替えている。
+// 長押しの連打はリリース時に外した（Hop決定 2026-09-07）。押した回数だけ💎が降る。
+import { forwardRef, useImperativeHandle, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { faGem } from "@fortawesome/free-solid-svg-icons";
 import BouncyNumber from "../hi-tension/components/BouncyNumber";
 import FaIcon from "../hi-tension/components/FaIcon";
 
-const LONG_PRESS_INTERVAL_MS = 150;
-const LONG_PRESS_THRESHOLD_MS = 250;
 const BUTTON_SIZE = 120;
 const INVITE_PULSE_SECONDS = 1.6; // 誘いの輪が1回広がって消えるまでの秒数【仮】
 
@@ -32,40 +30,27 @@ const DiamondTapButton = forwardRef<DiamondTapButtonApi, Props>(function Diamond
 ) {
   const [count, setCount] = useState(0);
   const [isPressed, setIsPressed] = useState(false);
-  const pressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearPressTimers = () => {
-    if (pressIntervalRef.current) { clearInterval(pressIntervalRef.current); pressIntervalRef.current = null; }
-    if (holdTimerRef.current) { clearTimeout(holdTimerRef.current); holdTimerRef.current = null; }
-  };
-  useEffect(() => clearPressTimers, []);
 
   useImperativeHandle(ref, () => ({
     reset() {
       setCount(0);
       setIsPressed(false);
-      clearPressTimers();
     },
   }), []);
 
-  const record = (autoRepeat = false) => {
-    if (onRecord(autoRepeat)) setCount((c) => c + 1);
+  const record = () => {
+    if (onRecord(false)) setCount((c) => c + 1);
   };
 
+  /** 押した瞬間（指を離すのを待たない）に1回 */
   const handlePressStart = (e: ReactPointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
     setIsPressed(true);
     record();
-    clearPressTimers();
-    holdTimerRef.current = setTimeout(() => {
-      pressIntervalRef.current = setInterval(() => record(true), LONG_PRESS_INTERVAL_MS);
-    }, LONG_PRESS_THRESHOLD_MS);
   };
 
   const handlePressEnd = () => {
     setIsPressed(false);
-    clearPressTimers();
   };
 
   const showInvitePulse = inviting && !reduceMotion && !isPressed;
