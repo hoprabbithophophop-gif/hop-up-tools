@@ -19,6 +19,8 @@ export type DiamondCanvasApi = {
   reset: () => void;
   /** 色ごとの曲全体の総数（色のhex → 個数）。額縁の順位を「その色の普段の量と比べた倍率」で決めるための基準 */
   setColorTotals: (totals: Record<string, number>) => void;
+  /** 直前に spawn した自分の💎を取り消す（触れた瞬間に降らせたが、指が滑ってスワイプだった時）。まだ落ちている途中のものだけ消す */
+  undoLastSpawn: () => void;
   /** いま自分が選んでいる色。getPeakTime を色の指定なしで呼んだ時の既定になる（色を替えるたびに呼ぶ） */
   setOwnColor: (hex: string) => void;
   /** その色の倍率が曲中で最大だった動画時刻（秒）。まだ無ければ null。
@@ -299,6 +301,18 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     },
     setTime(t: number, duration: number) {
       timeRef.current = { t: Math.max(0, t), d: Math.max(1, duration) };
+    },
+    undoLastSpawn() {
+      const gems = gemsRef.current;
+      const last = gems[gems.length - 1];
+      if (!last || last.settled) return;
+      gems.pop();
+      spawnedRef.current = Math.max(0, spawnedRef.current - 1);
+      recentRef.current.pop();
+      // 押した手応えの閃光も一緒に消す（直前に足したもの）
+      const fl = flashesRef.current;
+      if (fl.length && Math.abs(fl[fl.length - 1].x - last.x) < 1) fl.pop();
+      // 帳簿（cols）に取った着地先はそのまま残る。スワイプは1回の再生で数回なので、その分の小さな隙間は許容する
     },
     setOwnColor(hex: string) { ownKeyRef.current = hexToRgb(hex).join(","); },
     getPeakTime(hex?: string) {

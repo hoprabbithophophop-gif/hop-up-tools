@@ -425,6 +425,14 @@ export default function HaiToDiamondPage() {
     return true;
   }, []);
 
+  /** 触れた瞬間に降らせた1つを取り消す（指が滑ってスワイプになった時） */
+  const handleRecordCancel = useCallback(() => {
+    if (tapsRef.current.length === 0) return;
+    tapsRef.current.pop();
+    canvasRef.current?.undoLastSpawn();
+    setLiveCount(tapsRef.current.length);
+  }, []);
+
   return (
     <div
       style={{
@@ -592,6 +600,7 @@ export default function HaiToDiamondPage() {
               selectedId={memberId}
               onSelect={handlePickColor}
               onRecord={handleRecord}
+              onRecordCancel={handleRecordCancel}
               inviting={liveCount === 0}
               reduceMotion={settings.reduceMotion}
             />

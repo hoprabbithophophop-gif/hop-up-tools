@@ -82,6 +82,8 @@ interface Props {
   /** 真ん中の💎を押した時に呼ぶ。true を返したら押せたものとして扱う。
    *  渡さなければ「押しても💎は降らない」帯になる（曲のあとの見返し中） */
   onRecord?: () => boolean;
+  /** 真ん中を触れた瞬間に降らせた💎を取り消す。指が滑ってスワイプになった時に呼ぶ（Hop指摘 2026-09-08: スライドしただけで降るのは早すぎる） */
+  onRecordCancel?: () => void;
   /** まだ一度も押されていない間、真ん中の💎のまわりの光をゆっくり脈打たせて押すよう誘う */
   inviting?: boolean;
   /** 動き軽減：脈打ちと吸い付きの動きを止める */
@@ -150,6 +152,7 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
   selectedId,
   onSelect,
   onRecord,
+  onRecordCancel,
   inviting = false,
   reduceMotion = false,
 }: Props) {
@@ -165,7 +168,7 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
   /** 吸い付きの行き先。途中の色を「選ばれた」と誤解しないよう、外との突き合わせはこの値で見る */
   const targetIndexRef = useRef(offsetRef.current);
   /** 指の情報。null なら触っていない。anchorX は「スワイプと認めた地点」で、ここからの差分で帯を動かす */
-  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; anchorX: number; startOffset: number; item: number | null; moved: boolean } | null>(null);
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; anchorX: number; startOffset: number; item: number | null; moved: boolean; recorded: boolean } | null>(null);
   /** 指の速さを測るための、直前の動きの控え（時刻と目盛り） */
   const samplesRef = useRef<{ t: number; o: number }[]>([]);
   /** 押されている見た目にする💎（色の番号）。null なら誰も押されていない */
@@ -198,7 +201,8 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
       const t = `translate3d(${xAt(d).toFixed(2)}px, 0, 0) scale(${scale.toFixed(4)})`;
       const o = ((CENTER_OPACITY + (SIDE_OPACITY - CENTER_OPACITY) * near) * edge).toFixed(3);
       const z = i === base ? "2" : "1";
-      const anim = i === base && pulse && !isPressed ? `hai-to-diamond-band-invite ${INVITE_PULSE_SECONDS}s ease-out infinite` : "none";
+      void pulse;
+      const anim = "none";   // 脈打ちは💎の絵ではなく、真ん中の裏に置いた輪（下の invite の要素）で出す
       // 透明になった💎は「無い」ことにする。置いたままだと、画面の広いPCでは
       // 帯の左右の何も無いところを押した時に見えない💎が反応してしまう
       const v = o === "0.000" ? "hidden" : "";
@@ -312,13 +316,13 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
     if (dragRef.current) return;
     stopAnim();
     containerRef.current?.setPointerCapture?.(e.pointerId);
-    dragRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, anchorX: e.clientX, startOffset: offsetRef.current, item, moved: false };
+    dragRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, anchorX: e.clientX, startOffset: offsetRef.current, item, moved: false, recorded: false };
     samplesRef.current = [];
     const base = wrapIndex(Math.round(offsetRef.current), n);
     if (item != null) {
       pressedRef.current = item;
       paint();
-      if (item === base && onRecord) onRecord();
+      if (item === base && onRecord) dragRef.current.recorded = onRecord();
     }
   }, [n, onRecord, paint, stopAnim]);
 
@@ -334,6 +338,8 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
       d.anchorX = e.clientX;
       d.startOffset = offsetRef.current;
       if (pressedRef.current != null) { pressedRef.current = null; }   // 指がぶれた＝押しではなくスワイプ
+      // 真ん中を触れた瞬間に降らせた分は取り消す（スワイプのつもりだった）
+      if (d.recorded) { d.recorded = false; onRecordCancel?.(); }
     }
     offsetRef.current = d.startOffset - indexAtX(e.clientX - d.anchorX);
     // 指の速さを測るための控え。窓より古いものは捨てる
@@ -342,7 +348,7 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
     s.push({ t: now, o: offsetRef.current });
     while (s.length > 2 && now - s[0].t > VELOCITY_WINDOW_MS) s.shift();
     paint();
-  }, [paint]);
+  }, [paint, onRecordCancel]);
 
   return (
     <div
@@ -367,9 +373,9 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
       {/* 誘いの脈打ち。丸い輪が無くなったので、💎の形に沿った光がまわりへ広がって消えるのを繰り返す【仮】 */}
       <style>{`
         @keyframes hai-to-diamond-band-invite {
-          0%   { filter: drop-shadow(0 0 0 rgba(255,255,255,0.8)); }
-          70%  { filter: drop-shadow(0 0 22px rgba(255,255,255,0)); }
-          100% { filter: drop-shadow(0 0 22px rgba(255,255,255,0)); }
+          0%   { box-shadow: 0 0 0 0 rgba(255,255,255,0.85); }
+          70%  { box-shadow: 0 0 0 26px rgba(255,255,255,0); }
+          100% { box-shadow: 0 0 0 26px rgba(255,255,255,0); }
         }
       `}</style>
 
@@ -389,6 +395,27 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
           pointerEvents: "none",
         }}
       />
+
+      {/* 初回タップまでの誘い: 真ん中の💎の裏で白い輪が広がって消えるのを繰り返す（前の大きなボタンと同じ演出）。
+          1回押したら消える。動き軽減では出さない */}
+      {inviting && !reduceMotion && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            width: CENTER_SIZE,
+            height: CENTER_SIZE,
+            marginLeft: -CENTER_SIZE / 2,
+            marginTop: -CENTER_SIZE / 2,
+            borderRadius: "50%",
+            zIndex: 1,
+            pointerEvents: "none",
+            animation: `hai-to-diamond-band-invite ${INVITE_PULSE_SECONDS}s ease-out infinite`,
+          }}
+        />
+      )}
 
       {/* 💎は色の数だけ最初に置いたきり、並べ替えも作り直しもしない。
           動く見た目（位置・大きさ・薄さ・重なりの順・脈打ち）は paint() が直に書き込む */}
