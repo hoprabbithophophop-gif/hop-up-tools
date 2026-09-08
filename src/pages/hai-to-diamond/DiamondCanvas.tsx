@@ -4,6 +4,13 @@
 // このキャンバスは動画の裏（z-index 下）に置き、光の類は描画時に動画の矩形をクリップで除外する。
 // 💎そのものは動画の裏を通る（隠れる）だけで、動画の上には出ない。
 //
+// 表示の方式は2つあり、setMode で選ぶ（既定は "pile"＝今までの山）。
+//   pile        … 💎が上から降って画面の下に積もる。カメラが引いて山が動画の背景になる。
+//   mirrorball  … 曲の歌詞のミラーボール。💎は積もらず動画の中心へ吸い込まれ、動画の裏で球の表面の点になる。
+//                  はじめは動画に隠れて見えず、額縁の外へ漏れる光の筋だけが見える。数が溜まると動画の上下から
+//                  球の縁が覗き、さらに増えると画面からはみ出して回りながら光を返す。曲の最後は山と同じく星空へ散る。
+//                  この方式ではカメラの引き寄り・山の帳簿・焼き込みの絵は使わない。
+//
 // 世界座標: カメラ倍率1のときの画面座標と同じ。y は画面上端=0 で下へ正。
 // カメラの軸は「床（画面の下端）」。引くほど山は画面の下に縮んで留まり、動画（固定）の下に収まる。
 // 動画の中心を軸にすると、引くほど山の頂上が動画の中心に寄ってしまい、山を動画の下に留められない。
@@ -31,7 +38,13 @@ export type DiamondCanvasApi = {
   /** 積もった山を一斉に夜空へ放って星空にする（曲の最後のフレーズ「Let's Shine Together!」）。
    *  山は空になり、以後に降る💎も積もらずそのまま星になる。カメラもここで止まる。1回だけ効く（reset で戻る） */
   launchToSky: () => void;
+  /** 表示の方式を選ぶ。既定は "pile"（今までの山）。"mirrorball" は💎が動画に吸い込まれて球になる。
+   *  「はじめる」の前に呼ぶ想定。途中で替えても壊れないが、それまでの山や球は画面から消え、カメラは倍率1に戻る */
+  setMode: (mode: DiamondMode) => void;
 };
+
+/** 表示の方式。"pile"＝💎が降って積もる山、"mirrorball"＝動画の裏に集まる球 */
+export type DiamondMode = "pile" | "mirrorball";
 
 interface Props {
   /** 動画本体（16:9の箱）の要素。毎フレーム位置を測る */
@@ -69,6 +82,27 @@ type SkyFly = {
   rgb: [number, number, number];
   /** 自分が押した分。取り消し（スワイプの空振り）で消せるようにする */
   self: boolean;
+};
+/** ミラーボール方式で、動画の中心へ吸い込まれている途中の💎（画面座標）。
+ *  行き先は覚えず、描く時に毎回いまの動画の中心を見る＝再生中に画面の高さが変わっても狙いがずれない */
+type Suck = {
+  x0: number; y0: number;   // 出発（画面座標）
+  t0: number;               // 飛び始めた時刻(ms)
+  dur: number;              // 吸い込まれるまでの時間(ms)
+  ang: number;              // 出た時の向き(rad)
+  spin: number;             // 回る速さ(rad/s)
+  size: number;
+  rgb: [number, number, number];
+  /** 自分が押した分。取り消し（スワイプの空振り）で消せるようにする */
+  self: boolean;
+};
+/** ミラーボールの球。n=これまでに吸い込まれた総数（半径の元・上限を超えても数え続ける）、r=いまの半径(px)、
+ *  sprites/rgb=表面の各点に入っている色（空きは null）。点の位置は getBallLattice() の並び、埋める順は getBallOrder() */
+type Ball = {
+  n: number;
+  r: number;
+  sprites: (HTMLCanvasElement | null)[];
+  rgb: Uint8Array;
 };
 /** 夜空の星（画面座標）。位置は星空の絵へ焼き込んだ後も、瞬きの抽選のために覚えておく */
 type SkyStar = { x: number; y: number; d: number; rgb: [number, number, number] };
@@ -129,6 +163,34 @@ const SKY_SPARK_RATE = 6;        // 星の瞬きの頻度（毎秒）。曲の�
 const SKY_SPARK_RATE_HL = 9;     // ハイライト再生中（選んだ色の星だけ）の頻度
 const SKY_SPARK_SIZE = 7;        // 星の瞬きの大きさ（閃光の半径の元・画面座標）
 const SKY_FLASH_SIZE = 10;       // 放った後に押した手応えの閃光の大きさ（画面座標）
+
+// ミラーボール方式の値。数字は全部【仮】、実機で見て決める
+const BALL_MAX = 6000;           // 球の表面に持てる点の上限。これを超えたら古い点から順に上書きする＝間引き
+const BALL_R0 = 60;              // 点が無い時の半径(px)。序盤は動画の裏に隠れる大きさから始める
+const BALL_K = 2.5;              // 半径の増え方 r = R0 + K * √n。500個で約116px（動画の上下から縁が覗く）、
+                                 // 2000個で約172px、5000個で約237px（画面の幅の半分を超える）
+const BALL_GROW = 3;             // 新しい半径へ寄る速さ（1秒あたり）。押した瞬間に跳ねないよう数フレームかけて膨らむ
+const BALL_SPIN_SEC = 20;        // 縦の軸まわりに1周する秒数
+const BALL_TILT = 0.3;           // 軸の傾き(rad)。まっすぐ立っているより少し傾いている方が球に見える
+const BALL_DOT_MIN = 2;          // 表面の点の直径(px)。球が小さいうちは細かく、大きくなるほど粗く
+const BALL_DOT_MAX = 6;
+const BALL_DOT_REF = 240;        // 半径がこれ以上になったら点の大きさは最大で頭打ち
+const BALL_HL_MAX = 500;         // 1フレームで白く瞬かせる点の上限（控えの配列の大きさ）
+const BALL_HL_CUT = 0.985;       // 点の向きがこれ以上まっすぐ光を返している時だけ白く瞬く。
+                                 // 緩めると光る点が増えすぎて、白い塊になって球に見えなくなる
+const BALL_HL_SCALE = 1.3;       // 瞬く点の大きさ（普段の何倍か）
+const BALL_JITTER = 0.018;       // 表面の点をほんの少しずらす量（半径1に対して）。
+                                 // 数式どおりに並べると渦巻き模様が浮き出て模様に見えるので、点の間隔の半分ほど散らす
+const BALL_DIM = 0.55;           // 光が当たっていない側の明るさ。暗すぎると球が欠けて見える
+const SUCK_MS = 700;             // 💎が動画の中心へ吸い込まれるまで
+const SUCK_MS_JITTER = 200;      // 同上のばらつき。全部が同じ速さだと機械的に見える
+const SUCK_SHRINK = 0.9;         // 吸い込まれる間に縮む割合（1.0で点まで縮む）
+const STREAK_COUNT = 12;         // 光の筋の本数
+const STREAK_WIDTH = 2;          // 筋の太さ(px)
+const STREAK_SPIN = 0.09;        // 筋の向きが回る速さ(rad/秒)
+const STREAK_ALPHA = 0.5;        // 筋の濃さの上限
+const STREAK_FULL = 800;         // 押した数がこれに届いたら筋の明るさが上限になる
+const STREAK_TINT = 0.45;        // 白に「いまいちばん多い色」をどれだけ混ぜるか
 
 // 宝石の面（Font Awesome gem の外形に合わせた 5+3 面）。座標は -1..1。n は擬似的な法線
 type Facet = { pts: [number, number][]; n: [number, number, number] };
@@ -316,6 +378,56 @@ function skyTarget(W: number, H: number): { x: number; y: number } {
   return { x: Math.random() * W, y: H * Math.pow(Math.random(), SKY_Y_BIAS) };
 }
 
+// 球の表面に点を均等に散らした並び（半径1の球。フィボナッチ球＝黄金角ずつ回しながら縦に等間隔に刻む）。
+// 点そのものは動かないので、最初に一度だけ作って使い回す。💎が1つ吸い込まれたら、この並びの空き1つが埋まる
+/** 決まった順番で同じ数を返す簡単な乱数。球の並びが起動のたびに変わらないようにするために使う */
+function ballRandom(seed: number): () => number {
+  let x = seed;
+  return () => {
+    x = (x * 1103515245 + 12345) & 0x7fffffff;
+    return x / 0x7fffffff;
+  };
+}
+
+let ballLattice: Float32Array | null = null;
+// 表面の点を埋めていく順番。並びの端から順に埋めると北極だけに固まるので、決まった順で混ぜた並びを使う。
+// 毎回同じ並びになるよう乱数の種は固定（起動ごとに変わると見え方が揺れる）
+let ballOrder: Int32Array | null = null;
+function getBallOrder(): Int32Array {
+  if (ballOrder) return ballOrder;
+  const a = new Int32Array(BALL_MAX);
+  for (let i = 0; i < BALL_MAX; i++) a[i] = i;
+  const rnd = ballRandom(19980621);
+  for (let i = BALL_MAX - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    const t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  ballOrder = a;
+  return a;
+}
+function getBallLattice(): Float32Array {
+  if (ballLattice) return ballLattice;
+  const a = new Float32Array(BALL_MAX * 3);
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  const rnd = ballRandom(20260908);
+  for (let i = 0; i < BALL_MAX; i++) {
+    const y = 1 - (i / (BALL_MAX - 1)) * 2;
+    const rr = Math.sqrt(Math.max(0, 1 - y * y));
+    const th = golden * i;
+    // 少しだけずらして渦巻き模様を消す。ずらした後に長さを1へ戻す（球の表面から浮かないように）
+    let x = Math.cos(th) * rr + (rnd() - 0.5) * BALL_JITTER;
+    let yy = y + (rnd() - 0.5) * BALL_JITTER;
+    let z = Math.sin(th) * rr + (rnd() - 0.5) * BALL_JITTER;
+    const l = Math.hypot(x, yy, z) || 1;
+    x /= l; yy /= l; z /= l;
+    a[i * 3] = x;
+    a[i * 3 + 1] = yy;
+    a[i * 3 + 2] = z;
+  }
+  ballLattice = a;
+  return a;
+}
+
 const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas({ videoBoxRef, frame, reduceMotion = false }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** 押した瞬間の閃光（世界座標）。短時間で消える */
@@ -361,6 +473,20 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const starsByColorRef = useRef<Map<string, number[]>>(new Map());
   /** 夜空の閃光（画面座標）。山の閃光は世界座標なので別に持つ */
   const skyFlashesRef = useRef<{ x: number; y: number; t0: number; rgb: [number, number, number]; size: number }[]>([]);
+  /** 表示の方式。reset では変えない（方式を保ったまま中身だけ空にする） */
+  const modeRef = useRef<DiamondMode>("pile");
+  /** ミラーボール方式で、動画の中心へ吸い込まれている途中の💎（画面座標） */
+  const suckRef = useRef<Suck[]>([]);
+  /** ミラーボールの球。最初に使う時だけ作る（画面が描き直されるたびに作り捨てないように） */
+  const ballRef = useRef<Ball | null>(null);
+  const getBall = (): Ball => (ballRef.current ??= {
+    n: 0,
+    r: BALL_R0,
+    sprites: new Array<HTMLCanvasElement | null>(BALL_MAX).fill(null),
+    rgb: new Uint8Array(BALL_MAX * 3),
+  });
+  /** いまいちばん多い色（額縁の1番目の区画の元の色）。ミラーボールの光の筋の色に薄く混ぜる */
+  const topRgbRef = useRef<[number, number, number] | null>(null);
   const sizeRef = useRef({ W: 0, H: 0 });
   const camRef = useRef({ scale: 1, cx: 0, cy: 0, oy: 0 });
 
@@ -387,6 +513,36 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           rgb, self,
         });
         // 押した手応えの閃光は今までどおり出す（画面座標）
+        if (self) skyFlashesRef.current.push({ x: x0, y: y0, t0: now, rgb, size: SKY_FLASH_SIZE });
+        return;
+      }
+      // ミラーボール方式: 積もらせず、動画の中心へ吸い込む。自分の分は色の帯の少し上から、
+      // 他の人の分は画面の縁のどこかから出る。着いたら球の表面の点になる
+      if (modeRef.current === "mirrorball") {
+        const now = performance.now();
+        let x0: number, y0: number;
+        if (self) {
+          x0 = Math.random() * W;   // 横は画面いっぱいに散らす【仮】。押した所には出さない（指で隠れる）
+          y0 = H - SELF_LAUNCH_Y + (Math.random() - 0.5) * SELF_LAUNCH_SPREAD;
+        } else {
+          // 画面の縁を1周ぶんの長さと見て、その上のどこか1点を選ぶ
+          const per = (W + H) * 2;
+          const u = Math.random() * per;
+          if (u < W) { x0 = u; y0 = H; }
+          else if (u < W + H) { x0 = W; y0 = W + H - u; }
+          else if (u < W * 2 + H) { x0 = W * 2 + H - u; y0 = 0; }
+          else { x0 = 0; y0 = u - (W * 2 + H); }
+        }
+        const shrinkM = Math.max(SHRINK_MIN, Math.min(1, Math.sqrt(SHRINK_REF / spawnedRef.current)));
+        suckRef.current.push({
+          x0, y0, t0: now,
+          dur: SUCK_MS + Math.random() * SUCK_MS_JITTER,
+          ang: Math.random() * Math.PI * 2,
+          spin: (Math.random() < 0.5 ? -1 : 1) * (SPIN_MIN + Math.random() * SPIN_RANGE),
+          size: (SIZE_MIN + Math.random() * SIZE_RANGE) * shrinkM,
+          rgb, self,
+        });
+        // 押した手応えの閃光は今までどおり（画面座標なので夜空の分と同じ入れ物に入れる）
         if (self) skyFlashesRef.current.push({ x: x0, y: y0, t0: now, rgb, size: SKY_FLASH_SIZE });
         return;
       }
@@ -437,6 +593,18 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         if (sf.length && Math.abs(sf[sf.length - 1].x - last.x0) < 1) sf.pop();
         return;
       }
+      // ミラーボール方式: まだ吸い込まれている途中のものだけ消す（球に入った分はもう取り消せない）
+      if (modeRef.current === "mirrorball") {
+        const suck = suckRef.current;
+        const last = suck[suck.length - 1];
+        if (!last || !last.self) return;
+        suck.pop();
+        spawnedRef.current = Math.max(0, spawnedRef.current - 1);
+        recentRef.current.pop();
+        const sf = skyFlashesRef.current;
+        if (sf.length && Math.abs(sf[sf.length - 1].x - last.x0) < 1) sf.pop();
+        return;
+      }
       const gems = gemsRef.current;
       const last = gems[gems.length - 1];
       if (!last || last.settled) return;
@@ -456,6 +624,20 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     },
     setHoldCamera(on: boolean) { holdCameraRef.current = on; },
     launchToSky() { launchRef.current(); },
+    setMode(mode: DiamondMode) {
+      if (mode === modeRef.current) return;
+      modeRef.current = mode;
+      // 方式が変わると、それまでの中身は行き場が無くなるので空にする（途中の切り替えは想定外だが壊さない）
+      gemsRef.current = [];
+      suckRef.current = [];
+      flashesRef.current = [];
+      sparkPointsRef.current = [];
+      pileTopRef.current = Infinity;
+      const ball = getBall();
+      ball.n = 0; ball.r = BALL_R0; ball.sprites.fill(null); ball.rgb.fill(0);
+      camRef.current = { ...camRef.current, scale: 1, oy: 0 };
+      clearWorldRef.current();
+    },
     setColorTotals(totals: Record<string, number>) {
       const m = new Map<string, number>();
       for (const [hex, n] of Object.entries(totals)) m.set(hexToRgb(hex).join(","), n);
@@ -474,6 +656,12 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       starsRef.current = [];
       starsByColorRef.current.clear();
       skyFlashesRef.current = [];
+      suckRef.current = [];
+      topRgbRef.current = null;
+      {
+        const ball = getBall();
+        ball.n = 0; ball.r = BALL_R0; ball.sprites.fill(null); ball.rgb.fill(0);
+      }
       spawnedRef.current = 0;
       finaleFromRef.current = 1;
       pileTopRef.current = Infinity;
@@ -498,6 +686,12 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     let sky: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null = null;
     let skyBaked = 0;   // starsRef のうち何個目まで焼き込んだか。0 に戻すと全部焼き直す
     const cols: number[] = [];
+    // ミラーボールで白く瞬く点の置き場。毎フレーム配列を作らないよう先に用意して使い回す
+    const hlX = new Float32Array(BALL_HL_MAX);
+    const hlY = new Float32Array(BALL_HL_MAX);
+    const hlA = new Float32Array(BALL_HL_MAX);
+    // 吸い込まれ中の💎を描く時の使い回しの入れ物（1個ずつ作ると押した数だけゴミが出る）
+    const suckDraw = { x: 0, y: 0, ang: 0, size: 0, rgb: [0, 0, 0] as [number, number, number] };
     const resize = () => {
       const r = canvas.getBoundingClientRect();
       const prevW = W, prevH = H;
@@ -517,6 +711,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const kx = W / prevW, ky = H / prevH;
         for (const s of starsRef.current) { s.x *= kx; s.y *= ky; }
         for (const f2 of flyRef.current) { f2.x0 *= kx; f2.x1 *= kx; f2.y0 *= ky; f2.y1 *= ky; }
+        for (const s2 of suckRef.current) { s2.x0 *= kx; s2.y0 *= ky; }
         sky = null;
         skyBaked = 0;
       }
@@ -543,6 +738,41 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       launchedRef.current = true;
       const { scale, cx, oy } = camRef.current;
       const now = performance.now();
+      // ミラーボール方式: 球の表面の点が、そのまま夜空へ散る。出発点はいま画面に見えている位置
+      if (modeRef.current === "mirrorball") {
+        const ball = getBall();
+        const filled = Math.min(ball.n, BALL_MAX);
+        const lat = getBallLattice();
+        const order = getBallOrder();
+        const spin = reduceMotionRef.current ? 0 : (now / 1000) * (Math.PI * 2 / BALL_SPIN_SEC);
+        const cs = Math.cos(spin), sn = Math.sin(spin);
+        const ct = Math.cos(BALL_TILT), st = Math.sin(BALL_TILT);
+        const bcy = camRef.current.cy;
+        const n = Math.min(filled, LAUNCH_MAX);
+        const step = n > 0 ? filled / n : 1;
+        const fly = flyRef.current;
+        for (let k = 0; k < n; k++) {
+          const slot = order[Math.floor(k * step)];
+          const o = slot * 3;
+          const x1 = lat[o] * cs + lat[o + 2] * sn;
+          const z1 = -lat[o] * sn + lat[o + 2] * cs;
+          const y2 = lat[o + 1] * ct - z1 * st;
+          const tgt = skyTarget(W, H);
+          fly.push({
+            x0: cx + x1 * ball.r, y0: bcy - y2 * ball.r,
+            x1: tgt.x, y1: tgt.y,
+            bow: FLY_BOW_MIN + Math.random() * FLY_BOW_RANGE,
+            t0: now, dur: LAUNCH_FLY_MS + Math.random() * LAUNCH_FLY_JITTER,
+            d: FLY_DOT_MIN + Math.random() * FLY_DOT_RANGE,
+            rgb: [ball.rgb[o], ball.rgb[o + 1], ball.rgb[o + 2]], self: false,
+          });
+        }
+        // 球をほどく（表面の点・吸い込まれ中の💎・閃光を空にする）
+        ball.n = 0; ball.r = BALL_R0; ball.sprites.fill(null); ball.rgb.fill(0);
+        suckRef.current = [];
+        skyFlashesRef.current = [];
+        return;
+      }
       // 粒の元は「積もった💎の位置の控え（焼き込んだ分も含む）」＋「まだ落ちている途中の💎」
       const src: { x: number; y: number; rgb: [number, number, number] }[] = sparkPointsRef.current.slice();
       for (const g of gemsRef.current) if (!g.settled) src.push({ x: g.x, y: g.y, rgb: g.rgb });
@@ -624,7 +854,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
 
     /** 降っている💎: 面の明るさは「光の向き − 自分の向き」だけで決まるので、その差ごとに一度描いた絵を、自分の向きに回して貼る。
      *  毎フレーム8面を塗るのは、みんなの💎がたくさん降る時に発熱の元になっていた（Hop報告 2026-09-07） */
-    const drawGemLive = (g: Gem, lightAng: number) => {
+    const drawGemLive = (g: Pick<Gem, "x" | "y" | "ang" | "size" | "rgb">, lightAng: number) => {
       const sprites = getLiveSprites(g.rgb);
       const rel = lightAng - g.ang;
       const i = ((Math.round((rel / (Math.PI * 2)) * LIVE_STEPS) % LIVE_STEPS) + LIVE_STEPS) % LIVE_STEPS;
@@ -719,6 +949,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       let oy = prevOy + (oyTarget - prevOy) * Math.min(1, dt * 4);
       // ハイライト再生中と、夜空へ放った後は動かさない
       if (holdCameraRef.current || launchedRef.current) { scale = prev; oy = prevOy; }
+      // ミラーボール方式は引き寄りをしない（球の大きさで見せるので、カメラまで動くと何が起きているか分からなくなる）
+      if (modeRef.current === "mirrorball") { scale = 1; oy = 0; }
       pileTopRef.current = pileTopWorld;
       camRef.current = { scale, cx, cy, oy };
       // 落下（世界座標）: 着地先まで落ちて止まる。横には流れない（着地先が最初から詰まる位置なので）
@@ -762,6 +994,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           }
         }
         const top = scored.sort((a, b) => b.s - a.s).slice(0, TINT_SLOTS);
+        topRgbRef.current = top[0]?.rgb ?? null;   // ミラーボールの光の筋の色に薄く混ぜる
         const topSum = top.reduce((acc, c) => acc + c.s, 0);
         const slots = frameSlotsRef.current;
         const k = Math.min(1, dt * 2);   // 約0.5秒かけて移り変わる
@@ -797,6 +1030,40 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       }
       ctx.fillRect(f.x, f.y, f.w, f.h);
 
+      // 閃光（画面座標）。光の類なので動画の矩形は除外して描く。
+      // 夜空へ放った後とミラーボール方式の両方で使う（山の閃光は世界座標なので別）
+      const drawScreenFlashes = () => {
+        const sf = skyFlashesRef.current;
+        if (sf.length) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, 0, W, H);
+          ctx.rect(v.x, v.y, v.w, v.h);
+          ctx.clip("evenodd");
+          ctx.globalCompositeOperation = "lighter";
+          for (let i = sf.length - 1; i >= 0; i--) {
+            const fl = sf[i];
+            const k = (now - fl.t0) / 320;
+            if (k >= 1) { sf.splice(i, 1); continue; }
+            const r = fl.size * (1.2 + 2.6 * k);
+            const a = 1 - k;
+            const rg = ctx.createRadialGradient(fl.x, fl.y, 0, fl.x, fl.y, r);
+            rg.addColorStop(0, `rgba(255,255,255,${0.95 * a})`);
+            rg.addColorStop(0.35, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},${0.7 * a})`);
+            rg.addColorStop(1, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},0)`);
+            ctx.fillStyle = rg;
+            ctx.fillRect(fl.x - r, fl.y - r, r * 2, r * 2);
+            ctx.strokeStyle = `rgba(255,255,255,${0.8 * a})`;
+            ctx.lineWidth = 2;
+            const L = fl.size * (2 + 3 * k);
+            ctx.beginPath();
+            ctx.moveTo(fl.x - L, fl.y); ctx.lineTo(fl.x + L, fl.y);
+            ctx.moveTo(fl.x, fl.y - L); ctx.lineTo(fl.x, fl.y + L);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      };
       // 夜空へ放った後（画面座標のまま描く。カメラの外なので世界座標の計算は要らない）。
       // 星空は1枚の絵にして貼るだけ、1つずつ描くのは飛んでいる途中の粒だけ＝放つ2秒を過ぎたら山より軽い
       if (launchedRef.current) {
@@ -862,37 +1129,137 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             }
           }
         }
-        // 閃光（画面座標）。光の類なので動画の矩形は除外して描く
-        const sf = skyFlashesRef.current;
-        if (sf.length) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(0, 0, W, H);
-          ctx.rect(v.x, v.y, v.w, v.h);
-          ctx.clip("evenodd");
-          ctx.globalCompositeOperation = "lighter";
-          for (let i = sf.length - 1; i >= 0; i--) {
-            const fl = sf[i];
-            const k = (now - fl.t0) / 320;
-            if (k >= 1) { sf.splice(i, 1); continue; }
-            const r = fl.size * (1.2 + 2.6 * k);
-            const a = 1 - k;
-            const rg = ctx.createRadialGradient(fl.x, fl.y, 0, fl.x, fl.y, r);
-            rg.addColorStop(0, `rgba(255,255,255,${0.95 * a})`);
-            rg.addColorStop(0.35, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},${0.7 * a})`);
-            rg.addColorStop(1, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},0)`);
-            ctx.fillStyle = rg;
-            ctx.fillRect(fl.x - r, fl.y - r, r * 2, r * 2);
-            ctx.strokeStyle = `rgba(255,255,255,${0.8 * a})`;
-            ctx.lineWidth = 2;
-            const L = fl.size * (2 + 3 * k);
-            ctx.beginPath();
-            ctx.moveTo(fl.x - L, fl.y); ctx.lineTo(fl.x + L, fl.y);
-            ctx.moveTo(fl.x, fl.y - L); ctx.lineTo(fl.x, fl.y + L);
-            ctx.stroke();
-          }
-          ctx.restore();
+        drawScreenFlashes();
+        return;
+      }
+
+      // ミラーボール方式（画面座標のまま描く。カメラの引き寄りを使わないので世界座標の計算は要らない）。
+      // 山の帳簿・焼き込みの絵は使わず、球の表面の点・吸い込まれ中の💎・光の筋だけを描く
+      if (modeRef.current === "mirrorball") {
+        const ball = getBall();
+        const lightAng = reduceMotionRef.current ? SPRITE_LIGHT : (now / 1000) * 0.35;
+        const suck = suckRef.current;
+        // 1. 吸い込み終わった💎を球の表面の点にする。
+        //    埋める場所は端から順ではなく、飛ばし幅ぶんずつ飛ばして選ぶ＝少ない数でも球全体に散らばる。
+        //    上限を超えたら同じ順番でぐるっと回って古い点を上書きする（＝間引き）
+        for (let i = suck.length - 1; i >= 0; i--) {
+          const sk = suck[i];
+          if (now - sk.t0 < sk.dur) continue;
+          const slot = getBallOrder()[ball.n % BALL_MAX];
+          ball.sprites[slot] = getDot(sk.rgb);   // 貼る絵はここで1回だけ引く（毎フレーム引くと重い）
+          ball.rgb[slot * 3] = sk.rgb[0];
+          ball.rgb[slot * 3 + 1] = sk.rgb[1];
+          ball.rgb[slot * 3 + 2] = sk.rgb[2];
+          ball.n++;
+          suck.splice(i, 1);
         }
+        const filled = Math.min(ball.n, BALL_MAX);
+        // 半径は数の平方根で増える。数フレームかけてなめらかに膨らむ
+        const rTarget = BALL_R0 + BALL_K * Math.sqrt(ball.n);
+        ball.r += (rTarget - ball.r) * Math.min(1, dt * BALL_GROW);
+        const r = ball.r;
+
+        // 2. 光の筋: 動画の中心から外へ伸びる細い線。額縁の中は必ず除外する（動画の上には何も描かない）。
+        //    球が動画に隠れている間から出て、「裏で何か光っている」と分かるようにする
+        {
+          let a = STREAK_ALPHA * (0.2 + 0.8 * Math.min(1, ball.n / STREAK_FULL));
+          if (r > W / 2) a *= Math.max(0.25, (W / 2) / r);   // 球が画面の幅を超えたら筋は薄くする
+          if (a > 0.01) {
+            const len = Math.min(Math.hypot(W, H), Math.max(f.w, f.h) * 0.5 + r * 1.6);
+            const tint = topRgbRef.current;
+            const mr = tint ? 255 + (tint[0] - 255) * STREAK_TINT : 255;
+            const mg = tint ? 255 + (tint[1] - 255) * STREAK_TINT : 255;
+            const mb = tint ? 255 + (tint[2] - 255) * STREAK_TINT : 255;
+            const col = `${mr | 0},${mg | 0},${mb | 0}`;
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(0, 0, W, H);
+            ctx.rect(f.x, f.y, f.w, f.h);
+            ctx.clip("evenodd");
+            ctx.globalCompositeOperation = "lighter";
+            // 濃さの変わり方は1本ぶん作って全部の筋で使い回す（本数ぶん作ると重い）
+            const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, len);
+            grad.addColorStop(0, `rgba(${col},${a})`);
+            grad.addColorStop(0.45, `rgba(${col},${a * 0.5})`);
+            grad.addColorStop(1, `rgba(${col},0)`);
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = STREAK_WIDTH;
+            const base = reduceMotionRef.current ? 0 : (now / 1000) * STREAK_SPIN;
+            ctx.beginPath();
+            for (let i = 0; i < STREAK_COUNT; i++) {
+              const ang = base + (i / STREAK_COUNT) * Math.PI * 2;
+              ctx.moveTo(cx, cy);
+              ctx.lineTo(cx + Math.cos(ang) * len, cy + Math.sin(ang) * len);
+            }
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+
+        // 3. 球の表面: 縦の軸まわりに回して少し傾け、手前側の点だけを小さな丸で描く。
+        //    面の計算はせず、色ごとの使い回しの絵を貼るだけ。奥側と動画の裏（隠れて見えない所）は描かない
+        if (filled > 0) {
+          const spin = reduceMotionRef.current ? 0 : (now / 1000) * (Math.PI * 2 / BALL_SPIN_SEC);
+          const cs = Math.cos(spin), sn = Math.sin(spin);
+          const ct = Math.cos(BALL_TILT), st = Math.sin(BALL_TILT);
+          // 光の向き。落ちている💎の面と同じ考えで、点の向きが光を返す向きに近いほど明るくする
+          const lz = 0.8;
+          const ln = Math.hypot(Math.cos(lightAng), Math.sin(lightAng), lz);
+          const Lx = Math.cos(lightAng) / ln, Ly = Math.sin(lightAng) / ln, Lz = lz / ln;
+          const lat = getBallLattice();
+          const order = getBallOrder();
+          const dot = (BALL_DOT_MIN + (BALL_DOT_MAX - BALL_DOT_MIN) * Math.min(1, (r - BALL_R0) / (BALL_DOT_REF - BALL_R0))) / DOT_CORE;
+          const half = dot / 2;
+          let hn = 0;
+          for (let k = 0; k < filled; k++) {
+            const slot = order[k];
+            const sp = ball.sprites[slot];
+            if (!sp) continue;
+            const o = slot * 3;
+            const x1 = lat[o] * cs + lat[o + 2] * sn;
+            const z1 = -lat[o] * sn + lat[o + 2] * cs;
+            const y2 = lat[o + 1] * ct - z1 * st;
+            const z2 = lat[o + 1] * st + z1 * ct;
+            if (z2 <= 0) continue;                                   // 奥側は描かない
+            const sx = cx + x1 * r, sy = cy - y2 * r;
+            if (sx < -half || sx > W + half || sy < -half || sy > H + half) continue;
+            if (sx > v.x && sx < v.x + v.w && sy > v.y && sy < v.y + v.h) continue;   // 動画の裏は隠れるので描かない
+            const d = x1 * Lx + y2 * Ly + z2 * Lz;
+            ctx.globalAlpha = d > 0 ? BALL_DIM + (1 - BALL_DIM) * d : BALL_DIM;
+            ctx.drawImage(sp, sx - half, sy - half, dot, dot);
+            // ちょうど光を返す向きに来た点は、この後まとめて白く瞬かせる
+            if (d > BALL_HL_CUT && hn < BALL_HL_MAX) { hlX[hn] = sx; hlY[hn] = sy; hlA[hn] = (d - BALL_HL_CUT) / (1 - BALL_HL_CUT); hn++; }
+          }
+          ctx.globalAlpha = 1;
+          if (hn > 0 && !reduceMotionRef.current) {
+            const white = getDot([255, 255, 255]);
+            const w2 = dot * BALL_HL_SCALE;
+            ctx.save();
+            ctx.globalCompositeOperation = "lighter";
+            // まっすぐ光を返している点ほど強く。同じ濃さで塗ると重なって白い塊になる
+            for (let i = 0; i < hn; i++) {
+              ctx.globalAlpha = hlA[i] * hlA[i] * 0.9;
+              ctx.drawImage(white, hlX[i] - w2 / 2, hlY[i] - w2 / 2, w2, w2);
+            }
+            ctx.globalAlpha = 1;
+            ctx.restore();
+          }
+        }
+
+        // 4. 吸い込まれ中の💎（落ちている時と同じ面付きの絵）。中心へ近づくほど速く、縮みながら動画の裏へ入る
+        for (const sk of suck) {
+          const u = Math.min(1, (now - sk.t0) / sk.dur);
+          const k = u * u;
+          suckDraw.x = sk.x0 + (cx - sk.x0) * k;
+          suckDraw.y = sk.y0 + (cy - sk.y0) * k;
+          suckDraw.ang = reduceMotionRef.current ? sk.ang : sk.ang + sk.spin * (now - sk.t0) / 1000;
+          suckDraw.size = sk.size * (1 - k * SUCK_SHRINK);
+          suckDraw.rgb = sk.rgb;
+          drawGemLive(suckDraw, lightAng);
+        }
+
+        // 5. 押した手応えの閃光
+        drawScreenFlashes();
         return;
       }
 

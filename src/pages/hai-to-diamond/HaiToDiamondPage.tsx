@@ -310,6 +310,7 @@ export default function HaiToDiamondPage() {
    *  プレイヤーは入口の裏で先に読み込み済み */
   const handleStart = useCallback(() => {
     playerRef.current?.play();
+    canvasRef.current?.setMode(settingsRef.current.scene);   // 山かミラーボールか。reset より先に（設定「💎の見せ方」）
     canvasRef.current?.reset();   // 前の回の山を消して最初から（Hop報告 2026-09-07）
     const hex = findDiamondMember(memberIdRef.current)?.color;
     if (hex) canvasRef.current?.setOwnColor(hex);
