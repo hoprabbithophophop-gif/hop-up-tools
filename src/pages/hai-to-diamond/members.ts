@@ -26,5 +26,18 @@ export const DIAMOND_COLOR_ORDER: readonly string[] = [
   "shimakura", "takase", "yamazaki",
 ] as const;
 
+/** 再生中の色えらびを「ユニットごとのページ」で出す時の、1ページぶんの並び（Hop決定 2026-09-08）。
+ *  中身は入口で色を選んでいた頃の行の分け方をそのまま使う。4ページ目は卒業3人だが、
+ *  見た目の区別（明るさを落とす等）は付けない＝離脱したように見せないため（Hop決定 2026-09-08）。
+ *  DIAMOND_COLOR_ORDER と同じ14人を、余さず・重ねずに並べること（片方だけに人を足すと帯から消える）。
+ *  一列の帯（DIAMOND_COLOR_ORDER）とは別々に持つ。片方からもう片方を組み立てると、
+ *  どちらかの並びを変えたい時にもう片方まで動いてしまう */
+export const DIAMOND_COLOR_PAGES: readonly (readonly string[])[] = [
+  ["nishida", "eguchi", "otsubo", "sugiyama"],
+  ["maeda", "okamura", "kiyono", "kojima"],
+  ["hirai", "kobayashi", "satoyoshi"],
+  ["shimakura", "takase", "yamazaki"],
+] as const;
+
 /** 色えらびの最初の色。前回の色が使えなければ西田さんのホットピンク（Hop決定 2026-09-07） */
 export const DIAMOND_DEFAULT_MEMBER_ID = "nishida";

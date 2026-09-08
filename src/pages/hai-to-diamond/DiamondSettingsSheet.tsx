@@ -3,14 +3,18 @@
 import type { CSSProperties } from "react";
 
 export type DiamondCrowdLevel = "full" | "light" | "self";
+/** 再生中の色えらびの並べ方。pages=ユニットごとのページ / row=一列の帯（Hop決定 2026-09-08） */
+export type DiamondColorLayout = "pages" | "row";
 export type DiamondSettings = {
   /** みんなの💎の量。full=全部 / light=控えめ / self=自分だけ */
   crowd: DiamondCrowdLevel;
   /** 回転と瞬きを止める（軽量・酔い対策） */
   reduceMotion: boolean;
+  /** 色えらびの並べ方。既定はユニットごとのページ */
+  colorLayout: DiamondColorLayout;
 };
-export const DEFAULT_DIAMOND_SETTINGS: DiamondSettings = { crowd: "full", reduceMotion: false };
-export const LIGHT_DIAMOND_SETTINGS: DiamondSettings = { crowd: "light", reduceMotion: true };
+export const DEFAULT_DIAMOND_SETTINGS: DiamondSettings = { crowd: "full", reduceMotion: false, colorLayout: "pages" };
+export const LIGHT_DIAMOND_SETTINGS: DiamondSettings = { crowd: "light", reduceMotion: true, colorLayout: "pages" };
 
 const KEY = "hai_to_diamond:settings";
 export function getDiamondSettings(): DiamondSettings {
@@ -21,6 +25,8 @@ export function getDiamondSettings(): DiamondSettings {
     return {
       crowd: p.crowd === "light" || p.crowd === "self" ? p.crowd : "full",
       reduceMotion: p.reduceMotion === true,
+      // 前からこの端末に残っている覚え書きには「色の並び」が無い。その時はユニットごと（既定）にする
+      colorLayout: p.colorLayout === "row" ? "row" : "pages",
     };
   } catch {
     return { ...DEFAULT_DIAMOND_SETTINGS };
@@ -99,8 +105,9 @@ export default function DiamondSettingsSheet({ settings, onChange, onClose }: Pr
 
         <div>
           <div style={{ display: "flex", gap: "0.4rem" }}>
-            <button type="button" aria-pressed={isLight} onClick={() => onChange({ ...LIGHT_DIAMOND_SETTINGS })} style={presetBtn(isLight)}>かるくする</button>
-            <button type="button" aria-pressed={isDefault} onClick={() => onChange({ ...DEFAULT_DIAMOND_SETTINGS })} style={presetBtn(isDefault)}>標準</button>
+            {/* まとめて切り替える2つのボタンでは「色の並び」は動かさない（選んだ並べ方が黙って戻るのを防ぐ） */}
+            <button type="button" aria-pressed={isLight} onClick={() => onChange({ ...LIGHT_DIAMOND_SETTINGS, colorLayout: settings.colorLayout })} style={presetBtn(isLight)}>かるくする</button>
+            <button type="button" aria-pressed={isDefault} onClick={() => onChange({ ...DEFAULT_DIAMOND_SETTINGS, colorLayout: settings.colorLayout })} style={presetBtn(isDefault)}>標準</button>
           </div>
           <p style={rowHintStyle}>重い端末は「かるくする」だけでOK。下で個別に調整もできる。</p>
         </div>
@@ -129,6 +136,17 @@ export default function DiamondSettingsSheet({ settings, onChange, onClose }: Pr
             onSelect={(v) => onChange({ ...settings, reduceMotion: v === "reduce" })}
           />
           <p style={rowHintStyle}>💎の回転と瞬きを抑える（軽量・酔い対策）。</p>
+        </div>
+
+        <div style={dividerStyle} />
+
+        <div>
+          <p style={rowLabelStyle}>色の並び</p>
+          <Segment
+            options={[{ v: "pages", label: "ユニットごと" }, { v: "row", label: "一列" }]}
+            value={settings.colorLayout}
+            onSelect={(v) => onChange({ ...settings, colorLayout: v })}
+          />
         </div>
 
         <button

@@ -8,13 +8,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "../hi-tension/components/YouTubePlayer";
 import { ARENA_BG } from "../hi-tension/data";
-import { findDiamondMember, DIAMOND_COLOR_ORDER, DIAMOND_DEFAULT_MEMBER_ID } from "./members";
+import { findDiamondMember, DIAMOND_COLOR_ORDER, DIAMOND_COLOR_PAGES, DIAMOND_DEFAULT_MEMBER_ID } from "./members";
 import { getLastSelectedMemberId, setLastSelectedMemberId, getOrCreateAnonymousSessionId } from "../hi-tension/storage";
 import { submitHiSessions } from "../hi-tension/api";
 import { fetchReplay, type ReplayRow } from "./replay";
 import DiamondCanvas, { type DiamondCanvasApi } from "./DiamondCanvas";
 import DiamondEntry from "./DiamondEntry";
 import DiamondColorCarousel from "./DiamondColorCarousel";
+import DiamondColorPages from "./DiamondColorPages";
 import DiamondHeatStrip from "./DiamondHeatStrip";
 import DiamondCommentTicker, { type TickerComment } from "./DiamondCommentTicker";
 import DiamondSettingsSheet, { getDiamondSettings, setDiamondSettings, type DiamondSettings } from "./DiamondSettingsSheet";
@@ -106,6 +107,8 @@ function buildHeatLevels(rows: ReplayRow[]): number[] {
 
 /** 画面下の帯に並べる色。並びは members.ts の DIAMOND_COLOR_ORDER のまま。中身は変わらないので1度だけ作る */
 const DIAMOND_COLOR_OPTIONS = DIAMOND_COLOR_ORDER.map((id) => ({ id, color: findDiamondMember(id)?.color ?? "#ffffff" }));
+/** ユニットごとのページに並べる色。こちらも中身は変わらないので1度だけ作る */
+const DIAMOND_COLOR_PAGE_OPTIONS = DIAMOND_COLOR_PAGES.map((ids) => ids.map((id) => ({ id, color: findDiamondMember(id)?.color ?? "#ffffff" })));
 
 function isTouchDevice(): boolean {
   return /iPhone|iPad|iPod|Android/.test(navigator.userAgent);
@@ -440,10 +443,12 @@ export default function HaiToDiamondPage() {
     lastBucketRef.current = cur;
   }, [finish]);
 
-  /** 💎ボタン1回ぶん。再生中（かつ一時停止していない）だけ受け付ける。色は押したその瞬間に選ばれているものを使う */
-  const handleRecord = useCallback((): boolean => {
+  /** 💎ボタン1回ぶん。再生中（かつ一時停止していない）だけ受け付ける。
+   *  ユニットごとのページからは押した💎の色（pickedId）が渡る。一列の帯からは渡らないので、
+   *  その時は真ん中に来ている色＝いま選ばれている色を使う */
+  const handleRecord = useCallback((pickedId?: string): boolean => {
     if (!playingRef.current || pausedRef.current) return false;
-    const id = memberIdRef.current;
+    const id = pickedId ?? memberIdRef.current;
     const hex = findDiamondMember(id)?.color ?? "#ffffff";
     tapsRef.current.push({ t: playerRef.current?.getCurrentTime() ?? 0, memberId: id });
     canvasRef.current?.spawn(hex, true);
@@ -588,7 +593,7 @@ export default function HaiToDiamondPage() {
         </div>
       )}
 
-      {/* 画面下。再生中とハイライト中は💎の帯（真ん中が今の色）、
+      {/* 画面下。再生中とハイライト中は色えらび（設定「色の並び」でユニットごとのページか一列の帯）、
           曲が終わったら最初に戻る・シェア・本編リンク・断り書き */}
       <div
         style={{
@@ -621,25 +626,47 @@ export default function HaiToDiamondPage() {
           }}
         >
           {playing ? (
-            <DiamondColorCarousel
-              options={DIAMOND_COLOR_OPTIONS}
-              selectedId={memberId}
-              onSelect={handlePickColor}
-              onRecord={handleRecord}
-              onRecordCancel={handleRecordCancel}
-              inviting={liveCount === 0}
-              reduceMotion={settings.reduceMotion}
-              disabled={paused}
-            />
+            settings.colorLayout === "row" ? (
+              <DiamondColorCarousel
+                options={DIAMOND_COLOR_OPTIONS}
+                selectedId={memberId}
+                onSelect={handlePickColor}
+                onRecord={handleRecord}
+                onRecordCancel={handleRecordCancel}
+                inviting={liveCount === 0}
+                reduceMotion={settings.reduceMotion}
+                disabled={paused}
+              />
+            ) : (
+              <DiamondColorPages
+                pages={DIAMOND_COLOR_PAGE_OPTIONS}
+                selectedId={memberId}
+                onSelect={handlePickColor}
+                onRecord={handleRecord}
+                onRecordCancel={handleRecordCancel}
+                inviting={liveCount === 0}
+                reduceMotion={settings.reduceMotion}
+                disabled={paused}
+              />
+            )
           ) : highlighting ? (
             // 見返している間も色を選び直せる。選ぶとその色が一番輝いた瞬間へ飛び直す。
-            // onRecord を渡さない＝真ん中を押しても💎は降らない
-            <DiamondColorCarousel
-              options={DIAMOND_COLOR_OPTIONS}
-              selectedId={memberId}
-              onSelect={handlePickColor}
-              reduceMotion={settings.reduceMotion}
-            />
+            // onRecord を渡さない＝押しても💎は降らない
+            settings.colorLayout === "row" ? (
+              <DiamondColorCarousel
+                options={DIAMOND_COLOR_OPTIONS}
+                selectedId={memberId}
+                onSelect={handlePickColor}
+                reduceMotion={settings.reduceMotion}
+              />
+            ) : (
+              <DiamondColorPages
+                pages={DIAMOND_COLOR_PAGE_OPTIONS}
+                selectedId={memberId}
+                onSelect={handlePickColor}
+                reduceMotion={settings.reduceMotion}
+              />
+            )
           ) : ended ? (
             // ボタンは横並び。縦に積むと帯が高くなって動画に重なる（Hop指示 2026-09-07）
             <>

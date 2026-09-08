@@ -27,15 +27,19 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, type PointerEven
 import { faGem } from "@fortawesome/free-solid-svg-icons";
 import FaIcon from "../hi-tension/components/FaIcon";
 
+// このあとの決めごとのうち export しているものは、もう一つの並べ方
+// （ユニットごとのページ・DiamondColorPages.tsx）でも同じ値を使う。
+// 二重に書くと片方だけ直して見た目がずれるので、こちらを本家にして向こうから読む。
+
 /** 誘いの光沢: 💎の形（Font Awesome の gem の輪郭）で切り抜くための型紙 */
-const GEM_MASK = (() => {
+export const GEM_MASK = (() => {
   const [w, h, , , pathData] = faGem.icon;
   const d = Array.isArray(pathData) ? pathData.join(" ") : pathData;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><path d="${d}" fill="#000"/></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 })();
 /** 誘いの光沢: 太い斜線と細い斜線を1本ずつ（角度・太さ・明るさは【仮】） */
-const SHINE_STRIPES =
+export const SHINE_STRIPES =
   "linear-gradient(115deg, rgba(255,255,255,0) 30%, rgba(255,255,255,0.75) 38%, rgba(255,255,255,0.75) 46%, rgba(255,255,255,0) 50%, rgba(255,255,255,0) 56%, rgba(255,255,255,0.55) 58%, rgba(255,255,255,0.55) 61%, rgba(255,255,255,0) 65%)";
 /** 真ん中の💎の大きさ(px)【仮】。幅390の画面で7個が丸ごと見え、両端に次の色が覗く寸法（Hop指示 2026-09-07） */
 const CENTER_SIZE = 76;
@@ -46,9 +50,9 @@ const GAP = 6;
 /** 真ん中の左右に何個ずつ見せるか。これより外は透明にする */
 const WINDOW = 5;
 /** 帯の器の高さ(px)【仮】。真ん中の💎と、そのまわりに広がる光のぶん */
-const BAND_HEIGHT = 96;
+export const BAND_HEIGHT = 96;
 /** これだけ指が動いたらスワイプ扱いにして、ボタンの押し（色えらび）を取り消す(px)【仮】 */
-const DRAG_THRESHOLD = 8;
+export const DRAG_THRESHOLD = 8;
 /** 指を離してから一番近い色が真ん中に収まるまでの時間(ms)【仮】。勢いが無かった時に使う */
 const SNAP_MS = 220;
 /** 勢いを付けて滑る時の、いちばん短い／長い時間(ms)【仮】。急に止まる・だらだら続くのを防ぐ */
@@ -63,21 +67,21 @@ const GLIDE_PROJECTION_MS = 100;
 /** 1回のスワイプで進める上限（個）【仮】。速く払っても行き過ぎないための蓋 */
 const GLIDE_MAX_STEPS = 6;
 /** 誘いの輪が1回広がって消えるまでの秒数【仮】。今までの💎ボタンと同じ */
-const INVITE_PULSE_SECONDS = 1.6;
+export const INVITE_PULSE_SECONDS = 1.6;
 /** 真ん中以外をどれだけ暗くするか【仮】。1.0＝そのまま */
 const CENTER_OPACITY = 1;
 const SIDE_OPACITY = 0.7;
 /** 押された💎を少し縮めて手応えを出す倍率【仮】 */
-const PRESS_SCALE = 0.92;
+export const PRESS_SCALE = 0.92;
 /** 帯の裏に敷く暗い下地【仮】。積もった💎の山に重なっても💎の列が読めるように（Hop指示 2026-09-07）。
  *  終了画面の帯（rgba(7,8,12,0.72)）と同じ色味で、こちらは常時出るぶん少し薄い */
-const BAND_BG = "rgba(7,8,12,0.42)";   // 山が向こうに見える程度の薄さ（Hop指摘 2026-09-08: 幅も濃さも取りすぎ）【仮】
+export const BAND_BG = "rgba(7,8,12,0.42)";   // 山が向こうに見える程度の薄さ（Hop指摘 2026-09-08: 幅も濃さも取りすぎ）【仮】
 /** 下地の上下の縁を透明へぼかす幅(px)【仮】。真四角の板に見えないよう背景へ溶かす */
-const BAND_FADE = 10;
+export const BAND_FADE = 10;
 /** 下地の高さは💎の列にぴったり寄せる。真ん中の💎の上下にこれだけ足した高さ【仮】 */
-const BAND_PAD = 6;
+export const BAND_PAD = 6;
 /** 下地の裏をぼかす強さ(px)【仮】。対応していない環境では暗い下地だけが残る */
-const BAND_BLUR = 2;
+export const BAND_BLUR = 2;
 
 export interface DiamondColorOption {
   id: string;
