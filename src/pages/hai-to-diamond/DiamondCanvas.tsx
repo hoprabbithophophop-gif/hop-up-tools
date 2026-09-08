@@ -6,7 +6,7 @@
 //
 // 表示の方式は2つあり、setMode で選ぶ（既定は "pile"＝今までの山）。
 //   pile        … 💎が上から降って画面の下に積もる。カメラが引いて山が動画の背景になる。
-//   mirrorball  … 曲の歌詞のミラーボール。💎は積もらず動画の中心へ吸い込まれ、動画の裏で球の表面の点になる。
+//   mirrorball  … 曲の歌詞のミラーボール。💎は積もらず動画の中心へ吸い込まれ、動画の裏で球の表面に貼られた鏡の板になる。
 //                  はじめは動画に隠れて見えず、額縁の外へ漏れる光の筋だけが見える。数が溜まると動画の上下から
 //                  球の縁が覗き、さらに増えると画面からはみ出して回りながら光を返す。曲の最後は山と同じく星空へ散る。
 //                  この方式ではカメラの引き寄り・山の帳簿・焼き込みの絵は使わない。
@@ -97,7 +97,7 @@ type Suck = {
   self: boolean;
 };
 /** ミラーボールの球。n=これまでに吸い込まれた総数（半径の元・上限を超えても数え続ける）、r=いまの半径(px)、
- *  sprites/rgb=表面の各点に入っている色（空きは null）。点の位置は getBallLattice() の並び、埋める順は getBallOrder() */
+ *  sprites/rgb=表面の各板に入っている💎の絵と色（空きは null）。板の位置は getBallLattice() の並び、埋める順は getBallOrder() */
 type Ball = {
   n: number;
   r: number;
@@ -165,22 +165,23 @@ const SKY_SPARK_SIZE = 7;        // 星の瞬きの大きさ（閃光の半径�
 const SKY_FLASH_SIZE = 10;       // 放った後に押した手応えの閃光の大きさ（画面座標）
 
 // ミラーボール方式の値。数字は全部【仮】、実機で見て決める
-const BALL_MAX = 6000;           // 球の表面に持てる点の上限。これを超えたら古い点から順に上書きする＝間引き
-const BALL_R0 = 60;              // 点が無い時の半径(px)。序盤は動画の裏に隠れる大きさから始める
+const BALL_MAX = 6000;           // 球の表面に貼れる板の上限。これを超えたら古い板から順に貼り替える＝間引き
+const BALL_R0 = 60;              // 板が1枚も無い時の半径(px)。序盤は動画の裏に隠れる大きさから始める
 const BALL_K = 2.5;              // 半径の増え方 r = R0 + K * √n。500個で約116px（動画の上下から縁が覗く）、
                                  // 2000個で約172px、5000個で約237px（画面の幅の半分を超える）
 const BALL_GROW = 3;             // 新しい半径へ寄る速さ（1秒あたり）。押した瞬間に跳ねないよう数フレームかけて膨らむ
 const BALL_SPIN_SEC = 20;        // 縦の軸まわりに1周する秒数
 const BALL_TILT = 0.3;           // 軸の傾き(rad)。まっすぐ立っているより少し傾いている方が球に見える
-const BALL_DOT_MIN = 2;          // 表面の点の直径(px)。球が小さいうちは細かく、大きくなるほど粗く
-const BALL_DOT_MAX = 6;
-const BALL_DOT_REF = 240;        // 半径がこれ以上になったら点の大きさは最大で頭打ち
-const BALL_HL_MAX = 500;         // 1フレームで白く瞬かせる点の上限（控えの配列の大きさ）
-const BALL_HL_CUT = 0.985;       // 点の向きがこれ以上まっすぐ光を返している時だけ白く瞬く。
-                                 // 緩めると光る点が増えすぎて、白い塊になって球に見えなくなる
-const BALL_HL_SCALE = 1.3;       // 瞬く点の大きさ（普段の何倍か）
-const BALL_JITTER = 0.018;       // 表面の点をほんの少しずらす量（半径1に対して）。
-                                 // 数式どおりに並べると渦巻き模様が浮き出て模様に見えるので、点の間隔の半分ほど散らす
+const BALL_BANDS = 69;           // 球を北から南へ切る帯の本数。板の縦横がだいたい正方形になり、
+                                 // 全部の帯の合計が BALL_MAX 枚あたりに収まる本数【仮】
+const BALL_TILE_FILL = 1.15;     // 板を貼る大きさ（隣の板との間隔の何倍か）。1より少し大きくして重ね、継ぎ目の隙間を埋める。
+                                 // 大きくするほど板どうしの重なりが増え、同じ場所を何度も塗ることになって重い
+                                 // （1.35 にすると5000枚のとき 55fps → 44fps・2026-09-08 実測）【仮】
+const BALL_TILE_MIN = 2.5;       // 板の最小の大きさ(px)。球が小さいうちに1px を切ると消えてしまう【仮】
+const BALL_HL_MAX = 500;         // 1フレームで白く瞬かせる板の上限（控えの配列の大きさ）
+const BALL_HL_CUT = 0.985;       // 板の向きがこれ以上まっすぐ光を返している時だけ白く瞬く。
+                                 // 緩めると光る板が増えすぎて、白い塊になって球に見えなくなる
+const BALL_HL_SCALE = 1.3;       // 瞬く光の大きさ（板の何倍か）
 const BALL_DIM = 0.55;           // 光が当たっていない側の明るさ。暗すぎると球が欠けて見える
 const SUCK_MS = 700;             // 💎が動画の中心へ吸い込まれるまで
 const SUCK_MS_JITTER = 200;      // 同上のばらつき。全部が同じ速さだと機械的に見える
@@ -299,6 +300,28 @@ function getSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
   return arr;
 }
 
+// ミラーボールの板用: 向きは貼る時の変形で決まるので、回していない絵を色ごとに1枚だけ持つ。
+// 大きさは実際に貼る大きさ（画面の細かさ込みで25〜30px前後）に近づけてある。
+// 積もった💎用の96pxの絵をそのまま縮めても速さはほとんど変わらなかったが（5000枚で 36fps → 38fps）、
+// 小さい絵の方が持ち物が軽く、荒く貼った時の粗も出にくい【仮】
+const PLATE_PX = 32;
+const plateCache = new Map<string, HTMLCanvasElement>();
+function getPlate(rgb: [number, number, number]): HTMLCanvasElement {
+  const key = rgb.join(",");
+  let c = plateCache.get(key);
+  if (c) return c;
+  c = document.createElement("canvas");
+  c.width = PLATE_PX; c.height = PLATE_PX;
+  const cx = c.getContext("2d");
+  if (cx) {
+    cx.translate(PLATE_PX / 2, PLATE_PX / 2);
+    cx.scale(PLATE_PX / 2 * 0.95, PLATE_PX / 2 * 0.95);
+    paintFacets(cx, rgb, 0, SPRITE_LIGHT);
+  }
+  plateCache.set(key, c);
+  return c;
+}
+
 // 降っている💎用: 自分の向きを0にした絵を、光との角度差(48段階)ごとに持つ。貼る時に自分の向きへ回す
 const LIVE_STEPS = 48;
 const liveSpriteCache = new Map<string, HTMLCanvasElement[]>();
@@ -378,9 +401,11 @@ function skyTarget(W: number, H: number): { x: number; y: number } {
   return { x: Math.random() * W, y: H * Math.pow(Math.random(), SKY_Y_BIAS) };
 }
 
-// 球の表面に点を均等に散らした並び（半径1の球。フィボナッチ球＝黄金角ずつ回しながら縦に等間隔に刻む）。
-// 点そのものは動かないので、最初に一度だけ作って使い回す。💎が1つ吸い込まれたら、この並びの空き1つが埋まる
-/** 決まった順番で同じ数を返す簡単な乱数。球の並びが起動のたびに変わらないようにするために使う */
+// ミラーボールの鏡の並び（半径1の球）。本物のミラーボールと同じく、北から南へ BALL_BANDS 本の帯に切り、
+// 帯ごとに「その帯の円周の長さに比例した枚数」を等間隔に置く＝行と列がそろった格子になる。
+// 枚数は4の倍数に丸めて、隣り合う帯どうしでも列がだいたいそろって見えるようにする。
+// 板の場所そのものは動かないので、最初に一度だけ作って使い回す。💎が1つ吸い込まれたら、この並びの空き1枚が埋まる
+/** 決まった順番で同じ数を返す簡単な乱数。板を埋める順が起動のたびに変わらないようにするために使う */
 function ballRandom(seed: number): () => number {
   let x = seed;
   return () => {
@@ -390,42 +415,65 @@ function ballRandom(seed: number): () => number {
 }
 
 let ballLattice: Float32Array | null = null;
-// 表面の点を埋めていく順番。並びの端から順に埋めると北極だけに固まるので、決まった順で混ぜた並びを使う。
+// 板を埋めていく順番。並びの端から順に埋めると北極だけに固まるので、決まった順で混ぜた並びを使う。
+// 赤道から上下へ広げる埋め方も試したが、赤道の帯はちょうど動画にすっかり隠れる高さなので、
+// 数千枚たまるまで球が1枚も見えないままだった（2026-09-08 に見比べて混ぜる方を採用）。
 // 毎回同じ並びになるよう乱数の種は固定（起動ごとに変わると見え方が揺れる）
 let ballOrder: Int32Array | null = null;
-function getBallOrder(): Int32Array {
-  if (ballOrder) return ballOrder;
-  const a = new Int32Array(BALL_MAX);
-  for (let i = 0; i < BALL_MAX; i++) a[i] = i;
+/** 板の場所（ballLattice）と埋める順（ballOrder）をまとめて作る。2つがずれないよう必ず一緒に作る */
+function buildBall() {
+  const B = BALL_BANDS;
+  // 帯ごとの枚数。帯の円周は sin(緯度) に比例し、板が正方形になるよう帯の高さと同じ幅で刻む
+  const counts: number[] = [];
+  for (let i = 0; i < B; i++) {
+    const th = ((i + 0.5) / B) * Math.PI;
+    counts.push(Math.max(4, Math.round((2 * B * Math.sin(th)) / 4) * 4));
+  }
+  // 合計をちょうど BALL_MAX 枚に合わせる。枚数のいちばん多い帯（＝赤道寄り）で増減させるので、
+  // 1枚あたりの間隔はほとんど変わらない
+  let total = counts.reduce((acc, c) => acc + c, 0);
+  while (total !== BALL_MAX) {
+    let m = 0;
+    for (let i = 1; i < B; i++) if (counts[i] > counts[m]) m = i;
+    if (total > BALL_MAX) {
+      const cut = Math.min(total - BALL_MAX >= 4 ? 4 : 1, counts[m] - 4);
+      if (cut <= 0) break;
+      counts[m] -= cut; total -= cut;
+    } else {
+      const add = Math.min(4, BALL_MAX - total);
+      counts[m] += add; total += add;
+    }
+  }
+  const a = new Float32Array(BALL_MAX * 3);
+  let k = 0;
+  for (let i = 0; i < B && k < BALL_MAX; i++) {
+    const th = ((i + 0.5) / B) * Math.PI;
+    const y = Math.cos(th), rho = Math.sin(th);
+    for (let j = 0; j < counts[i] && k < BALL_MAX; j++) {
+      const ph = (j / counts[i]) * Math.PI * 2;
+      a[k * 3] = rho * Math.cos(ph);
+      a[k * 3 + 1] = y;
+      a[k * 3 + 2] = rho * Math.sin(ph);
+      k++;
+    }
+  }
+  const ord = new Int32Array(BALL_MAX);
+  for (let i = 0; i < BALL_MAX; i++) ord[i] = i;
   const rnd = ballRandom(19980621);
   for (let i = BALL_MAX - 1; i > 0; i--) {
     const j = Math.floor(rnd() * (i + 1));
-    const t = a[i]; a[i] = a[j]; a[j] = t;
-  }
-  ballOrder = a;
-  return a;
-}
-function getBallLattice(): Float32Array {
-  if (ballLattice) return ballLattice;
-  const a = new Float32Array(BALL_MAX * 3);
-  const golden = Math.PI * (3 - Math.sqrt(5));
-  const rnd = ballRandom(20260908);
-  for (let i = 0; i < BALL_MAX; i++) {
-    const y = 1 - (i / (BALL_MAX - 1)) * 2;
-    const rr = Math.sqrt(Math.max(0, 1 - y * y));
-    const th = golden * i;
-    // 少しだけずらして渦巻き模様を消す。ずらした後に長さを1へ戻す（球の表面から浮かないように）
-    let x = Math.cos(th) * rr + (rnd() - 0.5) * BALL_JITTER;
-    let yy = y + (rnd() - 0.5) * BALL_JITTER;
-    let z = Math.sin(th) * rr + (rnd() - 0.5) * BALL_JITTER;
-    const l = Math.hypot(x, yy, z) || 1;
-    x /= l; yy /= l; z /= l;
-    a[i * 3] = x;
-    a[i * 3 + 1] = yy;
-    a[i * 3 + 2] = z;
+    const t = ord[i]; ord[i] = ord[j]; ord[j] = t;
   }
   ballLattice = a;
-  return a;
+  ballOrder = ord;
+}
+function getBallLattice(): Float32Array {
+  if (!ballLattice) buildBall();
+  return ballLattice!;
+}
+function getBallOrder(): Int32Array {
+  if (!ballOrder) buildBall();
+  return ballOrder!;
 }
 
 const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas({ videoBoxRef, frame, reduceMotion = false }, ref) {
@@ -517,7 +565,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         return;
       }
       // ミラーボール方式: 積もらせず、動画の中心へ吸い込む。自分の分は色の帯の少し上から、
-      // 他の人の分は画面の縁のどこかから出る。着いたら球の表面の点になる
+      // 他の人の分は画面の縁のどこかから出る。着いたら球の表面の板になる
       if (modeRef.current === "mirrorball") {
         const now = performance.now();
         let x0: number, y0: number;
@@ -738,7 +786,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       launchedRef.current = true;
       const { scale, cx, oy } = camRef.current;
       const now = performance.now();
-      // ミラーボール方式: 球の表面の点が、そのまま夜空へ散る。出発点はいま画面に見えている位置
+      // ミラーボール方式: 球の表面の板が、そのまま夜空へ散る。出発点はいま画面に見えている位置
       if (modeRef.current === "mirrorball") {
         const ball = getBall();
         const filled = Math.min(ball.n, BALL_MAX);
@@ -767,7 +815,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             rgb: [ball.rgb[o], ball.rgb[o + 1], ball.rgb[o + 2]], self: false,
           });
         }
-        // 球をほどく（表面の点・吸い込まれ中の💎・閃光を空にする）
+        // 球をほどく（表面の板・吸い込まれ中の💎・閃光を空にする）
         ball.n = 0; ball.r = BALL_R0; ball.sprites.fill(null); ball.rgb.fill(0);
         suckRef.current = [];
         skyFlashesRef.current = [];
@@ -1134,19 +1182,19 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       }
 
       // ミラーボール方式（画面座標のまま描く。カメラの引き寄りを使わないので世界座標の計算は要らない）。
-      // 山の帳簿・焼き込みの絵は使わず、球の表面の点・吸い込まれ中の💎・光の筋だけを描く
+      // 山の帳簿・焼き込みの絵は使わず、球の表面の板・吸い込まれ中の💎・光の筋だけを描く
       if (modeRef.current === "mirrorball") {
         const ball = getBall();
         const lightAng = reduceMotionRef.current ? SPRITE_LIGHT : (now / 1000) * 0.35;
         const suck = suckRef.current;
-        // 1. 吸い込み終わった💎を球の表面の点にする。
-        //    埋める場所は端から順ではなく、飛ばし幅ぶんずつ飛ばして選ぶ＝少ない数でも球全体に散らばる。
-        //    上限を超えたら同じ順番でぐるっと回って古い点を上書きする（＝間引き）
+        // 1. 吸い込み終わった💎を球の表面の板にする。
+        //    埋める場所は並びの端から順ではなく、決まった順で混ぜた並びで選ぶ＝少ない数でも球全体に散らばる。
+        //    上限を超えたら同じ順番でぐるっと回って古い板を貼り替える（＝間引き）
         for (let i = suck.length - 1; i >= 0; i--) {
           const sk = suck[i];
           if (now - sk.t0 < sk.dur) continue;
           const slot = getBallOrder()[ball.n % BALL_MAX];
-          ball.sprites[slot] = getDot(sk.rgb);   // 貼る絵はここで1回だけ引く（毎フレーム引くと重い）
+          ball.sprites[slot] = getPlate(sk.rgb);   // 貼る絵はここで1回だけ引く（毎フレーム引くと重い）
           ball.rgb[slot * 3] = sk.rgb[0];
           ball.rgb[slot * 3 + 1] = sk.rgb[1];
           ball.rgb[slot * 3 + 2] = sk.rgb[2];
@@ -1196,21 +1244,26 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           }
         }
 
-        // 3. 球の表面: 縦の軸まわりに回して少し傾け、手前側の点だけを小さな丸で描く。
-        //    面の計算はせず、色ごとの使い回しの絵を貼るだけ。奥側と動画の裏（隠れて見えない所）は描かない
+        // 3. 球の表面: 縦の軸まわりに回して少し傾け、手前側の板だけを描く。
+        //    板は💎の絵（積もった💎と同じもの）を球の表面に貼ったもの。奥側と、動画にすっかり隠れる板は描かない
         if (filled > 0) {
           const spin = reduceMotionRef.current ? 0 : (now / 1000) * (Math.PI * 2 / BALL_SPIN_SEC);
           const cs = Math.cos(spin), sn = Math.sin(spin);
           const ct = Math.cos(BALL_TILT), st = Math.sin(BALL_TILT);
-          // 光の向き。落ちている💎の面と同じ考えで、点の向きが光を返す向きに近いほど明るくする
+          // 光の向き。落ちている💎の面と同じ考えで、板の向きが光を返す向きに近いほど明るくする
           const lz = 0.8;
           const ln = Math.hypot(Math.cos(lightAng), Math.sin(lightAng), lz);
           const Lx = Math.cos(lightAng) / ln, Ly = Math.sin(lightAng) / ln, Lz = lz / ln;
           const lat = getBallLattice();
           const order = getBallOrder();
-          const dot = (BALL_DOT_MIN + (BALL_DOT_MAX - BALL_DOT_MIN) * Math.min(1, (r - BALL_R0) / (BALL_DOT_REF - BALL_R0))) / DOT_CORE;
-          const half = dot / 2;
+          // 板の大きさは球の半径に比例。帯の高さ（半径 × 帯1本ぶんの角度）が隣の板との間隔になる
+          const tile = Math.max(BALL_TILE_MIN, r * (Math.PI / BALL_BANDS) * BALL_TILE_FILL);
+          const half = tile / 2;
           let hn = 0;
+          // 板は1枚ずつ回して潰して貼る＝縦横に揃っていない貼り方なので、絵をなめらかに整える処理が
+          // 1枚ごとに重くのしかかる。切っても見た目はほとんど変わらず、数千枚のときにはっきり軽くなる
+          // （手元の計測で5000枚のとき 35fps → 55fps・2026-09-08）
+          ctx.imageSmoothingEnabled = false;
           for (let k = 0; k < filled; k++) {
             const slot = order[k];
             const sp = ball.sprites[slot];
@@ -1223,20 +1276,32 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             if (z2 <= 0) continue;                                   // 奥側は描かない
             const sx = cx + x1 * r, sy = cy - y2 * r;
             if (sx < -half || sx > W + half || sy < -half || sy > H + half) continue;
-            if (sx > v.x && sx < v.x + v.w && sy > v.y && sy < v.y + v.h) continue;   // 動画の裏は隠れるので描かない
+            // 板がまるごと動画の中に入る＝動画に隠れて見えないので描かない（動画の縁にかかる板は裏を通るだけ）
+            if (sx - half > v.x && sx + half < v.x + v.w && sy - half > v.y && sy + half < v.y + v.h) continue;
+            // 板は球に接する平面に貼られている。その平面の「北向き」と「東向き」を画面に写した2本を、
+            // そのまま絵の縦と横の向きに使う＝正面の板は素の💎、縁へ行くほど潰れて見える。
+            // 帯の緯度（lat[o+1]）は回しても傾けても変わらないので、北向きの計算にそのまま使える
+            const ap = lat[o + 1];
+            const q = Math.sqrt(Math.max(1e-4, 1 - ap * ap));
+            const nx = (-ap * x1) / q, ny = (ct - ap * y2) / q, nz = (st - ap * z2) / q;
+            const ex = ny * z2 - nz * y2, ey = nz * x1 - nx * z2;
             const d = x1 * Lx + y2 * Ly + z2 * Lz;
             ctx.globalAlpha = d > 0 ? BALL_DIM + (1 - BALL_DIM) * d : BALL_DIM;
-            ctx.drawImage(sp, sx - half, sy - half, dot, dot);
-            // ちょうど光を返す向きに来た点は、この後まとめて白く瞬かせる
+            // 画面の y は下向きなので、縦方向は符号を裏返す
+            ctx.setTransform(ex * tile * dpr, -ey * tile * dpr, -nx * tile * dpr, ny * tile * dpr, sx * dpr, sy * dpr);
+            ctx.drawImage(sp, -0.5, -0.5, 1, 1);
+            // ちょうど光を返す向きに来た板は、この後まとめて白く瞬かせる
             if (d > BALL_HL_CUT && hn < BALL_HL_MAX) { hlX[hn] = sx; hlY[hn] = sy; hlA[hn] = (d - BALL_HL_CUT) / (1 - BALL_HL_CUT); hn++; }
           }
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.imageSmoothingEnabled = true;   // この後の光や💎は今までどおりなめらかに
           ctx.globalAlpha = 1;
           if (hn > 0 && !reduceMotionRef.current) {
             const white = getDot([255, 255, 255]);
-            const w2 = dot * BALL_HL_SCALE;
+            const w2 = tile * BALL_HL_SCALE;
             ctx.save();
             ctx.globalCompositeOperation = "lighter";
-            // まっすぐ光を返している点ほど強く。同じ濃さで塗ると重なって白い塊になる
+            // まっすぐ光を返している板ほど強く。同じ濃さで塗ると重なって白い塊になる
             for (let i = 0; i < hn; i++) {
               ctx.globalAlpha = hlA[i] * hlA[i] * 0.9;
               ctx.drawImage(white, hlX[i] - w2 / 2, hlY[i] - w2 / 2, w2, w2);
