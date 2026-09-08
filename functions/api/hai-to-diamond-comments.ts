@@ -7,7 +7,7 @@
  *
  * 返す形: [{ id, author, text, likeCount, timeSec }]
  *   text    … 元の本文のまま（改行だけ空白に畳む。省略はしない・Hop決定 2026-09-08: 読みたい人がいる）
- *   timeSec … 本文に「2:31」のような分:秒があれば、その秒数。無ければ null
+ *   timeSec … 本文に「2:31」のような分:秒があれば、その秒数。無ければ null。時刻が2つ以上ある本文は時刻ごとに別々の1件に分ける
  *
  * 決め事:
  * - 取ったコメントは画面に流すためだけに短い間エッジに置く。ファイルにも DB にも残さない。
@@ -118,15 +118,39 @@ function toComments(raw: unknown): { id: string; author: string; text: string; l
     // plainText を頼んでいるので textOriginal も textDisplay も素の文。念のため両方見る
     const text = flatten(typeof s.textOriginal === 'string' ? s.textOriginal : typeof s.textDisplay === 'string' ? s.textDisplay : '');
     if (!text) continue;
-    out.push({
-      id: String(top.id ?? (item as any)?.id ?? ''),
-      author: typeof s.authorDisplayName === 'string' ? s.authorDisplayName : '',
-      text,
-      likeCount: typeof s.likeCount === 'number' ? s.likeCount : 0,
-      timeSec: parseTimeSec(text),
-    });
+    const id = String(top.id ?? (item as any)?.id ?? '');
+    const author = typeof s.authorDisplayName === 'string' ? s.authorDisplayName : '';
+    const likeCount = typeof s.likeCount === 'number' ? s.likeCount : 0;
+    // 1つのコメントに「0:20 ここ好き 1:05 ここも」のように時刻がいくつも並ぶ人がいる。
+    // 最初の時刻だけ拾うと他が埋もれるので、時刻ごとに切り分けて別々の1件にする（Hop指摘 2026-09-08）
+    const pieces = splitByTime(text);
+    if (pieces.length <= 1) {
+      out.push({ id, author, text, likeCount, timeSec: parseTimeSec(text) });
+    } else {
+      pieces.forEach((piece, k) => {
+        out.push({ id: `${id}#${k}`, author, text: piece, likeCount, timeSec: parseTimeSec(piece) });
+      });
+    }
   }
   return out;
+}
+
+/** 本文に時刻が2つ以上あれば、時刻の手前で切って並びにする。時刻が1つ以下ならそのまま1つ。
+ *  最初の時刻より前の文は、最初の切れ端にくっつける */
+function splitByTime(text: string): string[] {
+  const re = new RegExp(TIME_RE.source, 'g');
+  const starts: number[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) starts.push(m.index);
+  if (starts.length < 2) return [text];
+  const pieces: string[] = [];
+  for (let i = 0; i < starts.length; i++) {
+    const from = i === 0 ? 0 : starts[i];
+    const to = i + 1 < starts.length ? starts[i + 1] : text.length;
+    const piece = text.slice(from, to).trim();
+    if (piece) pieces.push(piece);
+  }
+  return pieces;
 }
 
 /** 改行や続いた空白を1つの空白に畳む。極端に長いものだけ安全弁で切る。
