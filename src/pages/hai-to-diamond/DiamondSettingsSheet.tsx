@@ -63,7 +63,7 @@ function Segment<T extends string>({ options, value, onSelect }: { options: { v:
 }
 
 const rowLabelStyle: CSSProperties = { fontSize: "0.8125rem", fontWeight: 700, color: "#191c1d", margin: "0 0 0.45rem" };
-const rowHintStyle: CSSProperties = { fontSize: "0.6875rem", fontWeight: 500, color: "#777", margin: "0.35rem 0 0", lineHeight: 1.4 };
+const rowHintStyle: CSSProperties = { fontSize: "0.75rem", fontWeight: 500, color: "#777", margin: "0.35rem 0 0", lineHeight: 1.4 };
 const dividerStyle: CSSProperties = { height: 1, background: "#e3e6e8", margin: "0.1rem 0" };
 
 interface Props {

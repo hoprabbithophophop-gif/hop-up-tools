@@ -100,6 +100,8 @@ interface Props {
   inviting?: boolean;
   /** 動き軽減：脈打ちと吸い付きの動きを止める */
   reduceMotion?: boolean;
+  /** 一時停止中など、帯を薄く見せて真ん中を押しても💎を降らせないようにする（色えらびのスワイプはできたまま）（Hop決定 2026-09-08） */
+  disabled?: boolean;
 }
 
 /** 真ん中から d 個ぶん離れた場所の💎の大きさ(px)。整数と整数のあいだはなめらかに繋ぐ */
@@ -167,6 +169,7 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
   onRecordCancel,
   inviting = false,
   reduceMotion = false,
+  disabled = false,
 }: Props) {
   const n = options.length;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -189,8 +192,11 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
   /** 脈打ちの誘いを出すか。paint() から読むので控えにも置く */
   const invitingRef = useRef(inviting);
   const reduceMotionRef = useRef(reduceMotion);
+  /** 一時停止中かどうか。beginDrag は memo 化された関数なので、最新の値をこの控えから読む */
+  const disabledRef = useRef(disabled);
   invitingRef.current = inviting;
   reduceMotionRef.current = reduceMotion;
+  disabledRef.current = disabled;
 
   /** いまの目盛りから、💎の位置・大きさ・薄さを画面へ直に書き込む。
    *  React を通さないので、指を動かしている間も要素を作り直さずに済む */
@@ -334,7 +340,7 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
     if (item != null) {
       pressedRef.current = item;
       paint();
-      if (item === base && onRecord) dragRef.current.recorded = onRecord();
+      if (item === base && onRecord && !disabledRef.current) dragRef.current.recorded = onRecord();
     }
   }, [n, onRecord, paint, stopAnim]);
 
@@ -375,6 +381,8 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
         position: "relative",
         width: "100%",
         height: BAND_HEIGHT,
+        // 一時停止中は帯全体を薄くして「押しても降らない」ことを見た目でも伝える（Hop決定 2026-09-08）
+        opacity: disabled ? 0.4 : 1,
         touchAction: "none",       // 帯を横になぞってもページが動かないように
         userSelect: "none",
         WebkitUserSelect: "none",

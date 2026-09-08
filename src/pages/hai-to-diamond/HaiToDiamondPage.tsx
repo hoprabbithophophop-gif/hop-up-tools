@@ -32,7 +32,10 @@ const PC_VIDEO_WIDTH = 480;
 export const SHARE_TAG = "#銀河to銀河届けよ";
 const SHARE_URL = "https://hop-up-tools.pages.dev/hai-to-diamond";
 function buildShareText(count: number): string {
-  return `灰toダイヤモンドに合わせて 💎を ${count.toLocaleString()}個 降らせました\n${SHARE_TAG}\n${SHARE_URL}`;
+  const firstLine = count === 0
+    ? "下の💎をタップで💎が降ってくる！BEYOOOOONDSに輝いてほしい分だけをキラキラにしましょう！"
+    : `灰toダイヤモンドに合わせて 💎を ${count.toLocaleString()}個 降らせました`;
+  return `${firstLine}\n${SHARE_TAG}\n${SHARE_URL}`;
 }
 function shareToX(count: number) {
   window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(buildShareText(count))}`, "_blank", "noopener,noreferrer");
@@ -128,6 +131,10 @@ export default function HaiToDiamondPage() {
   const [started, setStarted] = useState(false);
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
+  /** 一時停止中（YouTube純正の操作で止められた間）。曲の途中で押しても💎が降らないようにするための状態。
+   *  ハイライト再生中の一時停止はここに含めない（区間再生なので、いつも通り無視する） */
+  const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
   /** 曲が終わった後の画面（自分の回数・最初に戻る・シェア）。再生開始で消える */
   const [ended, setEnded] = useState(false);
   const [finalCount, setFinalCount] = useState(0);
@@ -232,6 +239,7 @@ export default function HaiToDiamondPage() {
   const color = findDiamondMember(memberId)?.color ?? "#ffffff";
 
   const setPlayingBoth = (v: boolean) => { playingRef.current = v; setPlaying(v); };
+  const setPausedBoth = (v: boolean) => { pausedRef.current = v; setPaused(v); };
 
   /** まだ送れていない記録を、色ごとに分けたまま1回の送信でまとめて送る（受け口が複数の色を受ける形・2026-09-07）。
    *  回線の不調などで断られたらそのまま取っておき、時間を空けてもう一度出し直す。送れたら帳簿を空にするので二重には送らない */
@@ -277,6 +285,7 @@ export default function HaiToDiamondPage() {
 
   const finish = useCallback(() => {
     setPlayingBoth(false);
+    setPausedBoth(false);
     setFinalCount(tapsRef.current.length);
     setPeakTime(canvasRef.current?.getPeakTime() ?? null);
     setEnded(true);
@@ -285,11 +294,13 @@ export default function HaiToDiamondPage() {
 
   const handleEnded = useCallback(() => { finish(); }, [finish]);
 
-  // 動画上の YouTube 純正の再生ボタンから始めた場合も拾う。1=PLAYING / 0=ENDED。PAUSED は触らない【仮】
+  // 動画上の YouTube 純正の再生ボタンから始めた場合も拾う。1=再生中 / 2=一時停止 / 0=終了。3=読み込み中は触らない。
+  // 再生中に一時停止(2)が来たら「一時停止中」を立て、再生(1)に戻ったら下ろす（Hop決定 2026-09-08）
   const handlePlayerStateChange = useCallback((state: number) => {
-    if (highlightRef.current) return;               // ハイライト再生中は再生扱いにしない（💎ボタンも記録も増やさない）
-    if (state === 1) { setEnded(false); setPlayingBoth(true); }
+    if (highlightRef.current) return;               // ハイライト再生中は再生扱いにしない（💎ボタンも記録も増やさない・一時停止もいつも通り無視）
+    if (state === 1) { setEnded(false); setPlayingBoth(true); setPausedBoth(false); }
     else if (state === 0) finish();
+    else if (state === 2 && playingRef.current) setPausedBoth(true);
   }, [finish]);
 
   /** 入口の💎＝ハイ！テンションと同じく、このタップの中で同期的に再生を始める（iOS Safari 対策）。
@@ -317,6 +328,7 @@ export default function HaiToDiamondPage() {
     setEnded(false);
     setStarted(true);
     setPlayingBoth(true);
+    setPausedBoth(false);
   }, [loadReplay]);
 
   /** 最初に戻る＝入口へ */
@@ -326,6 +338,7 @@ export default function HaiToDiamondPage() {
     setHighlighting(false);
     setEnded(false);
     setPlayingBoth(false);
+    setPausedBoth(false);
     setStarted(false);
   }, []);
 
@@ -427,9 +440,9 @@ export default function HaiToDiamondPage() {
     lastBucketRef.current = cur;
   }, [finish]);
 
-  /** 💎ボタン1回ぶん。再生中だけ受け付ける。色は押したその瞬間に選ばれているものを使う */
+  /** 💎ボタン1回ぶん。再生中（かつ一時停止していない）だけ受け付ける。色は押したその瞬間に選ばれているものを使う */
   const handleRecord = useCallback((): boolean => {
-    if (!playingRef.current) return false;
+    if (!playingRef.current || pausedRef.current) return false;
     const id = memberIdRef.current;
     const hex = findDiamondMember(id)?.color ?? "#ffffff";
     tapsRef.current.push({ t: playerRef.current?.getCurrentTime() ?? 0, memberId: id });
@@ -616,6 +629,7 @@ export default function HaiToDiamondPage() {
               onRecordCancel={handleRecordCancel}
               inviting={liveCount === 0}
               reduceMotion={settings.reduceMotion}
+              disabled={paused}
             />
           ) : highlighting ? (
             // 見返している間も色を選び直せる。選ぶとその色が一番輝いた瞬間へ飛び直す。
@@ -655,10 +669,10 @@ export default function HaiToDiamondPage() {
                 ▶ 本編の映像を見る
               </a>
               {/* 断り書き＋Font Awesome の帰属（CC BY 4.0）。ハイ！テンションの終了画面と同じ文言 */}
-              <p style={{ margin: "0.2rem 0 0", fontSize: "0.625rem", color: "#777", textAlign: "center", lineHeight: 1.6, textShadow: "0 0 8px rgba(0,0,0,0.8)" }}>
+              <p style={{ margin: "0.2rem 0 0", fontSize: "0.75rem", color: "#777", textAlign: "center", lineHeight: 1.5, textShadow: "0 0 8px rgba(0,0,0,0.8)" }}>
                 楽曲・映像の著作権は権利者に帰属します。<br />
                 権利者からの申し出により直ちに公開を停止します。<br />
-                <span style={{ fontSize: "0.5rem", color: "#999" }}>Gem icon by Font Awesome (CC BY 4.0)</span>
+                <span style={{ fontSize: "0.75rem", color: "#999" }}>Gem icon by Font Awesome (CC BY 4.0)</span>
               </p>
             </>
           ) : null}
@@ -669,7 +683,7 @@ export default function HaiToDiamondPage() {
 }
 
 const endLabelStyle: React.CSSProperties = {
-  fontSize: "0.6875rem",
+  fontSize: "0.75rem",
   fontWeight: 700,
   textTransform: "uppercase",
   letterSpacing: "0.1em",
