@@ -7,9 +7,9 @@
 // 表示の方式は2つあり、setMode で選ぶ（既定は "pile"＝今までの山）。
 //   pile        … 💎が上から降って画面の下に積もる。カメラが引いて山が動画の背景になる。
 //   mirrorball  … 曲の歌詞のミラーボール。💎は積もらず動画の中心へ吸い込まれ、動画の裏で球の表面に貼られた鏡の板になる。
-//                  板を貼る席の数は今ある💎の数に合わせて段階的に増える。はじめは 210 席の粗い球で、
-//                  板が1枚ずつ大きいので少ない人数でも球の形が分かる。数が増えるほど席が細かくなり、
-//                  球も膨らんで画面からはみ出しながら回って光を返す。
+//                  本物のミラーボールと同じで、球の大きさも席の数も変わらない。曲が進むにつれてカメラが寄っていき、
+//                  はじめは動画の裏にすっぽり隠れている球が、途中から上下に覗き、終わりには画面からはみ出して回る。
+//                  席が全部埋まった後に押された分は、いちばん古い板から順に貼り替わる。
 //                  光を受けた板の反射は、動画と額縁の外の画面全体＝「壁」に色の粒として映り、球と同じ向きに流れる。
 //                  曲の最後は、その粒がその場で星になり、球の板も夜空へ散って星空になる。
 //                  この方式ではカメラの引き寄り・山の帳簿・焼き込みの絵は使わない。
@@ -111,23 +111,17 @@ type Suck = {
    *  押した直後の1フレーム目に、席が手前側で動画の外にあるかどうかで決めて以後は変えない */
   toSeat: boolean;
 };
-/** ミラーボールの球。n=これまでに吸い込まれた総数（半径の元・上限を超えても数え続ける）、r=いまの半径(px)、
- *  sprites/rgb=表面の各席に入っている💎の絵と色（空きは null）。席の位置と埋める順は getBallLevel(level) の並び */
+/** ミラーボールの球。球の大きさも席の数も固定で、変わるのは「どの席が埋まっているか」と、カメラの寄り具合だけ。
+ *  zoom=いまのカメラの寄り（見かけの大きさは BALL_R × zoom）、
+ *  sprites/rgb=各席に入っている💎の絵と色（空きは null）。席の位置と埋める順は席の格子の並び */
 type Ball = {
-  n: number;
-  r: number;
-  /** いまの格子の細かさ（BALL_LEVELS の添字）。押した数が今の席の数に届くと1段細かくなる */
-  level: number;
+  zoom: number;
   sprites: (HTMLCanvasElement[] | null)[];
   rgb: Uint8Array;
   /** これまでに取っておいた席の数。押した時点で1つ取り、着いた時にそこへ貼る。
-   *  着いた数（n）ではなく押した数で数えるので、飛んでいる途中の💎どうしで席がぶつからない */
+   *  着いた数（n）ではなく押した数で数えるので、飛んでいる途中の💎どうしで席がぶつからない。
+   *  席の数を超えた分は、ぐるっと回っていちばん古い板を貼り替える */
   reserved: number;
-  /** 板の大きさの継ぎ目をならす倍率。格子を細かくした瞬間だけ1から外れ、数フレームで1へ戻る */
-  tileMul: number;
-  /** 席が満席のまま押された分に、席を明け渡した古い板の控え（k=その古い板の押した順の番号）。
-   *  席を細かくした時に、空いた新しい席へそのまま戻す＝誰の色も消えない */
-  spare: { k: number; sprites: HTMLCanvasElement[]; rgb: [number, number, number] }[];
 };
 /** 夜空の星（画面座標）。位置は星空の絵へ焼き込んだ後も、瞬きの抽選のために覚えておく */
 type SkyStar = { x: number; y: number; d: number; rgb: [number, number, number] };
@@ -190,32 +184,24 @@ const SKY_SPARK_SIZE = 7;        // 星の瞬きの大きさ（閃光の半径�
 const SKY_FLASH_SIZE = 10;       // 放った後に押した手応えの閃光の大きさ（画面座標）
 
 // ミラーボール方式の値。数字は全部【仮】、実機で見て決める
-// 席（板を貼る場所）の数は固定ではなく、今ある💎の数に合わせて段階的に増やす（Hop決定 2026-09-08）。
-// 席がいつも 6000 個あると、人の少ない色の球は板がぽつぽつ散っただけでミラーボールに見えなかった。
-// いちばん粗い 210 席は、かぎ針編みの球と同じ 11 段（上から 6,12,18,24,30,30,30,24,18,12,6 枚）。
-// 押した数が今の席の数の BALL_GROW_AT 倍に届くたびに、およそ倍ずつ細かい格子へ移る【仮】
-const BALL_LEVELS = [210, 420, 840, 1680, 3360, 6000];
-const BALL_GROW_AT = 1.3;        // 席を細かくする合図（今の席の数の何倍で切り替えるか・Hop決定 2026-09-08）【仮】。
-                                 // ちょうど席が埋まった時に切り替えると、席の数が倍になるので直後は半分が空席になる。
-                                 // 1.3 倍まで待つと、切り替えた直後の埋まり具合が 65% ほどになって球が透けにくい
-const BALL_RINGS_MIN = [6, 12, 18, 24, 30, 30, 30, 24, 18, 12, 6];   // いちばん粗い格子の、段ごとの枚数
-const BALL_MAX = BALL_LEVELS[BALL_LEVELS.length - 1];   // 席の数の上限。これを超えたら古い板から順に貼り替える＝間引き
-const BALL_R0 = 60;              // 半径の元(px)。r = R0 + K * √n と下限 BALL_R_MIN の大きい方を採る
-const BALL_R_MIN = 135;          // 球の半径の下限(px)【仮】。粗い球でも動画の上下から少し覗く大きさ。
-                                 // 390幅の画面なら 動画の高さの半分＋額縁 ≒ 116px なので、上下に約20pxずつはみ出す
-const BALL_K = 2.5;              // 半径の増え方。900個で下限に追いつき、2000個で約172px、5000個で約237px（画面の幅の半分を超える）
-const BALL_GROW = 3;             // 新しい半径へ寄る速さ（1秒あたり）。押した瞬間に跳ねないよう数フレームかけて膨らむ
+// 本物のミラーボールは、人が増えても球そのものが大きくなったりはしない。近づいて見れば大きく見えるだけ。
+// なので球の大きさも席の数も固定で、曲が進むにつれてカメラが寄っていく（Hop決定 2026-09-08）。
+const BALL_SEATS = 840;          // 席（板を貼る場所）の数【仮】。固定。押した💎は決まった混ぜ順に席を埋め、
+                                 // 満席になったら いちばん古い板から順に貼り替える。
+                                 // 人が少ないうちは板がまばらなままでよい（Hop了承 2026-09-08）
+const BALL_R = 95;               // 球の半径(px)。カメラが寄っていない（拡大率1）時の見かけの大きさ【仮】。
+                                 // 390幅の画面なら 動画の高さの半分＋額縁 ≒ 116px なので、曲の始まりは動画の裏にすっぽり隠れる
+const BALL_ZOOM_MAX = 2.6;       // 曲の終わりの拡大率【仮】。95 × 2.6 ≒ 247px ＝ 画面の幅の半分を超えて上下からはみ出す
+const BALL_ZOOM_EASE = 3;        // 拡大率を目当ての値へ寄せる速さ（1秒あたり）。ハイライト再生で動画の時刻が飛んだ時に、
+                                 // 拡大率まで一足飛びに変わらないようにする【仮】
 const BALL_SPIN_SEC = 20;        // 縦の軸まわりに1周する秒数
 const BALL_TILT = 0.3;           // 軸の傾き(rad)。まっすぐ立っているより少し傾いている方が球に見える
-const BALL_TILE_FILL = 0.95;     // 板を貼る大きさ（隣の席との間隔の何倍か）。1より少し小さくして、板と板の間に細い隙間を残す
-                                 // ＝八角形の板が1枚ずつ見える（Hop決定 2026-09-08）。
-                                 // 以前は 1.25 で板どうしを重ねて継ぎ目を埋めていた。隙間を残す方が塗る面積も減って軽い
-const BALL_TILE_MIN = 2.5;       // 板の最小の大きさ(px)。球が小さいうちに1px を切ると消えてしまう【仮】
-const BALL_TILE_EASE = 12;       // 格子を細かくした時に、板の大きさを新しい大きさへ寄せる速さ（1秒あたり）。
-                                 // 切り替えの瞬間に板がいきなり小さくなると画面が飛ぶので、0.2秒ほどかけて寄せる【仮】
-const BALL_SMOOTH_SEATS = 840;   // 席がこの数までの粗い格子では、絵をなめらかに整えたまま貼る。
-                                 // この処理は板1枚ごとに重くのしかかるが、板が数百枚のうちは効かない。
-                                 // 逆に板が大きいうちに切ると、八角形の縁がぎざぎざに見える【仮】
+const BALL_TILE_FILL = 1.0;      // 板を貼る大きさ（隣の席との間隔の何倍か）【仮】。ちょうど間隔いっぱいまで貼る。
+                                 // 板と板の間の細い隙間は、板の絵そのものが枠より内側で切ってある（PLATE_R = 0.96）分だけ残る
+                                 // ＝八角形の輪郭は1枚ずつ見えたまま、隙間は「穴」に見えない細さになる（Hop決定 2026-09-08）。
+                                 // 0.95 では 隙間 ≒ 間隔の 9% ぶんあり、暗い穴がぽつぽつ空いて見えた。
+                                 // さらに以前は 1.25 で板どうしを重ねて継ぎ目を埋めていた。重ねない方が塗る面積も減って軽い
+const BALL_TILE_MIN = 2.5;       // 板の最小の大きさ(px)。拡大率が低いうちに1px を切ると消えてしまう【仮】
 const BALL_HL_CUT = 0.985;       // 板の向きがこれ以上まっすぐ光を返している時だけ、中央の面が白く光る。
                                  // 緩めると光る板が増えすぎて、白い塊になって球に見えなくなる
 const BALL_DIM = 0.55;           // 光が当たっていない側の明るさ。暗すぎると球が欠けて見える
@@ -241,22 +227,43 @@ const SELF_SUCK_ENTER = 0.85;    // 飛ぶ時間のうち、この割合をか�
 // 以前あった「裏から漏れる放射状の筋」と「板からの筋」は、車輪の輻のように見えて
 // 球の回転と結びつかなかったので、まるごとこの粒に置き換えた
 const WALL_SPOT_MAX = 300;       // 一度に壁へ映す粒の数の上限【仮】
-const WALL_LIT_MIN = 0.3;        // 板がこれ以上光を受けていないと壁に映らない（＝球の光が当たっている側）【仮】
+const WALL_LIT_MIN = 0.15;       // 板がこれ以上光を受けていないと壁に映らない（＝球の光が当たっている側）【仮】。
+                                 // 本物のミラーボールと同じで光の向きが回るため、壁の半分しか光らないのはそのままでよい（Hop決定 2026-09-08）。
+                                 // ただし 0.3 だと粒が4個まで減る瞬間があって寂しかったので、光の当たる範囲を少し広げた
+const WALL_LIT_EARLY = -0.5;     // 板がまだ少ない間の足切り【仮】。板が数十枚のうちは、光を受けている板のうち
+                                 // さらに画面に収まる位置へ映るものがごく僅かで、粒が2個しか出ないことがあった（Hop報告 2026-09-08）。
+                                 // 序盤だけ「うっすら光を受けている板」まで拾って、粒が6〜10個は壁に出るようにする
+const WALL_LIT_RAMP = BALL_SEATS; // 板がこの枚数まで増えたら、足切りを通常の WALL_LIT_MIN へ戻しきる【仮】。
+                                 // 席が満席になった所でちょうど通常に戻る
 const WALL_FADE_BAND = 0.08;     // 足切りのすぐ上の粒は薄くする幅。ふっと現れ・ふっと消える【仮】
 const WALL_MAG = 3.0;            // 球の中心から板までの距離を何倍に伸ばした所へ映すか（拡大投影）。
-                                 // 球が大きくなると粒も自然に広がる【仮】
+                                 // 距離は見かけの半径（＝カメラの寄りを掛けたもの）なので、寄るほど粒も外へ広がる【仮】
 const WALL_D_MIN = 20;           // 粒の直径(px)。序盤【仮】
 const WALL_D_MAX = 40;           // 同上、終盤【仮】
 const WALL_A_MIN = 0.15;         // 粒の濃さ。序盤【仮】
 const WALL_A_MAX = 0.35;         // 同上、終盤（主役は動画なので、これより濃くしない）【仮】
 const WALL_FULL_AT = 0.945;      // 大きさと濃さが満開になる曲の進み。夜空へ放つ時刻（4:28.5 ÷ 4:44）に合わせてある【仮】
-const WALL_R_FULL = 240;         // 球の半径がこれになったら「壁に近づいた」扱いで満開（5000個でだいたいこの半径）【仮】
-const WALL_BY_SIZE = 0.4;        // 満開の度合いのうち、球の大きさで決まる取り分（残りは曲の進み）【仮】
+                                 // 以前は「曲の進み」と「球の大きさ」の2つで満開の度合いを決めていたが、
+                                 // 球の見かけの大きさ（＝カメラの寄り）も曲の進みで決まるようになったので、二重に数えず進みだけで決める
 const WALL_GEM_FROM = 0.8;       // 曲の進みがここを過ぎたら、粒の中心に💎の輪郭（板と同じ絵）を薄く重ねる【仮】
 const WALL_GEM_FADE = 0.03;      // 同上の出はじめ。ここを過ぎた瞬間にぱっと現れないよう、この幅だけかけて濃くなる【仮】
 const WALL_GEM_SCALE = 0.45;     // その💎の大きさ（粒の直径の何倍か）【仮】
 const WALL_GEM_ALPHA = 0.6;      // 同上の濃さ（粒の濃さの何倍か）【仮】
 const WALL_FLASH = 2.2;          // 板が白く瞬いた瞬間、その粒を何倍明るくするか【仮】
+// カメラがまだ寄っていない間は板1枚が小さく、白い瞬きも小さすぎて瞬いたことが分かりにくい。
+// そこで瞬いている板の周りにだけ、壁の粒と同じ「色ごとに一度描いた光の絵」を少し大きく薄く重ねて滲みを足す。
+// 瞬いている板は同時に数十枚しかないので、貼る回数はほとんど増えない（Hop決定 2026-09-08）。
+// 効かせるかどうかは板の見た目の大きさで決める＝カメラが寄って板が大きくなれば自然に消える
+const BLOOM_MAX = 96;            // 一度に滲みを出す板の数の上限【仮】
+const BLOOM_TILE_FROM = 26;      // 板の高さ(px)がこれを下回ったら滲みが出はじめる【仮】
+const BLOOM_TILE_FULL = 16;      // 同上、ここまで小さくなったら滲みが最も濃くなる【仮】
+const BLOOM_SCALE = 1.6;         // 滲みの大きさ（板の高さの何倍か）【仮】
+const BLOOM_ALPHA = 0.5;         // 滲みの濃さ【仮】。主役は動画なので、板そのものより目立たせない
+// 夜空へ放つ瞬間、壁の粒（直径40px前後）はその場で星（2〜4px）になる。
+// 入れ替わりが一瞬だと見た目が飛ぶので、粒が縮みながら星へ入れ替わる時間を挟む（Hop決定 2026-09-08）
+const WALL_TO_STAR_MS = 300;     // 粒が縮んで星になるまで【仮】
+const WALL_TO_STAR_CORE = 0.22;  // 粒の絵のうち「芯」に見える割合。縮み終わりの粒は 星の直径 ÷ この値 の大きさで貼る
+                                 // ＝縮みきった時に、粒の芯の太さが星の点の太さとちょうどそろう【仮】
 // 💎の行き先を「動画の中心」から「これから自分がはまる席」に変える（Hop指摘 2026-09-08）。
 // 席が手前側で動画の外にあれば、その席へ飛んで板の大きさまで縮み、着いた瞬間に板として貼られる
 const SEAT_FOLLOW = 8;           // 席の動きを追いかける速さ（1秒あたり）。席が回転で動画の裏へ入った時に
@@ -378,7 +385,7 @@ function getSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
 // その面の向き（法線）と光の向きの内積から決める。
 // 白い瞬きは別の光を上から重ねるのではなく、「中央の面が白く光った絵」に差し替えて出す
 // ＝板1枚につき貼るのは1回のままで、瞬きのために描く回数が増えない
-const PLATE_PX = 48;             // 絵の1辺。実際に貼る大きさ（粗い格子で40px前後・細かい格子で10px前後 ×画面の細かさ）に近い【仮】
+const PLATE_PX = 48;             // 絵の1辺。実際に貼る大きさ（カメラが寄る前で12px前後・寄り切って30px前後 ×画面の細かさ）に近い【仮】
 const PLATE_FLASH = 5;           // 瞬きの段階の数（0番＝光っていない絵）
 const PLATE_R = 0.96;            // 八角形の外形の大きさ（絵の枠の何倍か）。枠より少し内側で切って、
                                  // 隣の板との間に細い隙間が見えるようにする（Hop決定 2026-09-08）【仮】
@@ -548,8 +555,8 @@ function skyTarget(W: number, H: number): { x: number; y: number } {
 // ミラーボールの席の並び（半径1の球）。本物のミラーボールと同じく、北から南へ何本かの帯に切り、
 // 帯ごとに「その帯の円周の長さに比例した枚数」を等間隔に置く＝行と列がそろった格子になる。
 // 枚数は4の倍数に丸めて、隣り合う帯どうしでも列がだいたいそろって見えるようにする。
-// ただし いちばん粗い格子（BALL_LEVELS[0]）だけは、かぎ針編みの球と同じ決まった段（BALL_RINGS_MIN）を使う。
-// 格子は粗さごとに1つ作り、最初に使う時だけ組み立てて使い回す。💎が1つ吸い込まれたら、その格子の空き1席が埋まる
+// 格子は1つだけ・BALL_SEATS 席で固定し、最初に使う時だけ組み立てて使い回す。
+// 💎が1つ吸い込まれたら、決まった混ぜ順の次の1席が埋まる（Hop決定 2026-09-08: 席の数も球の大きさも増やさない）
 /** 決まった順番で同じ数を返す簡単な乱数。席を埋める順が起動のたびに変わらないようにするために使う */
 function ballRandom(seed: number): () => number {
   let x = seed;
@@ -559,36 +566,31 @@ function ballRandom(seed: number): () => number {
   };
 }
 
-/** 1つの粗さの格子。seats=席の数、a=席1つにつき4つ（球の上の向き x,y,z と、その席の横の間隔）、
+/** 席の格子。seats=席の数、a=席1つにつき4つ（球の上の向き x,y,z と、その席の横の間隔）、
  *  order=埋める順、v=段（緯度）の間隔。a の4つ目と v が、そのまま板の横幅・高さの元になる */
-type BallLevel = { seats: number; a: Float32Array; order: Int32Array; v: number };
-const ballLevels: (BallLevel | null)[] = BALL_LEVELS.map(() => null);
-function buildBallLevel(li: number): BallLevel {
-  const N = BALL_LEVELS[li];
-  let counts: number[];
-  if (li === 0) {
-    counts = BALL_RINGS_MIN.slice();
-  } else {
-    // 帯の本数は「板が正方形になる本数」から逆算する（合計はおよそ 4B²/π 席になる）
-    const B = Math.max(4, Math.round(Math.sqrt((Math.PI * N) / 4)));
-    counts = [];
-    for (let i = 0; i < B; i++) {
-      const th = ((i + 0.5) / B) * Math.PI;
-      counts.push(Math.max(4, Math.round((2 * B * Math.sin(th)) / 4) * 4));
-    }
-    // 合計をちょうど N 席に合わせる。席のいちばん多い帯（＝赤道寄り）で増減させるので、間隔はほとんど変わらない
-    let total = counts.reduce((acc, c) => acc + c, 0);
-    while (total !== N) {
-      let m = 0;
-      for (let i = 1; i < counts.length; i++) if (counts[i] > counts[m]) m = i;
-      if (total > N) {
-        const cut = Math.min(total - N >= 4 ? 4 : 1, counts[m] - 4);
-        if (cut <= 0) break;
-        counts[m] -= cut; total -= cut;
-      } else {
-        const add = Math.min(4, N - total);
-        counts[m] += add; total += add;
-      }
+type BallLattice = { seats: number; a: Float32Array; order: Int32Array; v: number };
+let ballLattice: BallLattice | null = null;
+function buildBallLattice(): BallLattice {
+  const N = BALL_SEATS;
+  // 帯の本数は「板が正方形になる本数」から逆算する（合計はおよそ 4B²/π 席になる）
+  const B0 = Math.max(4, Math.round(Math.sqrt((Math.PI * N) / 4)));
+  const counts: number[] = [];
+  for (let i = 0; i < B0; i++) {
+    const th = ((i + 0.5) / B0) * Math.PI;
+    counts.push(Math.max(4, Math.round((2 * B0 * Math.sin(th)) / 4) * 4));
+  }
+  // 合計をちょうど N 席に合わせる。席のいちばん多い帯（＝赤道寄り）で増減させるので、間隔はほとんど変わらない
+  let total = counts.reduce((acc, c) => acc + c, 0);
+  while (total !== N) {
+    let m = 0;
+    for (let i = 1; i < counts.length; i++) if (counts[i] > counts[m]) m = i;
+    if (total > N) {
+      const cut = Math.min(total - N >= 4 ? 4 : 1, counts[m] - 4);
+      if (cut <= 0) break;
+      counts[m] -= cut; total -= cut;
+    } else {
+      const add = Math.min(4, N - total);
+      counts[m] += add; total += add;
     }
   }
   const B = counts.length;
@@ -623,8 +625,14 @@ function buildBallLevel(li: number): BallLevel {
   }
   return { seats: N, a, order: ord, v };
 }
-function getBallLevel(li: number): BallLevel {
-  return (ballLevels[li] ??= buildBallLevel(li));
+function getBallLattice(): BallLattice {
+  return (ballLattice ??= buildBallLattice());
+}
+/** カメラの寄り具合。曲の進み p が 0 → 1 の間に 1.0 → BALL_ZOOM_MAX へ。
+ *  序盤はゆっくり、中盤で覗き始め、終盤ではっきりはみ出す（ゆっくり動き出してゆっくり止まる曲線） */
+function ballZoomFor(p: number): number {
+  const q = Math.min(1, Math.max(0, p));
+  return 1 + (BALL_ZOOM_MAX - 1) * q * q * (3 - 2 * q);
 }
 
 const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas({ videoBoxRef, frame, reduceMotion = false }, ref) {
@@ -679,60 +687,17 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   /** ミラーボールの球。最初に使う時だけ作る（画面が描き直されるたびに作り捨てないように） */
   const ballRef = useRef<Ball | null>(null);
   const getBall = (): Ball => (ballRef.current ??= {
-    n: 0,
-    r: BALL_R_MIN,
-    level: 0,
-    sprites: new Array<HTMLCanvasElement[] | null>(BALL_LEVELS[0]).fill(null),
-    rgb: new Uint8Array(BALL_LEVELS[0] * 3),
+    zoom: 1,
+    sprites: new Array<HTMLCanvasElement[] | null>(BALL_SEATS).fill(null),
+    rgb: new Uint8Array(BALL_SEATS * 3),
     reserved: 0,
-    tileMul: 1,
-    spare: [],
   });
-  /** 球を空にして、いちばん粗い格子に戻す（最初に戻す時・方式を替えた時・夜空へ放った時） */
+  /** 球を空にする（最初に戻す時・方式を替えた時・夜空へ放った時）。席の並びも大きさも固定なので、中身を消すだけ */
   const clearBall = (ball: Ball) => {
-    ball.n = 0;
-    ball.r = BALL_R_MIN;
-    ball.level = 0;
-    ball.sprites = new Array<HTMLCanvasElement[] | null>(BALL_LEVELS[0]).fill(null);
-    ball.rgb = new Uint8Array(BALL_LEVELS[0] * 3);
+    ball.zoom = 1;
+    ball.sprites = new Array<HTMLCanvasElement[] | null>(BALL_SEATS).fill(null);
+    ball.rgb = new Uint8Array(BALL_SEATS * 3);
     ball.reserved = 0;
-    ball.tileMul = 1;
-    ball.spare = [];
-  };
-  /** 押した数が今の席の数に届いたら、格子を1段細かくして、今ある💎を新しい席へ振り直す。
-   *  色はそのままで、並べ直す順番も今までと同じ「混ぜた順」。席は押した順の番号から毎回引き直しているので、
-   *  飛んでいる途中の💎の行き先も、これだけで新しい席へ付いてくる。
-   *  板の見た目の大きさが急に変わらないよう、切り替えた瞬間だけ倍率(tileMul)で前の大きさに合わせておく */
-  const growBall = (ball: Ball) => {
-    while (ball.level < BALL_LEVELS.length - 1 && ball.reserved >= BALL_LEVELS[ball.level] * BALL_GROW_AT) {
-      const from = getBallLevel(ball.level);
-      const to = getBallLevel(ball.level + 1);
-      const count = Math.min(ball.reserved, to.seats);
-      const sprites = new Array<HTMLCanvasElement[] | null>(to.seats).fill(null);
-      const rgb = new Uint8Array(to.seats * 3);
-      // 押した順の番号 k をそのまま新しい席の順番へ移す。席が満席だった間（k が今の席の数以上）に
-      // 押された分は、古い板の上に貼られている＝その席を見ればその色がある
-      for (let k = 0; k < count; k++) {
-        const os = from.order[k % from.seats], ns = to.order[k];
-        sprites[ns] = ball.sprites[os];
-        rgb[ns * 3] = ball.rgb[os * 3];
-        rgb[ns * 3 + 1] = ball.rgb[os * 3 + 1];
-        rgb[ns * 3 + 2] = ball.rgb[os * 3 + 2];
-      }
-      // 席を明け渡していた古い板を、自分の席へ戻す（上の写し取りで新しい色に上書きされている所を直す）
-      for (const e of ball.spare) {
-        const ns = to.order[e.k];
-        sprites[ns] = e.sprites;
-        rgb[ns * 3] = e.rgb[0];
-        rgb[ns * 3 + 1] = e.rgb[1];
-        rgb[ns * 3 + 2] = e.rgb[2];
-      }
-      ball.spare = [];
-      ball.tileMul *= from.v / to.v;
-      ball.level++;
-      ball.sprites = sprites;
-      ball.rgb = rgb;
-    }
   };
   const sizeRef = useRef({ W: 0, H: 0 });
   /** 動画本体の矩形（キャンバスの中の画面座標）。毎フレーム測った値をここに控えて、
@@ -792,11 +757,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         }
         const shrinkM = Math.max(SHRINK_MIN, Math.min(1, Math.sqrt(SHRINK_REF / spawnedRef.current)));
         // 押した時点で「この💎がはまる席」を1つ取っておく。取っておくのは席そのものではなく押した順の番号で、
-        // 席はその番号から毎回引き直す（決まった順で混ぜた並びの何番目か）＝途中で格子が細かくなっても行き先を見失わない。
-        // 席の数が足りなくなったらここで1段細かくする。いちばん細かい格子まで来たら、
-        // ぐるっと回って古い板を貼り替えるのは今までどおり
+        // 席はその番号から毎回引き直す（決まった順で混ぜた並びの何番目か）。
+        // 席が全部埋まったら、ぐるっと回っていちばん古い板を貼り替える
         const ball = getBall();
-        growBall(ball);
         const idx = ball.reserved;
         ball.reserved++;
         suckRef.current.push({
@@ -962,6 +925,17 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     const wallW = new Float32Array(WALL_SPOT_MAX);                // 濃さの重み（足切りのすぐ上は薄く・瞬いた板は明るく）
     const wallP: (HTMLCanvasElement[] | null)[] = new Array(WALL_SPOT_MAX).fill(null);  // 終盤に重ねる💎の絵（板と同じもの）
     let wallN = 0;
+    // いま壁に映している粒の直径(px)と濃さ。夜空へ放つ時に「この大きさ・この濃さから縮む」の出発点として読む
+    let wallDiaNow = 0;
+    let wallAlphaNow = 0;
+    // 瞬いている板の周りに出す滲み。板を描くついでに拾って、壁の粒と同じ場所（額縁の外）でまとめて貼る
+    const bloomX = new Float32Array(BLOOM_MAX);
+    const bloomY = new Float32Array(BLOOM_MAX);
+    const bloomC = new Uint8Array(BLOOM_MAX * 3);
+    const bloomA = new Float32Array(BLOOM_MAX);   // 濃さ（瞬きの強さに比例）
+    let bloomN = 0;
+    // 夜空へ放った瞬間、壁の粒が縮んで星になるまでの途中の姿（画面座標）。縮み終わったら星にして空へ焼き込む
+    const wallFade: { x: number; y: number; rgb: [number, number, number]; t0: number; d0: number; a0: number; d1: number }[] = [];
     // 吸い込まれ中の💎を描く時の使い回しの入れ物（1個ずつ作ると押した数だけゴミが出る）
     const suckDraw = { x: 0, y: 0, ang: 0, size: 0, rgb: [0, 0, 0] as [number, number, number] };
     const resize = () => {
@@ -984,6 +958,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         for (const s of starsRef.current) { s.x *= kx; s.y *= ky; }
         for (const f2 of flyRef.current) { f2.x0 *= kx; f2.x1 *= kx; f2.y0 *= ky; f2.y1 *= ky; }
         for (const s2 of suckRef.current) { s2.x0 *= kx; s2.y0 *= ky; }
+        for (const wf of wallFade) { wf.x *= kx; wf.y *= ky; }
         sky = null;
         skyBaked = 0;
       }
@@ -994,14 +969,17 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     clearWorldRef.current = () => {
       cols.fill(0);
       wallN = 0;     // 壁に映っていた粒も消す
+      bloomN = 0;
+      wallFade.length = 0;
       bake = null;   // 焼き込みの絵は捨てて、次に必要になった時に作り直す
       sky = null;
       skyBaked = 0;
     };
-    /** 飛び終わった粒を星にする。位置は色ごとの控えにも入れて、瞬きの抽選で色を絞れるようにする */
-    const addStar = (x: number, y: number, rgb: [number, number, number]) => {
+    /** 飛び終わった粒を星にする。位置は色ごとの控えにも入れて、瞬きの抽選で色を絞れるようにする。
+     *  d を渡すと星の大きさを指定できる（壁の粒が縮んで星になる時に、縮み先の大きさを先に決めておくため） */
+    const addStar = (x: number, y: number, rgb: [number, number, number], d?: number) => {
       const stars = starsRef.current;
-      stars.push({ x, y, d: STAR_MIN + Math.random() * STAR_RANGE, rgb });
+      stars.push({ x, y, d: d ?? STAR_MIN + Math.random() * STAR_RANGE, rgb });
       const key = rgb.join(",");
       const arr = starsByColorRef.current.get(key);
       if (arr) arr.push(stars.length - 1); else starsByColorRef.current.set(key, [stars.length - 1]);
@@ -1014,18 +992,27 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       // ミラーボール方式: 球の表面の板が、そのまま夜空へ散る。出発点はいま画面に見えている位置
       if (modeRef.current === "mirrorball") {
         const ball = getBall();
-        const lv = getBallLevel(ball.level);
+        const lv = getBallLattice();
         const filled = Math.min(ball.reserved, lv.seats);
         const lat = lv.a;
         const order = lv.order;
+        const bR = BALL_R * ball.zoom;   // いま見えている球の半径（固定の大きさ × カメラの寄り）
         const spin = reduceMotionRef.current ? 0 : (now / 1000) * (Math.PI * 2 / BALL_SPIN_SEC);
         const cs = Math.cos(spin), sn = Math.sin(spin);
         const ct = Math.cos(BALL_TILT), st = Math.sin(BALL_TILT);
         const bcy = camRef.current.cy;
         // 壁に映っていた粒は、飛ばずにその場で星になる（位置も色もそのまま引き継ぐ）。
-        // 「壁の光が結晶になったもの」として星空につながるので、粒のぶんは最初から星として空へ焼き込む
+        // 「壁の光が結晶になったもの」として星空につながる。
+        // ただし直径40px前後の粒が2〜4pxの星にいきなり入れ替わると見た目が飛ぶので、
+        // WALL_TO_STAR_MS かけて縮ませてから星にする。縮み先の星の大きさはここで決めておく。
+        // 出発点の濃さも1枚ずつ引き継ぐ＝足切りぎりぎりの薄い粒が、放った瞬間に急に明るくならない
         for (let i = 0; i < wallN; i++) {
-          addStar(wallX[i], wallY[i], [wallC[i * 3], wallC[i * 3 + 1], wallC[i * 3 + 2]]);
+          const d1 = STAR_MIN + Math.random() * STAR_RANGE;
+          wallFade.push({
+            x: wallX[i], y: wallY[i],
+            rgb: [wallC[i * 3], wallC[i * 3 + 1], wallC[i * 3 + 2]],
+            t0: now, d0: wallDiaNow, a0: Math.min(1, wallAlphaNow * wallW[i]), d1,
+          });
         }
         // 球の板は、粒になった数を除いた残りの席へ飛ぶ＝星の総数は今までと同じ
         const n = Math.max(0, Math.min(filled, LAUNCH_MAX) - wallN);
@@ -1041,7 +1028,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           const y2 = lat[o + 1] * ct - z1 * st;
           const tgt = skyTarget(W, H);
           fly.push({
-            x0: cx + x1 * ball.r, y0: bcy - y2 * ball.r,
+            x0: cx + x1 * bR, y0: bcy - y2 * bR,
             x1: tgt.x, y1: tgt.y,
             bow: FLY_BOW_MIN + Math.random() * FLY_BOW_RANGE,
             t0: now, dur: LAUNCH_FLY_MS + Math.random() * LAUNCH_FLY_JITTER,
@@ -1356,6 +1343,12 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           addStar(fly[i].x1, fly[i].y1, fly[i].rgb);
           fly.splice(i, 1);
         }
+        // 壁の粒から縮みきった分も、同じ理由でここで星にする（大きさは縮み始めに決めてある）
+        for (let i = wallFade.length - 1; i >= 0; i--) {
+          if (now - wallFade[i].t0 < WALL_TO_STAR_MS) continue;
+          addStar(wallFade[i].x, wallFade[i].y, wallFade[i].rgb, wallFade[i].d1);
+          wallFade.splice(i, 1);
+        }
         // 新しく星になった分を1枚の絵へ焼き足す。重なった所は明るくなる
         if (stars.length > skyBaked) {
           if (!sky) {
@@ -1379,6 +1372,32 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           }
         }
         if (sky) ctx.drawImage(sky.canvas, 0, 0, W, H);
+        // 壁に映っていた粒が、その場で縮んで星に入れ替わる途中の姿（放った瞬間から WALL_TO_STAR_MS の間だけ）。
+        // 直径40px前後の粒が2〜4pxの星へ一足飛びに変わると見た目が飛ぶので、粒を縮めながら薄くし、
+        // 入れ替わりに星を濃くする。縮みきったところで星にして、以後は星空の絵へ焼き込まれる。
+        // 額縁の外だけに出すのは、壁に映っていた時と同じ囲い方（額縁の中にあった粒は元から見えていない）
+        if (wallFade.length) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, 0, W, H);
+          ctx.rect(f.x, f.y, f.w, f.h);
+          ctx.clip("evenodd");
+          ctx.globalCompositeOperation = "lighter";
+          for (const wf of wallFade) {
+            const u = Math.min(1, (now - wf.t0) / WALL_TO_STAR_MS);
+            const dEnd = wf.d1 / WALL_TO_STAR_CORE;
+            const dNow = wf.d0 + (dEnd - wf.d0) * u * u;      // はじめゆっくり、終わりで一気に縮む
+            const [cr, cg, cb] = wf.rgb;
+            ctx.globalAlpha = Math.min(1, wf.a0 * (1 - u * u));
+            ctx.drawImage(getWallSpot((cr << 16) | (cg << 8) | cb, cr, cg, cb),
+              wf.x - dNow / 2, wf.y - dNow / 2, dNow, dNow);
+            const ws = wf.d1 / STAR_CORE;
+            ctx.globalAlpha = u * u;
+            ctx.drawImage(getStar(wf.rgb), wf.x - ws / 2, wf.y - ws / 2, ws, ws);
+          }
+          ctx.globalAlpha = 1;
+          ctx.restore();
+        }
         // 飛んでいる粒。はじめ速く終わりゆっくり進み、まっすぐでなく少し弧を描く
         if (fly.length) {
           ctx.save();
@@ -1423,47 +1442,30 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         // 1. 飛び終わった💎を球の表面の板にする。貼る場所は、押した順の番号（sk.idx）から引いた席。
         //    並びは決まった順で混ぜてあるので、少ない数でも球全体に散らばる。
         //    上限を超えたら同じ順番でぐるっと回って古い板を貼り替える（＝間引き）
-        const lv = getBallLevel(ball.level);
+        const lv = getBallLattice();
         const seats = lv.seats;
         for (let i = suck.length - 1; i >= 0; i--) {
           const sk = suck[i];
           if (now - sk.t0 < sk.dur) continue;
           const slot = lv.order[sk.idx % seats];
-          // 席が満席のまま押された分は、いちばん古い板の席を借りる。借りた板は控えに取っておいて、
-          // 席が細かくなった時に自分の席へ戻す＝待っている間も誰の色も消えない。
-          // 逆に、自分の席を「後から押された人」が先に借りていることもある（吸い込まれる速さが1つずつ違うので
-          // 着く順は前後する）。その時は自分の方が控えに入って、席が細かくなった時に自分の席へ戻る。
-          // いちばん細かい格子から先はもう席が増えないので、控えは取らずに今までどおり古い板を貼り替える（＝間引き）
-          if (ball.level < BALL_LEVELS.length - 1 && ball.sprites[slot]) {
-            if (sk.idx >= seats) {
-              ball.spare.push({
-                k: sk.idx - seats,
-                sprites: ball.sprites[slot],
-                rgb: [ball.rgb[slot * 3], ball.rgb[slot * 3 + 1], ball.rgb[slot * 3 + 2]],
-              });
-            } else if (ball.reserved > seats) {
-              ball.spare.push({ k: sk.idx, sprites: getPlateSprites(sk.rgb), rgb: sk.rgb });
-              ball.n++;
-              suck.splice(i, 1);
-              continue;
-            }
-          }
           ball.sprites[slot] = getPlateSprites(sk.rgb);   // 貼る絵はここで1回だけ引く（毎フレーム引くと重い）
           ball.rgb[slot * 3] = sk.rgb[0];
           ball.rgb[slot * 3 + 1] = sk.rgb[1];
           ball.rgb[slot * 3 + 2] = sk.rgb[2];
-          ball.n++;
           suck.splice(i, 1);
         }
-        // 見に行く席の数は「押された数」で数える。着いた数（ball.n）で切ると、
+        // 見に行く席の数は「押された数」で数える。着いた数で切ると、
         // 席の番号が着く順とずれた板（＝先に押した💎がまだ飛んでいる間に着いた板）が
         // しばらく描かれず、後から急に現れてしまう。空いている席は絵が無いので飛ばされる
         const filled = Math.min(ball.reserved, seats);
-        // 半径は数の平方根で増える。ただし下限より小さくはならない（粗い球でも動画の上下から覗く大きさを保つ）。
-        // 数フレームかけてなめらかに膨らむ
-        const rTarget = Math.max(BALL_R_MIN, BALL_R0 + BALL_K * Math.sqrt(ball.n));
-        ball.r += (rTarget - ball.r) * Math.min(1, dt * BALL_GROW);
-        const r = ball.r;
+        // 球そのものの大きさは変わらない。変わるのはカメラの寄り具合＝見かけの大きさだけ。
+        // 曲が進むほど寄って、動画の裏から上下にはみ出してくる。
+        // ハイライト再生中と、夜空へ放った後は寄りを止める（時刻が飛んでも拡大率が跳ねない）。
+        // 目当ての拡大率へは数フレームかけて寄せる＝時刻が飛んだ時も一足飛びにならない
+        if (!holdCameraRef.current && !launchedRef.current) {
+          ball.zoom += (ballZoomFor(p) - ball.zoom) * Math.min(1, dt * BALL_ZOOM_EASE);
+        }
+        const r = BALL_R * ball.zoom;
         // 球の向き（回転と傾き）と板の大きさ。板を描く所だけでなく、飛んでいる💎が
         // 「自分の席がいま画面のどこにあるか」を知るのにも要るので、板が1枚も無い時でも先に出しておく
         const lat = lv.a;          // 席1つにつき4つ（向き x,y,z と 横の間隔）
@@ -1471,34 +1473,39 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const spin = reduceMotionRef.current ? 0 : (now / 1000) * (Math.PI * 2 / BALL_SPIN_SEC);
         const cs = Math.cos(spin), sn = Math.sin(spin);
         const ct = Math.cos(BALL_TILT), st = Math.sin(BALL_TILT);
-        // 板の大きさは、球の半径と席の間隔から決める。高さは段の間隔（格子ごとに1つ）、
-        // 横幅は隣の席との間隔（席ごとに違う。極に近い段ほど細い）。どちらも隣とわずかに隙間が空く大きさにする。
-        // 格子を細かくした直後だけ tileMul が1から外れていて、数フレームかけて1へ戻る＝板が急に小さくならない
-        ball.tileMul += (1 - ball.tileMul) * Math.min(1, dt * BALL_TILE_EASE);
-        const tileK = r * BALL_TILE_FILL * ball.tileMul;
+        // 板の大きさは、見かけの半径と席の間隔から決める。高さは段の間隔（格子で1つ）、
+        // 横幅は隣の席との間隔（席ごとに違う。極に近い段ほど細い）。カメラが寄るほど板も大きく見える
+        const tileK = r * BALL_TILE_FILL;
         const tileV = Math.max(BALL_TILE_MIN, tileK * lv.v);
         // 光の向き。落ちている💎の面と同じ考えで、板の向きが光を返す向きに近いほど明るくする
         const lz = 0.8;
         const ln = Math.hypot(Math.cos(lightAng), Math.sin(lightAng), lz);
         const Lx = Math.cos(lightAng) / ln, Ly = Math.sin(lightAng) / ln, Lz = lz / ln;
 
-        // 壁に映る粒の「満開の度合い」（0〜1）。曲の進みと球の大きさの両方で決まる。
+        // 壁に映る粒の「満開の度合い」（0〜1）。曲の進みで決まる。
         // 序盤は淡く小さく、終盤は数も大きさも濃さも増す＝球が壁に近づいたように見せる
-        const wallQ = Math.min(1, Math.max(0,
-          (1 - WALL_BY_SIZE) * Math.min(1, p / WALL_FULL_AT)
-          + WALL_BY_SIZE * Math.min(1, (ball.r - BALL_R_MIN) / Math.max(1, WALL_R_FULL - BALL_R_MIN))));
+        const wallQ = Math.min(1, Math.max(0, p / WALL_FULL_AT));
         const wallDia = WALL_D_MIN + (WALL_D_MAX - WALL_D_MIN) * wallQ;
         const wallAlpha = WALL_A_MIN + (WALL_A_MAX - WALL_A_MIN) * wallQ;
-        // 壁に映す板の選び方: 光を受けている板（WALL_LIT_MIN 以上）から、押した順の番号ごとに決まっている
+        wallDiaNow = wallDia; wallAlphaNow = wallAlpha;   // 夜空へ放つ時に、粒の縮み始めの大きさと濃さとして読む
+        // 光を受けている板の足切り。板がまだ少ない間は緩め（WALL_LIT_EARLY）、
+        // 板が WALL_LIT_RAMP 枚まで増える間に通常（WALL_LIT_MIN）へ戻す。
+        // 序盤は光を受けている板そのものが数枚しかなく、さらに壁へ映した位置が画面に収まるものとなると
+        // 2個ほどしか出なかった（Hop報告 2026-09-08）
+        const wallCut = WALL_LIT_EARLY + (WALL_LIT_MIN - WALL_LIT_EARLY) * Math.min(1, filled / WALL_LIT_RAMP);
+        // 壁に映す板の選び方: 光を受けている板（wallCut 以上）から、押した順の番号ごとに決まっている
         // くじで当たった分だけを映す。当たりの割合は「上限の数 ÷ 光を受けている板の数」なので、
         // 数が増えるほど当たりが少しずつ辛くなる＝粒が1枚ずつ静かに減る。
         // 押した順は決まった順で混ぜてあるので、球全体からまんべんなく散らばる＝板の格子がそのまま拡大されて壁に写らない。
         // 「光の受け方が強い順に上位◯枚」を採る形も試したが、光の当たっている一角に粒が固まって
         // 壁の片側だけが光り、しかも格子の目がそのまま拡大されて見えた（2026-09-08 に手元で見てくじに変えた）。
         // 「◯枚おきに1枚」の間引きも、間隔が2枚おきから3枚おきへ変わる瞬間に粒が一斉に入れ替わるのでやめた
-        const wallLit = filled * (1 - WALL_LIT_MIN) / 2;   // だいたい何枚が光を受けているか（球の上でその向きが占める割合から）
+        const wallLit = filled * (1 - wallCut) / 2;   // だいたい何枚が光を受けているか（球の上でその向きが占める割合から）
         const wallKeep = Math.min(1, WALL_SPOT_MAX / Math.max(1, wallLit));
         wallN = 0;
+        // 瞬いている板の周りに足す滲みの濃さ。板が小さい段ほど濃く、板が大きい段では出さない
+        const bloomK = Math.min(1, Math.max(0, (BLOOM_TILE_FROM - tileV) / Math.max(1, BLOOM_TILE_FROM - BLOOM_TILE_FULL)));
+        bloomN = 0;
 
         // 2. 球の表面: 縦の軸まわりに回して少し傾け、手前側の板だけを描く。
         //    板は💎の絵（積もった💎と同じもの）を球の表面に貼ったもの。奥側と、動画にすっかり隠れる板は描かない。
@@ -1507,10 +1514,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           const half = tileV * 0.6;   // 画面からはみ出した板を弾くための目安（横幅は段の間隔の1.2倍まで）
           const flash = !reduceMotionRef.current;
           // 板は1枚ずつ回して潰して貼る＝縦横に揃っていない貼り方なので、絵をなめらかに整える処理が
-          // 1枚ごとに重くのしかかる。切っても見た目はほとんど変わらず、数千枚のときにはっきり軽くなる
-          // （手元の計測で5000枚のとき 35fps → 55fps・2026-09-08）。
-          // ただし粗い格子のうちは板が大きく、切ると八角形の縁がぎざぎざに見えるので、そのままにする
-          ctx.imageSmoothingEnabled = seats <= BALL_SMOOTH_SEATS;
+          // 1枚ごとに重くのしかかる。以前は板が数千枚になる格子があったのでここで切っていたが、
+          // 席が 840 枚で固定になり、板も1枚ずつ大きいので、なめらかに整えたまま貼る（縁のぎざぎざを出さない）
           for (let k = 0; k < filled; k++) {
             const slot = order[k];
             const sp = ball.sprites[slot];
@@ -1528,7 +1533,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             // ここでは位置と色を控えるだけで、貼るのは板を全部描いた後（3.）
             // くじは押した順の番号から毎回同じ数を作る＝同じ板はずっと映り続ける（ちらつかない）
             const hk = ((k * 2654435761) >>> 0) / 4294967296;
-            if (hk < wallKeep && d > WALL_LIT_MIN && wallN < WALL_SPOT_MAX) {
+            if (hk < wallKeep && d > wallCut && wallN < WALL_SPOT_MAX) {
               const wx = cx + (sx - cx) * WALL_MAG, wy = cy + (sy - cy) * WALL_MAG;
               if (wx > -wallDia && wx < W + wallDia && wy > -wallDia && wy < H + wallDia) {
                 const oc = slot * 3;
@@ -1537,7 +1542,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
                 wallC[wallN * 3 + 1] = ball.rgb[oc + 1];
                 wallC[wallN * 3 + 2] = ball.rgb[oc + 2];
                 // 足切りのすぐ上の板は薄く（ふっと現れ・ふっと消える）。白く瞬いた板の粒は一瞬明るくする
-                wallW[wallN] = Math.min(1, (d - WALL_LIT_MIN) / WALL_FADE_BAND)
+                wallW[wallN] = Math.min(1, (d - wallCut) / WALL_FADE_BAND)
                   * (!reduceMotionRef.current && d > BALL_HL_CUT ? WALL_FLASH : 1);
                 wallP[wallN] = sp;
                 wallN++;
@@ -1562,9 +1567,19 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
               ? Math.min(PLATE_FLASH - 1, 1 + Math.floor(((d - BALL_HL_CUT) / (1 - BALL_HL_CUT)) * (PLATE_FLASH - 1)))
               : 0;
             ctx.drawImage(sp[fs], -0.5, -0.5, 1, 1);
+            // 板が小さい段では、瞬いている板の周りに滲みを足す（この後 3. でまとめて貼る）。
+            // 拾うのは実際に描いた板だけ＝画面の外と、動画にすっかり隠れる板の分は出さない
+            if (fs > 0 && bloomK > 0 && bloomN < BLOOM_MAX) {
+              bloomX[bloomN] = sx; bloomY[bloomN] = sy;
+              const oc2 = slot * 3;
+              bloomC[bloomN * 3] = ball.rgb[oc2];
+              bloomC[bloomN * 3 + 1] = ball.rgb[oc2 + 1];
+              bloomC[bloomN * 3 + 2] = ball.rgb[oc2 + 2];
+              bloomA[bloomN] = BLOOM_ALPHA * bloomK * (fs / (PLATE_FLASH - 1));
+              bloomN++;
+            }
           }
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          ctx.imageSmoothingEnabled = true;   // この後の光や💎は今までどおりなめらかに
           ctx.globalAlpha = 1;
         }
 
@@ -1573,15 +1588,25 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         //    額縁（動画を含む）の中は clip で除外する。合成は lighter なので、重なった所だけ明るくなる。
         //    貼るのは板を全部描いた後。粒は球の3倍の広がりに散るので板とはほとんど重ならず、
         //    重なった時も足し算で少し明るくなるだけ（主役の動画より目立たない濃さに抑えてある）
-        if (wallN > 0 && wallAlpha > 0.01) {
+        //    瞬いている板の滲み（2. で拾った分）も、額縁の外を守る同じ囲いの中で一緒に貼る。
+        //    額縁の地色はこのキャンバスに塗ってあるので、囲いを外すと額縁まで明るくなってしまう
+        if ((wallN > 0 && wallAlpha > 0.01) || bloomN > 0) {
           const gem = Math.min(1, Math.max(0, (p - WALL_GEM_FROM) / WALL_GEM_FADE));
           const gemW = wallDia * WALL_GEM_SCALE;
+          const bloomDia = tileV * BLOOM_SCALE;
           ctx.save();
           ctx.beginPath();
           ctx.rect(0, 0, W, H);
           ctx.rect(f.x, f.y, f.w, f.h);
           ctx.clip("evenodd");
           ctx.globalCompositeOperation = "lighter";
+          for (let i = 0; i < bloomN; i++) {
+            const oc = i * 3;
+            const cr = bloomC[oc], cg = bloomC[oc + 1], cb = bloomC[oc + 2];
+            ctx.globalAlpha = Math.min(1, bloomA[i]);
+            ctx.drawImage(getWallSpot((cr << 16) | (cg << 8) | cb, cr, cg, cb),
+              bloomX[i] - bloomDia / 2, bloomY[i] - bloomDia / 2, bloomDia, bloomDia);
+          }
           for (let i = 0; i < wallN; i++) {
             const oc = i * 3;
             const cr = wallC[oc], cg = wallC[oc + 1], cb = wallC[oc + 2];
