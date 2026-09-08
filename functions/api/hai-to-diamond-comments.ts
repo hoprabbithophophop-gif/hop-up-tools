@@ -32,6 +32,8 @@ const MAX_TEXT_LENGTH = 1000;
 /** 取るページ数【仮】。1ページ 100 件・1点。関連度順 3 ページ＋新しい順 2 ページ＝5点・最大 500 件 */
 /** 1つのコメントを時刻ごとに流す回数の上限【仮】 */
 const MAX_TIMES_PER_COMMENT = 3;
+/** 時刻がこれ以上並ぶコメントは案内とみなし、最初の時刻に1回だけ流す【仮】 */
+const MANY_TIMES_ONCE = 5;
 const RELEVANCE_PAGES = 3;
 const TIME_PAGES = 2;
 
@@ -127,7 +129,9 @@ function toComments(raw: unknown): { id: string; author: string; text: string; l
     // 本文を切って別々の文にするのは YouTube の「そのまま見せる」決まりから外れる恐れがあるので、
     // 文は丸ごと変えずに、時刻の数だけ（上限あり）その時刻に流す形にする（Hop決定 2026-09-08）
     const times = allTimeSecs(text);
-    if (times.length <= 1) {
+    if (times.length <= 1 || times.length >= MANY_TIMES_ONCE) {
+      // 時刻が無い・1つ・または「x:xx x:xx x:xx 西田さん…」のように時刻が並ぶ案内のコメントは、最初の時刻に1回だけ。
+      // 長い案内が時刻ごとに何度も流れるより、1回で読める方が親切（Hop決定 2026-09-08）
       out.push({ id, author, text, likeCount, timeSec: times[0] ?? null });
     } else {
       times.slice(0, MAX_TIMES_PER_COMMENT).forEach((sec, k) => {
