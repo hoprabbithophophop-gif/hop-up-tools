@@ -24,6 +24,7 @@ const TOOLS = [
   { key: "the-ballad", label: "The Balladデータベース" },
   { key: "hi-tension", label: "ハイ！テンション" },
   { key: "arigato-beat", label: "ありがとビート" },
+  { key: "hai-to-diamond", label: "灰toダイヤモンド #銀河to銀河届けよ" },
   { key: "site", label: "サイト全体" },
 ];
 
@@ -79,9 +80,9 @@ const field: React.CSSProperties = {
   fontFamily: "inherit",
 };
 
-export default function ContactModal({ onClose }: { onClose: () => void }) {
+export default function ContactModal({ onClose, initialTool }: { onClose: () => void; initialTool?: string }) {
   const [kind, setKind] = useState("");
-  const [tool, setTool] = useState("");
+  const [tool, setTool] = useState(initialTool ?? "");
   const [content, setContent] = useState("");
   const [replyTo, setReplyTo] = useState("");
   const [website, setWebsite] = useState(""); // ハニーポット。人間は触らない。

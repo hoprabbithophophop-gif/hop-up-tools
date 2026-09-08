@@ -1,6 +1,7 @@
 // 表示設定シート。ハイ！テンションの設定シート(SettingsSheet)と同じ見た目・同じ語彙で、
 // 💎に関係する項目だけ（みんなの💎の量・動き）。入口の歯車から開く。
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
+import ContactModal from "@/components/ContactModal";
 
 export type DiamondCrowdLevel = "full" | "light" | "self";
 /** 再生中の色えらびの並べ方。pages=ユニットごとのページ / row=一列の帯（Hop決定 2026-09-08） */
@@ -83,6 +84,9 @@ interface Props {
 }
 
 export default function DiamondSettingsSheet({ settings, onChange, onClose }: Props) {
+  // お問い合わせ窓。設定シートとは別の重なり（ContactModal は独自のオーバーレイを持つ）で開くので、
+  // シートの背景クリックによる onClose には触れず、閉じても設定シートはそのまま開いたまま
+  const [contactOpen, setContactOpen] = useState(false);
   const isLight = settings.crowd === LIGHT_DIAMOND_SETTINGS.crowd && settings.reduceMotion === LIGHT_DIAMOND_SETTINGS.reduceMotion;
   const isDefault = settings.crowd === DEFAULT_DIAMOND_SETTINGS.crowd && settings.reduceMotion === DEFAULT_DIAMOND_SETTINGS.reduceMotion;
   const presetBtn = (active: boolean): CSSProperties => ({
@@ -91,6 +95,7 @@ export default function DiamondSettingsSheet({ settings, onChange, onClose }: Pr
   });
 
   return (
+    <>
     <div
       role="dialog"
       aria-modal="true"
@@ -161,7 +166,17 @@ export default function DiamondSettingsSheet({ settings, onChange, onClose }: Pr
         >
           閉じる
         </button>
+
+        <button
+          type="button"
+          onClick={() => setContactOpen(true)}
+          style={{ background: "transparent", border: "none", padding: 0, fontFamily: "inherit", cursor: "pointer", color: "#777", fontSize: "0.6875rem", alignSelf: "center" }}
+        >
+          お問い合わせ
+        </button>
       </div>
     </div>
+    {contactOpen && <ContactModal onClose={() => setContactOpen(false)} initialTool="hai-to-diamond" />}
+    </>
   );
 }

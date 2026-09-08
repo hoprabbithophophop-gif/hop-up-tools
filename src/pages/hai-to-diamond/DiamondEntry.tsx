@@ -45,7 +45,7 @@ export default function DiamondEntry({ total, onStart, onOpenSettings, reduceMot
     try { return window.matchMedia("(orientation: landscape)").matches; } catch { return false; }
   });
   useEffect(() => {
-    document.title = "灰toダイヤモンド | hop-up-tools";
+    document.title = "灰toダイヤモンド #銀河to銀河届けよ | hop-up-tools";
   }, []);
   useEffect(() => {
     let mq: MediaQueryList;

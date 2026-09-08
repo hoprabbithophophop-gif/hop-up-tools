@@ -36,7 +36,7 @@ const KIND_LABEL: Record<string, string> = {
   request: "要望",
   question: "質問",
 };
-const TOOLS = ["fc-ticket", "youtube", "the-ballad", "hi-tension", "arigato-beat", "site"];
+const TOOLS = ["fc-ticket", "youtube", "the-ballad", "hi-tension", "arigato-beat", "hai-to-diamond", "site"];
 
 const MAX_CONTENT = 1000;
 const MAX_REPLY_TO = 200;
