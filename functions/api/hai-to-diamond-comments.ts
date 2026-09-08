@@ -7,7 +7,7 @@
  *
  * 返す形: [{ id, author, text, likeCount, timeSec }]
  *   text    … 元の本文のまま（改行だけ空白に畳む。省略はしない・Hop決定 2026-09-08: 読みたい人がいる）
- *   timeSec … 本文に「2:31」のような分:秒があれば、その秒数。無ければ null。時刻が2つ以上ある本文は時刻ごとに別々の1件に分ける
+ *   timeSec … 本文に「2:31」のような分:秒があれば、その秒数。無ければ null。時刻が2つ以上ある本文は、文はそのままで時刻ごとに1件ずつ（上限3回）返す
  *
  * 決め事:
  * - 取ったコメントは画面に流すためだけに短い間エッジに置く。ファイルにも DB にも残さない。
@@ -30,6 +30,8 @@ const MAX_RESULTS = 100;
 /** 1件の本文の長さの上限（文字）。極端に長いものだけ止める安全弁で、通常のコメントは丸ごと流す（Hop決定 2026-09-08: 省略しない） */
 const MAX_TEXT_LENGTH = 1000;
 /** 取るページ数【仮】。1ページ 100 件・1点。関連度順 3 ページ＋新しい順 2 ページ＝5点・最大 500 件 */
+/** 1つのコメントを時刻ごとに流す回数の上限【仮】 */
+const MAX_TIMES_PER_COMMENT = 3;
 const RELEVANCE_PAGES = 3;
 const TIME_PAGES = 2;
 
@@ -122,35 +124,30 @@ function toComments(raw: unknown): { id: string; author: string; text: string; l
     const author = typeof s.authorDisplayName === 'string' ? s.authorDisplayName : '';
     const likeCount = typeof s.likeCount === 'number' ? s.likeCount : 0;
     // 1つのコメントに「0:20 ここ好き 1:05 ここも」のように時刻がいくつも並ぶ人がいる。
-    // 最初の時刻だけ拾うと他が埋もれるので、時刻ごとに切り分けて別々の1件にする（Hop指摘 2026-09-08）
-    const pieces = splitByTime(text);
-    if (pieces.length <= 1) {
-      out.push({ id, author, text, likeCount, timeSec: parseTimeSec(text) });
+    // 本文を切って別々の文にするのは YouTube の「そのまま見せる」決まりから外れる恐れがあるので、
+    // 文は丸ごと変えずに、時刻の数だけ（上限あり）その時刻に流す形にする（Hop決定 2026-09-08）
+    const times = allTimeSecs(text);
+    if (times.length <= 1) {
+      out.push({ id, author, text, likeCount, timeSec: times[0] ?? null });
     } else {
-      pieces.forEach((piece, k) => {
-        out.push({ id: `${id}#${k}`, author, text: piece, likeCount, timeSec: parseTimeSec(piece) });
+      times.slice(0, MAX_TIMES_PER_COMMENT).forEach((sec, k) => {
+        out.push({ id: `${id}#${k}`, author, text, likeCount, timeSec: sec });
       });
     }
   }
   return out;
 }
 
-/** 本文に時刻が2つ以上あれば、時刻の手前で切って並びにする。時刻が1つ以下ならそのまま1つ。
- *  最初の時刻より前の文は、最初の切れ端にくっつける */
-function splitByTime(text: string): string[] {
+/** 本文に含まれる時刻（分:秒）を、出てくる順に全部秒数で返す。無ければ空 */
+function allTimeSecs(text: string): number[] {
   const re = new RegExp(TIME_RE.source, 'g');
-  const starts: number[] = [];
+  const secs: number[] = [];
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) starts.push(m.index);
-  if (starts.length < 2) return [text];
-  const pieces: string[] = [];
-  for (let i = 0; i < starts.length; i++) {
-    const from = i === 0 ? 0 : starts[i];
-    const to = i + 1 < starts.length ? starts[i + 1] : text.length;
-    const piece = text.slice(from, to).trim();
-    if (piece) pieces.push(piece);
+  while ((m = re.exec(text)) !== null) {
+    const sec = Number(m[1]) * 60 + Number(m[2]);
+    if (!secs.includes(sec)) secs.push(sec);
   }
-  return pieces;
+  return secs;
 }
 
 /** 改行や続いた空白を1つの空白に畳む。極端に長いものだけ安全弁で切る。
@@ -162,15 +159,6 @@ function flatten(src: string): string {
   return chars.slice(0, MAX_TEXT_LENGTH).join('') + '…';
 }
 
-/** 本文の中の最初の「分:秒」を秒数に直す。無ければ null。本文そのものは変えない */
-function parseTimeSec(text: string): number | null {
-  const m = TIME_RE.exec(text);
-  if (!m) return null;
-  const min = Number(m[1]);
-  const sec = Number(m[2]);
-  if (!Number.isFinite(min) || !Number.isFinite(sec)) return null;
-  return min * 60 + sec;
-}
 
 function cacheAndReturn(
   context: { waitUntil(p: Promise<unknown>): void },
