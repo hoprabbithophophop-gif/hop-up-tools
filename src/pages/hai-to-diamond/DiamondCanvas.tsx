@@ -97,6 +97,16 @@ type Suck = {
   bow: number;
   /** 自分が押した分。取り消し（スワイプの空振り）で消せるようにする */
   self: boolean;
+  /** 押した時に取っておいた席（板の並びの何番目に貼るか）。着いたらここが埋まる */
+  slot: number;
+  /** いまの行き先（画面座標）。席が見えているならその席、見えていないなら動画の中心。
+   *  席は回転で動くので毎フレーム測り直し、少しずつ寄せる＝行き先が変わっても飛び方が跳ばない */
+  tx: number; ty: number;
+  /** 行き先を一度でも決めたか（false のうちは寄せずに直接そこへ置く） */
+  aimed: boolean;
+  /** 席へ飛ぶ（＝はめ込まれる様子が見える）か、今までどおり動画の中心へ飛んで隠れるか。
+   *  押した直後の1フレーム目に、席が手前側で動画の外にあるかどうかで決めて以後は変えない */
+  toSeat: boolean;
 };
 /** ミラーボールの球。n=これまでに吸い込まれた総数（半径の元・上限を超えても数え続ける）、r=いまの半径(px)、
  *  sprites/rgb=表面の各板に入っている💎の絵と色（空きは null）。板の位置は getBallLattice() の並び、埋める順は getBallOrder() */
@@ -105,6 +115,9 @@ type Ball = {
   r: number;
   sprites: (HTMLCanvasElement | null)[];
   rgb: Uint8Array;
+  /** これまでに取っておいた席の数。押した時点で1つ取り、着いた時にそこへ貼る。
+   *  着いた数（n）ではなく押した数で数えるので、飛んでいる途中の💎どうしで席がぶつからない */
+  reserved: number;
 };
 /** 夜空の星（画面座標）。位置は星空の絵へ焼き込んだ後も、瞬きの抽選のために覚えておく */
 type SkyStar = { x: number; y: number; d: number; rgb: [number, number, number] };
@@ -216,6 +229,33 @@ const STREAK_RAMP_EARLY = 0.3;   // そこまでに使う伸びしろ（1が満�
 const STREAK_FULL_AT = 0.945;    // 満開になる曲の進み。夜空へ放つ時刻（4:28.5 ÷ 4:44）に合わせてある【仮】
 const STREAK_TIME_FLOOR = 0.55;  // 明るさに掛ける「曲の進み」の係数の下限。序盤は球が動画にすっかり隠れていて
                                  // 筋だけが手がかりなので、暗くしすぎない【仮】
+// 筋の出どころを「動画の裏」から「いま光を返している板そのもの」に移す（Hop指摘 2026-09-08）。
+// 板は回転で流れていくので、その板から出る筋も球の回転と同じ向きに流れる。
+// 動画の中心から放射状に伸ばしていた頃は、動画の上側と下側で筋が逆向きに動いて車輪のように見えていた
+const STREAK_PLATE_FLOOR = 0.35; // 板がこれ以上光を受けている間だけ、その板から筋が出る。
+                                 // 「まっすぐ光を返している板だけ」（白く瞬く目安 BALL_HL_CUT=0.985）に絞ると、
+                                 // 光がいちばん強い一角はたいてい動画の裏に回り込んでいて、
+                                 // 筋が1本も出ない時間が何秒も続いた（2026-09-08 に手元で見て緩めた）【仮】
+const STREAK_PLATE_DIM = 0.3;    // いちばん暗い筋の濃さ（いちばん明るい筋を1としたとき）。
+                                 // 光の受け方で濃さが波打つのが、回っているミラーボールらしさになる【仮】
+const STREAK_BEAM_FADE = 4;      // 筋が出てくる・消えていく速さ（1秒あたり）。板を掴んだ瞬間・手放した瞬間に
+                                 // ぱっと現れたり消えたりしないように【仮】
+const STREAK_PLATE_POOL = 48;    // 候補を明るい順に控えておく枚数。空いた筋はここの上位から補う
+const STREAK_BEAM_SEP = 3;       // 新しい筋の根元は、すでに出ている筋の根元から板の何個ぶん離すか。
+                                 // 明るい順にそのまま採ると根元が一か所に固まり、何本引いても
+                                 // 太い1本に見えてしまう（2026-09-08 に手元で見て入れた）【仮】
+const STREAK_PLATE_MAX = 12;     // 板から出す筋の本数の上限（終盤）【仮】
+const STREAK_PLATE_MIN = 5;      // 同上の序盤の本数。「終盤に向けて増える」考えは本数と濃さに引き継ぐ【仮】
+const STREAK_PLATE_LEN = 0.8;    // 筋の長さ（画面の対角線の何倍か）。だいたい画面の端まで届く【仮】
+const STREAK_PLATE_TINT = 0.6;   // 白にその板の色をどれだけ混ぜるか【仮】
+const STREAK_HANDOVER = 3;       // 板からの筋がこの本数出るようになったら、裏から漏れる筋は完全に消える【仮】
+const STREAK_MIX_UP = 3.5;       // 「裏から漏れる筋」→「板からの筋」へ移る速さ（1秒あたり）。出る時は素早く
+const STREAK_MIX_DOWN = 0.6;     // 同上の戻る速さ。板が動画の裏へ回り込んで筋が一瞬途切れるたびに
+                                 // 裏から漏れる筋が復活すると点滅して見えるので、戻りはゆっくり【仮】
+// 💎の行き先を「動画の中心」から「これから自分がはまる席」に変える（Hop指摘 2026-09-08）。
+// 席が手前側で動画の外にあれば、その席へ飛んで板の大きさまで縮み、着いた瞬間に板として貼られる
+const SEAT_FOLLOW = 8;           // 席の動きを追いかける速さ（1秒あたり）。席が回転で動画の裏へ入った時に
+                                 // 行き先が中心へ移るのも、この速さでなめらかに動く＝飛び先が跳ばない【仮】
 
 // 宝石の面（Font Awesome gem の外形に合わせた 5+3 面）。座標は -1..1。n は擬似的な法線
 type Facet = { pts: [number, number][]; n: [number, number, number] };
@@ -556,6 +596,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     r: BALL_R0,
     sprites: new Array<HTMLCanvasElement | null>(BALL_MAX).fill(null),
     rgb: new Uint8Array(BALL_MAX * 3),
+    reserved: 0,
   });
   /** いまいちばん多い色（額縁の1番目の区画の元の色）。ミラーボールの光の筋の色に薄く混ぜる */
   const topRgbRef = useRef<[number, number, number] | null>(null);
@@ -616,6 +657,11 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           else { x0 = 0; y0 = u - (W * 2 + H); }
         }
         const shrinkM = Math.max(SHRINK_MIN, Math.min(1, Math.sqrt(SHRINK_REF / spawnedRef.current)));
+        // 押した時点で「この💎がはまる席」を1つ取っておく。取る順は今までと同じ（決まった順で混ぜた並びの次）。
+        // 上限を超えたらぐるっと回って古い板を貼り替えるのも今までどおり
+        const ball = getBall();
+        const slot = getBallOrder()[ball.reserved % BALL_MAX];
+        ball.reserved++;
         suckRef.current.push({
           x0, y0, t0: now,
           dur: self
@@ -625,6 +671,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           spin: (Math.random() < 0.5 ? -1 : 1) * (SPIN_MIN + Math.random() * SPIN_RANGE),
           size: (SIZE_MIN + Math.random() * SIZE_RANGE) * shrinkM,
           rgb, bow, self,
+          slot, tx: 0, ty: 0, aimed: false, toSeat: false,
         });
         // 押した手応えの閃光は今までどおり（画面座標なので夜空の分と同じ入れ物に入れる）
         if (self) skyFlashesRef.current.push({ x: x0, y: y0, t0: now, rgb, size: SKY_FLASH_SIZE });
@@ -683,6 +730,11 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const last = suck[suck.length - 1];
         if (!last || !last.self) return;
         suck.pop();
+        // 取っておいた席も返す（次に押した💎が同じ席に入る）。最後に押した分＝最後に取った席なので、1つ戻すだけでよい
+        {
+          const ball = getBall();
+          ball.reserved = Math.max(0, ball.reserved - 1);
+        }
         spawnedRef.current = Math.max(0, spawnedRef.current - 1);
         recentRef.current.pop();
         const sf = skyFlashesRef.current;
@@ -718,7 +770,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       sparkPointsRef.current = [];
       pileTopRef.current = Infinity;
       const ball = getBall();
-      ball.n = 0; ball.r = BALL_R0; ball.sprites.fill(null); ball.rgb.fill(0);
+      ball.n = 0; ball.r = BALL_R0; ball.sprites.fill(null); ball.rgb.fill(0); ball.reserved = 0;
       camRef.current = { ...camRef.current, scale: 1, oy: 0 };
       clearWorldRef.current();
     },
@@ -744,7 +796,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       topRgbRef.current = null;
       {
         const ball = getBall();
-        ball.n = 0; ball.r = BALL_R0; ball.sprites.fill(null); ball.rgb.fill(0);
+        ball.n = 0; ball.r = BALL_R0; ball.sprites.fill(null); ball.rgb.fill(0); ball.reserved = 0;
       }
       spawnedRef.current = 0;
       finaleFromRef.current = 1;
@@ -774,6 +826,21 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     const hlX = new Float32Array(BALL_HL_MAX);
     const hlY = new Float32Array(BALL_HL_MAX);
     const hlA = new Float32Array(BALL_HL_MAX);
+    // 光の筋の出どころの候補（明るい順に並べ替えながら詰める）。ここも毎フレーム作り直さない
+    const stA = new Float32Array(STREAK_PLATE_POOL);
+    const stSlot = new Int32Array(STREAK_PLATE_POOL);
+    // いま出ている筋。1本ずつ「どの板から出ているか」を覚えて、その板が暗くなるまで付いたままにする。
+    // 毎フレーム明るい順に選び直すと、光がいちばん強い辺りで根元が入れ替わり続けて、
+    // 筋がその場でちらつくだけになり「回転と同じ向きに流れる」ように見えない（2026-09-08 に手元で見て直した）
+    const beamSlot = new Int32Array(STREAK_PLATE_MAX).fill(-1);   // -1 = 空き
+    const beamHeld = new Uint8Array(STREAK_PLATE_MAX);            // 1 = まだ板に付いている、0 = 手放して消えかけ
+    const beamX = new Float32Array(STREAK_PLATE_MAX);
+    const beamY = new Float32Array(STREAK_PLATE_MAX);
+    const beamA = new Float32Array(STREAK_PLATE_MAX);             // 板の光の受け方（0〜1）
+    const beamF = new Float32Array(STREAK_PLATE_MAX);             // 出入りのなめらかさ（0〜1）
+    /** 「裏から漏れる筋」から「板からの筋」へ移った度合い（0=まだ全部裏から、1=全部板から）。
+     *  板が見え始めても急に切り替わらないよう、フレームをまたいで少しずつ寄せる */
+    let plateMix = 0;
     // 吸い込まれ中の💎を描く時の使い回しの入れ物（1個ずつ作ると押した数だけゴミが出る）
     const suckDraw = { x: 0, y: 0, ang: 0, size: 0, rgb: [0, 0, 0] as [number, number, number] };
     const resize = () => {
@@ -805,6 +872,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     ro.observe(canvas);
     clearWorldRef.current = () => {
       cols.fill(0);
+      plateMix = 0;   // 最初に戻したら筋も「まだ裏から漏れているだけ」の状態から始める
+      beamSlot.fill(-1); beamF.fill(0);
       bake = null;   // 焼き込みの絵は捨てて、次に必要になった時に作り直す
       sky = null;
       skyBaked = 0;
@@ -825,7 +894,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       // ミラーボール方式: 球の表面の板が、そのまま夜空へ散る。出発点はいま画面に見えている位置
       if (modeRef.current === "mirrorball") {
         const ball = getBall();
-        const filled = Math.min(ball.n, BALL_MAX);
+        const filled = Math.min(ball.reserved, BALL_MAX);
         const lat = getBallLattice();
         const order = getBallOrder();
         const spin = reduceMotionRef.current ? 0 : (now / 1000) * (Math.PI * 2 / BALL_SPIN_SEC);
@@ -837,6 +906,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const fly = flyRef.current;
         for (let k = 0; k < n; k++) {
           const slot = order[Math.floor(k * step)];
+          if (!ball.sprites[slot]) continue;   // まだ埋まっていない席（飛んでいる途中の💎の分）は粒にしない
           const o = slot * 3;
           const x1 = lat[o] * cs + lat[o + 2] * sn;
           const z1 = -lat[o] * sn + lat[o + 2] * cs;
@@ -852,7 +922,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           });
         }
         // 球をほどく（表面の板・吸い込まれ中の💎・閃光を空にする）
-        ball.n = 0; ball.r = BALL_R0; ball.sprites.fill(null); ball.rgb.fill(0);
+        ball.n = 0; ball.r = BALL_R0; ball.sprites.fill(null); ball.rgb.fill(0); ball.reserved = 0;
         suckRef.current = [];
         skyFlashesRef.current = [];
         return;
@@ -1223,13 +1293,13 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const ball = getBall();
         const lightAng = reduceMotionRef.current ? SPRITE_LIGHT : (now / 1000) * 0.35;
         const suck = suckRef.current;
-        // 1. 吸い込み終わった💎を球の表面の板にする。
-        //    埋める場所は並びの端から順ではなく、決まった順で混ぜた並びで選ぶ＝少ない数でも球全体に散らばる。
+        // 1. 飛び終わった💎を球の表面の板にする。貼る場所は押した時に取っておいた席（sk.slot）。
+        //    席の取り方は今までと同じで、決まった順で混ぜた並びの次＝少ない数でも球全体に散らばる。
         //    上限を超えたら同じ順番でぐるっと回って古い板を貼り替える（＝間引き）
         for (let i = suck.length - 1; i >= 0; i--) {
           const sk = suck[i];
           if (now - sk.t0 < sk.dur) continue;
-          const slot = getBallOrder()[ball.n % BALL_MAX];
+          const slot = sk.slot;
           ball.sprites[slot] = getPlate(sk.rgb);   // 貼る絵はここで1回だけ引く（毎フレーム引くと重い）
           ball.rgb[slot * 3] = sk.rgb[0];
           ball.rgb[slot * 3 + 1] = sk.rgb[1];
@@ -1237,23 +1307,41 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           ball.n++;
           suck.splice(i, 1);
         }
-        const filled = Math.min(ball.n, BALL_MAX);
+        // 見に行く席の数は「押された数」で数える。着いた数（ball.n）で切ると、
+        // 席の番号が着く順とずれた板（＝先に押した💎がまだ飛んでいる間に着いた板）が
+        // しばらく描かれず、後から急に現れてしまう。空いている席は絵が無いので飛ばされる
+        const filled = Math.min(ball.reserved, BALL_MAX);
         // 半径は数の平方根で増える。数フレームかけてなめらかに膨らむ
         const rTarget = BALL_R0 + BALL_K * Math.sqrt(ball.n);
         ball.r += (rTarget - ball.r) * Math.min(1, dt * BALL_GROW);
         const r = ball.r;
+        // 球の向き（回転と傾き）と板の大きさ。板を描く所だけでなく、飛んでいる💎が
+        // 「自分の席がいま画面のどこにあるか」を知るのにも要るので、板が1枚も無い時でも先に出しておく
+        const lat = getBallLattice();
+        const order = getBallOrder();
+        const spin = reduceMotionRef.current ? 0 : (now / 1000) * (Math.PI * 2 / BALL_SPIN_SEC);
+        const cs = Math.cos(spin), sn = Math.sin(spin);
+        const ct = Math.cos(BALL_TILT), st = Math.sin(BALL_TILT);
+        // 板の大きさは球の半径に比例。帯の高さ（半径 × 帯1本ぶんの角度）が隣の板との間隔になる
+        const tile = Math.max(BALL_TILE_MIN, r * (Math.PI / BALL_BANDS) * BALL_TILE_FILL);
+        // 光の向き。落ちている💎の面と同じ考えで、板の向きが光を返す向きに近いほど明るくする
+        const lz = 0.8;
+        const ln = Math.hypot(Math.cos(lightAng), Math.sin(lightAng), lz);
+        const Lx = Math.cos(lightAng) / ln, Ly = Math.sin(lightAng) / ln, Lz = lz / ln;
 
-        // 2. 光の筋: 動画の中心から外へ伸びる細い線。額縁の中は必ず除外する（動画の上には何も描かない）。
-        //    球が動画に隠れている間から出て、「裏で何か光っている」と分かるようにする
+        // 筋の伸び（0〜1）。STREAK_RAMP_FROM までは STREAK_RAMP_EARLY までゆっくり、
+        // そこから夜空へ放つ時刻に向かって一気に満開へ。本数と濃さの両方に効く
+        const grow = p < STREAK_RAMP_FROM
+          ? (p / STREAK_RAMP_FROM) * STREAK_RAMP_EARLY
+          : STREAK_RAMP_EARLY + (1 - STREAK_RAMP_EARLY) * Math.min(1, (p - STREAK_RAMP_FROM) / Math.max(0.01, STREAK_FULL_AT - STREAK_RAMP_FROM));
+        const streakBase = STREAK_ALPHA * (0.2 + 0.8 * Math.min(1, ball.n / STREAK_FULL))
+          * (STREAK_TIME_FLOOR + (1 - STREAK_TIME_FLOOR) * grow);
+
+        // 2. 裏から漏れる筋: 動画の中心から外へ伸びる細い線。額縁の中は必ず除外する（動画の上には何も描かない）。
+        //    球が動画にすっかり隠れている間の手がかり。板が見えてきたら 5. の「板からの筋」に譲って薄くなる
         {
-          // 曲の進みぶんの伸び（0〜1）。STREAK_RAMP_FROM までは STREAK_RAMP_EARLY までゆっくり、
-          // そこから夜空へ放つ時刻に向かって一気に満開へ
-          const grow = p < STREAK_RAMP_FROM
-            ? (p / STREAK_RAMP_FROM) * STREAK_RAMP_EARLY
-            : STREAK_RAMP_EARLY + (1 - STREAK_RAMP_EARLY) * Math.min(1, (p - STREAK_RAMP_FROM) / Math.max(0.01, STREAK_FULL_AT - STREAK_RAMP_FROM));
           const streakCount = Math.round(STREAK_COUNT + (STREAK_COUNT_MAX - STREAK_COUNT) * grow);
-          let a = STREAK_ALPHA * (0.2 + 0.8 * Math.min(1, ball.n / STREAK_FULL))
-            * (STREAK_TIME_FLOOR + (1 - STREAK_TIME_FLOOR) * grow);
+          let a = streakBase * (1 - plateMix);
           if (r > W / 2) a *= Math.max(0.25, (W / 2) / r);   // 球が画面の幅を超えたら筋は薄くする
           if (a > 0.01) {
             const len = Math.min(Math.hypot(W, H), Math.max(f.w, f.h) * 0.5 + r * 1.6);
@@ -1289,18 +1377,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
 
         // 3. 球の表面: 縦の軸まわりに回して少し傾け、手前側の板だけを描く。
         //    板は💎の絵（積もった💎と同じもの）を球の表面に貼ったもの。奥側と、動画にすっかり隠れる板は描かない
+        // 光の筋の出どころに選ばれた板の数。板を描きながら明るい順に控えていく
+        let stN = 0;
         if (filled > 0) {
-          const spin = reduceMotionRef.current ? 0 : (now / 1000) * (Math.PI * 2 / BALL_SPIN_SEC);
-          const cs = Math.cos(spin), sn = Math.sin(spin);
-          const ct = Math.cos(BALL_TILT), st = Math.sin(BALL_TILT);
-          // 光の向き。落ちている💎の面と同じ考えで、板の向きが光を返す向きに近いほど明るくする
-          const lz = 0.8;
-          const ln = Math.hypot(Math.cos(lightAng), Math.sin(lightAng), lz);
-          const Lx = Math.cos(lightAng) / ln, Ly = Math.sin(lightAng) / ln, Lz = lz / ln;
-          const lat = getBallLattice();
-          const order = getBallOrder();
-          // 板の大きさは球の半径に比例。帯の高さ（半径 × 帯1本ぶんの角度）が隣の板との間隔になる
-          const tile = Math.max(BALL_TILE_MIN, r * (Math.PI / BALL_BANDS) * BALL_TILE_FILL);
           const half = tile / 2;
           let hn = 0;
           // 板は1枚ずつ回して潰して貼る＝縦横に揃っていない貼り方なので、絵をなめらかに整える処理が
@@ -1335,6 +1414,19 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             ctx.drawImage(sp, -0.5, -0.5, 1, 1);
             // ちょうど光を返す向きに来た板は、この後まとめて白く瞬かせる
             if (d > BALL_HL_CUT && hn < BALL_HL_MAX) { hlX[hn] = sx; hlY[hn] = sy; hlA[hn] = (d - BALL_HL_CUT) / (1 - BALL_HL_CUT); hn++; }
+            // 光を受けている板のうち、額縁の外に出ていて画面に収まっているものを、明るい順に控える。
+            // ここで控えた板が、この後 4. で空いている光の筋の新しい根元になる。
+            // 明るさ比べを先に済ませるので、ほとんどの板は数字1つ見るだけで弾かれる（＝重くならない）
+            if (d > STREAK_PLATE_FLOOR && (stN < STREAK_PLATE_POOL || d > stA[STREAK_PLATE_POOL - 1])
+              && sx >= 0 && sx <= W && sy >= 0 && sy <= H
+              && !(sx > f.x && sx < f.x + f.w && sy > f.y && sy < f.y + f.h)) {
+              let i2 = stN < STREAK_PLATE_POOL ? stN++ : STREAK_PLATE_POOL - 1;
+              while (i2 > 0 && stA[i2 - 1] < d) {
+                stA[i2] = stA[i2 - 1]; stSlot[i2] = stSlot[i2 - 1];
+                i2--;
+              }
+              stA[i2] = d; stSlot[i2] = slot;
+            }
           }
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
           ctx.imageSmoothingEnabled = true;   // この後の光や💎は今までどおりなめらかに
@@ -1354,15 +1446,146 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           }
         }
 
-        // 4. 吸い込まれ中の💎（落ちている時と同じ面付きの絵）。中心へ近づくほど速く、縮みながら動画の裏へ入る。
-        //    自分が押した分だけは別扱い: 動画の矩形の縁までは大きさを保ったまま弧を描いて飛び、
+        // 4. 板からの光の筋: いま光を受けている板の画面上の位置から、球の中心と反対の向き（外向き）へ細い線を伸ばす。
+        //    筋は1本ずつ「どの板から出ているか」を覚えていて、その板が暗くなるか裏へ回るまで付いたまま。
+        //    板は回転で流れていくので、筋の根元もそのまま流れる＝球の回転と同じ向きに動いて見える。
+        //    額縁の中は clip で除外する（板が額縁にかかっている時は、筋の根元が額縁の外から始まって見える）
+        {
+          const len = Math.hypot(W, H) * STREAK_PLATE_LEN;
+          const sep = tile * STREAK_BEAM_SEP;
+          // 本数の上限は曲の進みで増える（2. の「終盤に向けて増える」考えをそのまま引き継ぐ）。
+          // 動き軽減の時は板の瞬きが止まるので、板からの筋は出さず 2. の筋だけを静かに出したままにする
+          const nBeam = reduceMotionRef.current ? 0
+            : Math.round(STREAK_PLATE_MIN + (STREAK_PLATE_MAX - STREAK_PLATE_MIN) * grow);
+          let live = 0;
+          // 4-1. いま付いている板をもう一度見て、まだ光を受けて見えているかを確かめる
+          for (let i = 0; i < STREAK_PLATE_MAX; i++) {
+            if (beamSlot[i] < 0) continue;
+            if (beamHeld[i]) {
+              const o = beamSlot[i] * 3;
+              const bx1 = lat[o] * cs + lat[o + 2] * sn;
+              const bz1 = -lat[o] * sn + lat[o + 2] * cs;
+              const by2 = lat[o + 1] * ct - bz1 * st;
+              const bz2 = lat[o + 1] * st + bz1 * ct;
+              const bd = bx1 * Lx + by2 * Ly + bz2 * Lz;
+              const bx = cx + bx1 * r, by = cy - by2 * r;
+              const ok = i < nBeam && bz2 > 0 && bd > STREAK_PLATE_FLOOR && ball.sprites[beamSlot[i]] !== null
+                && bx >= 0 && bx <= W && by >= 0 && by <= H
+                && !(bx > f.x && bx < f.x + f.w && by > f.y && by < f.y + f.h);
+              if (ok) { beamX[i] = bx; beamY[i] = by; beamA[i] = bd; live++; }
+              else beamHeld[i] = 0;   // 手放す。位置はそのままで、この後ゆっくり消える
+            }
+            // 付いている間は濃くなり、手放したら薄くなる。0 まで薄くなったら空きに戻す
+            const to = beamHeld[i] ? 1 : 0;
+            beamF[i] += (to - beamF[i]) * Math.min(1, dt * STREAK_BEAM_FADE);
+            if (!beamHeld[i] && beamF[i] < 0.02) { beamSlot[i] = -1; beamF[i] = 0; }
+          }
+          // 4-2. 空いている筋を、いちばん明るい板から順に補う（すでに使っている板は飛ばす）
+          for (let i = 0, j = 0; i < nBeam && j < stN; i++) {
+            if (beamSlot[i] >= 0) continue;
+            while (j < stN) {
+              const cand = stSlot[j], candA = stA[j];
+              j++;
+              let skip = false;
+              for (let m = 0; m < STREAK_PLATE_MAX; m++) if (beamSlot[m] === cand) { skip = true; break; }
+              if (skip) continue;
+              const o = cand * 3;
+              const bx1 = lat[o] * cs + lat[o + 2] * sn;
+              const bz1 = -lat[o] * sn + lat[o + 2] * cs;
+              const by2 = lat[o + 1] * ct - bz1 * st;
+              const bx = cx + bx1 * r, by = cy - by2 * r;
+              // すでに出ている筋の根元に近すぎる板は飛ばす。同じ所から何本も出しても太い1本に見えるだけ
+              for (let m = 0; m < STREAK_PLATE_MAX; m++) {
+                if (beamSlot[m] < 0) continue;
+                if (Math.abs(beamX[m] - bx) < sep && Math.abs(beamY[m] - by) < sep) { skip = true; break; }
+              }
+              if (skip) continue;
+              beamSlot[i] = cand; beamHeld[i] = 1; beamF[i] = 0; beamA[i] = candA;
+              beamX[i] = bx; beamY[i] = by;
+              live++;
+              break;
+            }
+          }
+          // 4-3. 出せている本数で、2. の「裏から漏れる筋」とどれだけ入れ替わったかを決める
+          const want = Math.min(1, live / STREAK_HANDOVER);
+          plateMix += (want - plateMix) * Math.min(1, dt * (want > plateMix ? STREAK_MIX_UP : STREAK_MIX_DOWN));
+          const a0 = streakBase * plateMix;
+          if (a0 > 0.01) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(0, 0, W, H);
+            ctx.rect(f.x, f.y, f.w, f.h);
+            ctx.clip("evenodd");
+            ctx.globalCompositeOperation = "lighter";
+            ctx.lineWidth = STREAK_WIDTH;
+            for (let i = 0; i < STREAK_PLATE_MAX; i++) {
+              if (beamSlot[i] < 0 || beamF[i] < 0.02) continue;
+              const sx = beamX[i], sy = beamY[i];
+              const dx = sx - cx, dy = sy - cy;
+              const dl = Math.hypot(dx, dy);
+              if (dl < 1) continue;                 // 球のちょうど真ん中の板は外向きが決まらないので飛ばす
+              const ex = sx + (dx / dl) * len, ey = sy + (dy / dl) * len;
+              // 色は白にその板の色を混ぜたもの。まっすぐ光を返している板ほど濃い
+              const o = beamSlot[i] * 3;
+              const mr = 255 + (ball.rgb[o] - 255) * STREAK_PLATE_TINT;
+              const mg = 255 + (ball.rgb[o + 1] - 255) * STREAK_PLATE_TINT;
+              const mb = 255 + (ball.rgb[o + 2] - 255) * STREAK_PLATE_TINT;
+              const col = `${mr | 0},${mg | 0},${mb | 0}`;
+              const w = (beamA[i] - STREAK_PLATE_FLOOR) / (1 - STREAK_PLATE_FLOOR);
+              const a = a0 * beamF[i] * (STREAK_PLATE_DIM + (1 - STREAK_PLATE_DIM) * w * w);
+              const grad = ctx.createLinearGradient(sx, sy, ex, ey);   // 根元が濃く、先へ行くほど透ける
+              grad.addColorStop(0, `rgba(${col},${a})`);
+              grad.addColorStop(0.3, `rgba(${col},${a * 0.45})`);
+              grad.addColorStop(1, `rgba(${col},0)`);
+              ctx.strokeStyle = grad;
+              ctx.beginPath();
+              ctx.moveTo(sx, sy);
+              ctx.lineTo(ex, ey);
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+        }
+
+        // 5. 飛んでいる途中の💎（落ちている時と同じ面付きの絵）。
+        //    自分の席が手前側で動画の外にあるなら、その席へ向かって飛び、飛びながら板の大きさまで縮んで
+        //    着いた瞬間に板として貼られる＝押した💎がはめ込まれる様子が見える（Hop指摘 2026-09-08）。
+        //    席が動画の裏や奥側にある時は今までどおり動画の中心へ飛んで隠れ、裏で席が埋まる。
+        //    中心へ飛ぶ時の自分の分だけは別扱い: 動画の矩形の縁までは大きさを保ったまま弧を描いて飛び、
         //    縁に着いてから残りの時間で中へ吸い込まれて縮む。速さも大きさも変わるのは動画の裏に入った後なので、
         //    見えている間はずっと同じ大きさの💎が飛んでいるように見える（Hop報告 2026-09-08 の「出た瞬間に消える」対策）
         for (const sk of suck) {
           const u = Math.min(1, (now - sk.t0) / sk.dur);
-          const dx0 = sk.x0 - cx, dy0 = sk.y0 - cy;
+          // その💎に取ってある席が、いま画面のどこにあるか（回転と傾きを反映）
+          const so = sk.slot * 3;
+          const sx1 = lat[so] * cs + lat[so + 2] * sn;
+          const sz1 = -lat[so] * sn + lat[so + 2] * cs;
+          const sy2 = lat[so + 1] * ct - sz1 * st;
+          const sz2 = lat[so + 1] * st + sz1 * ct;
+          const seatX = cx + sx1 * r, seatY = cy - sy2 * r;
+          // 手前側で、かつ動画に隠れない席なら「見えている席」
+          const seatShown = sz2 > 0 && (seatX < v.x || seatX > v.x + v.w || seatY < v.y || seatY > v.y + v.h);
+          if (!sk.aimed) {
+            // 飛び方は押した直後の1フレーム目に決めて以後は変えない（途中で切り替わると飛び方が跳ぶ）
+            sk.aimed = true;
+            sk.toSeat = seatShown;
+            sk.tx = seatShown ? seatX : cx;
+            sk.ty = seatShown ? seatY : cy;
+          } else {
+            // 席は回転で動くので行き先を追いかける。席が動画の裏へ入ってしまったら行き先を中心へ寄せる。
+            // 寄せ方はなめらかなので、行き先が変わっても💎の位置は跳ばない
+            const wx = sk.toSeat && seatShown ? seatX : cx;
+            const wy = sk.toSeat && seatShown ? seatY : cy;
+            const m = Math.min(1, dt * SEAT_FOLLOW);
+            sk.tx += (wx - sk.tx) * m;
+            sk.ty += (wy - sk.ty) * m;
+          }
+          const dx0 = sk.x0 - sk.tx, dy0 = sk.y0 - sk.ty;
           let k: number, shrink: number;
-          if (sk.self) {
+          if (sk.toSeat) {
+            k = u * u * (3 - 2 * u);   // ゆっくり動き出して、着く直前でまたゆっくり＝席にそっと収まる
+            shrink = 0;                // 大きさは「板の大きさへ縮む」で別に決める（下）
+          } else if (sk.self) {
             // 出発点から中心へ向かう線が動画の矩形の縁を横切る所（進み具合の割合で表す）
             const mx = Math.abs(dx0) > 0.5 ? (v.w / 2) / Math.abs(dx0) : 1;
             const my = Math.abs(dy0) > 0.5 ? (v.h / 2) / Math.abs(dy0) : 1;
@@ -1376,8 +1599,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             k = u * u;
             shrink = k;
           }
-          suckDraw.x = sk.x0 + (cx - sk.x0) * k;
-          suckDraw.y = sk.y0 + (cy - sk.y0) * k;
+          suckDraw.x = sk.x0 + (sk.tx - sk.x0) * k;
+          suckDraw.y = sk.y0 + (sk.ty - sk.y0) * k;
           if (sk.bow) {
             // 進む向きと直角にずらす＝道が少し弧を描く。出発点と着地点ではずれ0
             const len = Math.hypot(dx0, dy0) || 1;
@@ -1386,7 +1609,11 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             suckDraw.y += (dx0 / len) * off;
           }
           suckDraw.ang = reduceMotionRef.current ? sk.ang : sk.ang + sk.spin * (now - sk.t0) / 1000;
-          suckDraw.size = sk.size * (1 - shrink * SUCK_SHRINK);
+          // 席へ向かう分は板の大きさまで縮む。drawGemLive は size の (2 / 0.95) 倍の幅で描くので、
+          // 貼られる板（幅＝tile）と同じ見え方になる大きさに合わせる＝着いた瞬間に大きさが跳ばない
+          suckDraw.size = sk.toSeat
+            ? sk.size + (tile * 0.95 / 2 - sk.size) * k
+            : sk.size * (1 - shrink * SUCK_SHRINK);
           suckDraw.rgb = sk.rgb;
           drawGemLive(suckDraw, lightAng);
         }
