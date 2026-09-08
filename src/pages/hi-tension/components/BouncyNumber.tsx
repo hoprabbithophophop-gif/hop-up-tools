@@ -7,11 +7,13 @@ interface Props {
   color: string;
   /** フォントサイズ (例: "3rem") */
   size?: string;
-  /** 白い縁取りを付けるか。文字が白系の時は縁取りが滲んで見えるので外す（既定は付ける） */
+  /** 縁取りを付けるか。文字が白系の時は縁取りが滲んで見えるので外す（既定は付ける） */
   outline?: boolean;
+  /** 縁取りの色。既定は白。灰toダイヤモンドでは透過の高いグレーにする（Hop指示 2026-09-08） */
+  outlineColor?: string;
 }
 
-export default function BouncyNumber({ value, color, size = "3rem", outline = true }: Props) {
+export default function BouncyNumber({ value, color, size = "3rem", outline = true, outlineColor = "rgba(255,255,255,0.95)" }: Props) {
   const digits = value.toLocaleString().split("");
   return (
     <>
@@ -37,7 +39,7 @@ export default function BouncyNumber({ value, color, size = "3rem", outline = tr
           lineHeight: 1,
           // 暗いアリーナ背景＋濃いメンカラ(紫/緑等)でも埋もれないよう白で縁取り＋軽い影。
           textShadow: outline
-            ? "1px 1px 0 rgba(255,255,255,0.95), -1px 1px 0 rgba(255,255,255,0.95), 1px -1px 0 rgba(255,255,255,0.95), -1px -1px 0 rgba(255,255,255,0.95), 0 2px 6px rgba(0,0,0,0.45)"
+            ? `1px 1px 0 ${outlineColor}, -1px 1px 0 ${outlineColor}, 1px -1px 0 ${outlineColor}, -1px -1px 0 ${outlineColor}, 0 2px 6px rgba(0,0,0,0.45)`
             : "0 2px 6px rgba(0,0,0,0.45)",
         }}
       >

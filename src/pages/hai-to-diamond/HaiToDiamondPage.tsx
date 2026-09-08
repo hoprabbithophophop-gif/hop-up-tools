@@ -45,6 +45,8 @@ function shareToX(count: number) {
 const OTHERS_PER_TICK: Record<DiamondSettings["crowd"], number> = { full: 25, light: 6, self: 0 };
 /** 動画の縦の位置（画面の上端からの割合）。50% が真ん中。少し上に寄せて、下の帯とコメントの場所を空ける【仮】 */
 const VIDEO_TOP = "42%";
+/** 数字の縁取りの色。白だと白系の文字が膨らむので、💎の選択中の縁と同じ透過の高いグレー（Hop指示 2026-09-08）【仮】 */
+const NUMBER_OUTLINE = "rgba(154,160,166,0.5)";
 /** 曲の終わり（秒）。プロモーション動画は音が終わった後に無音の黒画面（別動画への案内枠）が続くので、そこで終了扱いにする（Hop指定 2026-09-07: 4:35.9） */
 const SONG_END = 280;   // Live Edit. は全長 280 秒。音が終わる時刻は未確認なので今は全長【仮】。Promotion Edit の時は 275.9 だった
 /** 積もった山を一斉に夜空へ放って星空にする時刻（秒）【仮】。
@@ -572,12 +574,12 @@ export default function HaiToDiamondPage() {
           <div style={{ display: "flex", gap: "1.8rem", justifyContent: "center", alignItems: "flex-end" }}>
             <div>
               <p style={endLabelStyle}>あなたの💎</p>
-              <BouncyNumber value={ended ? finalCount : liveCount} color={color} size="2.2rem" />
+              <BouncyNumber value={ended ? finalCount : liveCount} color={color} size="2.2rem" outlineColor={NUMBER_OUTLINE} />
             </div>
             {ended && (
               <div>
                 <p style={endLabelStyle}>歴代累計</p>
-                <BouncyNumber value={(othersTotal ?? 0) + finalCount} color={color} size="1.6rem" />
+                <BouncyNumber value={(othersTotal ?? 0) + finalCount} color={color} size="1.6rem" outlineColor={NUMBER_OUTLINE} />
               </div>
             )}
           </div>
