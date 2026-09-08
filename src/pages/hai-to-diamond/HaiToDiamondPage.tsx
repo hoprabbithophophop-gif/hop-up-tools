@@ -157,6 +157,13 @@ export default function HaiToDiamondPage() {
   const [liveCount, setLiveCount] = useState(0);
   /** みんなの累計（集計の合計）。読み込み前は null＝入口に「0」を出さない */
   const [othersTotal, setOthersTotal] = useState<number | null>(null);
+  const othersTotalRef = useRef<number | null>(null);
+  useEffect(() => { othersTotalRef.current = othersTotal; }, [othersTotal]);
+  /** 累計の下限。曲が終わった時の「みんなの累計＋自分の数」を控えておく。
+   *  集計の窓口は45秒ぶん結果を溜めているので、送った直後に読み直しても自分の分がまだ入っていない。
+   *  そのまま出すと、入口の累計が終了画面の累計より少なく見える（Hop報告 2026-09-08）。
+   *  窓口から返った数とこの下限の大きい方を出せば、下回ることは無く、他の人の分が入れば普通に増える */
+  const totalFloorRef = useRef(0);
   /** 盛り上がりの帯の元データ（区間ごとの0〜1）と、いま再生している位置（0〜1） */
   const [heatLevels, setHeatLevels] = useState<number[]>([]);
   const [progress, setProgress] = useState(0);
@@ -225,7 +232,8 @@ export default function HaiToDiamondPage() {
   const loadReplay = useCallback(() => {
     fetchReplay(VIDEO_ID).then((rows) => {
       bucketMapRef.current = buildBucketMap(rows);
-      setOthersTotal(rows.reduce((acc, r) => acc + r.counts.reduce((a, c) => a + c, 0), 0));
+      const fetched = rows.reduce((acc, r) => acc + r.counts.reduce((a, c) => a + c, 0), 0);
+      setOthersTotal(Math.max(fetched, totalFloorRef.current));
       setHeatLevels(buildHeatLevels(rows));
       // 色ごとの総数（額縁の順位の基準）。同じ色のメンバーが複数いれば合算
       const totals: Record<string, number> = {};
@@ -292,6 +300,7 @@ export default function HaiToDiamondPage() {
     setPlayingBoth(false);
     setPausedBoth(false);
     setFinalCount(tapsRef.current.length);
+    totalFloorRef.current = (othersTotalRef.current ?? 0) + tapsRef.current.length;
     setPeakTime(canvasRef.current?.getPeakTime() ?? null);
     setEnded(true);
     submitOnce();
@@ -346,7 +355,8 @@ export default function HaiToDiamondPage() {
     setPlayingBoth(false);
     setPausedBoth(false);
     setStarted(false);
-  }, []);
+    loadReplay();   // 入口の累計を読み直す（自分の分は下限で守られる）
+  }, [loadReplay]);
 
   /** その色が一番輝いた瞬間の前後を見返す。山はそのまま、カメラも止める */
   const jumpToHighlight = useCallback((peak: number) => {
