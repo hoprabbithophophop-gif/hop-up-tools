@@ -12,12 +12,12 @@ export type DiamondSettings = {
   reduceMotion: boolean;
   /** 色えらびの並べ方。既定はユニットごとのページ */
   colorLayout: DiamondColorLayout;
-  /** 💎の見せ方。pile=画面の下に山として積もる / mirrorball=動画に吸い込まれて裏のミラーボールになる（Hop決定 2026-09-08。実機で見比べて既定を決める） */
+  /** 💎の見せ方。実機で見比べた結果ミラーボールだけにした（Hop決定 2026-09-08）。設定からは選べない。山の描画はキャンバス側に残してある */
   scene: DiamondScene;
 };
 export type DiamondScene = "pile" | "mirrorball";
-export const DEFAULT_DIAMOND_SETTINGS: DiamondSettings = { crowd: "full", reduceMotion: false, colorLayout: "pages", scene: "pile" };
-export const LIGHT_DIAMOND_SETTINGS: DiamondSettings = { crowd: "light", reduceMotion: true, colorLayout: "pages", scene: "pile" };
+export const DEFAULT_DIAMOND_SETTINGS: DiamondSettings = { crowd: "full", reduceMotion: false, colorLayout: "pages", scene: "mirrorball" };
+export const LIGHT_DIAMOND_SETTINGS: DiamondSettings = { crowd: "light", reduceMotion: true, colorLayout: "pages", scene: "mirrorball" };
 
 const KEY = "hai_to_diamond:settings";
 export function getDiamondSettings(): DiamondSettings {
@@ -30,7 +30,7 @@ export function getDiamondSettings(): DiamondSettings {
       reduceMotion: p.reduceMotion === true,
       // 前からこの端末に残っている覚え書きには「色の並び」が無い。その時はユニットごと（既定）にする
       colorLayout: p.colorLayout === "row" ? "row" : "pages",
-      scene: p.scene === "mirrorball" ? "mirrorball" : "pile",
+      scene: "mirrorball",   // 山は選べなくした。前の覚え書きに pile が残っていても無視する
     };
   } catch {
     return { ...DEFAULT_DIAMOND_SETTINGS };
@@ -153,16 +153,6 @@ export default function DiamondSettingsSheet({ settings, onChange, onClose }: Pr
           />
         </div>
 
-        <div style={dividerStyle} />
-
-        <div>
-          <p style={rowLabelStyle}>💎の見せ方</p>
-          <Segment
-            options={[{ v: "pile", label: "山" }, { v: "mirrorball", label: "ミラーボール" }]}
-            value={settings.scene}
-            onSelect={(v) => onChange({ ...settings, scene: v })}
-          />
-        </div>
 
         <button
           type="button"
