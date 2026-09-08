@@ -33,6 +33,9 @@ import {
 
 /** 1つの💎の大きさ(px)【仮】。ページの中では全部この大きさ（大小を付けない） */
 const GEM_SIZE = 64;
+/** 選択中の印（グレーの縁）の色と、💎より何倍大きく敷くか【仮】 */
+const SELECTED_RING_COLOR = "#9aa0a6";
+const SELECTED_RING_SCALE = 1.14;
 /** 💎と💎のあいだの隙間(px)【仮】。人数の違うページでも💎の間隔を変えず、中央寄せで並べる */
 const GEM_GAP = 24;
 /** 💎の列の中心を、帯の器の上端から何px下に置くか【仮】。下に点を置くぶん少し上寄せ */
@@ -410,7 +413,28 @@ const DiamondColorPages = memo(function DiamondColorPages({
                 >
                   {/* 積もった💎の山に重なっても輪郭が分かるよう、絵の形に沿った薄い暗い縁取りを敷く（一列の帯と同じ） */}
                   <span style={{ display: "block", position: "relative", filter: "drop-shadow(0 0 2px rgba(0,0,0,0.75)) drop-shadow(0 2px 6px rgba(0,0,0,0.5))" }}>
-                    <FaIcon icon={faGem} size={GEM_SIZE} color={opt.color} />
+                    {/* 選択中の印: 💎の形に沿ったグレーの縁。白だと白のメンバーカラーが膨らんで見えるだけなのでグレー（Hop決定 2026-09-08） */}
+                    {opt.id === selectedId && (
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          position: "absolute",
+                          left: "50%",
+                          top: "50%",
+                          width: GEM_SIZE,
+                          height: GEM_SIZE,
+                          marginLeft: -GEM_SIZE / 2,
+                          marginTop: -GEM_SIZE / 2,
+                          transform: `scale(${SELECTED_RING_SCALE})`,
+                          pointerEvents: "none",
+                        }}
+                      >
+                        <FaIcon icon={faGem} size={GEM_SIZE} color={SELECTED_RING_COLOR} />
+                      </span>
+                    )}
+                    <span style={{ display: "block", position: "relative" }}>
+                      <FaIcon icon={faGem} size={GEM_SIZE} color={opt.color} />
+                    </span>
                     {/* 初回タップまでの誘い: 白い斜線2本が💎の上を左から右へ流れる。いまの色の💎にだけ出し、1回押したら消える */}
                     {inviting && !reduceMotion && opt.id === selectedId && (
                       <span
