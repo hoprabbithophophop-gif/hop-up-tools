@@ -93,6 +93,8 @@ type Suck = {
   spin: number;             // 回る速さ(rad/s)
   size: number;
   rgb: [number, number, number];
+  /** 進む道の膨らみ(px)。まっすぐ吸い込まれず、横へ少し逸れてから中心へ向かう。他の人の分は0（まっすぐ） */
+  bow: number;
   /** 自分が押した分。取り消し（スワイプの空振り）で消せるようにする */
   self: boolean;
 };
@@ -174,9 +176,11 @@ const BALL_SPIN_SEC = 20;        // 縦の軸まわりに1周する秒数
 const BALL_TILT = 0.3;           // 軸の傾き(rad)。まっすぐ立っているより少し傾いている方が球に見える
 const BALL_BANDS = 69;           // 球を北から南へ切る帯の本数。板の縦横がだいたい正方形になり、
                                  // 全部の帯の合計が BALL_MAX 枚あたりに収まる本数【仮】
-const BALL_TILE_FILL = 1.15;     // 板を貼る大きさ（隣の板との間隔の何倍か）。1より少し大きくして重ね、継ぎ目の隙間を埋める。
-                                 // 大きくするほど板どうしの重なりが増え、同じ場所を何度も塗ることになって重い
-                                 // （1.35 にすると5000枚のとき 55fps → 44fps・2026-09-08 実測）【仮】
+const BALL_TILE_FILL = 1.25;     // 板を貼る大きさ（隣の板との間隔の何倍か）。1より少し大きくして重ね、継ぎ目の隙間を埋める。
+                                 // 大きくするほど板どうしの重なりが増え、同じ場所を何度も塗ることになって重い。
+                                 // Hop が「ぎっしりでも納得感がある」と言うので 1.15 から上げた（Hop決定 2026-09-08）。
+                                 // 手元の計測（390×844・3倍の細かさ・2026-09-08）:
+                                 // 3000枚は 1.15 も 1.25 も 60fps。5000枚は 1.15 で 54fps、1.25 で 47fps、1.35 で 44fps【仮】
 const BALL_TILE_MIN = 2.5;       // 板の最小の大きさ(px)。球が小さいうちに1px を切ると消えてしまう【仮】
 const BALL_HL_MAX = 500;         // 1フレームで白く瞬かせる板の上限（控えの配列の大きさ）
 const BALL_HL_CUT = 0.985;       // 板の向きがこれ以上まっすぐ光を返している時だけ白く瞬く。
@@ -186,12 +190,32 @@ const BALL_DIM = 0.55;           // 光が当たっていない側の明るさ�
 const SUCK_MS = 700;             // 💎が動画の中心へ吸い込まれるまで
 const SUCK_MS_JITTER = 200;      // 同上のばらつき。全部が同じ速さだと機械的に見える
 const SUCK_SHRINK = 0.9;         // 吸い込まれる間に縮む割合（1.0で点まで縮む）
-const STREAK_COUNT = 12;         // 光の筋の本数
+// 自分が押した💎の飛び方。他の人の分（画面の縁から出る）とは別に決める。
+// 画面の下の方から出して動画の下端よりはっきり下を通し、動画の裏に入るまでは大きさを保つ。
+// 以前は横が画面いっぱい・出発点が動画のすぐ下だったので、10回押して9回は出た瞬間に動画の裏へ入って見えなかった（Hop報告 2026-09-08）
+const SELF_SUCK_Y = 230;         // 出発点。画面の下端からこれだけ上【仮】
+const SELF_SUCK_Y_SPREAD = 40;   // 同上の縦のばらつき。毎回同じ高さから出ると閃光が一直線に並んで機械的に見える
+const SELF_SUCK_X_SPREAD = 80;   // 出発点の横のばらつき（画面の中央から左右へこれだけ）【仮】
+const SELF_SUCK_MIN_GAP = 40;    // 出発点は必ず「動画の下端＋これだけ」より下にする＝出た瞬間に裏へ入らない【仮】
+const SELF_SUCK_MS = 900;        // 動画の中心に着くまで。他の人の分より少し長くして、飛んでいる姿が見えるようにする【仮】
+const SELF_SUCK_MS_JITTER = 150; // 同上のばらつき
+const SELF_SUCK_BOW = 45;        // 道の膨らみ(px)。まっすぐ吸い込まれず少し弧を描く【仮】
+const SELF_SUCK_ENTER = 0.85;    // 飛ぶ時間のうち、この割合をかけて動画の矩形の縁まで進む。
+                                 // 残りで矩形の中へ吸い込まれる＝速さが変わる瞬間は動画の裏なので見えない【仮】
+const STREAK_COUNT = 12;         // 光の筋の本数（序盤）
+const STREAK_COUNT_MAX = 24;     // 同上の終盤の上限。線を引くだけなので重くはないが、増やしすぎると白い放射状の模様になる【仮】
 const STREAK_WIDTH = 2;          // 筋の太さ(px)
 const STREAK_SPIN = 0.09;        // 筋の向きが回る速さ(rad/秒)
 const STREAK_ALPHA = 0.5;        // 筋の濃さの上限
 const STREAK_FULL = 800;         // 押した数がこれに届いたら筋の明るさが上限になる
 const STREAK_TINT = 0.45;        // 白に「いまいちばん多い色」をどれだけ混ぜるか
+// 筋の本数と明るさは押した数だけでなく「曲の進み（いま何割まで来たか）」でも増える。
+// 序盤は控えめ、終盤に向かってだんだん増え、夜空へ放つ直前でいちばん多く明るくなる（Hop指摘 2026-09-08）
+const STREAK_RAMP_FROM = 0.7;    // 曲の進みがこの割合を過ぎたら、増え方が急になる【仮】
+const STREAK_RAMP_EARLY = 0.3;   // そこまでに使う伸びしろ（1が満開）。序盤をゆるくするための取り分【仮】
+const STREAK_FULL_AT = 0.945;    // 満開になる曲の進み。夜空へ放つ時刻（4:28.5 ÷ 4:44）に合わせてある【仮】
+const STREAK_TIME_FLOOR = 0.55;  // 明るさに掛ける「曲の進み」の係数の下限。序盤は球が動画にすっかり隠れていて
+                                 // 筋だけが手がかりなので、暗くしすぎない【仮】
 
 // 宝石の面（Font Awesome gem の外形に合わせた 5+3 面）。座標は -1..1。n は擬似的な法線
 type Facet = { pts: [number, number][]; n: [number, number, number] };
@@ -536,6 +560,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   /** いまいちばん多い色（額縁の1番目の区画の元の色）。ミラーボールの光の筋の色に薄く混ぜる */
   const topRgbRef = useRef<[number, number, number] | null>(null);
   const sizeRef = useRef({ W: 0, H: 0 });
+  /** 動画本体の矩形（キャンバスの中の画面座標）。毎フレーム測った値をここに控えて、
+   *  押した時（描く処理の外）にも「動画がいまどこにあるか」を見られるようにする。w=0 はまだ一度も測っていない */
+  const videoRectRef = useRef({ x: 0, y: 0, w: 0, h: 0 });
   const camRef = useRef({ scale: 1, cx: 0, cy: 0, oy: 0 });
 
   useImperativeHandle(ref, () => ({
@@ -564,14 +591,21 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         if (self) skyFlashesRef.current.push({ x: x0, y: y0, t0: now, rgb, size: SKY_FLASH_SIZE });
         return;
       }
-      // ミラーボール方式: 積もらせず、動画の中心へ吸い込む。自分の分は色の帯の少し上から、
+      // ミラーボール方式: 積もらせず、動画の中心へ吸い込む。自分の分は画面の下の方の中央寄りから、
       // 他の人の分は画面の縁のどこかから出る。着いたら球の表面の板になる
       if (modeRef.current === "mirrorball") {
         const now = performance.now();
-        let x0: number, y0: number;
+        let x0: number, y0: number, bow = 0;
         if (self) {
-          x0 = Math.random() * W;   // 横は画面いっぱいに散らす【仮】。押した所には出さない（指で隠れる）
-          y0 = H - SELF_LAUNCH_Y + (Math.random() - 0.5) * SELF_LAUNCH_SPREAD;
+          // 中央寄りの下の方から出す。横に散らしすぎると動画の横の狭い所を通ることになり、
+          // 動画の下から中心へ真っ直ぐ上がっていく道筋が読めなくなる
+          x0 = W / 2 + (Math.random() * 2 - 1) * SELF_SUCK_X_SPREAD;
+          y0 = H - SELF_SUCK_Y + (Math.random() - 0.5) * SELF_SUCK_Y_SPREAD;
+          // 出発点が動画の矩形の中や、そのすぐ下にならないようにする。
+          // 画面が低い端末では動画の下の余白が狭く、そのままだと出た瞬間に裏へ入ってしまう
+          const vb = videoRectRef.current;
+          if (vb.w > 0) y0 = Math.min(H - 8, Math.max(y0, vb.y + vb.h + SELF_SUCK_MIN_GAP));
+          bow = (Math.random() < 0.5 ? -1 : 1) * SELF_SUCK_BOW * (0.6 + Math.random() * 0.4);
         } else {
           // 画面の縁を1周ぶんの長さと見て、その上のどこか1点を選ぶ
           const per = (W + H) * 2;
@@ -584,11 +618,13 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const shrinkM = Math.max(SHRINK_MIN, Math.min(1, Math.sqrt(SHRINK_REF / spawnedRef.current)));
         suckRef.current.push({
           x0, y0, t0: now,
-          dur: SUCK_MS + Math.random() * SUCK_MS_JITTER,
+          dur: self
+            ? SELF_SUCK_MS + Math.random() * SELF_SUCK_MS_JITTER
+            : SUCK_MS + Math.random() * SUCK_MS_JITTER,
           ang: Math.random() * Math.PI * 2,
           spin: (Math.random() < 0.5 ? -1 : 1) * (SPIN_MIN + Math.random() * SPIN_RANGE),
           size: (SIZE_MIN + Math.random() * SIZE_RANGE) * shrinkM,
-          rgb, self,
+          rgb, bow, self,
         });
         // 押した手応えの閃光は今までどおり（画面座標なので夜空の分と同じ入れ物に入れる）
         if (self) skyFlashesRef.current.push({ x: x0, y: y0, t0: now, rgb, size: SKY_FLASH_SIZE });
@@ -963,6 +999,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       const cr = canvas.getBoundingClientRect();
       const vr = box.getBoundingClientRect();
       const v = { x: vr.left - cr.left, y: vr.top - cr.top, w: vr.width, h: vr.height };
+      videoRectRef.current = v;   // 押した時に「動画の下端」を知るための控え
       const f = { x: v.x - frame, y: v.y - frame, w: v.w + frame * 2, h: v.h + frame * 2 };
       const cx = v.x + v.w / 2, cy = v.y + v.h / 2;
       const { t, d } = timeRef.current;
@@ -984,7 +1021,6 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const from = finaleFromRef.current;
         scale = from + (FINALE_END_SCALE - from) * (k * k * (3 - 2 * k)); // なめらかに寄る
       }
-      void p;
       let maxH = 0;
       for (let j = 0; j < cols.length; j++) if (cols[j] > maxH) maxH = cols[j];
       const pileTopWorld = maxH > 0 ? floorY - maxH : Infinity;
@@ -1210,7 +1246,14 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         // 2. 光の筋: 動画の中心から外へ伸びる細い線。額縁の中は必ず除外する（動画の上には何も描かない）。
         //    球が動画に隠れている間から出て、「裏で何か光っている」と分かるようにする
         {
-          let a = STREAK_ALPHA * (0.2 + 0.8 * Math.min(1, ball.n / STREAK_FULL));
+          // 曲の進みぶんの伸び（0〜1）。STREAK_RAMP_FROM までは STREAK_RAMP_EARLY までゆっくり、
+          // そこから夜空へ放つ時刻に向かって一気に満開へ
+          const grow = p < STREAK_RAMP_FROM
+            ? (p / STREAK_RAMP_FROM) * STREAK_RAMP_EARLY
+            : STREAK_RAMP_EARLY + (1 - STREAK_RAMP_EARLY) * Math.min(1, (p - STREAK_RAMP_FROM) / Math.max(0.01, STREAK_FULL_AT - STREAK_RAMP_FROM));
+          const streakCount = Math.round(STREAK_COUNT + (STREAK_COUNT_MAX - STREAK_COUNT) * grow);
+          let a = STREAK_ALPHA * (0.2 + 0.8 * Math.min(1, ball.n / STREAK_FULL))
+            * (STREAK_TIME_FLOOR + (1 - STREAK_TIME_FLOOR) * grow);
           if (r > W / 2) a *= Math.max(0.25, (W / 2) / r);   // 球が画面の幅を超えたら筋は薄くする
           if (a > 0.01) {
             const len = Math.min(Math.hypot(W, H), Math.max(f.w, f.h) * 0.5 + r * 1.6);
@@ -1234,8 +1277,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             ctx.lineWidth = STREAK_WIDTH;
             const base = reduceMotionRef.current ? 0 : (now / 1000) * STREAK_SPIN;
             ctx.beginPath();
-            for (let i = 0; i < STREAK_COUNT; i++) {
-              const ang = base + (i / STREAK_COUNT) * Math.PI * 2;
+            for (let i = 0; i < streakCount; i++) {
+              const ang = base + (i / streakCount) * Math.PI * 2;
               ctx.moveTo(cx, cy);
               ctx.lineTo(cx + Math.cos(ang) * len, cy + Math.sin(ang) * len);
             }
@@ -1311,14 +1354,39 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           }
         }
 
-        // 4. 吸い込まれ中の💎（落ちている時と同じ面付きの絵）。中心へ近づくほど速く、縮みながら動画の裏へ入る
+        // 4. 吸い込まれ中の💎（落ちている時と同じ面付きの絵）。中心へ近づくほど速く、縮みながら動画の裏へ入る。
+        //    自分が押した分だけは別扱い: 動画の矩形の縁までは大きさを保ったまま弧を描いて飛び、
+        //    縁に着いてから残りの時間で中へ吸い込まれて縮む。速さも大きさも変わるのは動画の裏に入った後なので、
+        //    見えている間はずっと同じ大きさの💎が飛んでいるように見える（Hop報告 2026-09-08 の「出た瞬間に消える」対策）
         for (const sk of suck) {
           const u = Math.min(1, (now - sk.t0) / sk.dur);
-          const k = u * u;
+          const dx0 = sk.x0 - cx, dy0 = sk.y0 - cy;
+          let k: number, shrink: number;
+          if (sk.self) {
+            // 出発点から中心へ向かう線が動画の矩形の縁を横切る所（進み具合の割合で表す）
+            const mx = Math.abs(dx0) > 0.5 ? (v.w / 2) / Math.abs(dx0) : 1;
+            const my = Math.abs(dy0) > 0.5 ? (v.h / 2) / Math.abs(dy0) : 1;
+            const kEnter = 1 - Math.min(1, Math.min(mx, my));
+            const w1 = Math.min(1, u / SELF_SUCK_ENTER);
+            k = u < SELF_SUCK_ENTER
+              ? kEnter * (0.35 * w1 + 0.65 * w1 * w1)   // 縁まではゆっくり動き出して少しずつ速く
+              : kEnter + (1 - kEnter) * ((u - SELF_SUCK_ENTER) / (1 - SELF_SUCK_ENTER));
+            shrink = k <= kEnter ? 0 : (k - kEnter) / Math.max(0.001, 1 - kEnter);
+          } else {
+            k = u * u;
+            shrink = k;
+          }
           suckDraw.x = sk.x0 + (cx - sk.x0) * k;
           suckDraw.y = sk.y0 + (cy - sk.y0) * k;
+          if (sk.bow) {
+            // 進む向きと直角にずらす＝道が少し弧を描く。出発点と着地点ではずれ0
+            const len = Math.hypot(dx0, dy0) || 1;
+            const off = sk.bow * Math.sin(Math.PI * u);
+            suckDraw.x += (-dy0 / len) * off;
+            suckDraw.y += (dx0 / len) * off;
+          }
           suckDraw.ang = reduceMotionRef.current ? sk.ang : sk.ang + sk.spin * (now - sk.t0) / 1000;
-          suckDraw.size = sk.size * (1 - k * SUCK_SHRINK);
+          suckDraw.size = sk.size * (1 - shrink * SUCK_SHRINK);
           suckDraw.rgb = sk.rgb;
           drawGemLive(suckDraw, lightAng);
         }
