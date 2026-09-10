@@ -418,17 +418,19 @@ function rotatePoint(p: Vec3, tilt: number, spin: number): Vec3 {
 }
 
 type Fit = { cx: number; cy: number; half: number };
+/** 石の姿勢。tilt=石の軸をカメラ側へ倒す角(rad)、spin=その軸のまわりに回す角(rad)。
+ *  この2つの組を並べたものが「飛び方の通り道」になる（rad） */
+export type Pose = { tilt: number; spin: number };
 
-function screenBounds(verts: Vec3[], steps: number, tilts: number[]): Fit {
+function screenBounds(verts: Vec3[], poses: Pose[]): Fit {
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
   let maxY = -Infinity;
-  // 傾きが何通りあっても絵の中の大きさが揃うよう、全部の姿勢を含む一番大きい枠で決める
-  for (const tilt of tilts) for (let i = 0; i < steps; i++) {
-    const spin = (i / steps) * Math.PI * 2;
+  // 姿勢が何通りあっても絵の中の大きさが揃うよう、全部の姿勢を含む一番大きい枠で決める
+  for (const pose of poses) {
     for (let v = 0; v < verts.length; v++) {
-      const q = rotatePoint(verts[v], tilt, spin);
+      const q = rotatePoint(verts[v], pose.tilt, pose.spin);
       if (q[0] < minX) minX = q[0];
       if (q[0] > maxX) maxX = q[0];
       if (q[1] < minY) minY = q[1];
@@ -1001,7 +1003,7 @@ function buildGear(): Gear | null {
 function warmUp(g: Gear) {
   const gl = g.gl;
   const tilt = (TILT_DEG * Math.PI) / 180;
-  const fit = screenBounds(g.verts, 8, [tilt]);
+  const fit = screenBounds(g.verts, [{ tilt, spin: 0 }]);
   g.canvas.width = 8;
   g.canvas.height = 8;
   g.size = 8;
@@ -1135,24 +1137,21 @@ class Baker implements BakeJob {
   ms = 0;
   private hex: string;
   private px: number;
-  /** 傾きの段（rad）。1段ごとに spins 枚ずつ、石を1回転させた絵を焼く */
-  private tilts: number[];
-  private spins: number;
+  /** 焼く姿勢を並べたもの。飛び方の通り道を順にたどった並びが入る */
+  private poses: Pose[];
   private fit: Fit;
 
-  constructor(hex: string, spins: number, px: number, tiltsDeg: number[], g: Gear) {
+  constructor(hex: string, px: number, poses: Pose[], fitKey: string, g: Gear) {
     this.hex = hex;
-    this.spins = spins;
-    this.tilts = tiltsDeg.map((d) => (d * Math.PI) / 180);
-    this.steps = spins * this.tilts.length;
+    this.poses = poses;
+    this.steps = poses.length;
     this.px = px;
-    // 枠決め: 傾きも回転も含めた中で一番幅が広くなる姿勢でもはみ出さないようにする。
-    // 全部の絵を同じ枠で焼くので、傾きが変わっても石の見かけの大きさが揃う
-    const key = spins + "@" + tiltsDeg.join("_");
-    let fit = g.fitCache[key];
+    // 枠決め: 通り道の中で一番幅が広くなる姿勢でもはみ出さないようにする。
+    // 全部の絵を同じ枠で焼くので、姿勢が変わっても石の見かけの大きさが揃う
+    let fit = g.fitCache[fitKey];
     if (!fit) {
-      fit = screenBounds(g.verts, spins, this.tilts);
-      g.fitCache[key] = fit;
+      fit = screenBounds(g.verts, poses);
+      g.fitCache[fitKey] = fit;
     }
     this.fit = fit;
   }
@@ -1188,10 +1187,8 @@ class Baker implements BakeJob {
     this.arm(g);
     let first = true;
     while (this.done < this.steps) {
-      const i = this.done;
-      const row = Math.floor(i / this.spins);          // 何段目の傾きか
-      const spin = ((i % this.spins) / this.spins) * Math.PI * 2;
-      setPose(g, spin, this.tilts[row], this.fit.cx, this.fit.cy);
+      const pose = this.poses[this.done];
+      setPose(g, pose.spin, pose.tilt, this.fit.cx, this.fit.cy);
       gl.uniformMatrix4fv(g.loc.modelViewMatrix, false, g.mv);
       gl.uniformMatrix3fv(g.loc.uO2W, false, g.o2w);
       gl.uniform3f(g.loc.uViewObj, g.viewObj[0], g.viewObj[1], g.viewObj[2]);
@@ -1256,11 +1253,11 @@ export function isGemRendererAvailable(): boolean {
 }
 
 /** 1色ぶんの焼き込みを始める。使えない端末では null を返す（例外は投げない） */
-export function startBake(hex: string, spins: number, px: number, tiltsDeg: number[]): BakeJob | null {
+export function startBake(hex: string, px: number, poses: Pose[], fitKey: string): BakeJob | null {
   const g = buildGear();
   if (!g) return null;
   try {
-    return new Baker(hex, spins, px, tiltsDeg, g);
+    return new Baker(hex, px, poses, fitKey, g);
   } catch (e) {
     console.warn("[灰toダイヤモンド] 焼き込みを始められなかった:", e);
     return null;

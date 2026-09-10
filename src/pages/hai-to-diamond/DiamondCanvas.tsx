@@ -23,7 +23,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 // まだ焼けていない色と、WebGL が使えない端末では、今までの平らな面の絵（gemFacets.ts）が返る。
 // gemFacets.ts に面の形のデータを1本化した。ミラーボールの板（getPlateSprites）と入口の大きな💎は今までのまま
 import { hexToRgb } from "./gemFacets";
-import { getStoneSprites, requestStoneSpritesByHex, stoneIndex, warmUpGemRenderer, SPRITE_LIGHT, TILT_ROWS } from "./gemSprites";
+import { getStoneSprites, requestStoneSpritesByHex, stoneIndex, warmUpGemRenderer, SPRITE_LIGHT, TUMBLE_PATHS } from "./gemSprites";
 // ミラーボールの席を色ごとにまとめるための、目に見える色の近さの物差しと、色ごとの居場所
 import { colorDistance, colorHome, type ColorHome, type Rgb } from "./ballColors";
 
@@ -73,9 +73,9 @@ type Gem = {
   vy: number;
   ang: number;
   spin: number;
-  /** 傾きの段（0〜TILT_ROWS-1）。💎ごとに決まっていて、その💎の一生の間は変わらない。
-   *  浅い段は横顔の三角、深い段は上の平らな面がこちらを向く */
-  tilt: number;
+  /** 飛び方の通り道（0〜TUMBLE_PATHS-1）。💎ごとに抽選して、その💎の一生の間は変わらない。
+   *  ang がその通り道のどこまで進んだかを表し、倒れ具合と回りが一緒に変わる＝転がって見える */
+  path: number;
   /** 画面の上での向き(rad)。💎ごとにばらばらに寝かせる＝みんなが同じ姿勢で降りてこない */
   roll: number;
   size: number;
@@ -107,7 +107,7 @@ type Suck = {
   dur: number;              // 吸い込まれるまでの時間(ms)
   ang: number;              // 出た時の向き(rad)
   spin: number;             // 回る速さ(rad/s)
-  tilt: number;             // 傾きの段（0〜TILT_ROWS-1）
+  path: number;             // 飛び方の通り道（0〜TUMBLE_PATHS-1）
   roll: number;             // 画面の上での向き(rad)
   size: number;
   rgb: [number, number, number];
@@ -999,7 +999,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             : SUCK_MS + Math.random() * SUCK_MS_JITTER,
           ang: Math.random() * Math.PI * 2,
           spin: (Math.random() < 0.5 ? -1 : 1) * (SPIN_MIN + Math.random() * SPIN_RANGE),
-          tilt: Math.floor(Math.random() * TILT_ROWS),
+          path: Math.floor(Math.random() * TUMBLE_PATHS),
           roll: Math.random() * Math.PI * 2,
           size: (SIZE_MIN + Math.random() * SIZE_RANGE) * shrinkM,
           rgb, bow, self,
@@ -1034,7 +1034,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         vy: FALL_SPEED_MIN + Math.random() * FALL_SPEED_RANGE,
         ang: Math.random() * Math.PI * 2,
         spin: (Math.random() < 0.5 ? -1 : 1) * (SPIN_MIN + Math.random() * SPIN_RANGE),
-        tilt: Math.floor(Math.random() * TILT_ROWS),
+        path: Math.floor(Math.random() * TUMBLE_PATHS),
         roll: Math.random() * Math.PI * 2,
         size,
         rgb,
@@ -1175,7 +1175,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     // 夜空へ放った瞬間、壁の粒が縮んで星になるまでの途中の姿（画面座標）。縮み終わったら星にして空へ焼き込む
     const wallFade: { x: number; y: number; rgb: [number, number, number]; t0: number; d0: number; a0: number; d1: number }[] = [];
     // 吸い込まれ中の💎を描く時の使い回しの入れ物（1個ずつ作ると押した数だけゴミが出る）
-    const suckDraw = { x: 0, y: 0, ang: 0, tilt: 0, roll: 0, size: 0, rgb: [0, 0, 0] as [number, number, number] };
+    const suckDraw = { x: 0, y: 0, ang: 0, path: 0, roll: 0, size: 0, rgb: [0, 0, 0] as [number, number, number] };
     const resize = () => {
       const r = canvas.getBoundingClientRect();
       const prevW = W, prevH = H;
@@ -1362,10 +1362,10 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     /** 降っている💎: 自分の向きに合う絵を選んで、回さずに貼る。
      *  光は画面に対して止まっているので、石が回れば面が順番に光る＝絵を回してはいけない。
      *  毎フレーム面を塗るのは、みんなの💎がたくさん降る時に発熱の元になっていた（Hop報告 2026-09-07） */
-    const drawGemLive = (g: Pick<Gem, "x" | "y" | "ang" | "tilt" | "roll" | "size" | "rgb">) => {
+    const drawGemLive = (g: Pick<Gem, "x" | "y" | "ang" | "path" | "roll" | "size" | "rgb">) => {
       const sprites = getStoneSprites(g.rgb);
       const w = (g.size * 2 / 0.95);
-      const img = sprites[stoneIndex(g.ang, g.tilt)];
+      const img = sprites[stoneIndex(g.ang, g.path)];
       if (!g.roll) { ctx.drawImage(img, g.x - w / 2, g.y - w / 2, w, w); return; }
       // 画面の上で寝かせる分だけ絵ごと回す。光も一緒に回るが、💎ごとに向きが決まっていて
       // 途中で変わらないので、その石はその向きから照らされているように見える
@@ -1378,7 +1378,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     /** 積もった💎: スプライトを貼る */
     const drawGemSettled = (g: Gem, target: CanvasRenderingContext2D = ctx) => {
       const sprites = getStoneSprites(g.rgb);
-      const i = stoneIndex(g.ang, g.tilt);
+      const i = stoneIndex(g.ang, g.path);
       const w = (g.size * 2 / 0.95) * 1.12;              // 少し大きめに貼って継ぎ目の隙間を埋める【仮】
       if (!g.roll) {
         target.drawImage(sprites[i], g.x - w / 2, g.y - w / 2, w, w);
@@ -1951,7 +1951,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           suckDraw.size = sk.toSeat
             ? sk.size + (tileV * 0.95 / 2 - sk.size) * k
             : sk.size * (1 - shrink * SUCK_SHRINK);
-          suckDraw.tilt = sk.tilt;
+          suckDraw.path = sk.path;
           suckDraw.roll = sk.roll;
           suckDraw.rgb = sk.rgb;
           // 席にはめ込まれる直前だけ、板と同じ「上から見た八角形」の絵に差し替える（回して見せる演出はしない）。

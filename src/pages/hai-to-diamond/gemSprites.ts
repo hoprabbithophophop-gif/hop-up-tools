@@ -14,22 +14,52 @@
 //   3. 焼いている途中の中途半端な絵は絶対に外へ出さない（貼る時に穴が開くのを防ぐ）
 //   4. 焼くのに失敗した色は、その色だけ諦めて代わりの絵を使い続ける。焼き直しはしない
 //
-// 石の向きは「傾き3段 × 1回転32段階」の96通り。落ちている💎も積もった💎も同じ絵を使う。
+// 石の向きは「飛び方の通り道4本 × 24コマ」の96通り。落ちている💎も積もった💎も同じ絵を使う。
 // 本物は立体なので「絵ごと回す」ことができず、どちらも
 // 「石を回した絵を、回さずに貼る」形に揃えてある。
 import { hexToRgb, paintFacets } from "./gemFacets";
-import { startBake, prepareGemRenderer, type BakeJob } from "./gemRenderer";
+import { startBake, prepareGemRenderer, type BakeJob, type Pose } from "./gemRenderer";
 
-/** 石を1回転させる時の段階数。落ちている💎が回るので、粗いと回転がカクつく */
-export const SPIN_STEPS = 32;
-/** 石の傾きの段（度）。石の軸をカメラ側へ何度倒すかを何通りか焼いておき、
- *  💎ごとにどれか1つを持たせる。1通りだけだとどの💎も同じ横顔で飛ぶ（Hop指摘 2026-09-10）。
- *  浅い＝ほぼ真横から見た三角、深い＝上の平らな面（テーブル）がこちらを向く【仮】 */
-export const TILTS_DEG = [12, 34, 62];
-/** 傾きの段の数。💎ごとにこの中から1つ選ぶ */
-export const TILT_ROWS = TILTS_DEG.length;
-/** 焼く絵の総数。傾きの段ごとに1回転ぶん持つ */
-export const STONE_STEPS = SPIN_STEPS * TILT_ROWS;
+// ── 飛び方の通り道 ──────────────────────────────────────────
+// 石の向きは3つの軸で決まるが、全部の組み合わせを焼くと3万枚を超えて手に負えない。
+// 一方、画面の中で寝かせる軸だけは焼いた絵をそのまま回して貼れるのでタダ。
+// そこで残る2軸（倒す角と、その軸のまわりに回る角）を格子で焼くのではなく、
+// 「倒しながら回る動き」を何通りかのパラパラ漫画にして、その通り道の上だけを焼く（Hop案 2026-09-10）。
+// 枚数は「通り道の数 × コマ数」で済み、格子より少ない枚数で本物の転がりになる。
+/** 通り道1本あたりのコマ数。1周してぴったり元へ戻るので、つなぎ目は出ない */
+export const TUMBLE_FRAMES = 24;
+/** 飛び方の通り道。tilt0=倒す角の真ん中、amp=そこから上下に振る幅、turns=1周する間に何回まわるか、
+ *  phase=振り始める位置。倒す角は 0度＝ほぼ真横から見た三角、90度＝上の平らな面がこちらを向く、
+ *  90度を越えると裏（尖った側）が見える【仮】 */
+const TUMBLE_PATHS_DEF = [
+  { tilt0: 40, amp: 38, turns: 1, phase: 0 },
+  { tilt0: 58, amp: 52, turns: 2, phase: Math.PI / 2 },
+  { tilt0: 30, amp: 28, turns: 2, phase: Math.PI },
+  { tilt0: 72, amp: 44, turns: 1, phase: Math.PI * 1.5 },
+] as const;
+/** 通り道の数。💎ごとにこの中から1本を抽選する */
+export const TUMBLE_PATHS = TUMBLE_PATHS_DEF.length;
+/** 焼く絵の総数 */
+export const STONE_STEPS = TUMBLE_PATHS * TUMBLE_FRAMES;
+
+/** 焼く姿勢を、通り道の順に並べたもの */
+function buildPoses(): Pose[] {
+  const out: Pose[] = [];
+  for (const p of TUMBLE_PATHS_DEF) {
+    for (let i = 0; i < TUMBLE_FRAMES; i++) {
+      const t = i / TUMBLE_FRAMES;
+      const deg = p.tilt0 + p.amp * Math.sin(t * Math.PI * 2 + p.phase);
+      out.push({ tilt: (deg * Math.PI) / 180, spin: t * Math.PI * 2 * p.turns });
+    }
+  }
+  return out;
+}
+/** 焼く姿勢は毎回同じなので一度だけ作る。枠決めの控えを引く合言葉も一緒に持つ */
+let poses: Pose[] | null = null;
+const POSE_KEY = "tumble" + TUMBLE_PATHS + "x" + TUMBLE_FRAMES;
+function getPoses(): Pose[] {
+  return (poses ??= buildPoses());
+}
 /** 絵の1辺(px)。実際に貼る大きさ（世界座標で最大 size 36 × 2 ≒ 72px）を余裕込みで包む */
 export const STONE_PX = 96;
 /** 代わりの絵で使う固定の光の向き（左上から）。今までの💎と同じ値 */
@@ -70,7 +100,7 @@ function buildFallback(rgb: [number, number, number]): HTMLCanvasElement[] {
     c.height = STONE_PX;
     const cx = c.getContext("2d");
     if (cx) {
-      const ang = ((i % SPIN_STEPS) / SPIN_STEPS) * Math.PI * 2;
+      const ang = ((i % TUMBLE_FRAMES) / TUMBLE_FRAMES) * Math.PI * 2;
       cx.translate(STONE_PX / 2, STONE_PX / 2);
       cx.rotate(ang);
       cx.scale((STONE_PX / 2) * 0.95, (STONE_PX / 2) * 0.95);
@@ -98,7 +128,7 @@ function pump() {
       schedule();
       return;
     }
-    job = startBake(hexOf(rgb), SPIN_STEPS, STONE_PX, TILTS_DEG);
+    job = startBake(hexOf(rgb), STONE_PX, getPoses(), POSE_KEY);
     jobKey = key;
     if (!job) {
       // 端末がこの描き方に対応していない。以後どの色も焼かず、代わりの絵で通す
@@ -172,10 +202,10 @@ export function getStoneSprites(rgb: [number, number, number]): HTMLCanvasElemen
   return fb;
 }
 
-/** 積もった山も降っている💎も、この段階数で向きを丸めて絵を選ぶ。
- *  row は💎ごとに持っている傾きの段。段ごとに SPIN_STEPS 枚ずつ並んでいる */
-export function stoneIndex(ang: number, row = 0): number {
-  const spin = ((Math.round((ang / (Math.PI * 2)) * SPIN_STEPS) % SPIN_STEPS) + SPIN_STEPS) % SPIN_STEPS;
-  const r = ((row % TILT_ROWS) + TILT_ROWS) % TILT_ROWS;
-  return r * SPIN_STEPS + spin;
+/** 積もった山も降っている💎も、この並びから絵を選ぶ。
+ *  path は💎ごとに持っている飛び方の通り道、ang はその通り道のどこまで進んだか */
+export function stoneIndex(ang: number, path = 0): number {
+  const f = ((Math.round((ang / (Math.PI * 2)) * TUMBLE_FRAMES) % TUMBLE_FRAMES) + TUMBLE_FRAMES) % TUMBLE_FRAMES;
+  const p = ((path % TUMBLE_PATHS) + TUMBLE_PATHS) % TUMBLE_PATHS;
+  return p * TUMBLE_FRAMES + f;
 }
