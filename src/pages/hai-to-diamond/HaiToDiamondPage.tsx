@@ -494,7 +494,7 @@ export default function HaiToDiamondPage() {
       {/* 入口。本編（プレイヤー込み）は常時マウントし、その上に重ねる＝「はじめる」の時点でプレイヤーが準備済み */}
       {!started && (
         <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
-          <DiamondEntry total={othersTotal} onStart={handleStart} onOpenSettings={() => setSettingsOpen(true)} reduceMotion={settings.reduceMotion} />
+          <DiamondEntry total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} onStart={handleStart} onOpenSettings={() => setSettingsOpen(true)} reduceMotion={settings.reduceMotion} />
         </div>
       )}
       {settingsOpen && (

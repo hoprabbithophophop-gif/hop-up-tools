@@ -1,26 +1,34 @@
 // 入口：💎だけの入口画面。色はここでは選ばず、押した後の再生中に選ぶ（別担当）。
 // 見出し・副題・歯車は色を選ぶ版(DiamondMemberSelect.tsx)と同じものをそのまま移した。
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ARENA_BG } from "../hi-tension/data";
 import FacetGem from "./FacetGem";
 import { SHARE_TAG } from "./HaiToDiamondPage";
 
 const GEM_SIZE = 240;             // 大きな💎の絵の大きさ【仮】。丸で囲わず💎そのものを押す（Hop指示 2026-09-07）
 const GEM_SIZE_LANDSCAPE = 140;   // 横向きの低い画面でも縦に収まるよう小さくする【仮】
-const COUNT_UP_MS = 1400;         // 歴代累計が 0 から数え上がる時間【仮】
+const COUNT_UP_MS = 1400;         // 歴代累計が目標の数まで伸びる時間【仮】
 
-/** 0 から目標の数まで、はじめ速く終わりゆっくり数え上げる。動き軽減では最初から目標の数を出す */
+/** いま出ている数字から目標の数まで、はじめ速く終わりゆっくり伸ばす。まだ何も出ていなければ 0 から。
+ *  動き軽減では最初から目標の数を出す */
 function useCountUp(target: number | null, reduceMotion: boolean): number | null {
   const [shown, setShown] = useState<number | null>(null);
+  /** いま出ている数字の控え。これを効果の依存に入れると数字が動くたびに走り直すので ref で持つ */
+  const shownRef = useRef<number | null>(null);
   useEffect(() => {
-    if (target === null) { setShown(null); return; }
-    if (reduceMotion) { setShown(target); return; }
+    if (target === null) { shownRef.current = null; setShown(null); return; }
+    if (reduceMotion) { shownRef.current = target; setShown(target); return; }
+    const from = shownRef.current;
+    if (from === target) return;
+    const start = from ?? 0;
     let raf = 0;
     const t0 = performance.now();
     const tick = (now: number) => {
       const k = Math.min(1, (now - t0) / COUNT_UP_MS);
       const eased = 1 - Math.pow(1 - k, 3);
-      setShown(Math.round(target * eased));
+      const value = k >= 1 ? target : Math.round(start + (target - start) * eased);
+      shownRef.current = value;
+      setShown(value);
       if (k < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
