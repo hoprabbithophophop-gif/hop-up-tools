@@ -9,7 +9,6 @@ import { ExpiredView } from '../../features/youtube/components/ExpiredView';
 import { NowPlayingBar } from '../../features/youtube/components/NowPlayingBar';
 import { getPlaylistShare, fromShareItem, PLAYLIST_SHARE_LIMIT } from '../../features/videos/hooks/usePlaylistShare';
 import type { ChapterQueueItem } from '../../features/videos/types/playlist';
-import NewsNoticeLink from '../../components/NewsNoticeLink';
 
 type PageState = 'home' | 'play';
 type RestoreStatus = 'idle' | 'loading' | 'done' | 'expired';
@@ -355,11 +354,6 @@ function ChapterPickupContent() {
             : undefined
         }
       >
-        {/* お知らせ。上の帯は高さ60px固定で一行ぶん空けられないため、
-            帯の中ではなく一覧の先頭に置く（下へたどると一緒に流れる） */}
-        <div className="bg-white max-w-3xl mx-auto px-4">
-          <NewsNoticeLink />
-        </div>
         <BrowseView searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} formatFilter={formatFilter} showPlayerAtTop={showPlayerAtTop} />
       </div>
 

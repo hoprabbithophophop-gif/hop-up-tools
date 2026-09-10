@@ -14,7 +14,6 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
 import { ARIGATO_BEAT_CALLS, ARIGATO_BEAT_VIDEO, ARIGATO_BEAT_BPM, ARIGATO_BEAT_SECTIONS } from "./arigatoBeatCalls";
 import { accentColor, accentRgb } from "../../lib/accentColor";
-import NewsNoticeLink from "@/components/NewsNoticeLink";
 
 // UIアクセント（通常ホットピンク／6月16日=高瀬くるみのメンカラ）。メンバーカラーは別管理。
 const PINK = accentColor();
@@ -419,11 +418,7 @@ export default function ArigatoBeatQuizPage() {
   return (
     <div style={{ height: "100dvh", overflow: "hidden", background: ARENA_BG, color: "#eef1f5", display: "flex", flexDirection: "column", fontFamily: "Inter, system-ui, sans-serif", padding: "10px 14px", boxSizing: "border-box" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "0 0 auto" }}>
-        {/* 題字とその下のお知らせを縦に積む。右の「やめる」はこの塊の外に残す */}
-        <div style={{ minWidth: 0 }}>
-          <h1 style={{ fontSize: 15, fontWeight: 800, margin: 0 }}>コール練習クイズ</h1>
-          <NewsNoticeLink />
-        </div>
+        <h1 style={{ fontSize: 15, fontWeight: 800, margin: 0 }}>コール練習クイズ</h1>
         {phase === "playing" && <button style={{ ...btn, marginLeft: "auto", padding: "5px 12px", fontSize: 12 }} onClick={stop}>やめる</button>}
       </div>
 

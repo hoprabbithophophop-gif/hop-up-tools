@@ -1,10 +1,10 @@
-// 動画を使うページの題字の下に置く、お知らせへの案内。
+// トップページの題字の下に出す、お知らせへの案内。
 //
-// 置いてあるのは、動画を実際に再生する公開中の5ページ。
-//   /youtube（HELLO! VIDEO）/the-ballad / hi-tension の入口 / hai-to-diamond の入口 / arigato-beat
+// 一番下の並びにも「お知らせ」はあるが、あれは小さくて見落とされる。
+// 出したい記事がある間だけ、開いてすぐ目に入る所にも出す。
 //
 // 文言と行き先はこのファイルの2行だけに持たせてある。
-// 次のお知らせに差し替える時は、ここを直せば5ページとも変わる。
+// 次のお知らせに差し替える時は、ここを直す。
 import { Link } from "react-router-dom";
 
 /** 今出しているお知らせの行き先 */
@@ -12,26 +12,14 @@ const NEWS_PATH = "/news/2026-09-10-play-count";
 /** 題字の下に出す文言 */
 const NEWS_LABEL = "お知らせ：再生回数の件について";
 
-type Props = {
-  /** 題字が中央寄せのページでは "center" を渡す */
-  align?: "left" | "center";
-  /**
-   * 題字との間。既定は "line"＝一行ぶん空けて、題字の続きとして読まれないようにする。
-   * "tight" は高さの決まった帯の中など、一行ぶんが入らない所だけ。
-   */
-  gap?: "line" | "tight";
-};
-
-export default function NewsNoticeLink({ align = "left", gap = "line" }: Props) {
+export default function NewsNoticeLink() {
   return (
     <Link
       to={NEWS_PATH}
       style={{
         display: "block",
-        marginTop: gap === "line" ? "1.1rem" : "0.45rem",
-        textAlign: align,
-        // 明るい地のページと暗い地のページが混ざるので、
-        // 色を決め打ちせず親の文字色を薄めて使う
+        // 一行ぶん空ける。詰めると題字の続きとして読まれる
+        marginTop: "1.1rem",
         color: "inherit",
         opacity: 0.62,
         fontSize: "0.75rem",

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { ARENA_BG } from "../hi-tension/data";
 import FacetGem from "./FacetGem";
-import NewsNoticeLink from "@/components/NewsNoticeLink";
 import { SHARE_TAG } from "./HaiToDiamondPage";
 
 const GEM_SIZE = 240;             // 大きな💎の絵の大きさ【仮】。丸で囲わず💎そのものを押す（Hop指示 2026-09-07）
@@ -109,7 +108,6 @@ export default function DiamondEntry({ total, onStart, onOpenSettings, reduceMot
       >
         {SHARE_TAG}
       </p>
-      <NewsNoticeLink align="center" />
 
       <div
         style={{
