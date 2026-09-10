@@ -22,7 +22,7 @@ export default function NewsArticlePage() {
     );
   }
 
-  const { supplement, evidence, verification, changelog } = item;
+  const { bodyAfter, evidence, verification, changelog } = item;
 
   return (
     <div style={{ background: "#f8f9fa", minHeight: "100vh" }}><div style={s.wrap}>
@@ -36,14 +36,6 @@ export default function NewsArticlePage() {
       <div style={{ whiteSpace: "pre-wrap", margin: "1.5rem 0 0", overflowWrap: "anywhere" }}>
         {item.body}
       </div>
-
-      {/* 本文への短い断り。項を立てず小さく出す。※ は文そのものに含める。
-          折り返した2行目以降が ※ の下にもぐらないよう、頭を1文字ぶん下げている */}
-      {supplement && (
-        <p style={{ ...s.note, margin: "1rem 0 0", paddingLeft: "1em", textIndent: "-1em" }}>
-          {supplement}
-        </p>
-      )}
 
       {evidence && (
         <>
@@ -81,6 +73,13 @@ export default function NewsArticlePage() {
           ))}
           <p style={s.note}>{verification.note}</p>
         </>
+      )}
+
+      {/* 本文の残り。根拠と検証を読んでから続きに戻る */}
+      {bodyAfter && (
+        <div style={{ whiteSpace: "pre-wrap", margin: "2.5rem 0 0", overflowWrap: "anywhere" }}>
+          {bodyAfter}
+        </div>
       )}
 
       {changelog && (

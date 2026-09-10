@@ -13,10 +13,10 @@ export type NewsItem = {
   /** 日付。YYYY-MM-DD */
   date: string;
   title: string;
-  /** 本文。改行はそのまま出す */
+  /** 本文。改行はそのまま出す。「根拠」「検証」より上に出る */
   body: string;
-  /** 任意。本文だけだと読み違えられる所への短い断り。本文の下に小さく出す。※ は文に含めて書く */
-  supplement?: string;
+  /** 任意。「根拠」「検証」を挟んだあとに続く本文の残り */
+  bodyAfter?: string;
   /** 任意。「根拠」。公式の文の原文・和訳・出どころへのリンク */
   evidence?: {
     heading: string;
