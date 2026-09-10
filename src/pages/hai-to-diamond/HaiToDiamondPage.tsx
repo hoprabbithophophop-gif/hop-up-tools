@@ -124,6 +124,10 @@ function initialMemberId(): string {
 
 export default function HaiToDiamondPage() {
   const playerRef = useRef<YouTubePlayerApi>(null);
+  /** いま1回の最中か（動画の再生の合図を受け取る側から見るための控え） */
+  const startedRef = useRef(false);
+  /** 1回ぶんの支度。合図を受け取る関数の方が先に組み立てられるので、控え越しに呼ぶ */
+  const beginSessionRef = useRef<(() => void) | null>(null);
   const canvasRef = useRef<DiamondCanvasApi>(null);
   const videoBoxRef = useRef<HTMLDivElement>(null);
   /** 自分がタップした「動画時刻（秒）」と「その時に選んでいた色のメンバーID」。曲の終わりに色ごとにまとめて送る */
@@ -180,8 +184,8 @@ export default function HaiToDiamondPage() {
   const [numbersBottom, setNumbersBottom] = useState<number | string>("60%");
   /** 盛り上がりの帯の置き場所。器の上端は動画の矩形の下端そのもの＝光の滲みが動画に掛からない */
   const [heatBox, setHeatBox] = useState<{ top: number; left: number; width: number } | null>(null);
+  // 入口でも測る（入口の案内と累計を、動画の矩形の下端に合わせて置くため）
   useEffect(() => {
-    if (!started) return;
     const measure = () => {
       const box = videoBoxRef.current;
       const frameEl = box?.parentElement;                 // 額縁ぶんの余白を持つ div
@@ -312,15 +316,18 @@ export default function HaiToDiamondPage() {
   // 再生中に一時停止(2)が来たら「一時停止中」を立て、再生(1)に戻ったら下ろす（Hop決定 2026-09-08）
   const handlePlayerStateChange = useCallback((state: number) => {
     if (highlightRef.current) return;               // ハイライト再生中は再生扱いにしない（💎ボタンも記録も増やさない・一時停止もいつも通り無視）
+    if (state === 1 && !startedRef.current) { beginSessionRef.current?.(); return; }   // 入口で動画の再生ボタンが押された＝ここから1回が始まる
     if (state === 1) { setEnded(false); setPlayingBoth(true); setPausedBoth(false); }
     else if (state === 0) finish();
     else if (state === 2 && playingRef.current) setPausedBoth(true);
   }, [finish]);
 
-  /** 入口の💎＝ハイ！テンションと同じく、このタップの中で同期的に再生を始める（iOS Safari 対策）。
-   *  プレイヤーは入口の裏で先に読み込み済み */
-  const handleStart = useCallback(() => {
-    playerRef.current?.play();
+  /** 曲を1回ぶん始める支度。
+   *  再生そのものはここから呼ばない＝動画自身の再生ボタンを押してもらう（Hop決定 2026-09-10）。
+   *  外側のボタンから呼んで始めた再生は YouTube 側で1回として数えられていない疑いが強く、
+   *  このツールは公式動画の再生回数に足すために作っているため。
+   *  呼ばれるのは、動画が実際に再生に入った合図（onPlayerStateChange の 1）を受け取った時 */
+  const beginSession = useCallback(() => {
     canvasRef.current?.setMode(settingsRef.current.scene);   // 山かミラーボールか。reset より先に（設定「💎の見せ方」）
     canvasRef.current?.reset();   // 前の回の山を消して最初から（Hop報告 2026-09-07）
     const hex = findDiamondMember(memberIdRef.current)?.color;
@@ -341,10 +348,12 @@ export default function HaiToDiamondPage() {
     setVideoTimeSec(0);
     setPeakTime(null);
     setEnded(false);
+    startedRef.current = true;
     setStarted(true);
     setPlayingBoth(true);
     setPausedBoth(false);
   }, [loadReplay]);
+  useEffect(() => { beginSessionRef.current = beginSession; }, [beginSession]);
 
   /** 最初に戻る＝入口へ */
   const handleBackToStart = useCallback(() => {
@@ -354,7 +363,11 @@ export default function HaiToDiamondPage() {
     setEnded(false);
     setPlayingBoth(false);
     setPausedBoth(false);
+    startedRef.current = false;
     setStarted(false);
+    // 動画を頭へ戻して止める＝入口でもう一度、動画の再生ボタンを押せる状態にする
+    playerRef.current?.seekTo(0);
+    playerRef.current?.pause();
     loadReplay();   // 入口の累計を読み直す（自分の分は下限で守られる）
   }, [loadReplay]);
 
@@ -494,7 +507,7 @@ export default function HaiToDiamondPage() {
       {/* 入口。本編（プレイヤー込み）は常時マウントし、その上に重ねる＝「はじめる」の時点でプレイヤーが準備済み */}
       {!started && (
         <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
-          <DiamondEntry total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} onStart={handleStart} onOpenSettings={() => setSettingsOpen(true)} reduceMotion={settings.reduceMotion} />
+          <DiamondEntry videoBottom={heatBox?.top ?? null} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} onOpenSettings={() => setSettingsOpen(true)} reduceMotion={settings.reduceMotion} />
         </div>
       )}
       {settingsOpen && (
@@ -509,7 +522,8 @@ export default function HaiToDiamondPage() {
       <div
         style={{
           position: "absolute",
-          zIndex: 2,
+          // 入口の間は動画を入口の上に出す＝真ん中に動画が見えていて、その再生ボタンを押せる（Hop決定 2026-09-10）
+          zIndex: started ? 2 : 20,
           top: VIDEO_TOP,
           left: "50%",
           transform: "translate(-50%, -50%)",
