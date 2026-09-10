@@ -10,7 +10,7 @@ export default function NewsListPage() {
   }, []);
 
   return (
-    <div style={s.wrap}>
+    <div style={{ background: "#f8f9fa", minHeight: "100vh" }}><div style={s.wrap}>
       <style>{LIST_CSS}</style>
       <Link to="/" style={s.back}>← トップへ戻る</Link>
       <h1 style={s.header}>お知らせ</h1>
@@ -27,6 +27,6 @@ export default function NewsListPage() {
           ))}
         </div>
       )}
-    </div>
+    </div></div>
   );
 }

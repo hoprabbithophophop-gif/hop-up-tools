@@ -14,18 +14,18 @@ export default function NewsArticlePage() {
 
   if (!item) {
     return (
-      <div style={s.wrap}>
+      <div style={{ background: "#f8f9fa", minHeight: "100vh" }}><div style={s.wrap}>
         <Link to="/news" style={s.back}>← お知らせ一覧へ戻る</Link>
         <h1 style={s.header}>お知らせ</h1>
         <p style={s.p}>このお知らせは見つかりませんでした。</p>
-      </div>
+      </div></div>
     );
   }
 
   const { evidence, verification, changelog } = item;
 
   return (
-    <div style={s.wrap}>
+    <div style={{ background: "#f8f9fa", minHeight: "100vh" }}><div style={s.wrap}>
       <style>{LIST_CSS}</style>
       <Link to="/news" style={s.back}>← お知らせ一覧へ戻る</Link>
 
@@ -48,7 +48,7 @@ export default function NewsArticlePage() {
               href={evidence.sourceUrl}
               target="_blank"
               rel="noopener noreferrer"
-              style={{ color: "#E5457D", overflowWrap: "anywhere" }}
+              style={s.link}
             >
               {evidence.sourceLabel}
             </a>
@@ -91,6 +91,6 @@ export default function NewsArticlePage() {
           )}
         </>
       )}
-    </div>
+    </div></div>
   );
 }
