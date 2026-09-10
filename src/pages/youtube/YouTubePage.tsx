@@ -229,12 +229,7 @@ function ChapterPickupContent() {
       {/* 固定ヘッダー */}
       <header className={`fixed top-0 left-0 right-0 z-50 h-[60px] flex items-center gap-4 px-6 bg-white border-b border-outline-variant/20 ${isFullscreen || pageState === 'play' || showPlayerAtTop || isLoading || isExpired ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
         <a href="/" className="material-symbols-outlined text-black leading-none" style={{ fontSize: '20px' }}>arrow_back</a>
-        {/* 題字とその下のお知らせを縦に積む。
-            この帯は高さ60px固定で、一行ぶん空けると入りきらないため tight にしてある */}
-        <div className="flex-1 min-w-0">
-          <h1 className="text-xl font-black tracking-tighter uppercase leading-tight">HELLO! VIDEO</h1>
-          <NewsNoticeLink gap="tight" />
-        </div>
+        <h1 className="text-xl font-black tracking-tighter uppercase flex-1">HELLO! VIDEO</h1>
         {pageState === 'home' && (
           <>
             <button
@@ -360,6 +355,11 @@ function ChapterPickupContent() {
             : undefined
         }
       >
+        {/* お知らせ。上の帯は高さ60px固定で一行ぶん空けられないため、
+            帯の中ではなく一覧の先頭に置く（下へたどると一緒に流れる） */}
+        <div className="bg-white max-w-3xl mx-auto px-4">
+          <NewsNoticeLink />
+        </div>
         <BrowseView searchOpen={searchOpen} onSearchClose={() => setSearchOpen(false)} formatFilter={formatFilter} showPlayerAtTop={showPlayerAtTop} />
       </div>
 
