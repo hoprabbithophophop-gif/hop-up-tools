@@ -111,7 +111,7 @@ type Suck = {
   t0: number;               // 飛び始めた時刻(ms)
   dur: number;              // 吸い込まれるまでの時間(ms)
   ang: number;              // 出た時の向き(rad)
-  spin: number;             // 回る速さ(rad/s)
+  flight: number;           // 飛び方（FLIGHT_STYLES の何番か）。押した時に引いて、着くまで変わらない
   path: number;             // 飛び方の通り道（0〜TUMBLE_PATHS-1）
   roll: number;             // 画面の上での向き(rad)
   size: number;
@@ -235,7 +235,8 @@ const BALL_SEATS = 840;          // 席（板を貼る場所）の数【仮】�
                                  // 人が少ないうちは板がまばらなままでよい（Hop了承 2026-09-08）
 const BALL_R = 95;               // 球の半径(px)。カメラが寄っていない（拡大率1）時の見かけの大きさ【仮】。
                                  // 390幅の画面なら 動画の高さの半分＋額縁 ≒ 116px なので、曲の始まりは動画の裏にすっぽり隠れる
-const BALL_ZOOM_MAX = 2.6;       // 曲の終わりの拡大率【仮】。95 × 2.6 ≒ 247px ＝ 画面の幅の半分を超えて上下からはみ出す
+const BALL_ZOOM_MAX = 2.08;      // 曲の終わりの拡大率【仮】。95 × 2.08 ≒ 198px ＝ 画面の幅の半分を超えて上下からはみ出す。
+                                 // 2.6 では実機で大きすぎた（Hop指摘 2026-09-11）ので8割にした
 const BALL_ZOOM_EASE = 3;        // 拡大率を目当ての値へ寄せる速さ（1秒あたり）。ハイライト再生で動画の時刻が飛んだ時に、
                                  // 拡大率まで一足飛びに変わらないようにする【仮】
 const BALL_SPIN_SEC = 20;        // 縦の軸まわりに1周する秒数
@@ -250,6 +251,27 @@ const BALL_DIM = 0.55;           // 光が当たっていない側の明るさ�
 const SUCK_MS = 700;             // 💎が動画の中心へ吸い込まれるまで
 const SUCK_MS_JITTER = 200;      // 同上のばらつき。全部が同じ速さだと機械的に見える
 const SUCK_SHRINK = 0.9;         // 吸い込まれる間に縮む割合（1.0で点まで縮む）
+// 飛んでいる💎の飛び方。押した時に等しい確率で1つ引き、着くまで変えない（Hop指示 2026-09-11）。
+// 進み具合は壁の時計ではなく飛行の進み（0→1）で決める。飛ぶのは0.7〜0.9秒と短いので、
+// 1秒あたりの速さで回していた頃は24コマのうち2〜13コマしか進まず、横顔で止まって見えた。
+// 絵は焼き直さず、「通り道の上を進める量」と「絵ごと画面の中で回す量」の組み合わせだけで5通り作る。
+//   laps   … 通り道の上をいくつ進むか。1＝24コマぶんで一巡
+//   turns  … 絵ごと画面の中で何回転させるか
+//   quad   … 絵ごとの回りを後ほど速くするか。止まりかけのコマの感じを出す
+//   wobble … 絵ごとの回りに足す揺れの大きさ(rad)
+//   paths  … 使う通り道の番号。null なら全部から引く
+// 数字は全部【仮】
+const FLIGHT_STYLES: { laps: number; turns: number; quad: boolean; wobble: number; paths: number[] | null }[] = [
+  { laps: 0, turns: 0, quad: false, wobble: 0, paths: null },       // 0 無回転。出発時の向きのまま
+  { laps: 0.35, turns: 0, quad: false, wobble: 0, paths: null },    // 1 緩く回る
+  { laps: 2.5, turns: 0, quad: false, wobble: 0, paths: [1, 2] },   // 2 勢いよく回る
+  { laps: 0.5, turns: 1, quad: true, wobble: 0.35, paths: [2] },    // 3 止まりかけのコマのようにぐらぐら
+  { laps: 1, turns: 1, quad: false, wobble: 0, paths: null },       // 4 ひねりながら
+];
+// 上の paths に書いた番号は gemSprites.ts の通り道の並びに合わせてある。
+// 2番は「1周で2回まわる」通り道、3番は「倒れ角の振れ幅が小さい」通り道。
+// gemSprites.ts の通り道の並びが変わったらここも直す
+const FLIGHT_WOBBLE_CYCLES = 3;  // 揺れの往復の数。飛ぶ間にこの回数だけ行き来する【仮】
 // 自分が押した💎の飛び方。他の人の分（画面の縁から出る）とは別に決める。
 // 画面の下の方から出して動画の下端よりはっきり下を通し、動画の裏に入るまでは大きさを保つ。
 // 以前は横が画面いっぱい・出発点が動画のすぐ下だったので、10回押して9回は出た瞬間に動画の裏へ入って見えなかった（Hop報告 2026-09-08）
@@ -1136,14 +1158,17 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         // 無ければその色の居場所にいちばん近い空席。席が全部埋まったら、いちばん古い板を貼り替える
         const ball = getBall();
         const seat = reserveSeat(ball, rgb);
+        // 飛び方を1つ引く。飛び方によっては使う通り道が決まっているので、通り道もここで合わせて引く
+        const flight = Math.floor(Math.random() * FLIGHT_STYLES.length);
+        const fp = FLIGHT_STYLES[flight].paths;
         suckRef.current.push({
           x0, y0, t0: now,
           dur: self
             ? SELF_SUCK_MS + Math.random() * SELF_SUCK_MS_JITTER
             : SUCK_MS + Math.random() * SUCK_MS_JITTER,
           ang: Math.random() * Math.PI * 2,
-          spin: (Math.random() < 0.5 ? -1 : 1) * (SPIN_MIN + Math.random() * SPIN_RANGE),
-          path: Math.floor(Math.random() * TUMBLE_PATHS),
+          flight,
+          path: fp ? fp[Math.floor(Math.random() * fp.length)] : Math.floor(Math.random() * TUMBLE_PATHS),
           roll: Math.random() * Math.PI * 2,
           size: (SIZE_MIN + Math.random() * SIZE_RANGE) * shrinkM,
           rgb, bow, self,
@@ -2283,14 +2308,28 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             suckDraw.x += (-dy0 / len) * off;
             suckDraw.y += (dx0 / len) * off;
           }
-          suckDraw.ang = reduceMotionRef.current ? sk.ang : sk.ang + sk.spin * (now - sk.t0) / 1000;
+          // 飛んでいる姿勢。通り道の上をどこまで進めるかと、絵ごと画面の中で何回まわすかを飛び方から決める。
+          // 進み具合は飛行の進み u で測るので、飛ぶ時間が長くても短くても同じだけ回りきる。
+          // 動きを減らす設定では、飛び方に関わらず出発時の向きのまま飛ばす
+          const style = FLIGHT_STYLES[sk.flight] ?? FLIGHT_STYLES[0];
+          if (reduceMotionRef.current) {
+            suckDraw.ang = sk.ang;
+            suckDraw.roll = sk.roll;
+          } else {
+            suckDraw.ang = sk.ang + u * style.laps * Math.PI * 2;
+            suckDraw.roll = sk.roll + style.turns * Math.PI * 2 * (style.quad ? u * u : u)
+              + (style.wobble ? style.wobble * Math.sin(u * Math.PI * 2 * FLIGHT_WOBBLE_CYCLES) : 0);
+          }
           // 席へ向かう分は板の大きさまで縮む。drawGemLive は size の (2 / 0.95) 倍の幅で描くので、
-          // 貼られる板（幅＝tile）と同じ見え方になる大きさに合わせる＝着いた瞬間に大きさが跳ばない
+          // 貼られる板（幅＝tile）と同じ見え方になる大きさに合わせる＝着いた瞬間に大きさが跳ばない。
+          // 元の大きさにはカメラの寄りを掛ける。球と刺さった石は寄りで大きくなるので、
+          // 飛んでいる💎だけ素のままだと、曲の終わりに球だけが近くにあるように見えてしまう（Hop決定 2026-09-11）。
+          // 寄りは毎コマ変わりうるので、出発時の大きさには混ぜず描く時に掛ける
+          const base = sk.size * ball.zoom;
           suckDraw.size = sk.toSeat
-            ? sk.size + (tileV * 0.95 / 2 - sk.size) * k
-            : sk.size * (1 - shrink * SUCK_SHRINK);
+            ? base + (tileV * 0.95 / 2 - base) * k
+            : base * (1 - shrink * SUCK_SHRINK);
           suckDraw.path = sk.path;
-          suckDraw.roll = sk.roll;
           suckDraw.rgb = sk.rgb;
           // 席にはめ込まれる直前だけ、その席に収まった時と同じ向きの絵に差し替える（回して見せる演出はしない）。
           // その色の立体がまだ焼けていなければ、収まる先も代役の板なので板の絵にする。
