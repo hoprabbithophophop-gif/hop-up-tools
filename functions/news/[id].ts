@@ -13,6 +13,10 @@
  *
  * 絵はまだ用意していないので、文字だけのカードになる。
  * 途中で何かあっても、カードが出ないだけで記事は普通に開ける作りにしてある。
+ *
+ * ※ この仕組みは /news/ の下に来た要求を全部受け取る。記事に貼っている
+ *    /news/*.png のような画像もここへ来るので、ファイルへの要求は素通しする。
+ *    素通ししないと画像の代わりにページのHTMLが返り、絵が壊れる（2026-09-11 に一度やった）。
  */
 
 import { buildMetaTags } from '../_shared/ogp';
@@ -36,14 +40,16 @@ export async function onRequest(context: {
   const { request, env, params } = context;
   const url = new URL(request.url);
 
+  const id = Array.isArray(params.id) ? params.id[0] : params.id;
+
+  // 拡張子が付いていれば画像などのファイル。本来のファイルをそのまま返す
+  if (!id || id.includes('.')) return env.ASSETS.fetch(request);
+
   const indexRes = await env.ASSETS.fetch(
     new Request(new URL('/index.html', url.origin).toString())
   );
 
   try {
-    const id = Array.isArray(params.id) ? params.id[0] : params.id;
-    if (!id) return indexRes;
-
     const res = await env.ASSETS.fetch(
       new Request(new URL('/news.json', url.origin).toString())
     );
