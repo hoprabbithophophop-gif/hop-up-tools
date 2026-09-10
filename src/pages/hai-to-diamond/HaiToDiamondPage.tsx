@@ -407,9 +407,10 @@ export default function HaiToDiamondPage() {
     setPausedBoth(false);
     startedRef.current = false;
     setStarted(false);
-    // 動画を頭へ戻して止める＝入口でもう一度、動画の再生ボタンを押せる状態にする
-    playerRef.current?.seekTo(0);
-    playerRef.current?.pause();
+    // 動画はサムネイルと再生ボタンの状態に戻す＝ページを開いた直後と同じ見え方。
+    // 頭へ巻き戻して一時停止する形だと、端末の「再生中」の札が残り、1コマ目が止まったまま見える。
+    // 公式の手引きでも、一時停止は「続きを見る時」、見終わった後は別の止め方に分けている（Hop決定 2026-09-11）
+    playerRef.current?.cueVideo(VIDEO_ID);
     loadReplay();   // 入口の累計を読み直す（自分の分は下限で守られる）
   }, [loadReplay]);
 
