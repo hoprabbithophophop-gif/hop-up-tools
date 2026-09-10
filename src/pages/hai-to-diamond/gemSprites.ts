@@ -14,14 +14,22 @@
 //   3. 焼いている途中の中途半端な絵は絶対に外へ出さない（貼る時に穴が開くのを防ぐ）
 //   4. 焼くのに失敗した色は、その色だけ諦めて代わりの絵を使い続ける。焼き直しはしない
 //
-// 石の向きは48段階。落ちている💎も積もった💎も同じ絵を使う。
+// 石の向きは「傾き3段 × 1回転32段階」の96通り。落ちている💎も積もった💎も同じ絵を使う。
 // 本物は立体なので「絵ごと回す」ことができず、どちらも
 // 「石を回した絵を、回さずに貼る」形に揃えてある。
 import { hexToRgb, paintFacets } from "./gemFacets";
 import { startBake, prepareGemRenderer, type BakeJob } from "./gemRenderer";
 
-/** 石の向きの段階数。落ちている💎が回るので、粗いと回転がカクつく */
-export const STONE_STEPS = 48;
+/** 石を1回転させる時の段階数。落ちている💎が回るので、粗いと回転がカクつく */
+export const SPIN_STEPS = 32;
+/** 石の傾きの段（度）。石の軸をカメラ側へ何度倒すかを何通りか焼いておき、
+ *  💎ごとにどれか1つを持たせる。1通りだけだとどの💎も同じ横顔で飛ぶ（Hop指摘 2026-09-10）。
+ *  浅い＝ほぼ真横から見た三角、深い＝上の平らな面（テーブル）がこちらを向く【仮】 */
+export const TILTS_DEG = [12, 34, 62];
+/** 傾きの段の数。💎ごとにこの中から1つ選ぶ */
+export const TILT_ROWS = TILTS_DEG.length;
+/** 焼く絵の総数。傾きの段ごとに1回転ぶん持つ */
+export const STONE_STEPS = SPIN_STEPS * TILT_ROWS;
 /** 絵の1辺(px)。実際に貼る大きさ（世界座標で最大 size 36 × 2 ≒ 72px）を余裕込みで包む */
 export const STONE_PX = 96;
 /** 代わりの絵で使う固定の光の向き（左上から）。今までの💎と同じ値 */
@@ -55,13 +63,14 @@ function hexOf(rgb: [number, number, number]): string {
 /** 今までの描き方の絵。石を回した絵を向きごとに持つ（貼る時は回さない） */
 function buildFallback(rgb: [number, number, number]): HTMLCanvasElement[] {
   const arr: HTMLCanvasElement[] = [];
+  // 代わりの絵は平らな絵なので傾きを表せない。段の数だけ同じ並びを繰り返して枚数だけ合わせる
   for (let i = 0; i < STONE_STEPS; i++) {
     const c = document.createElement("canvas");
     c.width = STONE_PX;
     c.height = STONE_PX;
     const cx = c.getContext("2d");
     if (cx) {
-      const ang = (i / STONE_STEPS) * Math.PI * 2;
+      const ang = ((i % SPIN_STEPS) / SPIN_STEPS) * Math.PI * 2;
       cx.translate(STONE_PX / 2, STONE_PX / 2);
       cx.rotate(ang);
       cx.scale((STONE_PX / 2) * 0.95, (STONE_PX / 2) * 0.95);
@@ -89,7 +98,7 @@ function pump() {
       schedule();
       return;
     }
-    job = startBake(hexOf(rgb), STONE_STEPS, STONE_PX);
+    job = startBake(hexOf(rgb), SPIN_STEPS, STONE_PX, TILTS_DEG);
     jobKey = key;
     if (!job) {
       // 端末がこの描き方に対応していない。以後どの色も焼かず、代わりの絵で通す
@@ -163,7 +172,10 @@ export function getStoneSprites(rgb: [number, number, number]): HTMLCanvasElemen
   return fb;
 }
 
-/** 積もった山も降っている💎も、この段階数で向きを丸めて絵を選ぶ */
-export function stoneIndex(ang: number): number {
-  return ((Math.round((ang / (Math.PI * 2)) * STONE_STEPS) % STONE_STEPS) + STONE_STEPS) % STONE_STEPS;
+/** 積もった山も降っている💎も、この段階数で向きを丸めて絵を選ぶ。
+ *  row は💎ごとに持っている傾きの段。段ごとに SPIN_STEPS 枚ずつ並んでいる */
+export function stoneIndex(ang: number, row = 0): number {
+  const spin = ((Math.round((ang / (Math.PI * 2)) * SPIN_STEPS) % SPIN_STEPS) + SPIN_STEPS) % SPIN_STEPS;
+  const r = ((row % TILT_ROWS) + TILT_ROWS) % TILT_ROWS;
+  return r * SPIN_STEPS + spin;
 }

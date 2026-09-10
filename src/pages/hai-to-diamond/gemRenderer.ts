@@ -419,12 +419,13 @@ function rotatePoint(p: Vec3, tilt: number, spin: number): Vec3 {
 
 type Fit = { cx: number; cy: number; half: number };
 
-function screenBounds(verts: Vec3[], steps: number, tilt: number): Fit {
+function screenBounds(verts: Vec3[], steps: number, tilts: number[]): Fit {
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
   let maxY = -Infinity;
-  for (let i = 0; i < steps; i++) {
+  // 傾きが何通りあっても絵の中の大きさが揃うよう、全部の姿勢を含む一番大きい枠で決める
+  for (const tilt of tilts) for (let i = 0; i < steps; i++) {
     const spin = (i / steps) * Math.PI * 2;
     for (let v = 0; v < verts.length; v++) {
       const q = rotatePoint(verts[v], tilt, spin);
@@ -1000,7 +1001,7 @@ function buildGear(): Gear | null {
 function warmUp(g: Gear) {
   const gl = g.gl;
   const tilt = (TILT_DEG * Math.PI) / 180;
-  const fit = screenBounds(g.verts, 8, tilt);
+  const fit = screenBounds(g.verts, 8, [tilt]);
   g.canvas.width = 8;
   g.canvas.height = 8;
   g.size = 8;
@@ -1134,19 +1135,23 @@ class Baker implements BakeJob {
   ms = 0;
   private hex: string;
   private px: number;
-  private tilt: number;
+  /** 傾きの段（rad）。1段ごとに spins 枚ずつ、石を1回転させた絵を焼く */
+  private tilts: number[];
+  private spins: number;
   private fit: Fit;
 
-  constructor(hex: string, steps: number, px: number, g: Gear) {
+  constructor(hex: string, spins: number, px: number, tiltsDeg: number[], g: Gear) {
     this.hex = hex;
-    this.steps = steps;
+    this.spins = spins;
+    this.tilts = tiltsDeg.map((d) => (d * Math.PI) / 180);
+    this.steps = spins * this.tilts.length;
     this.px = px;
-    this.tilt = (TILT_DEG * Math.PI) / 180;
-    // 枠決め: 一番幅が広くなる姿勢でもはみ出さないようにする
-    const key = steps + "@" + TILT_DEG;
+    // 枠決め: 傾きも回転も含めた中で一番幅が広くなる姿勢でもはみ出さないようにする。
+    // 全部の絵を同じ枠で焼くので、傾きが変わっても石の見かけの大きさが揃う
+    const key = spins + "@" + tiltsDeg.join("_");
     let fit = g.fitCache[key];
     if (!fit) {
-      fit = screenBounds(g.verts, steps, this.tilt);
+      fit = screenBounds(g.verts, spins, this.tilts);
       g.fitCache[key] = fit;
     }
     this.fit = fit;
@@ -1184,8 +1189,9 @@ class Baker implements BakeJob {
     let first = true;
     while (this.done < this.steps) {
       const i = this.done;
-      const spin = (i / this.steps) * Math.PI * 2;
-      setPose(g, spin, this.tilt, this.fit.cx, this.fit.cy);
+      const row = Math.floor(i / this.spins);          // 何段目の傾きか
+      const spin = ((i % this.spins) / this.spins) * Math.PI * 2;
+      setPose(g, spin, this.tilts[row], this.fit.cx, this.fit.cy);
       gl.uniformMatrix4fv(g.loc.modelViewMatrix, false, g.mv);
       gl.uniformMatrix3fv(g.loc.uO2W, false, g.o2w);
       gl.uniform3f(g.loc.uViewObj, g.viewObj[0], g.viewObj[1], g.viewObj[2]);
@@ -1250,11 +1256,11 @@ export function isGemRendererAvailable(): boolean {
 }
 
 /** 1色ぶんの焼き込みを始める。使えない端末では null を返す（例外は投げない） */
-export function startBake(hex: string, steps: number, px: number): BakeJob | null {
+export function startBake(hex: string, spins: number, px: number, tiltsDeg: number[]): BakeJob | null {
   const g = buildGear();
   if (!g) return null;
   try {
-    return new Baker(hex, steps, px, g);
+    return new Baker(hex, spins, px, tiltsDeg, g);
   } catch (e) {
     console.warn("[灰toダイヤモンド] 焼き込みを始められなかった:", e);
     return null;
