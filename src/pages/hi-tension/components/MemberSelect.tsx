@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { UNIT_ROWS, NEW_MEMBERS, findMember, PRACTICE_VIDEOS, ARENA_BG } from "../data";
 import HandIcon from "./HandIcon";
+import NewsNoticeLink from "@/components/NewsNoticeLink";
 import FaIcon from "./FaIcon";
 import { faHandPointer } from "@fortawesome/free-solid-svg-icons";
 import type { SpecialEvent } from "../events";
@@ -182,6 +183,7 @@ export default function MemberSelect({
       >
         ✋ Practice ver.
       </p>
+      <NewsNoticeLink align="center" />
       {/* 副題の行は通常/スペシャルで常に確保（高さ固定）＝切替時に背景✋が上下しない。 */}
       <p
         style={{
