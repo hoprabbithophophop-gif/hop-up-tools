@@ -101,7 +101,9 @@ export default function TopPage() {
         <p style={{ fontSize: "0.625rem", color: "#c6c6c6", margin: "0 0 1rem" }}>
           非公式ファンツール。株式会社アップフロントワークスとは無関係です。
         </p>
-        <div style={{ display: "flex", gap: "1.5rem" }}>
+        {/* 「お知らせ」が増えて4つになり、390pxでは横一列に収まらなくなった。
+            間隔を詰めた上で、入らない時は折り返して次の行へ回す */}
+        <div style={{ display: "flex", flexWrap: "wrap", columnGap: "1.1rem", rowGap: "0.5rem" }}>
           <Link to="/news"        style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>お知らせ</Link>
           <Link to="/privacy"     style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>プライバシーポリシー</Link>
           <Link to="/terms"       style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>利用規約</Link>
