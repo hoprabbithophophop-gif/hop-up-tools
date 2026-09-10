@@ -15,15 +15,20 @@ const NEWS_LABEL = "お知らせ：再生回数の件について";
 type Props = {
   /** 題字が中央寄せのページでは "center" を渡す */
   align?: "left" | "center";
+  /**
+   * 題字との間。既定は "line"＝一行ぶん空けて、題字の続きとして読まれないようにする。
+   * "tight" は高さの決まった帯の中など、一行ぶんが入らない所だけ。
+   */
+  gap?: "line" | "tight";
 };
 
-export default function NewsNoticeLink({ align = "left" }: Props) {
+export default function NewsNoticeLink({ align = "left", gap = "line" }: Props) {
   return (
     <Link
       to={NEWS_PATH}
       style={{
         display: "block",
-        marginTop: "0.45rem",
+        marginTop: gap === "line" ? "1.1rem" : "0.45rem",
         textAlign: align,
         // 明るい地のページと暗い地のページが混ざるので、
         // 色を決め打ちせず親の文字色を薄めて使う
