@@ -8,7 +8,7 @@
 import { Link } from "react-router-dom";
 
 /** 今出しているお知らせの行き先 */
-const NEWS_PATH = "/news/2026-09-10-play-count";
+const NEWS_PATH = "/news/2026-09-11-play-count";
 /** 題字の下に出す文言 */
 const NEWS_LABEL = "お知らせ：再生回数の件について";
 
