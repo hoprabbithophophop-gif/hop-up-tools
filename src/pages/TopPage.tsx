@@ -45,12 +45,12 @@ export default function TopPage() {
         <h1 style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1, color: "#000", margin: 0 }}>
           HOP-UP<br />TOOLS
         </h1>
-        {/* お知らせ。下の並びの「お知らせ」は小さくて見落とされるので、
-            出したい記事がある間はここにも出す */}
-        <NewsNoticeLink />
         <p style={{ fontSize: "0.875rem", color: "#585f6c", margin: "1rem 0 0", lineHeight: 1.4 }}>
           Hello! Project ファン向けツール集
         </p>
+        {/* お知らせ。下の並びの「お知らせ」は小さくて見落とされるので、
+            出したい記事がある間はここにも出す */}
+        <NewsNoticeLink />
       </header>
 
       {/* ツールリスト */}
