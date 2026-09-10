@@ -37,11 +37,12 @@ export default function NewsArticlePage() {
         {item.body}
       </div>
 
+      {/* 本文への短い断り。項を立てず ※ を付けて小さく出す。
+          折り返した2行目以降が ※ の下にもぐらないよう、頭を1文字ぶん下げている */}
       {supplement && (
-        <>
-          <h2 style={s.h2}>{supplement.heading}</h2>
-          <p style={s.p}>{supplement.body}</p>
-        </>
+        <p style={{ ...s.note, margin: "1rem 0 0", paddingLeft: "1em", textIndent: "-1em" }}>
+          ※{supplement}
+        </p>
       )}
 
       {evidence && (

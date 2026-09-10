@@ -15,11 +15,8 @@ export type NewsItem = {
   title: string;
   /** 本文。改行はそのまま出す */
   body: string;
-  /** 任意。「補足」。本文だけだと読み違えられる所への短い断り */
-  supplement?: {
-    heading: string;
-    body: string;
-  };
+  /** 任意。本文だけだと読み違えられる所への短い断り。本文の下に ※ を付けて小さく出す */
+  supplement?: string;
   /** 任意。「根拠」。公式の文の原文・和訳・出どころへのリンク */
   evidence?: {
     heading: string;
