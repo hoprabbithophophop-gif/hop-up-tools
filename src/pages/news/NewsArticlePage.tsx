@@ -59,26 +59,18 @@ export default function NewsArticlePage() {
       {verification && (
         <>
           <h2 style={s.h2}>{verification.heading}</h2>
-          <table className="news-check">
-            <thead>
-              <tr>
-                <th>動画</th>
-                <th>始め方</th>
-                <th>押す前</th>
-                <th>押した後</th>
-              </tr>
-            </thead>
-            <tbody>
-              {verification.rows.map((r) => (
-                <tr key={r.video}>
-                  <td>{r.video}</td>
-                  <td data-label="始め方">{r.start}</td>
-                  <td data-label="押す前">{r.before}</td>
-                  <td data-label="押した後">{r.after}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <p style={s.p}>{verification.lead}</p>
+          {verification.images.map((im) => (
+            <figure key={im.src} style={{ margin: "0 0 1.25rem" }}>
+              <img
+                src={im.src}
+                alt={im.alt}
+                loading="lazy"
+                style={{ display: "block", width: "100%", height: "auto", border: "1px solid #eee" }}
+              />
+              <figcaption style={{ ...s.note, margin: "0.4rem 0 0" }}>{im.caption}</figcaption>
+            </figure>
+          ))}
           <p style={s.note}>{verification.note}</p>
         </>
       )}

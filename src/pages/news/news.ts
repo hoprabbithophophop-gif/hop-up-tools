@@ -23,11 +23,13 @@ export type NewsItem = {
     sourceLabel: string;
     sourceUrl: string;
   };
-  /** 任意。「検証」。実際に試した結果の表 */
+  /** 任意。「検証」。実際に試した結果を画面の写しで示す */
   verification?: {
     heading: string;
-    rows: { video: string; start: string; before: string; after: string }[];
-    /** 表の下に置く但し書き */
+    /** どちらがどの始め方かの1行 */
+    lead: string;
+    images: { src: string; alt: string; caption: string }[];
+    /** 写しの下に置く但し書き */
     note: string;
   };
   /** 任意。「更新履歴」 */
