@@ -2,9 +2,12 @@
  * Cloudflare Pages Function: /news/<記事のid>
  *
  * index.html の <head> に、そのお知らせ1件ぶんのカード用メタタグを差し込んで返す。
- * SNSにURLを貼った時に、サイト共通の文言ではなく記事の題名と書き出しが出るようにするもの。
+ * SNSにURLを貼った時に、サイト共通の文言ではなく記事の題名が出るようにするもの。
  *
- * 記事の中身は /news.json から読む。これは src/data/news.json の写しで、
+ * 出るのは題名だけにしてある。本文の書き出しを添えると、
+ * 謝罪の一言目だけが切り出されて軽く見えるため（Hop指摘 2026-09-11）。
+ *
+ * 記事の題名は /news.json から読む。これは src/data/news.json の写しで、
  * ビルドの時に作られる（package.json の build を参照）。
  * こうしておくと、お知らせを足す時に直す場所は src/data/news.json だけで済む。
  *
@@ -21,11 +24,9 @@ interface Env {
 interface NewsItem {
   id: string;
   title: string;
-  body: string;
 }
 
-/** 説明文の長さの上限。Xのカードはこのくらいで切られる */
-const DESC_MAX = 100;
+const SITE = 'hop-up-tools';
 
 export async function onRequest(context: {
   request: Request;
@@ -52,15 +53,10 @@ export async function onRequest(context: {
     const item = all.find((n) => n.id === id);
     if (!item) return indexRes;
 
-    // 本文の1行目を説明に使う
-    const firstLine = item.body.split('\n')[0].trim();
-    const description =
-      firstLine.length > DESC_MAX ? `${firstLine.slice(0, DESC_MAX)}…` : firstLine;
-
     const metaHtml = buildMetaTags({
       canonicalUrl: `${url.origin}/news/${id}`,
-      title: `${item.title} | お知らせ | hop-up-tools`,
-      description,
+      title: `お知らせ | ${item.title}`,
+      description: SITE,
     });
 
     // @ts-ignore
