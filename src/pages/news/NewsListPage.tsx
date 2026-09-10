@@ -2,7 +2,7 @@
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { NEWS, formatDate } from "./news";
-import { s, typeStyle, TABLE_CSS } from "./style";
+import { s, LIST_CSS } from "./style";
 
 export default function NewsListPage() {
   useEffect(() => {
@@ -11,7 +11,7 @@ export default function NewsListPage() {
 
   return (
     <div style={s.wrap}>
-      <style>{TABLE_CSS}</style>
+      <style>{LIST_CSS}</style>
       <Link to="/" style={s.back}>← トップへ戻る</Link>
       <h1 style={s.header}>お知らせ</h1>
 
@@ -21,10 +21,7 @@ export default function NewsListPage() {
         <div style={{ marginTop: "1.5rem" }}>
           {NEWS.map((n) => (
             <Link key={n.id} to={`/news/${n.id}`} className="news-row">
-              <span style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                <span style={s.meta}>{formatDate(n.date)}</span>
-                <span style={typeStyle(n.type)}>{n.type}</span>
-              </span>
+              <span style={s.meta}>{formatDate(n.date)}</span>
               <p className="news-title">{n.title}</p>
             </Link>
           ))}

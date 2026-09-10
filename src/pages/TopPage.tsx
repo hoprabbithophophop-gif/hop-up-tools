@@ -91,6 +91,7 @@ export default function TopPage() {
           非公式ファンツール。株式会社アップフロントワークスとは無関係です。
         </p>
         <div style={{ display: "flex", gap: "1.5rem" }}>
+          <Link to="/news"        style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>お知らせ</Link>
           <Link to="/privacy"     style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>プライバシーポリシー</Link>
           <Link to="/terms"       style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>利用規約</Link>
           <button onClick={() => setContactOpen(true)}
