@@ -341,19 +341,34 @@ function getGlow(rgb: [number, number, number]): { halo: HTMLCanvasElement; edge
   glowCache.set(key, g);
   return g;
 }
-// ミラーボールの板の絵: 上から見たブリリアントカットの💎＝中央の平らな八角形の面と、それを囲む8枚の斜めの面。
+// ミラーボールの板の絵: 上から見たブリリアントカットの💎（王冠側）。
 // ミラーボールの板は正面（外）を向いているので、横から見た💎を潰して貼るのではなくこの形にする（Hop決定 2026-09-08）。
-// 向きは貼る時の変形で決まるので、回していない絵を色ごとに持つ。面ごとの明るさは今までと同じで、
-// その面の向き（法線）と光の向きの内積から決める。
-// 白い瞬きは別の光を上から重ねるのではなく、「中央の面が白く光った絵」に差し替えて出す
-// ＝板1枚につき貼るのは1回のままで、瞬きのために描く回数が増えない
-const PLATE_PX = 48;             // 絵の1辺。実際に貼る大きさ（カメラが寄る前で12px前後・寄り切って30px前後 ×画面の細かさ）に近い【仮】
+//
+// 外形は八角形ではなく円。石の腰（ガードル）は本物も真上から見ると円で、
+// 八角形で切ると留め具のように見えて気持ち悪い（Hop指摘 2026-09-10）。
+// 中の面の並びは本物と同じ4種類。
+//   テーブル   … 中央の平らな八角形。1枚
+//   スター     … テーブルの各辺を底辺にした外向きの三角。8枚
+//   ベゼル     … テーブルの角から腰へ伸びる凧形。8枚
+//   上ガードル … 腰に沿った細い三角。16枚
+// 向きは貼る時の変形で決まるので、回していない絵を色ごとに持つ。面ごとの明るさは
+// その面の向き（法線）と光の向きの内積から決める。外へ倒れている面ほど光の差が大きい。
+//
+// 白い瞬きは別の光を上から重ねるのではなく、「白く光った絵」に差し替えて出す
+// ＝板1枚につき貼るのは1回のままで、瞬きのために描く回数が増えない。
+// 光らせるのは中央だけではなく面ぜんたい。中央だけ白くすると白目が反転したように見える（Hop指摘 2026-09-08）
+const PLATE_PX = 64;             // 絵の1辺。面が増えたので前より細かくした【仮】
 const PLATE_FLASH = 5;           // 瞬きの段階の数（0番＝光っていない絵）
-const PLATE_R = 0.96;            // 八角形の外形の大きさ（絵の枠の何倍か）。枠より少し内側で切って、
+const PLATE_R = 0.96;            // 腰（外形の円）の大きさ（絵の枠の何倍か）。枠より少し内側で切って、
                                  // 隣の板との間に細い隙間が見えるようにする（Hop決定 2026-09-08）【仮】
-const PLATE_TABLE = 0.45;        // 中央の平らな面の大きさ（外形の何倍か）【仮】
-const PLATE_SLOPE = 0.75;        // 周りの8枚の面の傾き。大きいほど寝ていて、光の当たり方の差がはっきりする【仮】
-const PLATE_FLASH_SIDE = 0.45;   // 中央の面が白く光る時、周りの8枚をどれだけ白に寄せるか【仮】
+const PLATE_TABLE = 0.50;        // テーブル（中央の八角形）の大きさ（外形の何倍か）【仮】
+const PLATE_STAR = 0.76;         // スターの先端が届く高さ（外形の何倍か）【仮】
+// 面の倒れ具合。大きいほど寝ていて、光の当たり方の差がはっきりする【仮】
+const PLATE_SLOPE_STAR = 0.30;
+const PLATE_SLOPE_BEZEL = 0.72;
+const PLATE_SLOPE_UG = 1.05;
+/** 一番光った時に、どこまで白へ寄せるか。1.0 にすると真っ白な丸になって面が見えなくなる【仮】 */
+const PLATE_FLASH_MAX = 0.86;
 const plateCache = new Map<string, HTMLCanvasElement[]>();
 function getPlateSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
   const key = rgb.join(",");
@@ -362,55 +377,82 @@ function getPlateSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
   const L: [number, number, number] = [Math.cos(SPRITE_LIGHT), Math.sin(SPRITE_LIGHT), 0.8];
   const ll = Math.hypot(L[0], L[1], L[2]);
   L[0] /= ll; L[1] /= ll; L[2] /= ll;
-  const vx = (i: number, rad: number) => Math.cos((i / 8) * Math.PI * 2) * rad;
-  const vy = (i: number, rad: number) => Math.sin((i / 8) * Math.PI * 2) * rad;
+  /** 角度 a・半径 r の点 */
+  const pt = (a: number, r: number): [number, number] => [Math.cos(a) * r, Math.sin(a) * r];
   /** 面の明るさ k と白の混ぜ具合 w から、塗る色を作る */
   const mix = (k: number, w: number) => {
     const r = rgb[0] * k, g = rgb[1] * k, b = rgb[2] * k;
     return "rgb(" + ((r + (255 - r) * w) | 0) + "," + ((g + (255 - g) * w) | 0) + "," + ((b + (255 - b) * w) | 0) + ")";
   };
+  /** その面の明るさ。mid=面が外へ倒れている向き（角度）、slope=倒れ具合。0 なら真正面 */
+  const lit = (mid: number, slope: number) => {
+    const nx = Math.cos(mid) * slope, ny = Math.sin(mid) * slope;
+    const nl = Math.hypot(nx, ny, 1);
+    const d = Math.max(0, (nx * L[0] + ny * L[1] + L[2]) / nl);
+    return 0.42 + 0.58 * d * d;
+  };
+  const T = Math.PI * 2;
+  const RT = PLATE_R * PLATE_TABLE;    // テーブルの角までの長さ
+  const RS = PLATE_R * PLATE_STAR;     // スターの先端までの長さ
   arr = [];
   for (let s = 0; s < PLATE_FLASH; s++) {
-    const fl = s / (PLATE_FLASH - 1);   // 白く光っている度合い（0〜1）
+    // 白く光っている度合い。真っ白まで振り切ると面の割り付けが消えてただの白丸になるので、手前で止める【仮】
+    const fl = (s / (PLATE_FLASH - 1)) * PLATE_FLASH_MAX;
     const c = document.createElement("canvas");
     c.width = PLATE_PX; c.height = PLATE_PX;
     const cx = c.getContext("2d");
     if (cx) {
       cx.translate(PLATE_PX / 2, PLATE_PX / 2);
       cx.scale(PLATE_PX / 2, PLATE_PX / 2);
-      // 周りの8枚（外へ向かって傾いている面）。中央の面より先に塗る
-      for (let i = 0; i < 8; i++) {
-        const mid = ((i + 0.5) / 8) * Math.PI * 2;
-        const nx = Math.cos(mid) * PLATE_SLOPE, ny = Math.sin(mid) * PLATE_SLOPE;
-        const nl = Math.hypot(nx, ny, 1);
-        const d = Math.max(0, (nx * L[0] + ny * L[1] + L[2]) / nl);
-        cx.fillStyle = mix(0.5 + 0.5 * d * d, fl * PLATE_FLASH_SIDE);
+      const poly = (ps: [number, number][], style: string) => {
+        cx.fillStyle = style;
         cx.beginPath();
-        cx.moveTo(vx(i, PLATE_R * PLATE_TABLE), vy(i, PLATE_R * PLATE_TABLE));
-        cx.lineTo(vx(i + 1, PLATE_R * PLATE_TABLE), vy(i + 1, PLATE_R * PLATE_TABLE));
-        cx.lineTo(vx(i + 1, PLATE_R), vy(i + 1, PLATE_R));
-        cx.lineTo(vx(i, PLATE_R), vy(i, PLATE_R));
+        ps.forEach((q, i) => (i === 0 ? cx.moveTo(q[0], q[1]) : cx.lineTo(q[0], q[1])));
         cx.closePath();
         cx.fill();
-      }
-      // 中央の平らな面（まっすぐ正面を向いている）。ここが白くなるのが「光を返した瞬間」
-      cx.fillStyle = mix(0.5 + 0.5 * L[2] * L[2], fl);
+      };
+      // 下地。面と面の継ぎ目に地の色が透けないよう、先に円をひと塗りしておく
+      cx.fillStyle = mix(lit(0, PLATE_SLOPE_BEZEL), fl);
       cx.beginPath();
-      for (let i = 0; i < 8; i++) {
-        const x = vx(i, PLATE_R * PLATE_TABLE), y = vy(i, PLATE_R * PLATE_TABLE);
-        if (i === 0) cx.moveTo(x, y); else cx.lineTo(x, y);
-      }
-      cx.closePath();
+      cx.arc(0, 0, PLATE_R, 0, T);
       cx.fill();
-      // 外形の細い光。八角形の輪郭が分かるように
-      cx.lineWidth = 0.05;
-      cx.strokeStyle = "rgba(255,255,255," + (0.35 + 0.5 * fl).toFixed(2) + ")";
+
+      for (let i = 0; i < 8; i++) {
+        const aT = (i / 8) * T;              // テーブルの角の向き（＝ベゼルの真ん中）
+        const aS = ((i + 0.5) / 8) * T;      // スターの先端の向き（＝上ガードル2枚の境）
+        const aSm = ((i - 0.5) / 8) * T;
+        // 上ガードル（腰沿いの細い三角）。いちばん外側なので先に塗る
+        const gA = pt(aT, PLATE_R), gB = pt(((i + 1) / 8) * T, PLATE_R), gM = pt(aS, PLATE_R);
+        const sTip = pt(aS, RS);
+        poly([sTip, gA, gM], mix(lit((aT + aS) / 2, PLATE_SLOPE_UG), fl));
+        poly([sTip, gM, gB], mix(lit((aS + ((i + 1) / 8) * T) / 2, PLATE_SLOPE_UG), fl));
+        // ベゼル（テーブルの角から腰へ伸びる凧形）
+        poly([pt(aT, RT), pt(aS, RS), pt(aT, PLATE_R), pt(aSm, RS)], mix(lit(aT, PLATE_SLOPE_BEZEL), fl));
+        // スター（テーブルの辺を底辺にした外向きの三角）
+        poly([pt(aT, RT), pt(((i + 1) / 8) * T, RT), sTip], mix(lit(aS, PLATE_SLOPE_STAR), fl));
+      }
+      // テーブル（中央の平らな八角形。まっすぐ正面を向いている）
+      poly(Array.from({ length: 8 }, (_, i) => pt((i / 8) * T, RT)), mix(lit(0, 0), fl));
+
+      // 面の境目の細い線。小さく貼っても💎の割り付けが分かるように
+      cx.lineWidth = 0.035;
+      cx.strokeStyle = fl < 0.4
+        ? "rgba(255,255,255," + (0.16 + 0.34 * fl).toFixed(2) + ")"
+        : "rgba(0,0,0," + (0.10 + 0.16 * fl).toFixed(2) + ")";   // 白に寄った絵では、白い線は消えるので影の線にする
       cx.beginPath();
       for (let i = 0; i < 8; i++) {
-        const x = vx(i, PLATE_R), y = vy(i, PLATE_R);
-        if (i === 0) cx.moveTo(x, y); else cx.lineTo(x, y);
+        const aT = (i / 8) * T, aS = ((i + 0.5) / 8) * T;
+        cx.moveTo(...pt(aT, RT)); cx.lineTo(...pt(aT, PLATE_R));   // ベゼルの背
+        cx.moveTo(...pt(aS, RS)); cx.lineTo(...pt(aS, PLATE_R));   // 上ガードルの境
+        cx.moveTo(...pt(aT, RT)); cx.lineTo(...pt(aS, RS));        // スターの辺
+        cx.moveTo(...pt(((i + 1) / 8) * T, RT)); cx.lineTo(...pt(aS, RS));
       }
-      cx.closePath();
+      cx.stroke();
+      // 外形（腰）の細い光。円であることが分かるように
+      cx.lineWidth = 0.05;
+      cx.strokeStyle = "rgba(255,255,255," + (0.32 + 0.5 * fl).toFixed(2) + ")";
+      cx.beginPath();
+      cx.arc(0, 0, PLATE_R, 0, T);
       cx.stroke();
     }
     arr.push(c);
