@@ -13,16 +13,16 @@
     },
     "verification": {
       "heading": "検証",
-      "lead": "A＝外側のボタンから呼んで再生（Turn Your Chords into Colors）／B＝動画自身の再生ボタンで再生（Kaleidora - Visualize Music with Your Own Colors）",
+      "lead": "A＝外側のボタンから呼んで再生。B＝動画自身の再生ボタンで再生。",
       "images": [
         {
           "src": "/news/play-count-before.png",
-          "alt": "押す前の視聴回数。Kaleidora - Visualize Music with Your Own Colors が5、Turn Your Chords into Colors が3",
+          "alt": "押す前の視聴回数。Bが5回、Aが3回。",
           "caption": "押す前。上がB＝5回、下がA＝3回。"
         },
         {
           "src": "/news/play-count-after.png",
-          "alt": "押した後の視聴回数。Kaleidora - Visualize Music with Your Own Colors が6回視聴、Turn Your Chords into Colors が3回視聴",
+          "alt": "押した後の視聴回数。Bが6回、Aが3回。",
           "caption": "押した後。上がB＝6回、下がA＝3回。"
         }
       ],
