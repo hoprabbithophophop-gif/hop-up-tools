@@ -161,18 +161,34 @@ function pump() {
 }
 
 /** その色の本物を焼くよう頼んでおく（すぐには焼かない）。
- *  「はじめる」を押す前や、押した直後の再生が始まったあとに呼ぶ想定 */
-export function requestStoneSprites(rgb: [number, number, number]) {
+ *  「はじめる」を押す前や、押した直後の再生が始まったあとに呼ぶ想定。
+ *  front=true にすると順番待ちの先頭へ割り込む。自分が選んでいる色は真っ先に降るので割り込ませる。
+ *  すでに焼いている途中の色は止めない（中途半端な絵を外へ出さないため） */
+export function requestStoneSprites(rgb: [number, number, number], front = false) {
   const key = keyOf(rgb);
-  if (realCache.has(key) || givenUp.has(key) || waiting.has(key)) return;
+  if (realCache.has(key) || givenUp.has(key)) return;
+  if (waiting.has(key)) {
+    if (!front) return;
+    const at = queue.findIndex((r) => keyOf(r) === key);
+    if (at > 0) queue.unshift(queue.splice(at, 1)[0]);
+    return;
+  }
   waiting.add(key);
-  queue.push(rgb);
+  if (front) queue.unshift(rgb); else queue.push(rgb);
   schedule();
 }
 
 /** 色（hex）を指定して焼くよう頼む */
-export function requestStoneSpritesByHex(hex: string) {
-  requestStoneSprites(hexToRgb(hex));
+export function requestStoneSpritesByHex(hex: string, front = false) {
+  requestStoneSprites(hexToRgb(hex), front);
+}
+
+/** 出てくる色ぜんぶを、入口を開いた時点で焼き始める。
+ *  1色あたりの実時間が長い（手元のパソコンで約15秒）ので、「はじめる」を押してから頼んでいると
+ *  曲が終わるまでに焼き終わらない色が出る。入口は止まっている画面なので、ここで焼いても引っかからない。
+ *  順番は渡された並びのまま。自分が選んでいる色は setOwnColor から割り込ませる */
+export function requestAllStoneSprites(hexes: readonly string[]) {
+  for (const hex of hexes) requestStoneSprites(hexToRgb(hex));
 }
 
 /** 描く道具の支度だけ先に済ませる。形の組み立て・環境の描画・計算式の組み上げがここで終わる。

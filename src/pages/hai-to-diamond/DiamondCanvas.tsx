@@ -23,7 +23,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 // まだ焼けていない色と、WebGL が使えない端末では、今までの平らな面の絵（gemFacets.ts）が返る。
 // gemFacets.ts に面の形のデータを1本化した。ミラーボールの板（getPlateSprites）と入口の大きな💎は今までのまま
 import { hexToRgb } from "./gemFacets";
-import { getStoneSprites, requestStoneSpritesByHex, stoneIndex, warmUpGemRenderer, SPRITE_LIGHT, TUMBLE_PATHS } from "./gemSprites";
+import { getStoneSprites, requestStoneSpritesByHex, stoneIndex, warmUpGemRenderer, SPRITE_LIGHT, TUMBLE_PATHS, requestAllStoneSprites } from "./gemSprites";
+import { DIAMOND_COLOR_ORDER, findDiamondMember } from "./members";
 // ミラーボールの席を色ごとにまとめるための、目に見える色の近さの物差しと、色ごとの居場所
 import { colorDistance, colorHome, type ColorHome, type Rgb } from "./ballColors";
 
@@ -874,7 +875,14 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   useEffect(() => { reduceMotionRef.current = reduceMotion; }, [reduceMotion]);
   // 宝石を描く道具の支度（形の組み立て・環境の描画・計算式の組み上げ）を、画面を開いた直後に済ませておく。
   // 「はじめる」を押した瞬間は動画の再生を最優先にしたいので、そこに重い処理を残さない
-  useEffect(() => { warmUpGemRenderer(); }, []);
+  useEffect(() => {
+    warmUpGemRenderer();
+    // 出てくる色ぜんぶを、この時点で焼き始める。1色あたりの実時間が長いので、
+    // 「はじめる」を押してから頼んでいると曲の途中まで代わりの平らな絵のままになる（2026-09-10 実測）
+    requestAllStoneSprites(
+      DIAMOND_COLOR_ORDER.map((id) => findDiamondMember(id)?.color).filter((c): c is string => !!c)
+    );
+  }, []);
   const gemsRef = useRef<Gem[]>([]);
   const timeRef = useRef({ t: 0, d: 284 });
   /** 山の頂上の世界座標（低いほど高い山）。自分の💎を山より上に出すために使う */
@@ -1089,7 +1097,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       ownKeyRef.current = hexToRgb(hex).join(",");
       // 自分の色は真っ先に降るので、焼くよう頼んでおく。頼むだけで、焼くのはこの呼び出しが終わったあと。
       // 「はじめる」の中から呼ばれても、動画の再生を止めない（重い処理をこの場で走らせない）
-      requestStoneSpritesByHex(hex);
+      requestStoneSpritesByHex(hex, true);
     },
     getPeakTime(hex?: string) {
       const key = hex ? hexToRgb(hex).join(",") : ownKeyRef.current;
