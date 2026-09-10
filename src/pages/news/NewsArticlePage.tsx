@@ -22,7 +22,7 @@ export default function NewsArticlePage() {
     );
   }
 
-  const { evidence, verification, changelog } = item;
+  const { supplement, evidence, verification, changelog } = item;
 
   return (
     <div style={{ background: "#f8f9fa", minHeight: "100vh" }}><div style={s.wrap}>
@@ -36,6 +36,13 @@ export default function NewsArticlePage() {
       <div style={{ whiteSpace: "pre-wrap", margin: "1.5rem 0 0", overflowWrap: "anywhere" }}>
         {item.body}
       </div>
+
+      {supplement && (
+        <>
+          <h2 style={s.h2}>{supplement.heading}</h2>
+          <p style={s.p}>{supplement.body}</p>
+        </>
+      )}
 
       {evidence && (
         <>
