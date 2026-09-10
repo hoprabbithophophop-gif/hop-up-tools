@@ -9,7 +9,7 @@
 //   mirrorball  … 曲の歌詞のミラーボール。💎は積もらず動画の中心へ吸い込まれ、動画の裏で球の表面に貼られた鏡の板になる。
 //                  本物のミラーボールと同じで、球の大きさも席の数も変わらない。曲が進むにつれてカメラが寄っていき、
 //                  はじめは動画の裏にすっぽり隠れている球が、途中から上下に覗き、終わりには画面からはみ出して回る。
-//                  席が全部埋まった後に押された分は、いちばん古い板から順に貼り替わる。
+//                  席が全部埋まった後に押された分は、同じ色の板のうちいちばん古いものに貼り替わる。
 //                  壁（動画と額縁の外の画面全体）に映る色の粒は、球の向こう側＝奥の面が返した光なので、
 //                  こちらを向いている手前の板とは逆向きに流れる。
 //                  曲の最後は、その粒がその場で星になり、球の板も夜空へ散って星空になる。
@@ -19,6 +19,13 @@
 // カメラの軸は「床（画面の下端）」。引くほど山は画面の下に縮んで留まり、動画（固定）の下に収まる。
 // 動画の中心を軸にすると、引くほど山の頂上が動画の中心に寄ってしまい、山を動画の下に留められない。
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+// 💎の絵はここから受け取る。落ちてくる💎と積もった💎は、屈折・全反射・分散まで計算した本物（gemRenderer.ts）。
+// まだ焼けていない色と、WebGL が使えない端末では、今までの平らな面の絵（gemFacets.ts）が返る。
+// gemFacets.ts に面の形のデータを1本化した。ミラーボールの板（getPlateSprites）と入口の大きな💎は今までのまま
+import { hexToRgb } from "./gemFacets";
+import { getStoneSprites, requestStoneSpritesByHex, stoneIndex, warmUpGemRenderer, SPRITE_LIGHT } from "./gemSprites";
+// ミラーボールの席を色ごとにまとめるための、目に見える色の近さの物差しと、色ごとの居場所
+import { colorDistance, colorHome, type ColorHome, type Rgb } from "./ballColors";
 
 export type DiamondCanvasApi = {
   /** その色の💎を1つ、画面の上から降らせる。速さ・回転の向きと速さは1つずつ違う。
@@ -101,8 +108,13 @@ type Suck = {
   bow: number;
   /** 自分が押した分。取り消し（スワイプの空振り）で消せるようにする */
   self: boolean;
-  /** 押した順の番号（0から）。席は毎回この番号から引き直す＝途中で格子が細かくなっても迷子にならない */
-  idx: number;
+  /** はまる席の番号。押した時点で決まり、着くまで変わらない */
+  seat: number;
+  /** その席は取った時に空いていたか。取り消し（スワイプの空振り）で元へ戻すのに使う */
+  seatWasEmpty: boolean;
+  /** 貼り替えだった時の、元の色と、取る前にその席が塗られていた順番。取り消しの時だけ使う */
+  seatPrevRgb: [number, number, number];
+  seatPrevAge: number;
   /** いまの行き先（画面座標）。席が見えているならその席、見えていないなら動画の中心。
    *  席は回転で動くので毎フレーム測り直し、少しずつ寄せる＝行き先が変わっても飛び方が跳ばない */
   tx: number; ty: number;
@@ -114,14 +126,27 @@ type Suck = {
 };
 /** ミラーボールの球。球の大きさも席の数も固定で、変わるのは「どの席が埋まっているか」と、カメラの寄り具合だけ。
  *  zoom=いまのカメラの寄り（見かけの大きさは BALL_R × zoom）、
- *  sprites/rgb=各席に入っている💎の絵と色（空きは null）。席の位置と埋める順は席の格子の並び */
+ *  sprites/rgb=各席に入っている💎の絵と色（空きは null）。席の位置は席の格子の並び、
+ *  どの席を取るかは押された色で決まる（同じ色の席の隣を選ぶ） */
 type Ball = {
   zoom: number;
   sprites: (HTMLCanvasElement[] | null)[];
   rgb: Uint8Array;
-  /** これまでに取っておいた席の数。押した時点で1つ取り、着いた時にそこへ貼る。
-   *  着いた数（n）ではなく押した数で数えるので、飛んでいる途中の💎どうしで席がぶつからない。
-   *  席の数を超えた分は、ぐるっと回っていちばん古い板を貼り替える */
+  /** 取ってある席の一覧。押した時点で1つ取り、着いた時にそこへ貼る。
+   *  着いた席ではなく取った席で数えるので、飛んでいる途中の💎どうしで席がぶつからない。
+   *  並びに意味は無く、「いま埋まっている席はどれか」と「何席埋まっているか」を見るだけに使う。
+   *  古い新しいは age で見る */
+  occ: number[];
+  /** 席が取られているか（1=取ってある。飛んでいる途中の分も含む）。occ と同じ中身を席の番号で引けるようにした控え */
+  taken: Uint8Array;
+  /** 色ごとの、その色が入っている席の一覧（"r,g,b" → 席の番号）。
+   *  同じ色の隣を探す時に、球の全部の席を見に行かなくて済むようにする（連打された時の重さ対策） */
+  byColor: Map<string, number[]>;
+  /** 席が最後に塗られた順番。押されるたびに seq を1つ進めて、その番号を席に書く。
+   *  小さいほど古い＝満席の後に貼り替える相手を選ぶ物差し */
+  age: Float64Array;
+  seq: number;
+  /** 取った席の通し番号（色でまとめない時に使う）。決まった混ぜ順の何番目まで使ったか */
   reserved: number;
 };
 /** 夜空の星（画面座標）。位置は星空の絵へ焼き込んだ後も、瞬きの抽選のために覚えておく */
@@ -187,8 +212,8 @@ const SKY_FLASH_SIZE = 10;       // 放った後に押した手応えの閃光�
 // ミラーボール方式の値。数字は全部【仮】、実機で見て決める
 // 本物のミラーボールは、人が増えても球そのものが大きくなったりはしない。近づいて見れば大きく見えるだけ。
 // なので球の大きさも席の数も固定で、曲が進むにつれてカメラが寄っていく（Hop決定 2026-09-08）。
-const BALL_SEATS = 840;          // 席（板を貼る場所）の数【仮】。固定。押した💎は決まった混ぜ順に席を埋め、
-                                 // 満席になったら いちばん古い板から順に貼り替える。
+const BALL_SEATS = 840;          // 席（板を貼る場所）の数【仮】。固定。押した💎は色ごとにまとまるように席を取り、
+                                 // 満席になったら 同じ色の板のうちいちばん古いものを貼り替える。
                                  // 人が少ないうちは板がまばらなままでよい（Hop了承 2026-09-08）
 const BALL_R = 95;               // 球の半径(px)。カメラが寄っていない（拡大率1）時の見かけの大きさ【仮】。
                                  // 390幅の画面なら 動画の高さの半分＋額縁 ≒ 116px なので、曲の始まりは動画の裏にすっぽり隠れる
@@ -278,64 +303,9 @@ const SEAT_FACE_MS = 200;        // 席にはめ込まれる直前のこの時�
                                  // 「横から見た💎」から「上から見た八角形」＝板と同じ絵に差し替える。
                                  // 絵を差し替えるだけで、回して見せる演出はしない（Hop決定 2026-09-08）【仮】
 
-// 宝石の面（Font Awesome gem の外形に合わせた 5+3 面）。座標は -1..1。n は擬似的な法線
-type Facet = { pts: [number, number][]; n: [number, number, number] };
-const FACETS: Facet[] = [
-  { pts: [[-0.55, -0.35], [-0.9, 0], [-0.3, 0]], n: [-0.7, -0.3, 0.65] },
-  { pts: [[-0.55, -0.35], [0, -0.35], [-0.3, 0]], n: [-0.25, -0.6, 0.76] },
-  { pts: [[-0.3, 0], [0, -0.35], [0.3, 0]], n: [0, -0.45, 0.9] },
-  { pts: [[0.55, -0.35], [0, -0.35], [0.3, 0]], n: [0.25, -0.6, 0.76] },
-  { pts: [[0.55, -0.35], [0.9, 0], [0.3, 0]], n: [0.7, -0.3, 0.65] },
-  { pts: [[-0.9, 0], [-0.3, 0], [0, 0.9]], n: [-0.55, 0.5, 0.67] },
-  { pts: [[-0.3, 0], [0.3, 0], [0, 0.9]], n: [0, 0.35, 0.94] },
-  { pts: [[0.9, 0], [0.3, 0], [0, 0.9]], n: [0.55, 0.5, 0.67] },
-].map((f) => {
-  const l = Math.hypot(f.n[0], f.n[1], f.n[2]);
-  return { pts: f.pts as [number, number][], n: [f.n[0] / l, f.n[1] / l, f.n[2] / l] as [number, number, number] };
-});
-
-function hexToRgb(hex: string): [number, number, number] {
-  const h = hex.replace(/^#/, "");
-  const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
-  if (!Number.isFinite(n)) return [255, 255, 255];
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-/** 面ごとの明るさを計算して 2D コンテキストに宝石を描く（座標は宝石中心・半径1） */
-function paintFacets(ctx: CanvasRenderingContext2D, rgb: [number, number, number], ang: number, lightAng: number) {
-  const L: [number, number, number] = [Math.cos(lightAng - ang), Math.sin(lightAng - ang), 0.8];
-  const ll = Math.hypot(L[0], L[1], L[2]);
-  L[0] /= ll; L[1] /= ll; L[2] /= ll;
-  for (const f of FACETS) {
-    const d = Math.max(0, f.n[0] * L[0] + f.n[1] * L[1] + f.n[2] * L[2]);
-    const k = 0.5 + 0.5 * d * d;   // 影の側も暗くしすぎない（小さい💎が黒っぽく見えないように）
-    ctx.fillStyle = `rgb(${(rgb[0] * k) | 0},${(rgb[1] * k) | 0},${(rgb[2] * k) | 0})`;
-    ctx.beginPath();
-    ctx.moveTo(f.pts[0][0], f.pts[0][1]);
-    ctx.lineTo(f.pts[1][0], f.pts[1][1]);
-    ctx.lineTo(f.pts[2][0], f.pts[2][1]);
-    ctx.closePath();
-    ctx.fill();
-    // 面がちょうど光を返す瞬間だけ白く瞬く
-    if (d > 0.965) {
-      ctx.fillStyle = `rgba(255,255,255,${((d - 0.965) / 0.035) * 0.95})`;
-      ctx.fill();
-    }
-  }
-  ctx.lineWidth = 0.06;
-  ctx.strokeStyle = "rgba(255,255,255,0.55)";
-  ctx.beginPath();
-  ctx.moveTo(-0.55, -0.35); ctx.lineTo(0.55, -0.35); ctx.lineTo(0.9, 0); ctx.lineTo(0, 0.9); ctx.lineTo(-0.9, 0);
-  ctx.closePath();
-  ctx.stroke();
-}
-
-// 積もった💎は毎フレーム面を計算せず、色×向き(24段階)ごとに一度描いた小さな絵(スプライト)を貼る。
-// 数千個積もっても drawImage の回数が増えるだけで、面の計算は増えない（重さ対策）。
-const SPRITE_STEPS = 24;
-const SPRITE_PX = 96;           // スプライトの1辺（世界座標で最大 size 36 × 2 ≒ 72px を余裕込みで）
-const SPRITE_LIGHT = -Math.PI / 3; // 固定の光の向き（左上から）
-const spriteCache = new Map<string, HTMLCanvasElement[]>();
+// 積もった💎も落ちてくる💎も、毎フレーム面を計算せず、色×石の向きごとに一度焼いた小さな絵(スプライト)を貼る。
+// 数千個積もっても drawImage の回数が増えるだけで、絵を作る計算は増えない（重さ対策）。
+// 絵の作り置きと焼く順番は gemSprites.ts が持つ。ここは受け取って貼るだけ。
 // 落ちている💎の光の輪と、動画の裏を通る時の額縁の灯りも、色ごとに一度だけ描いた絵を貼る。
 // 毎フレーム createRadialGradient を作るのは1個ごとに重く、大勢の💎が降る時に効く（発熱対策 2026-09-07）
 const GLOW_PX = 64;
@@ -364,27 +334,6 @@ function getGlow(rgb: [number, number, number]): { halo: HTMLCanvasElement; edge
   glowCache.set(key, g);
   return g;
 }
-function getSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
-  const key = rgb.join(",");
-  let arr = spriteCache.get(key);
-  if (arr) return arr;
-  arr = [];
-  for (let i = 0; i < SPRITE_STEPS; i++) {
-    const c = document.createElement("canvas");
-    c.width = SPRITE_PX; c.height = SPRITE_PX;
-    const cx = c.getContext("2d");
-    if (cx) {
-      cx.translate(SPRITE_PX / 2, SPRITE_PX / 2);
-      cx.rotate((i / SPRITE_STEPS) * Math.PI * 2);
-      cx.scale(SPRITE_PX / 2 / 1.0 * 0.95, SPRITE_PX / 2 / 1.0 * 0.95);
-      paintFacets(cx, rgb, (i / SPRITE_STEPS) * Math.PI * 2, SPRITE_LIGHT);
-    }
-    arr.push(c);
-  }
-  spriteCache.set(key, arr);
-  return arr;
-}
-
 // ミラーボールの板の絵: 上から見たブリリアントカットの💎＝中央の平らな八角形の面と、それを囲む8枚の斜めの面。
 // ミラーボールの板は正面（外）を向いているので、横から見た💎を潰して貼るのではなくこの形にする（Hop決定 2026-09-08）。
 // 向きは貼る時の変形で決まるので、回していない絵を色ごとに持つ。面ごとの明るさは今までと同じで、
@@ -463,29 +412,10 @@ function getPlateSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
   return arr;
 }
 
-// 降っている💎用: 自分の向きを0にした絵を、光との角度差(48段階)ごとに持つ。貼る時に自分の向きへ回す
-const LIVE_STEPS = 48;
-const liveSpriteCache = new Map<string, HTMLCanvasElement[]>();
-function getLiveSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
-  const key = rgb.join(",");
-  let arr = liveSpriteCache.get(key);
-  if (arr) return arr;
-  arr = [];
-  for (let i = 0; i < LIVE_STEPS; i++) {
-    const c = document.createElement("canvas");
-    c.width = SPRITE_PX; c.height = SPRITE_PX;
-    const cx = c.getContext("2d");
-    if (cx) {
-      cx.translate(SPRITE_PX / 2, SPRITE_PX / 2);
-      cx.scale(SPRITE_PX / 2 * 0.95, SPRITE_PX / 2 * 0.95);
-      // paintFacets は (lightAng - ang) しか見ないので、ang=0・lightAng=差 で描けばよい
-      paintFacets(cx, rgb, 0, (i / LIVE_STEPS) * Math.PI * 2);
-    }
-    arr.push(c);
-  }
-  liveSpriteCache.set(key, arr);
-  return arr;
-}
+// 降っている💎は、以前は「石は回さず光の向きだけ48段階回した絵」を持ち、貼る時に絵ごと回していた。
+// 平らな絵のうちは「石を回す」と「絵を回す」が同じ結果になるので成り立っていたが、
+// 本物の💎は立体なので、絵ごと回すと石が画面の中で寝転がってしまう。
+// そこで積もった💎と同じ「石を回した絵を、回さずに貼る」形に揃えた（gemSprites.ts の getStoneSprites）。
 
 // 夜空の星と、飛んでいる粒の丸。どちらも面の計算はせず、色ごとに一度だけ描いた絵を大きさを変えて貼る。
 // 数千個が同時に動くので、1個ごとに描き方を組み立てないのが肝（発熱対策）。
@@ -573,8 +503,15 @@ function ballRandom(seed: number): () => number {
 }
 
 /** 席の格子。seats=席の数、a=席1つにつき4つ（球の上の向き x,y,z と、その席の横の間隔）、
- *  order=埋める順、v=段（緯度）の間隔。a の4つ目と v が、そのまま板の横幅・高さの元になる */
-type BallLattice = { seats: number; a: Float32Array; order: Int32Array; v: number };
+ *  order=散らばった順（席を色で決められない時の逃げ道と、迷った時の順番付け）、v=段（緯度）の間隔。
+ *  a の4つ目と v が、そのまま板の横幅・高さの元になる。
+ *  rank=席の番号から order の何番目かを引く表、lon=席の経度（色ごとの居場所と見比べるのに使う）。
+ *  nbrStart/nbr=隣り合う席の一覧。席 s の隣は nbr[nbrStart[s]] から nbr[nbrStart[s+1]-1] まで。
+ *  この一覧は起動時に1回だけ作って使い回す（押すたびに隣を計算し直さない） */
+type BallLattice = {
+  seats: number; a: Float32Array; order: Int32Array; v: number;
+  rank: Int32Array; nbrStart: Int32Array; nbr: Int32Array; lon: Float32Array;
+};
 let ballLattice: BallLattice | null = null;
 function buildBallLattice(): BallLattice {
   const N = BALL_SEATS;
@@ -602,8 +539,13 @@ function buildBallLattice(): BallLattice {
   const B = counts.length;
   const v = Math.PI / B;   // 段と段の間隔（rad）。半径を掛けると板の高さになる
   const a = new Float32Array(N * 4);
+  const lon = new Float32Array(N);  // 席の経度
+  const bandStart: number[] = [];   // 段ごとの、いちばん若い席の番号
+  const bandCount: number[] = [];   // 段ごとに実際に置けた席の数
   let k = 0;
   for (let i = 0; i < B && k < N; i++) {
+    bandStart.push(k);
+    bandCount.push(Math.min(counts[i], N - k));
     const th = ((i + 0.5) / B) * Math.PI;
     const y = Math.cos(th), rho = Math.sin(th);
     // 横の間隔は帯の円周を席の数で割ったもの。極に近い段は円周が短いので、そのぶん板も細くなる
@@ -615,10 +557,13 @@ function buildBallLattice(): BallLattice {
       a[k * 4 + 1] = y;
       a[k * 4 + 2] = rho * Math.sin(ph);
       a[k * 4 + 3] = u;
+      lon[k] = ph;
       k++;
     }
   }
-  // 席を埋めていく順番。並びの端から順に埋めると北極だけに固まるので、決まった順で混ぜた並びを使う。
+  // 散らばった順。席を色で決めるようになった今は、色で決められない時の逃げ道と、
+  // 同じくらい良い席が並んだ時の順番付けに使う（下の rank）。
+  // 並びの端から順に埋めると北極だけに固まるので、決まった順で混ぜた並びを使う。
   // 赤道から上下へ広げる埋め方も試したが、赤道の帯はちょうど動画にすっかり隠れる高さなので、
   // 数千枚たまるまで球が1枚も見えないままだった（2026-09-08 に見比べて混ぜる方を採用）。
   // 毎回同じ並びになるよう乱数の種は固定（起動ごとに変わると見え方が揺れる）
@@ -629,10 +574,229 @@ function buildBallLattice(): BallLattice {
     const j = Math.floor(rnd() * (i + 1));
     const t = ord[i]; ord[i] = ord[j]; ord[j] = t;
   }
-  return { seats: N, a, order: ord, v };
+  const rank = new Int32Array(N);
+  for (let i = 0; i < N; i++) rank[ord[i]] = i;
+  // 隣り合う席の表。同じ段の左右と、上下の段で「席の受け持つ幅が触れ合っている」席を隣とみなす。
+  // 段によって席の数が違う（極に近いほど少ない）ので、上下の隣は1つとは限らない。
+  // かぎ針編みの球で、上の段の1目に下の段の2目が付くことがあるのと同じ
+  const lists: number[][] = [];
+  for (let i = 0; i < bandStart.length; i++) {
+    const ci = bandCount[i];
+    for (let j = 0; j < ci; j++) {
+      const list: number[] = [];
+      if (ci > 1) list.push(bandStart[i] + ((j + 1) % ci));
+      if (ci > 2) list.push(bandStart[i] + ((j - 1 + ci) % ci));
+      const ph = (j / ci) * Math.PI * 2;
+      for (const nb of [i - 1, i + 1]) {
+        if (nb < 0 || nb >= bandStart.length) continue;
+        const cn = bandCount[nb];
+        const w = Math.PI / ci + Math.PI / cn + 1e-6;   // 受け持つ幅の半分どうしの合計＝ここまで近ければ触れ合っている
+        const st2 = (Math.PI * 2) / cn;
+        const lo = Math.ceil((ph - w) / st2), hi = Math.floor((ph + w) / st2);
+        for (let m = lo; m <= hi && m - lo < cn; m++) {
+          const s2 = bandStart[nb] + (((m % cn) + cn) % cn);
+          if (!list.includes(s2)) list.push(s2);
+        }
+      }
+      lists.push(list);
+    }
+  }
+  const nbrStart = new Int32Array(N + 1);
+  let tot = 0;
+  for (let s = 0; s < N; s++) { nbrStart[s] = tot; tot += lists[s]?.length ?? 0; }
+  nbrStart[N] = tot;
+  const nbr = new Int32Array(tot);
+  let w2 = 0;
+  for (let s = 0; s < N; s++) for (const t2 of lists[s] ?? []) nbr[w2++] = t2;
+  return { seats: N, a, order: ord, v, rank, nbrStart, nbr, lon };
 }
 function getBallLattice(): BallLattice {
   return (ballLattice ??= buildBallLattice());
+}
+
+// ── 席の決め方 ───────────────────────────────────────────────
+// 押された💎を、色ごとに塊になるように席へ割り当てる。
+//   1. 同じ色の席がもうあれば、その隣の空いている席
+//   2. まだ無ければ、その色の居場所（ballColors.ts の colorHome）にいちばん近い空いている席
+//   3. 席が全部埋まっていれば、同じ色の席のうちいちばん古いものを貼り替える（pickRepaintSeat）
+// 隣の一覧は起動時に1回だけ作った表を引くだけ（押すたびに計算し直さない）。
+/** 席の決め方の切り替え。2つの案を見比べるために残してある（Hopの判断待ち・2026-09-10）。
+ *  "hue"       … 上のとおり。色ごとの居場所（色合いから決まる経度）を先に決めておくので、
+ *                 塊は球じゅうに散らばって生まれ、隣り合う塊の色は少しずつ移り変わる
+ *  "continent" … 指示のままの3段（同じ色の隣 → 色合いの近い色の隣 → 散らばった順）。
+ *                 散らばった順を使うのはいちばん最初の1つだけで、以後はすべてその隣に付くので、
+ *                 球の一部だけが埋まって残りが空のままになる */
+/** 席を色でまとめるかどうか。false＝公開中の本番と同じで、決まった混ぜ順に前から埋める。
+ *  色でまとめる方は、満席の後の塗り替えの決め方がまだ決まっていないので今は止めてある（Hopの判断待ち・2026-09-10）。
+ *  true に戻すだけで色でまとめる作りに切り替わる */
+const SEAT_CLUSTER = false;
+type SeatSeed = "hue" | "continent";
+const SEAT_SEED = "hue" as SeatSeed;
+/** 塊の1枚目を置く時に、経度をどれくらい大まかに見るか。
+ *  半周（180度）をこの数で割った幅がひと帯＝12なら15度ずつ【仮】 */
+const SEED_LON_STEP = 12;
+
+/** その席が、その色の居場所にどれだけ合っているか（1に近いほど合っている）。
+ *  色合いを持つ色は経度だけで測る＝南北は問わないので、塊は北にも南にも伸びられる。
+ *  白は居場所が無いので、どの席も同じ0点＝散らばった順で先に来る席が選ばれる */
+function homeScore(lv: BallLattice, s: number, home: ColorHome): number {
+  if (home.lon === null) return 0;
+  let d = Math.abs(lv.lon[s] - home.lon) % (Math.PI * 2);
+  if (d > Math.PI) d = Math.PI * 2 - d;
+  return 1 - d / Math.PI;
+}
+function seatIsColor(ball: Ball, s: number, rgb: Rgb): boolean {
+  const o = s * 3;
+  return ball.taken[s] === 1 && ball.rgb[o] === rgb[0] && ball.rgb[o + 1] === rgb[1] && ball.rgb[o + 2] === rgb[2];
+}
+/** 同じ席を二度調べないための印。押すたびに番号を1つ進めて、消して回らなくて済むようにする */
+let seatVisit: Int32Array | null = null;
+let seatVisitStamp = 0;
+/** seats（ある色が入っている席の一覧）の隣の空席から、いちばん良い1つを選ぶ。
+ *  良さは「その色の席にいくつ囲まれているか（＝塊が丸くまとまる）」が第一で、
+ *  同じなら色の居場所に近い方、それも同じなら散らばった順で先に来る方 */
+function bestFreeNeighbor(ball: Ball, lv: BallLattice, seats: number[] | undefined, rgb: Rgb, home: ColorHome): number {
+  if (!seats || seats.length === 0) return -1;
+  if (!seatVisit || seatVisit.length !== lv.seats) seatVisit = new Int32Array(lv.seats);
+  const seen = seatVisit;
+  const stamp = ++seatVisitStamp;
+  let best = -1, bestScore = -Infinity, bestRank = Infinity;
+  for (const s of seats) {
+    for (let i = lv.nbrStart[s]; i < lv.nbrStart[s + 1]; i++) {
+      const n = lv.nbr[i];
+      if (ball.taken[n] || seen[n] === stamp) continue;
+      seen[n] = stamp;
+      let same = 0;
+      for (let j = lv.nbrStart[n]; j < lv.nbrStart[n + 1]; j++) if (seatIsColor(ball, lv.nbr[j], rgb)) same++;
+      const score = same + 0.5 * homeScore(lv, n, home);
+      const rk = lv.rank[n];
+      if (score > bestScore || (score === bestScore && rk < bestRank)) { bestScore = score; bestRank = rk; best = n; }
+    }
+  }
+  return best;
+}
+function dropFromColor(ball: Ball, key: string, seat: number) {
+  const arr = ball.byColor.get(key);
+  if (!arr) return;
+  const at = arr.indexOf(seat);
+  if (at >= 0) arr.splice(at, 1);
+  if (arr.length === 0) ball.byColor.delete(key);
+}
+function addToColor(ball: Ball, key: string, seat: number) {
+  const arr = ball.byColor.get(key);
+  if (arr) arr.push(seat); else ball.byColor.set(key, [seat]);
+}
+/** 席の一覧のうち、いちばん古く塗られた1席。空の一覧なら -1 */
+function oldestSeat(ball: Ball, seats: number[] | undefined): number {
+  if (!seats || seats.length === 0) return -1;
+  let best = -1, bestAge = Infinity;
+  for (const s of seats) {
+    const g = ball.age[s];
+    if (g < bestAge) { bestAge = g; best = s; }
+  }
+  return best;
+}
+/** 満席の後に貼り替える1席を選ぶ。
+ *  同じ色の席のうちいちばん古いもの＝その色の枚数は変わらず、色の塊も虫食いにならない。
+ *  同じ色が1つも無ければ、色合いのいちばん近い色のうちいちばん古いもの。
+ *  そのとき、残り1席しかない色は先に外して探す＝球からその色が消えてしまわないようにする。
+ *  どの色も1席しか持っていない時だけ、その決まりを外して最寄りの色から取る（外さないと貼り替え先が無くなる）。
+ *  見るのは色の数（数十）と、その色が持つ席の数だけなので、連打されても重くならない */
+function pickRepaintSeat(ball: Ball, rgb: Rgb, key: string): number {
+  const same = oldestSeat(ball, ball.byColor.get(key));
+  if (same >= 0) return same;
+  let bestKey: string | null = null, bestD = Infinity;
+  let anyKey: string | null = null, anyD = Infinity;
+  for (const [k2, arr] of ball.byColor) {
+    if (!arr || arr.length === 0) continue;
+    const d = colorDistance(rgb, k2.split(",").map(Number) as Rgb);
+    if (d < anyD) { anyD = d; anyKey = k2; }
+    if (arr.length > 1 && d < bestD) { bestD = d; bestKey = k2; }
+  }
+  const pick = bestKey ?? anyKey;
+  if (pick !== null) return oldestSeat(ball, ball.byColor.get(pick));
+  // 色ごとの一覧が空＝ここへは来ないはずだが、念のため全席からいちばん古い1席を選ぶ
+  let fb = -1, fbAge = Infinity;
+  for (let s = 0; s < ball.taken.length; s++) {
+    if (!ball.taken[s]) continue;
+    if (ball.age[s] < fbAge) { fbAge = ball.age[s]; fb = s; }
+  }
+  return fb;
+}
+/** 押された💎の席を1つ取る。戻り値は取り消し（スワイプの空振り）で元へ戻すための控え */
+function reserveSeat(ball: Ball, rgb: Rgb): { seat: number; wasEmpty: boolean; prevRgb: [number, number, number]; prevAge: number } {
+  const lv = getBallLattice();
+  const N = lv.seats;
+  const key = rgb.join(",");
+  const home = colorHome(rgb);
+  let seat = -1;
+  if (!SEAT_CLUSTER) {
+    // 公開中の本番と同じ決め方。決まった混ぜ順を前から使い、一周したら古い席から上書きする
+    seat = lv.order[ball.reserved % N];
+    ball.reserved++;
+  } else if (ball.occ.length < N) {
+    // 1. 同じ色の塊の隣
+    seat = bestFreeNeighbor(ball, lv, ball.byColor.get(key), rgb, home);
+    if (seat < 0 && SEAT_SEED === "hue") {
+      // 2. その色の居場所（経度の帯）の中から、散らばった順で先に来る空席。
+      //    経度の近さをそのまま比べると、席の細かい赤道寄りの段がいつも勝ってしまい、
+      //    塊の1枚目が必ず動画に隠れる高さに置かれる（2026-09-10 に見て気づいた）。
+      //    そこで経度は SEED_LON_STEP きざみの「どの帯か」だけで比べ、
+      //    同じ帯の中では今までどおり散らばった順に取る＝1枚目の高さは球じゅうにばらける
+      let bestQ = -Infinity, bestRank = Infinity;
+      for (let s = 0; s < N; s++) {
+        if (ball.taken[s]) continue;
+        const q = Math.round(homeScore(lv, s, home) * SEED_LON_STEP);
+        const rk = lv.rank[s];
+        if (q > bestQ || (q === bestQ && rk < bestRank)) { bestQ = q; bestRank = rk; seat = s; }
+      }
+    } else if (seat < 0) {
+      // 2. 色合いのいちばん近い色から順に、その塊の隣に空きがないか見る
+      const others: { k: string; rgb: Rgb; d: number }[] = [];
+      for (const k2 of ball.byColor.keys()) {
+        if (k2 === key) continue;
+        const p = k2.split(",").map(Number) as Rgb;
+        others.push({ k: k2, rgb: p, d: colorDistance(rgb, p) });
+      }
+      others.sort((p, q) => p.d - q.d);
+      for (const o2 of others) {
+        seat = bestFreeNeighbor(ball, lv, ball.byColor.get(o2.k), o2.rgb, home);
+        if (seat >= 0) break;
+      }
+      // 3. それも無ければ、今までどおり散らばった順のまだ使っていない席
+      if (seat < 0) for (let i = 0; i < N; i++) { const s = lv.order[i]; if (!ball.taken[s]) { seat = s; break; } }
+    }
+  }
+  // 席が全部埋まっている。貼り替える相手を色で選ぶ
+  if (seat < 0) seat = pickRepaintSeat(ball, rgb, key);
+  if (seat < 0) seat = 0;
+  const o = seat * 3;
+  const prevRgb: [number, number, number] = [ball.rgb[o], ball.rgb[o + 1], ball.rgb[o + 2]];
+  const prevAge = ball.age[seat];
+  const wasEmpty = ball.taken[seat] === 0;
+  if (!wasEmpty) dropFromColor(ball, prevRgb.join(","), seat);
+  ball.taken[seat] = 1;
+  ball.rgb[o] = rgb[0]; ball.rgb[o + 1] = rgb[1]; ball.rgb[o + 2] = rgb[2];
+  addToColor(ball, key, seat);
+  // occ は「埋まっている席の一覧」なので、新しく取った時だけ足す（貼り替えは既に入っている）
+  if (wasEmpty) ball.occ.push(seat);
+  ball.age[seat] = ++ball.seq;
+  return { seat, wasEmpty, prevRgb, prevAge };
+}
+/** 取った席を返す（取り消し）。空席だった席は空席へ、貼り替えだった席は元の色と塗られた順番へ戻す */
+function releaseSeat(ball: Ball, seat: number, wasEmpty: boolean, prevRgb: [number, number, number], prevAge: number) {
+  if (!SEAT_CLUSTER) ball.reserved = Math.max(0, ball.reserved - 1);
+  const o = seat * 3;
+  dropFromColor(ball, ball.rgb[o] + "," + ball.rgb[o + 1] + "," + ball.rgb[o + 2], seat);
+  ball.rgb[o] = prevRgb[0]; ball.rgb[o + 1] = prevRgb[1]; ball.rgb[o + 2] = prevRgb[2];
+  ball.age[seat] = prevAge;
+  if (wasEmpty) {
+    ball.taken[seat] = 0;
+    const at = ball.occ.indexOf(seat);
+    if (at >= 0) ball.occ.splice(at, 1);
+  } else {
+    addToColor(ball, prevRgb.join(","), seat);
+  }
 }
 /** カメラの寄り具合。曲の進み p が 0 → 1 の間に 1.0 → BALL_ZOOM_MAX へ。
  *  序盤はゆっくり、中盤で覗き始め、終盤ではっきりはみ出す（ゆっくり動き出してゆっくり止まる曲線） */
@@ -659,6 +823,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const frameSlotsRef = useRef(Array.from({ length: TINT_SLOTS }, () => ({ rgb: [...FRAME_BASE] as [number, number, number], w: 0 })));
   const reduceMotionRef = useRef(reduceMotion);
   useEffect(() => { reduceMotionRef.current = reduceMotion; }, [reduceMotion]);
+  // 宝石を描く道具の支度（形の組み立て・環境の描画・計算式の組み上げ）を、画面を開いた直後に済ませておく。
+  // 「はじめる」を押した瞬間は動画の再生を最優先にしたいので、そこに重い処理を残さない
+  useEffect(() => { warmUpGemRenderer(); }, []);
   const gemsRef = useRef<Gem[]>([]);
   const timeRef = useRef({ t: 0, d: 284 });
   /** 山の頂上の世界座標（低いほど高い山）。自分の💎を山より上に出すために使う */
@@ -696,6 +863,11 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     zoom: 1,
     sprites: new Array<HTMLCanvasElement[] | null>(BALL_SEATS).fill(null),
     rgb: new Uint8Array(BALL_SEATS * 3),
+    occ: [],
+    taken: new Uint8Array(BALL_SEATS),
+    byColor: new Map<string, number[]>(),
+    age: new Float64Array(BALL_SEATS),
+    seq: 0,
     reserved: 0,
   });
   /** 球を空にする（最初に戻す時・方式を替えた時・夜空へ放った時）。席の並びも大きさも固定なので、中身を消すだけ */
@@ -703,6 +875,11 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     ball.zoom = 1;
     ball.sprites = new Array<HTMLCanvasElement[] | null>(BALL_SEATS).fill(null);
     ball.rgb = new Uint8Array(BALL_SEATS * 3);
+    ball.occ = [];
+    ball.taken = new Uint8Array(BALL_SEATS);
+    ball.byColor = new Map<string, number[]>();
+    ball.age = new Float64Array(BALL_SEATS);
+    ball.seq = 0;
     ball.reserved = 0;
   };
   const sizeRef = useRef({ W: 0, H: 0 });
@@ -762,12 +939,10 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           else { x0 = 0; y0 = u - (W * 2 + H); }
         }
         const shrinkM = Math.max(SHRINK_MIN, Math.min(1, Math.sqrt(SHRINK_REF / spawnedRef.current)));
-        // 押した時点で「この💎がはまる席」を1つ取っておく。取っておくのは席そのものではなく押した順の番号で、
-        // 席はその番号から毎回引き直す（決まった順で混ぜた並びの何番目か）。
-        // 席が全部埋まったら、ぐるっと回っていちばん古い板を貼り替える
+        // 押した時点で「この💎がはまる席」を1つ取っておく。席は色で決まる＝同じ色の席の隣が空いていればそこ、
+        // 無ければその色の居場所にいちばん近い空席。席が全部埋まったら、いちばん古い板を貼り替える
         const ball = getBall();
-        const idx = ball.reserved;
-        ball.reserved++;
+        const seat = reserveSeat(ball, rgb);
         suckRef.current.push({
           x0, y0, t0: now,
           dur: self
@@ -777,7 +952,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           spin: (Math.random() < 0.5 ? -1 : 1) * (SPIN_MIN + Math.random() * SPIN_RANGE),
           size: (SIZE_MIN + Math.random() * SIZE_RANGE) * shrinkM,
           rgb, bow, self,
-          idx, tx: 0, ty: 0, aimed: false, toSeat: false,
+          seat: seat.seat, seatWasEmpty: seat.wasEmpty, seatPrevRgb: seat.prevRgb, seatPrevAge: seat.prevAge,
+          tx: 0, ty: 0, aimed: false, toSeat: false,
         });
         // 押した手応えの閃光は今までどおり（画面座標なので夜空の分と同じ入れ物に入れる）
         if (self) skyFlashesRef.current.push({ x: x0, y: y0, t0: now, rgb, size: SKY_FLASH_SIZE });
@@ -836,11 +1012,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const last = suck[suck.length - 1];
         if (!last || !last.self) return;
         suck.pop();
-        // 取っておいた席も返す（次に押した💎が同じ席に入る）。最後に押した分＝最後に取った席なので、1つ戻すだけでよい
-        {
-          const ball = getBall();
-          ball.reserved = Math.max(0, ball.reserved - 1);
-        }
+        // 取っておいた席も返す。空席を取っていたなら空席へ戻し、
+        // 貼り替えを取っていたなら元の色と並び順へ戻す（貼り替えは起きなかったことになる）
+        releaseSeat(getBall(), last.seat, last.seatWasEmpty, last.seatPrevRgb, last.seatPrevAge);
         spawnedRef.current = Math.max(0, spawnedRef.current - 1);
         recentRef.current.pop();
         const sf = skyFlashesRef.current;
@@ -858,7 +1032,12 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       if (fl.length && Math.abs(fl[fl.length - 1].x - last.x) < 1) fl.pop();
       // 帳簿（cols）に取った着地先はそのまま残る。スワイプは1回の再生で数回なので、その分の小さな隙間は許容する
     },
-    setOwnColor(hex: string) { ownKeyRef.current = hexToRgb(hex).join(","); },
+    setOwnColor(hex: string) {
+      ownKeyRef.current = hexToRgb(hex).join(",");
+      // 自分の色は真っ先に降るので、焼くよう頼んでおく。頼むだけで、焼くのはこの呼び出しが終わったあと。
+      // 「はじめる」の中から呼ばれても、動画の再生を止めない（重い処理をこの場で走らせない）
+      requestStoneSpritesByHex(hex);
+    },
     getPeakTime(hex?: string) {
       const key = hex ? hexToRgb(hex).join(",") : ownKeyRef.current;
       if (!key) return null;
@@ -999,9 +1178,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       if (modeRef.current === "mirrorball") {
         const ball = getBall();
         const lv = getBallLattice();
-        const filled = Math.min(ball.reserved, lv.seats);
+        const occ = ball.occ;            // 取ってある席（取った順）
+        const filled = occ.length;
         const lat = lv.a;
-        const order = lv.order;
         const bR = BALL_R * ball.zoom;   // いま見えている球の半径（固定の大きさ × カメラの寄り）
         const spin = reduceMotionRef.current ? 0 : (now / 1000) * (Math.PI * 2 / BALL_SPIN_SEC);
         const cs = Math.cos(spin), sn = Math.sin(spin);
@@ -1026,7 +1205,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         wallN = 0;
         const fly = flyRef.current;
         for (let k = 0; k < n; k++) {
-          const slot = order[Math.floor(k * step)];
+          const slot = occ[Math.floor(k * step)];
           if (!ball.sprites[slot]) continue;   // まだ埋まっていない席（飛んでいる途中の💎の分）は粒にしない
           const o = slot * 4, oc = slot * 3;   // 席の向きは4つ組、色は3つ組で持っている
           const x1 = lat[o] * cs + lat[o + 2] * sn;
@@ -1127,23 +1306,18 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       return { tx, ty };
     };
 
-    /** 降っている💎: 面の明るさは「光の向き − 自分の向き」だけで決まるので、その差ごとに一度描いた絵を、自分の向きに回して貼る。
-     *  毎フレーム8面を塗るのは、みんなの💎がたくさん降る時に発熱の元になっていた（Hop報告 2026-09-07） */
-    const drawGemLive = (g: Pick<Gem, "x" | "y" | "ang" | "size" | "rgb">, lightAng: number) => {
-      const sprites = getLiveSprites(g.rgb);
-      const rel = lightAng - g.ang;
-      const i = ((Math.round((rel / (Math.PI * 2)) * LIVE_STEPS) % LIVE_STEPS) + LIVE_STEPS) % LIVE_STEPS;
+    /** 降っている💎: 自分の向きに合う絵を選んで、回さずに貼る。
+     *  光は画面に対して止まっているので、石が回れば面が順番に光る＝絵を回してはいけない。
+     *  毎フレーム面を塗るのは、みんなの💎がたくさん降る時に発熱の元になっていた（Hop報告 2026-09-07） */
+    const drawGemLive = (g: Pick<Gem, "x" | "y" | "ang" | "size" | "rgb">) => {
+      const sprites = getStoneSprites(g.rgb);
       const w = (g.size * 2 / 0.95);
-      ctx.save();
-      ctx.translate(g.x, g.y);
-      ctx.rotate(g.ang);
-      ctx.drawImage(sprites[i], -w / 2, -w / 2, w, w);
-      ctx.restore();
+      ctx.drawImage(sprites[stoneIndex(g.ang)], g.x - w / 2, g.y - w / 2, w, w);
     };
     /** 積もった💎: スプライトを貼る */
     const drawGemSettled = (g: Gem, target: CanvasRenderingContext2D = ctx) => {
-      const sprites = getSprites(g.rgb);
-      const i = ((Math.round((g.ang / (Math.PI * 2)) * SPRITE_STEPS) % SPRITE_STEPS) + SPRITE_STEPS) % SPRITE_STEPS;
+      const sprites = getStoneSprites(g.rgb);
+      const i = stoneIndex(g.ang);
       const w = (g.size * 2 / 0.95) * 1.12;              // 少し大きめに貼って継ぎ目の隙間を埋める【仮】
       target.drawImage(sprites[i], g.x - w / 2, g.y - w / 2, w, w);
       // 山の瞬きは十字の閃光（flashes）に統一。ここでは点を打たない（Hop指摘 2026-09-06）
@@ -1445,25 +1619,25 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const ball = getBall();
         const lightAng = reduceMotionRef.current ? SPRITE_LIGHT : (now / 1000) * 0.35;
         const suck = suckRef.current;
-        // 1. 飛び終わった💎を球の表面の板にする。貼る場所は、押した順の番号（sk.idx）から引いた席。
-        //    並びは決まった順で混ぜてあるので、少ない数でも球全体に散らばる。
-        //    上限を超えたら同じ順番でぐるっと回って古い板を貼り替える（＝間引き）
+        // 1. 飛び終わった💎を球の表面の板にする。貼る場所は、押した時に取っておいた席（sk.seat）。
+        //    席は色ごとにまとまるように決めてあるので、同じ色の板が隣り合って塊になる。
+        //    席が全部埋まった後に取った席は、いちばん古い板の貼り替えになる
         const lv = getBallLattice();
-        const seats = lv.seats;
         for (let i = suck.length - 1; i >= 0; i--) {
           const sk = suck[i];
           if (now - sk.t0 < sk.dur) continue;
-          const slot = lv.order[sk.idx % seats];
+          const slot = sk.seat;
           ball.sprites[slot] = getPlateSprites(sk.rgb);   // 貼る絵はここで1回だけ引く（毎フレーム引くと重い）
           ball.rgb[slot * 3] = sk.rgb[0];
           ball.rgb[slot * 3 + 1] = sk.rgb[1];
           ball.rgb[slot * 3 + 2] = sk.rgb[2];
           suck.splice(i, 1);
         }
-        // 見に行く席の数は「押された数」で数える。着いた数で切ると、
-        // 席の番号が着く順とずれた板（＝先に押した💎がまだ飛んでいる間に着いた板）が
-        // しばらく描かれず、後から急に現れてしまう。空いている席は絵が無いので飛ばされる
-        const filled = Math.min(ball.reserved, seats);
+        // 見に行くのは「取ってある席」の全部。着いた席だけに絞ると、
+        // 取った順と着く順がずれた板（＝先に押した💎がまだ飛んでいる間に着いた板）が
+        // しばらく描かれず、後から急に現れてしまう。まだ着いていない席は絵が無いので飛ばされる
+        const occ = ball.occ;
+        const filled = occ.length;
         // 球そのものの大きさは変わらない。変わるのはカメラの寄り具合＝見かけの大きさだけ。
         // 曲が進むほど寄って、動画の裏から上下にはみ出してくる。
         // ハイライト再生中と、夜空へ放った後は寄りを止める（時刻が飛んでも拡大率が跳ねない）。
@@ -1475,7 +1649,6 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         // 球の向き（回転と傾き）と板の大きさ。板を描く所だけでなく、飛んでいる💎が
         // 「自分の席がいま画面のどこにあるか」を知るのにも要るので、板が1枚も無い時でも先に出しておく
         const lat = lv.a;          // 席1つにつき4つ（向き x,y,z と 横の間隔）
-        const order = lv.order;
         const spin = reduceMotionRef.current ? 0 : (now / 1000) * (Math.PI * 2 / BALL_SPIN_SEC);
         const cs = Math.cos(spin), sn = Math.sin(spin);
         const ct = Math.cos(BALL_TILT), st = Math.sin(BALL_TILT);
@@ -1499,10 +1672,10 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         // 序盤は光を受けている板そのものが数枚しかなく、さらに壁へ映した位置が画面に収まるものとなると
         // 2個ほどしか出なかった（Hop報告 2026-09-08）
         const wallCut = WALL_LIT_EARLY + (WALL_LIT_MIN - WALL_LIT_EARLY) * Math.min(1, filled / WALL_LIT_RAMP);
-        // 壁に映す板の選び方: 光を受けている板（wallCut 以上）から、押した順の番号ごとに決まっている
+        // 壁に映す板の選び方: 光を受けている板（wallCut 以上）から、席の番号ごとに決まっている
         // くじで当たった分だけを映す。当たりの割合は「上限の数 ÷ 光を受けている板の数」なので、
         // 数が増えるほど当たりが少しずつ辛くなる＝粒が1枚ずつ静かに減る。
-        // 押した順は決まった順で混ぜてあるので、球全体からまんべんなく散らばる＝板の格子がそのまま拡大されて壁に写らない。
+        // 当たり外れは席の番号で散らばるので、板の格子がそのまま拡大されて壁に写ることはない。
         // 「光の受け方が強い順に上位◯枚」を採る形も試したが、光の当たっている一角に粒が固まって
         // 壁の片側だけが光り、しかも格子の目がそのまま拡大されて見えた（2026-09-08 に手元で見てくじに変えた）。
         // 「◯枚おきに1枚」の間引きも、間隔が2枚おきから3枚おきへ変わる瞬間に粒が一斉に入れ替わるのでやめた
@@ -1523,7 +1696,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           // 1枚ごとに重くのしかかる。以前は板が数千枚になる格子があったのでここで切っていたが、
           // 席が 840 枚で固定になり、板も1枚ずつ大きいので、なめらかに整えたまま貼る（縁のぎざぎざを出さない）
           for (let k = 0; k < filled; k++) {
-            const slot = order[k];
+            const slot = occ[k];
             const sp = ball.sprites[slot];
             if (!sp) continue;
             const o = slot * 4;
@@ -1539,9 +1712,11 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
               // 手前の板と同じ内積で測る。映す先は今までと同じで、球の中心から板の画面位置の向きへ WALL_MAG 倍の所。
               // 板が動画に隠れているかは問わない（動画の裏の板の光も壁には届く＝序盤の「裏で何か光っている」手掛かり）。
               // ここでは位置と色を控えるだけで、貼るのは板を全部描いた後（3.）
-              // くじは押した順の番号から毎回同じ数を作る＝同じ板はずっと映り続ける（ちらつかない）
+              // くじは席の番号から毎回同じ数を作る＝同じ板はずっと映り続ける（ちらつかない）。
+              // 席を取った順（k）から作ると、取り消しや貼り替えで並びがずれた時に
+              // 壁の粒が一斉に入れ替わってしまう
               const db = x1 * Lx + y2 * Ly - z2 * Lz;                // 奥の板がどれだけ光を受けているか（0〜1）
-              const hk = ((k * 2654435761) >>> 0) / 4294967296;
+              const hk = ((slot * 2654435761) >>> 0) / 4294967296;
               if (hk < wallKeep && db > wallCut && wallN < WALL_SPOT_MAX) {
                 const wx = cx + (sx - cx) * WALL_MAG, wy = cy + (sy - cy) * WALL_MAG;
                 if (wx > -wallDia && wx < W + wallDia && wy > -wallDia && wy < H + wallDia) {
@@ -1650,7 +1825,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         for (const sk of suck) {
           const u = Math.min(1, (now - sk.t0) / sk.dur);
           // その💎に取ってある席が、いま画面のどこにあるか（回転と傾きを反映）
-          const so = order[sk.idx % seats] * 4;
+          const so = sk.seat * 4;
           const sx1 = lat[so] * cs + lat[so + 2] * sn;
           const sz1 = -lat[so] * sn + lat[so + 2] * cs;
           const sy2 = lat[so + 1] * ct - sz1 * st;
@@ -1714,7 +1889,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             const w = suckDraw.size * 2 / 0.95;
             ctx.drawImage(getPlateSprites(sk.rgb)[0], suckDraw.x - w / 2, suckDraw.y - w / 2, w, w);
           } else {
-            drawGemLive(suckDraw, lightAng);
+            drawGemLive(suckDraw);
           }
         }
 
@@ -1724,7 +1899,6 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       }
 
       if (gems.length === 0) return;
-      const lightAng = reduceMotionRef.current ? SPRITE_LIGHT : (now / 1000) * 0.35; // 全体の光の向きをゆっくり回す＝面が順番に瞬く
 
       // 光（画面座標）: 💎のまわりの小さな輪。動画の裏を通っている間は、いちばん近い額縁の辺を灯す。
       // どちらも動画の矩形を除外して描く
@@ -1766,7 +1940,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       if (bake) ctx.drawImage(bake.canvas, bake.x0, bake.y0, bake.w, bake.h);
       for (const g of gems) {
         if (g.settled) drawGemSettled(g);
-        else drawGemLive(g, lightAng);
+        else drawGemLive(g);
       }
       // 山のきらめき: 積もった💎（焼き込んだ分も含む）からランダムに1つ選び、押した時と同じ閃光を出す。
       // 画面の外や動画の裏にある💎を選んでも見えないので、画面内のものが当たるまで数回引き直す（Hop報告 2026-09-07）。
