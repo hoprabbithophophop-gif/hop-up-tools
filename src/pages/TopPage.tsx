@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import HandIcon from "./hi-tension/components/HandIcon";
 import FaIcon from "./hi-tension/components/FaIcon";
-import { faBullhorn } from "@fortawesome/free-solid-svg-icons";
+import { faBullhorn, faGem } from "@fortawesome/free-solid-svg-icons";
 import ContactModal from "@/components/ContactModal";
 import NewsNoticeLink from "@/components/NewsNoticeLink";
 
@@ -86,6 +86,13 @@ export default function TopPage() {
           style={{ display: "inline-flex", padding: "0.8rem", textDecoration: "none" }}
         >
           <FaIcon icon={faBullhorn} size={36} color="#191c1d" />
+        </Link>
+        <Link
+          to="/hai-to-diamond"
+          aria-label="灰toダイヤモンド"
+          style={{ display: "inline-flex", padding: "0.8rem", textDecoration: "none" }}
+        >
+          <FaIcon icon={faGem} size={36} color="#191c1d" />
         </Link>
       </div>
 
