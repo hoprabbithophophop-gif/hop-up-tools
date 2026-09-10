@@ -2163,25 +2163,26 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         //    額縁（動画を含む）の中は clip で除外する。合成は lighter なので、重なった所だけ明るくなる。
         //    貼るのは板を全部描いた後。粒は球の 2.4 倍の広がりに散るので板とはほとんど重ならず、
         //    重なった時も足し算で少し明るくなるだけ（主役の動画より目立たない濃さに抑えてある）
-        //    光を返した面の小さな光（2. で拾った分）も、額縁の外を守る同じ囲いの中で一緒に貼る。
+        //    粒は球の奥にある光なので、球の円の内側には貼らない（Hop指摘 2026-09-11）。
+        //    光を返した面の小さな光（2. で拾った分）は球の上のものなので、円は抜かず額縁だけを抜いた囲いで貼る。
         //    額縁の地色はこのキャンバスに塗ってあるので、囲いを外すと額縁まで明るくなってしまう
-        if ((wallN > 0 && wallAlpha > 0.01) || bloomN > 0) {
+        if (wallN > 0 && wallAlpha > 0.01) {
           const gem = Math.min(1, Math.max(0, (p - WALL_GEM_FROM) / WALL_GEM_FADE));
           const gemW = wallDia * WALL_GEM_SCALE;
           ctx.save();
+          // 囲いは2回に分けて掛ける。1回目で額縁の中を抜き、2回目で球の円を抜く＝両方を抜いた残りだけに貼る。
+          // 円を1回目と同じ経路に足すと、額縁の矩形と円が重なっている所は境目を3回またぐことになり、
+          // evenodd の数え方では逆に「貼れる側」へ返ってしまう。
+          // 円の半径は、球へ刺さった石が縁から頭を出す分まで隠すために少し大きく取る
           ctx.beginPath();
           ctx.rect(0, 0, W, H);
           ctx.rect(f.x, f.y, f.w, f.h);
           ctx.clip("evenodd");
+          ctx.beginPath();
+          ctx.rect(0, 0, W, H);
+          ctx.arc(cx, cy, r + tileV * 0.5, 0, Math.PI * 2);
+          ctx.clip("evenodd");
           ctx.globalCompositeOperation = "lighter";
-          for (let i = 0; i < bloomN; i++) {
-            const oc = i * 3;
-            const cr = bloomC[oc], cg = bloomC[oc + 1], cb = bloomC[oc + 2];
-            const dia = bloomD[i];
-            ctx.globalAlpha = Math.min(1, bloomA[i]);
-            ctx.drawImage(getWallSpot((cr << 16) | (cg << 8) | cb, cr, cg, cb),
-              bloomX[i] - dia / 2, bloomY[i] - dia / 2, dia, dia);
-          }
           for (let i = 0; i < wallN; i++) {
             const oc = i * 3;
             const cr = wallC[oc], cg = wallC[oc + 1], cb = wallC[oc + 2];
@@ -2197,6 +2198,25 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
               ctx.globalAlpha = Math.min(1, wallAlpha * wallW[i] * WALL_GEM_ALPHA * gem);
               ctx.drawImage(sp2, wallX[i] - gemW / 2, wallY[i] - gemW / 2, gemW, gemW);
             }
+          }
+          ctx.globalAlpha = 1;
+          ctx.restore();
+        }
+        // 面が返した光は球の上にあるので、額縁だけを抜いた囲いで貼る
+        if (bloomN > 0) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, 0, W, H);
+          ctx.rect(f.x, f.y, f.w, f.h);
+          ctx.clip("evenodd");
+          ctx.globalCompositeOperation = "lighter";
+          for (let i = 0; i < bloomN; i++) {
+            const oc = i * 3;
+            const cr = bloomC[oc], cg = bloomC[oc + 1], cb = bloomC[oc + 2];
+            const dia = bloomD[i];
+            ctx.globalAlpha = Math.min(1, bloomA[i]);
+            ctx.drawImage(getWallSpot((cr << 16) | (cg << 8) | cb, cr, cg, cb),
+              bloomX[i] - dia / 2, bloomY[i] - dia / 2, dia, dia);
           }
           ctx.globalAlpha = 1;
           ctx.restore();
