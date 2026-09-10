@@ -49,8 +49,32 @@ export const s = {
   } as CSSProperties,
 };
 
-/** 一覧の1件ぶん。押せる範囲を行ぜんたいに広げる */
+/** 引用（原文）の枠 */
+export const quote = {
+  margin: "0 0 0.75rem",
+  padding: "0.75rem 0.9rem",
+  background: "#fafafa",
+  borderLeft: "3px solid #E5457D",
+  fontSize: "0.8125rem",
+  lineHeight: 1.7,
+  color: "#444",
+  overflowWrap: "anywhere" as const,
+};
+
+/** 一覧の1件ぶんと、検証の表。狭い画面では表の形をやめて1件ずつの積み重ねに変える */
 export const LIST_CSS = `
+.news-check { width: 100%; border-collapse: collapse; font-size: 0.8125rem; margin: 0 0 0.75rem; }
+.news-check th, .news-check td { text-align: left; vertical-align: top; padding: 0.5rem 0.6rem; border-bottom: 1px solid #eee; }
+.news-check th { font-weight: 700; color: #555; background: #fafafa; white-space: nowrap; }
+.news-check td:first-child { font-weight: 700; }
+@media (max-width: 480px) {
+  .news-check, .news-check tbody, .news-check tr, .news-check td { display: block; width: 100%; }
+  .news-check thead { display: none; }
+  .news-check tr { border: 1px solid #eee; padding: 0.55rem 0.75rem; margin-bottom: 0.5rem; }
+  .news-check td { border: 0; padding: 0.15rem 0; }
+  .news-check td::before { content: attr(data-label) "："; color: #999; font-size: 0.75rem; }
+  .news-check td:first-child::before { content: "動画："; }
+}
 .news-row { display: block; text-decoration: none; color: inherit; padding: 1rem 0; border-bottom: 1px solid #eee; }
 .news-row:hover .news-title { color: #E5457D; }
 .news-title { font-size: 0.9375rem; font-weight: 700; margin: 0.35rem 0 0; line-height: 1.6; }

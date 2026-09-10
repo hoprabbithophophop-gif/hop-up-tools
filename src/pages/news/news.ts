@@ -4,7 +4,7 @@
 // データベースは使わない＝お知らせを1件足すのは、そのファイルに1件書き足すだけで済む。
 //
 // 1件に要るのは3つ。日付・タイトル・本文。
-// 「更新履歴」は、その回にだけ付ける任意の欄で、無くても出せる。
+// 「根拠」「検証」「更新履歴」は、その回にだけ付ける任意の欄で、無くても出せる。
 import raw from "@/data/news.json";
 
 export type NewsItem = {
@@ -15,6 +15,21 @@ export type NewsItem = {
   title: string;
   /** 本文。改行はそのまま出す */
   body: string;
+  /** 任意。「根拠」。公式の文の原文・和訳・出どころへのリンク */
+  evidence?: {
+    heading: string;
+    quote: string;
+    translation: string;
+    sourceLabel: string;
+    sourceUrl: string;
+  };
+  /** 任意。「検証」。実際に試した結果の表 */
+  verification?: {
+    heading: string;
+    rows: { video: string; start: string; before: string; after: string }[];
+    /** 表の下に置く但し書き */
+    note: string;
+  };
   /** 任意。「更新履歴」 */
   changelog?: {
     heading: string;
