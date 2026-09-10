@@ -13,6 +13,7 @@ import { getLastSelectedMemberId, setLastSelectedMemberId, getOrCreateAnonymousS
 import { submitHiSessions } from "../hi-tension/api";
 import { fetchReplay, type ReplayRow } from "./replay";
 import DiamondCanvas, { type DiamondCanvasApi } from "./DiamondCanvas";
+import { stonesSettled } from "./gemSprites";
 import DiamondEntry from "./DiamondEntry";
 import DiamondColorCarousel from "./DiamondColorCarousel";
 import DiamondColorPages from "./DiamondColorPages";
@@ -111,6 +112,17 @@ function buildHeatLevels(rows: ReplayRow[]): number[] {
 const DIAMOND_COLOR_OPTIONS = DIAMOND_COLOR_ORDER.map((id) => ({ id, color: findDiamondMember(id)?.color ?? "#ffffff" }));
 /** ユニットごとのページに並べる色。こちらも中身は変わらないので1度だけ作る */
 const DIAMOND_COLOR_PAGE_OPTIONS = DIAMOND_COLOR_PAGES.map((ids) => ids.map((id) => ({ id, color: findDiamondMember(id)?.color ?? "#ffffff" })));
+/** 焼き上がりを見張る色の一覧。DiamondCanvas が焼くよう頼んでいるのと同じ作り方にする＝
+ *  頼んでいない色を待ってしまうことがない */
+const DIAMOND_GEM_HEXES = DIAMOND_COLOR_ORDER.map((id) => findDiamondMember(id)?.color).filter((c): c is string => !!c);
+/** 焼き上がりを何ミリ秒ごとに見に行くか */
+const GEMS_POLL_MS = 200;
+/** ここまで経ったら、焼き上がっていなくても待つのをやめる【仮】。
+ *  遅い端末で入口に閉じ込めないための保険 */
+const GEMS_WAIT_CAP_MS = 15000;
+/** ページを開いてからここまで待っても支度がそろわなかったら、
+ *  入口の案内文を待たせている旨に切り替える【仮】。石だけでなく動画も含めた支度全体の話 */
+const SLOW_NOTICE_MS = 5000;
 
 function isTouchDevice(): boolean {
   return /iPhone|iPad|iPod|Android/.test(navigator.userAgent);
@@ -138,6 +150,33 @@ export default function HaiToDiamondPage() {
   const memberIdRef = useRef(memberId);
   /** 入口の💎を押して曲を始めたか。false の間は入口を出す */
   const [started, setStarted] = useState(false);
+  /** 動画が届いて再生ボタンを押せる状態になったか。届く前は入口の案内文を「読み込んでいます」にする */
+  const [videoReady, setVideoReady] = useState(false);
+  /** 💎の立体の絵が色ぜんぶぶん焼き上がったか。焼き上がる前に曲が始まると、
+   *  焼けていない色の席に代わりの平らな板が貼られて石と混ざるので、それまで再生を止めておく。
+   *  一度立ったら下ろさない＝「最初に戻る」で入口へ帰っても、焼けた絵はそのまま残っている */
+  const [gemsReady, setGemsReady] = useState(false);
+  // 焼き上がりを見に行く。ページを開いた時点から始め、色ぜんぶが済むか、
+  // 保険の時間が過ぎたら止める。遅い端末で入口に閉じ込めないための保険つき
+  useEffect(() => {
+    if (gemsReady) return;
+    const check = () => { if (stonesSettled(DIAMOND_GEM_HEXES)) setGemsReady(true); };
+    check();
+    const poll = setInterval(check, GEMS_POLL_MS);
+    const cap = setTimeout(() => setGemsReady(true), GEMS_WAIT_CAP_MS);
+    return () => { clearInterval(poll); clearTimeout(cap); };
+  }, [gemsReady]);
+  /** 動画も石もそろって、再生ボタンを押せる状態になったか */
+  const entryReady = videoReady && gemsReady;
+  /** 押せるようになるまでの支度が長引いているか。入口の案内文を、待たせている旨に切り替えるのに使う */
+  const [loadingSlow, setLoadingSlow] = useState(false);
+  // ページを開いた時から数えて、動画と石の両方がそろわないまま SLOW_NOTICE_MS 経ったら合図を立てる。
+  // どちらが先にそろっても、残りを待っている間は立ちうる。両方そろえば用済みなので下ろす
+  useEffect(() => {
+    if (entryReady) { setLoadingSlow(false); return; }
+    const t = setTimeout(() => setLoadingSlow(true), SLOW_NOTICE_MS);
+    return () => clearTimeout(t);
+  }, [entryReady]);
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
   /** 一時停止中（YouTube純正の操作で止められた間）。曲の途中で押しても💎が降らないようにするための状態。
@@ -311,6 +350,9 @@ export default function HaiToDiamondPage() {
   }, [submitOnce]);
 
   const handleEnded = useCallback(() => { finish(); }, [finish]);
+
+  /** 動画が届いた合図。入口の案内文を「読み込んでいます」から「押すとはじまります」へ切り替える */
+  const handleVideoReady = useCallback(() => { setVideoReady(true); }, []);
 
   // 動画上の YouTube 純正の再生ボタンから始めた場合も拾う。1=再生中 / 2=一時停止 / 0=終了。3=読み込み中は触らない。
   // 再生中に一時停止(2)が来たら「一時停止中」を立て、再生(1)に戻ったら下ろす（Hop決定 2026-09-08）
@@ -507,7 +549,7 @@ export default function HaiToDiamondPage() {
       {/* 入口。本編（プレイヤー込み）は常時マウントし、その上に重ねる＝「はじめる」の時点でプレイヤーが準備済み */}
       {!started && (
         <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
-          <DiamondEntry videoBottom={heatBox?.top ?? null} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} onOpenSettings={() => setSettingsOpen(true)} reduceMotion={settings.reduceMotion} />
+          <DiamondEntry videoBottom={heatBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} onOpenSettings={() => setSettingsOpen(true)} reduceMotion={settings.reduceMotion} />
         </div>
       )}
       {settingsOpen && (
@@ -534,7 +576,7 @@ export default function HaiToDiamondPage() {
         }}
       >
         <div ref={videoBoxRef}>
-          <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} />
+          <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} onReady={handleVideoReady} holdLoading={!gemsReady} />
         </div>
       </div>
 

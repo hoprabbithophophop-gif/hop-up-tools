@@ -57,6 +57,8 @@ const SUPERSAMPLE = 2;
 
 // 外形を canvas の何割に収めるか。
 const FIT = 0.95;
+/** 上と同じ値を外へ。絵の中で石が何pxぶんの大きさに焼かれているかを、貼る側が逆算するのに使う */
+export const GEM_FIT = FIT;
 
 // 石の身の色の濃さ。大きいほど濃い色になり、小さいほど淡くなる。
 const ABSORB_K = 0.95;

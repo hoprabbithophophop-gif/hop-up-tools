@@ -5,6 +5,9 @@
 // このツールは公式動画の再生回数に足すために作っているので、数えられる始め方に合わせる。
 // そのため、この画面は動画の場所を空けたまま上下に置かれる＝真ん中は動画が見えている。
 // 見出し・副題・歯車は色を選ぶ版(DiamondMemberSelect.tsx)と同じものをそのまま移した。
+// 動画の下の案内文は3段。支度の途中は「動画を読み込んでいます」、それが長引いたら
+// 「準備に少し時間がかかっています」【仮】、支度が済んだら「動画の再生ボタンを押すと はじまります」。
+// 【仮】と付いた文はHopが差し替える。
 import { useEffect, useRef, useState } from "react";
 import { ARENA_BG } from "../hi-tension/data";
 import FacetGem from "./FacetGem";
@@ -47,13 +50,17 @@ interface Props {
   total: number | null;
   /** 動画の矩形の下端（ページの上端からの px）。案内と累計をその真下に置く。測れていなければ null */
   videoBottom: number | null;
+  /** 動画が届いて再生ボタンを押せる状態か。届く前は「読み込んでいます」を出す */
+  videoReady: boolean;
+  /** 支度が長引いているか。videoReady が false のまま長く待たせている時に立つ */
+  loadingSlow: boolean;
   /** 右上の歯車（表示設定） */
   onOpenSettings?: () => void;
   /** 動き軽減（瞬きを止める） */
   reduceMotion?: boolean;
 }
 
-export default function DiamondEntry({ total, videoBottom, onOpenSettings, reduceMotion = false }: Props) {
+export default function DiamondEntry({ total, videoBottom, videoReady, loadingSlow, onOpenSettings, reduceMotion = false }: Props) {
   const [isLandscape, setIsLandscape] = useState<boolean>(() => {
     try { return window.matchMedia("(orientation: landscape)").matches; } catch { return false; }
   });
@@ -148,7 +155,11 @@ export default function DiamondEntry({ total, videoBottom, onOpenSettings, reduc
             lineHeight: 1.5,
           }}
         >
-          動画の再生ボタンを押すと はじまります
+          {videoReady
+            ? "動画の再生ボタンを押すと はじまります"
+            : loadingSlow
+              ? "準備に少し時間がかかっています"
+              : "動画を読み込んでいます"}
         </p>
         {/* 数字が読めるまではラベルも出さない（ラベルだけ浮くと壊れて見える） */}
         {shownTotal !== null && (

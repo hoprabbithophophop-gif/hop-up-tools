@@ -21,9 +21,13 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 // 💎の絵はここから受け取る。落ちてくる💎と積もった💎は、屈折・全反射・分散まで計算した本物（gemRenderer.ts）。
 // まだ焼けていない色と、WebGL が使えない端末では、今までの平らな面の絵（gemFacets.ts）が返る。
-// gemFacets.ts に面の形のデータを1本化した。ミラーボールの板（getPlateSprites）と入口の大きな💎は今までのまま
+// gemFacets.ts に面の形のデータを1本化した。入口の大きな💎は今までのまま。
+// ミラーボールの席も本編は立体の石で、焼き上がっていない色だけ上から見た板の絵が代役に立つ
 import { hexToRgb } from "./gemFacets";
-import { getStoneSprites, requestStoneSpritesByHex, stoneIndex, warmUpGemRenderer, SPRITE_LIGHT, TUMBLE_PATHS, requestAllStoneSprites } from "./gemSprites";
+import {
+  getStoneSprites, requestStoneSpritesByHex, stoneIndex, warmUpGemRenderer, SPRITE_LIGHT, TUMBLE_PATHS, requestAllStoneSprites,
+  STONE_PX, STONE_AXIS, STONE_FACE_INDEX, STONE_LOCAL_PX, stoneIndexForDepth, stoneGeneration, hasRealStoneSprites,
+} from "./gemSprites";
 import { DIAMOND_COLOR_ORDER, findDiamondMember } from "./members";
 // ミラーボールの席を色ごとにまとめるための、目に見える色の近さの物差しと、色ごとの居場所
 import { colorDistance, colorHome, type ColorHome, type Rgb } from "./ballColors";
@@ -156,6 +160,12 @@ type Ball = {
   seq: number;
   /** 取った席の通し番号（色でまとめない時に使う）。決まった混ぜ順の何番目まで使ったか */
   reserved: number;
+  /** 席に貼ってあるのがどちらの絵か。0＝板・1＝石。
+   *  貼り方も明暗の付け方も別なので、描く時にここで振り分ける。空いている席の中身は見ない */
+  kind: Uint8Array;
+  /** 席へ貼った絵が「何代目」のものか。色の本物が焼き上がるたびに元の数が1増えるので、
+   *  この数とずれていたら、埋まっている席の絵をまとめて引き直す。毎フレーム引きに行かないための目印 */
+  spriteGen: number;
 };
 /** 夜空の星（画面座標）。位置は星空の絵へ焼き込んだ後も、瞬きの抽選のために覚えておく */
 type SkyStar = { x: number; y: number; d: number; rgb: [number, number, number] };
@@ -230,11 +240,9 @@ const BALL_ZOOM_EASE = 3;        // 拡大率を目当ての値へ寄せる速�
                                  // 拡大率まで一足飛びに変わらないようにする【仮】
 const BALL_SPIN_SEC = 20;        // 縦の軸まわりに1周する秒数
 const BALL_TILT = 0.3;           // 軸の傾き(rad)。まっすぐ立っているより少し傾いている方が球に見える
-const BALL_TILE_FILL = 1.0;      // 板を貼る大きさ（隣の席との間隔の何倍か）【仮】。ちょうど間隔いっぱいまで貼る。
-                                 // 板と板の間の細い隙間は、板の絵そのものが枠より内側で切ってある（PLATE_R = 0.96）分だけ残る
-                                 // ＝八角形の輪郭は1枚ずつ見えたまま、隙間は「穴」に見えない細さになる（Hop決定 2026-09-08）。
-                                 // 0.95 では 隙間 ≒ 間隔の 9% ぶんあり、暗い穴がぽつぽつ空いて見えた。
-                                 // さらに以前は 1.25 で板どうしを重ねて継ぎ目を埋めていた。重ねない方が塗る面積も減って軽い
+const BALL_TILE_FILL = 1.0;      // 石を貼る大きさ（隣の席との間隔の何倍か）【仮】。石の腰の太さが、ちょうど席の間隔いっぱいになる。
+                                 // 石は球へ刺さっているので、隣どうしは横から見ると重なり、真正面から見ると腰が触れ合う。
+                                 // 平らな板を貼っていた頃は、板と板の隙間が穴に見えないようこの値を詰めていた（Hop決定 2026-09-08）
 const BALL_TILE_MIN = 2.5;       // 板の最小の大きさ(px)。拡大率が低いうちに1px を切ると消えてしまう【仮】
 const BALL_HL_CUT = 0.985;       // 板の向きがこれ以上まっすぐ光を返している時だけ、中央の面が白く光る。
                                  // 緩めると光る板が増えすぎて、白い塊になって球に見えなくなる
@@ -292,10 +300,8 @@ const WALL_FLASH = 2.2;          // 奥の板がちょうど光を返す向き�
 // カメラがまだ寄っていない間は板1枚が小さく、白い瞬きも小さすぎて瞬いたことが分かりにくい。
 // そこで瞬いている板の周りにだけ、壁の粒と同じ「色ごとに一度描いた光の絵」を少し大きく薄く重ねて滲みを足す。
 // 瞬いている板は同時に数十枚しかないので、貼る回数はほとんど増えない（Hop決定 2026-09-08）。
-// 効かせるかどうかは板の見た目の大きさで決める＝カメラが寄って板が大きくなれば自然に消える
-const BLOOM_MAX = 96;            // 一度に滲みを出す板の数の上限【仮】
-const BLOOM_TILE_FROM = 26;      // 板の高さ(px)がこれを下回ったら滲みが出はじめる【仮】
-const BLOOM_TILE_FULL = 16;      // 同上、ここまで小さくなったら滲みが最も濃くなる【仮】
+// 出すのは、ちょうど光を返す向きに来た石。大きさに関わらず出す
+const BLOOM_MAX = 96;            // 一度に滲みを出す石の数の上限【仮】
 const BLOOM_SCALE = 1.6;         // 滲みの大きさ（板の高さの何倍か）【仮】
 const BLOOM_ALPHA = 0.5;         // 滲みの濃さ【仮】。主役は動画なので、板そのものより目立たせない
 // 夜空へ放つ瞬間、壁の粒（直径40px前後）はその場で星（2〜4px）になる。
@@ -308,7 +314,7 @@ const WALL_TO_STAR_CORE = 0.22;  // 粒の絵のうち「芯」に見える割�
 const SEAT_FOLLOW = 8;           // 席の動きを追いかける速さ（1秒あたり）。席が回転で動画の裏へ入った時に
                                  // 行き先が中心へ移るのも、この速さでなめらかに動く＝飛び先が跳ばない【仮】
 const SEAT_FACE_MS = 200;        // 席にはめ込まれる直前のこの時間だけ、飛んでいる💎の絵を
-                                 // 「横から見た💎」から「上から見た八角形」＝板と同じ絵に差し替える。
+                                 // 「飛んでいる向きの💎」から「その席に収まった時の向きの💎」に差し替える。
                                  // 絵を差し替えるだけで、回して見せる演出はしない（Hop決定 2026-09-08）【仮】
 
 // 積もった💎も落ちてくる💎も、毎フレーム面を計算せず、色×石の向きごとに一度焼いた小さな絵(スプライト)を貼る。
@@ -342,6 +348,13 @@ function getGlow(rgb: [number, number, number]): { halo: HTMLCanvasElement; edge
   glowCache.set(key, g);
   return g;
 }
+// ミラーボールの表面は、球に貼った平らな板ではなく、球へ刺さった立体の💎にする。
+// 貼るのは落ちてくる💎・積もった💎と同じ、焼いてある96枚の絵。窓口は gemSprites.ts の getStoneSprites。
+// 席の向きに合う姿勢の1枚を選んで貼るので、球の正面の席は真上から見た姿、縁の席は横顔になり、
+// 石が球から生えているように見える。まだ焼けていない色と、立体を描けない端末では、
+// 焼き上がるまでの代役として下の板の絵を貼る。
+
+// 板は、その色の立体の絵が焼き上がるまでの間の代役。焼けた色の席は下の石に差し替わる。
 // ミラーボールの板の絵: 上から見たブリリアントカットの💎（王冠側）。
 // ミラーボールの板は正面（外）を向いているので、横から見た💎を潰して貼るのではなくこの形にする（Hop決定 2026-09-08）。
 //
@@ -924,8 +937,10 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     taken: new Uint8Array(BALL_SEATS),
     byColor: new Map<string, number[]>(),
     age: new Float64Array(BALL_SEATS),
+    kind: new Uint8Array(BALL_SEATS),
     seq: 0,
     reserved: 0,
+    spriteGen: 0,
   });
   /** 球を空にする（最初に戻す時・方式を替えた時・夜空へ放った時）。席の並びも大きさも固定なので、中身を消すだけ */
   const clearBall = (ball: Ball) => {
@@ -936,8 +951,10 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     ball.taken = new Uint8Array(BALL_SEATS);
     ball.byColor = new Map<string, number[]>();
     ball.age = new Float64Array(BALL_SEATS);
+    ball.kind = new Uint8Array(BALL_SEATS);
     ball.seq = 0;
     ball.reserved = 0;
+    ball.spriteGen = 0;
   };
   const sizeRef = useRef({ W: 0, H: 0 });
   /** 動画本体の矩形（キャンバスの中の画面座標）。毎フレーム測った値をここに控えて、
@@ -1169,7 +1186,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     const wallY = new Float32Array(WALL_SPOT_MAX);
     const wallC = new Uint8Array(WALL_SPOT_MAX * 3);              // 粒の色（3つ組）
     const wallW = new Float32Array(WALL_SPOT_MAX);                // 濃さの重み（足切りのすぐ上は薄く・瞬いた板は明るく）
-    const wallP: (HTMLCanvasElement[] | null)[] = new Array(WALL_SPOT_MAX).fill(null);  // 終盤に重ねる💎の絵（板と同じもの）
+    const wallP: (HTMLCanvasElement | null)[] = new Array(WALL_SPOT_MAX).fill(null);  // 終盤に重ねる💎の絵。一番こちらを向いた1枚
     let wallN = 0;
     // いま壁に映している粒の直径(px)と濃さ。夜空へ放つ時に「この大きさ・この濃さから縮む」の出発点として読む
     let wallDiaNow = 0;
@@ -1180,6 +1197,27 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     const bloomC = new Uint8Array(BLOOM_MAX * 3);
     const bloomA = new Float32Array(BLOOM_MAX);   // 濃さ（瞬きの強さに比例）
     let bloomN = 0;
+    // 手前側の石は、奥にあるものから順に描かないと重なりが逆になる。
+    // 毎フレーム並べ替えの入れ物を作ると押した数だけゴミが出るので、席の数ぶんを先に用意して使い回す。
+    // 毎フレーム数え直すのは長さ ballFrontN だけ
+    const ballSeatZ = new Float32Array(BALL_SEATS);   // 席ごとの奥行き。並べ替えの物差しになる
+    const ballFront = new Int32Array(BALL_SEATS);     // 手前側にあって実際に描く、石の席の番号
+    let ballFrontN = 0;
+    // 代役の板が立っている席。石とは貼り方も明暗の付け方も違うので別に数える。並べ替えはしない
+    const ballPlate = new Int32Array(BALL_SEATS);
+    let ballPlateN = 0;
+    // 石は別の紙に濃いまま描いてから、描いた所だけを暗くして本紙へ貼る。
+    // 1つずつ薄く貼ると、刺さって重なった所で向こう側の石が透けてしまう。
+    // 紙はキャンバスの大きさが変わった時だけ作り直す
+    let ballLay: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null = null;
+    const getBallLayer = () => {
+      if (ballLay && ballLay.canvas.width === canvas.width && ballLay.canvas.height === canvas.height) return ballLay;
+      const c = document.createElement("canvas");
+      c.width = canvas.width; c.height = canvas.height;
+      const lctx = c.getContext("2d");
+      ballLay = lctx ? { canvas: c, ctx: lctx } : null;
+      return ballLay;
+    };
     // 夜空へ放った瞬間、壁の粒が縮んで星になるまでの途中の姿（画面座標）。縮み終わったら星にして空へ焼き込む
     const wallFade: { x: number; y: number; rgb: [number, number, number]; t0: number; d0: number; a0: number; d1: number }[] = [];
     // 吸い込まれ中の💎を描く時の使い回しの入れ物（1個ずつ作ると押した数だけゴミが出る）
@@ -1696,19 +1734,38 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const ball = getBall();
         const lightAng = reduceMotionRef.current ? SPRITE_LIGHT : (now / 1000) * 0.35;
         const suck = suckRef.current;
-        // 1. 飛び終わった💎を球の表面の板にする。貼る場所は、押した時に取っておいた席（sk.seat）。
-        //    席は色ごとにまとまるように決めてあるので、同じ色の板が隣り合って塊になる。
-        //    席が全部埋まった後に取った席は、いちばん古い板の貼り替えになる
+        // 1. 飛び終わった💎を球の表面へ刺す。刺す場所は、押した時に取っておいた席（sk.seat）。
+        //    席は色ごとにまとまるように決めてあるので、同じ色の石が隣り合って塊になる。
+        //    席が全部埋まった後に取った席は、いちばん古い石の差し替えになる
         const lv = getBallLattice();
         for (let i = suck.length - 1; i >= 0; i--) {
           const sk = suck[i];
           if (now - sk.t0 < sk.dur) continue;
           const slot = sk.seat;
-          ball.sprites[slot] = getPlateSprites(sk.rgb);   // 貼る絵はここで1回だけ引く（毎フレーム引くと重い）
+          // 貼る絵はここで1回だけ引く（毎フレーム引くと重い）。
+          // その色の立体がまだ焼けていなければ、焼き上がるまでは板の絵で代役を立てる
+          const real = hasRealStoneSprites(sk.rgb);
+          ball.sprites[slot] = real ? getStoneSprites(sk.rgb) : getPlateSprites(sk.rgb);
+          ball.kind[slot] = real ? 1 : 0;
           ball.rgb[slot * 3] = sk.rgb[0];
           ball.rgb[slot * 3 + 1] = sk.rgb[1];
           ball.rgb[slot * 3 + 2] = sk.rgb[2];
           suck.splice(i, 1);
+        }
+        // どこかの色が焼き上がったら、埋まっている席ぶんだけ引き直す。
+        // 代役の板が立っていた席は、ここで石に差し替わる。
+        // 引き直すのは焼き上がった時だけで、毎フレームではない
+        const gen = stoneGeneration();
+        if (ball.spriteGen !== gen) {
+          for (const slot of ball.occ) {
+            if (!ball.sprites[slot]) continue;
+            const oc = slot * 3;
+            const rgb: [number, number, number] = [ball.rgb[oc], ball.rgb[oc + 1], ball.rgb[oc + 2]];
+            const real = hasRealStoneSprites(rgb);
+            ball.sprites[slot] = real ? getStoneSprites(rgb) : getPlateSprites(rgb);
+            ball.kind[slot] = real ? 1 : 0;
+          }
+          ball.spriteGen = gen;
         }
         // 見に行くのは「取ってある席」の全部。着いた席だけに絞ると、
         // 取った順と着く順がずれた板（＝先に押した💎がまだ飛んでいる間に着いた板）が
@@ -1759,19 +1816,41 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const wallLit = filled * (1 - wallCut) / 2;   // だいたい何枚が光を受けているか（球の上でその向きが占める割合から）
         const wallKeep = Math.min(1, WALL_SPOT_MAX / Math.max(1, wallLit));
         wallN = 0;
-        // 瞬いている板の周りに足す滲みの濃さ。板が小さい段ほど濃く、板が大きい段では出さない
-        const bloomK = Math.min(1, Math.max(0, (BLOOM_TILE_FROM - tileV) / Math.max(1, BLOOM_TILE_FROM - BLOOM_TILE_FULL)));
         bloomN = 0;
 
-        // 2. 球の表面: 縦の軸まわりに回して少し傾け、手前側の板だけを描く。
-        //    板は💎の絵（積もった💎と同じもの）を球の表面に貼ったもの。奥側と、動画にすっかり隠れる板は描かない。
-        //    ついでに、壁に映る粒の元になる板（光を受けている奥側の板）をここで拾っておく
+        // 2. 球の表面: 縦の軸まわりに回して少し傾け、席ごとに💎を1つずつ球へ刺す。
+        //    貼るのは、席の向きの奥行きに一番近い姿勢の絵。正面の席は真上から見た姿、縁の席は横顔になり、
+        //    石が球から生えて見える。刺さった石は隣と重なるので、描く順番が要る。
+        //    奥側の石 → 土台の球 → 手前側の石 の順に重ね、手前側は奥にあるものから先に描く。
+        //    まだ焼けていない色の席には、代役の板を消す前と同じ貼り方で最後に貼る。
+        //    板は隣と重ならず自分で明暗を持っているので、石とは別の紙立てになる。
+        //    ついでに、壁に映る粒の元になる席（光を受けている奥側の席）をここで拾っておく
         if (filled > 0) {
-          const half = tileV * 0.6;   // 画面からはみ出した板を弾くための目安（横幅は段の間隔の1.2倍まで）
+          const half = tileV * 0.6;   // 画面からはみ出した石を弾くための目安（横幅は段の間隔の1.2倍まで）
           const flash = !reduceMotionRef.current;
-          // 板は1枚ずつ回して潰して貼る＝縦横に揃っていない貼り方なので、絵をなめらかに整える処理が
-          // 1枚ごとに重くのしかかる。以前は板が数千枚になる格子があったのでここで切っていたが、
-          // 席が 840 枚で固定になり、板も1枚ずつ大きいので、なめらかに整えたまま貼る（縁のぎざぎざを出さない）
+          const layer = getBallLayer();
+          // 石は濃いまま別の紙へ描き、描いた所だけを後で暗くしてから本紙へ貼る。
+          // 紙を用意できない端末では本紙へ直に描き、明暗を掛けるのは諦める
+          const g = layer ? layer.ctx : ctx;
+          if (layer) {
+            g.setTransform(1, 0, 0, 1, 0, 0);
+            g.clearRect(0, 0, layer.canvas.width, layer.canvas.height);
+          }
+          /** 席1つぶんの石を刺す。絵の中で石の頭が向いている先を、球の外へ向かう向きへ回して合わせる */
+          const drawSeatStone = (sp: HTMLCanvasElement[], x1: number, y2: number, z2: number, sx: number, sy: number, tileU: number) => {
+            const gemD = Math.min(tileU, tileV);                      // 石の腰の直径(px)
+            const size = (STONE_PX * gemD) / (2 * STONE_LOCAL_PX);    // 絵を貼る一辺(px)
+            const idx = stoneIndexForDepth(z2);
+            const a = STONE_AXIS[idx];
+            const ang = Math.atan2(-y2, x1) - Math.atan2(-a.y, a.x);
+            g.setTransform(dpr, 0, 0, dpr, 0, 0);
+            g.translate(sx, sy);
+            g.rotate(ang);
+            g.drawImage(sp[idx], -size / 2, -size / 2, size, size);
+            g.setTransform(dpr, 0, 0, dpr, 0, 0);
+          };
+          ballFrontN = 0;
+          ballPlateN = 0;
           for (let k = 0; k < filled; k++) {
             const slot = occ[k];
             const sp = ball.sprites[slot];
@@ -1782,17 +1861,18 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             const y2 = lat[o + 1] * ct - z1 * st;
             const z2 = lat[o + 1] * st + z1 * ct;
             const sx = cx + x1 * r, sy = cy - y2 * r;
+            const tileU = Math.max(BALL_TILE_MIN, tileK * lat[o + 3]);
             if (z2 <= 0) {
-              // 奥側の板。板そのものは描かないが、壁に映る粒の元はこちら。
-              // 壁に届く光は球の向こう側の面が返したものなので、粒は手前の板と逆向きに流れる。
-              // 奥の板が光を受けているかどうかは、光の向きの奥行きだけ裏返して（＝奥から当たる光として）
-              // 手前の板と同じ内積で測る。映す先は今までと同じで、球の中心から板の画面位置の向きへ WALL_MAG 倍の所。
-              // 板が動画に隠れているかは問わない（動画の裏の板の光も壁には届く＝序盤の「裏で何か光っている」手掛かり）。
-              // ここでは位置と色を控えるだけで、貼るのは板を全部描いた後（3.）
-              // くじは席の番号から毎回同じ数を作る＝同じ板はずっと映り続ける（ちらつかない）。
-              // 席を取った順（k）から作ると、取り消しや貼り替えで並びがずれた時に
+              // 奥側の石。壁に映る粒の元はこちら。
+              // 壁に届く光は球の向こう側の面が返したものなので、粒は手前の石と逆向きに流れる。
+              // 奥の石が光を受けているかどうかは、光の向きの奥行きだけ裏返して（＝奥から当たる光として）
+              // 手前の石と同じ内積で測る。映す先は今までと同じで、球の中心から石の画面位置の向きへ WALL_MAG 倍の所。
+              // 石が動画に隠れているかは問わない（動画の裏の石の光も壁には届く＝序盤の「裏で何か光っている」手掛かり）。
+              // ここでは位置と色を控えるだけで、貼るのは石を全部描いた後（3.）
+              // くじは席の番号から毎回同じ数を作る＝同じ石はずっと映り続ける（ちらつかない）。
+              // 席を取った順（k）から作ると、取り消しや差し替えで並びがずれた時に
               // 壁の粒が一斉に入れ替わってしまう
-              const db = x1 * Lx + y2 * Ly - z2 * Lz;                // 奥の板がどれだけ光を受けているか（0〜1）
+              const db = x1 * Lx + y2 * Ly - z2 * Lz;                // 奥の石がどれだけ光を受けているか（0〜1）
               const hk = ((slot * 2654435761) >>> 0) / 4294967296;
               if (hk < wallKeep && db > wallCut && wallN < WALL_SPOT_MAX) {
                 const wx = cx + (sx - cx) * WALL_MAG, wy = cy + (sy - cy) * WALL_MAG;
@@ -1802,20 +1882,98 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
                   wallC[wallN * 3] = ball.rgb[oc];
                   wallC[wallN * 3 + 1] = ball.rgb[oc + 1];
                   wallC[wallN * 3 + 2] = ball.rgb[oc + 2];
-                  // 足切りのすぐ上の板は薄く（ふっと現れ・ふっと消える）。
-                  // ちょうど光を返す向きに来た板の粒は一瞬明るくする＝手前の板が白く瞬くのと同じ合図
+                  // 足切りのすぐ上の石は薄く（ふっと現れ・ふっと消える）。
+                  // ちょうど光を返す向きに来た石の粒は一瞬明るくする＝手前の石が白く瞬くのと同じ合図
                   wallW[wallN] = Math.min(1, (db - wallCut) / WALL_FADE_BAND)
                     * (!reduceMotionRef.current && db > BALL_HL_CUT ? WALL_FLASH : 1);
-                  wallP[wallN] = sp;
+                  wallP[wallN] = sp[ball.kind[slot] ? STONE_FACE_INDEX : 0];
                   wallN++;
                 }
               }
+              // 板は球の表面から出っ張らないので、奥側の分は今までどおり描かない
+              if (!ball.kind[slot]) continue;
+              // 石は奥側でも、土台の球からはみ出した頭が見える。粒を拾い終えてから、
+              // 画面の外と、動画にすっかり隠れる分を落として描く
+              if (sx < -half || sx > W + half || sy < -half || sy > H + half) continue;
+              if (sx - half > v.x && sx + half < v.x + v.w && sy - half > v.y && sy + half < v.y + v.h) continue;
+              drawSeatStone(sp, x1, y2, z2, sx, sy, tileU);
               continue;
             }
-            const d = x1 * Lx + y2 * Ly + z2 * Lz;                   // その板がどれだけ光を受けているか（0〜1）
+            const d = x1 * Lx + y2 * Ly + z2 * Lz;                   // その石がどれだけ光を受けているか（0〜1）
             if (sx < -half || sx > W + half || sy < -half || sy > H + half) continue;
-            // 板がまるごと動画の中に入る＝動画に隠れて見えないので描かない（動画の縁にかかる板は裏を通るだけ）
+            // 石がまるごと動画の中に入る＝動画に隠れて見えないので描かない（動画の縁にかかる石は裏を通るだけ）
             if (sx - half > v.x && sx + half < v.x + v.w && sy - half > v.y && sy + half < v.y + v.h) continue;
+            // 手前側は土台の球より後に描く。ここでは番号と奥行きを控えるだけ。
+            // 板の席は並べ替えも要らないので、別の控えへ回す
+            if (ball.kind[slot]) {
+              ballSeatZ[slot] = z2;
+              ballFront[ballFrontN++] = slot;
+            } else {
+              ballPlate[ballPlateN++] = slot;
+            }
+            // ちょうど光を返す向きに来た席の周りに滲みを足す（この後 3. でまとめて貼る）。
+            // 拾うのは実際に描く分だけ＝画面の外と、動画にすっかり隠れる分は出さない
+            if (flash && d > BALL_HL_CUT && bloomN < BLOOM_MAX) {
+              bloomX[bloomN] = sx; bloomY[bloomN] = sy;
+              const oc2 = slot * 3;
+              bloomC[bloomN * 3] = ball.rgb[oc2];
+              bloomC[bloomN * 3 + 1] = ball.rgb[oc2 + 1];
+              bloomC[bloomN * 3 + 2] = ball.rgb[oc2 + 2];
+              bloomA[bloomN] = BLOOM_ALPHA * (d - BALL_HL_CUT) / (1 - BALL_HL_CUT);
+              bloomN++;
+            }
+          }
+          // 土台の球。色は付けず、明暗はこの後まとめて掛ける
+          g.setTransform(dpr, 0, 0, dpr, 0, 0);
+          g.fillStyle = "#171a21";
+          g.beginPath();
+          g.arc(cx, cy, r, 0, Math.PI * 2);
+          g.fill();
+          // 手前側の石。奥にあるものから順に重ねる＝より手前の石が上に来る
+          if (ballFrontN > 1) ballFront.subarray(0, ballFrontN).sort((s1, s2) => ballSeatZ[s1] - ballSeatZ[s2]);
+          for (let i = 0; i < ballFrontN; i++) {
+            const slot = ballFront[i];
+            const sp = ball.sprites[slot];
+            if (!sp) continue;
+            const o = slot * 4;
+            const x1 = lat[o] * cs + lat[o + 2] * sn;
+            const z1 = -lat[o] * sn + lat[o + 2] * cs;
+            const y2 = lat[o + 1] * ct - z1 * st;
+            const z2 = lat[o + 1] * st + z1 * ct;
+            drawSeatStone(sp, x1, y2, z2, cx + x1 * r, cy - y2 * r, Math.max(BALL_TILE_MIN, tileK * lat[o + 3]));
+          }
+          // 明暗: 光の当たる所を中心にした放射の黒を、この紙に描いた所だけへ掛ける。
+          // 何も描いていない所には掛からないので、球の周りに黒い輪が出ない
+          if (layer) {
+            const gx = cx + Math.cos(lightAng) * r * 0.55, gy = cy - Math.sin(lightAng) * r * 0.55;
+            const rr = r * 1.9;
+            const gd = g.createRadialGradient(gx, gy, r * 0.1, gx, gy, rr);
+            gd.addColorStop(0, "rgba(0,0,0,0)");
+            gd.addColorStop(0.5, "rgba(0,0,0," + (1 - BALL_DIM) * 0.45 + ")");
+            gd.addColorStop(1, "rgba(0,0,0," + (1 - BALL_DIM) + ")");
+            g.globalCompositeOperation = "source-atop";
+            g.fillStyle = gd;
+            g.fillRect(0, 0, W, H);
+            g.globalCompositeOperation = "source-over";
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.drawImage(layer.canvas, 0, 0, W, H);
+          }
+          // 代役の板。消す前と同じ貼り方に戻す＝席の接する面の向きに合わせて潰し、明暗は1枚ずつ透け具合で付け、
+          // ちょうど光を返す向きに来たら白く光った絵に差し替える。
+          // 板は隣と重ならないので透けの心配が無く、自分で明暗を持っているので別の紙には乗せない。
+          // 石の紙を本紙へ貼り終えてから最後に貼る＝後から掛ける明暗が二重に効かない。
+          // 焼け待ちの間だけの姿なので、石との前後関係は厳密には合わせない
+          for (let i = 0; i < ballPlateN; i++) {
+            const slot = ballPlate[i];
+            const sp = ball.sprites[slot];
+            if (!sp) continue;
+            const o = slot * 4;
+            const x1 = lat[o] * cs + lat[o + 2] * sn;
+            const z1 = -lat[o] * sn + lat[o + 2] * cs;
+            const y2 = lat[o + 1] * ct - z1 * st;
+            const z2 = lat[o + 1] * st + z1 * ct;
+            const sx = cx + x1 * r, sy = cy - y2 * r;
+            const d = x1 * Lx + y2 * Ly + z2 * Lz;
             // 板は球に接する平面に貼られている。その平面の「北向き」と「東向き」を画面に写した2本を、
             // そのまま絵の縦と横の向きに使う＝正面の板は素の💎、縁へ行くほど潰れて見える。
             // 帯の緯度（lat[o+1]）は回しても傾けても変わらないので、北向きの計算にそのまま使える
@@ -1827,22 +1985,10 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             ctx.globalAlpha = d > 0 ? BALL_DIM + (1 - BALL_DIM) * d : BALL_DIM;
             // 画面の y は下向きなので、縦方向は符号を裏返す
             ctx.setTransform(ex * tileU * dpr, -ey * tileU * dpr, -nx * tileV * dpr, ny * tileV * dpr, sx * dpr, sy * dpr);
-            // ちょうど光を返す向きに来た板は、中央の面が白く光った絵に差し替える（貼る回数は1枚のまま）
             const fs = flash && d > BALL_HL_CUT
               ? Math.min(PLATE_FLASH - 1, 1 + Math.floor(((d - BALL_HL_CUT) / (1 - BALL_HL_CUT)) * (PLATE_FLASH - 1)))
               : 0;
             ctx.drawImage(sp[fs], -0.5, -0.5, 1, 1);
-            // 板が小さい段では、瞬いている板の周りに滲みを足す（この後 3. でまとめて貼る）。
-            // 拾うのは実際に描いた板だけ＝画面の外と、動画にすっかり隠れる板の分は出さない
-            if (fs > 0 && bloomK > 0 && bloomN < BLOOM_MAX) {
-              bloomX[bloomN] = sx; bloomY[bloomN] = sy;
-              const oc2 = slot * 3;
-              bloomC[bloomN * 3] = ball.rgb[oc2];
-              bloomC[bloomN * 3 + 1] = ball.rgb[oc2 + 1];
-              bloomC[bloomN * 3 + 2] = ball.rgb[oc2 + 2];
-              bloomA[bloomN] = BLOOM_ALPHA * bloomK * (fs / (PLATE_FLASH - 1));
-              bloomN++;
-            }
           }
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
           ctx.globalAlpha = 1;
@@ -1879,13 +2025,13 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             ctx.drawImage(getWallSpot((cr << 16) | (cg << 8) | cb, cr, cg, cb),
               wallX[i] - wallDia / 2, wallY[i] - wallDia / 2, wallDia, wallDia);
           }
-          // 終盤だけ、粒の中心に板と同じ八角形の💎を薄く重ねて輪郭を出す（曲が進むほどはっきりする）
+          // 終盤だけ、粒の中心に真上から見た💎を薄く重ねて輪郭を出す（曲が進むほどはっきりする）
           if (gem > 0) {
             for (let i = 0; i < wallN; i++) {
               const sp2 = wallP[i];
               if (!sp2) continue;
               ctx.globalAlpha = Math.min(1, wallAlpha * wallW[i] * WALL_GEM_ALPHA * gem);
-              ctx.drawImage(sp2[0], wallX[i] - gemW / 2, wallY[i] - gemW / 2, gemW, gemW);
+              ctx.drawImage(sp2, wallX[i] - gemW / 2, wallY[i] - gemW / 2, gemW, gemW);
             }
           }
           ctx.globalAlpha = 1;
@@ -1962,11 +2108,15 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           suckDraw.path = sk.path;
           suckDraw.roll = sk.roll;
           suckDraw.rgb = sk.rgb;
-          // 席にはめ込まれる直前だけ、板と同じ「上から見た八角形」の絵に差し替える（回して見せる演出はしない）。
-          // 動画の中心へ吸い込まれて隠れる分は、差し替えても見えないのでそのまま横向きの💎で飛ばす
+          // 席にはめ込まれる直前だけ、その席に収まった時と同じ向きの絵に差し替える（回して見せる演出はしない）。
+          // その色の立体がまだ焼けていなければ、収まる先も代役の板なので板の絵にする。
+          // 動画の中心へ吸い込まれて隠れる分は、差し替えても見えないのでそのまま飛んでいる向きで飛ばす
           if (sk.toSeat && sk.dur - (now - sk.t0) < SEAT_FACE_MS) {
             const w = suckDraw.size * 2 / 0.95;
-            ctx.drawImage(getPlateSprites(sk.rgb)[0], suckDraw.x - w / 2, suckDraw.y - w / 2, w, w);
+            const face = hasRealStoneSprites(sk.rgb)
+              ? getStoneSprites(sk.rgb)[stoneIndexForDepth(sz2)]
+              : getPlateSprites(sk.rgb)[0];
+            ctx.drawImage(face, suckDraw.x - w / 2, suckDraw.y - w / 2, w, w);
           } else {
             drawGemLive(suckDraw);
           }

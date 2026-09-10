@@ -45,6 +45,13 @@ interface Props {
   onTimeUpdate?: (currentTime: number) => void;
   /** YT.PlayerState の値(1=PLAYING, 2=PAUSED, 3=BUFFERING, 0=ENDED) */
   onPlayerStateChange?: (state: number) => void;
+  /** 動画の準備ができた瞬間に1回だけ呼ぶ。isReady が false から true に変わった時。渡さなくても今までの動きは変わらない */
+  onReady?: () => void;
+  /** true の間は、動画の準備ができていても黒いカバーを出したままにする。
+   *  呼び出す側にまだ整っていない支度があって、再生を始められては困る時に立てる。
+   *  この間はカバーが指を受け止めるので、下の動画の再生ボタンには届かない。
+   *  渡さなければ今までの動きのまま */
+  holdLoading?: boolean;
 }
 
 function loadYouTubeAPI(): Promise<void> {
@@ -70,7 +77,7 @@ function loadYouTubeAPI(): Promise<void> {
 }
 
 const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer(
-  { videoId, onEnded, onTimeUpdate, onPlayerStateChange },
+  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, onReady, holdLoading },
   ref,
 ) {
   const [isReady, setIsReady] = useState(false);
@@ -93,10 +100,17 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   const onEndedRef = useRef(onEnded);
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const onPlayerStateChangeRef = useRef(onPlayerStateChange);
+  const onReadyRef = useRef(onReady);
 
   useEffect(() => { onEndedRef.current = onEnded; }, [onEnded]);
   useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
   useEffect(() => { onPlayerStateChangeRef.current = onPlayerStateChange; }, [onPlayerStateChange]);
+  useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
+
+  // isReady が false→true に変わった瞬間だけ知らせる。渡されていなければ何もしない＝これまでの動きのまま
+  useEffect(() => {
+    if (isReady) onReadyRef.current?.();
+  }, [isReady]);
 
   useEffect(() => {
     let mounted = true;
@@ -312,8 +326,9 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   }), []);
 
   // 初回 play() から LOADING_MIN_MS の間、player が ready になるまで、
-  // または入室時の動画切替が PLAYING に達するまで（loadCovering）黒カバーを表示
-  const showLoading = !isReady || (started && !minTimeElapsed) || loadCovering;
+  // または入室時の動画切替が PLAYING に達するまで（loadCovering）黒カバーを表示。
+  // holdLoading が立っている間も、呼び出す側の支度が済むまでカバーを出したままにする
+  const showLoading = !isReady || (started && !minTimeElapsed) || loadCovering || !!holdLoading;
 
   return (
     <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", background: "#000" }}>
@@ -327,7 +342,8 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
             alignItems: "center",
             justifyContent: "center",
             background: "#000",
-            pointerEvents: "none",
+            // holdLoading の間だけカバーが指を受け止める。押しても下の動画には届かない
+            pointerEvents: holdLoading ? "auto" : "none",
           }}
         >
           <LoadingDots />

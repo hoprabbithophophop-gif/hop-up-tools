@@ -18,7 +18,7 @@
 // 本物は立体なので「絵ごと回す」ことができず、どちらも
 // 「石を回した絵を、回さずに貼る」形に揃えてある。
 import { hexToRgb, paintFacets } from "./gemFacets";
-import { startBake, prepareGemRenderer, type BakeJob, type Pose } from "./gemRenderer";
+import { startBake, prepareGemRenderer, GEM_FIT, type BakeJob, type Pose } from "./gemRenderer";
 
 // ── 飛び方の通り道 ──────────────────────────────────────────
 // 石の向きは3つの軸で決まるが、全部の組み合わせを焼くと3万枚を超えて手に負えない。
@@ -64,6 +64,61 @@ function getPoses(): Pose[] {
 export const STONE_PX = 96;
 /** 代わりの絵で使う固定の光の向き（左上から）。今までの💎と同じ値 */
 export const SPRITE_LIGHT = -Math.PI / 3;
+/** 絵の中で、石の形の長さ1つぶんが何pxになるか。
+ *  焼く時の枠は「どの姿勢でもはみ出さない一番大きい箱」で決まり、その半分は腰の半径＝1つぶんにあたる。
+ *  貼る側は「腰の直径を何pxにしたいか」から、この値を使って絵の一辺を逆算する */
+export const STONE_LOCAL_PX = (STONE_PX / 2) * GEM_FIT;
+
+// ── 石の頭がどちらを向いているか ───────────────────────────
+// 焼く時は、先に横の軸まわりに tilt だけ倒し、次に画面の縦の軸まわりに spin だけ回している。
+// なので石の頭は、カメラから見て (sin(tilt)sin(spin), cos(tilt), sin(tilt)cos(spin)) の方を向く。
+// 貼る時に絵ごと回せるのは画面の中だけ＝紙を回しても手前と奥は入れ替わらないので、
+// 奥行きの分だけは絵を選んで合わせるしかない。そこで「欲しい奥行きに一番近い姿勢」を選び、
+// 残りの向きのずれは絵を回して合わせる。
+/** 姿勢ごとの、石の頭の向き。x右・y上・z手前 */
+export const STONE_AXIS: readonly { x: number; y: number; z: number }[] = getPoses().map((p) => ({
+  x: Math.sin(p.tilt) * Math.sin(p.spin),
+  y: Math.cos(p.tilt),
+  z: Math.sin(p.tilt) * Math.cos(p.spin),
+}));
+/** 一番こちらを向いている絵。真上から見た姿に近い1枚が要る所で使う */
+export const STONE_FACE_INDEX: number = (() => {
+  let best = 0;
+  for (let i = 1; i < STONE_AXIS.length; i++) if (STONE_AXIS[i].z > STONE_AXIS[best].z) best = i;
+  return best;
+})();
+/** 奥行きの目盛りの数。−1〜1 をこの数に割って、どの姿勢を使うかを先に決めておく */
+const DEPTH_STEPS = 256;
+/** 目盛りごとの答えの表。1フレームに何百回も引くので、総当たりは最初の1回だけにする */
+let depthTable: Int32Array | null = null;
+function getDepthTable(): Int32Array {
+  if (depthTable) return depthTable;
+  const t = new Int32Array(DEPTH_STEPS);
+  for (let i = 0; i < DEPTH_STEPS; i++) {
+    const z = -1 + (2 * (i + 0.5)) / DEPTH_STEPS;
+    let best = 0, bd = Infinity;
+    for (let j = 0; j < STONE_AXIS.length; j++) {
+      const d = Math.abs(STONE_AXIS[j].z - z);
+      if (d < bd) { bd = d; best = j; }
+    }
+    t[i] = best;
+  }
+  return (depthTable = t);
+}
+/** 頭をこの奥行きへ向けたい時に、一番近い姿勢の絵の番号を返す */
+export function stoneIndexForDepth(z: number): number {
+  const t = getDepthTable();
+  let i = Math.floor(((z + 1) / 2) * DEPTH_STEPS);
+  if (i < 0) i = 0; else if (i >= DEPTH_STEPS) i = DEPTH_STEPS - 1;
+  return t[i];
+}
+
+/** 本物が焼き上がって差し替わるたびに1増える数。
+ *  貼る側は、この数が前と違っていた時だけ絵を引き直せばよい＝毎フレーム引きに行かなくて済む */
+let generation = 0;
+export function stoneGeneration(): number {
+  return generation;
+}
 
 // 裏で焼く時の刻み方。持ち時間ぶんだけ焼いて休む、を繰り返す。
 // 1回の持ち時間を長くすると早く焼き上がるが、その間だけ画面がひっかかる
@@ -154,6 +209,7 @@ function pump() {
     // 焼き上がった一式を丸ごと差し替える。途中の配列は外に出していないので、
     // 貼る側から見ると「あるフレームを境に絵が本物に変わる」だけになる
     realCache.set(jobKey, job.frames);
+    generation++;   // 絵が入れ替わった合図。貼る側はこの数を見て引き直す
     waiting.delete(jobKey);
     job = null;
   }
@@ -184,7 +240,8 @@ export function requestStoneSpritesByHex(hex: string, front = false) {
 }
 
 /** 出てくる色ぜんぶを、入口を開いた時点で焼き始める。
- *  1色あたりの実時間が長い（手元のパソコンで約15秒）ので、「はじめる」を押してから頼んでいると
+ *  焼くのにかかる時間は機械次第で、描画装置のある機械なら13色で3.2秒、ページの読み込みと重なると5〜6秒。
+ *  ただし機械の頭だけで描く環境では100秒を超える。数字は2026-09-11の実測。「はじめる」を押してから頼んでいると
  *  曲が終わるまでに焼き終わらない色が出る。入口は止まっている画面なので、ここで焼いても引っかからない。
  *  順番は渡された並びのまま。自分が選んでいる色は setOwnColor から割り込ませる */
 export function requestAllStoneSprites(hexes: readonly string[]) {
@@ -203,7 +260,7 @@ export function warmUpGemRenderer() {
   }, 0);
 }
 
-/** 貼るための絵を1色ぶん受け取る。必ず48枚そろった配列が返る。
+/** 貼るための絵を1色ぶん受け取る。必ず96枚そろった配列が返る。
  *  本物がまだ無ければ代わりの絵を返し、裏で焼くよう頼んでおく */
 export function getStoneSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
   const key = keyOf(rgb);
@@ -216,6 +273,24 @@ export function getStoneSprites(rgb: [number, number, number]): HTMLCanvasElemen
     fallbackCache.set(key, fb);
   }
   return fb;
+}
+
+/** その色の本物がもう焼き上がっているか。
+ *  焼け待ちの間だけ別の絵で代役を立てたい所が、代わりの絵を掴まされたかどうかを見分けるのに使う */
+export function hasRealStoneSprites(rgb: [number, number, number]): boolean {
+  return realCache.has(keyOf(rgb));
+}
+
+/** 渡された色ぜんぶの焼き上がりが済んでいるか。
+ *  本物が焼き上がった色と、焼くのを諦めた色を「済み」として数える。
+ *  諦めた色まで待つと、立体を描けない端末でいつまでも待たされることになるため。
+ *  石と代わりの板が混ざって出るのを避けたい所が、待ってよい頃合いを見るのに使う */
+export function stonesSettled(hexes: readonly string[]): boolean {
+  for (const hex of hexes) {
+    const key = keyOf(hexToRgb(hex));
+    if (!realCache.has(key) && !givenUp.has(key)) return false;
+  }
+  return true;
 }
 
 /** 積もった山も降っている💎も、この並びから絵を選ぶ。
