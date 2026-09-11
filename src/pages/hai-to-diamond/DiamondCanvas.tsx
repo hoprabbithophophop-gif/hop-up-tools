@@ -302,9 +302,15 @@ const WALL_LIT_EARLY = -0.5;     // 鏡がまだ少ない間の足切り【仮�
 const WALL_LIT_RAMP = BALL_SEATS; // 鏡がこの枚数まで増えたら、足切りを通常の WALL_LIT_MIN へ戻しきる【仮】。
                                  // 席が満席になった所でちょうど通常に戻る
 const WALL_FADE_BAND = 0.08;     // 足切りのすぐ上の粒は薄くする幅。ふっと現れ・ふっと消える【仮】
-const WALL_MAG = 2.4;            // 球の中心から鏡までの距離を何倍に伸ばした所へ映すか（拡大投影）。
-                                 // 距離は見かけの半径（＝カメラの寄りを掛けたもの）なので、寄るほど粒も外へ広がる【仮】。
-                                 // 3.0 だと外へ散りすぎて、粒が少ない序盤に画面から出てしまう分が多かったので下げた
+// 球の後ろに平らな壁がある部屋として粒を置く（Hop決定 2026-09-11 案1）。
+// 以前は球の中心から鏡の向きへ一定の倍率で伸ばした所に置いていたが、
+// それだと粒の並びが球をそのまま大きくした同心の形になり、奥に平らな壁があるようには見えなかった。
+// 床は置かない。球は天井から吊るされているものなので、床が近くに見えると天井の低い部屋になってしまう
+const ROOM_WALL = 1.4;           // 球の中心から奥の壁までの距離。球の半径を1とした値【仮】
+const ROOM_CAM = 6.0;            // 球の中心からカメラまでの距離。同じ単位【仮】。
+                                 // 球の中心の距離でちょうど等倍になるように写す。
+                                 // 壁は球の中心より奥にあるので、粒はどれも一律に少しだけ縮んで見える
+const WALL_STRETCH_MAX = 3;      // 浅い角度で当たった粒がどこまで伸びるかの上限【仮】
 const WALL_D_MIN = 20;           // 粒の直径(px)。序盤【仮】
 const WALL_D_MAX = 40;           // 同上、終盤【仮】
 const WALL_A_MIN = 0.15;         // 粒の濃さ。序盤【仮】
@@ -1157,6 +1163,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     const wallY = new Float32Array(WALL_SPOT_MAX);
     const wallC = new Uint8Array(WALL_SPOT_MAX * 3);              // 粒の色（3つ組）
     const wallW = new Float32Array(WALL_SPOT_MAX);                // 濃さの重み（足切りのすぐ上は薄く・瞬いた鏡は明るく）
+    const wallEx = new Float32Array(WALL_SPOT_MAX);               // 粒の横の伸び。浅い角度で壁に当たった粒ほど長く伸びる
+    const wallEy = new Float32Array(WALL_SPOT_MAX);               // 粒の縦の伸び。壁の遠い所に当たった粒ほど小さい
+    const wallAng = new Float32Array(WALL_SPOT_MAX);              // 伸びる向き。球の中心から外へ向かう放射方向
     const wallP: (HTMLCanvasElement | null)[] = new Array(WALL_SPOT_MAX).fill(null);  // 終盤に重ねる鏡の絵。光っていない1枚
     let wallN = 0;
     // いま壁に映している粒の直径(px)と濃さ。夜空へ放つ時に「この大きさ・この濃さから縮む」の出発点として読む
@@ -1773,7 +1782,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
               // 奥側の鏡。壁に映る粒の元はこちら。
               // 壁に届く光は球の向こう側の面が返したものなので、粒は手前の鏡と逆向きに流れる。
               // 奥の鏡が光を受けているかどうかは、光の向きの奥行きだけ裏返して（＝奥から当たる光として）
-              // 手前の鏡と同じ内積で測る。映す先は、球の中心からその向きへ WALL_MAG 倍伸ばした所。
+              // 手前の鏡と同じ内積で測る。映す先は、その鏡が返した光の筋が球の後ろの平らな壁に当たる所。
               // 鏡が動画に隠れているかは問わない（動画の裏の鏡の光も壁には届く＝序盤の「裏で何か光っている」手掛かり）。
               // ここでは位置と色を控えるだけで、貼るのは鏡を全部描いた後（3.）
               // くじは席の番号から毎回同じ数を作る＝同じ席はずっと映り続ける（ちらつかない）。
@@ -1782,20 +1791,37 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
               const db = x1 * Lx + y2 * Ly - z2 * Lz;                // 奥の鏡がどれだけ光を受けているか（0〜1）
               const hk = ((slot * 2654435761) >>> 0) / 4294967296;
               if (hk < wallKeep && db > wallCut && wallN < WALL_SPOT_MAX) {
-                const wx = cx + (sx - cx) * WALL_MAG, wy = cy + (sy - cy) * WALL_MAG;
-                if (wx > -wallDia && wx < W + wallDia && wy > -wallDia && wy < H + wallDia) {
-                  const oc = slot * 3;
-                  wallX[wallN] = wx; wallY[wallN] = wy;
-                  // 粒の色は席の鏡と同じ色。メンバーカラーそのままより淡い
-                  wallC[wallN * 3] = ball.tone[oc];
-                  wallC[wallN * 3 + 1] = ball.tone[oc + 1];
-                  wallC[wallN * 3 + 2] = ball.tone[oc + 2];
-                  // 足切りのすぐ上の鏡は薄く（ふっと現れ・ふっと消える）。
-                  // ちょうど光を返す向きに来た鏡の粒は一瞬明るくする＝手前の鏡が白く瞬くのと同じ合図
-                  wallW[wallN] = Math.min(1, (db - wallCut) / WALL_FADE_BAND)
-                    * (!reduceMotionRef.current && db > BALL_HL_CUT ? WALL_FLASH : 1);
-                  wallP[wallN] = sp[0];
-                  wallN++;
+                // 奥から当たってくる光の向き。db と同じで、光の向きの奥行きだけ裏返してある
+                const ix = -Lx, iy = -Ly, iz = Lz;
+                // 鏡が返した筋の向き。入ってきた光を鏡の面で折り返したもの
+                const dot = ix * x1 + iy * y2 + iz * z2;
+                const rx = ix - 2 * dot * x1, ry = iy - 2 * dot * y2, rz = iz - 2 * dot * z2;
+                // 奥へ向かっていない筋は壁に届かないので、その鏡は粒にしない
+                if (rz < -1e-4) {
+                  // 鏡の位置から壁までどれだけ筋を伸ばせば当たるか。長さは球の半径を1として数える
+                  const hitT = (-ROOM_WALL - z2) / rz;
+                  const hx = x1 + rx * hitT, hy = y2 + ry * hitT, hz = z2 + rz * hitT;
+                  // 壁に当たった所をカメラから見た位置へ写す。壁は球より奥なので、粒は一律に少し縮む
+                  const camK = ROOM_CAM / (ROOM_CAM - hz);
+                  const wx = cx + hx * r * camK, wy = cy - hy * r * camK;
+                  if (wx > -wallDia && wx < W + wallDia && wy > -wallDia && wy < H + wallDia) {
+                    const oc = slot * 3;
+                    wallX[wallN] = wx; wallY[wallN] = wy;
+                    // 壁に浅い角度で当たった筋ほど、粒が長く引き伸ばされる。伸びる向きは球の中心から外へ
+                    wallEx[wallN] = Math.min(WALL_STRETCH_MAX, 1 / Math.max(0.33, Math.abs(rz))) * camK;
+                    wallEy[wallN] = camK;
+                    wallAng[wallN] = Math.atan2(wy - cy, wx - cx);
+                    // 粒の色は席の鏡と同じ色。メンバーカラーそのままより淡い
+                    wallC[wallN * 3] = ball.tone[oc];
+                    wallC[wallN * 3 + 1] = ball.tone[oc + 1];
+                    wallC[wallN * 3 + 2] = ball.tone[oc + 2];
+                    // 足切りのすぐ上の鏡は薄く（ふっと現れ・ふっと消える）。
+                    // ちょうど光を返す向きに来た鏡の粒は一瞬明るくする＝手前の鏡が白く瞬くのと同じ合図
+                    wallW[wallN] = Math.min(1, (db - wallCut) / WALL_FADE_BAND)
+                      * (!reduceMotionRef.current && db > BALL_HL_CUT ? WALL_FLASH : 1);
+                    wallP[wallN] = sp[0];
+                    wallN++;
+                  }
                 }
               }
               // 鏡は球の表面から出っ張らないので、奥側の分は描かない
@@ -1826,11 +1852,11 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           ctx.globalAlpha = 1;
         }
 
-        // 3. 壁に映る光の粒: 2. で拾った奥側の鏡を、球の中心から見た向きへ伸ばした所に、柔らかい光の丸として貼る。
+        // 3. 壁に映る光の粒: 2. で拾った奥側の鏡が返した筋が、奥の壁に当たる所へ柔らかい光の丸として貼る。
+        //    外へ行くほど粒と粒の間隔が開き、浅く当たった粒は放射方向に伸びる＝奥に平らな壁があるように見える。
         //    奥側の鏡は画面の上で手前の鏡と逆向きに動くので、粒も逆向きに流れる＝本物のミラーボールと同じ。
         //    額縁（動画を含む）の中は clip で除外する。合成は lighter なので、重なった所だけ明るくなる。
-        //    貼るのは鏡を全部描いた後。粒は球の 2.4 倍の広がりに散るので鏡とはほとんど重ならず、
-        //    重なった時も足し算で少し明るくなるだけ（主役の動画より目立たない濃さに抑えてある）
+        //    貼るのは鏡を全部描いた後。重なった時も足し算で少し明るくなるだけ（主役の動画より目立たない濃さに抑えてある）
         //    粒は球の奥にある光なので、球の円の内側には貼らない（Hop指摘 2026-09-11）。
         //    額縁の地色はこのキャンバスに塗ってあるので、囲いを外すと額縁まで明るくなってしまう
         if (wallN > 0 && wallAlpha > 0.01) {
@@ -1854,8 +1880,19 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             const oc = i * 3;
             const cr = wallC[oc], cg = wallC[oc + 1], cb = wallC[oc + 2];
             ctx.globalAlpha = Math.min(1, wallAlpha * wallW[i]);
-            ctx.drawImage(getWallSpot((cr << 16) | (cg << 8) | cb, cr, cg, cb),
-              wallX[i] - wallDia / 2, wallY[i] - wallDia / 2, wallDia, wallDia);
+            const spot = getWallSpot((cr << 16) | (cg << 8) | cb, cr, cg, cb);
+            const wex = wallEx[i], wey = wallEy[i];
+            if (wex === 1 && wey === 1) {
+              ctx.drawImage(spot, wallX[i] - wallDia / 2, wallY[i] - wallDia / 2, wallDia, wallDia);
+              continue;
+            }
+            // 伸びた粒。伸びる向きへ傾けてから、その向きに引き伸ばして貼る
+            ctx.save();
+            ctx.translate(wallX[i], wallY[i]);
+            ctx.rotate(wallAng[i]);
+            ctx.scale(wex, wey);
+            ctx.drawImage(spot, -wallDia / 2, -wallDia / 2, wallDia, wallDia);
+            ctx.restore();
           }
           // 終盤だけ、粒の中心に鏡の絵を薄く重ねて輪郭を出す（曲が進むほどはっきりする）
           if (gem > 0) {
