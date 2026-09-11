@@ -55,10 +55,9 @@ const OTHERS_PER_TICK: Record<DiamondSettings["crowd"], number> = { full: 25, li
  *  入口の見出し（題名・副題・お知らせの導線）の直下に置く。SE（375×667）では動画を画面の
  *  真ん中に置くと下の余白が足りず、流れるコメントの3行目が色えらびのボタンに重なっていたため、
  *  真ん中寄せをやめて上へ固定した（Hop決定 2026-09-12）。
- *  入口の見出しの下端が約111pxなのでその直下。再生中の数字も曲が終わった後の数字とボタンも
- *  この上に収まる。SE では Safari のバーの分だけ画面が縮むので、コメントの余白をここで稼ぐ
- *  （Hop決定 2026-09-12） */
-const VIDEO_TOP_PX = 120;
+ *  入口の見出しの下端が約99pxなのでその直下。SE では Safari のバーの分だけ画面が縮むので、
+ *  コメントの余白をここで稼ぐ（Hop決定 2026-09-12） */
+const VIDEO_TOP_PX = 108;
 /** 数字の縁取りの色。白だと白系の文字が膨らむので、💎の選択中の縁と同じ透過の高いグレー（Hop指示 2026-09-08）【仮】 */
 const NUMBER_OUTLINE = "rgba(154,160,166,0.5)";
 /** 曲の終わり（秒）。プロモーション動画は音が終わった後に無音の黒画面（別動画への案内枠）が続くので、そこで終了扱いにする（Hop指定 2026-09-07: 4:35.9） */
@@ -73,14 +72,14 @@ const HIGHLIGHT_AFTER = 5;
 /** 盛り上がりの帯を何区間に割るか【仮】 */
 const HEAT_BINS = 200;
 /** 盛り上がりの帯を動画の額縁の下端からどれだけ空けて置くか(px)【仮】 */
-const HEAT_GAP = 8;
+const HEAT_GAP = 4;
 /** 帯の器の高さ(px)。額縁の余白＋隙間＋帯本体＋光の滲みのぶん【仮】 */
 const HEAT_BOX_HEIGHT = FRAME + HEAT_GAP + 6 + 10;
 /** 流れるコメントを、盛り上がりの帯の器の下からどれだけ空けて置くか(px)【仮】。
  *  帯の器には光の滲みのぶんまで含まれているので、その下端を起点にする＝滲みに文字が重ならない */
-const COMMENT_GAP = 8;
+const COMMENT_GAP = 4;
 /** 流れるコメントと色えらびの器の間に必ず空けておく隙間(px)【仮】 */
-const TICKER_BAND_GAP = 8;
+const TICKER_BAND_GAP = 4;
 /** 記録が送れなかった時に、もう一度送るまで待つ時間(ms)。
  *  受け口は1つのIPにつき1分10件までなので、1分の窓が空くのを待ってから出し直す */
 const RESEND_WAIT_MS = 61_000;
@@ -216,7 +215,7 @@ export default function HaiToDiamondPage() {
       const vr = box.getBoundingClientRect();
       const fr = frameEl.getBoundingClientRect();
       const rr = root.getBoundingClientRect();
-      setNumbersBottom(rr.bottom - vr.top + FRAME + 12);
+      setNumbersBottom(rr.bottom - vr.top + FRAME);   // 曲が終わった後の数字とボタンが動画の上の余白に収まるよう、12px の下駄を外した（2026-09-12）
       setHeatBox({ top: vr.bottom - rr.top, left: fr.left - rr.left, width: fr.width });
       const band = bandRef.current;
       if (band) setBandTop(band.getBoundingClientRect().top - rr.top);
@@ -631,7 +630,7 @@ export default function HaiToDiamondPage() {
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            gap: "0.7rem",
+            gap: "0.3rem",
             textAlign: "center",
             textShadow: "0 0 12px rgba(0,0,0,0.6)",
             pointerEvents: "none",
@@ -671,7 +670,7 @@ export default function HaiToDiamondPage() {
           zIndex: 3,
           left: 0,
           right: 0,
-          bottom: "1.6rem",
+          bottom: "0.5rem",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",

@@ -76,7 +76,7 @@ export default function DiamondEntry({ total, videoBottom, videoReady, onOpenSet
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: isLandscape ? "0.7rem 1rem 0.7rem" : "1.5rem 1.2rem 1.5rem",
+        padding: isLandscape ? "0.7rem 1rem 0.7rem" : "0.7rem 1.2rem 1.5rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         position: "relative",
       }}
