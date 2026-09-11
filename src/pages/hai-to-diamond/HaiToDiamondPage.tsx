@@ -54,8 +54,11 @@ const OTHERS_PER_TICK: Record<DiamondSettings["crowd"], number> = { full: 25, li
 /** 動画の枠の上端を、画面の上端から固定でどれだけ空けるか(px)【仮】。
  *  入口の見出し（題名・副題・お知らせの導線）の直下に置く。SE（375×667）では動画を画面の
  *  真ん中に置くと下の余白が足りず、流れるコメントの3行目が色えらびのボタンに重なっていたため、
- *  真ん中寄せをやめて上へ固定した（Hop決定 2026-09-12） */
-const VIDEO_TOP_PX = 156;
+ *  真ん中寄せをやめて上へ固定した（Hop決定 2026-09-12）。
+ *  入口の見出しの下端が約111pxなのでその直下。再生中の数字も曲が終わった後の数字とボタンも
+ *  この上に収まる。SE では Safari のバーの分だけ画面が縮むので、コメントの余白をここで稼ぐ
+ *  （Hop決定 2026-09-12） */
+const VIDEO_TOP_PX = 120;
 /** 数字の縁取りの色。白だと白系の文字が膨らむので、💎の選択中の縁と同じ透過の高いグレー（Hop指示 2026-09-08）【仮】 */
 const NUMBER_OUTLINE = "rgba(154,160,166,0.5)";
 /** 曲の終わり（秒）。プロモーション動画は音が終わった後に無音の黒画面（別動画への案内枠）が続くので、そこで終了扱いにする（Hop指定 2026-09-07: 4:35.9） */
@@ -76,6 +79,8 @@ const HEAT_BOX_HEIGHT = FRAME + HEAT_GAP + 6 + 10;
 /** 流れるコメントを、盛り上がりの帯の器の下からどれだけ空けて置くか(px)【仮】。
  *  帯の器には光の滲みのぶんまで含まれているので、その下端を起点にする＝滲みに文字が重ならない */
 const COMMENT_GAP = 8;
+/** 流れるコメントと色えらびの器の間に必ず空けておく隙間(px)【仮】 */
+const TICKER_BAND_GAP = 8;
 /** 記録が送れなかった時に、もう一度送るまで待つ時間(ms)。
  *  受け口は1つのIPにつき1分10件までなので、1分の窓が空くのを待ってから出し直す */
 const RESEND_WAIT_MS = 61_000;
@@ -190,6 +195,9 @@ export default function HaiToDiamondPage() {
   const [numbersBottom, setNumbersBottom] = useState<number | string>("60%");
   /** 盛り上がりの帯の置き場所。器の上端は動画の矩形の下端そのもの＝光の滲みが動画に掛からない */
   const [heatBox, setHeatBox] = useState<{ top: number; left: number; width: number } | null>(null);
+  /** 色えらびの器の上端。ここまでに入る行数だけコメントを流す＝下の2行が色えらびの裏に隠れない */
+  const bandRef = useRef<HTMLDivElement>(null);
+  const [bandTop, setBandTop] = useState<number | null>(null);
   /** 額縁の太さ(px)。スマホ（isTouchDevice）では画面幅に合わせて詰める。PC は常に FRAME のまま */
   const [frame, setFrame] = useState<number>(() => (isTouchDevice() ? computeFrame() : FRAME));
   useEffect(() => {
@@ -210,10 +218,25 @@ export default function HaiToDiamondPage() {
       const rr = root.getBoundingClientRect();
       setNumbersBottom(rr.bottom - vr.top + FRAME + 12);
       setHeatBox({ top: vr.bottom - rr.top, left: fr.left - rr.left, width: fr.width });
+      const band = bandRef.current;
+      if (band) setBandTop(band.getBoundingClientRect().top - rr.top);
     };
     measure();
     window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    // Safari は下のバーが出入りすると、窓そのものの大きさは変わらないまま見えている高さだけ縮む。
+    // その変わり目も聞いておく＝バーが出て色えらびが上がってきた時にも追いつける
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", measure);
+    // 色えらびの器は下端が固定なので、中身が入れ替わって高さが変わると上端が動く。
+    // 器の大きさの変わり目も測り直しの合図にする
+    const band = bandRef.current;
+    const ro = band ? new ResizeObserver(measure) : null;
+    if (band) ro?.observe(band);
+    return () => {
+      window.removeEventListener("resize", measure);
+      vv?.removeEventListener("resize", measure);
+      ro?.disconnect();
+    };
   }, [started]);
   // 動画に付いているコメントを読む。再生が始まってから1回だけ（入口では要らない）。
   // 失敗しても何も言わずに空のまま＝コメントの帯は出ない
@@ -504,6 +527,11 @@ export default function HaiToDiamondPage() {
     setLiveCount(tapsRef.current.length);
   }, []);
 
+  /** 流れるコメントの置き場所と、色えらびに掛からない高さの上限。
+   *  上限が出せない間（まだ測れていない間）は今までどおり3行のまま流す */
+  const commentTop = heatBox ? heatBox.top + HEAT_BOX_HEIGHT + COMMENT_GAP : 0;
+  const commentMaxHeight = heatBox && bandTop != null ? bandTop - commentTop - TICKER_BAND_GAP : undefined;
+
   return (
     <div
       style={{
@@ -580,13 +608,13 @@ export default function HaiToDiamondPage() {
           style={{
             position: "absolute",
             zIndex: 3,
-            top: heatBox.top + HEAT_BOX_HEIGHT + COMMENT_GAP,
+            top: commentTop,
             left: heatBox.left,
             width: heatBox.width,
             pointerEvents: "none",
           }}
         >
-          <DiamondCommentTicker comments={comments} currentTime={videoTimeSec} reduceMotion={settings.reduceMotion} />
+          <DiamondCommentTicker comments={comments} currentTime={videoTimeSec} reduceMotion={settings.reduceMotion} maxHeight={commentMaxHeight} />
         </div>
       )}
 
@@ -637,6 +665,7 @@ export default function HaiToDiamondPage() {
       {/* 画面下。再生中とハイライト中は色えらび（設定「色の並び」でユニットごとのページか一列の帯）、
           曲が終わったら最初に戻る・シェア・本編リンク・断り書き */}
       <div
+        ref={bandRef}
         style={{
           position: "absolute",
           zIndex: 3,
