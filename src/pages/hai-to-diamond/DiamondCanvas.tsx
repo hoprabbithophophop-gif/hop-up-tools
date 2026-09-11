@@ -245,6 +245,8 @@ const BALL_TILE_FILL = 1.0;      // 石を貼る大きさ（隣の席との間�
                                  // 石は球へ刺さっているので、隣どうしは横から見ると重なり、真正面から見ると腰が触れ合う。
                                  // 平らな板を貼っていた頃は、板と板の隙間が穴に見えないようこの値を詰めていた（Hop決定 2026-09-08）
 const BALL_TILE_MIN = 2.5;       // 板の最小の大きさ(px)。拡大率が低いうちに1px を切ると消えてしまう【仮】
+const BALL_BACK_BAND = 0.2;      // 奥側の石を描く帯の幅。これより奥の石は土台の球に完全に隠れるので描かない。
+                                 // 値は石の頭の出っ張りから見積もった仮の値【仮】
 const BALL_HL_CUT = 0.985;       // 板の白い差し替えと、壁の粒の瞬きの倍率に使う。石の瞬きは面ごとの判定 FACET_ で決める。
                                  // 緩めると光る板が増えすぎて、白い塊になって球に見えなくなる
 const BALL_DIM = 0.55;           // 光が当たっていない側の明るさ。暗すぎると球が欠けて見える
@@ -386,7 +388,8 @@ function getGlow(rgb: [number, number, number]): { halo: HTMLCanvasElement; edge
   return g;
 }
 // ミラーボールの表面は、球に貼った平らな板ではなく、球へ刺さった立体の💎にする。
-// 貼るのは落ちてくる💎・積もった💎と同じ、焼いてある96枚の絵。窓口は gemSprites.ts の getStoneSprites。
+// 貼るのは落ちてくる💎・積もった💎と同じ、焼いてある絵。窓口は gemSprites.ts の getStoneSprites。
+// 席に貼る1枚は、転がり用の96枚ではなく、その後ろに足してある球専用の32枚から選ぶ。
 // 席の向きに合う姿勢の1枚を選んで貼るので、球の正面の席は真上から見た姿、縁の席は横顔になり、
 // 石が球から生えているように見える。まだ焼けていない色と、立体を描けない端末では、
 // 焼き上がるまでの代役として下の板の絵を貼る。
@@ -1982,9 +1985,20 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           // 石は濃いまま別の紙へ描き、描いた所だけを後で暗くしてから本紙へ貼る。
           // 紙を用意できない端末では本紙へ直に描き、明暗を掛けるのは諦める
           const g = layer ? layer.ctx : ctx;
-          if (layer) {
+          // 別の紙を使う処理は、消すのも明暗を掛けるのも本紙へ貼るのも、球が収まる四角の中だけで足りる。
+          // 画面全体を相手にしていた頃は、球が小さい序盤でも毎コマ画面ぶんの塗りが3回走っていた。
+          // 四角は球の見かけの半径に石の背丈を足した大きさで、画面からはみ出す分は切り詰める。
+          // 大きさは画素で持ち、端は外側へ丸める＝端の1列が塗り残しにならない
+          const ballR = r + tileV;
+          const bx0 = Math.max(0, Math.floor((cx - ballR) * dpr));
+          const by0 = Math.max(0, Math.floor((cy - ballR) * dpr));
+          const bx1 = Math.min(canvas.width, Math.ceil((cx + ballR) * dpr));
+          const by1 = Math.min(canvas.height, Math.ceil((cy + ballR) * dpr));
+          const bw = bx1 - bx0, bh = by1 - by0;
+          const inView = bw > 0 && bh > 0;   // 球が画面の外へ出きっていたら、別の紙の処理は丸ごと省く
+          if (layer && inView) {
             g.setTransform(1, 0, 0, 1, 0, 0);
-            g.clearRect(0, 0, layer.canvas.width, layer.canvas.height);
+            g.clearRect(bx0, by0, bw, bh);
           }
           /** 席1つぶんの石を刺す。絵の中で石の頭が向いている先を、球の外へ向かう向きへ回して合わせる */
           const drawSeatStone = (sp: HTMLCanvasElement[], x1: number, y2: number, z2: number, sx: number, sy: number, tileU: number) => {
@@ -2076,8 +2090,10 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
               }
               // 板は球の表面から出っ張らないので、奥側の分は今までどおり描かない
               if (!ball.kind[slot]) continue;
-              // 石は奥側でも、土台の球からはみ出した頭が見える。粒を拾い終えてから、
+              // 石は奥側でも、土台の球からはみ出した頭が見える。ただし見えるのは縁のすぐ裏までで、
+              // それより奥の石は球にすっかり隠れる。粒を拾い終えてから、隠れる分と、
               // 画面の外と、動画にすっかり隠れる分を落として描く
+              if (z2 <= -BALL_BACK_BAND) continue;
               if (sx < -half || sx > W + half || sy < -half || sy > H + half) continue;
               if (sx - half > v.x && sx + half < v.x + v.w && sy - half > v.y && sy + half < v.y + v.h) continue;
               drawSeatStone(sp, x1, y2, z2, sx, sy, tileU);
@@ -2133,7 +2149,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           }
           // 明暗: 光の当たる所を中心にした放射の黒を、この紙に描いた所だけへ掛ける。
           // 何も描いていない所には掛からないので、球の周りに黒い輪が出ない
-          if (layer) {
+          if (layer && inView) {
             const gx = cx + Math.cos(lightAng) * r * 0.55, gy = cy - Math.sin(lightAng) * r * 0.55;
             const rr = r * 1.9;
             const gd = g.createRadialGradient(gx, gy, r * 0.1, gx, gy, rr);
@@ -2142,10 +2158,12 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             gd.addColorStop(1, "rgba(0,0,0," + (1 - BALL_DIM) + ")");
             g.globalCompositeOperation = "source-atop";
             g.fillStyle = gd;
-            g.fillRect(0, 0, W, H);
+            g.fillRect(bx0 / dpr, by0 / dpr, bw / dpr, bh / dpr);
             g.globalCompositeOperation = "source-over";
+            // 本紙へは画素どうしを1対1で写す＝寸法を合わせ直さないので、縁がぼやけない
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.drawImage(layer.canvas, bx0, by0, bw, bh, bx0, by0, bw, bh);
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            ctx.drawImage(layer.canvas, 0, 0, W, H);
           }
           // 代役の板。消す前と同じ貼り方に戻す＝席の接する面の向きに合わせて潰し、明暗は1枚ずつ透け具合で付け、
           // ちょうど光を返す向きに来たら白く光った絵に差し替える。
@@ -2336,10 +2354,21 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           // 動画の中心へ吸い込まれて隠れる分は、差し替えても見えないのでそのまま飛んでいる向きで飛ばす
           if (sk.toSeat && sk.dur - (now - sk.t0) < SEAT_FACE_MS) {
             const w = suckDraw.size * 2 / 0.95;
-            const face = hasRealStoneSprites(sk.rgb)
-              ? getStoneSprites(sk.rgb)[stoneIndexForDepth(sz2)]
-              : getPlateSprites(sk.rgb)[0];
-            ctx.drawImage(face, suckDraw.x - w / 2, suckDraw.y - w / 2, w, w);
+            if (hasRealStoneSprites(sk.rgb)) {
+              // 石は席に貼る時と同じ式で回す。絵の中で頭が向いている先を、その席で球の外へ向かう向きに合わせる。
+              // ここで回さないと、着いた瞬間に石がくるりと向きを変えて見える
+              const idx = stoneIndexForDepth(sz2);
+              const a = STONE_AXIS[idx];
+              const ang = Math.atan2(-sy2, sx1) - Math.atan2(-a.y, a.x);
+              ctx.save();
+              ctx.translate(suckDraw.x, suckDraw.y);
+              ctx.rotate(ang);
+              ctx.drawImage(getStoneSprites(sk.rgb)[idx], -w / 2, -w / 2, w, w);
+              ctx.restore();
+            } else {
+              // 代役の板は、席に貼る時だけ席の接する面に合わせて潰す。飛んでいる最中の1枚は真上からの絵で足りる
+              ctx.drawImage(getPlateSprites(sk.rgb)[0], suckDraw.x - w / 2, suckDraw.y - w / 2, w, w);
+            }
           } else {
             drawGemLive(suckDraw);
           }

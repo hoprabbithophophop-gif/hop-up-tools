@@ -15,6 +15,7 @@
 //   4. 焼くのに失敗した色は、その色だけ諦めて代わりの絵を使い続ける。焼き直しはしない
 //
 // 石の向きは「飛び方の通り道4本 × 24コマ」の96通り。落ちている💎も積もった💎も同じ絵を使う。
+// その後ろに、ミラーボールの席に刺す石だけが使う32通りを足してある。合わせて128通り。
 // 本物は立体なので「絵ごと回す」ことができず、どちらも
 // 「石を回した絵を、回さずに貼る」形に揃えてある。
 import { hexToRgb, paintFacets } from "./gemFacets";
@@ -39,10 +40,24 @@ const TUMBLE_PATHS_DEF = [
 ] as const;
 /** 通り道の数。💎ごとにこの中から1本を抽選する */
 export const TUMBLE_PATHS = TUMBLE_PATHS_DEF.length;
-/** 焼く絵の総数 */
+/** 転がり用に焼く絵の数 */
 export const STONE_STEPS = TUMBLE_PATHS * TUMBLE_FRAMES;
 
-/** 焼く姿勢を、通り道の順に並べたもの */
+// ── 球に刺す石だけの姿勢 ───────────────────────────────────
+// ミラーボールの席は「頭の奥行きがこれくらい」という注文で絵を選ぶ。
+// 転がり用の96枚から一番近いものを選んでいたが、あの96枚は転がる動きのための並びなので、
+// 奥行きが隣どうしの絵でも見た目が全然違う。球が回ると席ごとに絵がぱらぱら差し替わり、
+// コマ送りのように見えていた。Hop報告 2026-09-11。
+// そこで、回りを0に固定して倒す角だけを変えた並びを別に焼き足す。
+// 回りが0なら頭の向きの奥行きはそのまま sin(倒す角) になるので、
+// 奥行きから絵を選ぶのも角度を戻すだけで済む。
+// 刻むのは奥行きではなく倒す角の方。奥行きを等間隔に刻むと、真正面に近い所で
+// 倒す角が急に伸びて、最後の2枚だけ14.6度も離れてしまう。
+// 倒す角で等間隔に刻めば、隣どうしはどこでも 2.9度差でそろう
+/** 球に刺す石のために焼き足す絵の数【仮】。0枚目が真横＝倒す角0度、最後の1枚が真正面＝倒す角90度 */
+export const BALL_STEPS = 32;
+
+/** 焼く姿勢を、通り道の順に並べたもの。後ろに球専用の並びが続く */
 function buildPoses(): Pose[] {
   const out: Pose[] = [];
   for (const p of TUMBLE_PATHS_DEF) {
@@ -52,11 +67,15 @@ function buildPoses(): Pose[] {
       out.push({ tilt: (deg * Math.PI) / 180, spin: t * Math.PI * 2 * p.turns });
     }
   }
+  for (let k = 0; k < BALL_STEPS; k++) {
+    out.push({ tilt: (k / (BALL_STEPS - 1)) * (Math.PI / 2), spin: 0 });
+  }
   return out;
 }
-/** 焼く姿勢は毎回同じなので一度だけ作る。枠決めの控えを引く合言葉も一緒に持つ */
+/** 焼く姿勢は毎回同じなので一度だけ作る。枠決めの控えを引く合言葉も一緒に持つ。
+ *  合言葉は並びが変わったら必ず変える。古い並びで測った枠を引いてしまうと石の大きさが揃わない */
 let poses: Pose[] | null = null;
-const POSE_KEY = "tumble" + TUMBLE_PATHS + "x" + TUMBLE_FRAMES;
+const POSE_KEY = "tumble" + TUMBLE_PATHS + "x" + TUMBLE_FRAMES + "+ball" + BALL_STEPS;
 function getPoses(): Pose[] {
   return (poses ??= buildPoses());
 }
@@ -81,36 +100,17 @@ export const STONE_AXIS: readonly { x: number; y: number; z: number }[] = getPos
   y: Math.cos(p.tilt),
   z: Math.sin(p.tilt) * Math.cos(p.spin),
 }));
-/** 一番こちらを向いている絵。真上から見た姿に近い1枚が要る所で使う */
-export const STONE_FACE_INDEX: number = (() => {
-  let best = 0;
-  for (let i = 1; i < STONE_AXIS.length; i++) if (STONE_AXIS[i].z > STONE_AXIS[best].z) best = i;
-  return best;
-})();
-/** 奥行きの目盛りの数。−1〜1 をこの数に割って、どの姿勢を使うかを先に決めておく */
-const DEPTH_STEPS = 256;
-/** 目盛りごとの答えの表。1フレームに何百回も引くので、総当たりは最初の1回だけにする */
-let depthTable: Int32Array | null = null;
-function getDepthTable(): Int32Array {
-  if (depthTable) return depthTable;
-  const t = new Int32Array(DEPTH_STEPS);
-  for (let i = 0; i < DEPTH_STEPS; i++) {
-    const z = -1 + (2 * (i + 0.5)) / DEPTH_STEPS;
-    let best = 0, bd = Infinity;
-    for (let j = 0; j < STONE_AXIS.length; j++) {
-      const d = Math.abs(STONE_AXIS[j].z - z);
-      if (d < bd) { bd = d; best = j; }
-    }
-    t[i] = best;
-  }
-  return (depthTable = t);
-}
-/** 頭をこの奥行きへ向けたい時に、一番近い姿勢の絵の番号を返す */
+/** 一番こちらを向いている絵。真上から見た姿に近い1枚が要る所で使う。
+ *  球専用の並びの最後の1枚が、そのまま真正面を向いた姿になる */
+export const STONE_FACE_INDEX: number = STONE_STEPS + BALL_STEPS - 1;
+/** 頭をこの奥行きへ向けたい時に使う絵の番号を返す。引くのは球専用の並びから。
+ *  並んでいるのは倒す角なので、奥行きを角度へ戻してから割り当てる。
+ *  asin を1コマにつき席の数だけ呼ぶことになるが、表を引くより絵の刻みが素直になる方を採る。
+ *  奥を向いている石は真横の1枚で足りる */
 export function stoneIndexForDepth(z: number): number {
-  const t = getDepthTable();
-  let i = Math.floor(((z + 1) / 2) * DEPTH_STEPS);
-  if (i < 0) i = 0; else if (i >= DEPTH_STEPS) i = DEPTH_STEPS - 1;
-  return t[i];
+  if (z <= 0) return STONE_STEPS;
+  const k = Math.round((Math.asin(z < 1 ? z : 1) / (Math.PI / 2)) * (BALL_STEPS - 1));
+  return STONE_STEPS + k;
 }
 
 /** 本物が焼き上がって差し替わるたびに1増える数。
@@ -148,8 +148,9 @@ function hexOf(rgb: [number, number, number]): string {
 /** 今までの描き方の絵。石を回した絵を向きごとに持つ（貼る時は回さない） */
 function buildFallback(rgb: [number, number, number]): HTMLCanvasElement[] {
   const arr: HTMLCanvasElement[] = [];
-  // 代わりの絵は平らな絵なので傾きを表せない。段の数だけ同じ並びを繰り返して枚数だけ合わせる
-  for (let i = 0; i < STONE_STEPS; i++) {
+  // 代わりの絵は平らな絵なので傾きを表せない。段の数だけ同じ並びを繰り返して枚数だけ合わせる。
+  // 球専用の分も、転がり用と同じ並びをそのまま続ける
+  for (let i = 0; i < STONE_STEPS + BALL_STEPS; i++) {
     const c = document.createElement("canvas");
     c.width = STONE_PX;
     c.height = STONE_PX;
@@ -243,7 +244,8 @@ export function requestStoneSpritesByHex(hex: string, front = false) {
  *  焼くのにかかる時間は機械次第で、描画装置のある機械なら13色で3.2秒、ページの読み込みと重なると5〜6秒。
  *  ただし機械の頭だけで描く環境では100秒を超える。数字は2026-09-11の実測。「はじめる」を押してから頼んでいると
  *  曲が終わるまでに焼き終わらない色が出る。入口は止まっている画面なので、ここで焼いても引っかからない。
- *  順番は渡された並びのまま。自分が選んでいる色は setOwnColor から割り込ませる */
+ *  順番は渡された並びのまま。自分が選んでいる色は setOwnColor から割り込ませる。
+ *  なお上の数字は96枚の頃の実測で、球専用の32枚を足したぶん3割ほど増える見込み。足した後は測っていない */
 export function requestAllStoneSprites(hexes: readonly string[]) {
   for (const hex of hexes) requestStoneSprites(hexToRgb(hex));
 }
@@ -260,7 +262,7 @@ export function warmUpGemRenderer() {
   }, 0);
 }
 
-/** 貼るための絵を1色ぶん受け取る。必ず96枚そろった配列が返る。
+/** 貼るための絵を1色ぶん受け取る。必ず96＋32枚そろった配列が返る。
  *  本物がまだ無ければ代わりの絵を返し、裏で焼くよう頼んでおく */
 export function getStoneSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
   const key = keyOf(rgb);
