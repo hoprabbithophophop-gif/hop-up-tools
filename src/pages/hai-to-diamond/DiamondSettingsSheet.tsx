@@ -80,9 +80,23 @@ interface Props {
   settings: DiamondSettings;
   onChange: (next: DiamondSettings) => void;
   onClose: () => void;
+  /** 動画の矩形の上端。画面の上からのpxで渡す。下端が分からない時だけ使い、シートを動画より上に寄せる */
+  avoidTop?: number;
+  /** 動画の矩形の下端。画面の上からのpxで渡す。渡すとシートを動画より下に寄せ、動画に重ならないようにする */
+  avoidBottom?: number;
 }
 
-export default function DiamondSettingsSheet({ settings, onChange, onClose }: Props) {
+export default function DiamondSettingsSheet({ settings, onChange, onClose, avoidTop, avoidBottom }: Props) {
+  // 動画の矩形をよける置き場所。下端が分かっていればその下へ、上端しか分からなければその上へ。
+  // どちらも渡されなければ今までどおり画面の真ん中
+  const dock = avoidBottom != null ? "bottom" : avoidTop != null ? "top" : "center";
+  const overlayAlign = dock === "bottom" ? "flex-end" : dock === "top" ? "flex-start" : "center";
+  // よける時は上下の余白を取らない。ここに余白を入れると、そのぶん板の上端が動画側へせり上がる
+  const overlayPadding = dock === "center" ? "1.2rem" : "0 1.2rem";
+  const panelMaxHeight =
+    dock === "bottom" ? `calc(100dvh - ${avoidBottom}px - 8px)`
+      : dock === "top" ? `calc(${avoidTop}px - 8px)`
+        : "88dvh";
   const isLight = settings.crowd === LIGHT_DIAMOND_SETTINGS.crowd && settings.reduceMotion === LIGHT_DIAMOND_SETTINGS.reduceMotion;
   const isDefault = settings.crowd === DEFAULT_DIAMOND_SETTINGS.crowd && settings.reduceMotion === DEFAULT_DIAMOND_SETTINGS.reduceMotion;
   const presetBtn = (active: boolean): CSSProperties => ({
@@ -90,17 +104,19 @@ export default function DiamondSettingsSheet({ settings, onChange, onClose }: Pr
     fontSize: "0.8125rem", fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
   });
 
+  // 画面ぜんぶを受ける外側には色を付けない。動画の上には見える物を重ねないという YouTube API の
+  // 決まりのため。押したら閉じる役目だけ残す
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="設定"
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.2rem" }}
+      style={{ position: "fixed", inset: 0, zIndex: 200, background: "transparent", display: "flex", alignItems: overlayAlign, justifyContent: "center", padding: overlayPadding }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ width: "100%", maxWidth: 340, maxHeight: "88dvh", overflowY: "auto", background: "#f8f9fa", color: "#191c1d", padding: "1.3rem 1.3rem 1.1rem", fontFamily: "Inter, 'Noto Sans JP', sans-serif", display: "flex", flexDirection: "column", gap: "1.15rem" }}
+        style={{ width: "100%", maxWidth: 340, maxHeight: panelMaxHeight, overflowY: "auto", background: "#f8f9fa", color: "#191c1d", padding: "1.3rem 1.3rem 1.1rem", fontFamily: "Inter, 'Noto Sans JP', sans-serif", display: "flex", flexDirection: "column", gap: "1.15rem" }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h2 style={{ fontSize: "0.95rem", fontWeight: 800, margin: 0, letterSpacing: "0.02em" }}>設定</h2>

@@ -25,6 +25,14 @@ import BouncyNumber from "../hi-tension/components/BouncyNumber";
 const VIDEO_ID = "_56xLKRcVYM";   // YOKOOOOOHAMA ARENA Live Edit.（2026-09-07 公開・Hop指定）。前の Promotion Edit は ImXkCr22kCU（記録の池は動画IDごとに別）
 /** 額縁（動画の周りの帯）の太さ(px) */
 const FRAME = 14;
+/** 動画の中身が縦横比16:9で200pxを割らないための、内側の幅の最低ライン(px)。
+ *  YouTube の必須要件（埋め込みプレーヤーは200×200px以上）を、幅の狭い端末でも守るための下限 */
+const MIN_VIDEO_WIDTH = 356;
+/** 画面幅に合わせて額縁を詰めた太さ(px)を返す。狭い画面ほど額縁を薄くし、動画の中身の幅を MIN_VIDEO_WIDTH 以上に保つ。
+ *  画面幅が MIN_VIDEO_WIDTH を割るところまでいったら額縁は 0 */
+function computeFrame(): number {
+  return Math.max(0, Math.min(FRAME, Math.floor((window.innerWidth - MIN_VIDEO_WIDTH) / 2)));
+}
 /** PCでは動画を縮めて置く（ハイ！テンションと同じ幅） */
 const PC_VIDEO_WIDTH = 480;
 /** シェア文面（Hop確定 2026-09-06・A案）。タグとURLは指定のものだけ。URLは仮のルート名。
@@ -179,6 +187,14 @@ export default function HaiToDiamondPage() {
   const [numbersBottom, setNumbersBottom] = useState<number | string>("60%");
   /** 盛り上がりの帯の置き場所。器の上端は動画の矩形の下端そのもの＝光の滲みが動画に掛からない */
   const [heatBox, setHeatBox] = useState<{ top: number; left: number; width: number } | null>(null);
+  /** 額縁の太さ(px)。スマホ（isTouchDevice）では画面幅に合わせて詰める。PC は常に FRAME のまま */
+  const [frame, setFrame] = useState<number>(() => (isTouchDevice() ? computeFrame() : FRAME));
+  useEffect(() => {
+    if (!isTouchDevice()) return;   // PC の額縁は画面幅で変えない
+    const onResize = () => setFrame(computeFrame());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   // 入口でも測る（入口の案内と累計を、動画の矩形の下端に合わせて置くため）
   useEffect(() => {
     const measure = () => {
@@ -510,7 +526,7 @@ export default function HaiToDiamondPage() {
       )}
 
       {/* 光と💎の層。動画の裏（zIndex 0） */}
-      <DiamondCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={FRAME} reduceMotion={settings.reduceMotion} />
+      <DiamondCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={frame} reduceMotion={settings.reduceMotion} />
 
       {/* 動画。画面の縦の真ん中より少し上に固定（Hop指示 2026-09-08。下の帯とコメントの流れ道の場所を空ける）。
           額縁ぶんの余白を空け、背景は透明にして裏のキャンバスの額縁を見せる */}
@@ -522,14 +538,14 @@ export default function HaiToDiamondPage() {
           top: VIDEO_TOP,
           left: "50%",
           transform: "translate(-50%, -50%)",
-          padding: FRAME,
+          padding: frame,
           width: isTouchDevice() ? "100%" : PC_VIDEO_WIDTH + FRAME * 2,
           maxWidth: "100%",
           boxSizing: "border-box",
         }}
       >
         <div ref={videoBoxRef}>
-          <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} onReady={handleVideoReady} />
+          <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} onReady={handleVideoReady} startCover={false} />
         </div>
       </div>
 

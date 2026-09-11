@@ -15,6 +15,8 @@
 // そのまま文字として出すだけ（React の文字列なので HTML としては解釈されない）。
 // 長い本文は画面側でさらに短く切る（データを取ってくる側で既に140文字までに切ってあるが、
 // 1行に収まる量まで画面側でもう一段切る）。
+// 切って出すことがあるので、1件ごとに全文へ行ける道を付ける。これも YouTube API の決まり。
+// 押すとそのコメントを YouTube で開く。行き先はコメントの札と動画の札から組み立てる。
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export type TickerComment = {
@@ -23,6 +25,10 @@ export type TickerComment = {
   text: string;
   /** 本文に書かれていた動画の時刻（秒）。無ければ null */
   timeSec?: number | null;
+  /** YouTube 側のそのコメントの札。全文を YouTube で開く行き先を組み立てるのに使う */
+  commentId?: string;
+  /** そのコメントが付いている動画の札。上と同じく行き先の組み立てに使う */
+  videoId?: string;
 };
 
 /** 流れ道の本数【仮】 */
@@ -59,6 +65,13 @@ const AUTHOR_STYLE: React.CSSProperties = {
   color: "#9aa0a6",
   marginLeft: "0.6em",
 };
+/** 全文へ行く道の見た目。今までと同じに見えるよう、色も下線も足さない。
+ *  流れ道を置いている器は呼ぶ側で「押しても素通り」にしてあるので、ここだけ押せるように戻す */
+const LINK_STYLE: React.CSSProperties = {
+  color: "inherit",
+  textDecoration: "none",
+  pointerEvents: "auto",
+};
 
 interface Props {
   comments: TickerComment[];
@@ -83,6 +96,30 @@ function truncateText(text: string, max: number): string {
   const chars = Array.from(text);
   if (chars.length <= max) return text;
   return chars.slice(0, max).join("") + "…";
+}
+
+/** そのコメントを YouTube で開く行き先。札が揃っていなければ null。
+ *  短い間だけ置いてある前の形の返事には札が無いので、その時は行き先を付けずにそのまま流す */
+function commentUrl(comment: TickerComment): string | null {
+  if (!comment.commentId || !comment.videoId) return null;
+  return `https://www.youtube.com/watch?v=${encodeURIComponent(comment.videoId)}&lc=${encodeURIComponent(comment.commentId)}`;
+}
+
+/** 1件の中身。本文と書いた人を並べる。押すとそのコメントを YouTube で開く */
+function CommentBody({ comment }: { comment: TickerComment }) {
+  const body = (
+    <>
+      {truncateText(comment.text, MAX_CHARS)}
+      <span style={AUTHOR_STYLE}>{comment.author}</span>
+    </>
+  );
+  const href = commentUrl(comment);
+  if (!href) return body;
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" style={LINK_STYLE}>
+      {body}
+    </a>
+  );
 }
 
 /** 画面に出ている1件（React の並びの中身）。どの道(lane)に居るかも持つ */
@@ -274,12 +311,7 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
             key={lane}
             style={{ height: ROW_HEIGHT, width: "100%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", ...TEXT_STYLE }}
           >
-            {item && (
-              <>
-                {truncateText(item.text, MAX_CHARS)}
-                <span style={AUTHOR_STYLE}>{item.author}</span>
-              </>
-            )}
+            {item && <CommentBody comment={item} />}
           </div>
         ))}
       </div>
@@ -323,8 +355,7 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
             ...TEXT_STYLE,
           }}
         >
-          {truncateText(item.comment.text, MAX_CHARS)}
-          <span style={AUTHOR_STYLE}>{item.comment.author}</span>
+          <CommentBody comment={item.comment} />
         </div>
       ))}
     </div>

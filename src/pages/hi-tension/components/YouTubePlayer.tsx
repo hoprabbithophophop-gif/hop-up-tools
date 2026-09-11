@@ -47,6 +47,10 @@ interface Props {
   onPlayerStateChange?: (state: number) => void;
   /** 動画の準備ができた瞬間に1回だけ呼ぶ。isReady が false から true に変わった時。渡さなくても今までの動きは変わらない */
   onReady?: () => void;
+  /** 初回 play() から LOADING_MIN_MS 秒、黒カバーで隠すか。既定 true（渡さなければ今までの動きのまま）。
+   *  /hai-to-diamond は動画自身の再生ボタンで始めるので、この2秒のカバーは要らない。見返しの再生（すでに動いている映像に
+   *  重ねて呼ぶ2回目以降の play()）に黒いカバーが乗ってしまうため false を渡す */
+  startCover?: boolean;
 }
 
 function loadYouTubeAPI(): Promise<void> {
@@ -72,7 +76,7 @@ function loadYouTubeAPI(): Promise<void> {
 }
 
 const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer(
-  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, onReady },
+  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, onReady, startCover = true },
   ref,
 ) {
   const [isReady, setIsReady] = useState(false);
@@ -321,8 +325,10 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   }), []);
 
   // 初回 play() から LOADING_MIN_MS の間、player が ready になるまで、
-  // または入室時の動画切替が PLAYING に達するまで（loadCovering）黒カバーを表示
-  const showLoading = !isReady || (started && !minTimeElapsed) || loadCovering;
+  // または入室時の動画切替が PLAYING に達するまで（loadCovering）黒カバーを表示。
+  // startCover=false の時は、この「最初の2秒」ぶんのカバーだけ出さない（すでに動いている映像に
+  // 重ねて呼ぶ play() で、黒いカバーが乗ってしまう場面向け）
+  const showLoading = !isReady || (startCover && started && !minTimeElapsed) || loadCovering;
 
   return (
     <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", background: "#000" }}>

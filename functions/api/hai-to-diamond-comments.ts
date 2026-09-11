@@ -5,9 +5,12 @@
  * YouTube Data API v3 の commentThreads（そのぶら下がりの返信は取らず、親コメントだけ）を呼び、
  * /api/hai-to-diamond-replay と同じく CDN エッジに置いて、訪問者ごとに YouTube を叩かないようにする。
  *
- * 返す形: [{ id, author, text, likeCount, timeSec }]
- *   text    … 元の本文のまま（改行だけ空白に畳む。省略はしない・Hop決定 2026-09-08: 読みたい人がいる）
- *   timeSec … 本文に「2:31」のような分:秒があれば、その秒数。無ければ null。時刻が2つ以上ある本文は、文はそのままで時刻ごとに1件ずつ（上限3回）返す
+ * 返す形: [{ id, commentId, videoId, author, text, likeCount, timeSec }]
+ *   id        … 画面の中で1件を見分けるための札。同じ文を時刻ごとに分けた分は末尾に #0 #1 が付く
+ *   commentId … YouTube 側のそのコメントの札。#0 などは付かない素のまま。videoId と合わせて、
+ *               そのコメントを YouTube で開く行き先を画面側が組み立てるのに使う
+ *   text      … 元の本文のまま（改行だけ空白に畳む。省略はしない・Hop決定 2026-09-08: 読みたい人がいる）
+ *   timeSec   … 本文に「2:31」のような分:秒があれば、その秒数。無ければ null。時刻が2つ以上ある本文は、文はそのままで時刻ごとに1件ずつ（上限3回）返す
  *
  * 決め事:
  * - 取ったコメントは画面に流すためだけに短い間エッジに置く。ファイルにも DB にも残さない。
@@ -106,15 +109,25 @@ export async function onRequest(context: {
   }
   const raw: unknown = { items: collected };
 
-  const out = json(JSON.stringify(toComments(raw)), TTL_SECONDS);
+  const out = json(JSON.stringify(toComments(raw, videoId)), TTL_SECONDS);
   return cacheAndReturn(context, cacheKey, out);
 }
 
+type Comment = {
+  id: string;
+  commentId: string;
+  videoId: string;
+  author: string;
+  text: string;
+  likeCount: number;
+  timeSec: number | null;
+};
+
 /** YouTube の返事から、画面が要るところだけを取り出す */
-function toComments(raw: unknown): { id: string; author: string; text: string; likeCount: number; timeSec: number | null }[] {
+function toComments(raw: unknown, videoId: string): Comment[] {
   const items = (raw as { items?: unknown[] } | null)?.items;
   if (!Array.isArray(items)) return [];
-  const out: { id: string; author: string; text: string; likeCount: number; timeSec: number | null }[] = [];
+  const out: Comment[] = [];
   for (const item of items) {
     const top = (item as any)?.snippet?.topLevelComment;
     const s = top?.snippet;
@@ -132,10 +145,11 @@ function toComments(raw: unknown): { id: string; author: string; text: string; l
     if (times.length <= 1 || times.length >= MANY_TIMES_ONCE) {
       // 時刻が無い・1つ・または「x:xx x:xx x:xx 西田さん…」のように時刻が並ぶ案内のコメントは、最初の時刻に1回だけ。
       // 長い案内が時刻ごとに何度も流れるより、1回で読める方が親切（Hop決定 2026-09-08）
-      out.push({ id, author, text, likeCount, timeSec: times[0] ?? null });
+      out.push({ id, commentId: id, videoId, author, text, likeCount, timeSec: times[0] ?? null });
     } else {
       times.slice(0, MAX_TIMES_PER_COMMENT).forEach((sec, k) => {
-        out.push({ id: `${id}#${k}`, author, text, likeCount, timeSec: sec });
+        // 見分けの札には #0 #1 を付けるが、YouTube で開く時の札は素のままでないと通らない
+        out.push({ id: `${id}#${k}`, commentId: id, videoId, author, text, likeCount, timeSec: sec });
       });
     }
   }
