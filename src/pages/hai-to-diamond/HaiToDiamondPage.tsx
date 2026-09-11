@@ -522,7 +522,7 @@ export default function HaiToDiamondPage() {
         </div>
       )}
       {settingsOpen && (
-        <DiamondSettingsSheet settings={settings} onChange={handleSettingsChange} onClose={() => setSettingsOpen(false)} />
+        <DiamondSettingsSheet avoidBottom={heatBox?.top} settings={settings} onChange={handleSettingsChange} onClose={() => setSettingsOpen(false)} />
       )}
 
       {/* 光と💎の層。動画の裏（zIndex 0） */}
