@@ -92,8 +92,9 @@ interface Props {
   /** 💎を押して色が変わった時に呼ぶ */
   onSelect: (id: string) => void;
   /** 💎を押した瞬間に呼ぶ。true を返したら押せたものとして扱う。
+   *  origin は押した💎のボタンの中心。画面座標で渡す。ボタンの位置が取れない時は渡らない。
    *  渡さなければ「押しても💎は降らない」ページになる（曲のあとの見返し中） */
-  onRecord?: (id: string) => boolean;
+  onRecord?: (id: string, origin?: { x: number; y: number }) => boolean;
   /** 触れた瞬間に降らせた💎を取り消す。指が滑ってスワイプになった時に呼ぶ */
   onRecordCancel?: () => void;
   /** まだ一度も押されていない間、いまの色の💎に光沢を流して押すよう誘う */
@@ -295,6 +296,14 @@ const DiamondColorPages = memo(function DiamondColorPages({
     }
   }, []);
 
+  /** その💎のボタンの中心を画面座標で返す。ボタンの要素がまだ無ければ undefined */
+  const gemCenter = useCallback((key: string): { x: number; y: number } | undefined => {
+    const el = gemElsRef.current.get(key);
+    if (!el) return undefined;
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, []);
+
   /** 指を離した／取り上げられた時の後片付け。iOS の pointercancel でもここへ来る */
   const endDrag = useCallback((e?: ReactPointerEvent<HTMLElement>) => {
     const d = dragRef.current;
@@ -351,9 +360,9 @@ const DiamondColorPages = memo(function DiamondColorPages({
     if (gem) {
       paintPressed(gem.key);
       onSelect(gem.id);
-      if (onRecord && !disabledRef.current) dragRef.current.recorded = onRecord(gem.id);
+      if (onRecord && !disabledRef.current) dragRef.current.recorded = onRecord(gem.id, gemCenter(gem.key));
     }
-  }, [nearestPage, onRecord, onSelect, paintPressed, stopAnim]);
+  }, [gemCenter, nearestPage, onRecord, onSelect, paintPressed, stopAnim]);
 
   const handleMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     const d = dragRef.current;

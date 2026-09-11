@@ -528,16 +528,22 @@ export default function HaiToDiamondPage() {
 
   /** 💎ボタン1回ぶん。再生中（かつ一時停止していない）だけ受け付ける。
    *  ユニットごとのページからは押した💎の色（pickedId）が渡る。一列の帯からは渡らないので、
-   *  その時は真ん中に来ている色＝いま選ばれている色を使う */
-  const handleRecord = useCallback((pickedId?: string): boolean => {
+   *  その時は真ん中に来ている色＝いま選ばれている色を使う。
+   *  origin は押した💎のボタンの中心。画面座標で渡す。💎はそのすぐ上から飛び立つ */
+  const handleRecord = useCallback((pickedId?: string, origin?: { x: number; y: number }): boolean => {
     if (!playingRef.current || pausedRef.current) return false;
     const id = pickedId ?? memberIdRef.current;
     const hex = findDiamondMember(id)?.color ?? "#ffffff";
     tapsRef.current.push({ t: playerRef.current?.getCurrentTime() ?? 0, memberId: id });
-    canvasRef.current?.spawn(hex, true);
+    canvasRef.current?.spawn(hex, true, origin);
     setLiveCount(tapsRef.current.length);
     return true;
   }, []);
+
+  /** 一列の帯からの1回ぶん。帯は真ん中の色しか押せないので色は渡らず、ボタンの位置だけ渡る */
+  const handleRecordFromRow = useCallback((origin?: { x: number; y: number }): boolean => {
+    return handleRecord(undefined, origin);
+  }, [handleRecord]);
 
   /** 触れた瞬間に降らせた1つを取り消す（指が滑ってスワイプになった時） */
   const handleRecordCancel = useCallback(() => {
@@ -715,7 +721,7 @@ export default function HaiToDiamondPage() {
                 options={DIAMOND_COLOR_OPTIONS}
                 selectedId={memberId}
                 onSelect={handlePickColor}
-                onRecord={handleRecord}
+                onRecord={handleRecordFromRow}
                 onRecordCancel={handleRecordCancel}
                 inviting={liveCount === 0}
                 reduceMotion={settings.reduceMotion}

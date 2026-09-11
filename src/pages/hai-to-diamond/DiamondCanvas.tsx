@@ -35,8 +35,9 @@ import { colorDistance, colorHome, type ColorHome, type Rgb } from "./ballColors
 
 export type DiamondCanvasApi = {
   /** その色の💎を1つ、画面の上から降らせる。速さ・回転の向きと速さは1つずつ違う。
-   *  self=true は自分の💎: 画面内の上寄りに出て、出た瞬間にピカッと光る（押した手応え） */
-  spawn: (color: string, self?: boolean) => void;
+   *  self=true は自分の💎: 画面内の上寄りに出て、出た瞬間にピカッと光る（押した手応え）。
+   *  origin は押した💎のボタンの中心。画面座標で渡す。自分の分はそのすぐ上から飛び立つ */
+  spawn: (color: string, self?: boolean, origin?: { x: number; y: number }) => void;
   /** 動画の現在時刻と総尺（秒）。カメラの引き・寄りに使う */
   setTime: (t: number, duration: number) => void;
   /** 山・降っている💎・カメラをすべて最初の状態に戻す（「最初に戻る」→ もう一度はじめる時） */
@@ -282,6 +283,10 @@ const SELF_SUCK_MS_JITTER = 150; // 同上のばらつき
 const SELF_SUCK_BOW = 45;        // 道の膨らみ(px)。まっすぐ吸い込まれず少し弧を描く【仮】
 const SELF_SUCK_ENTER = 0.85;    // 飛ぶ時間のうち、この割合をかけて動画の矩形の縁まで進む。
                                  // 残りで矩形の中へ吸い込まれる＝速さが変わる瞬間は動画の裏なので見えない【仮】
+const SELF_ABOVE_BUTTON = 28;    // 押した💎のボタンの中心から、これだけ上を出発点にする。
+                                 // 押した指のすぐ上から飛び立つので、自分の1個がどれか目で追える（Hop決定 2026-09-11）【仮】
+const SPAWN_OUTSIDE = 48;        // 他の人の分の出発点を、画面の縁からこれだけ外へ押し出す。
+                                 // 縁ぴったりだと出た瞬間に見えて「画面の中で湧いた」ように映る（Hop報告 2026-09-11）【仮】
 // 壁に映る光の粒（Hop決定 2026-09-08）。ここでいう「壁」は動画と額縁の外の画面全体。
 // 壁に届く光は、こちらを向いている手前の面ではなく、球の向こう側＝奥の面が返したもの。
 // 球が回ると奥の面は画面の上で手前の面と逆向きに動くので、壁の粒も手前の鏡とは逆向きに流れる
@@ -340,9 +345,7 @@ const WALL_TO_STAR_CORE = 0.22;  // 粒の絵のうち「芯」に見える割�
 // 席が手前側で動画の外にあれば、その席へ飛んで鏡の大きさまで縮み、着いた瞬間に鏡として貼られる
 const SEAT_FOLLOW = 8;           // 席の動きを追いかける速さ（1秒あたり）。席が回転で動画の裏へ入った時に
                                  // 行き先が中心へ移るのも、この速さでなめらかに動く＝飛び先が跳ばない【仮】
-const SEAT_FACE_MS = 200;        // 席にはめ込まれる直前のこの時間だけ、飛んでいる💎の絵を
-                                 // 「飛んでいる向きの💎」から「その席に収まる鏡」に差し替える。
-                                 // 絵を差し替えるだけで、回して見せる演出はしない（Hop決定 2026-09-08）【仮】
+// 飛んでいる間は最後までダイヤのまま。着いた瞬間に鏡になる（Hop決定 2026-09-11）
 
 // 積もった💎も落ちてくる💎も、毎フレーム面を計算せず、色×石の向きごとに一度焼いた小さな絵(スプライト)を貼る。
 // 数千個積もっても drawImage の回数が増えるだけで、絵を作る計算は増えない（重さ対策）。
@@ -945,7 +948,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const camRef = useRef({ scale: 1, cx: 0, cy: 0, oy: 0 });
 
   useImperativeHandle(ref, () => ({
-    spawn(color: string, self = false) {
+    spawn(color: string, self = false, origin?: { x: number; y: number }) {
       const { W, H } = sizeRef.current;
       const { scale, cx, oy } = camRef.current;
       if (!W) return;
@@ -976,23 +979,30 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const now = performance.now();
         let x0: number, y0: number, bow = 0;
         if (self) {
-          // 中央寄りの下の方から出す。横に散らしすぎると動画の横の狭い所を通ることになり、
-          // 動画の下から中心へ真っ直ぐ上がっていく道筋が読めなくなる
-          x0 = W / 2 + (Math.random() * 2 - 1) * SELF_SUCK_X_SPREAD;
-          y0 = H - SELF_SUCK_Y + (Math.random() - 0.5) * SELF_SUCK_Y_SPREAD;
+          if (origin) {
+            // 押した💎のボタンの中心のすぐ上から飛び立つ（Hop決定 2026-09-11）
+            x0 = origin.x;
+            y0 = origin.y - SELF_ABOVE_BUTTON;
+          } else {
+            // ボタンの位置が分からない時は今までどおり中央寄りの下の方から出す。横に散らしすぎると
+            // 動画の横の狭い所を通ることになり、動画の下から中心へ真っ直ぐ上がっていく道筋が読めなくなる
+            x0 = W / 2 + (Math.random() * 2 - 1) * SELF_SUCK_X_SPREAD;
+            y0 = H - SELF_SUCK_Y + (Math.random() - 0.5) * SELF_SUCK_Y_SPREAD;
+          }
           // 出発点が動画の矩形の中や、そのすぐ下にならないようにする。
           // 画面が低い端末では動画の下の余白が狭く、そのままだと出た瞬間に裏へ入ってしまう
           const vb = videoRectRef.current;
           if (vb.w > 0) y0 = Math.min(H - 8, Math.max(y0, vb.y + vb.h + SELF_SUCK_MIN_GAP));
           bow = (Math.random() < 0.5 ? -1 : 1) * SELF_SUCK_BOW * (0.6 + Math.random() * 0.4);
         } else {
-          // 画面の縁を1周ぶんの長さと見て、その上のどこか1点を選ぶ
+          // 画面の縁を1周ぶんの長さと見て、その上のどこか1点を選び、そこから画面の外へ押し出す
+          // ＝画面の中で湧かず、外から入ってくる
           const per = (W + H) * 2;
           const u = Math.random() * per;
-          if (u < W) { x0 = u; y0 = H; }
-          else if (u < W + H) { x0 = W; y0 = W + H - u; }
-          else if (u < W * 2 + H) { x0 = W * 2 + H - u; y0 = 0; }
-          else { x0 = 0; y0 = u - (W * 2 + H); }
+          if (u < W) { x0 = u; y0 = H + SPAWN_OUTSIDE; }
+          else if (u < W + H) { x0 = W + SPAWN_OUTSIDE; y0 = W + H - u; }
+          else if (u < W * 2 + H) { x0 = W * 2 + H - u; y0 = -SPAWN_OUTSIDE; }
+          else { x0 = -SPAWN_OUTSIDE; y0 = u - (W * 2 + H); }
         }
         const shrinkM = Math.max(SHRINK_MIN, Math.min(1, Math.sqrt(SHRINK_REF / spawnedRef.current)));
         // 押した時点で「この💎がはまる席」を1つ取っておく。席は色で決まる＝同じ色の席の隣が空いていればそこ、
@@ -1930,6 +1940,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         // 4. 飛んでいる途中の💎（落ちている時と同じ面付きの絵）。
         //    自分の席が手前側で動画の外にあるなら、その席へ向かって飛び、飛びながら鏡の大きさまで縮んで
         //    着いた瞬間に鏡として貼られる＝押した💎がはめ込まれる様子が見える（Hop指摘 2026-09-08）。
+        //    飛んでいる間は最後までダイヤのまま。着いた瞬間に鏡になる（Hop決定 2026-09-11）。
         //    席が動画の裏や奥側にある時は今までどおり動画の中心へ飛んで隠れ、裏で席が埋まる。
         //    中心へ飛ぶ時の自分の分だけは別扱い: 動画の矩形の縁までは大きさを保ったまま弧を描いて飛び、
         //    縁に着いてから残りの時間で中へ吸い込まれて縮む。速さも大きさも変わるのは動画の裏に入った後なので、
@@ -2011,15 +2022,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             : base * (1 - shrink * SUCK_SHRINK);
           suckDraw.path = sk.path;
           suckDraw.rgb = sk.rgb;
-          // 席にはめ込まれる直前だけ、収まる先と同じ鏡の絵に差し替える（回して見せる演出はしない）。
-          // 鏡は面が1枚で向きを持たないので、潰さず回さずそのまま貼れば足りる。
-          // 動画の中心へ吸い込まれて隠れる分は、差し替えても見えないのでそのまま飛んでいる向きで飛ばす
-          if (sk.toSeat && sk.dur - (now - sk.t0) < SEAT_FACE_MS) {
-            const w = suckDraw.size * 2 / 0.95;
-            ctx.drawImage(mirrorSpritesFor(sk.rgb)[0], suckDraw.x - w / 2, suckDraw.y - w / 2, w, w);
-          } else {
-            drawGemLive(suckDraw);
-          }
+          // 飛んでいる間は最後までダイヤのまま。着いた瞬間に鏡になる（Hop決定 2026-09-11）
+          drawGemLive(suckDraw);
         }
 
         // 5. 押した手応えの閃光

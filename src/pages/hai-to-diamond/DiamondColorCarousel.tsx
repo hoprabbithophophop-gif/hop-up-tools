@@ -96,8 +96,9 @@ interface Props {
   /** 真ん中に来た色が変わった時に呼ぶ */
   onSelect: (id: string) => void;
   /** 真ん中の💎を押した時に呼ぶ。true を返したら押せたものとして扱う。
+   *  origin は押した💎のボタンの中心。画面座標で渡す。ボタンの要素が取れない時は渡らない。
    *  渡さなければ「押しても💎は降らない」帯になる（曲のあとの見返し中） */
-  onRecord?: () => boolean;
+  onRecord?: (origin?: { x: number; y: number }) => boolean;
   /** 真ん中を触れた瞬間に降らせた💎を取り消す。指が滑ってスワイプになった時に呼ぶ（Hop指摘 2026-09-08: スライドしただけで降るのは早すぎる） */
   onRecordCancel?: () => void;
   /** まだ一度も押されていない間、真ん中の💎のまわりの光をゆっくり脈打たせて押すよう誘う */
@@ -333,6 +334,14 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
     if (idAt(target) !== selectedId) onSelect(idAt(target));
   }, [glideTo, idAt, n, onSelect, selectedId]);
 
+  /** その💎のボタンの中心を画面座標で返す。ボタンの要素がまだ無ければ undefined */
+  const itemCenter = useCallback((item: number): { x: number; y: number } | undefined => {
+    const el = itemsRef.current[item];
+    if (!el) return undefined;
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, []);
+
   /** 指が触れた瞬間。真ん中の💎なら、指を離すのを待たずにここで💎を1つ降らせる */
   const beginDrag = useCallback((e: ReactPointerEvent<HTMLElement>, item: number | null) => {
     if (dragRef.current) return;
@@ -344,9 +353,9 @@ const DiamondColorCarousel = memo(function DiamondColorCarousel({
     if (item != null) {
       pressedRef.current = item;
       paint();
-      if (item === base && onRecord && !disabledRef.current) dragRef.current.recorded = onRecord();
+      if (item === base && onRecord && !disabledRef.current) dragRef.current.recorded = onRecord(itemCenter(item));
     }
-  }, [n, onRecord, paint, stopAnim]);
+  }, [itemCenter, n, onRecord, paint, stopAnim]);
 
   const handleMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     const d = dragRef.current;
