@@ -124,6 +124,10 @@ function initialMemberId(): string {
 
 export default function HaiToDiamondPage() {
   const playerRef = useRef<YouTubePlayerApi>(null);
+  /** いま1回の最中か（動画の再生の合図を受け取る側から見るための控え） */
+  const startedRef = useRef(false);
+  /** 1回ぶんの支度。合図を受け取る関数の方が先に組み立てられるので、控え越しに呼ぶ */
+  const beginSessionRef = useRef<(() => void) | null>(null);
   const canvasRef = useRef<DiamondCanvasApi>(null);
   const videoBoxRef = useRef<HTMLDivElement>(null);
   /** 自分がタップした「動画時刻（秒）」と「その時に選んでいた色のメンバーID」。曲の終わりに色ごとにまとめて送る */
@@ -134,6 +138,8 @@ export default function HaiToDiamondPage() {
   const memberIdRef = useRef(memberId);
   /** 入口の💎を押して曲を始めたか。false の間は入口を出す */
   const [started, setStarted] = useState(false);
+  /** 動画が届いて再生ボタンを押せる状態になったか。届く前は入口の案内文を「読み込んでいます」にする */
+  const [videoReady, setVideoReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
   /** 一時停止中（YouTube純正の操作で止められた間）。曲の途中で押しても💎が降らないようにするための状態。
@@ -173,8 +179,8 @@ export default function HaiToDiamondPage() {
   const [numbersBottom, setNumbersBottom] = useState<number | string>("60%");
   /** 盛り上がりの帯の置き場所。器の上端は動画の矩形の下端そのもの＝光の滲みが動画に掛からない */
   const [heatBox, setHeatBox] = useState<{ top: number; left: number; width: number } | null>(null);
+  // 入口でも測る（入口の案内と累計を、動画の矩形の下端に合わせて置くため）
   useEffect(() => {
-    if (!started) return;
     const measure = () => {
       const box = videoBoxRef.current;
       const frameEl = box?.parentElement;                 // 額縁ぶんの余白を持つ div
@@ -299,19 +305,24 @@ export default function HaiToDiamondPage() {
 
   const handleEnded = useCallback(() => { finish(); }, [finish]);
 
+  const handleVideoReady = useCallback(() => { setVideoReady(true); }, []);
+
   // 動画上の YouTube 純正の再生ボタンから始めた場合も拾う。1=再生中 / 2=一時停止 / 0=終了。3=読み込み中は触らない。
   // 再生中に一時停止(2)が来たら「一時停止中」を立て、再生(1)に戻ったら下ろす（Hop決定 2026-09-08）
   const handlePlayerStateChange = useCallback((state: number) => {
     if (highlightRef.current) return;               // ハイライト再生中は再生扱いにしない（💎ボタンも記録も増やさない・一時停止もいつも通り無視）
+    if (state === 1 && !startedRef.current) { beginSessionRef.current?.(); return; }   // 入口で動画の再生ボタンが押された＝ここから1回が始まる
     if (state === 1) { setEnded(false); setPlayingBoth(true); setPausedBoth(false); }
     else if (state === 0) finish();
     else if (state === 2 && playingRef.current) setPausedBoth(true);
   }, [finish]);
 
-  /** 入口の💎＝ハイ！テンションと同じく、このタップの中で同期的に再生を始める（iOS Safari 対策）。
-   *  プレイヤーは入口の裏で先に読み込み済み */
-  const handleStart = useCallback(() => {
-    playerRef.current?.play();
+  /** 曲を1回ぶん始める支度。
+   *  再生そのものはここから呼ばない＝動画自身の再生ボタンを押してもらう（Hop決定 2026-09-10）。
+   *  外側のボタンから呼んで始めた再生は YouTube 側で1回として数えられていない疑いが強く、
+   *  このツールは公式動画の再生回数に足すために作っているため。
+   *  呼ばれるのは、動画が実際に再生に入った合図（onPlayerStateChange の 1）を受け取った時 */
+  const beginSession = useCallback(() => {
     canvasRef.current?.setMode(settingsRef.current.scene);   // 山かミラーボールか。reset より先に（設定「💎の見せ方」）
     canvasRef.current?.reset();   // 前の回の山を消して最初から（Hop報告 2026-09-07）
     const hex = findDiamondMember(memberIdRef.current)?.color;
@@ -332,10 +343,12 @@ export default function HaiToDiamondPage() {
     setVideoTimeSec(0);
     setPeakTime(null);
     setEnded(false);
+    startedRef.current = true;
     setStarted(true);
     setPlayingBoth(true);
     setPausedBoth(false);
   }, [loadReplay]);
+  useEffect(() => { beginSessionRef.current = beginSession; }, [beginSession]);
 
   /** 最初に戻る＝入口へ */
   const handleBackToStart = useCallback(() => {
@@ -345,7 +358,12 @@ export default function HaiToDiamondPage() {
     setEnded(false);
     setPlayingBoth(false);
     setPausedBoth(false);
+    startedRef.current = false;
     setStarted(false);
+    // 動画はサムネイルと再生ボタンの状態に戻す＝ページを開いた直後と同じ見え方。
+    // 頭へ巻き戻して一時停止する形だと、端末の「再生中」の札が残り、1コマ目が止まったまま見える。
+    // 公式の手引きでも、一時停止は「続きを見る時」、見終わった後は別の止め方に分けている（Hop決定 2026-09-11）
+    playerRef.current?.cueVideo(VIDEO_ID);
   }, []);
 
   /** その色が一番輝いた瞬間の前後を見返す。山はそのまま、カメラも止める */
@@ -484,7 +502,7 @@ export default function HaiToDiamondPage() {
       {/* 入口。本編（プレイヤー込み）は常時マウントし、その上に重ねる＝「はじめる」の時点でプレイヤーが準備済み */}
       {!started && (
         <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
-          <DiamondEntry total={othersTotal} onStart={handleStart} onOpenSettings={() => setSettingsOpen(true)} reduceMotion={settings.reduceMotion} />
+          <DiamondEntry videoBottom={heatBox?.top ?? null} videoReady={videoReady} total={othersTotal} onOpenSettings={() => setSettingsOpen(true)} reduceMotion={settings.reduceMotion} />
         </div>
       )}
       {settingsOpen && (
@@ -499,7 +517,8 @@ export default function HaiToDiamondPage() {
       <div
         style={{
           position: "absolute",
-          zIndex: 2,
+          // 入口の間は動画を入口の上に出す＝真ん中に動画が見えていて、その再生ボタンを押せる（Hop決定 2026-09-10）
+          zIndex: started ? 2 : 20,
           top: VIDEO_TOP,
           left: "50%",
           transform: "translate(-50%, -50%)",
@@ -510,7 +529,7 @@ export default function HaiToDiamondPage() {
         }}
       >
         <div ref={videoBoxRef}>
-          <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} />
+          <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} onReady={handleVideoReady} />
         </div>
       </div>
 

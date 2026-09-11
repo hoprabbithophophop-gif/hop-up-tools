@@ -45,6 +45,8 @@ interface Props {
   onTimeUpdate?: (currentTime: number) => void;
   /** YT.PlayerState の値(1=PLAYING, 2=PAUSED, 3=BUFFERING, 0=ENDED) */
   onPlayerStateChange?: (state: number) => void;
+  /** 動画の準備ができた瞬間に1回だけ呼ぶ。isReady が false から true に変わった時。渡さなくても今までの動きは変わらない */
+  onReady?: () => void;
 }
 
 function loadYouTubeAPI(): Promise<void> {
@@ -70,7 +72,7 @@ function loadYouTubeAPI(): Promise<void> {
 }
 
 const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer(
-  { videoId, onEnded, onTimeUpdate, onPlayerStateChange },
+  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, onReady },
   ref,
 ) {
   const [isReady, setIsReady] = useState(false);
@@ -93,10 +95,17 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   const onEndedRef = useRef(onEnded);
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const onPlayerStateChangeRef = useRef(onPlayerStateChange);
+  const onReadyRef = useRef(onReady);
 
   useEffect(() => { onEndedRef.current = onEnded; }, [onEnded]);
   useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
   useEffect(() => { onPlayerStateChangeRef.current = onPlayerStateChange; }, [onPlayerStateChange]);
+  useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
+
+  // isReady が false→true に変わった瞬間だけ知らせる。渡されていなければ何もしない＝これまでの動きのまま
+  useEffect(() => {
+    if (isReady) onReadyRef.current?.();
+  }, [isReady]);
 
   useEffect(() => {
     let mounted = true;
