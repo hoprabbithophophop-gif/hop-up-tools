@@ -13,7 +13,7 @@ import { getLastSelectedMemberId, setLastSelectedMemberId, getOrCreateAnonymousS
 import { submitHiSessions } from "../hi-tension/api";
 import { fetchReplay, type ReplayRow } from "./replay";
 import DiamondCanvas, { type DiamondCanvasApi } from "./DiamondCanvas";
-import { stonesSettled } from "./gemSprites";
+import { stonesSettled, setStoneBakeHurry, stoneBakeReport } from "./gemSprites";
 import DiamondEntry from "./DiamondEntry";
 import DiamondColorCarousel from "./DiamondColorCarousel";
 import DiamondColorPages from "./DiamondColorPages";
@@ -156,11 +156,24 @@ export default function HaiToDiamondPage() {
    *  焼けていない色の席に代わりの平らな板が貼られて石と混ざるので、それまで再生を止めておく。
    *  一度立ったら下ろさない＝「最初に戻る」で入口へ帰っても、焼けた絵はそのまま残っている */
   const [gemsReady, setGemsReady] = useState(false);
+  /** 焼き上がりまでにかかった時間の読み取り。main 以外の枝でだけ入口の右下に出す */
+  const [bakeNote, setBakeNote] = useState<string | undefined>(undefined);
+  // 入口の間は画面がほぼ止まっているので、💎の絵を急いで焼かせる。
+  // 元のペースへ戻すのは再生が始まる beginSession の中
+  useEffect(() => { setStoneBakeHurry(true); }, []);
   // 焼き上がりを見に行く。ページを開いた時点から始め、色ぜんぶが済むか、
   // 保険の時間が過ぎたら止める。遅い端末で入口に閉じ込めないための保険つき
   useEffect(() => {
     if (gemsReady) return;
-    const check = () => { if (stonesSettled(DIAMOND_GEM_HEXES)) setGemsReady(true); };
+    const check = () => {
+      if (__SHOW_VERSION__) {
+        // 読み取りを先に取る。ここで済みになると見に行くのが止まるので、
+        // 後回しにすると焼き上がりの秒数を一度も出せないまま終わる
+        const r = stoneBakeReport();
+        if (r.started) setBakeNote((r.done ? "焼き " : "焼き中 ") + (r.ms / 1000).toFixed(1) + "秒");
+      }
+      if (stonesSettled(DIAMOND_GEM_HEXES)) setGemsReady(true);
+    };
     check();
     const poll = setInterval(check, GEMS_POLL_MS);
     const cap = setTimeout(() => setGemsReady(true), GEMS_WAIT_CAP_MS);
@@ -370,6 +383,7 @@ export default function HaiToDiamondPage() {
    *  このツールは公式動画の再生回数に足すために作っているため。
    *  呼ばれるのは、動画が実際に再生に入った合図（onPlayerStateChange の 1）を受け取った時 */
   const beginSession = useCallback(() => {
+    setStoneBakeHurry(false);   // ここから先は動画が動くので、まだ焼き残っている色は元のゆっくりしたペースで
     canvasRef.current?.setMode(settingsRef.current.scene);   // 山かミラーボールか。reset より先に（設定「💎の見せ方」）
     canvasRef.current?.reset();   // 前の回の山を消して最初から（Hop報告 2026-09-07）
     const hex = findDiamondMember(memberIdRef.current)?.color;
@@ -550,7 +564,7 @@ export default function HaiToDiamondPage() {
       {/* 入口。本編（プレイヤー込み）は常時マウントし、その上に重ねる＝「はじめる」の時点でプレイヤーが準備済み */}
       {!started && (
         <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
-          <DiamondEntry videoBottom={heatBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} onOpenSettings={() => setSettingsOpen(true)} reduceMotion={settings.reduceMotion} />
+          <DiamondEntry videoBottom={heatBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} onOpenSettings={() => setSettingsOpen(true)} reduceMotion={settings.reduceMotion} bakeNote={bakeNote} />
         </div>
       )}
       {settingsOpen && (

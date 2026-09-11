@@ -124,6 +124,28 @@ export function stoneGeneration(): number {
 // 1回の持ち時間を長くすると早く焼き上がるが、その間だけ画面がひっかかる
 const SLICE_MS = 6;      // 一度に焼き続ける時間の上限【仮】
 const SLICE_GAP_MS = 32; // 次の一刻みまで休む時間【仮】
+// 入口では画面がほぼ止まっているので急いで焼く。再生が始まったら動画を邪魔しないよう元のペースへ戻す
+const SLICE_MS_HURRY = 24;    // 急ぐ時に一度に焼き続ける時間の上限【仮】
+const SLICE_GAP_MS_HURRY = 8; // 急ぐ時に次の一刻みまで休む時間【仮】
+let hurry = false;
+/** 急ぐかどうかを切り替える。切り替えた時にもう待っている一刻みは、前の間隔のまま1回動く */
+export function setStoneBakeHurry(on: boolean) {
+  hurry = on;
+}
+
+/** 一番はじめに焼き始めた時刻。1回だけ控える */
+let bakeT0 = 0;
+/** 最後の色が焼き上がった時刻。焼き上がるたびに上書きする */
+let bakeLastAt = 0;
+/** どれくらいで焼き上がったかの読み取り。実機で秒数を確かめるために使う。
+ *  started=焼き始めているか、done=順番待ちが空で焼いている途中の色も無いか、
+ *  ms=焼き上がっていればかかった時間、途中なら始めてから今までの時間、colors=焼き上がった色の数 */
+export function stoneBakeReport(): { started: boolean; done: boolean; ms: number; colors: number } {
+  const started = bakeT0 > 0;
+  const done = !job && queue.length === 0;
+  const end = done && bakeLastAt > 0 ? bakeLastAt : performance.now();
+  return { started, done, ms: started ? end - bakeT0 : 0, colors: realCache.size };
+}
 
 const realCache = new Map<string, HTMLCanvasElement[]>();
 const fallbackCache = new Map<string, HTMLCanvasElement[]>();
@@ -170,7 +192,7 @@ function buildFallback(rgb: [number, number, number]): HTMLCanvasElement[] {
 function schedule() {
   if (timer) return;
   if (!job && queue.length === 0) return;
-  timer = setTimeout(pump, SLICE_GAP_MS);
+  timer = setTimeout(pump, hurry ? SLICE_GAP_MS_HURRY : SLICE_GAP_MS);
 }
 
 function pump() {
@@ -184,6 +206,7 @@ function pump() {
       schedule();
       return;
     }
+    if (!bakeT0) bakeT0 = performance.now();   // 焼き始めた時刻。読み取りの起点なので最初の1回だけ
     job = startBake(hexOf(rgb), STONE_PX, getPoses(), POSE_KEY);
     jobKey = key;
     if (!job) {
@@ -197,7 +220,7 @@ function pump() {
     }
   }
   try {
-    job.advance(SLICE_MS);
+    job.advance(hurry ? SLICE_MS_HURRY : SLICE_MS);
   } catch (e) {
     console.warn("[灰toダイヤモンド] " + jobKey + " の宝石を焼けなかった。今までの描き方で出す:", e);
     givenUp.add(jobKey);
@@ -210,6 +233,7 @@ function pump() {
     // 焼き上がった一式を丸ごと差し替える。途中の配列は外に出していないので、
     // 貼る側から見ると「あるフレームを境に絵が本物に変わる」だけになる
     realCache.set(jobKey, job.frames);
+    bakeLastAt = performance.now();   // 今のところ最後に焼き上がった時刻。読み取りの終点
     generation++;   // 絵が入れ替わった合図。貼る側はこの数を見て引き直す
     waiting.delete(jobKey);
     job = null;
