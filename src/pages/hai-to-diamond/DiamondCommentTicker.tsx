@@ -19,7 +19,8 @@
 // 長い本文は画面側でさらに短く切る（データを取ってくる側で既に140文字までに切ってあるが、
 // 1行に収まる量まで画面側でもう一段切る）。
 // 切って出すことがあるので、1件ごとに全文へ行ける道を付ける。これも YouTube API の決まり。
-// 押すとそのコメントを YouTube で開く。行き先はコメントの札と動画の札から組み立てる。
+// 押すと呼ぶ側へ知らせ、呼ぶ側がこの場所に全文の板を出す（Hop決定 2026-09-12）。
+// YouTube へ飛ぶ道はその板の中に1本だけ置く＝流れている最中に新しいタブが開かない。
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export type TickerComment = {
@@ -68,12 +69,13 @@ const AUTHOR_STYLE: React.CSSProperties = {
   color: "#9aa0a6",
   marginLeft: "0.6em",
 };
-/** 全文へ行く道の見た目。今までと同じに見えるよう、色も下線も足さない。
+/** 全文を呼び出す押し所の見た目。今までと同じに見えるよう、色も下線も足さない。
  *  流れ道を置いている器は呼ぶ側で「押しても素通り」にしてあるので、ここだけ押せるように戻す */
 const LINK_STYLE: React.CSSProperties = {
   color: "inherit",
   textDecoration: "none",
   pointerEvents: "auto",
+  cursor: "pointer",
 };
 
 interface Props {
@@ -83,6 +85,8 @@ interface Props {
   reduceMotion?: boolean;
   /** 流してよい高さの上限(px)。渡されたら、その中に入る行数だけ流す。渡されなければ3行のまま */
   maxHeight?: number;
+  /** 1件が押された時に呼ぶ。渡されなければ押せない文字のまま流れる */
+  onOpen?: (comment: TickerComment) => void;
 }
 
 /** 並びをその場で混ぜる（フィッシャー–イェーツ） */
@@ -103,27 +107,20 @@ function truncateText(text: string, max: number): string {
   return chars.slice(0, max).join("") + "…";
 }
 
-/** そのコメントを YouTube で開く行き先。札が揃っていなければ null。
- *  短い間だけ置いてある前の形の返事には札が無いので、その時は行き先を付けずにそのまま流す */
-function commentUrl(comment: TickerComment): string | null {
-  if (!comment.commentId || !comment.videoId) return null;
-  return `https://www.youtube.com/watch?v=${encodeURIComponent(comment.videoId)}&lc=${encodeURIComponent(comment.commentId)}`;
-}
-
-/** 1件の中身。本文と書いた人を並べる。押すとそのコメントを YouTube で開く */
-function CommentBody({ comment }: { comment: TickerComment }) {
+/** 1件の中身。本文と書いた人を並べる。押すと呼ぶ側へ知らせる＝この場所に全文の板が出る。
+ *  押し所は今までと同じく文字の部分だけ。知らせる先が無ければ押せない文字のまま */
+function CommentBody({ comment, onOpen }: { comment: TickerComment; onOpen?: (c: TickerComment) => void }) {
   const body = (
     <>
       {truncateText(comment.text, MAX_CHARS)}
       <span style={AUTHOR_STYLE}>{comment.author}</span>
     </>
   );
-  const href = commentUrl(comment);
-  if (!href) return body;
+  if (!onOpen) return body;
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" style={LINK_STYLE}>
+    <span role="button" tabIndex={0} onClick={() => onOpen(comment)} style={LINK_STYLE}>
       {body}
-    </a>
+    </span>
   );
 }
 
@@ -133,7 +130,7 @@ type LiveItem = { key: number; comment: TickerComment; lane: number };
  *  el は React が描き直すたびに付け替わりうるので、位置(x)はここに預けたままにする */
 type LivePos = { el: HTMLDivElement | null; x: number; width: number; lane: number };
 
-const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, currentTime = 0, reduceMotion = false, maxHeight }: Props) {
+const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, currentTime = 0, reduceMotion = false, maxHeight, onOpen }: Props) {
   /** いま流す道の本数。高さの上限が渡されたら、その中に入るぶんだけに減らす */
   const lanes = maxHeight == null
     ? LANES
@@ -338,7 +335,7 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
               key={lane}
               style={{ height: ROW_HEIGHT, width: "100%", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", ...TEXT_STYLE }}
             >
-              {item && <CommentBody comment={item} />}
+              {item && <CommentBody comment={item} onOpen={onOpen} />}
             </div>
           )
         ))}
@@ -383,7 +380,7 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
             ...TEXT_STYLE,
           }}
         >
-          <CommentBody comment={item.comment} />
+          <CommentBody comment={item.comment} onOpen={onOpen} />
         </div>
       ))}
     </div>

@@ -105,18 +105,31 @@ export default function DiamondSettingsSheet({ settings, onChange, onClose, avoi
   });
 
   // 画面ぜんぶを受ける外側には色を付けない。動画の上には見える物を重ねないという YouTube API の
-  // 決まりのため。押したら閉じる役目だけ残す
+  // 決まりのため。押したら閉じる役目だけ残す。
+  // さらに、動画の下端が分かっている時はこの外側もそこから下だけにする。透明でも、動画の矩形に
+  // 重なっていると指のタップを先に取ってしまい、動画の操作を塞ぐため
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="設定"
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, zIndex: 200, background: "transparent", display: "flex", alignItems: overlayAlign, justifyContent: "center", padding: overlayPadding }}
+      style={{
+        position: "fixed",
+        ...(dock === "bottom" ? { top: avoidBottom, left: 0, right: 0, bottom: 0 } : { inset: 0 }),
+        zIndex: 200,
+        background: "transparent",
+        display: "flex",
+        alignItems: overlayAlign,
+        justifyContent: "center",
+        padding: overlayPadding,
+      }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ width: "100%", maxWidth: 340, maxHeight: panelMaxHeight, overflowY: "auto", background: "#f8f9fa", color: "#191c1d", padding: "1.3rem 1.3rem 1.1rem", fontFamily: "Inter, 'Noto Sans JP', sans-serif", display: "flex", flexDirection: "column", gap: "1.15rem" }}
+        // 板の下の余白に、端末が空けてほしいと言っている分を足す。iPhone のホームバーの下に
+        // 「閉じる」が入り込まないようにするため
+        style={{ width: "100%", maxWidth: 340, maxHeight: panelMaxHeight, overflowY: "auto", background: "#f8f9fa", color: "#191c1d", padding: "1.3rem 1.3rem calc(1.1rem + env(safe-area-inset-bottom))", fontFamily: "Inter, 'Noto Sans JP', sans-serif", display: "flex", flexDirection: "column", gap: "1.15rem" }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h2 style={{ fontSize: "0.95rem", fontWeight: 800, margin: 0, letterSpacing: "0.02em" }}>設定</h2>

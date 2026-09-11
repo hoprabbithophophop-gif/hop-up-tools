@@ -46,9 +46,11 @@ interface Props {
   onOpenSettings?: () => void;
   /** 動き軽減（瞬きを止める） */
   reduceMotion?: boolean;
+  /** 横向きか。横向きの間は入口の中身を出さない。代わりにページ側が案内だけを出す（Hop決定 2026-09-12） */
+  landscape?: boolean;
 }
 
-export default function DiamondEntry({ total, videoBottom, videoReady, onOpenSettings, reduceMotion = false }: Props) {
+export default function DiamondEntry({ total, videoBottom, videoReady, onOpenSettings, reduceMotion = false, landscape = false }: Props) {
   const [isLandscape, setIsLandscape] = useState<boolean>(() => {
     try { return window.matchMedia("(orientation: landscape)").matches; } catch { return false; }
   });
@@ -65,6 +67,9 @@ export default function DiamondEntry({ total, videoBottom, videoReady, onOpenSet
 
   const gemSize = isLandscape ? GEM_SIZE_LANDSCAPE : GEM_SIZE;
   const shownTotal = useCountUp(total, reduceMotion);
+
+  // 横向きの間は何も出さない。部品としては残したまま中身だけ引っ込める＝縦に戻した時に作り直さない
+  if (landscape) return null;
 
   return (
     <div

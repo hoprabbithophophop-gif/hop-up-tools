@@ -17,12 +17,16 @@ import DiamondEntry from "./DiamondEntry";
 import DiamondColorCarousel from "./DiamondColorCarousel";
 import DiamondColorPages from "./DiamondColorPages";
 import DiamondHeatStrip from "./DiamondHeatStrip";
-import DiamondCommentTicker, { type TickerComment } from "./DiamondCommentTicker";
+import DiamondCommentTicker, { TICKER_HEIGHT, type TickerComment } from "./DiamondCommentTicker";
 import DiamondSettingsSheet, { getDiamondSettings, setDiamondSettings, type DiamondSettings } from "./DiamondSettingsSheet";
 import BouncyNumber from "../hi-tension/components/BouncyNumber";
 
 /** BEYOOOOONDS『灰toダイヤモンド』Promotion Edit（公式）。https://youtu.be/ImXkCr22kCU */
 const VIDEO_ID = "_56xLKRcVYM";   // YOKOOOOOHAMA ARENA Live Edit.（2026-09-07 公開・Hop指定）。前の Promotion Edit は ImXkCr22kCU（記録の池は動画IDごとに別）
+/** YouTube の必須要件。コメントを出す画面にはアップロード元のチャンネル名と動画タイトルを出す（2026-09-12）。
+ *  文字は YouTube の oEmbed で確かめた正式な表記のまま */
+const VIDEO_TITLE = "BEYOOOOONDS「灰toダイヤモンド」YOKOOOOOHAMA ARENA Live Edit.";
+const VIDEO_CHANNEL = "BEYOOOOONDS";
 /** 額縁（動画の周りの帯）の太さ(px) */
 const FRAME = 14;
 /** 動画の中身が縦横比16:9で200pxを割らないための、内側の幅の最低ライン(px)。
@@ -73,13 +77,26 @@ const HIGHLIGHT_AFTER = 5;
 const HEAT_BINS = 200;
 /** 盛り上がりの帯を動画の額縁の下端からどれだけ空けて置くか(px)【仮】 */
 const HEAT_GAP = 4;
-/** 帯の器の高さ(px)。額縁の余白＋隙間＋帯本体＋光の滲みのぶん【仮】 */
-const HEAT_BOX_HEIGHT = FRAME + HEAT_GAP + 6 + 10;
+/** 帯の器の高さ(px)。額縁の余白＋隙間＋帯本体＋光の滲みのぶん【仮】。
+ *  額縁は画面幅で薄くなるので、その時の太さを渡して求める */
+function heatBoxHeightOf(frame: number): number {
+  return frame + HEAT_GAP + 6 + 10;
+}
 /** 流れるコメントを、盛り上がりの帯の器の下からどれだけ空けて置くか(px)【仮】。
  *  帯の器には光の滲みのぶんまで含まれているので、その下端を起点にする＝滲みに文字が重ならない */
 const COMMENT_GAP = 4;
 /** 流れるコメントと色えらびの器の間に必ず空けておく隙間(px)【仮】 */
 const TICKER_BAND_GAP = 4;
+/** アップロード元のチャンネル名と動画タイトルの、1行ぶんの高さ(px)【仮】。
+ *  幅に入りきらなければ2行に折り返すので、実際の高さは描いてから測る。この値は測る前の見込み */
+const CREDIT_LINE_HEIGHT = 16;
+/** 動画の中身の高さの下限(px)。YouTube の必須要件で、埋め込みのプレーヤーは 200×200px を下回れない。
+ *  幅が MIN_VIDEO_WIDTH に届かない端末では 16:9 のままだと 200px を割るので、ここで下支えする */
+const MIN_VIDEO_HEIGHT = 200;
+/** 横向きの時に画面いっぱいに出す案内。文面はこのまま（Hop決定 2026-09-12） */
+const LANDSCAPE_NOTICE = "現状、横画面での再生には対応しておりません。縦画面にしてお楽しみください。";
+/** コメントの全文の板を、何も触らなければ何ミリ秒で閉じるか【仮】 */
+const OPEN_COMMENT_MS = 8000;
 /** 記録が送れなかった時に、もう一度送るまで待つ時間(ms)。
  *  受け口は1つのIPにつき1分10件までなので、1分の窓が空くのを待ってから出し直す */
 const RESEND_WAIT_MS = 61_000;
@@ -197,14 +214,33 @@ export default function HaiToDiamondPage() {
   /** 色えらびの器の上端。ここまでに入る行数だけコメントを流す＝下の2行が色えらびの裏に隠れない */
   const bandRef = useRef<HTMLDivElement>(null);
   const [bandTop, setBandTop] = useState<number | null>(null);
+  /** チャンネル名と動画タイトルの実際の高さ(px)。1行に入れば16、折り返せば32あたり。
+   *  描いてから測って、そのぶんコメントに使える高さを減らす */
+  const [creditHeight, setCreditHeight] = useState(CREDIT_LINE_HEIGHT);
+  /** いま押されて全文を出しているコメント。無ければコメントは今までどおり流れる */
+  const [openComment, setOpenComment] = useState<TickerComment | null>(null);
   /** 額縁の太さ(px)。スマホ（isTouchDevice）では画面幅に合わせて詰める。PC は常に FRAME のまま */
   const [frame, setFrame] = useState<number>(() => (isTouchDevice() ? computeFrame() : FRAME));
+  /** 窓の大きさ。横向きかどうかと、横向きの時の動画の大きさを決めるのに使う */
+  const [viewport, setViewport] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
   useEffect(() => {
-    if (!isTouchDevice()) return;   // PC の額縁は画面幅で変えない
-    const onResize = () => setFrame(computeFrame());
+    const onResize = () => {
+      if (isTouchDevice()) setFrame(computeFrame());   // PC の額縁は画面幅で変えない
+      setViewport({ w: window.innerWidth, h: window.innerHeight });
+    };
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
   }, []);
+  /** 横向き。スマホを寝かせた時だけ。この間は中身を出さず、画面いっぱいに案内だけを出す */
+  const landscape = isTouchDevice() && viewport.w > viewport.h;
+  // 横へ倒したら動画を止める。縦に戻しても自動では再生しない＝人が動画の再生ボタンを押す
+  useEffect(() => {
+    if (landscape) playerRef.current?.pause();
+  }, [landscape]);
   // 入口でも測る（入口の案内と累計を、動画の矩形の下端に合わせて置くため）
   useEffect(() => {
     const measure = () => {
@@ -215,7 +251,7 @@ export default function HaiToDiamondPage() {
       const vr = box.getBoundingClientRect();
       const fr = frameEl.getBoundingClientRect();
       const rr = root.getBoundingClientRect();
-      setNumbersBottom(rr.bottom - vr.top + FRAME);   // 曲が終わった後の数字とボタンが動画の上の余白に収まるよう、12px の下駄を外した（2026-09-12）
+      setNumbersBottom(rr.bottom - vr.top + frame);   // 曲が終わった後の数字とボタンが動画の上の余白に収まるよう、12px の下駄を外した（2026-09-12）。額縁は画面幅で薄くなるので、その時の太さを使う
       setHeatBox({ top: vr.bottom - rr.top, left: fr.left - rr.left, width: fr.width });
       const band = bandRef.current;
       if (band) setBandTop(band.getBoundingClientRect().top - rr.top);
@@ -236,7 +272,24 @@ export default function HaiToDiamondPage() {
       vv?.removeEventListener("resize", measure);
       ro?.disconnect();
     };
-  }, [started]);
+  }, [started, frame, landscape]);
+
+  /** チャンネル名と動画タイトルの器。描かれた時に高さを測り、折り返しで高さが変われば測り直す */
+  const creditRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    const measure = () => setCreditHeight(Math.round(el.getBoundingClientRect().height) || CREDIT_LINE_HEIGHT);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // コメントの全文の板は、何も触らなければひとりでに閉じて流れに戻る
+  useEffect(() => {
+    if (!openComment) return;
+    const timer = setTimeout(() => setOpenComment(null), OPEN_COMMENT_MS);
+    return () => clearTimeout(timer);
+  }, [openComment]);
   // 動画に付いているコメントを読む。再生が始まってから1回だけ（入口では要らない）。
   // 失敗しても何も言わずに空のまま＝コメントの帯は出ない
   useEffect(() => {
@@ -384,6 +437,7 @@ export default function HaiToDiamondPage() {
     setVideoTimeSec(0);
     setPeakTime(null);
     setEnded(false);
+    setOpenComment(null);   // 前の回で開いたままの全文の板は持ち越さない
     startedRef.current = true;
     setStarted(true);
     setPlayingBoth(true);
@@ -399,6 +453,7 @@ export default function HaiToDiamondPage() {
     setEnded(false);
     setPlayingBoth(false);
     setPausedBoth(false);
+    setOpenComment(null);
     startedRef.current = false;
     setStarted(false);
     // 動画はサムネイルと再生ボタンの状態に戻す＝ページを開いた直後と同じ見え方。
@@ -526,10 +581,18 @@ export default function HaiToDiamondPage() {
     setLiveCount(tapsRef.current.length);
   }, []);
 
+  /** 盛り上がりの帯の器の高さ。額縁の太さは画面幅で変わるので、その時の太さから求める */
+  const heatBoxHeight = heatBoxHeightOf(frame);
   /** 流れるコメントの置き場所と、色えらびに掛からない高さの上限。
-   *  上限が出せない間（まだ測れていない間）は今までどおり3行のまま流す */
-  const commentTop = heatBox ? heatBox.top + HEAT_BOX_HEIGHT + COMMENT_GAP : 0;
+   *  上限が出せない間（まだ測れていない間）は今までどおり3行のまま流す。
+   *  コメントの上にチャンネル名と動画タイトルの1行が入るので、その高さも引いておく */
+  const creditTop = heatBox ? heatBox.top + heatBoxHeight + COMMENT_GAP : 0;
+  const commentTop = creditTop + creditHeight;
   const commentMaxHeight = heatBox && bandTop != null ? bandTop - commentTop - TICKER_BAND_GAP : undefined;
+  /** 開いているコメントを YouTube で見る行き先。札が揃っていなければ道を出さない */
+  const openCommentUrl = openComment?.commentId && openComment?.videoId
+    ? `https://www.youtube.com/watch?v=${encodeURIComponent(openComment.videoId)}&lc=${encodeURIComponent(openComment.commentId)}`
+    : null;
 
   return (
     <div
@@ -545,43 +608,79 @@ export default function HaiToDiamondPage() {
         flexDirection: "column",
       }}
     >
-      {/* 入口。本編（プレイヤー込み）は常時マウントし、その上に重ねる＝「はじめる」の時点でプレイヤーが準備済み */}
-      {!started && (
-        <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
-          <DiamondEntry videoBottom={heatBox?.top ?? null} videoReady={videoReady} total={othersTotal} onOpenSettings={() => setSettingsOpen(true)} reduceMotion={settings.reduceMotion} />
+      {/* 横向きの案内。中身の代わりにこれだけを出す（Hop決定 2026-09-12） */}
+      {landscape && (
+        <div
+          data-testid="diamond-landscape-notice"
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 30,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "0 1.5rem",
+            textAlign: "center",
+            fontSize: 14,
+            lineHeight: 1.6,
+            color: "#e8eaed",
+          }}
+        >
+          {LANDSCAPE_NOTICE}
         </div>
       )}
-      {settingsOpen && (
+
+      {/* 入口。本編（プレイヤー込み）は常時マウントし、その上に重ねる＝「はじめる」の時点でプレイヤーが準備済み */}
+      {!started && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: landscape ? "none" : undefined }}>
+          {/* 動画の下端がまだ測れていない間は設定を開かない。開くと板の置き場所が決まらず
+              画面の真ん中＝動画の上に出てしまう。見た目は変えず、押しても何も起きないだけ */}
+          <DiamondEntry landscape={landscape} videoBottom={heatBox?.top ?? null} videoReady={videoReady} total={othersTotal} onOpenSettings={() => { if (heatBox) setSettingsOpen(true); }} reduceMotion={settings.reduceMotion} />
+        </div>
+      )}
+      {settingsOpen && !landscape && (
         <DiamondSettingsSheet avoidBottom={heatBox?.top} settings={settings} onChange={handleSettingsChange} onClose={() => setSettingsOpen(false)} />
       )}
 
-      {/* 光と💎の層。動画の裏（zIndex 0） */}
-      <DiamondCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={frame} reduceMotion={settings.reduceMotion} />
-
-      {/* 動画。入口の見出しの直下に固定。SE で下のコメントと色えらびが重ならないように上へ寄せた（Hop決定 2026-09-12）。
-          額縁ぶんの余白を空け、背景は透明にして裏のキャンバスの額縁を見せる */}
+      {/* 光と💎の層と動画は、横向きの間も作り直さずそのまま持っておく＝縦に戻した時に
+          それまでの回数も球の様子も消えない。代わりにこの器ごと画面の外へ逃がす。
+          案内をプレーヤーの上に重ねる形にはしない（YouTube API 規約） */}
       <div
         style={{
           position: "absolute",
-          // 入口の間は動画を入口の上に出す＝真ん中に動画が見えていて、その再生ボタンを押せる（Hop決定 2026-09-10）
-          zIndex: started ? 2 : 20,
-          top: VIDEO_TOP_PX,
-          left: "50%",
-          transform: "translate(-50%, 0)",
-          padding: frame,
-          width: isTouchDevice() ? "100%" : PC_VIDEO_WIDTH + FRAME * 2,
-          maxWidth: "100%",
-          boxSizing: "border-box",
+          inset: 0,
+          ...(landscape ? { transform: "translateX(-200vw)", pointerEvents: "none" as const } : {}),
         }}
       >
-        <div ref={videoBoxRef}>
-          <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} onReady={handleVideoReady} startCover={false} />
+        {/* 光と💎の層。動画の裏（zIndex 0） */}
+        <DiamondCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={frame} reduceMotion={settings.reduceMotion} />
+
+        {/* 動画。入口の見出しの直下に固定。SE で下のコメントと色えらびが重ならないように上へ寄せた（Hop決定 2026-09-12）。
+            額縁ぶんの余白を空け、背景は透明にして裏のキャンバスの額縁を見せる */}
+        <div
+          style={{
+            position: "absolute",
+            // 入口の間は動画を入口の上に出す＝真ん中に動画が見えていて、その再生ボタンを押せる（Hop決定 2026-09-10）
+            zIndex: started ? 2 : 20,
+            top: VIDEO_TOP_PX,
+            left: "50%",
+            transform: "translate(-50%, 0)",
+            padding: frame,
+            width: isTouchDevice() ? "100%" : PC_VIDEO_WIDTH + FRAME * 2,
+            maxWidth: "100%",
+            boxSizing: "border-box",
+          }}
+        >
+          <div ref={videoBoxRef}>
+            <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} onReady={handleVideoReady} startCover={false} loadingCover={false} minHeight={MIN_VIDEO_HEIGHT} />
+          </div>
         </div>
       </div>
 
       {/* 盛り上がりの帯。器の上端は動画の矩形の下端に合わせ、はみ出しを切り落とす＝
-          帯の光の滲みが上へ広がっても動画には掛からない（YouTube API 規約） */}
-      {started && heatBox && (
+          帯の光の滲みが上へ広がっても動画には掛からない（YouTube API 規約）。
+          横向きは案内だけを出すので描かない */}
+      {started && heatBox && !landscape && (
         <div
           style={{
             position: "absolute",
@@ -589,8 +688,8 @@ export default function HaiToDiamondPage() {
             top: heatBox.top,
             left: heatBox.left,
             width: heatBox.width,
-            height: HEAT_BOX_HEIGHT,
-            paddingTop: FRAME + HEAT_GAP,
+            height: heatBoxHeight,
+            paddingTop: frame + HEAT_GAP,
             boxSizing: "border-box",
             overflow: "hidden",
             pointerEvents: "none",
@@ -601,24 +700,85 @@ export default function HaiToDiamondPage() {
       )}
 
       {/* 流れるコメント。盛り上がりの帯の器のさらに下（動画の矩形の外）に置く。
-          本文に分:秒があるものはその時刻に、無いものはランダムな順で右から左へ流れる */}
-      {started && heatBox && (playing || highlighting) && (
+          本文に分:秒があるものはその時刻に、無いものはランダムな順で右から左へ流れる。
+          すぐ上にアップロード元のチャンネル名と動画タイトルを置く（YouTube の必須要件）。
+          幅に入りきらなければ2行に折り返して全文出す（Hop決定 2026-09-12）。
+          1件押されている間は、流れる代わりに同じ場所へ全文の板を出す。
+          横向きは案内だけを出すので描かない */}
+      {started && heatBox && (playing || highlighting) && !landscape && (
         <div
           style={{
             position: "absolute",
             zIndex: 3,
-            top: commentTop,
+            top: creditTop,
             left: heatBox.left,
             width: heatBox.width,
             pointerEvents: "none",
           }}
         >
-          <DiamondCommentTicker comments={comments} currentTime={videoTimeSec} reduceMotion={settings.reduceMotion} maxHeight={commentMaxHeight} />
+          <div
+            ref={creditRef}
+            data-testid="diamond-video-credit"
+            style={{
+              fontSize: 12,
+              lineHeight: `${CREDIT_LINE_HEIGHT}px`,
+              color: "#9aa0a6",
+              textShadow: "0 0 8px rgba(0,0,0,0.8)",
+            }}
+          >
+            {VIDEO_CHANNEL} ／ {VIDEO_TITLE}
+          </div>
+          {openComment ? (
+            // 全文の板。本文の外を押すか、しばらく置けば閉じて流れに戻る
+            <div
+              data-testid="diamond-comment-open"
+              onClick={() => setOpenComment(null)}
+              style={{
+                pointerEvents: "auto",
+                height: commentMaxHeight ?? TICKER_HEIGHT,
+                boxSizing: "border-box",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.15rem",
+                padding: "0.3rem 0.5rem",
+                background: "rgba(7,8,12,0.88)",
+                cursor: "pointer",
+              }}
+            >
+              {/* 投稿者名と YouTube への道は同じ行に左右で並べる。1行ぶんで済ませて、
+                  残りの高さを全部本文に回す（Hop決定 2026-09-12） */}
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "0.6rem" }}>
+                <div style={{ minWidth: 0, fontSize: 12, lineHeight: "16px", color: "#9aa0a6", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {openComment.author}
+                </div>
+                {openCommentUrl && (
+                  <a
+                    href={openCommentUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ flexShrink: 0, fontSize: 12, lineHeight: "16px", color: "#9aa0a6", textDecoration: "underline", textUnderlineOffset: "0.2rem", whiteSpace: "nowrap" }}
+                  >
+                    YouTube で見る
+                  </a>
+                )}
+              </div>
+              {/* 本文は途中で切らずに全部。入りきらない分は指で送る */}
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{ flex: 1, minHeight: 0, overflowY: "auto", fontSize: 14, lineHeight: 1.4, color: "#dfe6f5", whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+              >
+                {openComment.text}
+              </div>
+            </div>
+          ) : (
+            <DiamondCommentTicker comments={comments} currentTime={videoTimeSec} reduceMotion={settings.reduceMotion} maxHeight={commentMaxHeight} onOpen={setOpenComment} />
+          )}
         </div>
       )}
 
-      {/* 数字は動画の上の空きに置く（Hop指示 2026-09-06）。再生中は自分の回数、曲が終わったら歴代累計も並ぶ */}
-      {started && (playing || ended) && (
+      {/* 数字は動画の上の空きに置く（Hop指示 2026-09-06）。再生中は自分の回数、曲が終わったら歴代累計も並ぶ。
+          横向きは案内だけを出すので描かない */}
+      {started && (playing || ended) && !landscape && (
         <div
           ref={numbersRef}
           style={{
@@ -662,7 +822,9 @@ export default function HaiToDiamondPage() {
       )}
 
       {/* 画面下。再生中とハイライト中は色えらび（設定「色の並び」でユニットごとのページか一列の帯）、
-          曲が終わったら最初に戻る・シェア・本編リンク・断り書き */}
+          曲が終わったら最初に戻る・シェア・本編リンク・断り書き。
+          横向きは案内だけを出すので描かない */}
+      {!landscape && (
       <div
         ref={bandRef}
         style={{
@@ -670,7 +832,9 @@ export default function HaiToDiamondPage() {
           zIndex: 3,
           left: 0,
           right: 0,
-          bottom: "0.5rem",
+          // iPhone のホームバーに掛からないよう、端末が空けてほしいと言っている下の余白を足す。
+          // index.html の指定で画面の端まで描く形にしてあるので、この余白は自分で足さないと入らない
+          bottom: "calc(0.5rem + env(safe-area-inset-bottom))",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
@@ -774,6 +938,7 @@ export default function HaiToDiamondPage() {
           ) : null}
         </div>
       </div>
+      )}
     </div>
   );
 }

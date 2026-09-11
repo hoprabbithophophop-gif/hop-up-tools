@@ -51,6 +51,15 @@ interface Props {
    *  /hai-to-diamond は動画自身の再生ボタンで始めるので、この2秒のカバーは要らない。見返しの再生（すでに動いている映像に
    *  重ねて呼ぶ2回目以降の play()）に黒いカバーが乗ってしまうため false を渡す */
   startCover?: boolean;
+  /** 読み込み中の黒いカバーと点を出すか。既定 true。渡さなければ今までの動きのまま。
+   *  false の時はカバーの中身そのものを描かない。YouTube の必須要件で、プレーヤーのどの部分の前にも
+   *  見える物を置いてはいけないため。/hai-to-diamond は入口に「動画を読み込んでいます」の案内が出るので false を渡す */
+  loadingCover?: boolean;
+  /** 器の高さの下限(px)。渡さなければ今までどおり 16:9 の高さだけで決まる。
+   *  YouTube の必須要件で、埋め込みのプレーヤーは 200×200px を下回ってはいけない。幅が狭くて
+   *  16:9 では 200px を割ってしまう端末のために、下限を渡せるようにした。
+   *  下限が効いている間は器が 16:9 より縦長になるので、映像の左右に黒い帯が付く */
+  minHeight?: number;
 }
 
 function loadYouTubeAPI(): Promise<void> {
@@ -76,7 +85,7 @@ function loadYouTubeAPI(): Promise<void> {
 }
 
 const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer(
-  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, onReady, startCover = true },
+  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, onReady, startCover = true, loadingCover = true, minHeight },
   ref,
 ) {
   const [isReady, setIsReady] = useState(false);
@@ -331,9 +340,9 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   const showLoading = !isReady || (startCover && started && !minTimeElapsed) || loadCovering;
 
   return (
-    <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", background: "#000" }}>
+    <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", ...(minHeight != null ? { minHeight } : {}), background: "#000" }}>
       <div id={CONTAINER_ID} style={{ width: "100%", height: "100%" }} />
-      {showLoading && (
+      {loadingCover && showLoading && (
         <div
           style={{
             position: "absolute",
