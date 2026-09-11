@@ -51,8 +51,11 @@ function shareToX(count: number) {
 }
 /** 他の人の💎を1回の時刻更新（0.1秒）で出す上限。大勢の同時押しで一気に固まらないための蓋【仮】。設定「みんなの💎」で変わる */
 const OTHERS_PER_TICK: Record<DiamondSettings["crowd"], number> = { full: 25, light: 6, self: 0 };
-/** 動画の縦の位置（画面の上端からの割合）。50% が真ん中。少し上に寄せて、下の帯とコメントの場所を空ける【仮】 */
-const VIDEO_TOP = "42%";
+/** 動画の枠の上端を、画面の上端から固定でどれだけ空けるか(px)【仮】。
+ *  入口の見出し（題名・副題・お知らせの導線）の直下に置く。SE（375×667）では動画を画面の
+ *  真ん中に置くと下の余白が足りず、流れるコメントの3行目が色えらびのボタンに重なっていたため、
+ *  真ん中寄せをやめて上へ固定した（Hop決定 2026-09-12） */
+const VIDEO_TOP_PX = 156;
 /** 数字の縁取りの色。白だと白系の文字が膨らむので、💎の選択中の縁と同じ透過の高いグレー（Hop指示 2026-09-08）【仮】 */
 const NUMBER_OUTLINE = "rgba(154,160,166,0.5)";
 /** 曲の終わり（秒）。プロモーション動画は音が終わった後に無音の黒画面（別動画への案内枠）が続くので、そこで終了扱いにする（Hop指定 2026-09-07: 4:35.9） */
@@ -528,16 +531,16 @@ export default function HaiToDiamondPage() {
       {/* 光と💎の層。動画の裏（zIndex 0） */}
       <DiamondCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={frame} reduceMotion={settings.reduceMotion} />
 
-      {/* 動画。画面の縦の真ん中より少し上に固定（Hop指示 2026-09-08。下の帯とコメントの流れ道の場所を空ける）。
+      {/* 動画。入口の見出しの直下に固定。SE で下のコメントと色えらびが重ならないように上へ寄せた（Hop決定 2026-09-12）。
           額縁ぶんの余白を空け、背景は透明にして裏のキャンバスの額縁を見せる */}
       <div
         style={{
           position: "absolute",
           // 入口の間は動画を入口の上に出す＝真ん中に動画が見えていて、その再生ボタンを押せる（Hop決定 2026-09-10）
           zIndex: started ? 2 : 20,
-          top: VIDEO_TOP,
+          top: VIDEO_TOP_PX,
           left: "50%",
-          transform: "translate(-50%, -50%)",
+          transform: "translate(-50%, 0)",
           padding: frame,
           width: isTouchDevice() ? "100%" : PC_VIDEO_WIDTH + FRAME * 2,
           maxWidth: "100%",
