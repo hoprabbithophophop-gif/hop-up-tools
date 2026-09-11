@@ -95,8 +95,6 @@ const CREDIT_LINE_HEIGHT = 16;
 const MIN_VIDEO_HEIGHT = 200;
 /** 横向きの時に画面いっぱいに出す案内。文面はこのまま（Hop決定 2026-09-12） */
 const LANDSCAPE_NOTICE = "現状、横画面での再生には対応しておりません。縦画面にしてお楽しみください。";
-/** コメントの全文の板を、何も触らなければ何ミリ秒で閉じるか【仮】 */
-const OPEN_COMMENT_MS = 8000;
 /** 記録が送れなかった時に、もう一度送るまで待つ時間(ms)。
  *  受け口は1つのIPにつき1分10件までなので、1分の窓が空くのを待ってから出し直す */
 const RESEND_WAIT_MS = 61_000;
@@ -254,7 +252,10 @@ export default function HaiToDiamondPage() {
       setNumbersBottom(rr.bottom - vr.top + frame);   // 曲が終わった後の数字とボタンが動画の上の余白に収まるよう、12px の下駄を外した（2026-09-12）。額縁は画面幅で薄くなるので、その時の太さを使う
       setHeatBox({ top: vr.bottom - rr.top, left: fr.left - rr.left, width: fr.width });
       const band = bandRef.current;
-      if (band) setBandTop(band.getBoundingClientRect().top - rr.top);
+      if (band) {
+        const rect = band.getBoundingClientRect();
+        if (rect.height > 0) setBandTop(rect.top - rr.top);
+      }
     };
     measure();
     window.addEventListener("resize", measure);
@@ -284,12 +285,6 @@ export default function HaiToDiamondPage() {
     return () => ro.disconnect();
   }, []);
 
-  // コメントの全文の板は、何も触らなければひとりでに閉じて流れに戻る
-  useEffect(() => {
-    if (!openComment) return;
-    const timer = setTimeout(() => setOpenComment(null), OPEN_COMMENT_MS);
-    return () => clearTimeout(timer);
-  }, [openComment]);
   // 動画に付いているコメントを読む。再生が始まってから1回だけ（入口では要らない）。
   // 失敗しても何も言わずに空のまま＝コメントの帯は出ない
   useEffect(() => {
@@ -589,6 +584,8 @@ export default function HaiToDiamondPage() {
   const creditTop = heatBox ? heatBox.top + heatBoxHeight + COMMENT_GAP : 0;
   const commentTop = creditTop + creditHeight;
   const commentMaxHeight = heatBox && bandTop != null ? bandTop - commentTop - TICKER_BAND_GAP : undefined;
+  /** コメント全文を開いている時の高さ。下のボタンを隠すので画面の下端（セーフエリアの手前）まで目一杯広げる */
+  const openCommentHeight = `calc(100dvh - ${commentTop}px - 0.75rem - env(safe-area-inset-bottom))`;
   /** 開いているコメントを YouTube で見る行き先。札が揃っていなければ道を出さない */
   const openCommentUrl = openComment?.commentId && openComment?.videoId
     ? `https://www.youtube.com/watch?v=${encodeURIComponent(openComment.videoId)}&lc=${encodeURIComponent(openComment.commentId)}`
@@ -729,43 +726,66 @@ export default function HaiToDiamondPage() {
             {VIDEO_CHANNEL} ／ {VIDEO_TITLE}
           </div>
           {openComment ? (
-            // 全文の板。本文の外を押すか、しばらく置けば閉じて流れに戻る
+            // 全文の板。閉じるボタンまたは枠外を押せば閉じて流れに戻る
             <div
               data-testid="diamond-comment-open"
               onClick={() => setOpenComment(null)}
               style={{
                 pointerEvents: "auto",
-                height: commentMaxHeight ?? TICKER_HEIGHT,
+                height: openCommentHeight,
+                maxHeight: openCommentHeight,
                 boxSizing: "border-box",
                 display: "flex",
                 flexDirection: "column",
-                gap: "0.15rem",
-                padding: "0.3rem 0.5rem",
-                background: "rgba(7,8,12,0.88)",
+                gap: "0.4rem",
+                padding: "0.5rem 0.6rem",
+                background: "rgba(7,8,12,0.92)",
+                borderRadius: 4,
+                border: "1px solid rgba(255,255,255,0.12)",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
                 cursor: "pointer",
               }}
             >
-              {/* 投稿者名と YouTube への道は同じ行に左右で並べる。1行ぶんで済ませて、
-                  残りの高さを全部本文に回す（Hop決定 2026-09-12） */}
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "0.6rem" }}>
+              {/* 投稿者名、YouTubeへの道、閉じるボタンを1行に並べる */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.6rem", flexShrink: 0 }}>
                 <div style={{ minWidth: 0, fontSize: 12, lineHeight: "16px", color: "#9aa0a6", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {openComment.author}
                 </div>
-                {openCommentUrl && (
-                  <a
-                    href={openCommentUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ flexShrink: 0, fontSize: 12, lineHeight: "16px", color: "#9aa0a6", textDecoration: "underline", textUnderlineOffset: "0.2rem", whiteSpace: "nowrap" }}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", flexShrink: 0 }}>
+                  {openCommentUrl && (
+                    <a
+                      href={openCommentUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ fontSize: 12, lineHeight: "16px", color: "#9aa0a6", textDecoration: "underline", textUnderlineOffset: "0.2rem", whiteSpace: "nowrap" }}
+                    >
+                      YouTube で見る
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setOpenComment(null); }}
+                    style={{
+                      background: "rgba(255,255,255,0.1)",
+                      border: "1px solid rgba(255,255,255,0.3)",
+                      borderRadius: 4,
+                      color: "#e8eaed",
+                      fontSize: 11,
+                      lineHeight: "14px",
+                      padding: "2px 8px",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
                   >
-                    YouTube で見る
-                  </a>
-                )}
+                    閉じる
+                  </button>
+                </div>
               </div>
               {/* 本文は途中で切らずに全部。入りきらない分は指で送る */}
               <div
                 onClick={(e) => e.stopPropagation()}
-                style={{ flex: 1, minHeight: 0, overflowY: "auto", fontSize: 14, lineHeight: 1.4, color: "#dfe6f5", whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                style={{ flex: 1, minHeight: 0, overflowY: "auto", fontSize: 14, lineHeight: 1.5, color: "#dfe6f5", whiteSpace: "pre-wrap", wordBreak: "break-word", overscrollBehavior: "contain" }}
               >
                 {openComment.text}
               </div>
@@ -823,8 +843,9 @@ export default function HaiToDiamondPage() {
 
       {/* 画面下。再生中とハイライト中は色えらび（設定「色の並び」でユニットごとのページか一列の帯）、
           曲が終わったら最初に戻る・シェア・本編リンク・断り書き。
-          横向きは案内だけを出すので描かない */}
-      {!landscape && (
+          横向きは案内だけを出すので描かない。
+          コメント全文を開いている間も、コメントに高さを譲るため隠す */}
+      {!landscape && !openComment && (
       <div
         ref={bandRef}
         style={{
