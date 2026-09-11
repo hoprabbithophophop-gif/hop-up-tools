@@ -725,12 +725,29 @@ export default function HaiToDiamondPage() {
           >
             {VIDEO_CHANNEL} ／ {VIDEO_TITLE}
           </div>
-          {openComment ? (
-            // 全文の板。閉じるボタンまたは枠外を押せば閉じて流れに戻る
+          {/* 流れるコメント。コメント全文を開いている間も破棄せずその場で一時停止する */}
+          <div style={{ visibility: openComment ? "hidden" : "visible" }}>
+            <DiamondCommentTicker
+              comments={comments}
+              currentTime={videoTimeSec}
+              reduceMotion={settings.reduceMotion}
+              maxHeight={commentMaxHeight}
+              onOpen={setOpenComment}
+              paused={Boolean(openComment)}
+            />
+          </div>
+
+          {openComment && (
+            // 全文の板。閉じるボタンまたは枠外を押せば閉じて流れに戻る。
+            // 背景は半透明＋すりガラスで💎が透けて見えるようにする（Hop要望 2026-09-12）
             <div
               data-testid="diamond-comment-open"
               onClick={() => setOpenComment(null)}
               style={{
+                position: "absolute",
+                top: creditHeight,
+                left: 0,
+                right: 0,
                 pointerEvents: "auto",
                 height: openCommentHeight,
                 maxHeight: openCommentHeight,
@@ -739,9 +756,11 @@ export default function HaiToDiamondPage() {
                 flexDirection: "column",
                 gap: "0.4rem",
                 padding: "0.5rem 0.6rem",
-                background: "rgba(7,8,12,0.92)",
+                background: "rgba(10,12,18,0.72)",
+                backdropFilter: "blur(6px)",
+                WebkitBackdropFilter: "blur(6px)",
                 borderRadius: 4,
-                border: "1px solid rgba(255,255,255,0.12)",
+                border: "1px solid rgba(255,255,255,0.15)",
                 boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
                 cursor: "pointer",
               }}
@@ -790,8 +809,6 @@ export default function HaiToDiamondPage() {
                 {openComment.text}
               </div>
             </div>
-          ) : (
-            <DiamondCommentTicker comments={comments} currentTime={videoTimeSec} reduceMotion={settings.reduceMotion} maxHeight={commentMaxHeight} onOpen={setOpenComment} />
           )}
         </div>
       )}

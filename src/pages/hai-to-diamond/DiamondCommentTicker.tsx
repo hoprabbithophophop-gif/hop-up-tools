@@ -87,6 +87,8 @@ interface Props {
   maxHeight?: number;
   /** 1件が押された時に呼ぶ。渡されなければ押せない文字のまま流れる */
   onOpen?: (comment: TickerComment) => void;
+  /** 全文を開いている間など、流れる動きをその場で一時停止するか */
+  paused?: boolean;
 }
 
 /** 並びをその場で混ぜる（フィッシャー–イェーツ） */
@@ -130,7 +132,7 @@ type LiveItem = { key: number; comment: TickerComment; lane: number };
  *  el は React が描き直すたびに付け替わりうるので、位置(x)はここに預けたままにする */
 type LivePos = { el: HTMLDivElement | null; x: number; width: number; lane: number };
 
-const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, currentTime = 0, reduceMotion = false, maxHeight, onOpen }: Props) {
+const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, currentTime = 0, reduceMotion = false, maxHeight, onOpen, paused = false }: Props) {
   /** いま流す道の本数。高さの上限が渡されたら、その中に入るぶんだけに減らす */
   const lanes = maxHeight == null
     ? LANES
@@ -242,9 +244,10 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
   }, [hasComments, reduceMotion, lanes]);
 
   // 流す本体。毎コマ transform を直に書き換えるので、React の描き直しは
-  // 「1件出す」「1件消す」の時だけ（1〜2秒に1回ほど）
+  // 「1件出す」「1件消す」の時だけ（1〜2秒に1回ほど）。
+  // paused=true の間はその場で一時停止する（位置は保持される）
   useEffect(() => {
-    if (!hasComments || reduceMotion || lanes <= 0) return;
+    if (!hasComments || reduceMotion || lanes <= 0 || paused) return;
     let raf = 0;
     let prev = performance.now();
     // 道ごとに、いま一番右にいる1件の右端を入れておく控え。
@@ -298,17 +301,17 @@ const DiamondCommentTicker = memo(function DiamondCommentTicker({ comments, curr
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [hasComments, reduceMotion, takeNext, lanes]);
+  }, [hasComments, reduceMotion, takeNext, lanes, paused]);
 
   // 「動き」を減らす設定: 流さずに、3本ぶんをまとめて静かに入れ替える。
   // 時刻付きのコメントが割り込んだ時は、その1件だけをその場で差し込む（差し込む段は持ち回り）
   useEffect(() => {
-    if (!hasComments || !reduceMotion || lanes <= 0) return;
+    if (!hasComments || !reduceMotion || lanes <= 0 || paused) return;
     const advance = () => setStaticItems(Array.from({ length: lanes }, () => takeNext()));
     advance();
     const timer = setInterval(advance, STATIC_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [hasComments, reduceMotion, takeNext, lanes]);
+  }, [hasComments, reduceMotion, takeNext, lanes, paused]);
   useEffect(() => {
     if (!reduceMotion || lanes <= 0 || pendingRef.current.length === 0) return;
     const next = takeNext();
