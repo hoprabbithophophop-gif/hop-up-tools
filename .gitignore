@@ -36,6 +36,7 @@ test-results/
 *.png
 # OGPアセットは除外対象外
 !public/ogp/*.png
+!public/news/*.png
 
 # GAS clasp設定（scriptIdを公開しない）
 gas/.clasp.json

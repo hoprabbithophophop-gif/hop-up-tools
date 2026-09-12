@@ -91,18 +91,23 @@ export function buildMetaTags(opts: {
   canonicalUrl: string;
   title: string;
   description: string;
-  image: string;
+  /** 省くと絵の無い文字だけのカードになる（お知らせ用） */
+  image?: string;
 }): string {
   const { canonicalUrl, title, description, image } = opts;
-  return [
+  const tags = [
     `<meta property="og:type" content="website">`,
     `<meta property="og:url" content="${escAttr(canonicalUrl)}">`,
     `<meta property="og:title" content="${escAttr(title)}">`,
     `<meta property="og:description" content="${escAttr(description)}">`,
-    `<meta property="og:image" content="${escAttr(image)}">`,
-    `<meta name="twitter:card" content="summary_large_image">`,
+    // 絵があれば大きいカード、無ければ文字だけの小さいカードにする
+    `<meta name="twitter:card" content="${image ? 'summary_large_image' : 'summary'}">`,
     `<meta name="twitter:title" content="${escAttr(title)}">`,
     `<meta name="twitter:description" content="${escAttr(description)}">`,
-    `<meta name="twitter:image" content="${escAttr(image)}">`,
-  ].join('\n');
+  ];
+  if (image) {
+    tags.push(`<meta property="og:image" content="${escAttr(image)}">`);
+    tags.push(`<meta name="twitter:image" content="${escAttr(image)}">`);
+  }
+  return tags.join('\n');
 }

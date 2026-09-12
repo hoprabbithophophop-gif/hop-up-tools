@@ -18,6 +18,8 @@ const HiTensionPracticePage = lazy(() => import("./pages/hi-tension/HiTensionPra
 const ArigatoBeatTapPage = lazy(() => import("./pages/hi-tension/ArigatoBeatTapPage"));
 const ArigatoBeatCallPage = lazy(() => import("./pages/hi-tension/ArigatoBeatCallPage"));
 const ArigatoBeatQuizPage = lazy(() => import("./pages/hi-tension/ArigatoBeatQuizPage"));
+const NewsListPage    = lazy(() => import("./pages/news/NewsListPage"));
+const NewsArticlePage = lazy(() => import("./pages/news/NewsArticlePage"));
 const PrivacyPage     = lazy(() => import("./pages/PrivacyPage"));
 const TermsPage       = lazy(() => import("./pages/TermsPage"));
 const NotFoundPage    = lazy(() => import("./pages/NotFoundPage"));
@@ -42,6 +44,8 @@ function AnimatedRoutes() {
         <Route path="/arigato-beat/beat" element={<ArigatoBeatTapPage />} />
         <Route path="/arigato-beat/call" element={<ArigatoBeatCallPage />} />
         <Route path="/arigato-beat" element={<ArigatoBeatQuizPage />} />
+        <Route path="/news" element={<NewsListPage />} />
+        <Route path="/news/:id" element={<NewsArticlePage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="*" element={<NotFoundPage />} />

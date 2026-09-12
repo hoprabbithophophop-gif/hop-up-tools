@@ -52,6 +52,19 @@ interface Props {
    *  この間はカバーが指を受け止めるので、下の動画の再生ボタンには届かない。
    *  渡さなければ今までの動きのまま */
   holdLoading?: boolean;
+  /** 初回 play() から LOADING_MIN_MS 秒、黒カバーで隠すか。既定 true（渡さなければ今までの動きのまま）。
+   *  /hai-to-diamond は動画自身の再生ボタンで始めるので、この2秒のカバーは要らない。見返しの再生（すでに動いている映像に
+   *  重ねて呼ぶ2回目以降の play()）に黒いカバーが乗ってしまうため false を渡す */
+  startCover?: boolean;
+  /** 読み込み中の黒いカバーと点を出すか。既定 true。渡さなければ今までの動きのまま。
+   *  false の時はカバーの中身そのものを描かない。YouTube の必須要件で、プレーヤーのどの部分の前にも
+   *  見える物を置いてはいけないため。/hai-to-diamond は入口に「動画を読み込んでいます」の案内が出るので false を渡す */
+  loadingCover?: boolean;
+  /** 器の高さの下限(px)。渡さなければ今までどおり 16:9 の高さだけで決まる。
+   *  YouTube の必須要件で、埋め込みのプレーヤーは 200×200px を下回ってはいけない。幅が狭くて
+   *  16:9 では 200px を割ってしまう端末のために、下限を渡せるようにした。
+   *  下限が効いている間は器が 16:9 より縦長になるので、映像の左右に黒い帯が付く */
+  minHeight?: number;
 }
 
 function loadYouTubeAPI(): Promise<void> {
@@ -77,7 +90,7 @@ function loadYouTubeAPI(): Promise<void> {
 }
 
 const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer(
-  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, onReady, holdLoading },
+  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, onReady, holdLoading, startCover = true, loadingCover = true, minHeight },
   ref,
 ) {
   const [isReady, setIsReady] = useState(false);
@@ -327,13 +340,15 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
 
   // 初回 play() から LOADING_MIN_MS の間、player が ready になるまで、
   // または入室時の動画切替が PLAYING に達するまで（loadCovering）黒カバーを表示。
+  // startCover=false の時は、この「最初の2秒」ぶんのカバーだけ出さない（すでに動いている映像に
+  // 重ねて呼ぶ play() で、黒いカバーが乗ってしまう場面向け）
   // holdLoading が立っている間も、呼び出す側の支度が済むまでカバーを出したままにする
-  const showLoading = !isReady || (started && !minTimeElapsed) || loadCovering || !!holdLoading;
+  const showLoading = !isReady || (startCover && started && !minTimeElapsed) || loadCovering || !!holdLoading;
 
   return (
-    <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", background: "#000" }}>
+    <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", ...(minHeight != null ? { minHeight } : {}), background: "#000" }}>
       <div id={CONTAINER_ID} style={{ width: "100%", height: "100%" }} />
-      {showLoading && (
+      {loadingCover && showLoading && (
         <div
           style={{
             position: "absolute",

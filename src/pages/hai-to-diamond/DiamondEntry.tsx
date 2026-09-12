@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { ARENA_BG } from "../hi-tension/data";
 import FacetGem from "./FacetGem";
 import { SHARE_TAG } from "./HaiToDiamondPage";
+import NewsNoticeLink from "@/components/NewsNoticeLink";
 
 const GEM_SIZE = 64;              // 累計の左に置く💎の大きさ【仮】。押す的ではなく目印（2026-09-10 に動線を変えて縮めた）
 const GEM_SIZE_LANDSCAPE = 48;    // 横向きの低い画面でも縦に収まるよう小さくする【仮】
@@ -60,9 +61,11 @@ interface Props {
   reduceMotion?: boolean;
   /** 💎の絵を焼くのにかかっている時間。main 以外の枝でだけ出る実機確認用の読み取り。本番には出ない */
   bakeNote?: string;
+  /** 横向きか。横向きの間は入口の中身を出さない。代わりにページ側が案内だけを出す（Hop決定 2026-09-12） */
+  landscape?: boolean;
 }
 
-export default function DiamondEntry({ total, videoBottom, videoReady, loadingSlow, onOpenSettings, reduceMotion = false, bakeNote }: Props) {
+export default function DiamondEntry({ total, videoBottom, videoReady, loadingSlow, onOpenSettings, reduceMotion = false, bakeNote, landscape = false }: Props) {
   const [isLandscape, setIsLandscape] = useState<boolean>(() => {
     try { return window.matchMedia("(orientation: landscape)").matches; } catch { return false; }
   });
@@ -80,6 +83,9 @@ export default function DiamondEntry({ total, videoBottom, videoReady, loadingSl
   const gemSize = isLandscape ? GEM_SIZE_LANDSCAPE : GEM_SIZE;
   const shownTotal = useCountUp(total, reduceMotion);
 
+  // 横向きの間は何も出さない。部品としては残したまま中身だけ引っ込める＝縦に戻した時に作り直さない
+  if (landscape) return null;
+
   return (
     <div
       style={{
@@ -90,7 +96,7 @@ export default function DiamondEntry({ total, videoBottom, videoReady, loadingSl
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: isLandscape ? "0.7rem 1rem 0.7rem" : "1.5rem 1.2rem 1.5rem",
+        padding: isLandscape ? "0.7rem 1rem 0.7rem" : "0.7rem 1.2rem 1.5rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
         position: "relative",
       }}
@@ -130,6 +136,7 @@ export default function DiamondEntry({ total, videoBottom, videoReady, loadingSl
       >
         {SHARE_TAG}
       </p>
+      <NewsNoticeLink />
 
       {/* 真ん中は空けておく。ここに動画が見えていて、その再生ボタンを押すと始まる */}
       <div style={{ flex: 1, minHeight: 0 }} />

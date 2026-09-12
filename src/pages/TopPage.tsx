@@ -4,6 +4,7 @@ import HandIcon from "./hi-tension/components/HandIcon";
 import FaIcon from "./hi-tension/components/FaIcon";
 import { faBullhorn, faGem } from "@fortawesome/free-solid-svg-icons";
 import ContactModal from "@/components/ContactModal";
+import NewsNoticeLink from "@/components/NewsNoticeLink";
 
 const TOOLS: { to: string; num: string; section: string; title: string; desc: string; wip?: boolean }[] = [
   {
@@ -47,6 +48,9 @@ export default function TopPage() {
         <p style={{ fontSize: "0.875rem", color: "#585f6c", margin: "1rem 0 0", lineHeight: 1.4 }}>
           Hello! Project ファン向けツール集
         </p>
+        {/* お知らせ。下の並びの「お知らせ」は小さくて見落とされるので、
+            出したい記事がある間はここにも出す */}
+        <NewsNoticeLink />
       </header>
 
       {/* ツールリスト */}
@@ -97,7 +101,10 @@ export default function TopPage() {
         <p style={{ fontSize: "0.625rem", color: "#c6c6c6", margin: "0 0 1rem" }}>
           非公式ファンツール。株式会社アップフロントワークスとは無関係です。
         </p>
-        <div style={{ display: "flex", gap: "1.5rem" }}>
+        {/* 「お知らせ」が増えて4つになり、390pxでは横一列に収まらなくなった。
+            間隔を詰めた上で、入らない時は折り返して次の行へ回す */}
+        <div style={{ display: "flex", flexWrap: "wrap", columnGap: "1.1rem", rowGap: "0.5rem" }}>
+          <Link to="/news"        style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>お知らせ</Link>
           <Link to="/privacy"     style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>プライバシーポリシー</Link>
           <Link to="/terms"       style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>利用規約</Link>
           <button onClick={() => setContactOpen(true)}
