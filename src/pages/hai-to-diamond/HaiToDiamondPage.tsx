@@ -95,34 +95,31 @@ const RESEND_WAIT_MS = 61_000;
 /** 送り直しを試す回数の上限 */
 const RESEND_MAX = 3;
 
-/** みんなの記録（集計）を「0.05秒刻みの時刻 → [色, 個数] の並び」の帳簿にする */
-type BucketEntry = [color: string, count: number];
+/** みんなの記録（集計）を「0.05秒刻みの時刻 → [メンバーID, 個数] の並び」の帳簿にする。
+ *  色ではなくメンバーIDで持つ＝同じ色の人が複数いても人ごとに別々に数えられる
+ *  （杉山・山﨑は同じ #e70033 だが別人・Hop指摘 2026-09-14） */
+type BucketEntry = [memberId: string, count: number];
 function buildBucketMap(rows: ReplayRow[]): Map<number, BucketEntry[]> {
   const map = new Map<number, BucketEntry[]>();
   for (const r of rows) {
-    const c = findDiamondMember(r.member_id)?.color;
-    if (!c) continue;
+    if (!findDiamondMember(r.member_id)) continue;
     for (let i = 0; i < r.buckets.length; i++) {
       const b = r.buckets[i];
       const arr = map.get(b);
-      const e: BucketEntry = [c, r.counts[i] ?? 0];
+      const e: BucketEntry = [r.member_id, r.counts[i] ?? 0];
       if (arr) arr.push(e); else map.set(b, [e]);
     }
   }
   return map;
 }
 
-/** みんなの💎を色ごとに配るための、色→番号の表。0.1秒ごとに作り直さないよう、読み込み時に1回だけ組む。
+/** みんなの💎を人ごとに配るための、メンバーID→番号の表。0.1秒ごとに作り直さないよう、読み込み時に1回だけ組む。
  *  中身は findDiamondMember が返しうる人＝ハイ！テンションの名簿＋卒業メンバー。
- *  同じ色の人が複数いれば同じ番号になり、その色の個数は合算して数える */
-const SPAWN_COLORS: string[] = [];
-const SPAWN_COLOR_INDEX = new Map<string, number>();
-for (const m of [...ALL_HI_MEMBERS, ...GRADUATED_MEMBERS]) {
-  if (SPAWN_COLOR_INDEX.has(m.color)) continue;
-  SPAWN_COLOR_INDEX.set(m.color, SPAWN_COLORS.length);
-  SPAWN_COLORS.push(m.color);
-}
-const SPAWN_SLOTS = SPAWN_COLORS.length;
+ *  人ごとに別の枠を持つ。同じ色でも人ごとに別々に数える
+ *  （杉山・山﨑は同じ #e70033 だが別々に数える・Hop指摘 2026-09-14） */
+const SPAWN_MEMBERS: { id: string; color: string }[] = [...ALL_HI_MEMBERS, ...GRADUATED_MEMBERS].map((m) => ({ id: m.id, color: m.color }));
+const SPAWN_MEMBER_INDEX = new Map<string, number>(SPAWN_MEMBERS.map((m, i) => [m.id, i]));
+const SPAWN_SLOTS = SPAWN_MEMBERS.length;
 /** 0.1秒ごとの配分に使う作業用の並び。毎回作り直さず、使う前に0に戻して使い回す */
 const tickCounts = new Int32Array(SPAWN_SLOTS);
 const tickQuota = new Int32Array(SPAWN_SLOTS);
@@ -520,12 +517,12 @@ export default function HaiToDiamondPage() {
       bucketMapRef.current = buildBucketMap(rows);
       const fetched = rows.reduce((acc, r) => acc + r.counts.reduce((a, c) => a + c, 0), 0);
       setOthersTotal(Math.max(fetched, totalFloorRef.current));
-      // 色ごとの総数（額縁の順位の基準）。同じ色のメンバーが複数いれば合算
+      // メンバーごとの総数（額縁の順位の基準）。同じ色の人が複数いても人ごとに別々
+      // （杉山・山﨑は同じ #e70033 だが別人・Hop指摘 2026-09-14）
       const totals: Record<string, number> = {};
       for (const r of rows) {
-        const c = findDiamondMember(r.member_id)?.color;
-        if (!c) continue;
-        totals[c] = (totals[c] ?? 0) + r.counts.reduce((a, n) => a + n, 0);
+        if (!findDiamondMember(r.member_id)) continue;
+        totals[r.member_id] = (totals[r.member_id] ?? 0) + r.counts.reduce((a, n) => a + n, 0);
       }
       canvasRef.current?.setColorTotals(totals);
     }).catch((e) => console.warn("[hai-to-diamond] replay fetch failed:", e));
@@ -586,7 +583,7 @@ export default function HaiToDiamondPage() {
     setPausedBoth(false);
     setFinalCount(tapsRef.current.length);
     totalFloorRef.current = (othersTotalRef.current ?? 0) + tapsRef.current.length;
-    setPeakTime(canvasRef.current?.getPeakTime() ?? null);
+    setPeakTime(canvasRef.current?.getPeakTime(memberIdRef.current) ?? null);
     setEnded(true);
     submitOnce();
   }, [submitOnce]);
@@ -623,11 +620,11 @@ export default function HaiToDiamondPage() {
     canvasRef.current?.setMode(settingsRef.current.scene);   // 山かミラーボールか。reset より先に（設定「💎の見せ方」）
     canvasRef.current?.reset();   // 前の回の山を消して最初から（Hop報告 2026-09-07）
     const hex = findDiamondMember(memberIdRef.current)?.color;
-    if (hex) canvasRef.current?.setOwnColor(hex);
+    if (hex) canvasRef.current?.setOwnColor(hex, memberIdRef.current);
     // 入口の💎を、消すのではなく動画（裏のミラーボール）へ飛ばす。タップの記録には数えない（Hop指示 2026-09-14）。
     // spawnSuck は自分の分の出発点から SELF_ABOVE_BUTTON(28px) 上げて飛ばすので、
     // 入口の💎が実際に立っていた位置ちょうどから飛び立つよう、その分をあらかじめ足しておく
-    if (entryPos && hex) canvasRef.current?.spawn(hex, true, { x: entryPos.x, y: entryPos.y + 28 });
+    if (entryPos && hex) canvasRef.current?.spawn(hex, true, { x: entryPos.x, y: entryPos.y + 28 }, memberIdRef.current);
     highlightRef.current = null;
     seekPendingRef.current = null;
     launchedRef.current = false;   // 次の回はまた山から
@@ -687,7 +684,7 @@ export default function HaiToDiamondPage() {
 
   /** 終了画面から、いま選んでいる色の瞬間を見返す */
   const handleHighlight = useCallback(() => {
-    const peak = canvasRef.current?.getPeakTime();
+    const peak = canvasRef.current?.getPeakTime(memberIdRef.current);
     if (peak == null) return;
     jumpToHighlight(peak);
   }, [jumpToHighlight]);
@@ -698,12 +695,12 @@ export default function HaiToDiamondPage() {
     const hex = findDiamondMember(id)?.color;
     if (!hex) return;
     if (highlightRef.current) {
-      const peak = canvasRef.current?.getPeakTime(hex) ?? null;
-      if (peak == null) return;                    // その色は一度も上位に来ていない＝飛び先が無いので選択も変えない
+      const peak = canvasRef.current?.getPeakTime(id) ?? null;
+      if (peak == null) return;                    // その人は一度も上位に来ていない＝飛び先が無いので選択も変えない
       memberIdRef.current = id;
       setMemberId(id);
       setLastSelectedMemberId(id);
-      canvasRef.current?.setOwnColor(hex);
+      canvasRef.current?.setOwnColor(hex, id);
       setPeakTime(peak);
       jumpToHighlight(peak);
       return;
@@ -711,8 +708,8 @@ export default function HaiToDiamondPage() {
     memberIdRef.current = id;
     setMemberId(id);
     setLastSelectedMemberId(id);
-    canvasRef.current?.setOwnColor(hex);
-    setPeakTime(canvasRef.current?.getPeakTime(hex) ?? null);
+    canvasRef.current?.setOwnColor(hex, id);
+    setPeakTime(canvasRef.current?.getPeakTime(id) ?? null);
   }, [jumpToHighlight]);
 
   /** 終了画面の💎を左右に送って、色を1つ隣へ替える。いま選んでいる色そのものを替える（次の回の最初の色にもなる） */
@@ -762,15 +759,15 @@ export default function HaiToDiamondPage() {
     if (cur - last > 40) { last = cur - 40; spawnBacklog.fill(0); }  // 大きく飛んだ時は直近2秒ぶんだけ
     const budget = OTHERS_PER_TICK[settingsRef.current.crowd];
     if (budget > 0) {
-      // まずこの0.1秒ぶんの登録を色ごとに数える。同じ色の人が複数いれば合算される
+      // まずこの0.1秒ぶんの登録を人ごとに数える（同じ色の人がいても合算しない・Hop指摘 2026-09-14）
       tickCounts.fill(0);
       let total = 0;
       for (let b = last + 1; b <= cur; b++) {
         const entries = bucketMapRef.current.get(b);
         if (!entries) continue;
-        for (const [c, n] of entries) {
+        for (const [memberId, n] of entries) {
           if (n <= 0) continue;
-          const i = SPAWN_COLOR_INDEX.get(c);
+          const i = SPAWN_MEMBER_INDEX.get(memberId);
           if (i === undefined) continue;
           tickCounts[i] += n;
           total += n;
@@ -781,11 +778,11 @@ export default function HaiToDiamondPage() {
       for (let i = 0; i < SPAWN_SLOTS; i++) {
         const q = tickQuota[i];
         if (q <= 0) continue;
-        const c = SPAWN_COLORS[i];
+        const m = SPAWN_MEMBERS[i];
         // まだ焼けていない色は出さない。平らな代わりの絵で飛ばすより出さない方がよい（Hop決定 2026-09-14）。
         // 端末が本物を描けない場合は「済み」扱いになるので、その時は今までどおり平らな絵で出る
-        if (!stonesSettled([c])) continue;
-        for (let k = 0; k < q; k++) canvasRef.current?.spawn(c);
+        if (!stonesSettled([m.color])) continue;
+        for (let k = 0; k < q; k++) canvasRef.current?.spawn(m.color, false, undefined, m.id);
         lastSpawnAt[i] = now;
       }
     }
@@ -801,7 +798,7 @@ export default function HaiToDiamondPage() {
     const id = pickedId ?? memberIdRef.current;
     const hex = findDiamondMember(id)?.color ?? "#ffffff";
     tapsRef.current.push({ t: playerRef.current?.getCurrentTime() ?? 0, memberId: id });
-    canvasRef.current?.spawn(hex, true, origin);
+    canvasRef.current?.spawn(hex, true, origin, id);
     setLiveCount(tapsRef.current.length);
     return true;
   }, []);

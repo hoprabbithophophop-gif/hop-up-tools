@@ -59,21 +59,25 @@ import {
 export type DiamondCanvasApi = {
   /** その色の💎を1つ、画面の上から降らせる。速さ・回転の向きと速さは1つずつ違う。
    *  self=true は自分の💎: 画面内の上寄りに出て、出た瞬間にピカッと光る（押した手応え）。
-   *  origin は押した💎のボタンの中心。画面座標で渡す。自分の分はそのすぐ上から飛び立つ */
-  spawn: (color: string, self?: boolean, origin?: { x: number; y: number }) => void;
+   *  origin は押した💎のボタンの中心。画面座標で渡す。自分の分はそのすぐ上から飛び立つ。
+   *  key は誰の💎かを表すメンバーID。同じ色でも人が違えば額縁の順位・輝いた瞬間は別々に数える
+   *  （杉山・山﨑は同じ #e70033 だが別人・Hop指摘 2026-09-14）。省略時は色の rgb をそのまま鍵にする（今まで通り） */
+  spawn: (color: string, self?: boolean, origin?: { x: number; y: number }, key?: string) => void;
   /** 動画の現在時刻と総尺（秒）。カメラの引き・寄りに使う */
   setTime: (t: number, duration: number) => void;
   /** 山・降っている💎・カメラをすべて最初の状態に戻す（「最初に戻る」→ もう一度はじめる時） */
   reset: () => void;
-  /** 色ごとの曲全体の総数（色のhex → 個数）。額縁の順位を「その色の普段の量と比べた倍率」で決めるための基準 */
+  /** 曲全体の総数（メンバーID → 個数）。額縁の順位を「その色の普段の量と比べた倍率」で決めるための基準。
+   *  同じ色を複数人が使っていても、人ごとに別々の基準になる */
   setColorTotals: (totals: Record<string, number>) => void;
   /** 直前に spawn した自分の💎を取り消す（触れた瞬間に降らせたが、指が滑ってスワイプだった時）。まだ落ちている途中のものだけ消す */
   undoLastSpawn: () => void;
-  /** いま自分が選んでいる色。getPeakTime を色の指定なしで呼んだ時の既定になる（色を替えるたびに呼ぶ） */
-  setOwnColor: (hex: string) => void;
-  /** その色の倍率が曲中で最大だった動画時刻（秒）。まだ無ければ null。
-   *  記録は色ごとに全部覚えているので、hex を渡せば選んでいない色の瞬間も引ける。省略時はいま自分が選んでいる色 */
-  getPeakTime: (hex?: string) => number | null;
+  /** いま自分が選んでいる色。getPeakTime を引数なしで呼んだ時の既定になる（色を替えるたびに呼ぶ）。
+   *  key はそのメンバーID。省略時は色の rgb をそのまま鍵にする（今まで通り） */
+  setOwnColor: (hex: string, key?: string) => void;
+  /** そのメンバー（key）の倍率が曲中で最大だった動画時刻（秒）。まだ無ければ null。
+   *  記録は人ごとに全部覚えているので、key を渡せば選んでいない人の瞬間も引ける。省略時はいま自分が選んでいる人 */
+  getPeakTime: (key?: string) => number | null;
   /** カメラを今の状態で止める（ハイライト再生中に引き直さないように）。reset で解除 */
   setHoldCamera: (on: boolean) => void;
   /** 積もった山を一斉に夜空へ放って星空にする（曲の最後のフレーズ「Let's Shine Together!」）。
@@ -107,14 +111,17 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** 押した瞬間の閃光（世界座標）。短時間で消える */
   const flashesRef = useRef<{ x: number; y: number; t0: number; rgb: [number, number, number]; size: number }[]>([]);
-  /** 直近に降った💎の色の控え。その瞬間いちばん多い色で額縁を染めるのに使う（名前も数字も出さない・Hop決定 2026-09-07） */
+  /** 直近に降った💎の控え。その瞬間いちばん多い色で額縁を染めるのに使う（名前も数字も出さない・Hop決定 2026-09-07）。
+   *  key はメンバーID（無ければ色の rgb）。同じ色を複数人が使っていても人ごとに別々に数える
+   *  （杉山・山﨑は同じ #e70033 だが別人・Hop指摘 2026-09-14） */
   const recentRef = useRef<{ t: number; key: string; rgb: [number, number, number] }[]>([]);
-  /** 色ごとの曲全体の総数（"r,g,b" → 個数）。額縁の順位の基準。読み込み前は空＝全色同じ基準 */
+  /** 曲全体の総数（メンバーID → 個数）。額縁の順位の基準。読み込み前は空＝全員同じ基準。
+   *  同じ色の人が複数いても人ごとに別々（杉山・山﨑は同じ #e70033 だが別人・Hop指摘 2026-09-14） */
   const colorTotalsRef = useRef<Map<string, number>>(new Map());
-  /** いま自分が選んでいる色（"r,g,b"）。getPeakTime の既定の引き先 */
+  /** いま自分が選んでいる人（メンバーID、無ければ色の rgb）。getPeakTime の既定の引き先 */
   const ownKeyRef = useRef<string | null>(null);
-  /** 色ごとの「一番輝いた瞬間」。"r,g,b" → その色の倍率が最大だった時刻と、その時の倍率。
-   *  自分の色だけでなく全色ぶん覚える＝ハイライト再生中に色を切り替えても、その色の瞬間へ飛べる */
+  /** 人ごとの「一番輝いた瞬間」。key（メンバーID）→ その人の倍率が最大だった時刻と、その時の倍率。
+   *  自分の分だけでなく全員ぶん覚える＝ハイライト再生中に色を切り替えても、その人の瞬間へ飛べる */
   const peakRef = useRef<Map<string, { t: number; s: number }>>(new Map());
   const holdCameraRef = useRef(false);
   /** 額縁の区画（左から順位順）のいまの色と幅の割合（なめらかに移り変わる） */
@@ -169,13 +176,13 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const camRef = useRef({ scale: 1, cx: 0, cy: 0, oy: 0 });
 
   useImperativeHandle(ref, () => ({
-    spawn(color: string, self = false, origin?: { x: number; y: number }) {
+    spawn(color: string, self = false, origin?: { x: number; y: number }, key?: string) {
       const { W, H } = sizeRef.current;
       const { scale, cx, oy } = camRef.current;
       if (!W) return;
       spawnedRef.current += 1;
       const rgb = hexToRgb(color);
-      recentRef.current.push({ t: performance.now(), key: rgb.join(","), rgb });
+      recentRef.current.push({ t: performance.now(), key: key ?? rgb.join(","), rgb });
       // 放った後は山に積もらない。自分の分は色の帯の少し上から、他の人の分は画面の下端から出て、
       // そのまま夜空の行き先へ飛んで星になる（曲の終わりの拍手代わりの押しが「星が増える」になる）
       if (launchedRef.current) {
@@ -275,16 +282,16 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       if (fl.length && Math.abs(fl[fl.length - 1].x - last.x) < 1) fl.pop();
       // 帳簿（cols）に取った着地先はそのまま残る。スワイプは1回の再生で数回なので、その分の小さな隙間は許容する
     },
-    setOwnColor(hex: string) {
-      ownKeyRef.current = hexToRgb(hex).join(",");
+    setOwnColor(hex: string, key?: string) {
+      ownKeyRef.current = key ?? hexToRgb(hex).join(",");
       // 自分の色は真っ先に降るので、焼くよう頼んでおく。頼むだけで、焼くのはこの呼び出しが終わったあと。
       // 「はじめる」の中から呼ばれても、動画の再生を止めない（重い処理をこの場で走らせない）
       requestStoneSpritesByHex(hex, true);
     },
-    getPeakTime(hex?: string) {
-      const key = hex ? hexToRgb(hex).join(",") : ownKeyRef.current;
-      if (!key) return null;
-      return peakRef.current.get(key)?.t ?? null;
+    getPeakTime(key?: string) {
+      const k = key ?? ownKeyRef.current;
+      if (!k) return null;
+      return peakRef.current.get(k)?.t ?? null;
     },
     setHoldCamera(on: boolean) { holdCameraRef.current = on; },
     launchToSky() { launchRef.current(); },
@@ -303,7 +310,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     },
     setColorTotals(totals: Record<string, number>) {
       const m = new Map<string, number>();
-      for (const [hex, n] of Object.entries(totals)) m.set(hexToRgb(hex).join(","), n);
+      for (const [id, n] of Object.entries(totals)) m.set(id, n);
       colorTotalsRef.current = m;
     },
     reset() {
