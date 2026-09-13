@@ -39,6 +39,18 @@ const TUMBLE_PATHS_DEF = [
 ] as const;
 /** 通り道の数。💎ごとにこの中から1本を抽選する */
 export const TUMBLE_PATHS = TUMBLE_PATHS_DEF.length;
+/** 通り道ごとの「いちばん正面に近いコマ」の向き(rad)。倒す角が90度にいちばん近いコマ。
+ *  席へ着く💎はこの向きで着く＝横向きのまま鏡に変わる急さを無くす（Hop決定 2026-09-13「正面を向いて着く」）。
+ *  通り道によっては90度まで届かないので、その時は届く中でいちばん近い所 */
+export const FACE_ON_ANG: readonly number[] = TUMBLE_PATHS_DEF.map((p) => {
+  let best = 0, bestD = Infinity;
+  for (let i = 0; i < TUMBLE_FRAMES; i++) {
+    const deg = p.tilt0 + p.amp * Math.sin((i / TUMBLE_FRAMES) * Math.PI * 2 + p.phase);
+    const d = Math.abs(deg - 90);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return (best / TUMBLE_FRAMES) * Math.PI * 2;
+});
 /** 転がり用に焼く絵の数 */
 export const STONE_STEPS = TUMBLE_PATHS * TUMBLE_FRAMES;
 

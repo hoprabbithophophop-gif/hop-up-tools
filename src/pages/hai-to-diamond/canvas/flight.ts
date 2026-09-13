@@ -1,6 +1,6 @@
 // 押された💎が席へ飛んでいく間のこと。飛び方・通り道・飛び立ち・着地の判定をここに集めた。
 // DiamondCanvas.tsx から切り出しただけで、中身は変えていない。
-import { TUMBLE_PATHS } from "../gemSprites";
+import { FACE_ON_ANG, TUMBLE_PATHS } from "../gemSprites";
 import {
   type Ball, type BallView, type SeatHold, BALL_R, BALL_SPIN_SEC, BALL_TILE_FILL, BALL_TILE_MIN, BALL_TILT,
   BALL_ZOOM_MIN, getBallLattice, landOnSeat, rememberSelfSeat, reserveSeat, reserveSelfSeat,
@@ -13,7 +13,8 @@ export type Suck = {
   x0: number; y0: number;   // 出発（画面座標）
   t0: number;               // 飛び始めた時刻(ms)
   dur: number;              // 吸い込まれるまでの時間(ms)
-  ang: number;              // 出た時の向き(rad)
+  ang: number;              // 出た時の向き(rad)。着く時に angEnd になるよう、飛び方の回る量から逆算してある
+  angEnd: number;           // 着く時の向き(rad)＝その通り道でいちばん正面に近い姿勢（Hop決定 2026-09-13）
   flight: number;           // 飛び方（FLIGHT_STYLES の何番か）。押した時に引いて、着くまで変わらない
   path: number;             // 飛び方の通り道（0〜TUMBLE_PATHS-1）
   roll: number;             // 画面の上での向き(rad)
@@ -73,8 +74,13 @@ const SUCK_DEPTH_SOFT = 0.08;    // 席の深さがこれを下回っている�
                                  // ＝着いて鏡に変わる瞬間に濃さが跳ばない。
                                  // 0.2 と見比べて 0.08 を採った（Hop決定 2026-09-13）。縁への着地がはっきり見える
 // 自分の💎を群衆と見分ける（Hop決定 2026-09-13）。飛んでいる間だけ大きくする【仮】
-const SELF_BIG = 1.35;           // 自分の分の飛んでいる大きさを何倍にするか
+const SELF_BIG = 1;              // 自分の分の飛んでいる大きさを何倍にするか。1.35 / 1.0 / 0.8 を見比べて 1 を採った（Hop決定 2026-09-13）
 const OTHER_SMALL = 0.5;         // 他の人の分の飛んでいる大きさを何倍にするか【仮】。1倍では大きすぎた（Hop指摘 2026-09-13）
+// 席へ着く💎は、飛びの終盤で鏡と平行になるまで寝る（Hop指示 2026-09-13「着席の瞬間こっちに面を向けるんじゃなくて鏡に対して平行に」）。
+// 鏡は「席に接する平面の東向き・北向きを画面に写した2本」を絵の縦横に使って描いている（ball.ts の drawMirrors）。
+// 同じ2本を💎の絵にも掛ける＝正面の席では素の丸のまま、縁の席では鏡と同じだけ潰れて見える。
+// 掛け方は飛びの進みで正面向き（そのまま）から鏡の平面へなめらかに移す。止まっている間は寝たまま
+const LAY_FROM = 0.6;            // 飛ぶ時間のうち、ここから鏡の平面へ寝始める【仮】
 // 自分の分は、着いた場所でひと呼吸だけ💎のまま止まってから鏡になる（Hop決定 2026-09-13 案1）
 const SELF_LAND_HOLD_MS = 220;   // 席に着いてから鏡に変わるまで止まっている時間【仮】
 const SELF_LAND_FLASH_MS = 700;  // 自分の分の着地の光が通常の見え方へ戻るまで【仮】。他の人の分は LAND_FLASH_MS のまま
@@ -188,12 +194,18 @@ export function spawnSuck(
   // 飛び方を1つ引く。飛び方によっては使う通り道が決まっているので、通り道もここで合わせて引く
   const flight = Math.floor(Math.random() * FLIGHT_STYLES.length);
   const fp = FLIGHT_STYLES[flight].paths;
+  const path = fp ? fp[Math.floor(Math.random() * fp.length)] : Math.floor(Math.random() * TUMBLE_PATHS);
+  // 着く時の姿勢を「いちばん正面に近いコマ」に固定し、出発の姿勢はそこから回る量ぶん戻した所にする。
+  // 飛び方も回る量も変えず、着いた瞬間に横向きの💎が正面の鏡へ跳ばないようにする。
+  // 画面の上での向き（roll）は今までどおり抽選なので、飛ぶ姿の散らばりは残る
+  const angEnd = FACE_ON_ANG[path];
   suck.push({
     x0, y0, t0: now,
     dur,
-    ang: Math.random() * Math.PI * 2,
+    ang: angEnd - FLIGHT_STYLES[flight].laps * Math.PI * 2,
+    angEnd,
     flight,
-    path: fp ? fp[Math.floor(Math.random() * fp.length)] : Math.floor(Math.random() * TUMBLE_PATHS),
+    path,
     roll: Math.random() * Math.PI * 2,
     size: (SIZE_MIN + Math.random() * SIZE_RANGE) * shrinkM,
     rgb, bow, self,
@@ -325,7 +337,7 @@ export function drawSucks(
     // 動きを減らす設定では、飛び方に関わらず出発時の向きのまま飛ばす
     const style = FLIGHT_STYLES[sk.flight] ?? FLIGHT_STYLES[0];
     if (reduceMotion) {
-      suckDraw.ang = sk.ang;
+      suckDraw.ang = sk.angEnd;
       suckDraw.roll = sk.roll;
     } else {
       suckDraw.ang = sk.ang + u * style.laps * Math.PI * 2;
@@ -334,6 +346,28 @@ export function drawSucks(
     }
     suckDraw.path = sk.path;
     suckDraw.rgb = sk.rgb;
+    // 席へ着く分は、飛びの終盤で鏡の平面へ寝かせる。鏡と同じ「東向き・北向きを画面に写した2本」を
+    // 絵の縦横に掛ける。正面向き（そのまま）からその2本へ、なめらかな曲線で移す。
+    // 席は回転で動くので2本は毎コマいまの席から取る＝着いた瞬間の鏡とぴったり重なる
+    let lay = 0;
+    if (!sk.enter && !reduceMotion && u > LAY_FROM) {
+      const w = (u - LAY_FROM) / (1 - LAY_FROM);
+      lay = w * w * (3 - 2 * w);
+    }
+    if (lay > 0) {
+      const ap = lat[so + 1];
+      const q = Math.sqrt(Math.max(1e-4, 1 - ap * ap));
+      const nx = (-ap * sx1) / q, ny = (ct - ap * sy2) / q, nz = (vst - ap * sz2) / q;
+      const ex = ny * sz2 - nz * sy2, ey = nz * sx1 - nx * sz2;
+      // 画面の y は下向きなので、縦方向は符号を裏返す（drawMirrors と同じ向き）
+      const a = 1 + (ex - 1) * lay, b = (-ey) * lay;
+      const c = (-nx) * lay, d = 1 + (ny - 1) * lay;
+      ctx.save();
+      ctx.translate(suckDraw.x, suckDraw.y);
+      ctx.transform(a, b, c, d, 0, 0);
+      suckDraw.x = 0;
+      suckDraw.y = 0;
+    }
     // 飛んでいる間は最後までダイヤのまま。着いた瞬間に鏡になる（Hop決定 2026-09-11）
     if (alpha < 1) {
       ctx.globalAlpha = alpha;
@@ -342,5 +376,6 @@ export function drawSucks(
     } else {
       drawGemLive(ctx, suckDraw);
     }
+    if (lay > 0) ctx.restore();
   }
 }
