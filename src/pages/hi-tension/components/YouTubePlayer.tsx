@@ -47,11 +47,6 @@ interface Props {
   onPlayerStateChange?: (state: number) => void;
   /** 動画の準備ができた瞬間に1回だけ呼ぶ。isReady が false から true に変わった時。渡さなくても今までの動きは変わらない */
   onReady?: () => void;
-  /** true の間は、動画の準備ができていても黒いカバーを出したままにする。
-   *  呼び出す側にまだ整っていない支度があって、再生を始められては困る時に立てる。
-   *  この間はカバーが指を受け止めるので、下の動画の再生ボタンには届かない。
-   *  渡さなければ今までの動きのまま */
-  holdLoading?: boolean;
   /** 初回 play() から LOADING_MIN_MS 秒、黒カバーで隠すか。既定 true（渡さなければ今までの動きのまま）。
    *  /hai-to-diamond は動画自身の再生ボタンで始めるので、この2秒のカバーは要らない。見返しの再生（すでに動いている映像に
    *  重ねて呼ぶ2回目以降の play()）に黒いカバーが乗ってしまうため false を渡す */
@@ -90,7 +85,7 @@ function loadYouTubeAPI(): Promise<void> {
 }
 
 const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer(
-  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, onReady, holdLoading, startCover = true, loadingCover = true, minHeight },
+  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, onReady, startCover = true, loadingCover = true, minHeight },
   ref,
 ) {
   const [isReady, setIsReady] = useState(false);
@@ -342,8 +337,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   // または入室時の動画切替が PLAYING に達するまで（loadCovering）黒カバーを表示。
   // startCover=false の時は、この「最初の2秒」ぶんのカバーだけ出さない（すでに動いている映像に
   // 重ねて呼ぶ play() で、黒いカバーが乗ってしまう場面向け）
-  // holdLoading が立っている間も、呼び出す側の支度が済むまでカバーを出したままにする
-  const showLoading = !isReady || (startCover && started && !minTimeElapsed) || loadCovering || !!holdLoading;
+  const showLoading = !isReady || (startCover && started && !minTimeElapsed) || loadCovering;
 
   return (
     <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", ...(minHeight != null ? { minHeight } : {}), background: "#000" }}>
@@ -357,8 +351,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
             alignItems: "center",
             justifyContent: "center",
             background: "#000",
-            // holdLoading の間だけカバーが指を受け止める。押しても下の動画には届かない
-            pointerEvents: holdLoading ? "auto" : "none",
+            pointerEvents: "none",
           }}
         >
           <LoadingDots />

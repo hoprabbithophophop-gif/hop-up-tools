@@ -59,13 +59,11 @@ interface Props {
   onOpenSettings?: () => void;
   /** 動き軽減（瞬きを止める） */
   reduceMotion?: boolean;
-  /** 💎の絵を焼くのにかかっている時間。main 以外の枝でだけ出る実機確認用の読み取り。本番には出ない */
-  bakeNote?: string;
   /** 横向きか。横向きの間は入口の中身を出さない。代わりにページ側が案内だけを出す（Hop決定 2026-09-12） */
   landscape?: boolean;
 }
 
-export default function DiamondEntry({ total, videoBottom, videoReady, loadingSlow, onOpenSettings, reduceMotion = false, bakeNote, landscape = false }: Props) {
+export default function DiamondEntry({ total, videoBottom, videoReady, loadingSlow, onOpenSettings, reduceMotion = false, landscape = false }: Props) {
   const [isLandscape, setIsLandscape] = useState<boolean>(() => {
     try { return window.matchMedia("(orientation: landscape)").matches; } catch { return false; }
   });
@@ -186,13 +184,6 @@ export default function DiamondEntry({ total, videoBottom, videoReady, loadingSl
           </div>
         )}
       </div>
-
-      {/* 焼き時間の読み取り。他の要素の場所は変えずに右下へ重ねる */}
-      {bakeNote && (
-        <span style={{ position: "absolute", right: 12, bottom: 12, fontSize: 12, color: "rgba(255,255,255,0.45)" }}>
-          {bakeNote}
-        </span>
-      )}
     </div>
   );
 }

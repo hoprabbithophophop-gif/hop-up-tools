@@ -13,7 +13,7 @@ import { getLastSelectedMemberId, setLastSelectedMemberId, getOrCreateAnonymousS
 import { submitHiSessions } from "../hi-tension/api";
 import { fetchReplay, type ReplayRow } from "./replay";
 import DiamondCanvas, { type DiamondCanvasApi } from "./DiamondCanvas";
-import { stonesSettled, setStoneBakeHurry, stoneBakeReport } from "./gemSprites";
+import { stonesSettled, setStoneBakeHurry, stoneBakeReport, warmUpGemRenderer, requestAllStoneSprites } from "./gemSprites";
 import DiamondEntry from "./DiamondEntry";
 import DiamondColorCarousel from "./DiamondColorCarousel";
 import DiamondColorPages from "./DiamondColorPages";
@@ -154,6 +154,87 @@ const GEMS_WAIT_CAP_MS = 15000;
  *  入口の案内文を待たせている旨に切り替える【仮】。石だけでなく動画も含めた支度全体の話 */
 const SLOW_NOTICE_MS = 5000;
 
+/** 読み込み画面の印（点）の大きさ(px)【仮】 */
+const LOADING_DOT_SIZE = 8;
+/** 読み込み画面の印（点）どうしの間隔(px)【仮】 */
+const LOADING_DOT_GAP = 10;
+/** 読み込み画面の印（点）の色【仮】。灰のみ（白・灰・黒の決まり） */
+const LOADING_DOT_COLOR = "#9aa0a6";
+/** 読み込み画面の印がひと巡り明滅するのにかかる時間(ms)【仮】 */
+const LOADING_BLINK_MS = 1200;
+/** 読み込み画面の重ね順【仮】。入口・動画・設定の板のどれよりも手前 */
+const LOADING_Z = 50;
+/** 支度が長引いた時に読み込み画面へ出す文。入口の案内文と同じ【仮】の文言をそのまま使う */
+const LOADING_SLOW_TEXT = "準備に少し時間がかかっています";
+
+const loadingScreenStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: LOADING_Z,
+  background: ARENA_BG,
+  color: "#e8eaed",
+  fontFamily: "Inter, 'Noto Sans JP', sans-serif",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "0.9rem",
+};
+const loadingDotsRowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: LOADING_DOT_GAP,
+  alignItems: "center",
+};
+const loadingSlowTextStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.875rem",
+  fontWeight: 600,
+  color: "#9aa0a6",
+  textAlign: "center",
+  lineHeight: 1.5,
+};
+const loadingBakeNoteStyle: React.CSSProperties = {
+  position: "absolute",
+  right: 12,
+  bottom: 12,
+  fontSize: 12,
+  color: "rgba(255,255,255,0.45)",
+};
+/** 点3つぶんの style。毎回作り直さないよう先に作っておく */
+const LOADING_DOT_STYLES: React.CSSProperties[] = [0, 1, 2].map((i) => ({
+  width: LOADING_DOT_SIZE,
+  height: LOADING_DOT_SIZE,
+  borderRadius: "50%",
+  background: LOADING_DOT_COLOR,
+  animation: `hai-to-diamond-loading-blink ${LOADING_BLINK_MS}ms ease-in-out infinite`,
+  animationDelay: `${i * (LOADING_BLINK_MS / 6)}ms`,
+}));
+/** 動き軽減の時は明滅を止める。点は消さずそのまま出す */
+const LOADING_DOT_STYLES_STILL: React.CSSProperties[] = LOADING_DOT_STYLES.map((st) => ({ ...st, animation: "none" }));
+
+/** ページ全体の読み込み画面。💎の絵が焼き上がるまでの間、入口の中身も動画も置かずにこれだけを出す。
+ *  動画の上に幕を張る形にはしない（YouTube API 規約）ので、この間はプレーヤーそのものを置かない */
+function DiamondLoadingScreen({ loadingSlow, reduceMotion, bakeNote }: { loadingSlow: boolean; reduceMotion: boolean; bakeNote?: string }) {
+  const dotStyles = reduceMotion ? LOADING_DOT_STYLES_STILL : LOADING_DOT_STYLES;
+  return (
+    <div data-testid="diamond-loading-screen" style={loadingScreenStyle}>
+      <style>{`
+        @keyframes hai-to-diamond-loading-blink {
+          0%, 100% { opacity: 0.25; }
+          50% { opacity: 1; }
+        }
+      `}</style>
+      <div style={loadingDotsRowStyle} aria-hidden="true">
+        <div style={dotStyles[0]} />
+        <div style={dotStyles[1]} />
+        <div style={dotStyles[2]} />
+      </div>
+      {loadingSlow && <p style={loadingSlowTextStyle}>{LOADING_SLOW_TEXT}</p>}
+      {bakeNote && <span style={loadingBakeNoteStyle}>{bakeNote}</span>}
+    </div>
+  );
+}
+
 function isTouchDevice(): boolean {
   return /iPhone|iPad|iPod|Android/.test(navigator.userAgent);
 }
@@ -191,6 +272,13 @@ export default function HaiToDiamondPage() {
   // 入口の間は画面がほぼ止まっているので、💎の絵を急いで焼かせる。
   // 元のペースへ戻すのは再生が始まる beginSession の中
   useEffect(() => { setStoneBakeHurry(true); }, []);
+  // 💎の絵を焼き始めるのは、これまで DiamondCanvas の役目だった。読み込み画面の間は
+  // その層をまだ置かないので、焼く支度と注文はページ側からも出しておく。
+  // 同じ色を二度頼んでも二度焼きはされないので、後から DiamondCanvas が頼み直しても無駄にはならない
+  useEffect(() => {
+    warmUpGemRenderer();
+    requestAllStoneSprites(DIAMOND_GEM_HEXES);
+  }, []);
   // 焼き上がりを見に行く。ページを開いた時点から始め、色ぜんぶが済むか、
   // 保険の時間が過ぎたら止める。遅い端末で入口に閉じ込めないための保険つき
   useEffect(() => {
@@ -330,7 +418,9 @@ export default function HaiToDiamondPage() {
       vv?.removeEventListener("resize", measure);
       ro?.disconnect();
     };
-  }, [started, frame, landscape]);
+    // gemsReady は、読み込み画面が消えて本編の器が初めて置かれる合図。
+    // ここを入れておかないと、器が無い間に測って諦めたまま測り直さない
+  }, [started, frame, landscape, gemsReady]);
 
   /** チャンネル名と動画タイトルの器。描かれた時に高さを測り、折り返しで高さが変われば測り直す */
   const creditRef = useCallback((el: HTMLDivElement | null) => {
@@ -659,6 +749,12 @@ export default function HaiToDiamondPage() {
     ? `https://www.youtube.com/watch?v=${encodeURIComponent(openComment.videoId)}&lc=${encodeURIComponent(openComment.commentId)}`
     : null;
 
+  // 💎の絵が焼き上がるまでは、入口も動画も置かずに読み込み画面だけを出す。
+  // 動画の上に幕を張る形（プレーヤーへの重ね物）にはしない（YouTube API 規約）
+  if (!gemsReady) {
+    return <DiamondLoadingScreen loadingSlow={loadingSlow} reduceMotion={settings.reduceMotion} bakeNote={bakeNote} />;
+  }
+
   return (
     <div
       style={{
@@ -700,7 +796,7 @@ export default function HaiToDiamondPage() {
         <div style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: landscape ? "none" : undefined }}>
           {/* 動画の下端がまだ測れていない間は設定を開かない。開くと板の置き場所が決まらず
               画面の真ん中＝動画の上に出てしまう。見た目は変えず、押しても何も起きないだけ */}
-          <DiamondEntry landscape={landscape} videoBottom={heatBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} onOpenSettings={() => { if (heatBox) setSettingsOpen(true); }} reduceMotion={settings.reduceMotion} bakeNote={bakeNote} />
+          <DiamondEntry landscape={landscape} videoBottom={heatBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} onOpenSettings={() => { if (heatBox) setSettingsOpen(true); }} reduceMotion={settings.reduceMotion} />
         </div>
       )}
       {settingsOpen && !landscape && (
@@ -737,7 +833,7 @@ export default function HaiToDiamondPage() {
           }}
         >
           <div ref={videoBoxRef}>
-            <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} onReady={handleVideoReady} holdLoading={!gemsReady} startCover={false} loadingCover={false} minHeight={MIN_VIDEO_HEIGHT} />
+            <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} onReady={handleVideoReady} startCover={false} loadingCover={false} minHeight={MIN_VIDEO_HEIGHT} />
           </div>
         </div>
       </div>
