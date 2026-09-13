@@ -196,9 +196,10 @@ type Ball = {
 type SkyStar = { x: number; y: number; d: number; rgb: [number, number, number] };
 
 // 開発中だけの切り替え。画面のアドレスに ?keep=0|3|5|10 を付けると変わる。
-// import.meta.env.DEV が立っている時＝手元で動かしている時しか読まないので、
-// 公開している画面では既定のまま＝守らない。
-const DEV_OPT = import.meta.env.DEV && typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
+// 手元で動かしている時（import.meta.env.DEV）と、main 以外の枝のプレビュー（__SHOW_VERSION__）で読む。
+// 本番の組み立てでは読まないので、公開している画面では既定のまま＝守らない。
+// プレビューでも読むのは、K を Hop が実機で押し比べて決めるため（2026-09-13）。
+const DEV_OPT = (import.meta.env.DEV || __SHOW_VERSION__) && typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
 /** 自分の直近いくつの席を上書きから守るか。0＝守らない */
 const SELF_KEEP = Math.max(0, Math.min(10, Math.floor(Number(DEV_OPT?.get("keep")) || 0)));
 /** 開発中だけ、着いたばかりの席から壁へ出た粒の数と、その最後の1つの画面での位置を
