@@ -859,7 +859,7 @@ export default function HaiToDiamondPage() {
         <div style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: landscape ? "none" : undefined }}>
           {/* 動画の下端がまだ測れていない間は設定を開かない。開くと板の置き場所が決まらず
               画面の真ん中＝動画の上に出てしまう。見た目は変えず、押しても何も起きないだけ */}
-          <DiamondEntry landscape={landscape} videoBottom={underBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} videoFailed={videoFailed && !videoReady} onRetry={retryVideo} onOpenSettings={() => { if (underBox) setSettingsOpen(true); }} reduceMotion={settings.reduceMotion} />
+          <DiamondEntry landscape={landscape} gemColor={color} videoBottom={underBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} videoFailed={videoFailed && !videoReady} onRetry={retryVideo} onOpenSettings={() => { if (underBox) setSettingsOpen(true); }} reduceMotion={settings.reduceMotion} />
         </div>
       )}
       {settingsOpen && !landscape && (

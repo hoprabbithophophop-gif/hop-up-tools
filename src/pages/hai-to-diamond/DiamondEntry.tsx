@@ -10,7 +10,7 @@
 // 【仮】と付いた文はHopが差し替える。
 import { useEffect, useRef, useState } from "react";
 import { ARENA_BG } from "../hi-tension/data";
-import FacetGem from "./FacetGem";
+import EntryGem from "./EntryGem";
 import { SHARE_TAG } from "./HaiToDiamondPage";
 import NewsNoticeLink from "@/components/NewsNoticeLink";
 
@@ -49,6 +49,8 @@ function useCountUp(target: number | null, reduceMotion: boolean): number | null
 interface Props {
   /** みんなの累計（読み込み前は null） */
   total: number | null;
+  /** 累計の横の💎の色（hex）。いま選んでいる色。本編と同じ本物の描き方で焼いた絵を出す */
+  gemColor: string;
   /** 動画の矩形の下端（ページの上端からの px）。案内と累計をその真下に置く。測れていなければ null */
   videoBottom: number | null;
   /** 動画が届いて再生ボタンを押せる状態か。届く前は「読み込んでいます」を出す */
@@ -67,7 +69,7 @@ interface Props {
   landscape?: boolean;
 }
 
-export default function DiamondEntry({ total, videoBottom, videoReady, loadingSlow, videoFailed = false, onRetry, onOpenSettings, reduceMotion = false, landscape = false }: Props) {
+export default function DiamondEntry({ total, gemColor, videoBottom, videoReady, loadingSlow, videoFailed = false, onRetry, onOpenSettings, reduceMotion = false, landscape = false }: Props) {
   const [isLandscape, setIsLandscape] = useState<boolean>(() => {
     try { return window.matchMedia("(orientation: landscape)").matches; } catch { return false; }
   });
@@ -187,7 +189,7 @@ export default function DiamondEntry({ total, videoBottom, videoReady, loadingSl
         {shownTotal !== null && (
           <div style={{ display: "flex", alignItems: "center", gap: "0.7rem" }}>
             <span aria-hidden="true" style={{ display: "flex", flexShrink: 0 }}>
-              <FacetGem size={gemSize} color="#e8eaed" animate={!reduceMotion} />
+              <EntryGem size={gemSize} color={gemColor} animate={!reduceMotion} />
             </span>
             <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
               <span style={{ fontSize: "0.75rem", color: "#9aa0a6" }}>歴代累計</span>
