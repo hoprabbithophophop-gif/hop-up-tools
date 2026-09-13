@@ -1056,11 +1056,14 @@ export default function HaiToDiamondPage() {
             gap: "0.3rem",
             textAlign: "center",
             pointerEvents: "none",
-            // 数字の裏に暗い帯を敷いて読みやすくする。帯はこのブロックの高さぶんだけ＝上下は
-            // マスクで10pxだけ透明へ溶かし、境目に線が出ないようにする（Hop指示 2026-09-14）
-            background: "rgba(7,8,12,0.72)",
-            WebkitMaskImage: "linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent)",
-            maskImage: "linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent)",
+            // 曲が終わった後だけ、数字の裏に暗い帯を敷いて読みやすくする。帯はこのブロックの高さぶんだけ＝上下は
+            // マスクで10pxだけ透明へ溶かし、境目に線が出ないようにする（Hop指示 2026-09-14）。
+            // 再生中は敷かない。壁の粒や白い輪が帯で沈んで魅力が削がれる（Hop指摘 2026-09-14）
+            ...(ended ? {
+              background: "rgba(7,8,12,0.72)",
+              WebkitMaskImage: "linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent)",
+              maskImage: "linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent)",
+            } : { textShadow: "0 0 12px rgba(0,0,0,0.6)" }),
             // 動画の上の空きは画面の高さに関わらず約245px。2段に収めるため詰めてある（2段にした直後は上段が画面の上へ切れた）
             padding: "10px 0",
           }}
