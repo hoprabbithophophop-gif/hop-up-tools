@@ -55,8 +55,9 @@ function buildShareText(count: number): string {
 function shareToX(count: number) {
   window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(buildShareText(count))}`, "_blank", "noopener,noreferrer");
 }
-/** 他の人の💎を1回の時刻更新（0.1秒）で出す上限。大勢の同時押しで一気に固まらないための蓋【仮】。設定「みんなの💎」で変わる */
-const OTHERS_PER_TICK: Record<DiamondSettings["crowd"], number> = { full: 25, light: 6, self: 0 };
+/** 他の人の💎を1回の時刻更新（0.1秒）で出す上限。大勢の同時押しで一気に固まらないための蓋。設定「みんなの💎」で変わる。
+ *  標準は 20（Hop決定 2026-09-13。25 から下げて、同時に飛ぶ数＝描く枚数を減らす）。「かるくする」の 6 は【仮】 */
+const OTHERS_PER_TICK: Record<DiamondSettings["crowd"], number> = { full: 20, light: 6, self: 0 };
 /** 動画の枠の上端を、画面の上端から固定でどれだけ空けるか(px)【仮】。
  *  入口の見出し（題名・副題・お知らせの導線）の直下に置く。SE（375×667）では動画を画面の
  *  真ん中に置くと下の余白が足りず、流れるコメントの3行目が色えらびのボタンに重なっていたため、
