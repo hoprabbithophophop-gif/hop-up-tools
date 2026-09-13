@@ -3,7 +3,7 @@
 import { FACE_ON_ANG, TUMBLE_PATHS } from "../gemSprites";
 import {
   type Ball, type BallView, type SeatHold, BALL_R, BALL_SPIN_SEC, BALL_TILE_FILL, BALL_TILE_MIN, BALL_TILT,
-  BALL_ZOOM_MIN, getBallLattice, landOnSeat, rememberSelfSeat, reserveSeat, reserveSelfSeat,
+  BALL_ZOOM_MIN, getBallLattice, landOnSeat, markSelfLanding, rememberSelfSeat, reserveSeat, reserveSelfSeat,
 } from "./ball";
 import { drawGemLive, SHRINK_MIN, SHRINK_REF, SIZE_MIN, SIZE_RANGE } from "./pile";
 
@@ -24,6 +24,8 @@ export type Suck = {
   bow: number;
   /** 自分が押した分。取り消し（スワイプの空振り）で消せるようにする */
   self: boolean;
+  /** 席に鏡をもう置いたか。溶け込みの間は鏡と💎が同時にある。取り消しはこの前までしか効かない */
+  landed: boolean;
   /** はまる席の番号。押した時点で決まり、着くまで変わらない */
   seat: number;
   /** その席は取った時に空いていたか。取り消し（スワイプの空振り）で元へ戻すのに使う */
@@ -84,6 +86,10 @@ const LAY_FROM = 0.6;            // 飛ぶ時間のうち、ここから鏡の�
 // 自分の分は、着いた場所でひと呼吸だけ💎のまま止まってから鏡になる（Hop決定 2026-09-13 案1）
 const SELF_LAND_HOLD_MS = 220;   // 席に着いてから鏡に変わるまで止まっている時間【仮】
 const SELF_LAND_FLASH_MS = 700;  // 自分の分の着地の光が通常の見え方へ戻るまで【仮】。他の人の分は LAND_FLASH_MS のまま
+// 席へ着く💎は、鏡に変わる直前に薄くなって鏡へ溶け込む（Hop指示 2026-09-13）。
+// 鏡を先に置き、その上で💎を透かしていく＝切り替わりの瞬間が無い。
+// 他の人の分は飛びの最後、自分の分はひと呼吸の最後がこの時間になる
+const MELT_MS = 100;             // 鏡に変わるまでの、溶け込みにかける時間(ms)【仮】
 
 // 飛んでいる💎の飛び方。押した時に等しい確率で1つ引き、着くまで変えない（Hop指示 2026-09-11）。
 // 進み具合は壁の時計ではなく飛行の進み（0→1）で決める。飛ぶのは0.7〜0.9秒と短いので、
@@ -208,7 +214,7 @@ export function spawnSuck(
     path,
     roll: Math.random() * Math.PI * 2,
     size: (SIZE_MIN + Math.random() * SIZE_RANGE) * shrinkM,
-    rgb, bow, self,
+    rgb, bow, self, landed: false,
     seat: seat.seat, seatWasEmpty: seat.wasEmpty, seatPrevRgb: seat.prevRgb, seatPrevAge: seat.prevAge,
     seatCounted: seat.counted, seatFront: front,
     seatAng: 0, seatDist: 0, aimed: false, enter: false, wrapSide: 1, wrapCurl: 0,
@@ -225,8 +231,15 @@ export function landSucks(suck: Suck[], ball: Ball, now: number) {
   for (let i = suck.length - 1; i >= 0; i--) {
     const sk = suck[i];
     const held = sk.self && !sk.enter;
-    if (now - sk.t0 < sk.dur + (held ? SELF_LAND_HOLD_MS : 0)) continue;
-    landOnSeat(ball, sk.seat, sk.rgb, now, held ? SELF_LAND_FLASH_MS : undefined);
+    const endAt = sk.t0 + sk.dur + (held ? SELF_LAND_HOLD_MS : 0);
+    // 席へ着く分は、終わりの MELT_MS 前に鏡を先に置く。💎はその上で薄くなっていき、終わりで消える
+    if (!sk.enter && !sk.landed && now >= endAt - MELT_MS) {
+      landOnSeat(ball, sk.seat, sk.rgb, now, held ? SELF_LAND_FLASH_MS : undefined);
+      if (held) markSelfLanding(ball, sk.seat, now);
+      sk.landed = true;
+    }
+    if (now < endAt) continue;
+    if (!sk.landed) landOnSeat(ball, sk.seat, sk.rgb, now, held ? SELF_LAND_FLASH_MS : undefined);
     suck.splice(i, 1);
   }
 }
@@ -332,6 +345,12 @@ export function drawSucks(
     }
     // 自分の分が席に着いて止まっている間は、薄くせずそのまま濃く描く
     if (sk.self && !sk.enter && now - sk.t0 >= sk.dur) alpha = 1;
+    // 席へ着く分は、鏡に変わる MELT_MS 前から薄くなって鏡へ溶け込む。上の濃さに掛け合わせる
+    if (!sk.enter) {
+      const endAt = sk.t0 + sk.dur + (sk.self ? SELF_LAND_HOLD_MS : 0);
+      const melt = (endAt - now) / MELT_MS;
+      if (melt < 1) alpha *= Math.max(0, melt);
+    }
     // 飛んでいる姿勢。通り道の上をどこまで進めるかと、絵ごと画面の中で何回まわすかを飛び方から決める。
     // 進み具合は飛行の進み u で測るので、飛ぶ時間が長くても短くても同じだけ回りきる。
     // 動きを減らす設定では、飛び方に関わらず出発時の向きのまま飛ばす

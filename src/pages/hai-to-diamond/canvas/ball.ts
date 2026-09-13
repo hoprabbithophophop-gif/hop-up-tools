@@ -11,6 +11,12 @@ import { colorDistance, colorHome, type ColorHome, type Rgb } from "../ballColor
 const DEV_OPT = (import.meta.env.DEV || __SHOW_VERSION__) && typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
 /** 自分の直近いくつの席を上書きから守るか。0＝守らない */
 const SELF_KEEP = Math.max(0, Math.min(10, Math.floor(Number(DEV_OPT?.get("keep")) || 0)));
+/** 自分の💎が着いた合図の出し方。見本で見比べるための切り替え（?ripple=0|1|2|3）。数字は全部【仮】
+ *  0＝出さない  1＝輪が席から広がる  2＝まわりの鏡が波のように順に光る  3＝席にぼんやりした光が広がって消える */
+export const RIPPLE_STYLE = DEV_OPT?.has("ripple") ? Math.max(0, Math.min(3, Math.floor(Number(DEV_OPT.get("ripple")) || 0))) : 1;
+const RIPPLE_MS = 600;           // 合図が消えるまで(ms)
+const RIPPLE_R = 3.2;            // 合図が届く広さ。鏡の高さの何倍まで
+const RIPPLE_ALPHA = 0.85;       // 出た瞬間の濃さ
 /** 開発中だけ、着いたばかりの席から壁へ出た粒の数と、その最後の1つの画面での位置を
  *  外から読めるようにする（見本の撮影で数える・場所を確かめる） */
 export const devStats = DEV_OPT
@@ -88,6 +94,9 @@ export type Ball = {
   /** その席の着地の光が通常へ戻るまでの長さ(ms)。0＝LAND_FLASH_MS。
    *  自分の分だけ長い光にするために席ごとに持つ */
   landMs: Float64Array;
+  /** 自分の💎が最後に着いた席と、その時刻(ms)。着いた合図（波紋）に使う。-1＝出ていない */
+  rippleSeat: number;
+  rippleAt: number;
   /** 「着いたばかり」の印を持っている席の一覧（固定長）と、その数。毎コマ作り直さず、詰めるだけ */
   fresh: Int32Array;
   freshN: number;
@@ -607,6 +616,8 @@ export function createBall(): Ball {
     reserved: 0,
     landAt: new Float64Array(BALL_SEATS),
     landMs: new Float64Array(BALL_SEATS),
+    rippleSeat: -1,
+    rippleAt: 0,
     fresh: new Int32Array(BALL_SEATS),
     freshN: 0,
     freshIn: new Uint8Array(BALL_SEATS),
@@ -628,6 +639,8 @@ export function clearBall(ball: Ball) {
   ball.reserved = 0;
   ball.landAt = new Float64Array(BALL_SEATS);
   ball.landMs = new Float64Array(BALL_SEATS);
+  ball.rippleSeat = -1;
+  ball.rippleAt = 0;
   ball.fresh = new Int32Array(BALL_SEATS);
   ball.freshN = 0;
   ball.freshIn = new Uint8Array(BALL_SEATS);
@@ -690,6 +703,13 @@ export function drawMirrors(
   const occ = ball.occ;
   if (filled <= 0) return;
   const half = tileV * 0.6;   // 画面からはみ出した鏡を弾くための目安（横幅は段の間隔の1.2倍まで）
+  // 自分の💎が着いた合図（2番）の進み。-1＝出ていない
+  let rippleQ = -1;
+  if (RIPPLE_STYLE === 2 && ball.rippleSeat >= 0) {
+    const q = (now - ball.rippleAt) / RIPPLE_MS;
+    if (q < 1) rippleQ = q; else ball.rippleSeat = -1;
+  }
+  const rippleUnit = Math.max(1e-6, tileV / r);   // 鏡の高さを、球の半径を1とした長さに直したもの
   // 土台の暗い球。鏡はこの上に貼るので、先に塗っておく
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = "#171a21";
@@ -739,8 +759,72 @@ export function drawMirrors(
       const q = 1 - (now - la) / (ball.landMs[slot] || LAND_FLASH_MS);
       if (q > 0) fs = Math.max(fs, Math.round(q * q * (3 - 2 * q) * (MIRROR_FLASH - 1)));
     }
+    // 自分の💎が着いた合図（2番）: 着いた席から広がる波に乗った鏡だけ、白さの段を上げる
+    if (rippleQ >= 0 && slot !== ball.rippleSeat) {
+      const ro = ball.rippleSeat * 4;
+      const ddx = lat[o] - lat[ro], ddy = lat[o + 1] - lat[ro + 1], ddz = lat[o + 2] - lat[ro + 2];
+      const dist = Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz) / rippleUnit;   // 鏡の高さを1とした距離
+      const wave = 0.6 + (RIPPLE_R - 0.6) * rippleQ;                            // 波の今の半径
+      const near = 1 - Math.min(1, Math.abs(dist - wave) / 0.9);                // 波の上なら1、離れるほど0
+      if (near > 0) fs = Math.max(fs, Math.round(near * (1 - rippleQ) * (MIRROR_FLASH - 1)));
+    }
     ctx.drawImage(sp[fs], -0.5, -0.5, 1, 1);
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalAlpha = 1;
+}
+
+/** 自分の💎が着いた合図を出す。飛び終わって席に鏡を置いた時に呼ぶ */
+export function markSelfLanding(ball: Ball, seat: number, now: number) {
+  ball.rippleSeat = seat;
+  ball.rippleAt = now;
+}
+
+/** 自分の💎が着いた合図（1番＝輪、3番＝ぼんやりした光）を、鏡の上に描く。2番は drawMirrors の中で鏡そのものを光らせる。
+ *  輪も光も、鏡と同じ「席に接する面の東向き・北向きを画面に写した2本」で描く＝球の表面に貼り付いて見える。
+ *  色は白（モノクロ）。球の円の中だけに出す */
+export function drawSelfRipple(ctx: CanvasRenderingContext2D, ball: Ball, view: BallView, dpr: number, now: number) {
+  if (RIPPLE_STYLE !== 1 && RIPPLE_STYLE !== 3) return;
+  if (ball.rippleSeat < 0) return;
+  const q = (now - ball.rippleAt) / RIPPLE_MS;
+  if (q >= 1) { ball.rippleSeat = -1; return; }
+  const { cx, cy, r, cs, sn, ct, st, tileV, lat } = view;
+  const o = ball.rippleSeat * 4;
+  const x1 = lat[o] * cs + lat[o + 2] * sn;
+  const z1 = -lat[o] * sn + lat[o + 2] * cs;
+  const y2 = lat[o + 1] * ct - z1 * st;
+  const z2 = lat[o + 1] * st + z1 * ct;
+  if (z2 <= 0) return;
+  const sx = cx + x1 * r, sy = cy - y2 * r;
+  const ap = lat[o + 1];
+  const qq = Math.sqrt(Math.max(1e-4, 1 - ap * ap));
+  const nx = (-ap * x1) / qq, ny = (ct - ap * y2) / qq, nz = (st - ap * z2) / qq;
+  const ex = ny * z2 - nz * y2, ey = nz * x1 - nx * z2;
+  const ease = q * (2 - q);                                   // 速く広がって、ゆっくり止まる
+  const rad = tileV * (0.6 + (RIPPLE_R - 0.6) * ease);
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.setTransform(ex * rad * dpr, -ey * rad * dpr, -nx * rad * dpr, ny * rad * dpr, sx * dpr, sy * dpr);
+  if (RIPPLE_STYLE === 1) {
+    ctx.globalAlpha = RIPPLE_ALPHA * (1 - q) * (1 - q);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = (tileV * 0.16 * (1 - q) + 1) / rad;      // 太さは画面の px で決め、単位円の座標へ直す
+    ctx.beginPath();
+    ctx.arc(0, 0, 1, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+    g.addColorStop(0, "rgba(255,255,255,0.9)");
+    g.addColorStop(0.5, "rgba(255,255,255,0.35)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.globalAlpha = RIPPLE_ALPHA * (1 - q);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, 1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 }

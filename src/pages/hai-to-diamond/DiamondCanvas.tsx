@@ -37,7 +37,7 @@ import { requestStoneSpritesByHex, warmUpGemRenderer, SPRITE_LIGHT, requestAllSt
 import { DIAMOND_COLOR_ORDER, findDiamondMember } from "./members";
 import {
   type Ball, BALL_R, BALL_SPIN_SEC, BALL_TILE_FILL, BALL_TILE_MIN, BALL_TILT, BALL_ZOOM_EASE,
-  ballZoomFor, clearBall, createBall, createBallView, drawMirrors, getBallLattice,
+  ballZoomFor, clearBall, createBall, createBallView, drawMirrors, drawSelfRipple, getBallLattice,
   forgetLastSelfSeat, releaseSeat,
 } from "./canvas/ball";
 import { type Suck, drawSucks, landSucks, spawnSuck } from "./canvas/flight";
@@ -253,6 +253,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const suck = suckRef.current;
         const last = suck[suck.length - 1];
         if (!last || !last.self) return;
+        // 鏡をもう置いた分（溶け込みの途中）は取り消さない。席を返すと置いた鏡と食い違う
+        if (last.landed) return;
         suck.pop();
         // 取っておいた席も返す。空席を取っていたなら空席へ戻し、
         // 貼り替えを取っていたなら元の色と並び順へ戻す（貼り替えは起きなかったことになる）
@@ -640,6 +642,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         takeFreshLandings(wallSt, ball, ballView, now);
         // 2. 球の表面（ついでに奥側の鏡から壁の粒を拾う）
         drawMirrors(ctx, ball, ballView, W, H, dpr, v, now, onBackSeat);
+        drawSelfRipple(ctx, ball, ballView, dpr, now);
         // 3. 壁に映る光の粒
         drawWallSpots(ctx, wallSt, ballView, wallAlpha, p, W, H, f);
         // 4. 飛んでいる途中の💎
