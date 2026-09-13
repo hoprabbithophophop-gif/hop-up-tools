@@ -7,6 +7,7 @@
 // 再生開始はハイ！テンションと同じ流儀: ユーザーのタップの中で同期的に play() を呼ぶ。
 import { useCallback, useEffect, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "../hi-tension/components/YouTubePlayer";
+import LoadingDots from "../hi-tension/components/LoadingDots";
 import { ARENA_BG } from "../hi-tension/data";
 import { findDiamondMember, DIAMOND_COLOR_ORDER, DIAMOND_COLOR_PAGES, DIAMOND_DEFAULT_MEMBER_ID } from "./members";
 import { getLastSelectedMemberId, setLastSelectedMemberId, getOrCreateAnonymousSessionId } from "../hi-tension/storage";
@@ -154,14 +155,6 @@ const GEMS_WAIT_CAP_MS = 15000;
  *  入口の案内文を待たせている旨に切り替える【仮】。石だけでなく動画も含めた支度全体の話 */
 const SLOW_NOTICE_MS = 5000;
 
-/** 読み込み画面の印（点）の大きさ(px)【仮】 */
-const LOADING_DOT_SIZE = 8;
-/** 読み込み画面の印（点）どうしの間隔(px)【仮】 */
-const LOADING_DOT_GAP = 10;
-/** 読み込み画面の印（点）の色【仮】。灰のみ（白・灰・黒の決まり） */
-const LOADING_DOT_COLOR = "#9aa0a6";
-/** 読み込み画面の印がひと巡り明滅するのにかかる時間(ms)【仮】 */
-const LOADING_BLINK_MS = 1200;
 /** 読み込み画面の重ね順【仮】。入口・動画・設定の板のどれよりも手前 */
 const LOADING_Z = 50;
 /** 支度が長引いた時に読み込み画面へ出す文。入口の案内文と同じ【仮】の文言をそのまま使う */
@@ -180,11 +173,6 @@ const loadingScreenStyle: React.CSSProperties = {
   justifyContent: "center",
   gap: "0.9rem",
 };
-const loadingDotsRowStyle: React.CSSProperties = {
-  display: "flex",
-  gap: LOADING_DOT_GAP,
-  alignItems: "center",
-};
 const loadingSlowTextStyle: React.CSSProperties = {
   margin: 0,
   fontSize: "0.875rem",
@@ -200,34 +188,15 @@ const loadingBakeNoteStyle: React.CSSProperties = {
   fontSize: 12,
   color: "rgba(255,255,255,0.45)",
 };
-/** 点3つぶんの style。毎回作り直さないよう先に作っておく */
-const LOADING_DOT_STYLES: React.CSSProperties[] = [0, 1, 2].map((i) => ({
-  width: LOADING_DOT_SIZE,
-  height: LOADING_DOT_SIZE,
-  borderRadius: "50%",
-  background: LOADING_DOT_COLOR,
-  animation: `hai-to-diamond-loading-blink ${LOADING_BLINK_MS}ms ease-in-out infinite`,
-  animationDelay: `${i * (LOADING_BLINK_MS / 6)}ms`,
-}));
-/** 動き軽減の時は明滅を止める。点は消さずそのまま出す */
-const LOADING_DOT_STYLES_STILL: React.CSSProperties[] = LOADING_DOT_STYLES.map((st) => ({ ...st, animation: "none" }));
-
 /** ページ全体の読み込み画面。💎の絵が焼き上がるまでの間、入口の中身も動画も置かずにこれだけを出す。
  *  動画の上に幕を張る形にはしない（YouTube API 規約）ので、この間はプレーヤーそのものを置かない */
 function DiamondLoadingScreen({ loadingSlow, reduceMotion, bakeNote }: { loadingSlow: boolean; reduceMotion: boolean; bakeNote?: string }) {
-  const dotStyles = reduceMotion ? LOADING_DOT_STYLES_STILL : LOADING_DOT_STYLES;
   return (
     <div data-testid="diamond-loading-screen" style={loadingScreenStyle}>
-      <style>{`
-        @keyframes hai-to-diamond-loading-blink {
-          0%, 100% { opacity: 0.25; }
-          50% { opacity: 1; }
-        }
-      `}</style>
-      <div style={loadingDotsRowStyle} aria-hidden="true">
-        <div style={dotStyles[0]} />
-        <div style={dotStyles[1]} />
-        <div style={dotStyles[2]} />
+      {/* 印は動画の読み込みと同じメンバーカラーの丸（LoadingDots）。動き軽減の時は跳ねを止める */}
+      {reduceMotion && <style>{`.diamond-loading-still * { animation: none !important; }`}</style>}
+      <div className={reduceMotion ? "diamond-loading-still" : undefined} aria-hidden="true">
+        <LoadingDots />
       </div>
       {loadingSlow && <p style={loadingSlowTextStyle}>{LOADING_SLOW_TEXT}</p>}
       {bakeNote && <span style={loadingBakeNoteStyle}>{bakeNote}</span>}
