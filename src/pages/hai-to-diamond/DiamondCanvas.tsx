@@ -136,9 +136,6 @@ type Suck = {
   /** 席を取る時に、決まった混ぜ順の目印（reserved）を1つ進めたか。取り消しの時に戻すかどうかの判断に使う。
    *  自分の分は混ぜ順を使わずに手前の席を選ぶので false になる */
   seatCounted: boolean;
-  /** b案の軌跡。直近 SELF_TRAIL_N コマ分の位置(x,y)を環で持つ。使わない時は null */
-  trail: Float32Array | null;
-  trailN: number;
   /** 行き先の席が、いま球のどの方角に見えているか(rad)と、球の中心からどれだけ離れて見えるか(px)。
    *  席は回転で動くので毎フレーム測り直し、少しずつ寄せる＝行き先が動いても飛び方が跳ばない */
   seatAng: number;
@@ -198,12 +195,10 @@ type Ball = {
 /** 夜空の星（画面座標）。位置は星空の絵へ焼き込んだ後も、瞬きの抽選のために覚えておく */
 type SkyStar = { x: number; y: number; d: number; rgb: [number, number, number] };
 
-// 開発中だけの切り替え。画面のアドレスに ?self=a|b|c ?keep=0|3|5|10 ?soft=0.2 を付けると変わる。
-// import.meta.env.DEV が立っている時（手元で動かしている時）しか読まないので、
-// 公開している画面ではどれも既定のまま＝self は区別なし、keep は守らない、soft は下の既定値。
+// 開発中だけの切り替え。画面のアドレスに ?keep=0|3|5|10 を付けると変わる。
+// import.meta.env.DEV が立っている時＝手元で動かしている時しか読まないので、
+// 公開している画面では既定のまま＝守らない。
 const DEV_OPT = import.meta.env.DEV && typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
-/** 自分の💎の見た目の案。""＝他の人の分と同じ、"a"＝少し大きい、"b"＝短い軌跡が残る、"c"＝飛び出しが強い */
-const SELF_LOOK = DEV_OPT?.get("self") ?? "";
 /** 自分の直近いくつの席を上書きから守るか。0＝守らない */
 const SELF_KEEP = Math.max(0, Math.min(10, Math.floor(Number(DEV_OPT?.get("keep")) || 0)));
 /** 開発中だけ、着いたばかりの席から壁へ出た粒の数と、その最後の1つの画面での位置を
@@ -307,21 +302,21 @@ const SUCK_WRAP_SWEEP = 1.0;     // 回り込みがいちばん深い時の角�
 const SUCK_ENTER_R = 0.92;       // 輪郭のきわから中へ入る分の、着く点の半径（見かけの半径の倍数）。
                                  // 輪郭より少しだけ内側に置き、またぐ前後で薄くなりきるようにする
 const SUCK_FADE_FROM = 0.72;     // 飛ぶ時間のうち、ここから薄くなり始める
-const SUCK_DEPTH_SOFT = Number(DEV_OPT?.get("soft")) || 0.2;
-                                 // 席の深さがこれを下回っていると、着く頃には薄くする。
+const SUCK_DEPTH_SOFT = 0.08;    // 席の深さがこれを下回っていると、着く頃には薄くする。
                                  // 鏡は真横を向くとほとんど見えないので、飛んでいる💎の濃さもそれに合わせる
                                  // ＝着いて鏡に変わる瞬間に濃さが跳ばない。
-                                 // 開発中は ?soft= で差し替えて見比べる（既定 0.2）
-// 自分の💎を群衆と見分けられるようにする3案。開発中の ?self= でだけ効く。数字は全部【仮】
-const SELF_BIG = 1.35;           // a案。自分の分の飛んでいる大きさを何倍にするか
-const SELF_TRAIL_N = 6;          // b案。直近いくつのコマの位置を残すか。位置は💎ごとの固定長の環に控える
-const SELF_TRAIL_ALPHA = 0.28;   // b案。いちばん濃い残りの濃さ。古いものほど薄くなる
+                                 // 0.2 と見比べて 0.08 を採った（Hop決定 2026-09-13）。縁への着地がはっきり見える
+// 自分の💎を群衆と見分ける（Hop決定 2026-09-13）。飛んでいる間だけ大きくする【仮】
+const SELF_BIG = 1.35;           // 自分の分の飛んでいる大きさを何倍にするか
 // 自分の💎が着く席の選び方（手前かつ動画の矩形の外）。数字は全部【仮】
 const SELF_SEAT_DEPTH_MIN = 0.15; // 手前を向いている度合いの下限。真横に近い席は鏡がほとんど見えないので選ばない
 const SELF_SEAT_MARGIN = 4;      // 鏡が動画の矩形から離れていてほしい余白(px)
 // 着地の手応え。数字は全部【仮】
 const LAND_FLASH_MS = 260;       // 着いた瞬間の強い光が、通常の見え方へ戻るまで
-const WALL_FRESH_MS = 3000;      // 席が「着いたばかり」の印を持っている間の長さ
+const WALL_FRESH_MS = 500;       // 席が「着いたばかり」の印を持っている間の長さ。
+                                 // 本番は毎秒およそ200個が着くので、印を持つ裏の席は常に50ほどに収まり、
+                                 // くじで選ばれた粒と場所を取り合わずに共存する。
+                                 // 3000 では印を持つ席だけで壁の上限を埋めてしまい、くじの粒が消えていた
 const WALL_LAND_FLASH = 2.2;     // 着いた直後に、その席の壁の粒を何倍明るくするか
 // 飛んでいる💎の飛び方。押した時に等しい確率で1つ引き、着くまで変えない（Hop指示 2026-09-11）。
 // 進み具合は壁の時計ではなく飛行の進み（0→1）で決める。飛ぶのは0.7〜0.9秒と短いので、
@@ -1267,9 +1262,6 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           seat: seat.seat, seatWasEmpty: seat.wasEmpty, seatPrevRgb: seat.prevRgb, seatPrevAge: seat.prevAge,
           seatCounted: seat.counted, seatFront: front,
           seatAng: 0, seatDist: 0, aimed: false, enter: false, wrapSide: 1, wrapCurl: 0,
-          // b案の軌跡は自分の分だけ。位置を控える環はここで1つ作り、毎コマは作らない
-          trail: self && SELF_LOOK === "b" ? new Float32Array(SELF_TRAIL_N * 2) : null,
-          trailN: 0,
         });
         // 押した手応えの閃光は今までどおり（画面座標なので夜空の分と同じ入れ物に入れる）
         if (self) skyFlashesRef.current.push({ x: x0, y: y0, t0: now, rgb, size: SKY_FLASH_SIZE });
@@ -2284,11 +2276,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           const p1y = sk.y0 + dy * SUCK_CTRL_LEAD + (-dx / len) * sk.bow;
           // 進み具合。ゆっくり動き出して、着く直前でまたゆっくり＝席にそっと収まる。
           // 曲線1本になめらかな進み1つなので、途中で速さも向きも跳ばない
-          // c案（自分の分だけ）は、出発の直後が速く後半で落ち着く進みに替える。
-          // 通り道そのものは同じ1本なので、進む量が変わるだけで速さの向きは跳ばない
-          const t = SELF_LOOK === "c" && sk.self
-            ? 1 - (1 - u) * (1 - u) * (1 - u)
-            : u * u * (3 - 2 * u);
+          const t = u * u * (3 - 2 * u);
           const it = 1 - t;
           const b0 = it * it * it, b1 = 3 * it * it * t, b2 = 3 * it * t * t, b3 = t * t * t;
           suckDraw.x = b0 * sk.x0 + b1 * p1x + b2 * p2x + b3 * p3x;
@@ -2299,9 +2287,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           // 飛んでいる💎だけ素のままだと、曲の終わりに球だけが近くにあるように見えてしまう（Hop決定 2026-09-11）。
           // 寄りは毎コマ変わりうるので、出発時の大きさには混ぜず描く時に掛ける。
           // 輪郭のきわから中へ入る分は、縮まずに大きさを保ったまま消える
-          // a案（自分の分だけ）は、飛んでいる間の大きさを SELF_BIG 倍にする。
-          // 着く先の大きさ（鏡と同じ見え方）は変えないので、着いた瞬間に跳ばない
-          const base = sk.size * ball.zoom * (SELF_LOOK === "a" && sk.self ? SELF_BIG : 1);
+          // 自分の分は、飛んでいる間の大きさを SELF_BIG 倍にして群衆と見分けられるようにする。
+          // 着く先の大きさは鏡と同じ見え方のまま変えないので、着いた瞬間に跳ばない
+          const base = sk.size * ball.zoom * (sk.self ? SELF_BIG : 1);
           suckDraw.size = sk.enter ? base : base + (tileV * 0.95 / 2 - base) * t;
           // 濃さ。輪郭の中へ入る分は消えきる。席へ着く分も、飛んでいる間に球が回って
           // 席が真横を向いてしまったらその分だけ薄くする。鏡は真横を向くとほとんど見えないので、
@@ -2326,24 +2314,6 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           }
           suckDraw.path = sk.path;
           suckDraw.rgb = sk.rgb;
-          // b案（自分の分だけ）: 直近のコマの位置に同じ絵を薄く重ねてから、本体を上に描く。
-          // 位置は💎ごとの固定長の環に控えてあるので、毎コマ入れ物を作らない
-          if (sk.trail) {
-            const keepX = suckDraw.x, keepY = suckDraw.y;
-            const have = Math.min(sk.trailN, SELF_TRAIL_N);
-            for (let i = have; i >= 1; i--) {
-              const at = ((sk.trailN - i + SELF_TRAIL_N) % SELF_TRAIL_N) * 2;
-              suckDraw.x = sk.trail[at];
-              suckDraw.y = sk.trail[at + 1];
-              ctx.globalAlpha = alpha * SELF_TRAIL_ALPHA * (1 - i / (SELF_TRAIL_N + 1));
-              drawGemLive(suckDraw);
-            }
-            ctx.globalAlpha = 1;
-            suckDraw.x = keepX; suckDraw.y = keepY;
-            const w2 = (sk.trailN % SELF_TRAIL_N) * 2;
-            sk.trail[w2] = keepX; sk.trail[w2 + 1] = keepY;
-            sk.trailN++;
-          }
           // 飛んでいる間は最後までダイヤのまま。着いた瞬間に鏡になる（Hop決定 2026-09-11）
           if (alpha < 1) {
             ctx.globalAlpha = alpha;
