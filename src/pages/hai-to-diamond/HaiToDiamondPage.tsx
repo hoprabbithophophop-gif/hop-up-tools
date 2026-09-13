@@ -8,8 +8,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "../hi-tension/components/YouTubePlayer";
 import LoadingDots from "../hi-tension/components/LoadingDots";
-import { ARENA_BG } from "../hi-tension/data";
-import { findDiamondMember, DIAMOND_COLOR_ORDER, DIAMOND_COLOR_PAGES, DIAMOND_DEFAULT_MEMBER_ID } from "./members";
+import { ARENA_BG, ALL_HI_MEMBERS } from "../hi-tension/data";
+import { findDiamondMember, GRADUATED_MEMBERS, DIAMOND_COLOR_ORDER, DIAMOND_COLOR_PAGES, DIAMOND_DEFAULT_MEMBER_ID } from "./members";
 import { getLastSelectedMemberId, setLastSelectedMemberId, getOrCreateAnonymousSessionId } from "../hi-tension/storage";
 import { submitHiSessions } from "../hi-tension/api";
 import { fetchReplay, type ReplayRow } from "./replay";
@@ -119,6 +119,87 @@ function buildBucketMap(rows: ReplayRow[]): Map<number, BucketEntry[]> {
     }
   }
   return map;
+}
+
+/** みんなの💎を色ごとに配るための、色→番号の表。0.1秒ごとに作り直さないよう、読み込み時に1回だけ組む。
+ *  中身は findDiamondMember が返しうる人＝ハイ！テンションの名簿＋卒業メンバー。
+ *  同じ色の人が複数いれば同じ番号になり、その色の個数は合算して数える */
+const SPAWN_COLORS: string[] = [];
+const SPAWN_COLOR_INDEX = new Map<string, number>();
+for (const m of [...ALL_HI_MEMBERS, ...GRADUATED_MEMBERS]) {
+  if (SPAWN_COLOR_INDEX.has(m.color)) continue;
+  SPAWN_COLOR_INDEX.set(m.color, SPAWN_COLORS.length);
+  SPAWN_COLORS.push(m.color);
+}
+const SPAWN_SLOTS = SPAWN_COLORS.length;
+/** 0.1秒ごとの配分に使う作業用の並び。毎回作り直さず、使う前に0に戻して使い回す */
+const tickCounts = new Int32Array(SPAWN_SLOTS);
+const tickQuota = new Int32Array(SPAWN_SLOTS);
+const tickFrac = new Float64Array(SPAWN_SLOTS);
+/** 色ごとに、最後に💎を飛ばした実時間(performance.now)。0 は一度も飛ばしていない。
+ *  動画の時刻ではなく実時間で持つので、頭出しで動画の時刻が飛んでも矛盾しない */
+const lastSpawnAt = new Float64Array(SPAWN_SLOTS);
+/** 色ごとに、上限に入りきらず出せなかった登録が残っているか（1=残っている） */
+const spawnBacklog = new Uint8Array(SPAWN_SLOTS);
+/** 出番の無い色を救う間隔(ms)【仮】。この間ずっと飛んでいない色は、登録が残っていれば1個必ず飛ばす */
+const RESCUE_WINDOW_MS = 5000;
+
+/** その0.1秒ぶんの色ごとの個数(counts)から、上限(budget)の中で色ごとに何個飛ばすかを決めて quota に入れる。
+ *  総数が上限以下なら全部出す。超えていたら 上限 × その色の個数 ÷ 総数 を切り捨てで配り、
+ *  余った枠は端数の大きい色から順に1つずつ配る。
+ *  そのあと、直近 RESCUE_WINDOW_MS のあいだ一度も飛んでいないのに登録が残っている色へ、
+ *  その回に一番多く出す色から1枠だけ譲る（譲る側は1個は残す）。
+ *  frac・backlog は作業用の並びで、この中で書き換える */
+export function allocateSpawnQuota(
+  counts: Int32Array, quota: Int32Array, frac: Float64Array,
+  lastAt: Float64Array, backlog: Uint8Array,
+  slots: number, total: number, budget: number, now: number, rescueMs: number,
+): void {
+  if (total <= budget) {
+    for (let i = 0; i < slots; i++) quota[i] = counts[i];
+  } else {
+    let given = 0;
+    for (let i = 0; i < slots; i++) {
+      const n = counts[i];
+      if (n === 0) { quota[i] = 0; frac[i] = 0; continue; }
+      const exact = (budget * n) / total;
+      const q = Math.floor(exact);
+      quota[i] = q;
+      frac[i] = exact - q;
+      given += q;
+    }
+    while (given < budget) {
+      let best = -1;
+      let bestFrac = -1;
+      for (let i = 0; i < slots; i++) {
+        if (counts[i] === 0) continue;
+        if (frac[i] > bestFrac) { bestFrac = frac[i]; best = i; }
+      }
+      if (best < 0) break;
+      quota[best]++;
+      frac[best] = -1;                              // 同じ色へ二度配らない印
+      given++;
+    }
+    for (let i = 0; i < slots; i++) {
+      if (quota[i] > 0) continue;
+      if (counts[i] === 0 && backlog[i] === 0) continue;   // 登録が本当に無い色は対象外
+      if (lastAt[i] !== 0 && now - lastAt[i] < rescueMs) continue;
+      let donor = -1;
+      let donorQuota = 1;                           // 譲る側にも1個は残す
+      for (let j = 0; j < slots; j++) {
+        if (quota[j] > donorQuota) { donorQuota = quota[j]; donor = j; }
+      }
+      if (donor < 0) break;
+      quota[donor]--;
+      quota[i] = 1;
+    }
+  }
+  // 飛ばし残しの控えを更新する。出し切れなかった色は残っている印を立て、
+  // 1個でも飛ばせた色だけ印を消す。この0.1秒に登録が無かった色は前の印をそのまま持ち越す
+  for (let i = 0; i < slots; i++) {
+    if (counts[i] > quota[i]) backlog[i] = 1;
+    else if (quota[i] > 0) backlog[i] = 0;
+  }
 }
 
 /** みんなの記録を、曲を等間隔に割った区間ごとの「盛り上がり具合」（0〜1）に均す。
@@ -663,15 +744,32 @@ export default function HaiToDiamondPage() {
     // みんなの💎: 前回の時刻からいままでに押された分を、その人の色で降らせる
     const cur = Math.floor(t * 20);
     let last = lastBucketRef.current;
-    if (cur < last) last = cur - 1;                 // 巻き戻し（頭出し等）
-    if (cur - last > 40) last = cur - 40;           // 大きく飛んだ時は直近2秒ぶんだけ
-    let budget = OTHERS_PER_TICK[settingsRef.current.crowd];
-    for (let b = last + 1; b <= cur && budget > 0; b++) {
-      const entries = bucketMapRef.current.get(b);
-      if (!entries) continue;
-      for (const [c, n] of entries) {
-        for (let k = 0; k < n; k++) { if (budget-- <= 0) break; canvasRef.current?.spawn(c); }
-        if (budget <= 0) break;
+    if (cur < last) { last = cur - 1; spawnBacklog.fill(0); }        // 巻き戻し（頭出し等）。飛ばし残しの控えも捨てる
+    if (cur - last > 40) { last = cur - 40; spawnBacklog.fill(0); }  // 大きく飛んだ時は直近2秒ぶんだけ
+    const budget = OTHERS_PER_TICK[settingsRef.current.crowd];
+    if (budget > 0) {
+      // まずこの0.1秒ぶんの登録を色ごとに数える。同じ色の人が複数いれば合算される
+      tickCounts.fill(0);
+      let total = 0;
+      for (let b = last + 1; b <= cur; b++) {
+        const entries = bucketMapRef.current.get(b);
+        if (!entries) continue;
+        for (const [c, n] of entries) {
+          if (n <= 0) continue;
+          const i = SPAWN_COLOR_INDEX.get(c);
+          if (i === undefined) continue;
+          tickCounts[i] += n;
+          total += n;
+        }
+      }
+      const now = performance.now();
+      allocateSpawnQuota(tickCounts, tickQuota, tickFrac, lastSpawnAt, spawnBacklog, SPAWN_SLOTS, total, budget, now, RESCUE_WINDOW_MS);
+      for (let i = 0; i < SPAWN_SLOTS; i++) {
+        const q = tickQuota[i];
+        if (q <= 0) continue;
+        const c = SPAWN_COLORS[i];
+        for (let k = 0; k < q; k++) canvasRef.current?.spawn(c);
+        lastSpawnAt[i] = now;
       }
     }
     lastBucketRef.current = cur;
