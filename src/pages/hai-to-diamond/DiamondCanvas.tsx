@@ -129,14 +129,21 @@ type Suck = {
   /** 貼り替えだった時の、元の色と、取る前にその席が塗られていた順番。取り消しの時だけ使う */
   seatPrevRgb: [number, number, number];
   seatPrevAge: number;
-  /** いまの行き先（画面座標）。席が見えているならその席、見えていないなら動画の中心。
-   *  席は回転で動くので毎フレーム測り直し、少しずつ寄せる＝行き先が変わっても飛び方が跳ばない */
-  tx: number; ty: number;
+  /** 行き先の席が、いま球のどの方角に見えているか(rad)と、球の中心からどれだけ離れて見えるか(px)。
+   *  席は回転で動くので毎フレーム測り直し、少しずつ寄せる＝行き先が動いても飛び方が跳ばない */
+  seatAng: number;
+  seatDist: number;
   /** 行き先を一度でも決めたか（false のうちは寄せずに直接そこへ置く） */
   aimed: boolean;
-  /** 席へ飛ぶ（＝はめ込まれる様子が見える）か、今までどおり動画の中心へ飛んで隠れるか。
-   *  押した直後の1フレーム目に、席が手前側で動画の外にあるかどうかで決めて以後は変えない */
-  toSeat: boolean;
+  /** 席そのものへ着地せず、球の輪郭のきわから中へ入って消えるか。
+   *  奥を向いている席と、動画にすっぽり隠れる手前の席がこれにあたる。
+   *  押した直後の1フレーム目に決めて以後は変えない（途中で切り替わると飛び方が跳ぶ） */
+  enter: boolean;
+  /** どちら回りで回り込むか（+1 / -1）。出発点のある側から回る */
+  wrapSide: number;
+  /** 回り込みの深さ（0=まっすぐ入る 1=いっぱいに回り込む）。
+   *  正面を向いた席ほど浅く、輪郭ぎわの席と中へ入る分は深い。押した直後に決めて以後は変えない */
+  wrapCurl: number;
 };
 /** ミラーボールの球。球の大きさも席の数も固定で、変わるのは「どの席が埋まっているか」と、カメラの寄り具合だけ。
  *  zoom=いまのカメラの寄り（見かけの大きさは BALL_R × zoom）、
@@ -235,6 +242,9 @@ const BALL_SEATS = 840;          // 席（鏡を貼る場所）の数【仮】�
                                  // 人が少ないうちは鏡がまばらなままでよい（Hop了承 2026-09-08）
 const BALL_R = 95;               // 球の半径(px)。カメラが寄っていない（拡大率1）時の見かけの大きさ【仮】。
                                  // 390幅の画面なら 動画の高さの半分＋額縁 ≒ 116px なので、曲の始まりは動画の裏にすっぽり隠れる
+const BALL_ZOOM_MIN = 1.30;      // 曲の始まりの拡大率【仮】。95 × 1.30 ≒ 124px で、幅375の画面の動画（高さ195）の
+                                 // 上下から 25px ほど球の縁が覗く。始まりから球の存在が分かるようにする（Hop決定 2026-09-13）。
+                                 // 壁の粒は鏡の大きさに合わせてあるので、序盤の粒も一緒に大きくなる
 const BALL_ZOOM_MAX = 2.08;      // 曲の終わりの拡大率【仮】。95 × 2.08 ≒ 198px ＝ 画面の幅の半分を超えて上下からはみ出す。
                                  // 2.6 では実機で大きすぎた（Hop指摘 2026-09-11）ので8割にした
 const BALL_ZOOM_EASE = 3;        // 拡大率を目当ての値へ寄せる速さ（1秒あたり）。ハイライト再生で動画の時刻が飛んだ時に、
@@ -247,9 +257,23 @@ const BALL_TILE_MIN = 2.5;       // 鏡の最小の大きさ(px)。拡大率が�
 const BALL_HL_CUT = 0.985;       // 壁の粒を一瞬明るくする、奥の鏡の光の返し具合【仮】。
                                  // 手前の鏡が白く光り始める所は MIRROR_HL_CUT で別に決める
 const BALL_DIM = 0.55;           // 光が当たっていない側の明るさ。暗すぎると球が欠けて見える
-const SUCK_MS = 700;             // 💎が動画の中心へ吸い込まれるまで
+const SUCK_MS = 700;             // 💎が席へ飛び着くまで
 const SUCK_MS_JITTER = 200;      // 同上のばらつき。全部が同じ速さだと機械的に見える
-const SUCK_SHRINK = 0.9;         // 吸い込まれる間に縮む割合（1.0で点まで縮む）
+// 飛んでいる💎の通り道。出発点から着く所まで、位置も速さの向きも切れ目のない1本の3次ベジェ曲線で飛ぶ。
+//   P0 = 出発点、P1 = 出発の向きへ少し伸ばした所、P2 = 球の輪郭の外側で、着く点の接線の方へ引いた所、P3 = 着く点。
+// 前半は入口へ直進・後半は輪の上を滑る、という2段の道にすると、切り替わる所で速さと向きが折れて見える
+// （Hop指摘 2026-09-13）。1本の曲線に1つのなめらかな進みにして、途中で速さが跳ばないようにした。
+// 行き先は席の全面に均等のまま。手前の見える席を優先したり奥の席を減らしたりはしない（Hop条件 2026-09-13）。
+// 数字は全部【仮】
+const SUCK_CTRL_LEAD = 0.45;     // P1 を、出発点から着く点までの距離の何倍ぶん出発の向きへ伸ばすか
+const SUCK_WRAP_BULGE = 1.14;    // P2 を置く、輪郭の外側の半径（見かけの半径の倍数）
+const SUCK_WRAP_SWEEP = 1.0;     // 回り込みがいちばん深い時の角度(rad)。正面を向いた席ほど浅くなる
+const SUCK_ENTER_R = 0.92;       // 輪郭のきわから中へ入る分の、着く点の半径（見かけの半径の倍数）。
+                                 // 輪郭より少しだけ内側に置き、またぐ前後で薄くなりきるようにする
+const SUCK_FADE_FROM = 0.72;     // 飛ぶ時間のうち、ここから薄くなり始める
+const SUCK_DEPTH_SOFT = 0.2;     // 席の深さがこれを下回っていると、着く頃には薄くする。
+                                 // 鏡は真横を向くとほとんど見えないので、飛んでいる💎の濃さもそれに合わせる
+                                 // ＝着いて鏡に変わる瞬間に濃さが跳ばない
 // 飛んでいる💎の飛び方。押した時に等しい確率で1つ引き、着くまで変えない（Hop指示 2026-09-11）。
 // 進み具合は壁の時計ではなく飛行の進み（0→1）で決める。飛ぶのは0.7〜0.9秒と短いので、
 // 1秒あたりの速さで回していた頃は24コマのうち2〜13コマしか進まず、横顔で止まって見えた。
@@ -278,11 +302,9 @@ const SELF_SUCK_Y = 230;         // 出発点。画面の下端からこれだ�
 const SELF_SUCK_Y_SPREAD = 40;   // 同上の縦のばらつき。毎回同じ高さから出ると閃光が一直線に並んで機械的に見える
 const SELF_SUCK_X_SPREAD = 80;   // 出発点の横のばらつき（画面の中央から左右へこれだけ）【仮】
 const SELF_SUCK_MIN_GAP = 40;    // 出発点は必ず「動画の下端＋これだけ」より下にする＝出た瞬間に裏へ入らない【仮】
-const SELF_SUCK_MS = 900;        // 動画の中心に着くまで。他の人の分より少し長くして、飛んでいる姿が見えるようにする【仮】
+const SELF_SUCK_MS = 900;        // 席へ着くまで。他の人の分より少し長くして、飛んでいる姿が見えるようにする【仮】
 const SELF_SUCK_MS_JITTER = 150; // 同上のばらつき
-const SELF_SUCK_BOW = 45;        // 道の膨らみ(px)。まっすぐ吸い込まれず少し弧を描く【仮】
-const SELF_SUCK_ENTER = 0.85;    // 飛ぶ時間のうち、この割合をかけて動画の矩形の縁まで進む。
-                                 // 残りで矩形の中へ吸い込まれる＝速さが変わる瞬間は動画の裏なので見えない【仮】
+const SELF_SUCK_BOW = 45;        // 出発の向きの横への寄せ(px)。まっすぐ飛ばず少し弧を描く（ベジェの P1 を横へずらす）【仮】
 const SELF_ABOVE_BUTTON = 28;    // 押した💎のボタンの中心から、これだけ上を出発点にする。
                                  // 押した指のすぐ上から飛び立つので、自分の1個がどれか目で追える（Hop決定 2026-09-11）【仮】
 const SPAWN_OUTSIDE = 48;        // 他の人の分の出発点を、画面の縁からこれだけ外へ押し出す。
@@ -848,11 +870,12 @@ function releaseSeat(ball: Ball, seat: number, wasEmpty: boolean, prevRgb: [numb
     addToColor(ball, prevRgb.join(","), seat);
   }
 }
-/** カメラの寄り具合。曲の進み p が 0 → 1 の間に 1.0 → BALL_ZOOM_MAX へ。
- *  序盤はゆっくり、中盤で覗き始め、終盤ではっきりはみ出す（ゆっくり動き出してゆっくり止まる曲線） */
+/** カメラの寄り具合。曲の進み p が 0 → 1 の間に BALL_ZOOM_MIN → BALL_ZOOM_MAX へ。
+ *  序盤から動画の上下に球の縁が覗いていて、中盤でせり出し、終盤ではっきりはみ出す
+ *  （ゆっくり動き出してゆっくり止まる曲線） */
 function ballZoomFor(p: number): number {
   const q = Math.min(1, Math.max(0, p));
-  return 1 + (BALL_ZOOM_MAX - 1) * q * q * (3 - 2 * q);
+  return BALL_ZOOM_MIN + (BALL_ZOOM_MAX - BALL_ZOOM_MIN) * q * q * (3 - 2 * q);
 }
 
 const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas({ videoBoxRef, frame, reduceMotion = false }, ref) {
@@ -917,7 +940,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   /** ミラーボールの球。最初に使う時だけ作る（画面が描き直されるたびに作り捨てないように） */
   const ballRef = useRef<Ball | null>(null);
   const getBall = (): Ball => (ballRef.current ??= {
-    zoom: 1,
+    zoom: BALL_ZOOM_MIN,
     sprites: new Array<HTMLCanvasElement[] | null>(BALL_SEATS).fill(null),
     rgb: new Uint8Array(BALL_SEATS * 3),
     occ: [],
@@ -930,7 +953,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   });
   /** 球を空にする（最初に戻す時・方式を替えた時・夜空へ放った時）。席の並びも大きさも固定なので、中身を消すだけ */
   const clearBall = (ball: Ball) => {
-    ball.zoom = 1;
+    ball.zoom = BALL_ZOOM_MIN;
     ball.sprites = new Array<HTMLCanvasElement[] | null>(BALL_SEATS).fill(null);
     ball.rgb = new Uint8Array(BALL_SEATS * 3);
     ball.occ = [];
@@ -1024,7 +1047,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           size: (SIZE_MIN + Math.random() * SIZE_RANGE) * shrinkM,
           rgb, bow, self,
           seat: seat.seat, seatWasEmpty: seat.wasEmpty, seatPrevRgb: seat.prevRgb, seatPrevAge: seat.prevAge,
-          tx: 0, ty: 0, aimed: false, toSeat: false,
+          seatAng: 0, seatDist: 0, aimed: false, enter: false, wrapSide: 1, wrapCurl: 0,
         });
         // 押した手応えの閃光は今までどおり（画面座標なので夜空の分と同じ入れ物に入れる）
         if (self) skyFlashesRef.current.push({ x: x0, y: y0, t0: now, rgb, size: SKY_FLASH_SIZE });
@@ -1938,13 +1961,13 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         }
 
         // 4. 飛んでいる途中の💎（落ちている時と同じ面付きの絵）。
-        //    自分の席が手前側で動画の外にあるなら、その席へ向かって飛び、飛びながら鏡の大きさまで縮んで
-        //    着いた瞬間に鏡として貼られる＝押した💎がはめ込まれる様子が見える（Hop指摘 2026-09-08）。
-        //    飛んでいる間は最後までダイヤのまま。着いた瞬間に鏡になる（Hop決定 2026-09-11）。
-        //    席が動画の裏や奥側にある時は今までどおり動画の中心へ飛んで隠れ、裏で席が埋まる。
-        //    中心へ飛ぶ時の自分の分だけは別扱い: 動画の矩形の縁までは大きさを保ったまま弧を描いて飛び、
-        //    縁に着いてから残りの時間で中へ吸い込まれて縮む。速さも大きさも変わるのは動画の裏に入った後なので、
-        //    見えている間はずっと同じ大きさの💎が飛んでいるように見える（Hop報告 2026-09-08 の「出た瞬間に消える」対策）
+        //    押した💎は必ず自分の席へ向かって飛ぶ。行き先の席は球の全面に均等に割り当てられているので、
+        //    手前へ来る分・輪郭ぎわを回る分・向こう側へ入っていく分が自然に散らばる（Hop決定 2026-09-13）。
+        //    通り道は1本の3次ベジェ曲線。球を突き抜けず、輪郭の外側をなぞってから席へ寄る。
+        //    手前の見えている席へ向かう分は、飛びながら鏡の大きさまで縮んで、着いた瞬間に鏡として貼られる
+        //    ＝押した💎がはめ込まれる様子が見える（Hop指摘 2026-09-08）。
+        //    奥を向いている席と、動画にすっぽり隠れる席へ向かう分は、輪郭のきわで薄くなって球の中へ入り、
+        //    見えない所で席が埋まる。飛んでいる間は最後までダイヤのまま（Hop決定 2026-09-11）
         for (const sk of suck) {
           const u = Math.min(1, (now - sk.t0) / sk.dur);
           // その💎に取ってある席が、いま画面のどこにあるか（回転と傾きを反映）
@@ -1954,50 +1977,73 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
           const sy2 = lat[so + 1] * ct - sz1 * st;
           const sz2 = lat[so + 1] * st + sz1 * ct;
           const seatX = cx + sx1 * r, seatY = cy - sy2 * r;
-          // 手前側で、かつ動画に隠れない席なら「見えている席」
-          const seatShown = sz2 > 0 && (seatX < v.x || seatX > v.x + v.w || seatY < v.y || seatY > v.y + v.h);
+          const seatAng = Math.atan2(seatY - cy, seatX - cx);
+          const seatDist = Math.hypot(seatX - cx, seatY - cy);
           if (!sk.aimed) {
-            // 飛び方は押した直後の1フレーム目に決めて以後は変えない（途中で切り替わると飛び方が跳ぶ）
+            // 行き先の種類と回り込み方は押した直後の1フレーム目に決めて以後は変えない
+            // （途中で切り替わると飛び方が跳ぶ）
             sk.aimed = true;
-            sk.toSeat = seatShown;
-            sk.tx = seatShown ? seatX : cx;
-            sk.ty = seatShown ? seatY : cy;
+            sk.seatAng = seatAng;
+            sk.seatDist = seatDist;
+            // 奥を向いている席と、動画の矩形にすっぽり隠れる手前の席へは着地させず、
+            // 輪郭のきわから中へ入って消す。席の割り当てそのものはここでは変えていない
+            const hidden = seatX > v.x && seatX < v.x + v.w && seatY > v.y && seatY < v.y + v.h;
+            sk.enter = sz2 <= 0 || hidden;
+            // 回り込みの深さは席の向きで決まる。正面を向いた席へはほぼまっすぐ、
+            // 輪郭ぎわの席へは大きく回り込む。中へ入る分はいちばん深く回り込む
+            sk.wrapCurl = sk.enter ? 1 : 1 - Math.min(1, Math.max(0, sz2));
+            // 出発点のある側から回り込む＝球の向こう側へ大回りしない
+            let d0 = Math.atan2(sk.y0 - cy, sk.x0 - cx) - seatAng;
+            while (d0 > Math.PI) d0 -= Math.PI * 2;
+            while (d0 < -Math.PI) d0 += Math.PI * 2;
+            sk.wrapSide = d0 >= 0 ? 1 : -1;
           } else {
-            // 席は回転で動くので行き先を追いかける。席が動画の裏へ入ってしまったら行き先を中心へ寄せる。
-            // 寄せ方はなめらかなので、行き先が変わっても💎の位置は跳ばない
-            const wx = sk.toSeat && seatShown ? seatX : cx;
-            const wy = sk.toSeat && seatShown ? seatY : cy;
+            // 席は回転で動くので、その方角と球の中心からの距離を少しずつ寄せる。
+            // 寄せ方はなめらかなので、席が動いても曲線は跳ばない
             const m = Math.min(1, dt * SEAT_FOLLOW);
-            sk.tx += (wx - sk.tx) * m;
-            sk.ty += (wy - sk.ty) * m;
+            let d1 = seatAng - sk.seatAng;
+            while (d1 > Math.PI) d1 -= Math.PI * 2;
+            while (d1 < -Math.PI) d1 += Math.PI * 2;
+            sk.seatAng += d1 * m;
+            sk.seatDist += (seatDist - sk.seatDist) * m;
           }
-          const dx0 = sk.x0 - sk.tx, dy0 = sk.y0 - sk.ty;
-          let k: number, shrink: number;
-          if (sk.toSeat) {
-            k = u * u * (3 - 2 * u);   // ゆっくり動き出して、着く直前でまたゆっくり＝席にそっと収まる
-            shrink = 0;                // 大きさは「鏡の大きさへ縮む」で別に決める（下）
-          } else if (sk.self) {
-            // 出発点から中心へ向かう線が動画の矩形の縁を横切る所（進み具合の割合で表す）
-            const mx = Math.abs(dx0) > 0.5 ? (v.w / 2) / Math.abs(dx0) : 1;
-            const my = Math.abs(dy0) > 0.5 ? (v.h / 2) / Math.abs(dy0) : 1;
-            const kEnter = 1 - Math.min(1, Math.min(mx, my));
-            const w1 = Math.min(1, u / SELF_SUCK_ENTER);
-            k = u < SELF_SUCK_ENTER
-              ? kEnter * (0.35 * w1 + 0.65 * w1 * w1)   // 縁まではゆっくり動き出して少しずつ速く
-              : kEnter + (1 - kEnter) * ((u - SELF_SUCK_ENTER) / (1 - SELF_SUCK_ENTER));
-            shrink = k <= kEnter ? 0 : (k - kEnter) / Math.max(0.001, 1 - kEnter);
-          } else {
-            k = u * u;
-            shrink = k;
-          }
-          suckDraw.x = sk.x0 + (sk.tx - sk.x0) * k;
-          suckDraw.y = sk.y0 + (sk.ty - sk.y0) * k;
-          if (sk.bow) {
-            // 進む向きと直角にずらす＝道が少し弧を描く。出発点と着地点ではずれ0
-            const len = Math.hypot(dx0, dy0) || 1;
-            const off = sk.bow * Math.sin(Math.PI * u);
-            suckDraw.x += (-dy0 / len) * off;
-            suckDraw.y += (dx0 / len) * off;
+          // 1本の3次ベジェ曲線。P3 は着く点（席そのもの、または輪郭のきわの入る点）、
+          // P2 はその点で輪郭に接する向きへ引いた輪郭の外の点、P1 は出発の向きを少し伸ばした所。
+          // P2 は P3 に連れて動くので、席が回っても曲線はなめらかに移り変わる
+          const rEnd = sk.enter ? r * SUCK_ENTER_R : sk.seatDist;
+          const p3x = cx + Math.cos(sk.seatAng) * rEnd;
+          const p3y = cy + Math.sin(sk.seatAng) * rEnd;
+          const aw = sk.seatAng + sk.wrapSide * SUCK_WRAP_SWEEP * sk.wrapCurl;
+          const rCtrl = rEnd + (r * SUCK_WRAP_BULGE - rEnd) * sk.wrapCurl;
+          const p2x = cx + Math.cos(aw) * rCtrl;
+          const p2y = cy + Math.sin(aw) * rCtrl;
+          const dx = p3x - sk.x0, dy = p3y - sk.y0;
+          const len = Math.hypot(dx, dy) || 1;
+          const p1x = sk.x0 + dx * SUCK_CTRL_LEAD + (dy / len) * sk.bow;
+          const p1y = sk.y0 + dy * SUCK_CTRL_LEAD + (-dx / len) * sk.bow;
+          // 進み具合。ゆっくり動き出して、着く直前でまたゆっくり＝席にそっと収まる。
+          // 曲線1本になめらかな進み1つなので、途中で速さも向きも跳ばない
+          const t = u * u * (3 - 2 * u);
+          const it = 1 - t;
+          const b0 = it * it * it, b1 = 3 * it * it * t, b2 = 3 * it * t * t, b3 = t * t * t;
+          suckDraw.x = b0 * sk.x0 + b1 * p1x + b2 * p2x + b3 * p3x;
+          suckDraw.y = b0 * sk.y0 + b1 * p1y + b2 * p2y + b3 * p3y;
+          // 席へ着く分は鏡の大きさまで縮む。drawGemLive は size の (2 / 0.95) 倍の幅で描くので、
+          // 貼られる鏡（幅＝tile）と同じ見え方になる大きさに合わせる＝着いた瞬間に大きさが跳ばない。
+          // 元の大きさにはカメラの寄りを掛ける。球と表面の鏡は寄りで大きくなるので、
+          // 飛んでいる💎だけ素のままだと、曲の終わりに球だけが近くにあるように見えてしまう（Hop決定 2026-09-11）。
+          // 寄りは毎コマ変わりうるので、出発時の大きさには混ぜず描く時に掛ける。
+          // 輪郭のきわから中へ入る分は、縮まずに大きさを保ったまま消える
+          const base = sk.size * ball.zoom;
+          suckDraw.size = sk.enter ? base : base + (tileV * 0.95 / 2 - base) * t;
+          // 濃さ。輪郭の中へ入る分は消えきる。席へ着く分も、飛んでいる間に球が回って
+          // 席が真横を向いてしまったらその分だけ薄くする。鏡は真横を向くとほとんど見えないので、
+          // 着いて鏡に変わる瞬間に濃さが跳ばない。薄くなり始めも終わりもなめらかな曲線で結ぶ
+          const endAlpha = sk.enter ? 0 : Math.min(1, Math.max(0, sz2 / SUCK_DEPTH_SOFT));
+          let alpha = 1;
+          if (endAlpha < 1 && u > SUCK_FADE_FROM) {
+            const w = (u - SUCK_FADE_FROM) / (1 - SUCK_FADE_FROM);
+            alpha = 1 + (endAlpha - 1) * w * w * (3 - 2 * w);
           }
           // 飛んでいる姿勢。通り道の上をどこまで進めるかと、絵ごと画面の中で何回まわすかを飛び方から決める。
           // 進み具合は飛行の進み u で測るので、飛ぶ時間が長くても短くても同じだけ回りきる。
@@ -2011,19 +2057,16 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
             suckDraw.roll = sk.roll + style.turns * Math.PI * 2 * (style.quad ? u * u : u)
               + (style.wobble ? style.wobble * Math.sin(u * Math.PI * 2 * FLIGHT_WOBBLE_CYCLES) : 0);
           }
-          // 席へ向かう分は鏡の大きさまで縮む。drawGemLive は size の (2 / 0.95) 倍の幅で描くので、
-          // 貼られる鏡（幅＝tile）と同じ見え方になる大きさに合わせる＝着いた瞬間に大きさが跳ばない。
-          // 元の大きさにはカメラの寄りを掛ける。球と表面の鏡は寄りで大きくなるので、
-          // 飛んでいる💎だけ素のままだと、曲の終わりに球だけが近くにあるように見えてしまう（Hop決定 2026-09-11）。
-          // 寄りは毎コマ変わりうるので、出発時の大きさには混ぜず描く時に掛ける
-          const base = sk.size * ball.zoom;
-          suckDraw.size = sk.toSeat
-            ? base + (tileV * 0.95 / 2 - base) * k
-            : base * (1 - shrink * SUCK_SHRINK);
           suckDraw.path = sk.path;
           suckDraw.rgb = sk.rgb;
           // 飛んでいる間は最後までダイヤのまま。着いた瞬間に鏡になる（Hop決定 2026-09-11）
-          drawGemLive(suckDraw);
+          if (alpha < 1) {
+            ctx.globalAlpha = alpha;
+            drawGemLive(suckDraw);
+            ctx.globalAlpha = 1;
+          } else {
+            drawGemLive(suckDraw);
+          }
         }
 
         // 5. 押した手応えの閃光
