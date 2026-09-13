@@ -907,6 +907,18 @@ export default function HaiToDiamondPage() {
           <div ref={videoBoxRef}>
             <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} onReady={handleVideoReady} onError={handleVideoError} startCover={false} loadingCover={false} minHeight={MIN_VIDEO_HEIGHT} />
           </div>
+          {/* 元の映像を YouTube で開く（プレイヤーの外＝規約OK）。別タブ。曲が終わった時だけ、動画の直下に置く
+              （画面下の帯から移動・文言短縮。Hop指示 2026-09-14） */}
+          {ended && (
+            <a
+              href={`https://youtu.be/${VIDEO_ID}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: "block", marginTop: 8, textAlign: "center", fontSize: "0.75rem", fontWeight: 600, color: "#9aa0a6", textDecoration: "underline", textUnderlineOffset: "0.2rem" }}
+            >
+              YouTubeで開く
+            </a>
+          )}
         </div>
       </div>
 
@@ -1043,59 +1055,73 @@ export default function HaiToDiamondPage() {
             alignItems: "center",
             gap: "0.3rem",
             textAlign: "center",
-            textShadow: "0 0 12px rgba(0,0,0,0.6)",
             pointerEvents: "none",
+            // 数字の裏に暗い帯を敷いて読みやすくする。帯はこのブロックの高さぶんだけ＝上下は
+            // マスクで10pxだけ透明へ溶かし、境目に線が出ないようにする（Hop指示 2026-09-14）
+            background: "rgba(7,8,12,0.72)",
+            WebkitMaskImage: "linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent)",
+            maskImage: "linear-gradient(transparent, #000 10px, #000 calc(100% - 10px), transparent)",
+            // 動画の上の空きは画面の高さに関わらず約245px。2段に収めるため詰めてある（2段にした直後は上段が画面の上へ切れた）
+            padding: "10px 0",
           }}
         >
-          <div style={{ display: "flex", gap: "1.8rem", justifyContent: "center", alignItems: "flex-end" }}>
-            <div>
-              <p style={endLabelStyle}>あなたの💎</p>
-              <BouncyNumber value={ended ? finalCount : liveCount} color={color} size="2.2rem" outlineColor={NUMBER_OUTLINE} />
-            </div>
-            {ended && (
+          {ended ? (
+            // 動画の上の空きは約120pxしか無いので1段に収める。主役は「あなたの💎」で、大きさの差で順位を付ける
+            // （2段に分けると上段が画面の上へ切れた・2026-09-14）
+            <div style={{ display: "flex", gap: "1.4rem", justifyContent: "center", alignItems: "flex-end" }}>
+              <div>
+                <p style={endLabelStyle}>あなたの💎</p>
+                <BouncyNumber value={finalCount} color={color} size="2.2rem" outlineColor={NUMBER_OUTLINE} />
+              </div>
               <div>
                 <p style={endLabelStyle}>歴代累計</p>
-                <BouncyNumber value={(othersTotal ?? 0) + finalCount} color={color} size="1.6rem" outlineColor={NUMBER_OUTLINE} />
+                <BouncyNumber value={(othersTotal ?? 0) + finalCount} color={color} size="1.3rem" outlineColor={NUMBER_OUTLINE} />
               </div>
-            )}
-            {/* 色ごとの一番輝いた時刻。💎を左右にスワイプ（または ‹ › ）で色を1つずつ送る。
-                データは再生中に全色ぶん手元で計算済みなので、ここで通信は起きない（Hop指示 2026-09-14）。
-                替えるのは「いま選んでいる色」そのものなので、下の見返すボタンの飛び先と数字の色も一緒に変わる */}
-            {ended && !highlighting && (
-              <div
-                style={{ pointerEvents: "auto", display: "flex", flexDirection: "column", alignItems: "center", touchAction: "pan-y" }}
-                onPointerDown={(e) => { endGemSwipeRef.current = e.clientX; }}
-                onPointerUp={(e) => {
-                  const x0 = endGemSwipeRef.current;
-                  endGemSwipeRef.current = null;
-                  if (x0 == null) return;
-                  const dx = e.clientX - x0;
-                  if (dx <= -END_GEM_SWIPE_PX) cycleColor(1);
-                  else if (dx >= END_GEM_SWIPE_PX) cycleColor(-1);
-                }}
-                onPointerCancel={() => { endGemSwipeRef.current = null; }}
-              >
-                <p style={endLabelStyle}>一番輝いた瞬間</p>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                  <button type="button" aria-label="前の色" onClick={() => cycleColor(-1)} style={endGemArrowStyle}>‹</button>
-                  <EntryGem size={44} color={color} animate={!settings.reduceMotion} />
-                  <button type="button" aria-label="次の色" onClick={() => cycleColor(1)} style={endGemArrowStyle}>›</button>
+              {/* 色ごとの一番輝いた時刻。💎を左右にスワイプ（または ‹ › ）で色を1つずつ送る。
+                  データは再生中に全色ぶん手元で計算済みなので、ここで通信は起きない（Hop指示 2026-09-14）。
+                  替えるのは「いま選んでいる色」そのものなので、見返す先と数字の色も一緒に変わる */}
+              {!highlighting && (
+                <div
+                  style={{ pointerEvents: "auto", display: "flex", flexDirection: "column", alignItems: "center", touchAction: "pan-y" }}
+                  onPointerDown={(e) => { endGemSwipeRef.current = e.clientX; }}
+                  onPointerUp={(e) => {
+                    const x0 = endGemSwipeRef.current;
+                    endGemSwipeRef.current = null;
+                    if (x0 == null) return;
+                    const dx = e.clientX - x0;
+                    if (dx <= -END_GEM_SWIPE_PX) cycleColor(1);
+                    else if (dx >= END_GEM_SWIPE_PX) cycleColor(-1);
+                  }}
+                  onPointerCancel={() => { endGemSwipeRef.current = null; }}
+                >
+                  <p style={endLabelStyle}>一番輝いた瞬間</p>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.1rem" }}>
+                    <button type="button" aria-label="前の色" onClick={() => cycleColor(-1)} style={endGemArrowStyle}>‹</button>
+                    <EntryGem size={30} color={color} animate={!settings.reduceMotion} />
+                    <button type="button" aria-label="次の色" onClick={() => cycleColor(1)} style={endGemArrowStyle}>›</button>
+                  </div>
+                  {/* 時刻そのものを「その色が一番輝いた瞬間」を見返す入口にする。別のボタンは置かない（Hop指示 2026-09-14） */}
+                  {peakTime != null ? (
+                    <button
+                      type="button"
+                      onClick={handleHighlight}
+                      style={{ fontSize: "1.1rem", fontWeight: 700, color, fontVariantNumeric: "tabular-nums", lineHeight: 1.2, background: "none", border: "none", padding: "6px 12px", textDecoration: "underline", textUnderlineOffset: "3px", cursor: "pointer", pointerEvents: "auto", fontFamily: "inherit" }}
+                    >
+                      {fmtClock(peakTime)}
+                    </button>
+                  ) : (
+                    <span style={{ fontSize: "1.1rem", fontWeight: 700, color, fontVariantNumeric: "tabular-nums", lineHeight: 1.2, padding: "6px 12px", display: "inline-block" }}>—</span>
+                  )}
                 </div>
-                <span style={{ fontSize: "1.1rem", fontWeight: 700, color, fontVariantNumeric: "tabular-nums", lineHeight: 1.3 }}>
-                  {peakTime != null ? fmtClock(peakTime) : "—"}
-                </span>
+              )}
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: "1.8rem", justifyContent: "center", alignItems: "flex-end" }}>
+              <div>
+                <p style={endLabelStyle}>あなたの💎</p>
+                <BouncyNumber value={liveCount} color={color} size="2.2rem" outlineColor={NUMBER_OUTLINE} />
               </div>
-            )}
-          </div>
-          {/* 上は数字の情報、下はこの画面を離れる操作、という分け方に合わせて、見返すボタンは数字の下に置く（Hop指示 2026-09-07） */}
-          {ended && !highlighting && peakTime != null && (
-            <button
-              type="button"
-              onClick={handleHighlight}
-              style={{ pointerEvents: "auto", whiteSpace: "nowrap", padding: "0.6rem 1.2rem", background: "rgba(14,16,22,0.85)", color: "#f5f7fa", border: "1px solid rgba(255,255,255,0.5)", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer", textShadow: "none" }}
-            >
-              選んだ色が一番輝いた瞬間
-            </button>
+            </div>
           )}
         </div>
       )}
@@ -1199,20 +1225,12 @@ export default function HaiToDiamondPage() {
                   𝕏 でシェア
                 </button>
               </div>
-              {/* 元の映像を YouTube で開く（プレイヤーの外＝規約OK）。別タブ */}
-              <a
-                href={`https://youtu.be/${VIDEO_ID}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ fontSize: "0.75rem", fontWeight: 600, color: "#9aa0a6", textDecoration: "underline", textUnderlineOffset: "0.2rem" }}
-              >
-                ▶ 本編の映像を見る
-              </a>
-              {/* 断り書き＋Font Awesome の帰属（CC BY 4.0）。ハイ！テンションの終了画面と同じ文言 */}
+              {/* 断り書き＋Font Awesome の帰属（CC BY 4.0）。ハイ！テンションの終了画面と同じ文言。
+                  YouTubeへの道はこの帯から動画の直下へ移した（Hop指示 2026-09-14） */}
               <p style={{ margin: "0.2rem 0 0", fontSize: "0.75rem", color: "#777", textAlign: "center", lineHeight: 1.5, textShadow: "0 0 8px rgba(0,0,0,0.8)" }}>
                 楽曲・映像の著作権は権利者に帰属します。<br />
                 権利者からの申し出により直ちに公開を停止します。<br />
-                <span style={{ fontSize: "0.75rem", color: "#999" }}>Gem icon by Font Awesome (CC BY 4.0)</span>
+                <span style={{ fontSize: "0.625rem", color: "#6b7076" }}>Gem icon by Font Awesome (CC BY 4.0)</span>
               </p>
             </>
           ) : null}
@@ -1231,7 +1249,7 @@ function fmtClock(sec: number): string {
   return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 }
 const endGemArrowStyle: React.CSSProperties = {
-  background: "none", border: "none", color: "#e8eaed", fontSize: "1.4rem", lineHeight: 1, padding: "0.2rem 0.4rem", cursor: "pointer", textShadow: "none",
+  background: "none", border: "none", color: "#e8eaed", fontSize: "1.2rem", lineHeight: 1, padding: "0.4rem 0.35rem", cursor: "pointer", textShadow: "none",
 };
 const endLabelStyle: React.CSSProperties = {
   fontSize: "0.75rem",
