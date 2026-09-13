@@ -534,13 +534,14 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         }
         // 順位は単純な数ではなく「その色の普段の量に対する倍率」。参加者が多い色がずっと上位に居座らないように
         const totals = colorTotalsRef.current;
-        const scored = [...counts.entries()].map(([key, c]) => ({ rgb: c.rgb, s: c.n / ((totals.get(key) ?? 0) + TINT_BASE_TOTAL) }));
+        const scored = [...counts.entries()].map(([key, c]) => ({ key, rgb: c.rgb, s: c.n / ((totals.get(key) ?? 0) + TINT_BASE_TOTAL) }));
         // 色ごとに「倍率が曲中で最大だった瞬間」を覚える（ハイライト再生中は更新しない）。
         // 全色ぶん控えておくと、あとから色を切り替えてもその色の瞬間へ飛べる
         if (!holdCameraRef.current) {
           const peaks = peakRef.current;
           for (const c of scored) {
-            const key = c.rgb.join(",");
+            // 鍵はメンバーID（recentRef と同じ）。色の値にすると getPeakTime がメンバーIDで引けず時刻が出ない（2026-09-14 に発生）
+            const key = c.key;
             const cur = peaks.get(key);
             if (!cur || c.s > cur.s) peaks.set(key, { t: timeRef.current.t, s: c.s });
           }
