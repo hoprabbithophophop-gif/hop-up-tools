@@ -637,13 +637,15 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const wallAlpha = beginWallFrame(wallSt, ballView, p, W, H, reduceMotionRef.current);
         // 1.5 着地の返事（奥の席）
         takeFreshLandings(wallSt, ball, ballView, now);
+        // 1.7 奥の席へ回る途中の💎。球より先に描く＝輪郭を越えたら球の後ろに隠れる
+        drawSucks(ctx, suck, ball, ballView, v, now, dt, reduceMotionRef.current, "back");
         // 2. 球の表面（ついでに奥側の鏡から壁の粒を拾う）
         drawMirrors(ctx, ball, ballView, W, H, dpr, v, now, onBackSeat);
         drawSelfRipple(ctx, ball, ballView, dpr, now);
         // 3. 壁に映る光の粒
         drawWallSpots(ctx, wallSt, ballView, wallAlpha, p, W, H, f);
-        // 4. 飛んでいる途中の💎
-        drawSucks(ctx, suck, ball, ballView, v, now, dt, reduceMotionRef.current);
+        // 4. 飛んでいる途中の💎（手前の席へ着く分と、動画の裏の席へ向かう分）
+        drawSucks(ctx, suck, ball, ballView, v, now, dt, reduceMotionRef.current, "front");
         // 5. 押した手応えの閃光
         drawScreenFlashes(v, now);
         return;

@@ -46,10 +46,13 @@ export type Suck = {
   seatDist: number;
   /** 行き先を一度でも決めたか（false のうちは寄せずに直接そこへ置く） */
   aimed: boolean;
-  /** 席そのものへ着地せず、球の輪郭のきわから中へ入って消えるか。
-   *  奥を向いている席と、動画にすっぽり隠れる手前の席がこれにあたる。
+  /** 見えている席へ着地する飛び方ではないか。奥を向いている席と、動画にすっぽり隠れる手前の席がこれにあたる。
+   *  どちらも実際の席の位置まで飛び、奥の席は球の後ろへ回って球に隠れ、動画の裏の席は動画に隠れる。
    *  押した直後の1フレーム目に決めて以後は変えない（途中で切り替わると飛び方が跳ぶ） */
   enter: boolean;
+  /** 奥を向いている席へ向かう分か。球より先に描く＝輪郭を越えたら球の後ろに隠れる（Hop指摘 2026-09-14「裏へ回る動きが全然見えない」）。
+   *  以前は輪郭の少し内側を目指して薄くなって消していたが、球の手前に描いたまま消えるので何の後ろにも入らず、遠近感が無かった */
+  back: boolean;
   /** どちら回りで回り込むか（+1 / -1）。出発点のある側から回る */
   wrapSide: number;
   /** 回り込みの深さ（0=まっすぐ入る 1=いっぱいに回り込む）。
@@ -57,8 +60,8 @@ export type Suck = {
   wrapCurl: number;
 };
 
-const SUCK_MS = 700;             // 💎が席へ飛び着くまで
-const SUCK_MS_JITTER = 200;      // 同上のばらつき。全部が同じ速さだと機械的に見える
+const SUCK_MS = 980;             // 💎が席へ飛び着くまで。700 の1.4倍（Hop指示 2026-09-14「飛ぶ時間1.4倍を実機で見たい」）【仮】
+const SUCK_MS_JITTER = 280;      // 同上のばらつき。全部が同じ速さだと機械的に見える。200 の1.4倍
 // 飛んでいる💎の通り道。出発点から着く所まで、位置も速さの向きも切れ目のない1本の3次ベジェ曲線で飛ぶ。
 //   P0 = 出発点、P1 = 出発の向きへ少し伸ばした所、P2 = 球の輪郭の外側で、着く点の接線の方へ引いた所、P3 = 着く点。
 // 前半は入口へ直進・後半は輪の上を滑る、という2段の道にすると、切り替わる所で速さと向きが折れて見える
@@ -68,9 +71,9 @@ const SUCK_MS_JITTER = 200;      // 同上のばらつき。全部が同じ速�
 const SUCK_CTRL_LEAD = 0.45;     // P1 を、出発点から着く点までの距離の何倍ぶん出発の向きへ伸ばすか
 const SUCK_WRAP_BULGE = 1.14;    // P2 を置く、輪郭の外側の半径（見かけの半径の倍数）
 const SUCK_WRAP_SWEEP = 1.0;     // 回り込みがいちばん深い時の角度(rad)。正面を向いた席ほど浅くなる
-const SUCK_ENTER_R = 0.92;       // 輪郭のきわから中へ入る分の、着く点の半径（見かけの半径の倍数）。
-                                 // 輪郭より少しだけ内側に置き、またぐ前後で薄くなりきるようにする
-const SUCK_FADE_FROM = 0.72;     // 飛ぶ時間のうち、ここから薄くなり始める
+const SUCK_FADE_FROM = 0.72;     // 飛ぶ時間のうち、ここから薄くなり始める（手前の席で、席が真横を向いている時）
+const SUCK_BACK_FADE_FROM = 0.85; // 奥の席へ回る分は球に隠れて消えるので薄くしないが、輪郭ぎわの席は隠れきらないまま
+                                 // 着いた瞬間に消えて見える。それを隠すため最後だけ短く薄くする【仮】
 const SUCK_DEPTH_SOFT = 0.08;    // 席の深さがこれを下回っていると、着く頃には薄くする。
                                  // 鏡は真横を向くとほとんど見えないので、飛んでいる💎の濃さもそれに合わせる
                                  // ＝着いて鏡に変わる瞬間に濃さが跳ばない。
@@ -78,6 +81,7 @@ const SUCK_DEPTH_SOFT = 0.08;    // 席の深さがこれを下回っている�
 // 自分の💎を群衆と見分ける（Hop決定 2026-09-13）。飛んでいる間だけ大きくする【仮】
 const SELF_BIG = 1;              // 自分の分の飛んでいる大きさを何倍にするか。1.35 / 1.0 / 0.8 を見比べて 1 を採った（Hop決定 2026-09-13）
 const OTHER_SMALL = 0.5;         // 他の人の分の飛んでいる大きさを何倍にするか【仮】。1倍では大きすぎた（Hop指摘 2026-09-13）
+const FLY_ZOOM = 1.3;            // 上の2つの比を保ったまま、飛んでいる💎ぜんぶに掛ける表示の拡大倍率。1.0 / 1.3 / 1.6 を見比べて 1.3（Hop決定 2026-09-14）
 // 席へ着く💎は、飛びの終盤で鏡と平行になるまで寝る（Hop指示 2026-09-13「着席の瞬間こっちに面を向けるんじゃなくて鏡に対して平行に」）。
 // 鏡は「席に接する平面の東向き・北向きを画面に写した2本」を絵の縦横に使って描いている（ball.ts の drawMirrors）。
 // 同じ2本を💎の絵にも掛ける＝正面の席では素の丸のまま、縁の席では鏡と同じだけ潰れて見える。
@@ -119,8 +123,8 @@ const SELF_SUCK_Y = 230;         // 出発点。画面の下端からこれだ�
 const SELF_SUCK_Y_SPREAD = 40;   // 同上の縦のばらつき。毎回同じ高さから出ると閃光が一直線に並んで機械的に見える
 const SELF_SUCK_X_SPREAD = 80;   // 出発点の横のばらつき（画面の中央から左右へこれだけ）【仮】
 const SELF_SUCK_MIN_GAP = 40;    // 出発点は必ず「動画の下端＋これだけ」より下にする＝出た瞬間に裏へ入らない【仮】
-const SELF_SUCK_MS = 900;        // 席へ着くまで。他の人の分より少し長くして、飛んでいる姿が見えるようにする【仮】
-const SELF_SUCK_MS_JITTER = 150; // 同上のばらつき
+const SELF_SUCK_MS = 1260;       // 席へ着くまで。他の人の分より少し長くして、飛んでいる姿が見えるようにする。900 の1.4倍【仮】
+const SELF_SUCK_MS_JITTER = 210; // 同上のばらつき。150 の1.4倍
 const SELF_SUCK_BOW = 45;        // 出発の向きの横への寄せ(px)。まっすぐ飛ばず少し弧を描く（ベジェの P1 を横へずらす）【仮】
 const SELF_ABOVE_BUTTON = 28;    // 押した💎のボタンの中心から、これだけ上を出発点にする。
                                  // 押した指のすぐ上から飛び立つので、自分の1個がどれか目で追える（Hop決定 2026-09-11）【仮】
@@ -217,7 +221,7 @@ export function spawnSuck(
     rgb, bow, self, landed: false,
     seat: seat.seat, seatWasEmpty: seat.wasEmpty, seatPrevRgb: seat.prevRgb, seatPrevAge: seat.prevAge,
     seatCounted: seat.counted, seatFront: front,
-    seatAng: 0, seatDist: 0, aimed: false, enter: false, wrapSide: 1, wrapCurl: 0,
+    seatAng: 0, seatDist: 0, aimed: false, enter: false, back: false, wrapSide: 1, wrapCurl: 0,
   });
   return { x0, y0 };
 }
@@ -255,11 +259,16 @@ export function landSucks(suck: Suck[], ball: Ball, now: number) {
 export function drawSucks(
   ctx: CanvasRenderingContext2D, suck: Suck[], ball: Ball, view: BallView,
   v: { x: number; y: number; w: number; h: number }, now: number, dt: number, reduceMotion: boolean,
+  pass: "back" | "front",
 ) {
+  // 2回に分けて描く。"back"＝奥の席へ回る分。球より先に描いて、輪郭を越えたら球の後ろに隠れる。
+  // "front"＝それ以外。球と壁の粒の後に描く。行き先の追いかけ（毎コマの更新）は "back" の回だけで行う＝2回動かさない
+  const step = pass === "back";
   const cx = view.cx, cy = view.cy, r = view.r;
   const cs = view.cs, sn = view.sn, ct = view.ct, vst = view.st;
   const lat = view.lat, tileV = view.tileV;
   for (const sk of suck) {
+    if (sk.aimed && sk.back !== step) continue;
     const u = Math.min(1, (now - sk.t0) / sk.dur);
     // その💎に取ってある席が、いま画面のどこにあるか（回転と傾きを反映）
     const so = sk.seat * 4;
@@ -282,6 +291,8 @@ export function drawSucks(
       // 自分の分で手前・矩形外の席を取れている時は、押した瞬間の向きで奥に見えていても着地させる。
       // 席は着く頃の向きで選んであるので、ここで消してしまうと動画の外へ着く形にならない
       sk.enter = sk.seatFront ? false : sz2 <= 0 || hidden;
+      sk.back = !sk.seatFront && sz2 <= 0;
+      if (sk.back !== step) continue;   // 決めた側が今の回と違えば、この回では描かない
       // 回り込みの深さは席の向きで決まる。正面を向いた席へはほぼまっすぐ、
       // 輪郭ぎわの席へは大きく回り込む。中へ入る分はいちばん深く回り込む
       sk.wrapCurl = sk.enter ? 1 : 1 - Math.min(1, Math.max(0, sz2));
@@ -303,7 +314,8 @@ export function drawSucks(
     // 1本の3次ベジェ曲線。P3 は着く点（席そのもの、または輪郭のきわの入る点）、
     // P2 はその点で輪郭に接する向きへ引いた輪郭の外の点、P1 は出発の向きを少し伸ばした所。
     // P2 は P3 に連れて動くので、席が回っても曲線はなめらかに移り変わる
-    const rEnd = sk.enter ? r * SUCK_ENTER_R : sk.seatDist;
+    // 着く点は実際の席の位置。奥の席は球の後ろ、動画の裏の席は動画の裏にあり、そこへ向かって隠れていく
+    const rEnd = sk.seatDist;
     const p3x = cx + Math.cos(sk.seatAng) * rEnd;
     const p3y = cy + Math.sin(sk.seatAng) * rEnd;
     const aw = sk.seatAng + sk.wrapSide * SUCK_WRAP_SWEEP * sk.wrapCurl;
@@ -332,15 +344,17 @@ export function drawSucks(
     // 寄りは素の倍率ではなく「曲の始まりの寄り（BALL_ZOOM_MIN）を1倍とした倍率」で掛ける。
     // 素の倍率だと始まりから1.30倍で描かれ、序盤の他の人の💎が大きすぎた（Hop指摘 2026-09-13）。
     // 始まりが1倍、終わりが BALL_ZOOM_MAX / BALL_ZOOM_MIN ≒ 1.6倍。寄りとの連動そのものは残す
-    const base = sk.size * (ball.zoom / BALL_ZOOM_MIN) * (sk.self ? SELF_BIG : OTHER_SMALL);
-    suckDraw.size = sk.enter ? base : base + (tileV * 0.95 / 2 - base) * t;
+    const base = sk.size * (ball.zoom / BALL_ZOOM_MIN) * (sk.self ? SELF_BIG : OTHER_SMALL) * FLY_ZOOM;
+    suckDraw.size = base + (tileV * 0.95 / 2 - base) * t;
     // 濃さ。輪郭の中へ入る分は消えきる。席へ着く分も、飛んでいる間に球が回って
     // 席が真横を向いてしまったらその分だけ薄くする。鏡は真横を向くとほとんど見えないので、
     // 着いて鏡に変わる瞬間に濃さが跳ばない。薄くなり始めも終わりもなめらかな曲線で結ぶ
-    const endAlpha = sk.enter ? 0 : Math.min(1, Math.max(0, sz2 / SUCK_DEPTH_SOFT));
+    // 奥の席へ回る分は球に隠れて消えるので、最後だけ短く薄くする。動画の裏の席へ向かう分は動画に隠れるので薄くしない
+    const endAlpha = sk.back ? 0 : sk.enter ? 1 : Math.min(1, Math.max(0, sz2 / SUCK_DEPTH_SOFT));
+    const fadeFrom = sk.back ? SUCK_BACK_FADE_FROM : SUCK_FADE_FROM;
     let alpha = 1;
-    if (endAlpha < 1 && u > SUCK_FADE_FROM) {
-      const w = (u - SUCK_FADE_FROM) / (1 - SUCK_FADE_FROM);
+    if (endAlpha < 1 && u > fadeFrom) {
+      const w = (u - fadeFrom) / (1 - fadeFrom);
       alpha = 1 + (endAlpha - 1) * w * w * (3 - 2 * w);
     }
     // 自分の分が席に着いて止まっている間は、薄くせずそのまま濃く描く
