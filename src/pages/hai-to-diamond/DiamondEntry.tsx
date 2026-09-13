@@ -55,6 +55,10 @@ interface Props {
   videoReady: boolean;
   /** 支度が長引いているか。videoReady が false のまま長く待たせている時に立つ */
   loadingSlow: boolean;
+  /** 動画が読み込めなかったか。立っている間は案内を切り替え、「もう一度」を出す */
+  videoFailed?: boolean;
+  /** 「もう一度」を押した時 */
+  onRetry?: () => void;
   /** 右上の歯車（表示設定） */
   onOpenSettings?: () => void;
   /** 動き軽減（瞬きを止める） */
@@ -63,7 +67,7 @@ interface Props {
   landscape?: boolean;
 }
 
-export default function DiamondEntry({ total, videoBottom, videoReady, loadingSlow, onOpenSettings, reduceMotion = false, landscape = false }: Props) {
+export default function DiamondEntry({ total, videoBottom, videoReady, loadingSlow, videoFailed = false, onRetry, onOpenSettings, reduceMotion = false, landscape = false }: Props) {
   const [isLandscape, setIsLandscape] = useState<boolean>(() => {
     try { return window.matchMedia("(orientation: landscape)").matches; } catch { return false; }
   });
@@ -164,10 +168,21 @@ export default function DiamondEntry({ total, videoBottom, videoReady, loadingSl
         >
           {videoReady
             ? "動画の再生ボタンを押すと はじまります"
-            : loadingSlow
-              ? "準備に少し時間がかかっています"
-              : "動画を読み込んでいます"}
+            : videoFailed
+              ? "動画を読み込めませんでした。通信を確かめて、もう一度お試しください"
+              : loadingSlow
+                ? "準備に少し時間がかかっています"
+                : "動画を読み込んでいます"}
         </p>
+        {!videoReady && videoFailed && onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            style={{ background: "#e8eaed", color: "#0b0d13", border: "none", padding: "0.55rem 1.4rem", fontSize: "0.9375rem", fontWeight: 700, cursor: "pointer" }}
+          >
+            もう一度
+          </button>
+        )}
         {/* 数字が読めるまではラベルも出さない（ラベルだけ浮くと壊れて見える） */}
         {shownTotal !== null && (
           <div style={{ display: "flex", alignItems: "center", gap: "0.7rem" }}>

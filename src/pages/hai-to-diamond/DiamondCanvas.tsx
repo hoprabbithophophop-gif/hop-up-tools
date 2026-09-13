@@ -33,7 +33,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 // gemFacets.ts に面の形のデータを1本化した。入口の大きな💎は今までのまま。
 // ミラーボールの席に着いた💎は、立体ではなく色の付いた平らな丸い鏡になる
 import { hexToRgb } from "./gemFacets";
-import { requestStoneSpritesByHex, warmUpGemRenderer, SPRITE_LIGHT, requestAllStoneSprites, TUMBLE_PATHS } from "./gemSprites";
+import { requestStoneSpritesByHex, warmUpGemRenderer, SPRITE_LIGHT, TUMBLE_PATHS } from "./gemSprites";
 import { DIAMOND_COLOR_ORDER, findDiamondMember } from "./members";
 import {
   type Ball, BALL_R, BALL_SPIN_SEC, BALL_TILE_FILL, BALL_TILE_MIN, BALL_TILT, BALL_ZOOM_EASE,
@@ -125,11 +125,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   // 「はじめる」を押した瞬間は動画の再生を最優先にしたいので、そこに重い処理を残さない
   useEffect(() => {
     warmUpGemRenderer();
-    // 出てくる色ぜんぶを、この時点で焼き始める。1色あたりの実時間が長いので、
-    // 「はじめる」を押してから頼んでいると曲の途中まで代わりの平らな絵のままになる（2026-09-10 実測）
-    requestAllStoneSprites(
-      DIAMOND_COLOR_ORDER.map((id) => findDiamondMember(id)?.color).filter((c): c is string => !!c)
-    );
+    // 色を焼く順番はページ側（HaiToDiamondPage）が決めて頼む。ここで全色を頼むと、
+    // 器の側の方が先に動くので、ページ側が決めた順番より先に並んでしまう（2026-09-14）
   }, []);
   const gemsRef = useRef<Gem[]>([]);
   const timeRef = useRef({ t: 0, d: 284 });

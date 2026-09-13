@@ -14,7 +14,7 @@ import { getLastSelectedMemberId, setLastSelectedMemberId, getOrCreateAnonymousS
 import { submitHiSessions } from "../hi-tension/api";
 import { fetchReplay, type ReplayRow } from "./replay";
 import DiamondCanvas, { type DiamondCanvasApi } from "./DiamondCanvas";
-import { stonesSettled, setStoneBakeHurry, stoneBakeReport, warmUpGemRenderer, requestAllStoneSprites } from "./gemSprites";
+import { stonesSettled, setStoneBakeHurry, stoneBakeReport, warmUpGemRenderer, requestStoneSpritesByHex } from "./gemSprites";
 import DiamondEntry from "./DiamondEntry";
 import DiamondColorCarousel from "./DiamondColorCarousel";
 import DiamondColorPages from "./DiamondColorPages";
@@ -196,14 +196,28 @@ export function allocateSpawnQuota(
 const DIAMOND_COLOR_OPTIONS = DIAMOND_COLOR_ORDER.map((id) => ({ id, color: findDiamondMember(id)?.color ?? "#ffffff" }));
 /** ユニットごとのページに並べる色。こちらも中身は変わらないので1度だけ作る */
 const DIAMOND_COLOR_PAGE_OPTIONS = DIAMOND_COLOR_PAGES.map((ids) => ids.map((id) => ({ id, color: findDiamondMember(id)?.color ?? "#ffffff" })));
-/** 焼き上がりを見張る色の一覧。DiamondCanvas が焼くよう頼んでいるのと同じ作り方にする＝
- *  頼んでいない色を待ってしまうことがない */
-const DIAMOND_GEM_HEXES = DIAMOND_COLOR_ORDER.map((id) => findDiamondMember(id)?.color).filter((c): c is string => !!c);
+/** 焼く順番と、入口が待つ色（Hop決定 2026-09-14）。
+ *  まず自分の色、次に自分の色と同じページの色まで焼けたら入口を開く。残りは近いページから順に裏で焼く。
+ *  戻り値: entry=入口が待つ色（自分のページ）、order=焼く順番の全色 */
+function bakePlan(memberId: string): { entry: string[]; order: string[] } {
+  const hexOf = (id: string) => findDiamondMember(id)?.color;
+  const own = Math.max(0, DIAMOND_COLOR_PAGES.findIndex((p) => p.includes(memberId)));
+  const pages = DIAMOND_COLOR_PAGES.map((ids, i) => ({ ids, d: Math.abs(i - own) })).sort((a, b) => a.d - b.d);
+  const order: string[] = [];
+  const ownHex = hexOf(memberId);
+  if (ownHex) order.push(ownHex);
+  for (const p of pages) for (const id of p.ids) { const h = hexOf(id); if (h && !order.includes(h)) order.push(h); }
+  const entry = DIAMOND_COLOR_PAGES[own].map(hexOf).filter((h): h is string => !!h);
+  return { entry, order };
+}
 /** 焼き上がりを何ミリ秒ごとに見に行くか */
 const GEMS_POLL_MS = 200;
 /** ここまで経ったら、焼き上がっていなくても待つのをやめる【仮】。
  *  遅い端末で入口に閉じ込めないための保険 */
 const GEMS_WAIT_CAP_MS = 15000;
+/** 動画の用意をこれだけ待っても届かなければ「読み込めなかった」扱いにする(ms)【仮】。
+ *  YouTube 側は失敗を知らせずに黙ることがあるので、失敗の知らせとは別にこの保険で拾う */
+const VIDEO_WAIT_CAP_MS = 15000;   // 30秒は待たせすぎで離脱される（Hop指示 2026-09-14）
 /** ページを開いてからここまで待っても支度がそろわなかったら、
  *  入口の案内文を待たせている旨に切り替える【仮】。石だけでなく動画も含めた支度全体の話 */
 const SLOW_NOTICE_MS = 5000;
@@ -297,12 +311,16 @@ export default function HaiToDiamondPage() {
   // 💎の絵を焼き始めるのは、これまで DiamondCanvas の役目だった。読み込み画面の間は
   // その層をまだ置かないので、焼く支度と注文はページ側からも出しておく。
   // 同じ色を二度頼んでも二度焼きはされないので、後から DiamondCanvas が頼み直しても無駄にはならない
+  /** 焼く順番と入口が待つ色。開いた時の色で決める（色を替えるのは再生中で、その時はもう入口を出ている） */
+  const [plan] = useState(() => bakePlan(memberId));
   useEffect(() => {
     warmUpGemRenderer();
-    requestAllStoneSprites(DIAMOND_GEM_HEXES);
-  }, []);
-  // 焼き上がりを見に行く。ページを開いた時点から始め、色ぜんぶが済むか、
-  // 保険の時間が過ぎたら止める。遅い端末で入口に閉じ込めないための保険つき
+    for (const hex of plan.order) requestStoneSpritesByHex(hex);
+  }, [plan]);
+  // 焼き上がりを見に行く。ページを開いた時点から始め、自分のページの色が済むか、
+  // 保険の時間が過ぎたら止める。遅い端末で入口に閉じ込めないための保険つき。
+  // 以前は14色ぜんぶを待っていたが、スマートフォンで9秒近く待たせていた（Hop実測 2026-09-13）。
+  // 残りは裏で焼き続け、焼けていない色の他の人の💎は出さない＝平らな代わりの絵は出さない（Hop決定 2026-09-14）
   useEffect(() => {
     if (gemsReady) return;
     const check = () => {
@@ -312,13 +330,26 @@ export default function HaiToDiamondPage() {
         const r = stoneBakeReport();
         if (r.started) setBakeNote((r.done ? "焼き " : "焼き中 ") + (r.ms / 1000).toFixed(1) + "秒");
       }
-      if (stonesSettled(DIAMOND_GEM_HEXES)) setGemsReady(true);
+      if (stonesSettled(plan.entry)) setGemsReady(true);
     };
     check();
     const poll = setInterval(check, GEMS_POLL_MS);
     const cap = setTimeout(() => setGemsReady(true), GEMS_WAIT_CAP_MS);
     return () => { clearInterval(poll); clearTimeout(cap); };
-  }, [gemsReady]);
+  }, [gemsReady, plan]);
+  /** 動画が読み込めなかったか。失敗の知らせを受けたか、VIDEO_WAIT_CAP_MS 待っても用意ができない時に立つ */
+  const [videoFailed, setVideoFailed] = useState(false);
+  useEffect(() => {
+    if (videoReady) return;
+    const t = setTimeout(() => setVideoFailed(true), VIDEO_WAIT_CAP_MS);
+    return () => clearTimeout(t);
+  }, [videoReady]);
+  const handleVideoError = useCallback((code: number) => {
+    console.warn("[hai-to-diamond] video failed:", code);
+    setVideoFailed(true);
+  }, []);
+  /** 「もう一度」。動画部品だけ作り直す手が無いので、ページごと読み直す */
+  const retryVideo = useCallback(() => { location.reload(); }, []);
   /** 動画も石もそろって、再生ボタンを押せる状態になったか */
   const entryReady = videoReady && gemsReady;
   /** 押せるようになるまでの支度が長引いているか。入口の案内文を、待たせている旨に切り替えるのに使う */
@@ -731,6 +762,9 @@ export default function HaiToDiamondPage() {
         const q = tickQuota[i];
         if (q <= 0) continue;
         const c = SPAWN_COLORS[i];
+        // まだ焼けていない色は出さない。平らな代わりの絵で飛ばすより出さない方がよい（Hop決定 2026-09-14）。
+        // 端末が本物を描けない場合は「済み」扱いになるので、その時は今までどおり平らな絵で出る
+        if (!stonesSettled([c])) continue;
         for (let k = 0; k < q; k++) canvasRef.current?.spawn(c);
         lastSpawnAt[i] = now;
       }
@@ -825,7 +859,7 @@ export default function HaiToDiamondPage() {
         <div style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: landscape ? "none" : undefined }}>
           {/* 動画の下端がまだ測れていない間は設定を開かない。開くと板の置き場所が決まらず
               画面の真ん中＝動画の上に出てしまう。見た目は変えず、押しても何も起きないだけ */}
-          <DiamondEntry landscape={landscape} videoBottom={underBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} onOpenSettings={() => { if (underBox) setSettingsOpen(true); }} reduceMotion={settings.reduceMotion} />
+          <DiamondEntry landscape={landscape} videoBottom={underBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} videoFailed={videoFailed && !videoReady} onRetry={retryVideo} onOpenSettings={() => { if (underBox) setSettingsOpen(true); }} reduceMotion={settings.reduceMotion} />
         </div>
       )}
       {settingsOpen && !landscape && (
@@ -862,7 +896,7 @@ export default function HaiToDiamondPage() {
           }}
         >
           <div ref={videoBoxRef}>
-            <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} onReady={handleVideoReady} startCover={false} loadingCover={false} minHeight={MIN_VIDEO_HEIGHT} />
+            <YouTubePlayer ref={playerRef} videoId={VIDEO_ID} onEnded={handleEnded} onTimeUpdate={handleTimeUpdate} onPlayerStateChange={handlePlayerStateChange} onReady={handleVideoReady} onError={handleVideoError} startCover={false} loadingCover={false} minHeight={MIN_VIDEO_HEIGHT} />
           </div>
         </div>
       </div>

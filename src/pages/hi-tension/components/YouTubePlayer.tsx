@@ -47,6 +47,9 @@ interface Props {
   onPlayerStateChange?: (state: number) => void;
   /** 動画の準備ができた瞬間に1回だけ呼ぶ。isReady が false から true に変わった時。渡さなくても今までの動きは変わらない */
   onReady?: () => void;
+  /** 動画が読み込めなかった時に1回呼ぶ。引数は YouTube の失敗の番号（2=動画IDが不正, 5=HTML5の不具合, 100=見つからない, 101/150=埋め込み不可）。
+   *  渡さなくても今までの動きは変わらない。/hai-to-diamond は入口の案内を「読み込めませんでした」に切り替えるのに使う */
+  onError?: (code: number) => void;
   /** 初回 play() から LOADING_MIN_MS 秒、黒カバーで隠すか。既定 true（渡さなければ今までの動きのまま）。
    *  /hai-to-diamond は動画自身の再生ボタンで始めるので、この2秒のカバーは要らない。見返しの再生（すでに動いている映像に
    *  重ねて呼ぶ2回目以降の play()）に黒いカバーが乗ってしまうため false を渡す */
@@ -85,7 +88,7 @@ function loadYouTubeAPI(): Promise<void> {
 }
 
 const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer(
-  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, onReady, startCover = true, loadingCover = true, minHeight },
+  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, onReady, onError, startCover = true, loadingCover = true, minHeight },
   ref,
 ) {
   const [isReady, setIsReady] = useState(false);
@@ -109,11 +112,13 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   const onTimeUpdateRef = useRef(onTimeUpdate);
   const onPlayerStateChangeRef = useRef(onPlayerStateChange);
   const onReadyRef = useRef(onReady);
+  const onErrorRef = useRef(onError);
 
   useEffect(() => { onEndedRef.current = onEnded; }, [onEnded]);
   useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
   useEffect(() => { onPlayerStateChangeRef.current = onPlayerStateChange; }, [onPlayerStateChange]);
   useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
   // isReady が false→true に変わった瞬間だけ知らせる。渡されていなければ何もしない＝これまでの動きのまま
   useEffect(() => {
@@ -205,6 +210,10 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
               stopPolling();
               onEndedRef.current();
             }
+          },
+          onError: (event) => {
+            if (!mounted) return;
+            onErrorRef.current?.(event.data);
           },
         },
       });
