@@ -18,7 +18,6 @@ import { stonesSettled, setStoneBakeHurry, stoneBakeReport, warmUpGemRenderer, r
 import DiamondEntry from "./DiamondEntry";
 import DiamondColorCarousel from "./DiamondColorCarousel";
 import DiamondColorPages from "./DiamondColorPages";
-import DiamondHeatStrip from "./DiamondHeatStrip";
 import DiamondCommentTicker, { TICKER_HEIGHT, type TickerComment } from "./DiamondCommentTicker";
 import DiamondSettingsSheet, { getDiamondSettings, setDiamondSettings, type DiamondSettings } from "./DiamondSettingsSheet";
 import BouncyNumber from "../hi-tension/components/BouncyNumber";
@@ -76,17 +75,8 @@ const LAUNCH_TIME = 268.5;   // 4:28.5。「Let's Shine Together!」に合わせ
 /** 「選んだ色が一番輝いた瞬間」の前後の幅（秒）【仮】 */
 const HIGHLIGHT_BEFORE = 5;
 const HIGHLIGHT_AFTER = 5;
-/** 盛り上がりの帯を何区間に割るか【仮】 */
-const HEAT_BINS = 200;
-/** 盛り上がりの帯を動画の額縁の下端からどれだけ空けて置くか(px)【仮】 */
-const HEAT_GAP = 4;
-/** 帯の器の高さ(px)。額縁の余白＋隙間＋帯本体＋光の滲みのぶん【仮】。
- *  額縁は画面幅で薄くなるので、その時の太さを渡して求める */
-function heatBoxHeightOf(frame: number): number {
-  return frame + HEAT_GAP + 6 + 10;
-}
-/** 流れるコメントを、盛り上がりの帯の器の下からどれだけ空けて置くか(px)【仮】。
- *  帯の器には光の滲みのぶんまで含まれているので、その下端を起点にする＝滲みに文字が重ならない */
+/** 流れるコメントを、動画の額縁の下端からどれだけ空けて置くか(px)【仮】。
+ *  以前はここに「盛り上がりの帯」があったが、まんべんなく押されると全区間が明るくなって差が出ないため外した（Hop決定 2026-09-13） */
 const COMMENT_GAP = 4;
 /** 流れるコメントと色えらびの器の間に必ず空けておく隙間(px)【仮】 */
 const TICKER_BAND_GAP = 4;
@@ -200,25 +190,6 @@ export function allocateSpawnQuota(
     if (counts[i] > quota[i]) backlog[i] = 1;
     else if (quota[i] > 0) backlog[i] = 0;
   }
-}
-
-/** みんなの記録を、曲を等間隔に割った区間ごとの「盛り上がり具合」（0〜1）に均す。
- *  そのまま数を使うと一部の山だけが真っ白になるので、平方根を取ってから一番多い区間で割る */
-function buildHeatLevels(rows: ReplayRow[]): number[] {
-  const acc = new Array<number>(HEAT_BINS).fill(0);
-  for (const r of rows) {
-    for (let i = 0; i < r.buckets.length; i++) {
-      const sec = r.buckets[i] / 20;                       // 0.05秒刻みの時刻番号 → 秒
-      const idx = Math.floor((sec / SONG_END) * HEAT_BINS);
-      if (idx < 0 || idx >= HEAT_BINS) continue;
-      acc[idx] += r.counts[i] ?? 0;
-    }
-  }
-  const sq = acc.map((n) => Math.sqrt(n));
-  let max = 0;
-  for (const v of sq) if (v > max) max = v;
-  if (max <= 0) return acc.map(() => 0);
-  return sq.map((v) => v / max);
 }
 
 /** 画面下の帯に並べる色。並びは members.ts の DIAMOND_COLOR_ORDER のまま。中身は変わらないので1度だけ作る */
@@ -389,9 +360,6 @@ export default function HaiToDiamondPage() {
    *  そのまま出すと、入口の累計が終了画面の累計より少なく見える（Hop報告 2026-09-08）。
    *  窓口から返った数とこの下限の大きい方を出せば、下回ることは無く、他の人の分が入れば普通に増える */
   const totalFloorRef = useRef(0);
-  /** 盛り上がりの帯の元データ（区間ごとの0〜1）と、いま再生している位置（0〜1） */
-  const [heatLevels, setHeatLevels] = useState<number[]>([]);
-  const [progress, setProgress] = useState(0);
   /** 動画に付いている YouTube のコメント。動画の下に流す。取れなければ空のまま＝何も出ない */
   const [comments, setComments] = useState<TickerComment[]>([]);
   /** 流れるコメントに渡す動画時刻（秒）。本文の分:秒と見比べるだけなので1秒刻みに丸める＝
@@ -403,8 +371,8 @@ export default function HaiToDiamondPage() {
   /** 数字ブロックの下端＝動画の額縁の上端。動画の位置を測って決める（画面サイズで変わる） */
   const numbersRef = useRef<HTMLDivElement>(null);
   const [numbersBottom, setNumbersBottom] = useState<number | string>("60%");
-  /** 盛り上がりの帯の置き場所。器の上端は動画の矩形の下端そのもの＝光の滲みが動画に掛からない */
-  const [heatBox, setHeatBox] = useState<{ top: number; left: number; width: number } | null>(null);
+  /** 動画の矩形の下端の位置と、額縁の左端・幅。その下に置く流れるコメント・入口・設定の置き場所の基準 */
+  const [underBox, setUnderBox] = useState<{ top: number; left: number; width: number } | null>(null);
   /** 色えらびの器の上端。ここまでに入る行数だけコメントを流す＝下の2行が色えらびの裏に隠れない */
   const bandRef = useRef<HTMLDivElement>(null);
   const [bandTop, setBandTop] = useState<number | null>(null);
@@ -446,7 +414,7 @@ export default function HaiToDiamondPage() {
       const fr = frameEl.getBoundingClientRect();
       const rr = root.getBoundingClientRect();
       setNumbersBottom(rr.bottom - vr.top + frame);   // 曲が終わった後の数字とボタンが動画の上の余白に収まるよう、12px の下駄を外した（2026-09-12）。額縁は画面幅で薄くなるので、その時の太さを使う
-      setHeatBox({ top: vr.bottom - rr.top, left: fr.left - rr.left, width: fr.width });
+      setUnderBox({ top: vr.bottom - rr.top, left: fr.left - rr.left, width: fr.width });
       const band = bandRef.current;
       if (band) {
         const rect = band.getBoundingClientRect();
@@ -520,7 +488,6 @@ export default function HaiToDiamondPage() {
       bucketMapRef.current = buildBucketMap(rows);
       const fetched = rows.reduce((acc, r) => acc + r.counts.reduce((a, c) => a + c, 0), 0);
       setOthersTotal(Math.max(fetched, totalFloorRef.current));
-      setHeatLevels(buildHeatLevels(rows));
       // 色ごとの総数（額縁の順位の基準）。同じ色のメンバーが複数いれば合算
       const totals: Record<string, number> = {};
       for (const r of rows) {
@@ -630,7 +597,6 @@ export default function HaiToDiamondPage() {
     if (resendTimerRef.current) { clearTimeout(resendTimerRef.current); resendTimerRef.current = null; }
     lastBucketRef.current = -1;
     setLiveCount(0);
-    setProgress(0);
     setVideoTimeSec(0);
     setPeakTime(null);
     setEnded(false);
@@ -715,9 +681,6 @@ export default function HaiToDiamondPage() {
       else return;
     }
     canvasRef.current?.setTime(t, SONG_END);
-    // 盛り上がりの帯の印。0.1秒ごとに全部描き直すと重いので、位置が 1/500 変わった時だけ動かす
-    const p = Math.min(1, Math.max(0, Math.round((t / SONG_END) * 500) / 500));
-    setProgress((prev) => (prev === p ? prev : p));
     // 流れるコメントに渡す時刻。1秒刻みなので、秒が変わった時だけ知らせる
     const sec = Math.floor(t);
     setVideoTimeSec((prev) => (prev === sec ? prev : sec));
@@ -802,14 +765,12 @@ export default function HaiToDiamondPage() {
     setLiveCount(tapsRef.current.length);
   }, []);
 
-  /** 盛り上がりの帯の器の高さ。額縁の太さは画面幅で変わるので、その時の太さから求める */
-  const heatBoxHeight = heatBoxHeightOf(frame);
   /** 流れるコメントの置き場所と、色えらびに掛からない高さの上限。
    *  上限が出せない間（まだ測れていない間）は今までどおり3行のまま流す。
    *  コメントの上にチャンネル名と動画タイトルの1行が入るので、その高さも引いておく */
-  const creditTop = heatBox ? heatBox.top + heatBoxHeight + COMMENT_GAP : 0;
+  const creditTop = underBox ? underBox.top + frame + COMMENT_GAP : 0;
   const commentTop = creditTop + creditHeight;
-  const commentMaxHeight = heatBox && bandTop != null ? bandTop - commentTop - TICKER_BAND_GAP : undefined;
+  const commentMaxHeight = underBox && bandTop != null ? bandTop - commentTop - TICKER_BAND_GAP : undefined;
   /** コメント全文を開いている時の高さ。下のボタンを隠すので画面の下端（セーフエリアの手前）まで目一杯広げる */
   const openCommentHeight = `calc(100dvh - ${commentTop}px - 0.75rem - env(safe-area-inset-bottom))`;
   /** 開いているコメントを YouTube で見る行き先。札が揃っていなければ道を出さない */
@@ -864,11 +825,11 @@ export default function HaiToDiamondPage() {
         <div style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: landscape ? "none" : undefined }}>
           {/* 動画の下端がまだ測れていない間は設定を開かない。開くと板の置き場所が決まらず
               画面の真ん中＝動画の上に出てしまう。見た目は変えず、押しても何も起きないだけ */}
-          <DiamondEntry landscape={landscape} videoBottom={heatBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} onOpenSettings={() => { if (heatBox) setSettingsOpen(true); }} reduceMotion={settings.reduceMotion} />
+          <DiamondEntry landscape={landscape} videoBottom={underBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} onOpenSettings={() => { if (underBox) setSettingsOpen(true); }} reduceMotion={settings.reduceMotion} />
         </div>
       )}
       {settingsOpen && !landscape && (
-        <DiamondSettingsSheet avoidBottom={heatBox?.top} settings={settings} onChange={handleSettingsChange} onClose={() => setSettingsOpen(false)} />
+        <DiamondSettingsSheet avoidBottom={underBox?.top} settings={settings} onChange={handleSettingsChange} onClose={() => setSettingsOpen(false)} />
       )}
 
       {/* 光と💎の層と動画は、横向きの間も作り直さずそのまま持っておく＝縦に戻した時に
@@ -906,42 +867,20 @@ export default function HaiToDiamondPage() {
         </div>
       </div>
 
-      {/* 盛り上がりの帯。器の上端は動画の矩形の下端に合わせ、はみ出しを切り落とす＝
-          帯の光の滲みが上へ広がっても動画には掛からない（YouTube API 規約）。
-          横向きは案内だけを出すので描かない */}
-      {started && heatBox && !landscape && (
-        <div
-          style={{
-            position: "absolute",
-            zIndex: 3,
-            top: heatBox.top,
-            left: heatBox.left,
-            width: heatBox.width,
-            height: heatBoxHeight,
-            paddingTop: frame + HEAT_GAP,
-            boxSizing: "border-box",
-            overflow: "hidden",
-            pointerEvents: "none",
-          }}
-        >
-          <DiamondHeatStrip levels={heatLevels} progress={progress} />
-        </div>
-      )}
-
-      {/* 流れるコメント。盛り上がりの帯の器のさらに下（動画の矩形の外）に置く。
+      {/* 流れるコメント。動画の額縁の下（動画の矩形の外）に置く。
           本文に分:秒があるものはその時刻に、無いものはランダムな順で右から左へ流れる。
           すぐ上にアップロード元のチャンネル名と動画タイトルを置く（YouTube の必須要件）。
           幅に入りきらなければ2行に折り返して全文出す（Hop決定 2026-09-12）。
           1件押されている間は、流れる代わりに同じ場所へ全文の板を出す。
           横向きは案内だけを出すので描かない */}
-      {started && heatBox && (playing || highlighting) && !landscape && (
+      {started && underBox && (playing || highlighting) && !landscape && (
         <div
           style={{
             position: "absolute",
             zIndex: 3,
             top: creditTop,
-            left: heatBox.left,
-            width: heatBox.width,
+            left: underBox.left,
+            width: underBox.width,
             pointerEvents: "none",
           }}
         >
