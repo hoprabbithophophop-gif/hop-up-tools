@@ -16,6 +16,7 @@ import { fetchReplay, type ReplayRow } from "./replay";
 import DiamondCanvas, { type DiamondCanvasApi } from "./DiamondCanvas";
 import { stonesSettled, setStoneBakeHurry, stoneBakeReport, warmUpGemRenderer, requestStoneSpritesByHex } from "./gemSprites";
 import DiamondEntry from "./DiamondEntry";
+import EntryGem from "./EntryGem";
 import DiamondColorCarousel from "./DiamondColorCarousel";
 import DiamondColorPages from "./DiamondColorPages";
 import DiamondCommentTicker, { TICKER_HEIGHT, type TickerComment } from "./DiamondCommentTicker";
@@ -703,6 +704,14 @@ export default function HaiToDiamondPage() {
     setPeakTime(canvasRef.current?.getPeakTime(hex) ?? null);
   }, [jumpToHighlight]);
 
+  /** 終了画面の💎を左右に送って、色を1つ隣へ替える。いま選んでいる色そのものを替える（次の回の最初の色にもなる） */
+  const cycleColor = useCallback((dir: 1 | -1) => {
+    const n = DIAMOND_COLOR_ORDER.length;
+    const i = DIAMOND_COLOR_ORDER.indexOf(memberIdRef.current as typeof DIAMOND_COLOR_ORDER[number]);
+    handlePickColor(DIAMOND_COLOR_ORDER[((i < 0 ? 0 : i) + dir + n) % n]);
+  }, [handlePickColor]);
+  const endGemSwipeRef = useRef<number | null>(null);
+
   const handleTimeUpdate = useCallback((t: number) => {
     // 頭出しを頼んだ直後の古い時刻は捨てる。そのまま使うと、飛ぶ前の時刻で
     // ハイライトの終わりを過ぎたと勘違いしたり、関係ない場所のみんなの💎が降ったりする
@@ -1049,6 +1058,34 @@ export default function HaiToDiamondPage() {
                 <BouncyNumber value={(othersTotal ?? 0) + finalCount} color={color} size="1.6rem" outlineColor={NUMBER_OUTLINE} />
               </div>
             )}
+            {/* 色ごとの一番輝いた時刻。💎を左右にスワイプ（または ‹ › ）で色を1つずつ送る。
+                データは再生中に全色ぶん手元で計算済みなので、ここで通信は起きない（Hop指示 2026-09-14）。
+                替えるのは「いま選んでいる色」そのものなので、下の見返すボタンの飛び先と数字の色も一緒に変わる */}
+            {ended && !highlighting && (
+              <div
+                style={{ pointerEvents: "auto", display: "flex", flexDirection: "column", alignItems: "center", touchAction: "pan-y" }}
+                onPointerDown={(e) => { endGemSwipeRef.current = e.clientX; }}
+                onPointerUp={(e) => {
+                  const x0 = endGemSwipeRef.current;
+                  endGemSwipeRef.current = null;
+                  if (x0 == null) return;
+                  const dx = e.clientX - x0;
+                  if (dx <= -END_GEM_SWIPE_PX) cycleColor(1);
+                  else if (dx >= END_GEM_SWIPE_PX) cycleColor(-1);
+                }}
+                onPointerCancel={() => { endGemSwipeRef.current = null; }}
+              >
+                <p style={endLabelStyle}>一番輝いた瞬間</p>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                  <button type="button" aria-label="前の色" onClick={() => cycleColor(-1)} style={endGemArrowStyle}>‹</button>
+                  <EntryGem size={44} color={color} animate={!settings.reduceMotion} />
+                  <button type="button" aria-label="次の色" onClick={() => cycleColor(1)} style={endGemArrowStyle}>›</button>
+                </div>
+                <span style={{ fontSize: "1.1rem", fontWeight: 700, color, fontVariantNumeric: "tabular-nums", lineHeight: 1.3 }}>
+                  {peakTime != null ? fmtClock(peakTime) : "—"}
+                </span>
+              </div>
+            )}
           </div>
           {/* 上は数字の情報、下はこの画面を離れる操作、という分け方に合わせて、見返すボタンは数字の下に置く（Hop指示 2026-09-07） */}
           {ended && !highlighting && peakTime != null && (
@@ -1186,6 +1223,16 @@ export default function HaiToDiamondPage() {
   );
 }
 
+/** 終了画面の💎の左右のスワイプで色を替える時の、指の動きの下限(px)【仮】 */
+const END_GEM_SWIPE_PX = 24;
+/** 秒を「分:秒」にする（終了画面の一番輝いた時刻） */
+function fmtClock(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+}
+const endGemArrowStyle: React.CSSProperties = {
+  background: "none", border: "none", color: "#e8eaed", fontSize: "1.4rem", lineHeight: 1, padding: "0.2rem 0.4rem", cursor: "pointer", textShadow: "none",
+};
 const endLabelStyle: React.CSSProperties = {
   fontSize: "0.75rem",
   fontWeight: 700,

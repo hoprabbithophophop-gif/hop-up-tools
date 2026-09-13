@@ -15,7 +15,7 @@ interface Env {
 }
 
 /** エッジキャッシュの寿命（秒）。/api/hi-sessions と同じ。 */
-const TTL_SECONDS = 45;
+const TTL_SECONDS = 600;   // 10分。集計は重いので何度も取りに行かず、サーバー側で結果を10分保持する（Hop指示 2026-09-14）。歴代累計は最大10分古くなる
 
 export async function onRequest(context: {
   request: Request;
