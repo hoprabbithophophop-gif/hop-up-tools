@@ -1069,21 +1069,33 @@ export default function HaiToDiamondPage() {
             // 動画の上の空きは約120px。1行目は X のシェア文と同じ「💎を ◯個 降らせました」で数字だけ大きく、
             // 2〜3行目は 左: 歴代累計のラベルと数値 / 真ん中: ‹ 💎 › / 右: 一番輝いた瞬間のラベルと時刻（Hop指示 2026-09-14）
             <>
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: "0.35rem", fontSize: "0.9375rem", fontWeight: 700, color: "#e8eaed" }}>
-                <span>💎を</span>
-                <BouncyNumber value={finalCount} color={color} size="1.9rem" outlineColor={NUMBER_OUTLINE} />
-                <span>個 降らせました</span>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", columnGap: "0.6rem", width: "100%", maxWidth: 360, padding: "0 12px", boxSizing: "border-box" }}>
-                <div style={{ textAlign: "right" }}>
-                  <p style={endLabelStyle}>歴代累計</p>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr",
+                  gridTemplateRows: "auto auto auto",
+                  columnGap: "0.8rem",
+                  rowGap: "0.15rem",
+                  alignItems: "end",
+                  justifyItems: "center",
+                  width: "100%",
+                  padding: "0 12px",
+                  boxSizing: "border-box",
+                }}
+              >
+                <div style={{ gridColumn: "1 / -1", gridRow: 1, display: "flex", alignItems: "baseline", justifyContent: "center", gap: "0.35rem", fontSize: "0.9375rem", fontWeight: 700, color: "#e8eaed" }}>
+                  <BouncyNumber value={finalCount} color={color} size="1.9rem" outlineColor={NUMBER_OUTLINE} />
+                  <span>個 降らせました</span>
+                </div>
+                <p style={{ ...endLabelStyle, margin: 0, gridColumn: 1, gridRow: 2, textAlign: "center" }}>歴代累計</p>
+                <div style={{ gridColumn: 1, gridRow: 3, justifySelf: "center" }}>
                   <BouncyNumber value={(othersTotal ?? 0) + finalCount} color={color} size="1.3rem" outlineColor={NUMBER_OUTLINE} />
                 </div>
                 {/* 色ごとの一番輝いた時刻。💎を左右にスワイプ（または ‹ › ）で色を1つずつ送る。
                     データは再生中に全色ぶん手元で計算済みなので、ここで通信は起きない（Hop指示 2026-09-14）。
                     替えるのは「いま選んでいる色」そのものなので、見返す先と数字の色も一緒に変わる */}
                 <div
-                  style={{ pointerEvents: highlighting ? "none" : "auto", display: "flex", alignItems: "center", gap: "0.1rem", touchAction: "pan-y", visibility: highlighting ? "hidden" : "visible" }}
+                  style={{ gridColumn: 2, gridRow: "2 / 4", alignSelf: "center", pointerEvents: highlighting ? "none" : "auto", display: "flex", alignItems: "center", gap: "0.1rem", touchAction: "pan-y", visibility: highlighting ? "hidden" : "visible" }}
                   onPointerDown={(e) => { endGemSwipeRef.current = e.clientX; }}
                   onPointerUp={(e) => {
                     const x0 = endGemSwipeRef.current;
@@ -1099,21 +1111,19 @@ export default function HaiToDiamondPage() {
                   <EntryGem size={34} color={color} animate={!settings.reduceMotion} />
                   <button type="button" aria-label="次の色" onClick={() => cycleColor(1)} style={endGemArrowStyle}>›</button>
                 </div>
-                <div style={{ textAlign: "left", visibility: highlighting ? "hidden" : "visible" }}>
-                  <p style={endLabelStyle}>一番輝いた瞬間</p>
-                  {/* 時刻そのものを「その色が一番輝いた瞬間」を見返す入口にする。別のボタンは置かない（Hop指示 2026-09-14） */}
-                  {peakTime != null ? (
-                    <button
-                      type="button"
-                      onClick={handleHighlight}
-                      style={{ fontSize: "1.3rem", fontWeight: 700, color, fontVariantNumeric: "tabular-nums", lineHeight: 1.1, background: "none", border: "none", padding: "4px 8px 4px 0", textDecoration: "underline", textUnderlineOffset: "3px", cursor: "pointer", pointerEvents: "auto", fontFamily: "inherit" }}
-                    >
-                      {fmtClock(peakTime)}
-                    </button>
-                  ) : (
-                    <span style={{ fontSize: "1.3rem", fontWeight: 700, color, fontVariantNumeric: "tabular-nums", lineHeight: 1.1, padding: "4px 8px 4px 0", display: "inline-block" }}>—</span>
-                  )}
-                </div>
+                <p style={{ ...endLabelStyle, margin: 0, gridColumn: 3, gridRow: 2, textAlign: "center", visibility: highlighting ? "hidden" : "visible" }}>一番輝いた瞬間</p>
+                {/* 時刻そのものを「その色が一番輝いた瞬間」を見返す入口にする。別のボタンは置かない（Hop指示 2026-09-14） */}
+                {peakTime != null ? (
+                  <button
+                    type="button"
+                    onClick={handleHighlight}
+                    style={{ gridColumn: 3, gridRow: 3, fontSize: "1.3rem", fontWeight: 700, color, fontVariantNumeric: "tabular-nums", lineHeight: 1.1, background: "none", border: "none", padding: "2px 8px", textDecoration: "underline", textUnderlineOffset: "3px", cursor: "pointer", pointerEvents: "auto", fontFamily: "inherit", textAlign: "center", visibility: highlighting ? "hidden" : "visible" }}
+                  >
+                    {fmtClock(peakTime)}
+                  </button>
+                ) : (
+                  <span style={{ gridColumn: 3, gridRow: 3, fontSize: "1.3rem", fontWeight: 700, color, fontVariantNumeric: "tabular-nums", lineHeight: 1.1, padding: "2px 8px", display: "inline-block", textAlign: "center", visibility: highlighting ? "hidden" : "visible" }}>—</span>
+                )}
               </div>
             </>
           ) : (
