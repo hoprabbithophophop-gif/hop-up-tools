@@ -612,11 +612,22 @@ export default function HaiToDiamondPage() {
    *  このツールは公式動画の再生回数に足すために作っているため。
    *  呼ばれるのは、動画が実際に再生に入った合図（onPlayerStateChange の 1）を受け取った時 */
   const beginSession = useCallback(() => {
+    // reset() の前に、入口の💎（「歴代累計」の横）がいま画面のどこにあるかを控えておく。
+    // reset() の後だと入口はもう消えていて測れない。見つからない・幅0（表示されていない）なら飛ばす行き先は無し
+    const entryEl = document.querySelector('[data-entry-gem]') as HTMLElement | null;
+    const entryRect = entryEl?.getBoundingClientRect();
+    const entryPos = entryRect && entryRect.width > 0
+      ? { x: entryRect.left + entryRect.width / 2, y: entryRect.top + entryRect.height / 2 }
+      : null;
     setStoneBakeHurry(false);   // ここから先は動画が動くので、まだ焼き残っている色は元のゆっくりしたペースで
     canvasRef.current?.setMode(settingsRef.current.scene);   // 山かミラーボールか。reset より先に（設定「💎の見せ方」）
     canvasRef.current?.reset();   // 前の回の山を消して最初から（Hop報告 2026-09-07）
     const hex = findDiamondMember(memberIdRef.current)?.color;
     if (hex) canvasRef.current?.setOwnColor(hex);
+    // 入口の💎を、消すのではなく動画（裏のミラーボール）へ飛ばす。タップの記録には数えない（Hop指示 2026-09-14）。
+    // spawnSuck は自分の分の出発点から SELF_ABOVE_BUTTON(28px) 上げて飛ばすので、
+    // 入口の💎が実際に立っていた位置ちょうどから飛び立つよう、その分をあらかじめ足しておく
+    if (entryPos && hex) canvasRef.current?.spawn(hex, true, { x: entryPos.x, y: entryPos.y + 28 });
     highlightRef.current = null;
     seekPendingRef.current = null;
     launchedRef.current = false;   // 次の回はまた山から
