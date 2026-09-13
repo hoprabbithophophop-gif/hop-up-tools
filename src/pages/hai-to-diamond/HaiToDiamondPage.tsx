@@ -1091,6 +1091,8 @@ export default function HaiToDiamondPage() {
                 <div style={{ gridColumn: 1, gridRow: 3, justifySelf: "center" }}>
                   <BouncyNumber value={(othersTotal ?? 0) + finalCount} color={color} size="1.3rem" outlineColor={NUMBER_OUTLINE} />
                 </div>
+                {/* 累計と💎の間の薄い縦線。列の隙間の真ん中に置く（Hop指示 2026-09-14） */}
+                <div aria-hidden="true" style={{ gridColumn: 2, gridRow: "2 / 4", justifySelf: "start", alignSelf: "stretch", width: 1, marginLeft: "-0.4rem", background: "#3a3f4a" }} />
                 {/* 色ごとの一番輝いた時刻。💎を左右にスワイプ（または ‹ › ）で色を1つずつ送る。
                     データは再生中に全色ぶん手元で計算済みなので、ここで通信は起きない（Hop指示 2026-09-14）。
                     替えるのは「いま選んでいる色」そのものなので、見返す先と数字の色も一緒に変わる */}
