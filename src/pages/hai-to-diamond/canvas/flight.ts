@@ -3,7 +3,7 @@
 import { TUMBLE_PATHS } from "../gemSprites";
 import {
   type Ball, type BallView, type SeatHold, BALL_R, BALL_SPIN_SEC, BALL_TILE_FILL, BALL_TILE_MIN, BALL_TILT,
-  getBallLattice, landOnSeat, rememberSelfSeat, reserveSeat, reserveSelfSeat,
+  BALL_ZOOM_MIN, getBallLattice, landOnSeat, rememberSelfSeat, reserveSeat, reserveSelfSeat,
 } from "./ball";
 import { drawGemLive, SHRINK_MIN, SHRINK_REF, SIZE_MIN, SIZE_RANGE } from "./pile";
 
@@ -74,6 +74,10 @@ const SUCK_DEPTH_SOFT = 0.08;    // 席の深さがこれを下回っている�
                                  // 0.2 と見比べて 0.08 を採った（Hop決定 2026-09-13）。縁への着地がはっきり見える
 // 自分の💎を群衆と見分ける（Hop決定 2026-09-13）。飛んでいる間だけ大きくする【仮】
 const SELF_BIG = 1.35;           // 自分の分の飛んでいる大きさを何倍にするか
+const OTHER_SMALL = 0.5;         // 他の人の分の飛んでいる大きさを何倍にするか【仮】。1倍では大きすぎた（Hop指摘 2026-09-13）
+// 自分の分は、着いた場所でひと呼吸だけ💎のまま止まってから鏡になる（Hop決定 2026-09-13 案1）
+const SELF_LAND_HOLD_MS = 220;   // 席に着いてから鏡に変わるまで止まっている時間【仮】
+const SELF_LAND_FLASH_MS = 700;  // 自分の分の着地の光が通常の見え方へ戻るまで【仮】。他の人の分は LAND_FLASH_MS のまま
 
 // 飛んでいる💎の飛び方。押した時に等しい確率で1つ引き、着くまで変えない（Hop指示 2026-09-11）。
 // 進み具合は壁の時計ではなく飛行の進み（0→1）で決める。飛ぶのは0.7〜0.9秒と短いので、
@@ -202,12 +206,15 @@ export function spawnSuck(
 
 /** 飛び終わった💎を球の表面へ貼る。貼る場所は、押した時に取っておいた席（sk.seat）。
  *  席は色ごとにまとまるように決めてあるので、同じ色の鏡が隣り合って塊になる。
- *  席が全部埋まった後に取った席は、いちばん古い鏡の貼り替えになる */
+ *  席が全部埋まった後に取った席は、いちばん古い鏡の貼り替えになる。
+ *  自分の分で席へ着く分だけは、着いた場所で SELF_LAND_HOLD_MS のあいだ💎のまま止まってから鏡になる。
+ *  席は押した時に取ってあるので、止まっている間に他の人の分がそこへ入ることはない */
 export function landSucks(suck: Suck[], ball: Ball, now: number) {
   for (let i = suck.length - 1; i >= 0; i--) {
     const sk = suck[i];
-    if (now - sk.t0 < sk.dur) continue;
-    landOnSeat(ball, sk.seat, sk.rgb, now);
+    const held = sk.self && !sk.enter;
+    if (now - sk.t0 < sk.dur + (held ? SELF_LAND_HOLD_MS : 0)) continue;
+    landOnSeat(ball, sk.seat, sk.rgb, now, held ? SELF_LAND_FLASH_MS : undefined);
     suck.splice(i, 1);
   }
 }
@@ -296,8 +303,11 @@ export function drawSucks(
     // 寄りは毎コマ変わりうるので、出発時の大きさには混ぜず描く時に掛ける。
     // 輪郭のきわから中へ入る分は、縮まずに大きさを保ったまま消える
     // 自分の分は、飛んでいる間の大きさを SELF_BIG 倍にして群衆と見分けられるようにする。
-    // 着く先の大きさは鏡と同じ見え方のまま変えないので、着いた瞬間に跳ばない
-    const base = sk.size * ball.zoom * (sk.self ? SELF_BIG : 1);
+    // 着く先の大きさは鏡と同じ見え方のまま変えないので、着いた瞬間に跳ばない。
+    // 寄りは素の倍率ではなく「曲の始まりの寄り（BALL_ZOOM_MIN）を1倍とした倍率」で掛ける。
+    // 素の倍率だと始まりから1.30倍で描かれ、序盤の他の人の💎が大きすぎた（Hop指摘 2026-09-13）。
+    // 始まりが1倍、終わりが BALL_ZOOM_MAX / BALL_ZOOM_MIN ≒ 1.6倍。寄りとの連動そのものは残す
+    const base = sk.size * (ball.zoom / BALL_ZOOM_MIN) * (sk.self ? SELF_BIG : OTHER_SMALL);
     suckDraw.size = sk.enter ? base : base + (tileV * 0.95 / 2 - base) * t;
     // 濃さ。輪郭の中へ入る分は消えきる。席へ着く分も、飛んでいる間に球が回って
     // 席が真横を向いてしまったらその分だけ薄くする。鏡は真横を向くとほとんど見えないので、
@@ -308,6 +318,8 @@ export function drawSucks(
       const w = (u - SUCK_FADE_FROM) / (1 - SUCK_FADE_FROM);
       alpha = 1 + (endAlpha - 1) * w * w * (3 - 2 * w);
     }
+    // 自分の分が席に着いて止まっている間は、薄くせずそのまま濃く描く
+    if (sk.self && !sk.enter && now - sk.t0 >= sk.dur) alpha = 1;
     // 飛んでいる姿勢。通り道の上をどこまで進めるかと、絵ごと画面の中で何回まわすかを飛び方から決める。
     // 進み具合は飛行の進み u で測るので、飛ぶ時間が長くても短くても同じだけ回りきる。
     // 動きを減らす設定では、飛び方に関わらず出発時の向きのまま飛ばす

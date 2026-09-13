@@ -45,6 +45,12 @@ const BALL_DIM = 0.55;           // 光が当たっていない側の明るさ�
 // 自分の💎が着く席の選び方（手前かつ動画の矩形の外）。数字は全部【仮】
 const SELF_SEAT_DEPTH_MIN = 0.15; // 手前を向いている度合いの下限。真横に近い席は鏡がほとんど見えないので選ばない
 const SELF_SEAT_MARGIN = 4;      // 鏡が動画の矩形から離れていてほしい余白(px)
+const SELF_SEAT_OLD_POOL = 6;    // 空席が無い時に塗り替え先を選ぶ、古い席の候補の数【仮】。
+                                 // この中でいちばんこちらを向いている席を取る
+// 上の候補を控える入れ物。席を取るたびに作らず、ここで1度だけ作って中身を書き換える
+const selfOldSeat = new Int32Array(SELF_SEAT_OLD_POOL);
+const selfOldAge = new Float64Array(SELF_SEAT_OLD_POOL);
+const selfOldZ = new Float64Array(SELF_SEAT_OLD_POOL);
 // 着地の手応え。数字は全部【仮】
 export const LAND_FLASH_MS = 260;       // 着いた瞬間の強い光が、通常の見え方へ戻るまで
 
@@ -79,6 +85,9 @@ export type Ball = {
   /** その席に💎が最後に着いた時刻(ms)。0＝まだ一度も着いていない。
    *  着いた瞬間の強い光と、壁の粒の返事に使う */
   landAt: Float64Array;
+  /** その席の着地の光が通常へ戻るまでの長さ(ms)。0＝LAND_FLASH_MS。
+   *  自分の分だけ長い光にするために席ごとに持つ */
+  landMs: Float64Array;
   /** 「着いたばかり」の印を持っている席の一覧（固定長）と、その数。毎コマ作り直さず、詰めるだけ */
   fresh: Int32Array;
   freshN: number;
@@ -455,15 +464,17 @@ export type SeatView = {
   v: { x: number; y: number; w: number; h: number };
 };
 /** 自分の💎の席を1つ取る。条件は「手前（画面に向いている側）を向いていて、鏡がまるごと動画の矩形の外」。
- *  空いている席があればその中から散らばった順で先に来るもの、無ければ同じ条件の席のうちいちばん古いものを塗り替える。
+ *  条件に合う席のうち、いちばんこちらを向いている席（z2 が最大）を取る＝自分の分が着いた場所を見つけやすくする
+ *  （Hop決定 2026-09-13 案1）。空席を先に見る考え方は残す。空席があればその中で z2 が最大のもの、
+ *  無ければ同じ条件の席のうち古い方から SELF_SEAT_OLD_POOL 個に絞り、その中で z2 が最大のものを塗り替える。
  *  条件に合う席が1つも無ければ null を返し、呼び出し側が今までどおりの決め方に戻す。
  *  他の人の分の決め方（reserveSeat）はこれまでのまま＝球の全面に均等 */
 export function reserveSelfSeat(ball: Ball, rgb: Rgb, view: SeatView): SeatHold | null {
   const lv = getBallLattice();
   const lat = lv.a;
   const half = view.tileV * 0.6 + SELF_SEAT_MARGIN;
-  let free = -1, freeRank = Infinity;
-  let old = -1, oldAge = Infinity;
+  let free = -1, freeZ = -Infinity;
+  let oldN = 0;
   for (let s = 0; s < lv.seats; s++) {
     const o = s * 4;
     const x1 = lat[o] * view.cs + lat[o + 2] * view.sn;
@@ -477,11 +488,28 @@ export function reserveSelfSeat(ball: Ball, rgb: Rgb, view: SeatView): SeatHold 
       && sy + half > view.v.y && sy - half < view.v.y + view.v.h) continue;
     if (seatProtected(ball, s)) continue;
     if (!ball.taken[s]) {
-      const rk = lv.rank[s];
-      if (rk < freeRank) { freeRank = rk; free = s; }
-    } else if (ball.age[s] < oldAge) { oldAge = ball.age[s]; old = s; }
+      if (z2 > freeZ) { freeZ = z2; free = s; }
+      continue;
+    }
+    // 埋まっている席は、古い順に SELF_SEAT_OLD_POOL 個だけ控える。
+    // 入れる場所を後ろから探して1つずつ押し出す＝並べ替えの入れ物を作らない
+    const age = ball.age[s];
+    if (oldN < SELF_SEAT_OLD_POOL || age < selfOldAge[oldN - 1]) {
+      let i = Math.min(oldN, SELF_SEAT_OLD_POOL - 1);
+      while (i > 0 && selfOldAge[i - 1] > age) {
+        selfOldAge[i] = selfOldAge[i - 1]; selfOldSeat[i] = selfOldSeat[i - 1]; selfOldZ[i] = selfOldZ[i - 1];
+        i--;
+      }
+      selfOldAge[i] = age; selfOldSeat[i] = s; selfOldZ[i] = z2;
+      if (oldN < SELF_SEAT_OLD_POOL) oldN++;
+    }
   }
-  const seat = free >= 0 ? free : old;
+  let seat = free;
+  if (seat < 0) {
+    // 空席が無い時は、控えた古い席の中でいちばんこちらを向いているものを塗り替える
+    let bestZ = -Infinity;
+    for (let i = 0; i < oldN; i++) if (selfOldZ[i] > bestZ) { bestZ = selfOldZ[i]; seat = selfOldSeat[i]; }
+  }
   if (seat < 0) return null;
   return claimSeat(ball, seat, rgb, rgb.join(","), false);
 }
@@ -578,6 +606,7 @@ export function createBall(): Ball {
     seq: 0,
     reserved: 0,
     landAt: new Float64Array(BALL_SEATS),
+    landMs: new Float64Array(BALL_SEATS),
     fresh: new Int32Array(BALL_SEATS),
     freshN: 0,
     freshIn: new Uint8Array(BALL_SEATS),
@@ -598,6 +627,7 @@ export function clearBall(ball: Ball) {
   ball.seq = 0;
   ball.reserved = 0;
   ball.landAt = new Float64Array(BALL_SEATS);
+  ball.landMs = new Float64Array(BALL_SEATS);
   ball.fresh = new Int32Array(BALL_SEATS);
   ball.freshN = 0;
   ball.freshIn = new Uint8Array(BALL_SEATS);
@@ -606,9 +636,9 @@ export function clearBall(ball: Ball) {
 }
 
 /** 飛び終わった💎を席へ貼る。貼る絵と、その鏡を塗ってある色はここで1回だけ引く（毎フレーム引くと重い）。
- *  着いた時刻を席に書く。手前の席はここから LAND_FLASH_MS かけて強い光から通常へ戻り、
+ *  着いた時刻と、その席の光の長さ（既定は LAND_FLASH_MS）を席に書く。手前の席はその長さをかけて強い光から通常へ戻り、
  *  奥の席は WALL_FRESH_MS の間「着いたばかり」として壁に必ず粒を出す */
-export function landOnSeat(ball: Ball, slot: number, rgb: [number, number, number], now: number) {
+export function landOnSeat(ball: Ball, slot: number, rgb: [number, number, number], now: number, flashMs = LAND_FLASH_MS) {
   const tone = mirrorToneFor(rgb);
   ball.sprites[slot] = mirrorSpritesFor(rgb);
   ball.tone[slot * 3] = Math.round(tone[0]);
@@ -618,6 +648,7 @@ export function landOnSeat(ball: Ball, slot: number, rgb: [number, number, numbe
   ball.rgb[slot * 3 + 1] = rgb[1];
   ball.rgb[slot * 3 + 2] = rgb[2];
   ball.landAt[slot] = now;
+  ball.landMs[slot] = flashMs;
   if (!ball.freshIn[slot]) { ball.freshIn[slot] = 1; ball.fresh[ball.freshN++] = slot; }
 }
 
@@ -705,7 +736,7 @@ export function drawMirrors(
     // 戻り方は直線ではなく、ゆっくり動き出してゆっくり収まる曲線。貼る回数は増えない（差し替えだけ）
     const la = ball.landAt[slot];
     if (la > 0) {
-      const q = 1 - (now - la) / LAND_FLASH_MS;
+      const q = 1 - (now - la) / (ball.landMs[slot] || LAND_FLASH_MS);
       if (q > 0) fs = Math.max(fs, Math.round(q * q * (3 - 2 * q) * (MIRROR_FLASH - 1)));
     }
     ctx.drawImage(sp[fs], -0.5, -0.5, 1, 1);
