@@ -19,19 +19,42 @@
 // 世界座標: カメラ倍率1のときの画面座標と同じ。y は画面上端=0 で下へ正。
 // カメラの軸は「床（画面の下端）」。引くほど山は画面の下に縮んで留まり、動画（固定）の下に収まる。
 // 動画の中心を軸にすると、引くほど山の頂上が動画の中心に寄ってしまい、山を動画の下に留められない。
+//
+// 中身は canvas/ の5つの部品に分けてある。ここに残っているのは React の器・外向きの窓口・
+// 毎コマの描画の順番・額縁・盛り上がりの帯との受け渡しだけ。
+//   canvas/flight.ts … 押された💎が席へ飛んでいく間のこと
+//   canvas/ball.ts   … ミラーボールの球（席の格子・席の取り合い・鏡）
+//   canvas/wall.ts   … 壁に映る光の粒
+//   canvas/sky.ts    … 夜空へ放つ演出と星空
+//   canvas/pile.ts   … 💎が降って積もる山
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 // 💎の絵はここから受け取る。落ちてくる💎と積もった💎は、屈折・全反射・分散まで計算した本物（gemRenderer.ts）。
 // まだ焼けていない色と、WebGL が使えない端末では、今までの平らな面の絵（gemFacets.ts）が返る。
 // gemFacets.ts に面の形のデータを1本化した。入口の大きな💎は今までのまま。
 // ミラーボールの席に着いた💎は、立体ではなく色の付いた平らな丸い鏡になる
 import { hexToRgb } from "./gemFacets";
-import {
-  getStoneSprites, requestStoneSpritesByHex, stoneIndex, warmUpGemRenderer, SPRITE_LIGHT, TUMBLE_PATHS, requestAllStoneSprites,
-  stoneTone,
-} from "./gemSprites";
+import { requestStoneSpritesByHex, warmUpGemRenderer, SPRITE_LIGHT, requestAllStoneSprites, TUMBLE_PATHS } from "./gemSprites";
 import { DIAMOND_COLOR_ORDER, findDiamondMember } from "./members";
-// ミラーボールの席を色ごとにまとめるための、目に見える色の近さの物差しと、色ごとの居場所
-import { colorDistance, colorHome, type ColorHome, type Rgb } from "./ballColors";
+import {
+  type Ball, BALL_R, BALL_SPIN_SEC, BALL_TILE_FILL, BALL_TILE_MIN, BALL_TILT, BALL_ZOOM_EASE,
+  ballZoomFor, clearBall, createBall, createBallView, drawMirrors, getBallLattice,
+  forgetLastSelfSeat, releaseSeat,
+} from "./canvas/ball";
+import { type Suck, drawSucks, landSucks, spawnSuck } from "./canvas/flight";
+import {
+  type Gem, COUNT_REF, FALL_SPEED_MIN, FALL_SPEED_RANGE, FINALE_END_SCALE, FINALE_TIME, FLOOR_DEPTH,
+  MAX_DPR, MIN_SCALE, PILE_MAX_ON_SCREEN, SHRINK_MIN, SHRINK_REF, SIZE_MIN, SIZE_RANGE, SPIN_MIN, SPIN_RANGE,
+  allocSlot, createPileState, drawPile, resizePile, stepFall,
+} from "./canvas/pile";
+import {
+  type SkyFly, type SkyStar, SKY_FLASH_SIZE, STAR_MIN, STAR_RANGE,
+  addStar as skyAddStar, bakeAndDrawSky, createSkyState, drawFlies, launchBallToSky, launchPileToSky,
+  promoteFlies, sparkSky, spawnFlyToSky,
+} from "./canvas/sky";
+import {
+  beginWallFrame, createWallState, drawWallFade, drawWallSpots, promoteWallFade,
+  takeBackSeat, takeFreshLandings, wallToFade,
+} from "./canvas/wall";
 
 export type DiamondCanvasApi = {
   /** その色の💎を1つ、画面の上から降らせる。速さ・回転の向きと速さは1つずつ違う。
@@ -73,993 +96,12 @@ interface Props {
   reduceMotion?: boolean;
 }
 
-type Gem = {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  ang: number;
-  spin: number;
-  /** 飛び方の通り道（0〜TUMBLE_PATHS-1）。💎ごとに抽選して、その💎の一生の間は変わらない。
-   *  ang がその通り道のどこまで進んだかを表し、倒れ具合と回りが一緒に変わる＝転がって見える */
-  path: number;
-  /** 画面の上での向き(rad)。💎ごとにばらばらに寝かせる＝みんなが同じ姿勢で降りてこない */
-  roll: number;
-  size: number;
-  rgb: [number, number, number];
-  settled: boolean;
-  seed: number;
-  /** 着地先（世界座標）。降る前に決めて、隙間なく詰まる位置へはめ込む */
-  tx: number;
-  ty: number;
-};
-
-/** 夜空へ飛んでいる粒（画面座標）。飛び終わると星になって、星空の1枚の絵へ焼き込まれる */
-type SkyFly = {
-  x0: number; y0: number;   // 出発（画面座標）
-  x1: number; y1: number;   // 行き先（画面座標）
-  bow: number;              // 弧の膨らみ(px)。まっすぐ飛ばずに少し持ち上がる
-  t0: number;               // 飛び始めた時刻(ms)
-  dur: number;              // 飛ぶ時間(ms)
-  d: number;                // 粒の直径(px)
-  rgb: [number, number, number];
-  /** 自分が押した分。取り消し（スワイプの空振り）で消せるようにする */
-  self: boolean;
-};
-/** ミラーボール方式で、動画の中心へ吸い込まれている途中の💎（画面座標）。
- *  行き先は覚えず、描く時に毎回いまの動画の中心を見る＝再生中に画面の高さが変わっても狙いがずれない */
-type Suck = {
-  x0: number; y0: number;   // 出発（画面座標）
-  t0: number;               // 飛び始めた時刻(ms)
-  dur: number;              // 吸い込まれるまでの時間(ms)
-  ang: number;              // 出た時の向き(rad)
-  flight: number;           // 飛び方（FLIGHT_STYLES の何番か）。押した時に引いて、着くまで変わらない
-  path: number;             // 飛び方の通り道（0〜TUMBLE_PATHS-1）
-  roll: number;             // 画面の上での向き(rad)
-  size: number;
-  rgb: [number, number, number];
-  /** 進む道の膨らみ(px)。まっすぐ吸い込まれず、横へ少し逸れてから中心へ向かう。他の人の分は0（まっすぐ） */
-  bow: number;
-  /** 自分が押した分。取り消し（スワイプの空振り）で消せるようにする */
-  self: boolean;
-  /** はまる席の番号。押した時点で決まり、着くまで変わらない */
-  seat: number;
-  /** その席は取った時に空いていたか。取り消し（スワイプの空振り）で元へ戻すのに使う */
-  seatWasEmpty: boolean;
-  /** 貼り替えだった時の、元の色と、取る前にその席が塗られていた順番。取り消しの時だけ使う */
-  seatPrevRgb: [number, number, number];
-  seatPrevAge: number;
-  /** 手前かつ動画の矩形の外の席を取れたか（自分の分だけ）。
-   *  席は着く頃の球の向きで選んでいるので、押した瞬間の向きで「奥」と見なして
-   *  輪郭のきわで消してしまわないようにする目印 */
-  seatFront: boolean;
-  /** 席を取る時に、決まった混ぜ順の目印（reserved）を1つ進めたか。取り消しの時に戻すかどうかの判断に使う。
-   *  自分の分は混ぜ順を使わずに手前の席を選ぶので false になる */
-  seatCounted: boolean;
-  /** 行き先の席が、いま球のどの方角に見えているか(rad)と、球の中心からどれだけ離れて見えるか(px)。
-   *  席は回転で動くので毎フレーム測り直し、少しずつ寄せる＝行き先が動いても飛び方が跳ばない */
-  seatAng: number;
-  seatDist: number;
-  /** 行き先を一度でも決めたか（false のうちは寄せずに直接そこへ置く） */
-  aimed: boolean;
-  /** 席そのものへ着地せず、球の輪郭のきわから中へ入って消えるか。
-   *  奥を向いている席と、動画にすっぽり隠れる手前の席がこれにあたる。
-   *  押した直後の1フレーム目に決めて以後は変えない（途中で切り替わると飛び方が跳ぶ） */
-  enter: boolean;
-  /** どちら回りで回り込むか（+1 / -1）。出発点のある側から回る */
-  wrapSide: number;
-  /** 回り込みの深さ（0=まっすぐ入る 1=いっぱいに回り込む）。
-   *  正面を向いた席ほど浅く、輪郭ぎわの席と中へ入る分は深い。押した直後に決めて以後は変えない */
-  wrapCurl: number;
-};
-/** ミラーボールの球。球の大きさも席の数も固定で、変わるのは「どの席が埋まっているか」と、カメラの寄り具合だけ。
- *  zoom=いまのカメラの寄り（見かけの大きさは BALL_R × zoom）、
- *  sprites/rgb=各席に入っている💎の絵と色（空きは null）。席の位置は席の格子の並び、
- *  どの席を取るかは押された色で決まる（同じ色の席の隣を選ぶ） */
-type Ball = {
-  zoom: number;
-  sprites: (HTMLCanvasElement[] | null)[];
-  rgb: Uint8Array;
-  /** 取ってある席の一覧。押した時点で1つ取り、着いた時にそこへ貼る。
-   *  着いた席ではなく取った席で数えるので、飛んでいる途中の💎どうしで席がぶつからない。
-   *  並びに意味は無く、「いま埋まっている席はどれか」と「何席埋まっているか」を見るだけに使う。
-   *  古い新しいは age で見る */
-  occ: number[];
-  /** 席が取られているか（1=取ってある。飛んでいる途中の分も含む）。occ と同じ中身を席の番号で引けるようにした控え */
-  taken: Uint8Array;
-  /** 色ごとの、その色が入っている席の一覧（"r,g,b" → 席の番号）。
-   *  同じ色の隣を探す時に、球の全部の席を見に行かなくて済むようにする（連打された時の重さ対策） */
-  byColor: Map<string, number[]>;
-  /** 席が最後に塗られた順番。押されるたびに seq を1つ進めて、その番号を席に書く。
-   *  小さいほど古い＝満席の後に貼り替える相手を選ぶ物差し */
-  age: Float64Array;
-  seq: number;
-  /** 取った席の通し番号（色でまとめない時に使う）。決まった混ぜ順の何番目まで使ったか */
-  reserved: number;
-  /** 席の鏡を塗ってある色（"r,g,b" を3つ組で）。メンバーカラーそのままではなく、
-   *  焼いた石の絵の平均の色。鏡を貼る時に一緒に書き、壁の粒の色として毎コマ引く。
-   *  rgb の方はメンバーカラーのままなので、色ごとのまとまりや額縁の染まりはそちらで決まる */
-  tone: Uint8Array;
-  /** その席に💎が最後に着いた時刻(ms)。0＝まだ一度も着いていない。
-   *  着いた瞬間の強い光と、壁の粒の返事に使う */
-  landAt: Float64Array;
-  /** 「着いたばかり」の印を持っている席の一覧（固定長）と、その数。毎コマ作り直さず、詰めるだけ */
-  fresh: Int32Array;
-  freshN: number;
-  /** その席が fresh の一覧に入っているか（1=入っている） */
-  freshIn: Uint8Array;
-  /** 自分の💎が取った直近の席の環と、これまでに入れた総数。SELF_KEEP 個ぶんだけ上書きから守る */
-  selfRing: Int32Array;
-  selfRingN: number;
-};
-/** 夜空の星（画面座標）。位置は星空の絵へ焼き込んだ後も、瞬きの抽選のために覚えておく */
-type SkyStar = { x: number; y: number; d: number; rgb: [number, number, number] };
-
-// 開発中だけの切り替え。画面のアドレスに ?keep=0|3|5|10 を付けると変わる。
-// 手元で動かしている時（import.meta.env.DEV）と、main 以外の枝のプレビュー（__SHOW_VERSION__）で読む。
-// 本番の組み立てでは読まないので、公開している画面では既定のまま＝守らない。
-// プレビューでも読むのは、K を Hop が実機で押し比べて決めるため（2026-09-13）。
-const DEV_OPT = (import.meta.env.DEV || __SHOW_VERSION__) && typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
-/** 自分の直近いくつの席を上書きから守るか。0＝守らない */
-const SELF_KEEP = Math.max(0, Math.min(10, Math.floor(Number(DEV_OPT?.get("keep")) || 0)));
-/** 開発中だけ、着いたばかりの席から壁へ出た粒の数と、その最後の1つの画面での位置を
- *  外から読めるようにする（見本の撮影で数える・場所を確かめる） */
-const devStats = DEV_OPT
-  ? ((window as unknown as { __diamondDev?: { freshSpots: number; x: number; y: number; out: number } }).__diamondDev
-    = { freshSpots: 0, x: -1, y: -1, out: 0 })
-  : null;
-
-// 【仮】見本の値。実機で見て決める
-const GRAVITY = 60;            // px/s^2（世界座標）
-const FALL_SPEED_MIN = 40;     // 初速 px/s
-const FALL_SPEED_RANGE = 90;
-const SPIN_MIN = 0.6;          // rad/s
-const SPIN_RANGE = 3.2;
-const SIZE_MIN = 16;
-const SIZE_RANGE = 8;
-const MIN_SCALE = 0.3;         // いちばん引いた時のカメラ倍率【仮】
-const FINALE_END_SCALE = 0.7;  // 曲の終わりの倍率【仮】。0.3から一気に1まで寄ると急なので途中で止める
-// 数が増えるほど💎を小さくする（ハイ！テンションで人が増えると✋が縮むのと同じ考え・Hop決定 2026-09-06）。
-// SHRINK_REF 個までは等倍、それ以降は個数の平方根に反比例して縮み、SHRINK_MIN で止まる【仮】
-const SHRINK_REF = 400;
-const SHRINK_MIN = 0.6;          // 縮みすぎると面の影で黒っぽく見えるので、この辺で止める
-const COUNT_REF = 120;         // この数を超えたら、降った数の平方根に反比例してカメラを引く【仮】
-const FINALE_TIME = 206;       // 動画時刻 3:26（曲が一番盛り上がる所）からゆっくり寄り始める（Hop指定 2026-09-06。Live Edit. でも同じ所で良いとHop確認 2026-09-07）
-const FLOOR_DEPTH = 1.0;       // 床の位置（画面高さの倍数）。カメラの軸が床なので 1.0＝画面の下端が床
-const PILE_MAX_ON_SCREEN = 0.7; // 山の頂上が画面のこの高さ（画面高さの倍数）を超えたら、床を画面の下へ送り出して頂上をこの線に留める。
-                                // 終盤に寄った時、山が画面をはみ出すと降ってくる💎が画面の外で着地して見えなくなる（Hop報告 2026-09-07）【仮】
-                                // 寄りそのものを抑える方式は、山が大きいと最大の引きより引いてしまい両端に帯状の空白ができた（Hop報告 2026-09-07・2回目）
 const FRAME_BASE: [number, number, number] = [0x1a, 0x1d, 0x24]; // 額縁の地色
 const TINT_WINDOW_MS = 2500;   // 「その瞬間いちばん多い色」を数える直近の幅【仮】
 const TINT_STRENGTH = 0.45;    // 額縁の地色にその色をどれだけ混ぜるか（0=地色のまま、1=その色そのもの）【仮】
 const TINT_SLOTS = 4;          // 額縁に並べる色の数（4声コーラスに合わせて上位4色・Hop決定 2026-09-07）
 const TINT_BASE_TOTAL = 200;   // 順位を「直近の数 ÷ その色の曲全体の総数」で決める時に、総数に履かせる下駄。
                                // 参加者がごく少ない色が1回押されただけで跳ね上がるのを抑える【仮】（Hop決定 2026-09-07: 人数の偏りをそのまま出さない）
-const MAX_DPR = 2;             // 描く画面の細かさの上限。3倍の端末で画素が2.25倍になり発熱の元になる。焼き込みの絵と同じ上限【仮】
-const COL_W = 10;              // 積もり高さの帳簿の列幅
-const PACK_RADIUS = 0.6;       // 積もり計算で💎を丸い粒とみなす時の半径（size 倍）。見た目の半径(約1.0)より小さくして深く重ねる＝「ぎっしり」【仮】
-const SLOPE = 0.06;            // 山の傾き。小さいほど平らで、瓶に詰めるように下から隙間なく埋まる【仮】
-const NEAR_SPAWN = 0.5;        // 散らした位置の近くに落とす強さ。小さいと一番低い所（引いた直後は画面の端）に集まり、動画の周りが寂しくなる【仮】
-const OUTSIDE_SLOPE = 1.5;     // 画面の端より外へ 1px 出るごとに、積もり高さ何px分の損と数えるか＝端の外の裾野の急さ【仮】
-const MAX_GEMS = 4000;         // 配列に持つ💎の上限（焼き込みの絵が作れない環境での保険）
-const LIVE_KEEP = 300;         // 1つずつ描き続ける積もった💎の数（山の表面ぶん）。それより古いものは後ろの絵へ焼き込む
-const BAKE_BATCH = 200;        // 1フレームで焼き込む上限（一度に大量に描いて引っかからないように）
-const BAKE_HEIGHT = 2.0;       // 焼き込み用の絵の高さ（画面高さの倍数・床から上へ）
-const BAKE_MAX_AREA = 12e6;    // 焼き込み用の絵の画素数の上限（iOS Safari の1枚あたりの限界より下）
-
-// 夜空へ放つ演出（曲の最後のフレーズ）の値。数字は全部【仮】、実機で見て決める
-const LAUNCH_MAX = 6000;         // 一斉に放つ粒の数の上限。これより多い山は等間隔に間引く
-const LAUNCH_FLY_MS = 1600;      // 山の粒が夜空の行き先へ着くまで
-const LAUNCH_FLY_JITTER = 500;   // 粒ごとの着く時刻のばらつき（全部が同時に着かないように）
-const SPAWN_FLY_MS = 800;        // 放った後に押した分が星になるまで
-const SKY_Y_BIAS = 1.25;         // 行き先の縦の偏り。1より大きいほど画面の上の方が密になる
-const FLY_BOW_MIN = 20;          // 弧の膨らみ(px)。まっすぐ飛ばずに少し持ち上がる
-const FLY_BOW_RANGE = 60;
-const FLY_DOT_MIN = 3;           // 飛んでいる粒の直径(px)。面の計算はせず色つきの小さな丸で描く
-const FLY_DOT_RANGE = 3;
-const STAR_MIN = 2;              // 星の点の直径(px)
-const STAR_RANGE = 2;
-const SELF_LAUNCH_Y = 230;       // 放った後の自分の💎の出発点。画面の下端からこれだけ上＝色の帯（下端から約120px）とその下地のはっきり上。140 だと帯の下地の裏に隠れて見えないことがあった（Hop指摘 2026-09-08）【仮】
-const SELF_LAUNCH_SPREAD = 40;   // 同上の縦のばらつき。押すたびに同じ高さから出ると、閃光が一直線に並んで機械的に見える
-const SKY_SPARK_RATE = 6;        // 星の瞬きの頻度（毎秒）。曲の終わりの山と同じ水準
-const SKY_SPARK_RATE_HL = 9;     // ハイライト再生中（選んだ色の星だけ）の頻度
-const SKY_SPARK_SIZE = 7;        // 星の瞬きの大きさ（閃光の半径の元・画面座標）
-const SKY_FLASH_SIZE = 10;       // 放った後に押した手応えの閃光の大きさ（画面座標）
-
-// ミラーボール方式の値。数字は全部【仮】、実機で見て決める
-// 本物のミラーボールは、人が増えても球そのものが大きくなったりはしない。近づいて見れば大きく見えるだけ。
-// なので球の大きさも席の数も固定で、曲が進むにつれてカメラが寄っていく（Hop決定 2026-09-08）。
-const BALL_SEATS = 840;          // 席（鏡を貼る場所）の数【仮】。固定。押した💎は色ごとにまとまるように席を取り、
-                                 // 満席になったら 同じ色の鏡のうちいちばん古いものを貼り替える。
-                                 // 人が少ないうちは鏡がまばらなままでよい（Hop了承 2026-09-08）
-const BALL_R = 95;               // 球の半径(px)。カメラが寄っていない（拡大率1）時の見かけの大きさ【仮】。
-                                 // 390幅の画面なら 動画の高さの半分＋額縁 ≒ 116px なので、曲の始まりは動画の裏にすっぽり隠れる
-const BALL_ZOOM_MIN = 1.30;      // 曲の始まりの拡大率【仮】。95 × 1.30 ≒ 124px で、幅375の画面の動画（高さ195）の
-                                 // 上下から 25px ほど球の縁が覗く。始まりから球の存在が分かるようにする（Hop決定 2026-09-13）。
-                                 // 壁の粒は鏡の大きさに合わせてあるので、序盤の粒も一緒に大きくなる
-const BALL_ZOOM_MAX = 2.08;      // 曲の終わりの拡大率【仮】。95 × 2.08 ≒ 198px ＝ 画面の幅の半分を超えて上下からはみ出す。
-                                 // 2.6 では実機で大きすぎた（Hop指摘 2026-09-11）ので8割にした
-const BALL_ZOOM_EASE = 3;        // 拡大率を目当ての値へ寄せる速さ（1秒あたり）。ハイライト再生で動画の時刻が飛んだ時に、
-                                 // 拡大率まで一足飛びに変わらないようにする【仮】
-const BALL_SPIN_SEC = 20;        // 縦の軸まわりに1周する秒数
-const BALL_TILT = 0.3;           // 軸の傾き(rad)。まっすぐ立っているより少し傾いている方が球に見える
-const BALL_TILE_FILL = 1.0;      // 鏡を貼る大きさ。隣の席との間隔の何倍か【仮】。1.0 で鏡の直径が席の間隔いっぱいになり、
-                                 // 隣どうしが触れ合う。絵は枠より少し内側で切ってあるので、鏡と鏡の間には細い隙間が残る
-const BALL_TILE_MIN = 2.5;       // 鏡の最小の大きさ(px)。拡大率が低いうちに1px を切ると消えてしまう【仮】
-const BALL_HL_CUT = 0.985;       // 壁の粒を一瞬明るくする、奥の鏡の光の返し具合【仮】。
-                                 // 手前の鏡が白く光り始める所は MIRROR_HL_CUT で別に決める
-const BALL_DIM = 0.55;           // 光が当たっていない側の明るさ。暗すぎると球が欠けて見える
-const SUCK_MS = 700;             // 💎が席へ飛び着くまで
-const SUCK_MS_JITTER = 200;      // 同上のばらつき。全部が同じ速さだと機械的に見える
-// 飛んでいる💎の通り道。出発点から着く所まで、位置も速さの向きも切れ目のない1本の3次ベジェ曲線で飛ぶ。
-//   P0 = 出発点、P1 = 出発の向きへ少し伸ばした所、P2 = 球の輪郭の外側で、着く点の接線の方へ引いた所、P3 = 着く点。
-// 前半は入口へ直進・後半は輪の上を滑る、という2段の道にすると、切り替わる所で速さと向きが折れて見える
-// （Hop指摘 2026-09-13）。1本の曲線に1つのなめらかな進みにして、途中で速さが跳ばないようにした。
-// 行き先は席の全面に均等のまま。手前の見える席を優先したり奥の席を減らしたりはしない（Hop条件 2026-09-13）。
-// 数字は全部【仮】
-const SUCK_CTRL_LEAD = 0.45;     // P1 を、出発点から着く点までの距離の何倍ぶん出発の向きへ伸ばすか
-const SUCK_WRAP_BULGE = 1.14;    // P2 を置く、輪郭の外側の半径（見かけの半径の倍数）
-const SUCK_WRAP_SWEEP = 1.0;     // 回り込みがいちばん深い時の角度(rad)。正面を向いた席ほど浅くなる
-const SUCK_ENTER_R = 0.92;       // 輪郭のきわから中へ入る分の、着く点の半径（見かけの半径の倍数）。
-                                 // 輪郭より少しだけ内側に置き、またぐ前後で薄くなりきるようにする
-const SUCK_FADE_FROM = 0.72;     // 飛ぶ時間のうち、ここから薄くなり始める
-const SUCK_DEPTH_SOFT = 0.08;    // 席の深さがこれを下回っていると、着く頃には薄くする。
-                                 // 鏡は真横を向くとほとんど見えないので、飛んでいる💎の濃さもそれに合わせる
-                                 // ＝着いて鏡に変わる瞬間に濃さが跳ばない。
-                                 // 0.2 と見比べて 0.08 を採った（Hop決定 2026-09-13）。縁への着地がはっきり見える
-// 自分の💎を群衆と見分ける（Hop決定 2026-09-13）。飛んでいる間だけ大きくする【仮】
-const SELF_BIG = 1.35;           // 自分の分の飛んでいる大きさを何倍にするか
-// 自分の💎が着く席の選び方（手前かつ動画の矩形の外）。数字は全部【仮】
-const SELF_SEAT_DEPTH_MIN = 0.15; // 手前を向いている度合いの下限。真横に近い席は鏡がほとんど見えないので選ばない
-const SELF_SEAT_MARGIN = 4;      // 鏡が動画の矩形から離れていてほしい余白(px)
-// 着地の手応え。数字は全部【仮】
-const LAND_FLASH_MS = 260;       // 着いた瞬間の強い光が、通常の見え方へ戻るまで
-const WALL_FRESH_MS = 500;       // 席が「着いたばかり」の印を持っている間の長さ。
-                                 // 本番は毎秒およそ200個が着くので、印を持つ裏の席は常に50ほどに収まり、
-                                 // くじで選ばれた粒と場所を取り合わずに共存する。
-                                 // 3000 では印を持つ席だけで壁の上限を埋めてしまい、くじの粒が消えていた
-const WALL_LAND_FLASH = 2.2;     // 着いた直後に、その席の壁の粒を何倍明るくするか
-// 飛んでいる💎の飛び方。押した時に等しい確率で1つ引き、着くまで変えない（Hop指示 2026-09-11）。
-// 進み具合は壁の時計ではなく飛行の進み（0→1）で決める。飛ぶのは0.7〜0.9秒と短いので、
-// 1秒あたりの速さで回していた頃は24コマのうち2〜13コマしか進まず、横顔で止まって見えた。
-// 絵は焼き直さず、「通り道の上を進める量」と「絵ごと画面の中で回す量」の組み合わせだけで5通り作る。
-//   laps   … 通り道の上をいくつ進むか。1＝24コマぶんで一巡
-//   turns  … 絵ごと画面の中で何回転させるか
-//   quad   … 絵ごとの回りを後ほど速くするか。止まりかけのコマの感じを出す
-//   wobble … 絵ごとの回りに足す揺れの大きさ(rad)
-//   paths  … 使う通り道の番号。null なら全部から引く
-// 数字は全部【仮】
-const FLIGHT_STYLES: { laps: number; turns: number; quad: boolean; wobble: number; paths: number[] | null }[] = [
-  { laps: 0, turns: 0, quad: false, wobble: 0, paths: null },       // 0 無回転。出発時の向きのまま
-  { laps: 0.35, turns: 0, quad: false, wobble: 0, paths: null },    // 1 緩く回る
-  { laps: 2.5, turns: 0, quad: false, wobble: 0, paths: [1, 2] },   // 2 勢いよく回る
-  { laps: 0.5, turns: 1, quad: true, wobble: 0.35, paths: [2] },    // 3 止まりかけのコマのようにぐらぐら
-  { laps: 1, turns: 1, quad: false, wobble: 0, paths: null },       // 4 ひねりながら
-];
-// 上の paths に書いた番号は gemSprites.ts の通り道の並びに合わせてある。
-// 2番は「1周で2回まわる」通り道、3番は「倒れ角の振れ幅が小さい」通り道。
-// gemSprites.ts の通り道の並びが変わったらここも直す
-const FLIGHT_WOBBLE_CYCLES = 3;  // 揺れの往復の数。飛ぶ間にこの回数だけ行き来する【仮】
-// 自分が押した💎の飛び方。他の人の分（画面の縁から出る）とは別に決める。
-// 画面の下の方から出して動画の下端よりはっきり下を通し、動画の裏に入るまでは大きさを保つ。
-// 以前は横が画面いっぱい・出発点が動画のすぐ下だったので、10回押して9回は出た瞬間に動画の裏へ入って見えなかった（Hop報告 2026-09-08）
-const SELF_SUCK_Y = 230;         // 出発点。画面の下端からこれだけ上【仮】
-const SELF_SUCK_Y_SPREAD = 40;   // 同上の縦のばらつき。毎回同じ高さから出ると閃光が一直線に並んで機械的に見える
-const SELF_SUCK_X_SPREAD = 80;   // 出発点の横のばらつき（画面の中央から左右へこれだけ）【仮】
-const SELF_SUCK_MIN_GAP = 40;    // 出発点は必ず「動画の下端＋これだけ」より下にする＝出た瞬間に裏へ入らない【仮】
-const SELF_SUCK_MS = 900;        // 席へ着くまで。他の人の分より少し長くして、飛んでいる姿が見えるようにする【仮】
-const SELF_SUCK_MS_JITTER = 150; // 同上のばらつき
-const SELF_SUCK_BOW = 45;        // 出発の向きの横への寄せ(px)。まっすぐ飛ばず少し弧を描く（ベジェの P1 を横へずらす）【仮】
-const SELF_ABOVE_BUTTON = 28;    // 押した💎のボタンの中心から、これだけ上を出発点にする。
-                                 // 押した指のすぐ上から飛び立つので、自分の1個がどれか目で追える（Hop決定 2026-09-11）【仮】
-const SPAWN_OUTSIDE = 48;        // 他の人の分の出発点を、画面の縁からこれだけ外へ押し出す。
-                                 // 縁ぴったりだと出た瞬間に見えて「画面の中で湧いた」ように映る（Hop報告 2026-09-11）【仮】
-// 壁に映る光の粒（Hop決定 2026-09-08）。ここでいう「壁」は動画と額縁の外の画面全体。
-// 壁に届く光は、こちらを向いている手前の面ではなく、球の向こう側＝奥の面が返したもの。
-// 球が回ると奥の面は画面の上で手前の面と逆向きに動くので、壁の粒も手前の鏡とは逆向きに流れる
-// （Hop指摘 2026-09-08。それまでは手前の鏡から粒を作っていたので同じ向きに流れていた）。
-// 序盤は淡くまばら（球は動画の裏にいて、粒だけが「裏で何か光っている」手掛かり）、
-// 終盤は数も大きさも濃さも増して、粒が小さな💎の輪郭を持ち始める。
-// 以前あった「裏から漏れる放射状の筋」と「鏡からの筋」は、車輪の輻のように見えて
-// 球の回転と結びつかなかったので、まるごとこの粒に置き換えた
-// 粒の大きさは鏡の大きさに合わせる。球が寄れば粒も一緒に大きくなり、鏡1枚と粒1つが同じ物差しになる。
-// 光源は3つ。2つ目と3つ目は1つ目の光を縦の軸まわりに振った向きで、鏡1枚が光源ごとに筋を返すので
-// 壁の粒の数がほぼ3倍になる。球の鏡は密なのに壁の粒は小さくて少ない、という見え方への直し（Hop決定 2026-09-11 案3）
-const WALL_SPOT_MAX = 300;       // 一度に壁へ映す粒の数の上限【仮】。光源3つぶんを含めた上限
-const WALL_LIT_MIN = 0.15;       // 奥の鏡がこれ以上光を受けていないと壁に映らない【仮】。
-                                 // 奥の鏡には「奥から当たる光」を当てて数える＝光の向きの奥行きだけ裏返し、
-                                 // 手前の鏡と同じ考え方で「どれだけ光を返しているか」を測る。
-                                 // 本物のミラーボールと同じで光の向きが回るため、壁の半分しか光らないのはそのままでよい（Hop決定 2026-09-08）。
-                                 // ただし 0.3 だと粒が4個まで減る瞬間があって寂しかったので、光の当たる範囲を少し広げた
-const WALL_LIT_EARLY = -0.5;     // 鏡がまだ少ない間の足切り【仮】。鏡が数十枚のうちは、光を受けている鏡のうち
-                                 // さらに画面に収まる位置へ映るものがごく僅かで、粒が2個しか出ないことがあった（Hop報告 2026-09-08）。
-                                 // 序盤だけ「うっすら光を受けている鏡」まで拾って、粒が6〜10個は壁に出るようにする
-const WALL_LIT_RAMP = BALL_SEATS; // 鏡がこの枚数まで増えたら、足切りを通常の WALL_LIT_MIN へ戻しきる【仮】。
-                                 // 席が満席になった所でちょうど通常に戻る
-const WALL_FADE_BAND = 0.08;     // 足切りのすぐ上の粒は薄くする幅。ふっと現れ・ふっと消える【仮】
-// 球の後ろに平らな壁がある部屋として粒を置く（Hop決定 2026-09-11 案1）。
-// 以前は球の中心から鏡の向きへ一定の倍率で伸ばした所に置いていたが、
-// それだと粒の並びが球をそのまま大きくした同心の形になり、奥に平らな壁があるようには見えなかった。
-// 床は置かない。球は天井から吊るされているものなので、床が近くに見えると天井の低い部屋になってしまう
-const ROOM_WALL = 1.4;           // 球の中心から奥の壁までの距離。球の半径を1とした値【仮】
-const ROOM_CAM = 6.0;            // 球の中心からカメラまでの距離。同じ単位【仮】。
-                                 // 球の中心の距離でちょうど等倍になるように写す。
-                                 // 壁は球の中心より奥にあるので、粒はどれも一律に少しだけ縮んで見える
-const WALL_STRETCH_MAX = 3;      // 浅い角度で当たった粒がどこまで伸びるかの上限【仮】
-const WALL_TILE_MUL = 1.8;       // 粒の直径は、元になった鏡の短い方の辺の何倍か【仮】。
-                                 // 粒の大きさを px で決め打ちせず鏡に合わせるので、カメラが寄って鏡が大きくなれば粒も一緒に大きくなる
-const WALL_LIGHT_TURNS = [0, 2.2, -2.2];   // 光源の向き。1つ目が今までの光で、2つ目と3つ目は
-                                 // それを縦の軸まわりにこれだけラジアンで回した向き【仮】
-// 光源ごとの回し量の cos と sin。毎コマ数え直さないよう、ここで一度だけ表にしておく
-const WALL_LIGHT_COS = WALL_LIGHT_TURNS.map((t) => Math.cos(t));
-const WALL_LIGHT_SIN = WALL_LIGHT_TURNS.map((t) => Math.sin(t));
-const WALL_A_MIN = 0.15;         // 粒の濃さ。序盤【仮】
-const WALL_A_MAX = 0.35;         // 同上、終盤（主役は動画なので、これより濃くしない）【仮】
-const WALL_FULL_AT = 0.945;      // 濃さが満開になる曲の進み。夜空へ放つ時刻（4:28.5 ÷ 4:44）に合わせてある【仮】
-                                 // 以前は「曲の進み」と「球の大きさ」の2つで満開の度合いを決めていたが、
-                                 // 球の見かけの大きさ（＝カメラの寄り）も曲の進みで決まるようになったので、二重に数えず進みだけで決める
-const WALL_GEM_FROM = 0.8;       // 曲の進みがここを過ぎたら、粒の中心に鏡と同じ絵を薄く重ねて輪郭を出す【仮】
-const WALL_GEM_FADE = 0.03;      // 同上の出はじめ。ここを過ぎた瞬間にぱっと現れないよう、この幅だけかけて濃くなる【仮】
-const WALL_GEM_SCALE = 0.45;     // その絵の大きさ（粒の直径の何倍か）【仮】
-const WALL_GEM_ALPHA = 0.6;      // 同上の濃さ（粒の濃さの何倍か）【仮】
-const WALL_FLASH = 2.2;          // 奥の鏡がちょうど光を返す向きに来た瞬間、その粒を何倍明るくするか【仮】
-// 夜空へ放つ瞬間、壁の粒（直径40px前後）はその場で星（2〜4px）になる。
-// 入れ替わりが一瞬だと見た目が飛ぶので、粒が縮みながら星へ入れ替わる時間を挟む（Hop決定 2026-09-08）
-const WALL_TO_STAR_MS = 300;     // 粒が縮んで星になるまで【仮】
-const WALL_TO_STAR_CORE = 0.22;  // 粒の絵のうち「芯」に見える割合。縮み終わりの粒は 星の直径 ÷ この値 の大きさで貼る
-                                 // ＝縮みきった時に、粒の芯の太さが星の点の太さとちょうどそろう【仮】
-// 💎の行き先を「動画の中心」から「これから自分がはまる席」に変える（Hop指摘 2026-09-08）。
-// 席が手前側で動画の外にあれば、その席へ飛んで鏡の大きさまで縮み、着いた瞬間に鏡として貼られる
-const SEAT_FOLLOW = 8;           // 席の動きを追いかける速さ（1秒あたり）。席が回転で動画の裏へ入った時に
-                                 // 行き先が中心へ移るのも、この速さでなめらかに動く＝飛び先が跳ばない【仮】
-// 飛んでいる間は最後までダイヤのまま。着いた瞬間に鏡になる（Hop決定 2026-09-11）
-
-// 積もった💎も落ちてくる💎も、毎フレーム面を計算せず、色×石の向きごとに一度焼いた小さな絵(スプライト)を貼る。
-// 数千個積もっても drawImage の回数が増えるだけで、絵を作る計算は増えない（重さ対策）。
-// 絵の作り置きと焼く順番は gemSprites.ts が持つ。ここは受け取って貼るだけ。
-// 落ちている💎の光の輪と、動画の裏を通る時の額縁の灯りも、色ごとに一度だけ描いた絵を貼る。
-// 毎フレーム createRadialGradient を作るのは1個ごとに重く、大勢の💎が降る時に効く（発熱対策 2026-09-07）
-const GLOW_PX = 64;
-const glowCache = new Map<string, { halo: HTMLCanvasElement; edge: HTMLCanvasElement }>();
-function getGlow(rgb: [number, number, number]): { halo: HTMLCanvasElement; edge: HTMLCanvasElement } {
-  const key = rgb.join(",");
-  let g = glowCache.get(key);
-  if (g) return g;
-  const [r, gg, b] = rgb;
-  const make = (stops: [number, string][]) => {
-    const c = document.createElement("canvas");
-    c.width = GLOW_PX; c.height = GLOW_PX;
-    const cx = c.getContext("2d");
-    if (cx) {
-      const grad = cx.createRadialGradient(GLOW_PX / 2, GLOW_PX / 2, 0, GLOW_PX / 2, GLOW_PX / 2, GLOW_PX / 2);
-      for (const [o, col] of stops) grad.addColorStop(o, col);
-      cx.fillStyle = grad;
-      cx.fillRect(0, 0, GLOW_PX, GLOW_PX);
-    }
-    return c;
-  };
-  g = {
-    halo: make([[0, `rgba(${r},${gg},${b},0.35)`], [1, `rgba(${r},${gg},${b},0)`]]),
-    edge: make([[0, "rgba(255,255,255,0.5)"], [0.3, `rgba(${r},${gg},${b},0.55)`], [1, `rgba(${r},${gg},${b},0)`]]),
-  };
-  glowCache.set(key, g);
-  return g;
-}
-// ミラーボールの席に着いた💎は、球の表面に貼られた色の付いた平らな丸い鏡になる（Hop決定 2026-09-11 案1）。
-// 鏡は面が1枚。球が回って向きの合った鏡が白く光るだけで、面ごとの明るさは計算しない。
-// 向きは貼る時の変形で決まるので、回していない絵を色ごとに持つ。
-//
-// 鏡の色はメンバーカラーそのままではなく、焼いた立体の石の絵の平均の色にする（Hop決定 2026-09-11 案C）。
-// 純色を並べると強すぎるうえ、石の絵は光が中で折れるぶん白を含んで淡く見えるので、
-// メンバーカラーのままだと飛んでいる💎と席の鏡で色味がそろわない。
-// まだ焼けていない色と、立体を描けない端末では、メンバーカラーに白を混ぜた色で代える。
-//
-// 白い瞬きは別の光を上から重ねるのではなく、「白く光った絵」に差し替えて出す
-// ＝鏡1枚につき貼るのは1回のままで、瞬きのために描く回数が増えない
-const MIRROR_PX = 64;            // 絵の1辺【仮】
-const MIRROR_FLASH = 5;          // 瞬きの段階の数。0番が光っていない絵
-const MIRROR_R = 0.96;           // 鏡の円の大きさ。絵の枠の何倍か。枠より少し内側で切って、
-                                 // 隣の鏡との間に細い隙間が見えるようにする【仮】
-const MIRROR_FLASH_MAX = 0.92;   // 一番光った時に、どこまで白へ寄せるか【仮】
-const MIRROR_WHITEN = 0.35;      // 石がまだ焼けていない色の代え。メンバーカラーにこれだけ白を混ぜる【仮】
-/** 鏡が白く光り始める、光の返し具合【仮】。緩めると光る鏡が増えすぎて、白い塊になって球に見えなくなる */
-const MIRROR_HL_CUT = 0.975;
-/** 色に白を混ぜる */
-function whiten(rgb: [number, number, number], w: number): [number, number, number] {
-  return [rgb[0] + (255 - rgb[0]) * w, rgb[1] + (255 - rgb[1]) * w, rgb[2] + (255 - rgb[2]) * w];
-}
-const mirrorCache = new Map<string, HTMLCanvasElement[]>();
-/** 鏡の絵を1色ぶん。白さの段ごとに1枚ずつ、色ごとに一度だけ作って控える。
- *  渡される色は石の絵を測った平均なので小数が混ざる。控えの鍵は丸めた値で作る */
-function getMirrorSprites(rgb: [number, number, number]): HTMLCanvasElement[] {
-  const key = Math.round(rgb[0]) + "," + Math.round(rgb[1]) + "," + Math.round(rgb[2]);
-  let arr = mirrorCache.get(key);
-  if (arr) return arr;
-  const lx = Math.cos(SPRITE_LIGHT), ly = Math.sin(SPRITE_LIGHT);
-  /** 明るさ k と白の混ぜ具合 w から、塗る色を作る */
-  const mix = (k: number, w: number) => {
-    const r = rgb[0] * k, g = rgb[1] * k, b = rgb[2] * k;
-    return "rgb(" + ((r + (255 - r) * w) | 0) + "," + ((g + (255 - g) * w) | 0) + "," + ((b + (255 - b) * w) | 0) + ")";
-  };
-  arr = [];
-  for (let s = 0; s < MIRROR_FLASH; s++) {
-    // 白く光っている度合い。真っ白まで振り切るとただの白丸になるので、手前で止める【仮】
-    const fl = (s / (MIRROR_FLASH - 1)) * MIRROR_FLASH_MAX;
-    const c = document.createElement("canvas");
-    c.width = MIRROR_PX; c.height = MIRROR_PX;
-    const cx = c.getContext("2d");
-    if (cx) {
-      cx.translate(MIRROR_PX / 2, MIRROR_PX / 2);
-      cx.scale(MIRROR_PX / 2, MIRROR_PX / 2);
-      // 中は一様に近く、光の側から反対側へ向かってゆるく暗くなるだけ
-      const g = cx.createLinearGradient(lx * MIRROR_R, ly * MIRROR_R, -lx * MIRROR_R, -ly * MIRROR_R);
-      g.addColorStop(0, mix(1.0, fl * 0.95 + 0.18));
-      g.addColorStop(0.5, mix(0.92, fl * 0.85 + 0.04));
-      g.addColorStop(1, mix(0.62, fl * 0.7));
-      cx.fillStyle = g;
-      cx.beginPath();
-      cx.arc(0, 0, MIRROR_R, 0, Math.PI * 2);
-      cx.fill();
-      // 縁の細い光。丸い鏡であることが分かるように
-      cx.lineWidth = 0.05;
-      cx.strokeStyle = "rgba(255,255,255," + (0.28 + 0.5 * fl).toFixed(2) + ")";
-      cx.beginPath();
-      cx.arc(0, 0, MIRROR_R, 0, Math.PI * 2);
-      cx.stroke();
-    }
-    arr.push(c);
-  }
-  mirrorCache.set(key, arr);
-  return arr;
-}
-/** その色の鏡を塗る色。石が焼けていればその絵の平均の色、まだなら白を混ぜた色 */
-function mirrorToneFor(rgb: [number, number, number]): [number, number, number] {
-  return stoneTone(rgb) ?? whiten(rgb, MIRROR_WHITEN);
-}
-/** メンバーカラーから鏡の絵を引く。石がまだ焼けていない間の代えの色は控えない
- *  ＝焼き上がった後に引き直せば、本物の石から測った色の鏡に変わる */
-const mirrorByColor = new Map<string, HTMLCanvasElement[]>();
-function mirrorSpritesFor(rgb: [number, number, number]): HTMLCanvasElement[] {
-  const key = rgb.join(",");
-  const hit = mirrorByColor.get(key);
-  if (hit) return hit;
-  const tone = stoneTone(rgb);
-  const arr = getMirrorSprites(tone ?? whiten(rgb, MIRROR_WHITEN));
-  if (tone) mirrorByColor.set(key, arr);
-  return arr;
-}
-
-// 降っている💎は、以前は「石は回さず光の向きだけ48段階回した絵」を持ち、貼る時に絵ごと回していた。
-// 平らな絵のうちは「石を回す」と「絵を回す」が同じ結果になるので成り立っていたが、
-// 本物の💎は立体なので、絵ごと回すと石が画面の中で寝転がってしまう。
-// そこで積もった💎と同じ「石を回した絵を、回さずに貼る」形に揃えた（gemSprites.ts の getStoneSprites）。
-
-// 夜空の星と、飛んでいる粒の丸。どちらも面の計算はせず、色ごとに一度だけ描いた絵を大きさを変えて貼る。
-// 数千個が同時に動くので、1個ごとに描き方を組み立てないのが肝（発熱対策）。
-const STAR_PX = 64;
-const STAR_CORE = 0.16;   // 絵の中で「点」に見える芯の割合。芯の直径 d の星は d/STAR_CORE の大きさで貼る
-const starCache = new Map<string, HTMLCanvasElement>();
-const DOT_PX = 32;
-const DOT_CORE = 0.45;    // 同上（粒は芯が大きく、滲みは狭い）
-const dotCache = new Map<string, HTMLCanvasElement>();
-function makeRadial(px: number, stops: [number, string][]): HTMLCanvasElement {
-  const c = document.createElement("canvas");
-  c.width = px; c.height = px;
-  const cx = c.getContext("2d");
-  if (cx) {
-    const grad = cx.createRadialGradient(px / 2, px / 2, 0, px / 2, px / 2, px / 2);
-    for (const [o, col] of stops) grad.addColorStop(o, col);
-    cx.fillStyle = grad;
-    cx.fillRect(0, 0, px, px);
-  }
-  return c;
-}
-/** 星: 白い芯＋その人の色の、ごく薄い光の滲み */
-function getStar(rgb: [number, number, number]): HTMLCanvasElement {
-  const key = rgb.join(",");
-  let c = starCache.get(key);
-  if (c) return c;
-  const [r, g, b] = rgb;
-  c = makeRadial(STAR_PX, [
-    [0, "rgba(255,255,255,0.95)"],
-    [STAR_CORE, `rgba(${r},${g},${b},0.8)`],
-    [0.34, `rgba(${r},${g},${b},0.07)`],   // 滲みは「ごく薄い」。数千個を重ねる（lighter）ので、濃いと白く飽和する【仮】
-    [1, `rgba(${r},${g},${b},0)`],
-  ]);
-  starCache.set(key, c);
-  return c;
-}
-/** 飛んでいる粒: その色の小さな丸 */
-function getDot(rgb: [number, number, number]): HTMLCanvasElement {
-  const key = rgb.join(",");
-  let c = dotCache.get(key);
-  if (c) return c;
-  const [r, g, b] = rgb;
-  c = makeRadial(DOT_PX, [
-    [0, "rgba(255,255,255,0.9)"],
-    [DOT_CORE, `rgba(${r},${g},${b},0.9)`],
-    [0.75, `rgba(${r},${g},${b},0.25)`],
-    [1, `rgba(${r},${g},${b},0)`],
-  ]);
-  dotCache.set(key, c);
-  return c;
-}
-/** 壁に映る光の粒: 芯がぼんやり明るく、外へ向かって溶けていく丸。
- *  色ごとに一度だけ描いて、貼る時に大きさと濃さ（globalAlpha）を変える＝毎フレームの塗りは貼るだけ */
-const WALL_PX = 64;
-const wallSpotCache = new Map<number, HTMLCanvasElement>();
-function getWallSpot(key: number, r: number, g: number, b: number): HTMLCanvasElement {
-  let c = wallSpotCache.get(key);
-  if (c) return c;
-  c = makeRadial(WALL_PX, [
-    [0, `rgba(${r},${g},${b},1)`],
-    [0.22, `rgba(${r},${g},${b},0.72)`],
-    [0.55, `rgba(${r},${g},${b},0.22)`],
-    [1, `rgba(${r},${g},${b},0)`],
-  ]);
-  wallSpotCache.set(key, c);
-  return c;
-}
-/** 夜空の行き先（画面座標）。画面全体に散らし、縦は上の方が少し密になるよう偏らせる */
-function skyTarget(W: number, H: number): { x: number; y: number } {
-  return { x: Math.random() * W, y: H * Math.pow(Math.random(), SKY_Y_BIAS) };
-}
-
-// ミラーボールの席の並び（半径1の球）。本物のミラーボールと同じく、北から南へ何本かの帯に切り、
-// 帯ごとに「その帯の円周の長さに比例した枚数」を等間隔に置く＝行と列がそろった格子になる。
-// 枚数は4の倍数に丸めて、隣り合う帯どうしでも列がだいたいそろって見えるようにする。
-// 格子は1つだけ・BALL_SEATS 席で固定し、最初に使う時だけ組み立てて使い回す。
-// 💎が1つ吸い込まれたら、決まった混ぜ順の次の1席が埋まる（Hop決定 2026-09-08: 席の数も球の大きさも増やさない）
-/** 決まった順番で同じ数を返す簡単な乱数。席を埋める順が起動のたびに変わらないようにするために使う */
-function ballRandom(seed: number): () => number {
-  let x = seed;
-  return () => {
-    x = (x * 1103515245 + 12345) & 0x7fffffff;
-    return x / 0x7fffffff;
-  };
-}
-
-/** 席の格子。seats=席の数、a=席1つにつき4つ（球の上の向き x,y,z と、その席の横の間隔）、
- *  order=散らばった順（席を色で決められない時の逃げ道と、迷った時の順番付け）、v=段（緯度）の間隔。
- *  a の4つ目と v が、そのまま鏡の横幅・高さの元になる。
- *  rank=席の番号から order の何番目かを引く表、lon=席の経度（色ごとの居場所と見比べるのに使う）。
- *  nbrStart/nbr=隣り合う席の一覧。席 s の隣は nbr[nbrStart[s]] から nbr[nbrStart[s+1]-1] まで。
- *  この一覧は起動時に1回だけ作って使い回す（押すたびに隣を計算し直さない） */
-type BallLattice = {
-  seats: number; a: Float32Array; order: Int32Array; v: number;
-  rank: Int32Array; nbrStart: Int32Array; nbr: Int32Array; lon: Float32Array;
-};
-let ballLattice: BallLattice | null = null;
-function buildBallLattice(): BallLattice {
-  const N = BALL_SEATS;
-  // 帯の本数は「鏡が正方形に並ぶ本数」から逆算する（合計はおよそ 4B²/π 席になる）
-  const B0 = Math.max(4, Math.round(Math.sqrt((Math.PI * N) / 4)));
-  const counts: number[] = [];
-  for (let i = 0; i < B0; i++) {
-    const th = ((i + 0.5) / B0) * Math.PI;
-    counts.push(Math.max(4, Math.round((2 * B0 * Math.sin(th)) / 4) * 4));
-  }
-  // 合計をちょうど N 席に合わせる。席のいちばん多い帯（＝赤道寄り）で増減させるので、間隔はほとんど変わらない
-  let total = counts.reduce((acc, c) => acc + c, 0);
-  while (total !== N) {
-    let m = 0;
-    for (let i = 1; i < counts.length; i++) if (counts[i] > counts[m]) m = i;
-    if (total > N) {
-      const cut = Math.min(total - N >= 4 ? 4 : 1, counts[m] - 4);
-      if (cut <= 0) break;
-      counts[m] -= cut; total -= cut;
-    } else {
-      const add = Math.min(4, N - total);
-      counts[m] += add; total += add;
-    }
-  }
-  const B = counts.length;
-  const v = Math.PI / B;   // 段と段の間隔（rad）。半径を掛けると鏡の高さになる
-  const a = new Float32Array(N * 4);
-  const lon = new Float32Array(N);  // 席の経度
-  const bandStart: number[] = [];   // 段ごとの、いちばん若い席の番号
-  const bandCount: number[] = [];   // 段ごとに実際に置けた席の数
-  let k = 0;
-  for (let i = 0; i < B && k < N; i++) {
-    bandStart.push(k);
-    bandCount.push(Math.min(counts[i], N - k));
-    const th = ((i + 0.5) / B) * Math.PI;
-    const y = Math.cos(th), rho = Math.sin(th);
-    // 横の間隔は帯の円周を席の数で割ったもの。極に近い段は円周が短いので、そのぶん鏡も細くなる
-    // （かぎ針編みの球で、上下の段の目が細く見えるのと同じ）。段の間隔より広くはしない
-    const u = Math.min(v * 1.2, ((Math.PI * 2) / counts[i]) * rho);
-    for (let j = 0; j < counts[i] && k < N; j++) {
-      const ph = (j / counts[i]) * Math.PI * 2;
-      a[k * 4] = rho * Math.cos(ph);
-      a[k * 4 + 1] = y;
-      a[k * 4 + 2] = rho * Math.sin(ph);
-      a[k * 4 + 3] = u;
-      lon[k] = ph;
-      k++;
-    }
-  }
-  // 散らばった順。席を色で決めるようになった今は、色で決められない時の逃げ道と、
-  // 同じくらい良い席が並んだ時の順番付けに使う（下の rank）。
-  // 並びの端から順に埋めると北極だけに固まるので、決まった順で混ぜた並びを使う。
-  // 赤道から上下へ広げる埋め方も試したが、赤道の帯はちょうど動画にすっかり隠れる高さなので、
-  // 数千枚たまるまで球が1枚も見えないままだった（2026-09-08 に見比べて混ぜる方を採用）。
-  // 毎回同じ並びになるよう乱数の種は固定（起動ごとに変わると見え方が揺れる）
-  const ord = new Int32Array(N);
-  for (let i = 0; i < N; i++) ord[i] = i;
-  const rnd = ballRandom(19980621);
-  for (let i = N - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1));
-    const t = ord[i]; ord[i] = ord[j]; ord[j] = t;
-  }
-  const rank = new Int32Array(N);
-  for (let i = 0; i < N; i++) rank[ord[i]] = i;
-  // 隣り合う席の表。同じ段の左右と、上下の段で「席の受け持つ幅が触れ合っている」席を隣とみなす。
-  // 段によって席の数が違う（極に近いほど少ない）ので、上下の隣は1つとは限らない。
-  // かぎ針編みの球で、上の段の1目に下の段の2目が付くことがあるのと同じ
-  const lists: number[][] = [];
-  for (let i = 0; i < bandStart.length; i++) {
-    const ci = bandCount[i];
-    for (let j = 0; j < ci; j++) {
-      const list: number[] = [];
-      if (ci > 1) list.push(bandStart[i] + ((j + 1) % ci));
-      if (ci > 2) list.push(bandStart[i] + ((j - 1 + ci) % ci));
-      const ph = (j / ci) * Math.PI * 2;
-      for (const nb of [i - 1, i + 1]) {
-        if (nb < 0 || nb >= bandStart.length) continue;
-        const cn = bandCount[nb];
-        const w = Math.PI / ci + Math.PI / cn + 1e-6;   // 受け持つ幅の半分どうしの合計＝ここまで近ければ触れ合っている
-        const st2 = (Math.PI * 2) / cn;
-        const lo = Math.ceil((ph - w) / st2), hi = Math.floor((ph + w) / st2);
-        for (let m = lo; m <= hi && m - lo < cn; m++) {
-          const s2 = bandStart[nb] + (((m % cn) + cn) % cn);
-          if (!list.includes(s2)) list.push(s2);
-        }
-      }
-      lists.push(list);
-    }
-  }
-  const nbrStart = new Int32Array(N + 1);
-  let tot = 0;
-  for (let s = 0; s < N; s++) { nbrStart[s] = tot; tot += lists[s]?.length ?? 0; }
-  nbrStart[N] = tot;
-  const nbr = new Int32Array(tot);
-  let w2 = 0;
-  for (let s = 0; s < N; s++) for (const t2 of lists[s] ?? []) nbr[w2++] = t2;
-  return { seats: N, a, order: ord, v, rank, nbrStart, nbr, lon };
-}
-function getBallLattice(): BallLattice {
-  return (ballLattice ??= buildBallLattice());
-}
-
-// ── 席の決め方 ───────────────────────────────────────────────
-// 押された💎を、色ごとに塊になるように席へ割り当てる。
-//   1. 同じ色の席がもうあれば、その隣の空いている席
-//   2. まだ無ければ、その色の居場所（ballColors.ts の colorHome）にいちばん近い空いている席
-//   3. 席が全部埋まっていれば、同じ色の席のうちいちばん古いものを貼り替える（pickRepaintSeat）
-// 隣の一覧は起動時に1回だけ作った表を引くだけ（押すたびに計算し直さない）。
-/** 席の決め方の切り替え。2つの案を見比べるために残してある（Hopの判断待ち・2026-09-10）。
- *  "hue"       … 上のとおり。色ごとの居場所（色合いから決まる経度）を先に決めておくので、
- *                 塊は球じゅうに散らばって生まれ、隣り合う塊の色は少しずつ移り変わる
- *  "continent" … 指示のままの3段（同じ色の隣 → 色合いの近い色の隣 → 散らばった順）。
- *                 散らばった順を使うのはいちばん最初の1つだけで、以後はすべてその隣に付くので、
- *                 球の一部だけが埋まって残りが空のままになる */
-/** 席を色でまとめるかどうか。false＝公開中の本番と同じで、決まった混ぜ順に前から埋める。
- *  色でまとめる方は、満席の後の塗り替えの決め方がまだ決まっていないので今は止めてある（Hopの判断待ち・2026-09-10）。
- *  true に戻すだけで色でまとめる作りに切り替わる */
-const SEAT_CLUSTER = false;
-type SeatSeed = "hue" | "continent";
-const SEAT_SEED = "hue" as SeatSeed;
-/** 塊の1枚目を置く時に、経度をどれくらい大まかに見るか。
- *  半周（180度）をこの数で割った幅がひと帯＝12なら15度ずつ【仮】 */
-const SEED_LON_STEP = 12;
-
-/** その席が、その色の居場所にどれだけ合っているか（1に近いほど合っている）。
- *  色合いを持つ色は経度だけで測る＝南北は問わないので、塊は北にも南にも伸びられる。
- *  白は居場所が無いので、どの席も同じ0点＝散らばった順で先に来る席が選ばれる */
-function homeScore(lv: BallLattice, s: number, home: ColorHome): number {
-  if (home.lon === null) return 0;
-  let d = Math.abs(lv.lon[s] - home.lon) % (Math.PI * 2);
-  if (d > Math.PI) d = Math.PI * 2 - d;
-  return 1 - d / Math.PI;
-}
-function seatIsColor(ball: Ball, s: number, rgb: Rgb): boolean {
-  const o = s * 3;
-  return ball.taken[s] === 1 && ball.rgb[o] === rgb[0] && ball.rgb[o + 1] === rgb[1] && ball.rgb[o + 2] === rgb[2];
-}
-/** 同じ席を二度調べないための印。押すたびに番号を1つ進めて、消して回らなくて済むようにする */
-let seatVisit: Int32Array | null = null;
-let seatVisitStamp = 0;
-/** seats（ある色が入っている席の一覧）の隣の空席から、いちばん良い1つを選ぶ。
- *  良さは「その色の席にいくつ囲まれているか（＝塊が丸くまとまる）」が第一で、
- *  同じなら色の居場所に近い方、それも同じなら散らばった順で先に来る方 */
-function bestFreeNeighbor(ball: Ball, lv: BallLattice, seats: number[] | undefined, rgb: Rgb, home: ColorHome): number {
-  if (!seats || seats.length === 0) return -1;
-  if (!seatVisit || seatVisit.length !== lv.seats) seatVisit = new Int32Array(lv.seats);
-  const seen = seatVisit;
-  const stamp = ++seatVisitStamp;
-  let best = -1, bestScore = -Infinity, bestRank = Infinity;
-  for (const s of seats) {
-    for (let i = lv.nbrStart[s]; i < lv.nbrStart[s + 1]; i++) {
-      const n = lv.nbr[i];
-      if (ball.taken[n] || seen[n] === stamp) continue;
-      seen[n] = stamp;
-      let same = 0;
-      for (let j = lv.nbrStart[n]; j < lv.nbrStart[n + 1]; j++) if (seatIsColor(ball, lv.nbr[j], rgb)) same++;
-      const score = same + 0.5 * homeScore(lv, n, home);
-      const rk = lv.rank[n];
-      if (score > bestScore || (score === bestScore && rk < bestRank)) { bestScore = score; bestRank = rk; best = n; }
-    }
-  }
-  return best;
-}
-function dropFromColor(ball: Ball, key: string, seat: number) {
-  const arr = ball.byColor.get(key);
-  if (!arr) return;
-  const at = arr.indexOf(seat);
-  if (at >= 0) arr.splice(at, 1);
-  if (arr.length === 0) ball.byColor.delete(key);
-}
-function addToColor(ball: Ball, key: string, seat: number) {
-  const arr = ball.byColor.get(key);
-  if (arr) arr.push(seat); else ball.byColor.set(key, [seat]);
-}
-/** 席の一覧のうち、いちばん古く塗られた1席。空の一覧なら -1 */
-function oldestSeat(ball: Ball, seats: number[] | undefined): number {
-  if (!seats || seats.length === 0) return -1;
-  let best = -1, bestAge = Infinity;
-  for (const s of seats) {
-    if (seatProtected(ball, s)) continue;   // 自分の直近の席は塗り替えの候補から外す
-    const g = ball.age[s];
-    if (g < bestAge) { bestAge = g; best = s; }
-  }
-  return best;
-}
-/** 満席の後に貼り替える1席を選ぶ。
- *  同じ色の席のうちいちばん古いもの＝その色の枚数は変わらず、色の塊も虫食いにならない。
- *  同じ色が1つも無ければ、色合いのいちばん近い色のうちいちばん古いもの。
- *  そのとき、残り1席しかない色は先に外して探す＝球からその色が消えてしまわないようにする。
- *  どの色も1席しか持っていない時だけ、その決まりを外して最寄りの色から取る（外さないと貼り替え先が無くなる）。
- *  見るのは色の数（数十）と、その色が持つ席の数だけなので、連打されても重くならない */
-function pickRepaintSeat(ball: Ball, rgb: Rgb, key: string): number {
-  const same = oldestSeat(ball, ball.byColor.get(key));
-  if (same >= 0) return same;
-  let bestKey: string | null = null, bestD = Infinity;
-  let anyKey: string | null = null, anyD = Infinity;
-  for (const [k2, arr] of ball.byColor) {
-    if (!arr || arr.length === 0) continue;
-    const d = colorDistance(rgb, k2.split(",").map(Number) as Rgb);
-    if (d < anyD) { anyD = d; anyKey = k2; }
-    if (arr.length > 1 && d < bestD) { bestD = d; bestKey = k2; }
-  }
-  const pick = bestKey ?? anyKey;
-  if (pick !== null) return oldestSeat(ball, ball.byColor.get(pick));
-  // 色ごとの一覧が空＝ここへは来ないはずだが、念のため全席からいちばん古い1席を選ぶ
-  let fb = -1, fbAge = Infinity;
-  for (let s = 0; s < ball.taken.length; s++) {
-    if (!ball.taken[s] || seatProtected(ball, s)) continue;
-    if (ball.age[s] < fbAge) { fbAge = ball.age[s]; fb = s; }
-  }
-  return fb;
-}
-/** 席を1つ確保して、そこへ色を書き込む。戻り値は取り消し（スワイプの空振り）で元へ戻すための控え */
-type SeatHold = { seat: number; wasEmpty: boolean; prevRgb: [number, number, number]; prevAge: number; counted: boolean };
-function claimSeat(ball: Ball, seat: number, rgb: Rgb, key: string, counted: boolean): SeatHold {
-  const o = seat * 3;
-  const prevRgb: [number, number, number] = [ball.rgb[o], ball.rgb[o + 1], ball.rgb[o + 2]];
-  const prevAge = ball.age[seat];
-  const wasEmpty = ball.taken[seat] === 0;
-  if (!wasEmpty) dropFromColor(ball, prevRgb.join(","), seat);
-  ball.taken[seat] = 1;
-  ball.rgb[o] = rgb[0]; ball.rgb[o + 1] = rgb[1]; ball.rgb[o + 2] = rgb[2];
-  addToColor(ball, key, seat);
-  // occ は「埋まっている席の一覧」なので、新しく取った時だけ足す（貼り替えは既に入っている）
-  if (wasEmpty) ball.occ.push(seat);
-  ball.age[seat] = ++ball.seq;
-  return { seat, wasEmpty, prevRgb, prevAge, counted };
-}
-/** その席が「自分の直近 SELF_KEEP 個」に入っていて、上書きから守られているか。
- *  SELF_KEEP が 0 の間は誰も守られない＝今までどおり */
-function seatProtected(ball: Ball, seat: number): boolean {
-  if (SELF_KEEP <= 0) return false;
-  const n = Math.min(ball.selfRingN, SELF_KEEP);
-  for (let i = 0; i < n; i++) if (ball.selfRing[i] === seat) return true;
-  return false;
-}
-/** 自分が取った席を環へ入れる。K+1 個目を入れると、いちばん古い自分の席が環から外れる＝守られなくなる */
-function rememberSelfSeat(ball: Ball, seat: number) {
-  if (SELF_KEEP <= 0) return;
-  ball.selfRing[ball.selfRingN % SELF_KEEP] = seat;
-  ball.selfRingN++;
-}
-/** 直前に入れた自分の席を環から外す（取り消しの時） */
-function forgetLastSelfSeat(ball: Ball, seat: number) {
-  if (SELF_KEEP <= 0 || ball.selfRingN <= 0) return;
-  const at = (ball.selfRingN - 1) % SELF_KEEP;
-  if (ball.selfRing[at] !== seat) return;
-  ball.selfRing[at] = -1;
-  ball.selfRingN--;
-}
-/** 自分の💎が着く席を選ぶ時に見る、そのコマの球の見え方 */
-type SeatView = {
-  cx: number; cy: number; r: number;
-  cs: number; sn: number; ct: number; st: number;
-  tileV: number;
-  v: { x: number; y: number; w: number; h: number };
-};
-/** 自分の💎の席を1つ取る。条件は「手前（画面に向いている側）を向いていて、鏡がまるごと動画の矩形の外」。
- *  空いている席があればその中から散らばった順で先に来るもの、無ければ同じ条件の席のうちいちばん古いものを塗り替える。
- *  条件に合う席が1つも無ければ null を返し、呼び出し側が今までどおりの決め方に戻す。
- *  他の人の分の決め方（reserveSeat）はこれまでのまま＝球の全面に均等 */
-function reserveSelfSeat(ball: Ball, rgb: Rgb, view: SeatView): SeatHold | null {
-  const lv = getBallLattice();
-  const lat = lv.a;
-  const half = view.tileV * 0.6 + SELF_SEAT_MARGIN;
-  let free = -1, freeRank = Infinity;
-  let old = -1, oldAge = Infinity;
-  for (let s = 0; s < lv.seats; s++) {
-    const o = s * 4;
-    const x1 = lat[o] * view.cs + lat[o + 2] * view.sn;
-    const z1 = -lat[o] * view.sn + lat[o + 2] * view.cs;
-    const y2 = lat[o + 1] * view.ct - z1 * view.st;
-    const z2 = lat[o + 1] * view.st + z1 * view.ct;
-    if (z2 < SELF_SEAT_DEPTH_MIN) continue;   // 奥を向いている席と、真横に近い席は外す
-    const sx = view.cx + x1 * view.r, sy = view.cy - y2 * view.r;
-    // 鏡がまるごと動画の矩形の外にあること。矩形に少しでもかかる席は、半分隠れて見えるので外す
-    if (sx + half > view.v.x && sx - half < view.v.x + view.v.w
-      && sy + half > view.v.y && sy - half < view.v.y + view.v.h) continue;
-    if (seatProtected(ball, s)) continue;
-    if (!ball.taken[s]) {
-      const rk = lv.rank[s];
-      if (rk < freeRank) { freeRank = rk; free = s; }
-    } else if (ball.age[s] < oldAge) { oldAge = ball.age[s]; old = s; }
-  }
-  const seat = free >= 0 ? free : old;
-  if (seat < 0) return null;
-  return claimSeat(ball, seat, rgb, rgb.join(","), false);
-}
-/** 押された💎の席を1つ取る。戻り値は取り消し（スワイプの空振り）で元へ戻すための控え */
-function reserveSeat(ball: Ball, rgb: Rgb): SeatHold {
-  const lv = getBallLattice();
-  const N = lv.seats;
-  const key = rgb.join(",");
-  const home = colorHome(rgb);
-  let seat = -1;
-  let counted = false;
-  if (!SEAT_CLUSTER) {
-    // 公開中の本番と同じ決め方。決まった混ぜ順を前から使い、一周したら古い席から上書きする。
-    // 自分の直近の席を守っている間は、その席に当たったら次の席へ送る（最大 SELF_KEEP+1 回で必ず決まる）
-    for (let i = 0; i <= SELF_KEEP; i++) {
-      const cand = lv.order[ball.reserved % N];
-      ball.reserved++;
-      counted = true;
-      if (!seatProtected(ball, cand)) { seat = cand; break; }
-    }
-  } else if (ball.occ.length < N) {
-    // 1. 同じ色の塊の隣
-    seat = bestFreeNeighbor(ball, lv, ball.byColor.get(key), rgb, home);
-    if (seat < 0 && SEAT_SEED === "hue") {
-      // 2. その色の居場所（経度の帯）の中から、散らばった順で先に来る空席。
-      //    経度の近さをそのまま比べると、席の細かい赤道寄りの段がいつも勝ってしまい、
-      //    塊の1枚目が必ず動画に隠れる高さに置かれる（2026-09-10 に見て気づいた）。
-      //    そこで経度は SEED_LON_STEP きざみの「どの帯か」だけで比べ、
-      //    同じ帯の中では今までどおり散らばった順に取る＝1枚目の高さは球じゅうにばらける
-      let bestQ = -Infinity, bestRank = Infinity;
-      for (let s = 0; s < N; s++) {
-        if (ball.taken[s]) continue;
-        const q = Math.round(homeScore(lv, s, home) * SEED_LON_STEP);
-        const rk = lv.rank[s];
-        if (q > bestQ || (q === bestQ && rk < bestRank)) { bestQ = q; bestRank = rk; seat = s; }
-      }
-    } else if (seat < 0) {
-      // 2. 色合いのいちばん近い色から順に、その塊の隣に空きがないか見る
-      const others: { k: string; rgb: Rgb; d: number }[] = [];
-      for (const k2 of ball.byColor.keys()) {
-        if (k2 === key) continue;
-        const p = k2.split(",").map(Number) as Rgb;
-        others.push({ k: k2, rgb: p, d: colorDistance(rgb, p) });
-      }
-      others.sort((p, q) => p.d - q.d);
-      for (const o2 of others) {
-        seat = bestFreeNeighbor(ball, lv, ball.byColor.get(o2.k), o2.rgb, home);
-        if (seat >= 0) break;
-      }
-      // 3. それも無ければ、今までどおり散らばった順のまだ使っていない席
-      if (seat < 0) for (let i = 0; i < N; i++) { const s = lv.order[i]; if (!ball.taken[s]) { seat = s; break; } }
-    }
-  }
-  // 席が全部埋まっている。貼り替える相手を色で選ぶ
-  if (seat < 0) seat = pickRepaintSeat(ball, rgb, key);
-  if (seat < 0) seat = 0;
-  return claimSeat(ball, seat, rgb, key, counted);
-}
-/** 取った席を返す（取り消し）。空席だった席は空席へ、貼り替えだった席は元の色と塗られた順番へ戻す */
-function releaseSeat(ball: Ball, seat: number, wasEmpty: boolean, prevRgb: [number, number, number], prevAge: number, counted: boolean) {
-  if (!SEAT_CLUSTER && counted) ball.reserved = Math.max(0, ball.reserved - 1);
-  const o = seat * 3;
-  dropFromColor(ball, ball.rgb[o] + "," + ball.rgb[o + 1] + "," + ball.rgb[o + 2], seat);
-  ball.rgb[o] = prevRgb[0]; ball.rgb[o + 1] = prevRgb[1]; ball.rgb[o + 2] = prevRgb[2];
-  ball.age[seat] = prevAge;
-  if (wasEmpty) {
-    ball.taken[seat] = 0;
-    const at = ball.occ.indexOf(seat);
-    if (at >= 0) ball.occ.splice(at, 1);
-  } else {
-    addToColor(ball, prevRgb.join(","), seat);
-  }
-}
-// ── 壁に映る粒 ───────────────────────────────────────────────
-/** いま壁に映っている粒の控え。毎コマ作り直さず、n を 0 に戻して詰め直すだけ */
-type WallBuf = {
-  x: Float32Array; y: Float32Array; c: Uint8Array; w: Float32Array;
-  ex: Float32Array; ey: Float32Array; ang: Float32Array; d: Float32Array;
-  p: (HTMLCanvasElement | null)[]; n: number;
-};
-/** そのコマの球の見え方と光の向き。粒を拾う関数へ毎回渡す */
-type WallView = {
-  cx: number; cy: number; r: number; W: number; H: number;
-  Lx: number; Ly: number; Lz: number;
-  cut: number; flash: boolean;
-};
-/** 奥の鏡が、li 番目の光源からどれだけ光を受けているか（0〜1）。
- *  光の向きを縦の軸まわりに回して光源の向きを作り、光の向きの奥行きだけ裏返して測る */
-function wallLightDot(li: number, x1: number, y2: number, z2: number, Lx: number, Ly: number, Lz: number): number {
-  const lc = WALL_LIGHT_COS[li], ls = WALL_LIGHT_SIN[li];
-  return x1 * (Lx * lc + Lz * ls) + y2 * Ly - z2 * (-Lx * ls + Lz * lc);
-}
-/** 奥側の鏡1枚が li 番目の光源から返した筋を、球の後ろの平らな壁へ映して控える。映せたら true。
- *  force は「着いたばかりの席」で、光の受け方が足切りに届かなくても1つ映す時に立てる。
- *  boost は着いた直後だけ明るくする倍率（通常は1） */
-function takeWallSpot(
-  buf: WallBuf, view: WallView, ball: Ball, slot: number,
-  x1: number, y2: number, z2: number, li: number, dia: number, boost: number, force: boolean,
-): boolean {
-  if (buf.n >= WALL_SPOT_MAX) return false;
-  const db = wallLightDot(li, x1, y2, z2, view.Lx, view.Ly, view.Lz);
-  if (!force && !(db > view.cut)) return false;
-  const lc = WALL_LIGHT_COS[li], ls = WALL_LIGHT_SIN[li];
-  const Lx2 = view.Lx * lc + view.Lz * ls, Ly2 = view.Ly, Lz2 = -view.Lx * ls + view.Lz * lc;
-  // 奥から当たってくる光の向き。db と同じで、光の向きの奥行きだけ裏返してある
-  const ix = -Lx2, iy = -Ly2, iz = Lz2;
-  // 鏡が返した筋の向き。入ってきた光を鏡の面で折り返したもの
-  const dot = ix * x1 + iy * y2 + iz * z2;
-  const rx = ix - 2 * dot * x1, ry = iy - 2 * dot * y2, rz = iz - 2 * dot * z2;
-  // 奥へ向かっていない筋は壁に届かないので、この光源ぶんは粒にしない
-  if (rz >= -1e-4) return false;
-  // 鏡の位置から壁までどれだけ筋を伸ばせば当たるか。長さは球の半径を1として数える
-  const hitT = (-ROOM_WALL - z2) / rz;
-  const hx = x1 + rx * hitT, hy = y2 + ry * hitT, hz = z2 + rz * hitT;
-  // 壁に当たった所をカメラから見た位置へ写す。壁は球より奥なので、粒は一律に少し縮む
-  const camK = ROOM_CAM / (ROOM_CAM - hz);
-  const wx = view.cx + hx * view.r * camK, wy = view.cy - hy * view.r * camK;
-  if (!(wx > -dia && wx < view.W + dia && wy > -dia && wy < view.H + dia)) return false;
-  const n = buf.n, oc = slot * 3;
-  buf.x[n] = wx; buf.y[n] = wy;
-  buf.d[n] = dia;
-  // 壁に浅い角度で当たった筋ほど、粒が長く引き伸ばされる。伸びる向きは球の中心から外へ
-  buf.ex[n] = Math.min(WALL_STRETCH_MAX, 1 / Math.max(0.33, Math.abs(rz))) * camK;
-  buf.ey[n] = camK;
-  buf.ang[n] = Math.atan2(wy - view.cy, wx - view.cx);
-  // 粒の色は席の鏡と同じ色。メンバーカラーそのままより淡い
-  buf.c[n * 3] = ball.tone[oc];
-  buf.c[n * 3 + 1] = ball.tone[oc + 1];
-  buf.c[n * 3 + 2] = ball.tone[oc + 2];
-  // 足切りのすぐ上の鏡は薄く（ふっと現れ・ふっと消える）。
-  // ちょうど光を返す向きに来た鏡の粒は一瞬明るくする＝手前の鏡が白く瞬くのと同じ合図。
-  // 光の受け方が足切りに届いていない粒（着いたばかりの席）は、薄くせずそのままの重みで出す
-  const fade = force ? 1 : Math.min(1, (db - view.cut) / WALL_FADE_BAND);
-  buf.w[n] = fade * (view.flash && db > BALL_HL_CUT ? WALL_FLASH : 1) * boost;
-  buf.p[n] = ball.sprites[slot]?.[0] ?? null;
-  buf.n++;
-  return true;
-}
-
-/** カメラの寄り具合。曲の進み p が 0 → 1 の間に BALL_ZOOM_MIN → BALL_ZOOM_MAX へ。
- *  序盤から動画の上下に球の縁が覗いていて、中盤でせり出し、終盤ではっきりはみ出す
- *  （ゆっくり動き出してゆっくり止まる曲線） */
-function ballZoomFor(p: number): number {
-  const q = Math.min(1, Math.max(0, p));
-  return BALL_ZOOM_MIN + (BALL_ZOOM_MAX - BALL_ZOOM_MIN) * q * q * (3 - 2 * q);
-}
 
 const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas({ videoBoxRef, frame, reduceMotion = false }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1122,43 +164,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const suckRef = useRef<Suck[]>([]);
   /** ミラーボールの球。最初に使う時だけ作る（画面が描き直されるたびに作り捨てないように） */
   const ballRef = useRef<Ball | null>(null);
-  const getBall = (): Ball => (ballRef.current ??= {
-    zoom: BALL_ZOOM_MIN,
-    sprites: new Array<HTMLCanvasElement[] | null>(BALL_SEATS).fill(null),
-    rgb: new Uint8Array(BALL_SEATS * 3),
-    occ: [],
-    taken: new Uint8Array(BALL_SEATS),
-    byColor: new Map<string, number[]>(),
-    age: new Float64Array(BALL_SEATS),
-    tone: new Uint8Array(BALL_SEATS * 3),
-    seq: 0,
-    reserved: 0,
-    landAt: new Float64Array(BALL_SEATS),
-    fresh: new Int32Array(BALL_SEATS),
-    freshN: 0,
-    freshIn: new Uint8Array(BALL_SEATS),
-    selfRing: new Int32Array(Math.max(1, SELF_KEEP)).fill(-1),
-    selfRingN: 0,
-  });
-  /** 球を空にする（最初に戻す時・方式を替えた時・夜空へ放った時）。席の並びも大きさも固定なので、中身を消すだけ */
-  const clearBall = (ball: Ball) => {
-    ball.zoom = BALL_ZOOM_MIN;
-    ball.sprites = new Array<HTMLCanvasElement[] | null>(BALL_SEATS).fill(null);
-    ball.rgb = new Uint8Array(BALL_SEATS * 3);
-    ball.occ = [];
-    ball.taken = new Uint8Array(BALL_SEATS);
-    ball.byColor = new Map<string, number[]>();
-    ball.age = new Float64Array(BALL_SEATS);
-    ball.tone = new Uint8Array(BALL_SEATS * 3);
-    ball.seq = 0;
-    ball.reserved = 0;
-    ball.landAt = new Float64Array(BALL_SEATS);
-    ball.fresh = new Int32Array(BALL_SEATS);
-    ball.freshN = 0;
-    ball.freshIn = new Uint8Array(BALL_SEATS);
-    ball.selfRing = new Int32Array(Math.max(1, SELF_KEEP)).fill(-1);
-    ball.selfRingN = 0;
-  };
+  const getBall = (): Ball => (ballRef.current ??= createBall());
   const sizeRef = useRef({ W: 0, H: 0 });
   /** 動画本体の矩形（キャンバスの中の画面座標）。毎フレーム測った値をここに控えて、
    *  押した時（描く処理の外）にも「動画がいまどこにあるか」を見られるようにする。w=0 はまだ一度も測っていない */
@@ -1177,95 +183,20 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       // そのまま夜空の行き先へ飛んで星になる（曲の終わりの拍手代わりの押しが「星が増える」になる）
       if (launchedRef.current) {
         const now = performance.now();
-        const x0 = Math.random() * W;
-        const y0 = self ? H - SELF_LAUNCH_Y + (Math.random() - 0.5) * SELF_LAUNCH_SPREAD : H;
-        const tgt = skyTarget(W, H);
-        flyRef.current.push({
-          x0, y0, x1: tgt.x, y1: tgt.y,
-          bow: FLY_BOW_MIN + Math.random() * FLY_BOW_RANGE,
-          t0: now, dur: SPAWN_FLY_MS,
-          d: FLY_DOT_MIN + Math.random() * FLY_DOT_RANGE,
-          rgb, self,
-        });
+        const at = spawnFlyToSky(flyRef.current, now, W, H, self, rgb);
         // 押した手応えの閃光は今までどおり出す（画面座標）
-        if (self) skyFlashesRef.current.push({ x: x0, y: y0, t0: now, rgb, size: SKY_FLASH_SIZE });
+        if (self) skyFlashesRef.current.push({ x: at.x0, y: at.y0, t0: now, rgb, size: SKY_FLASH_SIZE });
         return;
       }
-      // ミラーボール方式: 積もらせず、動画の中心へ吸い込む。自分の分は画面の下の方の中央寄りから、
-      // 他の人の分は画面の縁のどこかから出る。着いたら球の表面の鏡になる
+      // ミラーボール方式: 積もらせず、動画の中心へ吸い込む
       if (modeRef.current === "mirrorball") {
         const now = performance.now();
-        let x0: number, y0: number, bow = 0;
-        if (self) {
-          if (origin) {
-            // 押した💎のボタンの中心のすぐ上から飛び立つ（Hop決定 2026-09-11）
-            x0 = origin.x;
-            y0 = origin.y - SELF_ABOVE_BUTTON;
-          } else {
-            // ボタンの位置が分からない時は今までどおり中央寄りの下の方から出す。横に散らしすぎると
-            // 動画の横の狭い所を通ることになり、動画の下から中心へ真っ直ぐ上がっていく道筋が読めなくなる
-            x0 = W / 2 + (Math.random() * 2 - 1) * SELF_SUCK_X_SPREAD;
-            y0 = H - SELF_SUCK_Y + (Math.random() - 0.5) * SELF_SUCK_Y_SPREAD;
-          }
-          // 出発点が動画の矩形の中や、そのすぐ下にならないようにする。
-          // 画面が低い端末では動画の下の余白が狭く、そのままだと出た瞬間に裏へ入ってしまう
-          const vb = videoRectRef.current;
-          if (vb.w > 0) y0 = Math.min(H - 8, Math.max(y0, vb.y + vb.h + SELF_SUCK_MIN_GAP));
-          bow = (Math.random() < 0.5 ? -1 : 1) * SELF_SUCK_BOW * (0.6 + Math.random() * 0.4);
-        } else {
-          // 画面の縁を1周ぶんの長さと見て、その上のどこか1点を選び、そこから画面の外へ押し出す
-          // ＝画面の中で湧かず、外から入ってくる
-          const per = (W + H) * 2;
-          const u = Math.random() * per;
-          if (u < W) { x0 = u; y0 = H + SPAWN_OUTSIDE; }
-          else if (u < W + H) { x0 = W + SPAWN_OUTSIDE; y0 = W + H - u; }
-          else if (u < W * 2 + H) { x0 = W * 2 + H - u; y0 = -SPAWN_OUTSIDE; }
-          else { x0 = -SPAWN_OUTSIDE; y0 = u - (W * 2 + H); }
-        }
-        const shrinkM = Math.max(SHRINK_MIN, Math.min(1, Math.sqrt(SHRINK_REF / spawnedRef.current)));
-        // 押した時点で「この💎がはまる席」を1つ取っておく。席は色で決まる＝同じ色の席の隣が空いていればそこ、
-        // 無ければその色の居場所にいちばん近い空席。席が全部埋まったら、いちばん古い鏡を貼り替える
-        const ball = getBall();
-        const dur = self
-          ? SELF_SUCK_MS + Math.random() * SELF_SUCK_MS_JITTER
-          : SUCK_MS + Math.random() * SUCK_MS_JITTER;
-        // 自分の分は、動画の外に見えている手前の席へ着く。
-        // 席は球と一緒に回っているので、押した今ではなく「着く頃（dur だけ先）」の向きで選ぶ
-        //  ＝飛んでいる間に回って動画の裏や輪郭の裏へ入ってしまうのを避ける
-        let seat: SeatHold | null = null;
-        const vb = videoRectRef.current;
-        if (self && vb.w > 0) {
-          const spin = reduceMotionRef.current ? 0 : ((now + dur) / 1000) * (Math.PI * 2 / BALL_SPIN_SEC);
-          const rNow = BALL_R * ball.zoom;
-          seat = reserveSelfSeat(ball, rgb, {
-            cx: vb.x + vb.w / 2, cy: vb.y + vb.h / 2, r: rNow,
-            cs: Math.cos(spin), sn: Math.sin(spin), ct: Math.cos(BALL_TILT), st: Math.sin(BALL_TILT),
-            tileV: Math.max(BALL_TILE_MIN, rNow * BALL_TILE_FILL * getBallLattice().v),
-            v: vb,
-          });
-        }
-        // 他の人の分と、条件に合う席が1つも無かった時は、今までどおりの決め方（球の全面に均等）
-        const front = seat !== null;
-        if (!seat) seat = reserveSeat(ball, rgb);
-        if (self) rememberSelfSeat(ball, seat.seat);
-        // 飛び方を1つ引く。飛び方によっては使う通り道が決まっているので、通り道もここで合わせて引く
-        const flight = Math.floor(Math.random() * FLIGHT_STYLES.length);
-        const fp = FLIGHT_STYLES[flight].paths;
-        suckRef.current.push({
-          x0, y0, t0: now,
-          dur,
-          ang: Math.random() * Math.PI * 2,
-          flight,
-          path: fp ? fp[Math.floor(Math.random() * fp.length)] : Math.floor(Math.random() * TUMBLE_PATHS),
-          roll: Math.random() * Math.PI * 2,
-          size: (SIZE_MIN + Math.random() * SIZE_RANGE) * shrinkM,
-          rgb, bow, self,
-          seat: seat.seat, seatWasEmpty: seat.wasEmpty, seatPrevRgb: seat.prevRgb, seatPrevAge: seat.prevAge,
-          seatCounted: seat.counted, seatFront: front,
-          seatAng: 0, seatDist: 0, aimed: false, enter: false, wrapSide: 1, wrapCurl: 0,
-        });
+        const at = spawnSuck(
+          suckRef.current, getBall(), rgb, self, origin,
+          W, H, videoRectRef.current, now, spawnedRef.current, reduceMotionRef.current,
+        );
         // 押した手応えの閃光は今までどおり（画面座標なので夜空の分と同じ入れ物に入れる）
-        if (self) skyFlashesRef.current.push({ x: x0, y: y0, t0: now, rgb, size: SKY_FLASH_SIZE });
+        if (self) skyFlashesRef.current.push({ x: at.x0, y: at.y0, t0: now, rgb, size: SKY_FLASH_SIZE });
         return;
       }
       const shrink = Math.max(SHRINK_MIN, Math.min(1, Math.sqrt(SHRINK_REF / spawnedRef.current)));
@@ -1407,36 +338,11 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
     if (!ctx) return;
 
     let W = 0, H = 0, dpr = 1;
-    let floorY = 0, worldX0 = 0, worldW = 0;
-    // 焼き込み用の絵（世界座標そのまま・1px=1px）。上限を超えた古い💎はここへ描き移して配列から外す。
-    // 以前は古い順に配列から消していたので、帳簿の高さはそのままなのに山が床側からくり抜かれて宙に浮いた
-    let bake: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; x0: number; y0: number; w: number; h: number } | null = null;
-    // 星空の絵（画面座標そのまま）。星になった粒はここへ描き移し、以後は毎フレームこの1枚を貼るだけ
-    let sky: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } | null = null;
-    let skyBaked = 0;   // starsRef のうち何個目まで焼き込んだか。0 に戻すと全部焼き直す
-    const cols: number[] = [];
-    // いま壁に映っている光の粒。鏡を描くついでに拾って、鏡を描き終えてからまとめて貼る。
-    // 毎フレーム作り直さないよう先に用意して使い回す。夜空へ放つ時は、この位置と色がそのまま星になる
-    const wall: WallBuf = {
-      x: new Float32Array(WALL_SPOT_MAX),
-      y: new Float32Array(WALL_SPOT_MAX),
-      c: new Uint8Array(WALL_SPOT_MAX * 3),              // 粒の色（3つ組）
-      w: new Float32Array(WALL_SPOT_MAX),                // 濃さの重み（足切りのすぐ上は薄く・瞬いた鏡は明るく）
-      ex: new Float32Array(WALL_SPOT_MAX),               // 粒の横の伸び。浅い角度で壁に当たった粒ほど長く伸びる
-      ey: new Float32Array(WALL_SPOT_MAX),               // 粒の縦の伸び。壁の遠い所に当たった粒ほど小さい
-      ang: new Float32Array(WALL_SPOT_MAX),              // 伸びる向き。球の中心から外へ向かう放射方向
-      d: new Float32Array(WALL_SPOT_MAX),                // 粒の直径(px)。元になった鏡の大きさから決める
-      p: new Array(WALL_SPOT_MAX).fill(null),            // 終盤に重ねる鏡の絵。光っていない1枚
-      n: 0,
-    };
-    // そのコマの球の見え方と光の向き。粒を拾う関数へ渡す入れ物で、毎コマ中身だけ書き換える
-    const wallView: WallView = { cx: 0, cy: 0, r: 0, W: 0, H: 0, Lx: 0, Ly: 0, Lz: 0, cut: 0, flash: true };
-    // いま壁に映している粒の濃さ。夜空へ放つ時に「この濃さから薄くなる」の出発点として読む
-    let wallAlphaNow = 0;
-    // 夜空へ放った瞬間、壁の粒が縮んで星になるまでの途中の姿（画面座標）。縮み終わったら星にして空へ焼き込む
-    const wallFade: { x: number; y: number; rgb: [number, number, number]; t0: number; d0: number; a0: number; d1: number }[] = [];
-    // 吸い込まれ中の💎を描く時の使い回しの入れ物（1個ずつ作ると押した数だけゴミが出る）
-    const suckDraw = { x: 0, y: 0, ang: 0, path: 0, roll: 0, size: 0, rgb: [0, 0, 0] as [number, number, number] };
+    // 部品ごとの控え。毎コマ作り直さず、中身だけ書き換える
+    const pile = createPileState();
+    const skySt = createSkyState();
+    const wallSt = createWallState();
+    const ballView = createBallView();
     const resize = () => {
       const r = canvas.getBoundingClientRect();
       const prevW = W, prevH = H;
@@ -1445,11 +351,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       canvas.width = Math.round(W * dpr);
       canvas.height = Math.round(H * dpr);
       sizeRef.current = { W, H };
-      floorY = H * FLOOR_DEPTH;
-      worldW = W / MIN_SCALE;
-      worldX0 = W / 2 - worldW / 2;
-      const n = Math.ceil(worldW / COL_W) + 1;
-      while (cols.length < n) cols.push(0);
+      resizePile(pile, W, H);
       // 星と飛んでいる粒は画面座標なので、画面の大きさが変わったら比率で合わせ直し、星空の絵を焼き直す。
       // iPhone は再生中にもアドレスバーの出入りで高さが変わる
       if (prevW > 0 && prevH > 0 && (W !== prevW || H !== prevH)) {
@@ -1457,31 +359,27 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         for (const s of starsRef.current) { s.x *= kx; s.y *= ky; }
         for (const f2 of flyRef.current) { f2.x0 *= kx; f2.x1 *= kx; f2.y0 *= ky; f2.y1 *= ky; }
         for (const s2 of suckRef.current) { s2.x0 *= kx; s2.y0 *= ky; }
-        for (const wf of wallFade) { wf.x *= kx; wf.y *= ky; }
-        sky = null;
-        skyBaked = 0;
+        for (const wf of wallSt.fade) { wf.x *= kx; wf.y *= ky; }
+        skySt.canvas = null;
+        skySt.baked = 0;
       }
     };
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
     clearWorldRef.current = () => {
-      cols.fill(0);
-      wall.n = 0;    // 壁に映っていた粒も消す
-      wallFade.length = 0;
-      bake = null;   // 焼き込みの絵は捨てて、次に必要になった時に作り直す
-      sky = null;
-      skyBaked = 0;
+      pile.cols.fill(0);
+      wallSt.buf.n = 0;    // 壁に映っていた粒も消す
+      wallSt.fade.length = 0;
+      pile.bake = null;    // 焼き込みの絵は捨てて、次に必要になった時に作り直す
+      skySt.canvas = null;
+      skySt.baked = 0;
     };
-    /** 飛び終わった粒を星にする。位置は色ごとの控えにも入れて、瞬きの抽選で色を絞れるようにする。
-     *  d を渡すと星の大きさを指定できる（壁の粒が縮んで星になる時に、縮み先の大きさを先に決めておくため） */
-    const addStar = (x: number, y: number, rgb: [number, number, number], d?: number) => {
-      const stars = starsRef.current;
-      stars.push({ x, y, d: d ?? STAR_MIN + Math.random() * STAR_RANGE, rgb });
-      const key = rgb.join(",");
-      const arr = starsByColorRef.current.get(key);
-      if (arr) arr.push(stars.length - 1); else starsByColorRef.current.set(key, [stars.length - 1]);
-    };
+    const addStar = (x: number, y: number, rgb: [number, number, number], d?: number) =>
+      skyAddStar(starsRef.current, starsByColorRef.current, x, y, rgb, d);
+    // 奥側の鏡から壁の粒を拾う手（鏡を描く輪から呼ばれる）。毎コマ作り直さず、一度だけ作って使い回す
+    const onBackSeat = (slot: number, x1: number, y2: number, z2: number, tileU: number) =>
+      takeBackSeat(wallSt, getBall(), slot, x1, y2, z2, tileU);
     launchRef.current = () => {
       if (launchedRef.current || !W) return;
       launchedRef.current = true;
@@ -1491,191 +389,69 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       if (modeRef.current === "mirrorball") {
         const ball = getBall();
         const lv = getBallLattice();
-        const occ = ball.occ;            // 取ってある席（取った順）
-        const filled = occ.length;
-        const lat = lv.a;
         const bR = BALL_R * ball.zoom;   // いま見えている球の半径（固定の大きさ × カメラの寄り）
         const spin = reduceMotionRef.current ? 0 : (now / 1000) * (Math.PI * 2 / BALL_SPIN_SEC);
         const cs = Math.cos(spin), sn = Math.sin(spin);
         const ct = Math.cos(BALL_TILT), st = Math.sin(BALL_TILT);
         const bcy = camRef.current.cy;
         // 壁に映っていた粒は、飛ばずにその場で星になる（位置も色もそのまま引き継ぐ）。
-        // 「壁の光が結晶になったもの」として星空につながる。
-        // ただし鏡ほどの大きさの粒が2〜4pxの星にいきなり入れ替わると見た目が飛ぶので、
-        // WALL_TO_STAR_MS かけて縮ませてから星にする。縮み先の星の大きさはここで決めておく。
-        // 出発点の大きさと濃さも1粒ずつ引き継ぐ＝足切りぎりぎりの薄い粒が、放った瞬間に急に明るくならない
-        for (let i = 0; i < wall.n; i++) {
-          const d1 = STAR_MIN + Math.random() * STAR_RANGE;
-          wallFade.push({
-            x: wall.x[i], y: wall.y[i],
-            rgb: [wall.c[i * 3], wall.c[i * 3 + 1], wall.c[i * 3 + 2]],
-            t0: now, d0: wall.d[i], a0: Math.min(1, wallAlphaNow * wall.w[i]), d1,
-          });
-        }
-        // 球の鏡は、粒になった数を除いた残りの席へ飛ぶ＝星の総数は今までと同じ
-        const n = Math.max(0, Math.min(filled, LAUNCH_MAX) - wall.n);
-        const step = n > 0 ? filled / n : 1;
-        wall.n = 0;
-        const fly = flyRef.current;
-        for (let k = 0; k < n; k++) {
-          const slot = occ[Math.floor(k * step)];
-          if (!ball.sprites[slot]) continue;   // まだ埋まっていない席（飛んでいる途中の💎の分）は粒にしない
-          const o = slot * 4, oc = slot * 3;   // 席の向きは4つ組、色は3つ組で持っている
-          const x1 = lat[o] * cs + lat[o + 2] * sn;
-          const z1 = -lat[o] * sn + lat[o + 2] * cs;
-          const y2 = lat[o + 1] * ct - z1 * st;
-          const tgt = skyTarget(W, H);
-          fly.push({
-            x0: cx + x1 * bR, y0: bcy - y2 * bR,
-            x1: tgt.x, y1: tgt.y,
-            bow: FLY_BOW_MIN + Math.random() * FLY_BOW_RANGE,
-            t0: now, dur: LAUNCH_FLY_MS + Math.random() * LAUNCH_FLY_JITTER,
-            d: FLY_DOT_MIN + Math.random() * FLY_DOT_RANGE,
-            rgb: [ball.rgb[oc], ball.rgb[oc + 1], ball.rgb[oc + 2]], self: false,
-          });
-        }
+        // 「壁の光が結晶になったもの」として星空につながる
+        wallToFade(wallSt, now, STAR_MIN, STAR_RANGE);
+        const spots = wallSt.buf.n;
+        wallSt.buf.n = 0;
+        launchBallToSky(ball, lv.a, flyRef.current, now, W, H, cx, bcy, bR, cs, sn, ct, st, spots);
         // 球をほどく（表面の鏡・吸い込まれ中の💎・閃光を空にする）
         clearBall(ball);
         suckRef.current = [];
         skyFlashesRef.current = [];
         return;
       }
-      // 粒の元は「積もった💎の位置の控え（焼き込んだ分も含む）」＋「まだ落ちている途中の💎」
-      const src: { x: number; y: number; rgb: [number, number, number] }[] = sparkPointsRef.current.slice();
-      for (const g of gemsRef.current) if (!g.settled) src.push({ x: g.x, y: g.y, rgb: g.rgb });
-      const n = Math.min(src.length, LAUNCH_MAX);
-      const step = n > 0 ? src.length / n : 1;   // 多すぎる時は等間隔に間引く
-      const fly = flyRef.current;
-      for (let k = 0; k < n; k++) {
-        const s = src[Math.floor(k * step)];
-        const tgt = skyTarget(W, H);
-        fly.push({
-          x0: cx + (s.x - cx) * scale,          // 世界座標のいまの見え方＝画面座標から出発する
-          y0: H + oy + (s.y - floorY) * scale,
-          x1: tgt.x, y1: tgt.y,
-          bow: FLY_BOW_MIN + Math.random() * FLY_BOW_RANGE,
-          t0: now, dur: LAUNCH_FLY_MS + Math.random() * LAUNCH_FLY_JITTER,
-          d: FLY_DOT_MIN + Math.random() * FLY_DOT_RANGE,
-          rgb: s.rgb, self: false,
-        });
-      }
+      launchPileToSky(sparkPointsRef.current, gemsRef.current, flyRef.current, now, W, H, scale, cx, oy, pile.floorY);
       // 山を空にする（1つずつ描いている💎・位置の控え・積もり高さの帳簿・焼き込みの絵）。
       // 帳簿を空にするので、以後は着地先の割り当ても走らない
       gemsRef.current = [];
       sparkPointsRef.current = [];
       flashesRef.current = [];   // 山の閃光は行き場が無くなるので一緒に捨てる（放つ光に紛れて見えない）
       pileTopRef.current = Infinity;
-      cols.fill(0);
-      bake = null;
+      pile.cols.fill(0);
+      pile.bake = null;
     };
 
-    // 着地先の割り当て。cols[c] は列 c の積もった高さ(px)＝地形。
-    // 💎を半径 R の丸い粒として、「その列に落としたら地形のどこで止まるか（中心の高さ hc）」を
-    // 粒の下側が地形に触れる条件から求める。いま見えている横幅の中で、止まる高さ hc が一番低い列を選ぶ
-    // （中心からの距離と散らした位置で軽く重み付け）＝瓶に砂を入れるように下から隙間なく埋まる。
-    // 以前は候補を見えている列に限り、土台を「隣の列の一番高い所」にしていたので、カメラが引いて
-    // 新しく見えた端の1列に💎が縦に積み上がって塔になり、次の列はその塔の肩に乗る…の連鎖で
-    // 山の底辺が斜めに削れて空洞ができていた（Hop指摘 2026-09-07）。
-    const restHeight = (c: number, R: number): number => {
-      const hc = Math.ceil(R / COL_W);
-      let h = 0;
-      for (let j = c - hc; j <= c + hc; j++) {
-        const dx = (j - c) * COL_W;
-        if (Math.abs(dx) > R) continue;
-        const ground = j >= 0 && j < cols.length ? cols[j] : 0;
-        const v = ground + Math.sqrt(R * R - dx * dx);
-        if (v > h) h = v;
-      }
-      return h;
-    };
-    slotRef.current = (x: number, size: number, scale: number, self: boolean) => {
-      const cx = camRef.current.cx || W / 2;
-      const visibleCols = (W / 2) / scale / COL_W;
-      const cC = (x - worldX0) / COL_W; // 押した位置ではなく散らした位置を中心の目安に使う（山が偏らない）
-      const cMid = (cx - worldX0) / COL_W;
-      const R = size * PACK_RADIUS;
-      let best = 0, bestScore = Infinity, bestH = 0;
-      // 候補は見えている範囲に限らず世界の全列。範囲の外は「端から離れるほど損」にして、
-      // 端に塔が立つ代わりに裾野が外へ伸びる（カメラが引くと裾野が見えて、そこが埋まっていく）。
-      // 自分の💎だけは必ず画面の中に落とす（押した手応えと閃光が見えなくなるのを防ぐ）
-      for (let c = 0; c < cols.length; c++) {
-        const off = Math.abs(c - cMid) - visibleCols;
-        if (self && off > 0) continue;
-        const h = restHeight(c, R);
-        const outside = Math.max(0, off) * COL_W * OUTSIDE_SLOPE;
-        const score = h + outside + Math.abs(c - cMid) * COL_W * SLOPE + Math.abs(c - cC) * COL_W * NEAR_SPAWN + Math.random() * size * 0.4;
-        if (score < bestScore) { bestScore = score; best = c; bestH = h; }
-      }
-      // 止まった粒の上側の丸みを地形に足す
-      const hc = Math.ceil(R / COL_W);
-      for (let j = best - hc; j <= best + hc; j++) {
-        if (j < 0 || j >= cols.length) continue;
-        const dx = (j - best) * COL_W;
-        if (Math.abs(dx) > R) continue;
-        cols[j] = Math.max(cols[j], bestH + Math.sqrt(R * R - dx * dx));
-      }
-      const ty = floorY - bestH;
-      const tx = worldX0 + best * COL_W + (Math.random() - 0.5) * COL_W * 0.6;
-      return { tx, ty };
-    };
+    slotRef.current = (x: number, size: number, scale: number, self: boolean) =>
+      allocSlot(pile, x, size, scale, self, W, camRef.current.cx);
 
-    /** 降っている💎: 自分の向きに合う絵を選んで、回さずに貼る。
-     *  光は画面に対して止まっているので、石が回れば面が順番に光る＝絵を回してはいけない。
-     *  毎フレーム面を塗るのは、みんなの💎がたくさん降る時に発熱の元になっていた（Hop報告 2026-09-07） */
-    const drawGemLive = (g: Pick<Gem, "x" | "y" | "ang" | "path" | "roll" | "size" | "rgb">) => {
-      const sprites = getStoneSprites(g.rgb);
-      const w = (g.size * 2 / 0.95);
-      const img = sprites[stoneIndex(g.ang, g.path)];
-      if (!g.roll) { ctx.drawImage(img, g.x - w / 2, g.y - w / 2, w, w); return; }
-      // 画面の上で寝かせる分だけ絵ごと回す。光も一緒に回るが、💎ごとに向きが決まっていて
-      // 途中で変わらないので、その石はその向きから照らされているように見える
-      ctx.save();
-      ctx.translate(g.x, g.y);
-      ctx.rotate(g.roll);
-      ctx.drawImage(img, -w / 2, -w / 2, w, w);
-      ctx.restore();
-    };
-    /** 積もった💎: スプライトを貼る */
-    const drawGemSettled = (g: Gem, target: CanvasRenderingContext2D = ctx) => {
-      const sprites = getStoneSprites(g.rgb);
-      const i = stoneIndex(g.ang, g.path);
-      const w = (g.size * 2 / 0.95) * 1.12;              // 少し大きめに貼って継ぎ目の隙間を埋める【仮】
-      if (!g.roll) {
-        target.drawImage(sprites[i], g.x - w / 2, g.y - w / 2, w, w);
-      } else {
-        target.save();
-        target.translate(g.x, g.y);
-        target.rotate(g.roll);
-        target.drawImage(sprites[i], -w / 2, -w / 2, w, w);
-        target.restore();
-      }
-      // 山の瞬きは十字の閃光（flashes）に統一。ここでは点を打たない（Hop指摘 2026-09-06）
-    };
-    /** 積もった💎のうち新しい LIVE_KEEP 個を残し、古い順に焼き込み用の絵へ描き移して配列から外す。
-     *  止まった💎は動かないのに毎フレーム1つずつ貼り直すのが、長い曲でスマホが熱くなる主因だった（Hop報告 2026-09-07） */
-    const bakeOldest = (gems: Gem[], count: number) => {
-      if (!bake) {
-        // 画面の細かさ(dpr)に合わせた解像度で焼く。1px=1pxだと寄った時に写真部分だけぼやける。画素数の上限内に収める
-        const bw = worldW, bh = H * BAKE_HEIGHT;
-        const res = Math.min(dpr, 2, Math.sqrt(BAKE_MAX_AREA / (bw * bh)));
-        const c = document.createElement("canvas");
-        c.width = Math.ceil(bw * res);
-        c.height = Math.ceil(bh * res);
-        const bctx = c.getContext("2d");
-        if (!bctx) { gems.splice(0, gems.length - MAX_GEMS); return; } // 絵が作れない環境では従来どおり消す
-        bake = { canvas: c, ctx: bctx, x0: worldX0, y0: floorY - bh, w: bw, h: bh };
-        bctx.scale(res, res);
-        bctx.translate(-bake.x0, -bake.y0);
-      }
-      let n = 0;
-      const limit = Math.min(count, BAKE_BATCH);
-      for (let i = 0; i < gems.length && n < limit; i++) {
-        const g = gems[i];
-        if (!g.settled || g.y - g.size < bake.y0) continue; // 絵の枠より上に積もった分は1つずつ描き続ける
-        drawGemSettled(g, bake.ctx);
-        gems.splice(i, 1);
-        i--;
-        n++;
+    // 閃光（画面座標）。光の類なので動画の矩形は除外して描く。
+    // 夜空へ放った後とミラーボール方式の両方で使う（山の閃光は世界座標なので別）
+    const drawScreenFlashes = (v: { x: number; y: number; w: number; h: number }, now: number) => {
+      const sf = skyFlashesRef.current;
+      if (sf.length) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, W, H);
+        ctx.rect(v.x, v.y, v.w, v.h);
+        ctx.clip("evenodd");
+        ctx.globalCompositeOperation = "lighter";
+        for (let i = sf.length - 1; i >= 0; i--) {
+          const fl = sf[i];
+          const k = (now - fl.t0) / 320;
+          if (k >= 1) { sf.splice(i, 1); continue; }
+          const r = fl.size * (1.2 + 2.6 * k);
+          const a = 1 - k;
+          const rg = ctx.createRadialGradient(fl.x, fl.y, 0, fl.x, fl.y, r);
+          rg.addColorStop(0, `rgba(255,255,255,${0.95 * a})`);
+          rg.addColorStop(0.35, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},${0.7 * a})`);
+          rg.addColorStop(1, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},0)`);
+          ctx.fillStyle = rg;
+          ctx.fillRect(fl.x - r, fl.y - r, r * 2, r * 2);
+          ctx.strokeStyle = `rgba(255,255,255,${0.8 * a})`;
+          ctx.lineWidth = 2;
+          const L = fl.size * (2 + 3 * k);
+          ctx.beginPath();
+          ctx.moveTo(fl.x - L, fl.y); ctx.lineTo(fl.x + L, fl.y);
+          ctx.moveTo(fl.x, fl.y - L); ctx.lineTo(fl.x, fl.y + L);
+          ctx.stroke();
+        }
+        ctx.restore();
       }
     };
 
@@ -1698,6 +474,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       const cx = v.x + v.w / 2, cy = v.y + v.h / 2;
       const { t, d } = timeRef.current;
       const p = Math.min(1, t / d);
+      const floorY = pile.floorY;
       // カメラ: 3:26 までは曲の進みで 1 → MIN_SCALE へ引く。3:26 から曲の終わりまでかけてゆっくり 1 へ寄る。
       // 山の高さでは引かない（山が動画の裏へ上がっていくのを許す＝育っていくのが見える）
       const finaleStart = Math.min(FINALE_TIME, d * 0.9);
@@ -1716,6 +493,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         scale = from + (FINALE_END_SCALE - from) * (k * k * (3 - 2 * k)); // なめらかに寄る
       }
       let maxH = 0;
+      const cols = pile.cols;
       for (let j = 0; j < cols.length; j++) if (cols[j] > maxH) maxH = cols[j];
       const pileTopWorld = maxH > 0 ? floorY - maxH : Infinity;
       // 急に変わらないよう、前フレームからなめらかに寄せる
@@ -1731,18 +509,8 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       if (modeRef.current === "mirrorball") { scale = 1; oy = 0; }
       pileTopRef.current = pileTopWorld;
       camRef.current = { scale, cx, cy, oy };
-      // 落下（世界座標）: 着地先まで落ちて止まる。横には流れない（着地先が最初から詰まる位置なので）
       const gems = gemsRef.current;
-      for (const g of gems) {
-        if (g.settled) continue;
-        g.vy += GRAVITY * dt;
-        g.y += g.vy * dt;
-        if (!reduceMotionRef.current) g.ang += g.spin * dt;
-        if (g.y >= g.ty) {
-          g.y = g.ty; g.settled = true; g.vx = 0;
-          sparkPointsRef.current.push({ x: g.x, y: g.y, rgb: g.rgb, size: g.size });
-        }
-      }
+      stepFall(gems, dt, reduceMotionRef.current, sparkPointsRef.current);
 
       // 額縁の地色（画面座標・カメラの外）。直近に降った💎の色の上位4つを、左から順に幅＝割合で並べて染める。
       // 4声コーラスのパートに合わせて色の順位が分かるように（Hop決定 2026-09-07・案1）。名前・数字は出さない。
@@ -1807,138 +575,23 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       }
       ctx.fillRect(f.x, f.y, f.w, f.h);
 
-      // 閃光（画面座標）。光の類なので動画の矩形は除外して描く。
-      // 夜空へ放った後とミラーボール方式の両方で使う（山の閃光は世界座標なので別）
-      const drawScreenFlashes = () => {
-        const sf = skyFlashesRef.current;
-        if (sf.length) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(0, 0, W, H);
-          ctx.rect(v.x, v.y, v.w, v.h);
-          ctx.clip("evenodd");
-          ctx.globalCompositeOperation = "lighter";
-          for (let i = sf.length - 1; i >= 0; i--) {
-            const fl = sf[i];
-            const k = (now - fl.t0) / 320;
-            if (k >= 1) { sf.splice(i, 1); continue; }
-            const r = fl.size * (1.2 + 2.6 * k);
-            const a = 1 - k;
-            const rg = ctx.createRadialGradient(fl.x, fl.y, 0, fl.x, fl.y, r);
-            rg.addColorStop(0, `rgba(255,255,255,${0.95 * a})`);
-            rg.addColorStop(0.35, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},${0.7 * a})`);
-            rg.addColorStop(1, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},0)`);
-            ctx.fillStyle = rg;
-            ctx.fillRect(fl.x - r, fl.y - r, r * 2, r * 2);
-            ctx.strokeStyle = `rgba(255,255,255,${0.8 * a})`;
-            ctx.lineWidth = 2;
-            const L = fl.size * (2 + 3 * k);
-            ctx.beginPath();
-            ctx.moveTo(fl.x - L, fl.y); ctx.lineTo(fl.x + L, fl.y);
-            ctx.moveTo(fl.x, fl.y - L); ctx.lineTo(fl.x, fl.y + L);
-            ctx.stroke();
-          }
-          ctx.restore();
-        }
-      };
       // 夜空へ放った後（画面座標のまま描く。カメラの外なので世界座標の計算は要らない）。
       // 星空は1枚の絵にして貼るだけ、1つずつ描くのは飛んでいる途中の粒だけ＝放つ2秒を過ぎたら山より軽い
       if (launchedRef.current) {
         const stars = starsRef.current;
         const fly = flyRef.current;
         // 飛び終わった粒を星にする（先に済ませて、この後の焼き込みに間に合わせる＝1コマ消える瞬間を作らない）
-        for (let i = fly.length - 1; i >= 0; i--) {
-          if (now - fly[i].t0 < fly[i].dur) continue;
-          addStar(fly[i].x1, fly[i].y1, fly[i].rgb);
-          fly.splice(i, 1);
-        }
+        promoteFlies(fly, stars, starsByColorRef.current, now);
         // 壁の粒から縮みきった分も、同じ理由でここで星にする（大きさは縮み始めに決めてある）
-        for (let i = wallFade.length - 1; i >= 0; i--) {
-          if (now - wallFade[i].t0 < WALL_TO_STAR_MS) continue;
-          addStar(wallFade[i].x, wallFade[i].y, wallFade[i].rgb, wallFade[i].d1);
-          wallFade.splice(i, 1);
+        promoteWallFade(wallSt, now, addStar);
+        bakeAndDrawSky(ctx, skySt, stars, W, H, dpr);
+        drawWallFade(ctx, wallSt, now, W, H, f);
+        drawFlies(ctx, fly, now);
+        if (!reduceMotionRef.current) {
+          sparkSky(stars, starsByColorRef.current, skyFlashesRef.current, now, dt, W, H, v,
+            holdCameraRef.current, ownKeyRef.current);
         }
-        // 新しく星になった分を1枚の絵へ焼き足す。重なった所は明るくなる
-        if (stars.length > skyBaked) {
-          if (!sky) {
-            const res = Math.min(dpr, MAX_DPR);
-            const c = document.createElement("canvas");
-            c.width = Math.ceil(W * res); c.height = Math.ceil(H * res);
-            const sctx = c.getContext("2d");
-            if (sctx) {
-              sctx.scale(res, res);
-              sctx.globalCompositeOperation = "lighter";
-              sky = { canvas: c, ctx: sctx };
-            }
-          }
-          if (sky) {
-            for (let i = skyBaked; i < stars.length; i++) {
-              const st = stars[i];
-              const w = st.d / STAR_CORE;
-              sky.ctx.drawImage(getStar(st.rgb), st.x - w / 2, st.y - w / 2, w, w);
-            }
-            skyBaked = stars.length;
-          }
-        }
-        if (sky) ctx.drawImage(sky.canvas, 0, 0, W, H);
-        // 壁に映っていた粒が、その場で縮んで星に入れ替わる途中の姿（放った瞬間から WALL_TO_STAR_MS の間だけ）。
-        // 直径40px前後の粒が2〜4pxの星へ一足飛びに変わると見た目が飛ぶので、粒を縮めながら薄くし、
-        // 入れ替わりに星を濃くする。縮みきったところで星にして、以後は星空の絵へ焼き込まれる。
-        // 額縁の外だけに出すのは、壁に映っていた時と同じ囲い方（額縁の中にあった粒は元から見えていない）
-        if (wallFade.length) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(0, 0, W, H);
-          ctx.rect(f.x, f.y, f.w, f.h);
-          ctx.clip("evenodd");
-          ctx.globalCompositeOperation = "lighter";
-          for (const wf of wallFade) {
-            const u = Math.min(1, (now - wf.t0) / WALL_TO_STAR_MS);
-            const dEnd = wf.d1 / WALL_TO_STAR_CORE;
-            const dNow = wf.d0 + (dEnd - wf.d0) * u * u;      // はじめゆっくり、終わりで一気に縮む
-            const [cr, cg, cb] = wf.rgb;
-            ctx.globalAlpha = Math.min(1, wf.a0 * (1 - u * u));
-            ctx.drawImage(getWallSpot((cr << 16) | (cg << 8) | cb, cr, cg, cb),
-              wf.x - dNow / 2, wf.y - dNow / 2, dNow, dNow);
-            const ws = wf.d1 / STAR_CORE;
-            ctx.globalAlpha = u * u;
-            ctx.drawImage(getStar(wf.rgb), wf.x - ws / 2, wf.y - ws / 2, ws, ws);
-          }
-          ctx.globalAlpha = 1;
-          ctx.restore();
-        }
-        // 飛んでいる粒。はじめ速く終わりゆっくり進み、まっすぐでなく少し弧を描く
-        if (fly.length) {
-          ctx.save();
-          ctx.globalCompositeOperation = "lighter";
-          for (const f2 of fly) {
-            const u = (now - f2.t0) / f2.dur;
-            const k = 1 - (1 - u) * (1 - u) * (1 - u);
-            const x = f2.x0 + (f2.x1 - f2.x0) * k;
-            const y = f2.y0 + (f2.y1 - f2.y0) * k - f2.bow * Math.sin(Math.PI * k);
-            const w = f2.d / DOT_CORE;
-            ctx.drawImage(getDot(f2.rgb), x - w / 2, y - w / 2, w, w);
-          }
-          ctx.restore();
-        }
-        // 星の瞬き: 星空からランダムに1つ選んで、山の時と同じ十字の閃光を出す。
-        // 画面の外や動画の裏の星を選んでも見えないので、当たるまで数回引き直す。
-        // ハイライト再生中（setHoldCamera(true) で入る）は、いま選んでいる色の星だけが光る（Hop決定 2026-09-08）
-        if (!reduceMotionRef.current && stars.length > 0) {
-          const onlyOwn = holdCameraRef.current;
-          if (Math.random() < (onlyOwn ? SKY_SPARK_RATE_HL : SKY_SPARK_RATE) * dt) {
-            const idx = onlyOwn ? (starsByColorRef.current.get(ownKeyRef.current ?? "") ?? []) : null;
-            const len = idx ? idx.length : stars.length;
-            for (let tries = 0; tries < 12 && len > 0; tries++) {
-              const st = stars[idx ? idx[(Math.random() * len) | 0] : (Math.random() * len) | 0];
-              if (st.x < 0 || st.x > W || st.y < 0 || st.y > H) continue;
-              if (st.x > v.x && st.x < v.x + v.w && st.y > v.y && st.y < v.y + v.h) continue;
-              skyFlashesRef.current.push({ x: st.x, y: st.y, t0: now, rgb: st.rgb, size: SKY_SPARK_SIZE });
-              break;
-            }
-          }
-        }
-        drawScreenFlashes();
+        drawScreenFlashes(v, now);
         return;
       }
 
@@ -1948,34 +601,13 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const ball = getBall();
         const lightAng = reduceMotionRef.current ? SPRITE_LIGHT : (now / 1000) * 0.35;
         const suck = suckRef.current;
-        // 1. 飛び終わった💎を球の表面へ貼る。貼る場所は、押した時に取っておいた席（sk.seat）。
-        //    席は色ごとにまとまるように決めてあるので、同じ色の鏡が隣り合って塊になる。
-        //    席が全部埋まった後に取った席は、いちばん古い鏡の貼り替えになる
+        // 1. 飛び終わった💎を球の表面へ貼る
         const lv = getBallLattice();
-        for (let i = suck.length - 1; i >= 0; i--) {
-          const sk = suck[i];
-          if (now - sk.t0 < sk.dur) continue;
-          const slot = sk.seat;
-          // 貼る絵と、その鏡を塗ってある色はここで1回だけ引く（毎フレーム引くと重い）
-          const tone = mirrorToneFor(sk.rgb);
-          ball.sprites[slot] = mirrorSpritesFor(sk.rgb);
-          ball.tone[slot * 3] = Math.round(tone[0]);
-          ball.tone[slot * 3 + 1] = Math.round(tone[1]);
-          ball.tone[slot * 3 + 2] = Math.round(tone[2]);
-          ball.rgb[slot * 3] = sk.rgb[0];
-          ball.rgb[slot * 3 + 1] = sk.rgb[1];
-          ball.rgb[slot * 3 + 2] = sk.rgb[2];
-          // 着いた時刻を席に書く。手前の席はここから LAND_FLASH_MS かけて強い光から通常へ戻り、
-          // 奥の席は WALL_FRESH_MS の間「着いたばかり」として壁に必ず粒を出す
-          ball.landAt[slot] = now;
-          if (!ball.freshIn[slot]) { ball.freshIn[slot] = 1; ball.fresh[ball.freshN++] = slot; }
-          suck.splice(i, 1);
-        }
+        landSucks(suck, ball, now);
         // 見に行くのは「取ってある席」の全部。着いた席だけに絞ると、
         // 取った順と着く順がずれた鏡（＝先に押した💎がまだ飛んでいる間に着いた鏡）が
         // しばらく描かれず、後から急に現れてしまう。まだ着いていない席は絵が無いので飛ばされる
-        const occ = ball.occ;
-        const filled = occ.length;
+        const filled = ball.occ.length;
         // 球そのものの大きさは変わらない。変わるのはカメラの寄り具合＝見かけの大きさだけ。
         // 曲が進むほど寄って、動画の裏から上下にはみ出してくる。
         // ハイライト再生中と、夜空へ放った後は寄りを止める（時刻が飛んでも拡大率が跳ねない）。
@@ -1986,441 +618,39 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         const r = BALL_R * ball.zoom;
         // 球の向き（回転と傾き）と鏡の大きさ。鏡を描く所だけでなく、飛んでいる💎が
         // 「自分の席がいま画面のどこにあるか」を知るのにも要るので、鏡が1枚も無い時でも先に出しておく
-        const lat = lv.a;          // 席1つにつき4つ（向き x,y,z と 横の間隔）
         const spin = reduceMotionRef.current ? 0 : (now / 1000) * (Math.PI * 2 / BALL_SPIN_SEC);
-        const cs = Math.cos(spin), sn = Math.sin(spin);
-        const ct = Math.cos(BALL_TILT), st = Math.sin(BALL_TILT);
         // 鏡の大きさは、見かけの半径と席の間隔から決める。高さは段の間隔（格子で1つ）、
         // 横幅は隣の席との間隔（席ごとに違う。極に近い段ほど細い）。カメラが寄るほど鏡も大きく見える
         const tileK = r * BALL_TILE_FILL;
-        const tileV = Math.max(BALL_TILE_MIN, tileK * lv.v);
         // 光の向き。鏡の向きが光を返す向きに近いほど明るくする
         const lz = 0.8;
         const ln = Math.hypot(Math.cos(lightAng), Math.sin(lightAng), lz);
-        const Lx = Math.cos(lightAng) / ln, Ly = Math.sin(lightAng) / ln, Lz = lz / ln;
+        ballView.cx = cx; ballView.cy = cy; ballView.r = r;
+        ballView.cs = Math.cos(spin); ballView.sn = Math.sin(spin);
+        ballView.ct = Math.cos(BALL_TILT); ballView.st = Math.sin(BALL_TILT);
+        ballView.tileK = tileK;
+        ballView.tileV = Math.max(BALL_TILE_MIN, tileK * lv.v);
+        ballView.Lx = Math.cos(lightAng) / ln; ballView.Ly = Math.sin(lightAng) / ln; ballView.Lz = lz / ln;
+        ballView.lat = lv.a;          // 席1つにつき4つ（向き x,y,z と 横の間隔）
+        ballView.filled = filled;
+        ballView.flash = !reduceMotionRef.current;
 
-        // 壁に映る粒の「満開の度合い」（0〜1）。曲の進みで決まる。
-        // 序盤は淡く、終盤は数も濃さも増す＝球が壁に近づいたように見せる。
-        // 大きさは粒ごとに元の鏡から決まるので、ここで決めるのは濃さだけ
-        const wallQ = Math.min(1, Math.max(0, p / WALL_FULL_AT));
-        const wallAlpha = WALL_A_MIN + (WALL_A_MAX - WALL_A_MIN) * wallQ;
-        wallAlphaNow = wallAlpha;   // 夜空へ放つ時に、粒の薄くなり始めの濃さとして読む
-        // 光を受けている鏡の足切り。鏡がまだ少ない間は緩め（WALL_LIT_EARLY）、
-        // 鏡が WALL_LIT_RAMP 枚まで増える間に通常（WALL_LIT_MIN）へ戻す。
-        // 序盤は光を受けている鏡そのものが数枚しかなく、さらに壁へ映した位置が画面に収まるものとなると
-        // 2個ほどしか出なかった（Hop報告 2026-09-08）
-        const wallCut = WALL_LIT_EARLY + (WALL_LIT_MIN - WALL_LIT_EARLY) * Math.min(1, filled / WALL_LIT_RAMP);
-        // 壁に映す鏡の選び方: 光を受けている鏡（wallCut 以上）から、席の番号ごとに決まっている
-        // くじで当たった分だけを映す。当たりの割合は「上限の数 ÷ 光を受けている鏡の数」なので、
-        // 数が増えるほど当たりが少しずつ辛くなる＝粒が1枚ずつ静かに減る。
-        // 当たり外れは席の番号で散らばるので、鏡の格子がそのまま拡大されて壁に写ることはない。
-        // 「光の受け方が強い順に上位◯枚」を採る形も試したが、光の当たっている一角に粒が固まって
-        // 壁の片側だけが光り、しかも格子の目がそのまま拡大されて見えた（2026-09-08 に手元で見てくじに変えた）。
-        // 「◯枚おきに1枚」の間引きも、間隔が2枚おきから3枚おきへ変わる瞬間に粒が一斉に入れ替わるのでやめた
-        const wallLit = filled * (1 - wallCut) / 2;   // だいたい何枚が光を受けているか（球の上でその向きが占める割合から）
-        const wallKeep = Math.min(1, WALL_SPOT_MAX / Math.max(1, wallLit));
-        wall.n = 0;
-        wallView.cx = cx; wallView.cy = cy; wallView.r = r; wallView.W = W; wallView.H = H;
-        wallView.Lx = Lx; wallView.Ly = Ly; wallView.Lz = Lz;
-        wallView.cut = wallCut; wallView.flash = !reduceMotionRef.current;
-
-        // 1.5 着地の返事（奥の席）。裏に着いた💎は鏡そのものが見えないので、壁の粒で返事をする。
-        //     着いてから WALL_FRESH_MS の間は「着いたばかり」の印を持ち、その席はくじを飛ばして必ず粒を出す。
-        //     上限（WALL_SPOT_MAX）に空きが無くなる前に拾えるよう、他の席より先に見る
-        //     ＝空きが足りない時は、着いたばかりでない粒の方が出ないことになる。
-        //     着いた直後は LAND_FLASH_MS かけて通常の明るさへ戻る。
-        //     【仮】光を受けていない向き（db が足切りに届かない）でも、着いたばかりの間は
-        //     いちばん強く受けている光源で1つ出す。ここは物理から外れている
-        {
-          // 印の切れた席を一覧から外す（詰めるだけで、配列は作り直さない）
-          let keep = 0;
-          for (let i = 0; i < ball.freshN; i++) {
-            const s = ball.fresh[i];
-            if (now - ball.landAt[s] < WALL_FRESH_MS && ball.sprites[s]) ball.fresh[keep++] = s;
-            else ball.freshIn[s] = 0;
-          }
-          ball.freshN = keep;
-          let freshSpots = 0;
-          // 新しく着いた席から順に見る。一覧は着いた順に並んでいるので後ろから。
-          // 上限に空きが無くなった時、いちばん新しい着地の返事が先に落ちてしまわないようにする
-          for (let i = ball.freshN - 1; i >= 0; i--) {
-            const slot = ball.fresh[i];
-            const o = slot * 4;
-            const x1 = lat[o] * cs + lat[o + 2] * sn;
-            const z1 = -lat[o] * sn + lat[o + 2] * cs;
-            const y2 = lat[o + 1] * ct - z1 * st;
-            const z2 = lat[o + 1] * st + z1 * ct;
-            if (z2 > 0) continue;   // 手前の席は鏡そのものが光る（2.）
-            const tileU = Math.max(BALL_TILE_MIN, tileK * lat[o + 3]);
-            const dia = Math.min(tileU, tileV) * WALL_TILE_MUL;
-            const age = now - ball.landAt[slot];
-            const q = Math.max(0, 1 - age / LAND_FLASH_MS);
-            const boost = 1 + (WALL_LAND_FLASH - 1) * q * q * (3 - 2 * q);
-            let got = 0, bestLi = 0, bestDb = -Infinity;
-            for (let li = 0; li < WALL_LIGHT_TURNS.length; li++) {
-              const db = wallLightDot(li, x1, y2, z2, Lx, Ly, Lz);
-              if (db > bestDb) { bestDb = db; bestLi = li; }
-              if (db > wallCut && takeWallSpot(wall, wallView, ball, slot, x1, y2, z2, li, dia, boost, false)) got++;
-            }
-            if (got === 0 && takeWallSpot(wall, wallView, ball, slot, x1, y2, z2, bestLi, dia, boost, true)) got++;
-            freshSpots += got;
-            if (devStats && got > 0) {
-              // 粒は球の円の内側には貼らないので、そこへ映った分は出していても見えない。
-              // 見えている所へ映ったかどうかを、撮影で数えられるようにする
-              devStats.x = wall.x[wall.n - 1]; devStats.y = wall.y[wall.n - 1];
-              devStats.out = Math.hypot(devStats.x - cx, devStats.y - cy) > r ? 1 : 0;
-            }
-          }
-          if (devStats) devStats.freshSpots = freshSpots;
-        }
-
-        // 2. 球の表面: 縦の軸まわりに回して少し傾け、土台の暗い球を描いてから、
-        //    手前側の席へ鏡を1枚ずつ貼る。鏡は球の表面に貼り付いた平らなものなので隣と重ならず、
-        //    別の紙も並べ替えも要らない。奥側の鏡は土台の球に隠れるので描かない。
-        //    ついでに、壁に映る粒の元になる席（光を受けている奥側の席）をここで拾っておく。
-        //    1つの席から、光源の数だけ粒が出る
-        if (filled > 0) {
-          const half = tileV * 0.6;   // 画面からはみ出した鏡を弾くための目安（横幅は段の間隔の1.2倍まで）
-          const flash = !reduceMotionRef.current;
-          // 土台の暗い球。鏡はこの上に貼るので、先に塗っておく
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          ctx.fillStyle = "#171a21";
-          ctx.beginPath();
-          ctx.arc(cx, cy, r, 0, Math.PI * 2);
-          ctx.fill();
-          for (let k = 0; k < filled; k++) {
-            const slot = occ[k];
-            const sp = ball.sprites[slot];
-            if (!sp) continue;
-            const o = slot * 4;
-            const x1 = lat[o] * cs + lat[o + 2] * sn;
-            const z1 = -lat[o] * sn + lat[o + 2] * cs;
-            const y2 = lat[o + 1] * ct - z1 * st;
-            const z2 = lat[o + 1] * st + z1 * ct;
-            const sx = cx + x1 * r, sy = cy - y2 * r;
-            // 鏡の横幅。奥側の席では、壁に映る粒の大きさを決めるのにも使う
-            const tileU = Math.max(BALL_TILE_MIN, tileK * lat[o + 3]);
-            if (z2 <= 0) {
-              // 奥側の鏡。壁に映る粒の元はこちら。
-              // 壁に届く光は球の向こう側の面が返したものなので、粒は手前の鏡と逆向きに流れる。
-              // 奥の鏡が光を受けているかどうかは、光の向きの奥行きだけ裏返して（＝奥から当たる光として）
-              // 手前の鏡と同じ内積で測る。映す先は、その鏡が返した光の筋が球の後ろの平らな壁に当たる所。
-              // 鏡が動画に隠れているかは問わない（動画の裏の鏡の光も壁には届く＝序盤の「裏で何か光っている」手掛かり）。
-              // ここでは位置と色を控えるだけで、貼るのは鏡を全部描いた後（3.）
-              // くじは席の番号から毎回同じ数を作る＝同じ席はずっと映り続ける（ちらつかない）。
-              // 席を取った順（k）から作ると、取り消しや差し替えで並びがずれた時に
-              // 壁の粒が一斉に入れ替わってしまう。
-              // くじを引くのは席につき1回。当たった席だけが、光源の数だけ粒を出す。
-              // 着いたばかりの席は 1.5 で先に拾ってあるので、ここでは飛ばす
-              const hk = ((slot * 2654435761) >>> 0) / 4294967296;
-              if (hk < wallKeep && !ball.freshIn[slot]) {
-                // 粒の直径は、この席の鏡の短い方の辺に合わせる＝鏡1枚と粒1つが同じ物差しになる
-                const dia = Math.min(tileU, tileV) * WALL_TILE_MUL;
-                // 光源の数だけ繰り返す。同じ鏡でも光源ごとに違う向きへ筋を返すので、粒もその数だけ出る
-                for (let li = 0; li < WALL_LIGHT_TURNS.length; li++) {
-                  takeWallSpot(wall, wallView, ball, slot, x1, y2, z2, li, dia, 1, false);
-                }
-              }
-              // 鏡は球の表面から出っ張らないので、奥側の分は描かない
-              continue;
-            }
-            if (sx < -half || sx > W + half || sy < -half || sy > H + half) continue;
-            // 鏡がまるごと動画の中に入る＝動画に隠れて見えないので描かない（動画の縁にかかる鏡は裏を通るだけ）
-            if (sx - half > v.x && sx + half < v.x + v.w && sy - half > v.y && sy + half < v.y + v.h) continue;
-            const d = x1 * Lx + y2 * Ly + z2 * Lz;
-            // 鏡は球に接する平面に貼られている。その平面の「北向き」と「東向き」を画面に写した2本を、
-            // そのまま絵の縦と横の向きに使う＝正面の鏡は素の丸、縁へ行くほど潰れて見える。
-            // 帯の緯度（lat[o+1]）は回しても傾けても変わらないので、北向きの計算にそのまま使える
-            const ap = lat[o + 1];
-            const q = Math.sqrt(Math.max(1e-4, 1 - ap * ap));
-            const nx = (-ap * x1) / q, ny = (ct - ap * y2) / q, nz = (st - ap * z2) / q;
-            const ex = ny * z2 - nz * y2, ey = nz * x1 - nx * z2;
-            ctx.globalAlpha = d > 0 ? BALL_DIM + (1 - BALL_DIM) * d : BALL_DIM;
-            // 画面の y は下向きなので、縦方向は符号を裏返す
-            ctx.setTransform(ex * tileU * dpr, -ey * tileU * dpr, -nx * tileV * dpr, ny * tileV * dpr, sx * dpr, sy * dpr);
-            // 光を返す向きに来た鏡は、白さの段を上げた絵に差し替える＝白い帯が流れて光る
-            let fs = flash && d > MIRROR_HL_CUT
-              ? Math.min(MIRROR_FLASH - 1, 1 + Math.floor(((d - MIRROR_HL_CUT) / (1 - MIRROR_HL_CUT)) * (MIRROR_FLASH - 1)))
-              : 0;
-            // 着いた瞬間の手応え。いちばん白い段の絵に差し替え、LAND_FLASH_MS かけて通常へ戻す。
-            // 戻り方は直線ではなく、ゆっくり動き出してゆっくり収まる曲線。貼る回数は増えない（差し替えだけ）
-            const la = ball.landAt[slot];
-            if (la > 0) {
-              const q = 1 - (now - la) / LAND_FLASH_MS;
-              if (q > 0) fs = Math.max(fs, Math.round(q * q * (3 - 2 * q) * (MIRROR_FLASH - 1)));
-            }
-            ctx.drawImage(sp[fs], -0.5, -0.5, 1, 1);
-          }
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          ctx.globalAlpha = 1;
-        }
-
-        // 3. 壁に映る光の粒: 2. で拾った奥側の鏡が返した筋が、奥の壁に当たる所へ柔らかい光の丸として貼る。
-        //    外へ行くほど粒と粒の間隔が開き、浅く当たった粒は放射方向に伸びる＝奥に平らな壁があるように見える。
-        //    奥側の鏡は画面の上で手前の鏡と逆向きに動くので、粒も逆向きに流れる＝本物のミラーボールと同じ。
-        //    額縁（動画を含む）の中は clip で除外する。合成は lighter なので、重なった所だけ明るくなる。
-        //    貼るのは鏡を全部描いた後。重なった時も足し算で少し明るくなるだけ（主役の動画より目立たない濃さに抑えてある）
-        //    粒は球の奥にある光なので、球の円の内側には貼らない（Hop指摘 2026-09-11）。
-        //    額縁の地色はこのキャンバスに塗ってあるので、囲いを外すと額縁まで明るくなってしまう
-        if (wall.n > 0 && wallAlpha > 0.01) {
-          const gem = Math.min(1, Math.max(0, (p - WALL_GEM_FROM) / WALL_GEM_FADE));
-          ctx.save();
-          // 囲いは2回に分けて掛ける。1回目で額縁の中を抜き、2回目で球の円を抜く＝両方を抜いた残りだけに貼る。
-          // 円を1回目と同じ経路に足すと、額縁の矩形と円が重なっている所は境目を3回またぐことになり、
-          // evenodd の数え方では逆に「貼れる側」へ返ってしまう。
-          // 円の半径は球の半径ちょうど。壁の光は球の輪郭のすぐ外まで来ていて、遮るのは球そのものだけ。
-          // 少し大きく取っていた頃は、球の外側に粒の無い輪ができて黒い縁のように見えた（Hop決定 2026-09-13）
-          ctx.beginPath();
-          ctx.rect(0, 0, W, H);
-          ctx.rect(f.x, f.y, f.w, f.h);
-          ctx.clip("evenodd");
-          ctx.beginPath();
-          ctx.rect(0, 0, W, H);
-          ctx.arc(cx, cy, r, 0, Math.PI * 2);
-          ctx.clip("evenodd");
-          ctx.globalCompositeOperation = "lighter";
-          for (let i = 0; i < wall.n; i++) {
-            const oc = i * 3;
-            const cr = wall.c[oc], cg = wall.c[oc + 1], cb = wall.c[oc + 2];
-            ctx.globalAlpha = Math.min(1, wallAlpha * wall.w[i]);
-            const spot = getWallSpot((cr << 16) | (cg << 8) | cb, cr, cg, cb);
-            const wd = wall.d[i];
-            const wex = wall.ex[i], wey = wall.ey[i];
-            if (wex === 1 && wey === 1) {
-              ctx.drawImage(spot, wall.x[i] - wd / 2, wall.y[i] - wd / 2, wd, wd);
-              continue;
-            }
-            // 伸びた粒。伸びる向きへ傾けてから、その向きに引き伸ばして貼る
-            ctx.save();
-            ctx.translate(wall.x[i], wall.y[i]);
-            ctx.rotate(wall.ang[i]);
-            ctx.scale(wex, wey);
-            ctx.drawImage(spot, -wd / 2, -wd / 2, wd, wd);
-            ctx.restore();
-          }
-          // 終盤だけ、粒の中心に鏡の絵を薄く重ねて輪郭を出す（曲が進むほどはっきりする）
-          if (gem > 0) {
-            for (let i = 0; i < wall.n; i++) {
-              const sp2 = wall.p[i];
-              if (!sp2) continue;
-              const gemW = wall.d[i] * WALL_GEM_SCALE;
-              ctx.globalAlpha = Math.min(1, wallAlpha * wall.w[i] * WALL_GEM_ALPHA * gem);
-              ctx.drawImage(sp2, wall.x[i] - gemW / 2, wall.y[i] - gemW / 2, gemW, gemW);
-            }
-          }
-          ctx.globalAlpha = 1;
-          ctx.restore();
-        }
-
-        // 4. 飛んでいる途中の💎（落ちている時と同じ面付きの絵）。
-        //    押した💎は必ず自分の席へ向かって飛ぶ。行き先の席は球の全面に均等に割り当てられているので、
-        //    手前へ来る分・輪郭ぎわを回る分・向こう側へ入っていく分が自然に散らばる（Hop決定 2026-09-13）。
-        //    通り道は1本の3次ベジェ曲線。球を突き抜けず、輪郭の外側をなぞってから席へ寄る。
-        //    手前の見えている席へ向かう分は、飛びながら鏡の大きさまで縮んで、着いた瞬間に鏡として貼られる
-        //    ＝押した💎がはめ込まれる様子が見える（Hop指摘 2026-09-08）。
-        //    奥を向いている席と、動画にすっぽり隠れる席へ向かう分は、輪郭のきわで薄くなって球の中へ入り、
-        //    見えない所で席が埋まる。飛んでいる間は最後までダイヤのまま（Hop決定 2026-09-11）
-        for (const sk of suck) {
-          const u = Math.min(1, (now - sk.t0) / sk.dur);
-          // その💎に取ってある席が、いま画面のどこにあるか（回転と傾きを反映）
-          const so = sk.seat * 4;
-          const sx1 = lat[so] * cs + lat[so + 2] * sn;
-          const sz1 = -lat[so] * sn + lat[so + 2] * cs;
-          const sy2 = lat[so + 1] * ct - sz1 * st;
-          const sz2 = lat[so + 1] * st + sz1 * ct;
-          const seatX = cx + sx1 * r, seatY = cy - sy2 * r;
-          const seatAng = Math.atan2(seatY - cy, seatX - cx);
-          const seatDist = Math.hypot(seatX - cx, seatY - cy);
-          if (!sk.aimed) {
-            // 行き先の種類と回り込み方は押した直後の1フレーム目に決めて以後は変えない
-            // （途中で切り替わると飛び方が跳ぶ）
-            sk.aimed = true;
-            sk.seatAng = seatAng;
-            sk.seatDist = seatDist;
-            // 奥を向いている席と、動画の矩形にすっぽり隠れる手前の席へは着地させず、
-            // 輪郭のきわから中へ入って消す。席の割り当てそのものはここでは変えていない
-            const hidden = seatX > v.x && seatX < v.x + v.w && seatY > v.y && seatY < v.y + v.h;
-            // 自分の分で手前・矩形外の席を取れている時は、押した瞬間の向きで奥に見えていても着地させる。
-            // 席は着く頃の向きで選んであるので、ここで消してしまうと動画の外へ着く形にならない
-            sk.enter = sk.seatFront ? false : sz2 <= 0 || hidden;
-            // 回り込みの深さは席の向きで決まる。正面を向いた席へはほぼまっすぐ、
-            // 輪郭ぎわの席へは大きく回り込む。中へ入る分はいちばん深く回り込む
-            sk.wrapCurl = sk.enter ? 1 : 1 - Math.min(1, Math.max(0, sz2));
-            // 出発点のある側から回り込む＝球の向こう側へ大回りしない
-            let d0 = Math.atan2(sk.y0 - cy, sk.x0 - cx) - seatAng;
-            while (d0 > Math.PI) d0 -= Math.PI * 2;
-            while (d0 < -Math.PI) d0 += Math.PI * 2;
-            sk.wrapSide = d0 >= 0 ? 1 : -1;
-          } else {
-            // 席は回転で動くので、その方角と球の中心からの距離を少しずつ寄せる。
-            // 寄せ方はなめらかなので、席が動いても曲線は跳ばない
-            const m = Math.min(1, dt * SEAT_FOLLOW);
-            let d1 = seatAng - sk.seatAng;
-            while (d1 > Math.PI) d1 -= Math.PI * 2;
-            while (d1 < -Math.PI) d1 += Math.PI * 2;
-            sk.seatAng += d1 * m;
-            sk.seatDist += (seatDist - sk.seatDist) * m;
-          }
-          // 1本の3次ベジェ曲線。P3 は着く点（席そのもの、または輪郭のきわの入る点）、
-          // P2 はその点で輪郭に接する向きへ引いた輪郭の外の点、P1 は出発の向きを少し伸ばした所。
-          // P2 は P3 に連れて動くので、席が回っても曲線はなめらかに移り変わる
-          const rEnd = sk.enter ? r * SUCK_ENTER_R : sk.seatDist;
-          const p3x = cx + Math.cos(sk.seatAng) * rEnd;
-          const p3y = cy + Math.sin(sk.seatAng) * rEnd;
-          const aw = sk.seatAng + sk.wrapSide * SUCK_WRAP_SWEEP * sk.wrapCurl;
-          const rCtrl = rEnd + (r * SUCK_WRAP_BULGE - rEnd) * sk.wrapCurl;
-          const p2x = cx + Math.cos(aw) * rCtrl;
-          const p2y = cy + Math.sin(aw) * rCtrl;
-          const dx = p3x - sk.x0, dy = p3y - sk.y0;
-          const len = Math.hypot(dx, dy) || 1;
-          const p1x = sk.x0 + dx * SUCK_CTRL_LEAD + (dy / len) * sk.bow;
-          const p1y = sk.y0 + dy * SUCK_CTRL_LEAD + (-dx / len) * sk.bow;
-          // 進み具合。ゆっくり動き出して、着く直前でまたゆっくり＝席にそっと収まる。
-          // 曲線1本になめらかな進み1つなので、途中で速さも向きも跳ばない
-          const t = u * u * (3 - 2 * u);
-          const it = 1 - t;
-          const b0 = it * it * it, b1 = 3 * it * it * t, b2 = 3 * it * t * t, b3 = t * t * t;
-          suckDraw.x = b0 * sk.x0 + b1 * p1x + b2 * p2x + b3 * p3x;
-          suckDraw.y = b0 * sk.y0 + b1 * p1y + b2 * p2y + b3 * p3y;
-          // 席へ着く分は鏡の大きさまで縮む。drawGemLive は size の (2 / 0.95) 倍の幅で描くので、
-          // 貼られる鏡（幅＝tile）と同じ見え方になる大きさに合わせる＝着いた瞬間に大きさが跳ばない。
-          // 元の大きさにはカメラの寄りを掛ける。球と表面の鏡は寄りで大きくなるので、
-          // 飛んでいる💎だけ素のままだと、曲の終わりに球だけが近くにあるように見えてしまう（Hop決定 2026-09-11）。
-          // 寄りは毎コマ変わりうるので、出発時の大きさには混ぜず描く時に掛ける。
-          // 輪郭のきわから中へ入る分は、縮まずに大きさを保ったまま消える
-          // 自分の分は、飛んでいる間の大きさを SELF_BIG 倍にして群衆と見分けられるようにする。
-          // 着く先の大きさは鏡と同じ見え方のまま変えないので、着いた瞬間に跳ばない
-          const base = sk.size * ball.zoom * (sk.self ? SELF_BIG : 1);
-          suckDraw.size = sk.enter ? base : base + (tileV * 0.95 / 2 - base) * t;
-          // 濃さ。輪郭の中へ入る分は消えきる。席へ着く分も、飛んでいる間に球が回って
-          // 席が真横を向いてしまったらその分だけ薄くする。鏡は真横を向くとほとんど見えないので、
-          // 着いて鏡に変わる瞬間に濃さが跳ばない。薄くなり始めも終わりもなめらかな曲線で結ぶ
-          const endAlpha = sk.enter ? 0 : Math.min(1, Math.max(0, sz2 / SUCK_DEPTH_SOFT));
-          let alpha = 1;
-          if (endAlpha < 1 && u > SUCK_FADE_FROM) {
-            const w = (u - SUCK_FADE_FROM) / (1 - SUCK_FADE_FROM);
-            alpha = 1 + (endAlpha - 1) * w * w * (3 - 2 * w);
-          }
-          // 飛んでいる姿勢。通り道の上をどこまで進めるかと、絵ごと画面の中で何回まわすかを飛び方から決める。
-          // 進み具合は飛行の進み u で測るので、飛ぶ時間が長くても短くても同じだけ回りきる。
-          // 動きを減らす設定では、飛び方に関わらず出発時の向きのまま飛ばす
-          const style = FLIGHT_STYLES[sk.flight] ?? FLIGHT_STYLES[0];
-          if (reduceMotionRef.current) {
-            suckDraw.ang = sk.ang;
-            suckDraw.roll = sk.roll;
-          } else {
-            suckDraw.ang = sk.ang + u * style.laps * Math.PI * 2;
-            suckDraw.roll = sk.roll + style.turns * Math.PI * 2 * (style.quad ? u * u : u)
-              + (style.wobble ? style.wobble * Math.sin(u * Math.PI * 2 * FLIGHT_WOBBLE_CYCLES) : 0);
-          }
-          suckDraw.path = sk.path;
-          suckDraw.rgb = sk.rgb;
-          // 飛んでいる間は最後までダイヤのまま。着いた瞬間に鏡になる（Hop決定 2026-09-11）
-          if (alpha < 1) {
-            ctx.globalAlpha = alpha;
-            drawGemLive(suckDraw);
-            ctx.globalAlpha = 1;
-          } else {
-            drawGemLive(suckDraw);
-          }
-        }
-
+        const wallAlpha = beginWallFrame(wallSt, ballView, p, W, H, reduceMotionRef.current);
+        // 1.5 着地の返事（奥の席）
+        takeFreshLandings(wallSt, ball, ballView, now);
+        // 2. 球の表面（ついでに奥側の鏡から壁の粒を拾う）
+        drawMirrors(ctx, ball, ballView, W, H, dpr, v, now, onBackSeat);
+        // 3. 壁に映る光の粒
+        drawWallSpots(ctx, wallSt, ballView, wallAlpha, p, W, H, f);
+        // 4. 飛んでいる途中の💎
+        drawSucks(ctx, suck, ball, ballView, v, now, dt, reduceMotionRef.current);
         // 5. 押した手応えの閃光
-        drawScreenFlashes();
+        drawScreenFlashes(v, now);
         return;
       }
 
-      if (gems.length === 0) return;
-
-      // 光（画面座標）: 💎のまわりの小さな輪。動画の裏を通っている間は、いちばん近い額縁の辺を灯す。
-      // どちらも動画の矩形を除外して描く
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, W, H);
-      ctx.rect(v.x, v.y, v.w, v.h);
-      ctx.clip("evenodd");
-      ctx.globalCompositeOperation = "lighter";
-      for (const g of gems) {
-        if (g.settled) continue;
-        const sx = cx + (g.x - cx) * scale, sy = H + oy + (g.y - floorY) * scale;
-        const r = g.size * scale * 1.6;
-        const glow = getGlow(g.rgb);
-        ctx.drawImage(glow.halo, sx - r, sy - r, r * 2, r * 2);
-        // 動画の裏を通っている？
-        if (sx > v.x && sx < v.x + v.w && sy > v.y && sy < v.y + v.h) {
-          const dl = sx - v.x, dr = v.x + v.w - sx, dtp = sy - v.y, db = v.y + v.h - sy;
-          const m = Math.min(dl, dr, dtp, db);
-          const hit = m === dl ? { x: v.x, y: sy } : m === dr ? { x: v.x + v.w, y: sy } : m === dtp ? { x: sx, y: v.y } : { x: sx, y: v.y + v.h };
-          const reach = 90 * scale;
-          const k = Math.max(0, 1 - m / Math.max(1, Math.min(v.w, v.h) / 2)) * 0.9;
-          ctx.globalAlpha = k;   // 灯りの強さは色の濃さの掛け算なので、絵を1枚にして全体の透明度で代える
-          ctx.drawImage(glow.edge, hit.x - reach, hit.y - reach, reach * 2, reach * 2);
-          ctx.globalAlpha = 1;
-        }
-      }
-      ctx.restore();
-
-      // 💎本体（世界座標をカメラで縮めて描く。軸は床＝画面の下端、横は動画の中心）
-      ctx.save();
-      ctx.translate(cx, H + oy);
-      ctx.scale(scale, scale);
-      ctx.translate(-cx, -floorY);
-      let settledCount = 0;
-      for (const g of gems) if (g.settled) settledCount++;
-      if (settledCount > LIVE_KEEP) bakeOldest(gems, settledCount - LIVE_KEEP);
-      else if (gems.length > MAX_GEMS) bakeOldest(gems, gems.length - MAX_GEMS);
-      if (bake) ctx.drawImage(bake.canvas, bake.x0, bake.y0, bake.w, bake.h);
-      for (const g of gems) {
-        if (g.settled) drawGemSettled(g);
-        else drawGemLive(g);
-      }
-      // 山のきらめき: 積もった💎（焼き込んだ分も含む）からランダムに1つ選び、押した時と同じ閃光を出す。
-      // 画面の外や動画の裏にある💎を選んでも見えないので、画面内のものが当たるまで数回引き直す（Hop報告 2026-09-07）。
-      // 曲が進むほど頻度が上がり、最後の山で一番ピカピカする【仮: 毎秒 0.5〜6回】。動き軽減では出さない（飾りなので）
-      if (!reduceMotionRef.current) {
-        const pts = sparkPointsRef.current;
-        if (pts.length > 0) {
-          const rate = 0.5 + 5.5 * p * p;
-          if (Math.random() < rate * dt) {
-            for (let tries = 0; tries < 12; tries++) {
-              const pt = pts[Math.floor(Math.random() * pts.length)];
-              const sx = cx + (pt.x - cx) * scale, sy = H + oy + (pt.y - floorY) * scale;
-              if (sx < 0 || sx > W || sy < 0 || sy > H) continue;
-              if (sx > v.x && sx < v.x + v.w && sy > v.y && sy < v.y + v.h) continue;
-              flashesRef.current.push({ x: pt.x, y: pt.y, t0: now, rgb: pt.rgb, size: pt.size * 0.8 });
-              break;
-            }
-          }
-        }
-      }
-      // 閃光: 白い芯＋その色の輪が広がって消える（約320ms）。押した手応えの分は動き軽減でも出す
-      const flashes = flashesRef.current;
-      if (flashes.length) {
-        ctx.globalCompositeOperation = "lighter";
-        for (let i = flashes.length - 1; i >= 0; i--) {
-          const fl = flashes[i];
-          const k = (now - fl.t0) / 320;
-          if (k >= 1) { flashes.splice(i, 1); continue; }
-          const r = fl.size * (1.2 + 2.6 * k);
-          const a = 1 - k;
-          const rg = ctx.createRadialGradient(fl.x, fl.y, 0, fl.x, fl.y, r);
-          rg.addColorStop(0, `rgba(255,255,255,${0.95 * a})`);
-          rg.addColorStop(0.35, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},${0.7 * a})`);
-          rg.addColorStop(1, `rgba(${fl.rgb[0]},${fl.rgb[1]},${fl.rgb[2]},0)`);
-          ctx.fillStyle = rg;
-          ctx.fillRect(fl.x - r, fl.y - r, r * 2, r * 2);
-          // 十字の光条
-          ctx.strokeStyle = `rgba(255,255,255,${0.8 * a})`;
-          ctx.lineWidth = 2 / Math.max(scale, 0.01);
-          const L = fl.size * (2 + 3 * k);
-          ctx.beginPath();
-          ctx.moveTo(fl.x - L, fl.y); ctx.lineTo(fl.x + L, fl.y);
-          ctx.moveTo(fl.x, fl.y - L); ctx.lineTo(fl.x, fl.y + L);
-          ctx.stroke();
-        }
-        ctx.globalCompositeOperation = "source-over";
-      }
-      ctx.restore();
+      drawPile(ctx, pile, gems, sparkPointsRef.current, flashesRef.current,
+        W, H, dpr, v, cx, scale, oy, p, dt, now, reduceMotionRef.current);
     };
     raf = requestAnimationFrame(tick);
     return () => {
