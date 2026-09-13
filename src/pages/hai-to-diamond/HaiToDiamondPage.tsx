@@ -1066,23 +1066,24 @@ export default function HaiToDiamondPage() {
           }}
         >
           {ended ? (
-            // 動画の上の空きは約120pxしか無いので1段に収める。主役は「あなたの💎」で、大きさの差で順位を付ける
-            // （2段に分けると上段が画面の上へ切れた・2026-09-14）
-            <div style={{ display: "flex", gap: "1.4rem", justifyContent: "center", alignItems: "flex-end" }}>
-              <div>
-                <p style={endLabelStyle}>あなたの💎</p>
-                <BouncyNumber value={finalCount} color={color} size="2.2rem" outlineColor={NUMBER_OUTLINE} />
+            // 動画の上の空きは約120px。1行目は X のシェア文と同じ「💎を ◯個 降らせました」で数字だけ大きく、
+            // 2〜3行目は 左: 歴代累計のラベルと数値 / 真ん中: ‹ 💎 › / 右: 一番輝いた瞬間のラベルと時刻（Hop指示 2026-09-14）
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: "0.35rem", fontSize: "0.9375rem", fontWeight: 700, color: "#e8eaed" }}>
+                <span>💎を</span>
+                <BouncyNumber value={finalCount} color={color} size="1.9rem" outlineColor={NUMBER_OUTLINE} />
+                <span>個 降らせました</span>
               </div>
-              <div>
-                <p style={endLabelStyle}>歴代累計</p>
-                <BouncyNumber value={(othersTotal ?? 0) + finalCount} color={color} size="1.3rem" outlineColor={NUMBER_OUTLINE} />
-              </div>
-              {/* 色ごとの一番輝いた時刻。💎を左右にスワイプ（または ‹ › ）で色を1つずつ送る。
-                  データは再生中に全色ぶん手元で計算済みなので、ここで通信は起きない（Hop指示 2026-09-14）。
-                  替えるのは「いま選んでいる色」そのものなので、見返す先と数字の色も一緒に変わる */}
-              {!highlighting && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", columnGap: "0.6rem", width: "100%", maxWidth: 360, padding: "0 12px", boxSizing: "border-box" }}>
+                <div style={{ textAlign: "right" }}>
+                  <p style={endLabelStyle}>歴代累計</p>
+                  <BouncyNumber value={(othersTotal ?? 0) + finalCount} color={color} size="1.3rem" outlineColor={NUMBER_OUTLINE} />
+                </div>
+                {/* 色ごとの一番輝いた時刻。💎を左右にスワイプ（または ‹ › ）で色を1つずつ送る。
+                    データは再生中に全色ぶん手元で計算済みなので、ここで通信は起きない（Hop指示 2026-09-14）。
+                    替えるのは「いま選んでいる色」そのものなので、見返す先と数字の色も一緒に変わる */}
                 <div
-                  style={{ pointerEvents: "auto", display: "flex", flexDirection: "column", alignItems: "center", touchAction: "pan-y" }}
+                  style={{ pointerEvents: highlighting ? "none" : "auto", display: "flex", alignItems: "center", gap: "0.1rem", touchAction: "pan-y", visibility: highlighting ? "hidden" : "visible" }}
                   onPointerDown={(e) => { endGemSwipeRef.current = e.clientX; }}
                   onPointerUp={(e) => {
                     const x0 = endGemSwipeRef.current;
@@ -1094,27 +1095,27 @@ export default function HaiToDiamondPage() {
                   }}
                   onPointerCancel={() => { endGemSwipeRef.current = null; }}
                 >
+                  <button type="button" aria-label="前の色" onClick={() => cycleColor(-1)} style={endGemArrowStyle}>‹</button>
+                  <EntryGem size={34} color={color} animate={!settings.reduceMotion} />
+                  <button type="button" aria-label="次の色" onClick={() => cycleColor(1)} style={endGemArrowStyle}>›</button>
+                </div>
+                <div style={{ textAlign: "left", visibility: highlighting ? "hidden" : "visible" }}>
                   <p style={endLabelStyle}>一番輝いた瞬間</p>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.1rem" }}>
-                    <button type="button" aria-label="前の色" onClick={() => cycleColor(-1)} style={endGemArrowStyle}>‹</button>
-                    <EntryGem size={30} color={color} animate={!settings.reduceMotion} />
-                    <button type="button" aria-label="次の色" onClick={() => cycleColor(1)} style={endGemArrowStyle}>›</button>
-                  </div>
                   {/* 時刻そのものを「その色が一番輝いた瞬間」を見返す入口にする。別のボタンは置かない（Hop指示 2026-09-14） */}
                   {peakTime != null ? (
                     <button
                       type="button"
                       onClick={handleHighlight}
-                      style={{ fontSize: "1.1rem", fontWeight: 700, color, fontVariantNumeric: "tabular-nums", lineHeight: 1.2, background: "none", border: "none", padding: "6px 12px", textDecoration: "underline", textUnderlineOffset: "3px", cursor: "pointer", pointerEvents: "auto", fontFamily: "inherit" }}
+                      style={{ fontSize: "1.3rem", fontWeight: 700, color, fontVariantNumeric: "tabular-nums", lineHeight: 1.1, background: "none", border: "none", padding: "4px 8px 4px 0", textDecoration: "underline", textUnderlineOffset: "3px", cursor: "pointer", pointerEvents: "auto", fontFamily: "inherit" }}
                     >
                       {fmtClock(peakTime)}
                     </button>
                   ) : (
-                    <span style={{ fontSize: "1.1rem", fontWeight: 700, color, fontVariantNumeric: "tabular-nums", lineHeight: 1.2, padding: "6px 12px", display: "inline-block" }}>—</span>
+                    <span style={{ fontSize: "1.3rem", fontWeight: 700, color, fontVariantNumeric: "tabular-nums", lineHeight: 1.1, padding: "4px 8px 4px 0", display: "inline-block" }}>—</span>
                   )}
                 </div>
-              )}
-            </div>
+              </div>
+            </>
           ) : (
             <div style={{ display: "flex", gap: "1.8rem", justifyContent: "center", alignItems: "flex-end" }}>
               <div>
