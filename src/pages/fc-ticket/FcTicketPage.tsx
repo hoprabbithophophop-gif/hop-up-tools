@@ -119,17 +119,29 @@ export default function FcTicketPage() {
   // Supabase から全データを取得
   useEffect(() => {
     const sb = getSupabase();
-    Promise.all([
-      sb.from("fc_news").select("uid, title, category, detail_url"),
+    // 締切は「これから」と「過ぎた60日ぶん」を別々に取る。
+    // 以前は60日前から日付順に1回で取って500件で切っていたため、過ぎた分が500件を食い尽くすと
+    // これからの申込締切が丸ごと落ち、ガントが「申込期間データなし」になった（2026-09-17 本番で発生）。
+    // この画面が使わない型（公演日・通販・販売）は取らない。
+    const nowIso = new Date().toISOString();
+    const pastFromIso = new Date(Date.now() - 60 * 86400000).toISOString();
+    const UNUSED_TYPES = "(event,goods_sale_start,goods_sale_end,sale_start,sale_end)";
+    const deadlineQuery = () =>
       sb
         .from("fc_deadlines")
         .select("*, fc_news(title, detail_url, category)")
-        .gte("deadline_at", new Date(Date.now() - 60 * 86400000).toISOString())
+        .not("type", "in", UNUSED_TYPES)
         .order("deadline_at", { ascending: true })
-        .limit(500),
-    ]).then(([newsRes, dlRes]) => {
+        .limit(1000);
+    Promise.all([
+      sb.from("fc_news").select("uid, title, category, detail_url"),
+      deadlineQuery().gte("deadline_at", nowIso),
+      deadlineQuery().gte("deadline_at", pastFromIso).lt("deadline_at", nowIso),
+    ]).then(([newsRes, futureRes, pastRes]) => {
       if (newsRes.data) setAllNews(newsRes.data as FcNewsRow[]);
-      if (dlRes.data) setAllDeadlines(dlRes.data as Deadline[]);
+      if (futureRes.data || pastRes.data) {
+        setAllDeadlines([...(pastRes.data ?? []), ...(futureRes.data ?? [])] as Deadline[]);
+      }
       setLoading(false);
     }).catch(() => {
       setFetchError(true);
