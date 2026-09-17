@@ -137,11 +137,20 @@ export default function FcTicketPage() {
       sb.from("fc_news").select("uid, title, category, detail_url"),
       deadlineQuery().gte("deadline_at", nowIso),
       deadlineQuery().gte("deadline_at", pastFromIso).lt("deadline_at", nowIso),
-    ]).then(([newsRes, futureRes, pastRes]) => {
-      if (newsRes.data) setAllNews(newsRes.data as FcNewsRow[]);
-      if (futureRes.data || pastRes.data) {
-        setAllDeadlines([...(pastRes.data ?? []), ...(futureRes.data ?? [])] as Deadline[]);
+    ]).then(async ([newsRes, futureRes, pastRes]) => {
+      if (newsRes.error || futureRes.error || pastRes.error) throw new Error("fetch failed");
+      // 見張り: 「これから」が0件なら、本当に0件かをデータベースに数えてもらう。
+      // 件数があるのに届いていなければ、静かに空の画面を出さずに「取得に失敗」へ倒す（2026-09-17 再発防止）
+      if ((futureRes.data ?? []).length === 0) {
+        const { count, error } = await sb
+          .from("fc_deadlines")
+          .select("id", { count: "exact", head: true })
+          .not("type", "in", UNUSED_TYPES)
+          .gte("deadline_at", nowIso);
+        if (error || (count ?? 0) > 0) throw new Error("future deadlines missing");
       }
+      if (newsRes.data) setAllNews(newsRes.data as FcNewsRow[]);
+      setAllDeadlines([...(pastRes.data ?? []), ...(futureRes.data ?? [])] as Deadline[]);
       setLoading(false);
     }).catch(() => {
       setFetchError(true);

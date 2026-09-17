@@ -1,0 +1,24 @@
+# 本番の fc-ticket を毎日1回開き、申込期間バーが出ているかを数える見張り。
+# 落ちると GitHub が持ち主へ失敗を知らせる。DISCORD_WEBHOOK_URL を Secrets に置けば Discord にも届く（無くても動く）。
+# 収集（GAS・毎日 00:40 JST）の後に走らせる。cron は UTC。
+name: fc-ticket watch
+
+on:
+  schedule:
+    - cron: '0 22 * * *'   # 07:00 JST
+  workflow_dispatch:
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/watch-fc-ticket.mjs
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
