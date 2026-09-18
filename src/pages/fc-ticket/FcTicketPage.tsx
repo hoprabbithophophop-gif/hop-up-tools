@@ -138,7 +138,8 @@ export default function FcTicketPage() {
       const PAGE = 1000;
       const rows: FcNewsRow[] = [];
       let total: number | null = null;
-      for (let from = 0; from < 20 * PAGE; from += PAGE) {
+      // 進める幅は「届いた件数」。Supabase の上限（Max rows）が1000より小さくても大きくても正しく回る（2026-09-19 監査）
+      for (let from = 0, pages = 0; pages < 20; pages++) {
         const res = await sb
           .from("fc_news")
           .select("uid, title, category, detail_url", { count: "exact" })
@@ -146,8 +147,10 @@ export default function FcTicketPage() {
           .range(from, from + PAGE - 1);
         if (res.error || res.count == null) throw new Error("fetch failed");
         total = res.count;
-        rows.push(...((res.data ?? []) as FcNewsRow[]));
-        if (rows.length >= total || (res.data ?? []).length === 0) break;
+        const got = (res.data ?? []) as FcNewsRow[];
+        rows.push(...got);
+        from += got.length;
+        if (rows.length >= total || got.length === 0) break;
       }
       if (total == null || rows.length !== total) throw new Error("row count mismatch");
       return rows;
