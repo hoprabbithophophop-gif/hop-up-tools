@@ -133,16 +133,35 @@ export default function FcTicketPage() {
         .select("*, fc_news(title, detail_url, category)", { count: "exact" })
         .order("deadline_at", { ascending: true })
         .limit(1000);
+    // 記事は増える一方で消えないので、1000件ずつ順に取り切る（1000件を超えた日に画面ごと止まらないように。2026-09-19 監査）
+    const fetchAllNews = async (): Promise<FcNewsRow[]> => {
+      const PAGE = 1000;
+      const rows: FcNewsRow[] = [];
+      let total: number | null = null;
+      for (let from = 0; from < 20 * PAGE; from += PAGE) {
+        const res = await sb
+          .from("fc_news")
+          .select("uid, title, category, detail_url", { count: "exact" })
+          .order("uid", { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (res.error || res.count == null) throw new Error("fetch failed");
+        total = res.count;
+        rows.push(...((res.data ?? []) as FcNewsRow[]));
+        if (rows.length >= total || (res.data ?? []).length === 0) break;
+      }
+      if (total == null || rows.length !== total) throw new Error("row count mismatch");
+      return rows;
+    };
     Promise.all([
-      sb.from("fc_news").select("uid, title, category, detail_url", { count: "exact" }).limit(1000),
+      fetchAllNews(),
       deadlineQuery().gte("deadline_at", nowIso),
       deadlineQuery().gte("deadline_at", pastFromIso).lt("deadline_at", nowIso),
-    ]).then(([newsRes, futureRes, pastRes]) => {
-      for (const res of [newsRes, futureRes, pastRes]) {
+    ]).then(([newsRows, futureRes, pastRes]) => {
+      for (const res of [futureRes, pastRes]) {
         if (res.error) throw new Error("fetch failed");
         if (res.count == null || (res.data ?? []).length !== res.count) throw new Error("row count mismatch");
       }
-      setAllNews((newsRes.data ?? []) as FcNewsRow[]);
+      setAllNews(newsRows);
       setAllDeadlines([...(pastRes.data ?? []), ...(futureRes.data ?? [])] as Deadline[]);
       setLoading(false);
     }).catch(() => {
