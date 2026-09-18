@@ -1,11 +1,11 @@
 # 本番の fc-ticket を毎日1回開き、申込期間バーが出ているかを数える見張り。
 # 落ちると GitHub が持ち主へ失敗を知らせる。DISCORD_WEBHOOK_URL を Secrets に置けば Discord にも届く（無くても動く）。
-# 収集（GAS・毎日 00:40 JST）の後に走らせる。cron は UTC。
+# 収集（GAS）の後に走らせる。cron は UTC。
 name: fc-ticket watch
 
 on:
   schedule:
-    - cron: '0 22 * * *'   # 07:00 JST
+    - cron: '17 22 * * *'   # 07:17 JST。毎時00分は GitHub が混雑帯と明記しているので外す
   workflow_dispatch:
 
 jobs:
@@ -13,8 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: npm ci --ignore-scripts
