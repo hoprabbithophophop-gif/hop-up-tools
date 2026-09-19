@@ -19,7 +19,7 @@ export async function onRequest(context: { request: Request; env: Env }): Promis
 
   const get = (p: string) => env.ASSETS.fetch(new Request(new URL(p, url.origin).toString()));
   const [pngRes, metaRes, sheetRes, gmRes] = await Promise.all([
-    get('/ogp/dyn/base.png'), get('/ogp/dyn/base.json'), get('/ogp/dyn/glyphs.a8'), get('/ogp/dyn/glyphs.json'),
+    get('/ogp/dyn/base.bin'), get('/ogp/dyn/base.json'), get('/ogp/dyn/glyphs.a8'), get('/ogp/dyn/glyphs.json'),
   ]);
   if (!pngRes.ok || !metaRes.ok || !sheetRes.ok || !gmRes.ok) {
     return new Response('assets missing', { status: 500 });
