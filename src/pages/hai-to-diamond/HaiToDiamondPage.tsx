@@ -283,6 +283,22 @@ function isTouchDevice(): boolean {
   return /iPhone|iPad|iPod|Android/.test(navigator.userAgent);
 }
 
+/** 確かめ用の送信止め。true の間は、曲が終わっても自分の記録を本番の棚へ送らない。
+ *  これが無かった頃は、曲を通して確かめるたびに本番の歴代累計とみんなの💎に混ざるので、
+ *  再生中の動きを誰も機械で確かめられなかった（2026-09-20 の検収で問題になった）。
+ *  - 手元の開発サーバーでは、いつも送らない。送る道そのものを試したい時だけ ?submit=1 で解除（ハイ！テンションと同じ）
+ *  - 本番とプレビューでは、住所に ?qa=1 を付けた時だけ送らない。ページを読み込み直すまで変わらない。
+ *    止まるのは付けた本人の記録だけなので、誰かに知られても害は無い。画面の左上に「QA」の印が出る */
+const SKIP_SUBMIT = (() => {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("qa") === "1") return true;
+    return import.meta.env.DEV && q.get("submit") !== "1";
+  } catch {
+    return false;
+  }
+})();
+
 /** 最初の色。決め方は members.ts の pickInitialMemberId（最後に使った色 → シェアのリンクの色 → いつもの最初の色） */
 function initialMemberId(): string {
   return pickInitialMemberId(getLastDiamondMemberId(), window.location.pathname);
@@ -575,6 +591,11 @@ export default function HaiToDiamondPage() {
 
   /** 曲が終わったら自分の記録を送る。色ごとに分けて1回でまとめて（押していなければ送らない） */
   const submitOnce = useCallback(() => {
+    // 確かめ用の送信止め。止めるのは自分の記録を送る所だけで、みんなの💎を読む側は今までどおり動く
+    if (SKIP_SUBMIT) {
+      console.log("[hai-to-diamond] QA: 記録は送っていません（" + tapsRef.current.length + "個ぶん）");
+      return;
+    }
     if (!groupedRef.current) {
       groupedRef.current = true;
       const grouped = new Map<string, number[]>();
@@ -858,6 +879,26 @@ export default function HaiToDiamondPage() {
         flexDirection: "column",
       }}
     >
+      {/* 確かめ用の送信止めが効いている印。この回の記録は送られない、が見える。
+          画面の左上の隅で、動画にも入口の⚙（右上）にも重ならない。文字はハイ！テンションの印と同じ「QA」 */}
+      {SKIP_SUBMIT && (
+        <span
+          data-testid="diamond-qa-mark"
+          style={{
+            position: "absolute",
+            top: "calc(6px + env(safe-area-inset-top))",
+            left: 8,
+            zIndex: 300,
+            fontSize: "0.75rem",
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+            color: "#9aa0a6",
+            pointerEvents: "none",
+          }}
+        >
+          QA
+        </span>
+      )}
       {/* 横向きの案内。中身の代わりにこれだけを出す（Hop決定 2026-09-12） */}
       {landscape && (
         <div
