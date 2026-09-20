@@ -120,6 +120,12 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
   const colorTotalsRef = useRef<Map<string, number>>(new Map());
   /** いま自分が選んでいる人（メンバーID、無ければ色の rgb）。getPeakTime の既定の引き先 */
   const ownKeyRef = useRef<string | null>(null);
+  /** いま自分が選んでいる色の値（"r,g,b"）。見返し中に「選んでいる色の星だけ瞬かせる」時の引き先。
+   *  星は誰の💎だったかを持たず色の値しか持たないので、星の棚（starsByColorRef）は色の値で引く。
+   *  ownKeyRef（メンバーID）で引くと1つも見つからず、見返し中に星がまったく瞬かなくなる
+   *  （2026-09-14 に ownKeyRef をメンバーIDへ変えた時の巻き添えで起きていた・2026-09-20 に直した）。
+   *  同じ色の人（杉山・山﨑）は星になると見分けが付かないので、どちらを選んでも同じ色の星が瞬く */
+  const ownRgbKeyRef = useRef<string | null>(null);
   /** 人ごとの「一番輝いた瞬間」。key（メンバーID）→ その人の倍率が最大だった時刻と、その時の倍率。
    *  自分の分だけでなく全員ぶん覚える＝ハイライト再生中に色を切り替えても、その人の瞬間へ飛べる */
   const peakRef = useRef<Map<string, { t: number; s: number }>>(new Map());
@@ -283,7 +289,9 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
       // 帳簿（cols）に取った着地先はそのまま残る。スワイプは1回の再生で数回なので、その分の小さな隙間は許容する
     },
     setOwnColor(hex: string, key?: string) {
-      ownKeyRef.current = key ?? hexToRgb(hex).join(",");
+      const rgbKey = hexToRgb(hex).join(",");
+      ownKeyRef.current = key ?? rgbKey;
+      ownRgbKeyRef.current = rgbKey;
       // 自分の色は真っ先に降るので、焼くよう頼んでおく。頼むだけで、焼くのはこの呼び出しが終わったあと。
       // 「はじめる」の中から呼ばれても、動画の再生を止めない（重い処理をこの場で走らせない）
       requestStoneSpritesByHex(hex, true);
@@ -596,7 +604,7 @@ const DiamondCanvas = forwardRef<DiamondCanvasApi, Props>(function DiamondCanvas
         drawFlies(ctx, fly, now);
         if (!reduceMotionRef.current) {
           sparkSky(stars, starsByColorRef.current, skyFlashesRef.current, now, dt, W, H, v,
-            holdCameraRef.current, ownKeyRef.current);
+            holdCameraRef.current, ownRgbKeyRef.current);
         }
         drawScreenFlashes(v, now);
         return;
