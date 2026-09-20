@@ -12,7 +12,6 @@ import { useEffect, useRef, useState } from "react";
 import { ARENA_BG } from "../hi-tension/data";
 import EntryGem from "./EntryGem";
 import { SUBTITLE_TAG } from "./HaiToDiamondPage";
-import NewsNoticeLink from "@/components/NewsNoticeLink";
 
 const GEM_SIZE = 64;              // 累計の左に置く💎の大きさ【仮】。押す的ではなく目印（2026-09-10 に動線を変えて縮めた）
 const GEM_SIZE_LANDSCAPE = 48;    // 横向きの低い画面でも縦に収まるよう小さくする【仮】
@@ -140,7 +139,6 @@ export default function DiamondEntry({ total, gemColor, videoBottom, videoReady,
       >
         {SUBTITLE_TAG}
       </p>
-      <NewsNoticeLink />
 
       {/* 真ん中は空けておく。ここに動画が見えていて、その再生ボタンを押すと始まる */}
       <div style={{ flex: 1, minHeight: 0 }} />
