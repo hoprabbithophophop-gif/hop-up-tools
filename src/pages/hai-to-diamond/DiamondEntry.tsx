@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ARENA_BG } from "../hi-tension/data";
 import EntryGem from "./EntryGem";
-import { SHARE_TAG } from "./HaiToDiamondPage";
+import { SUBTITLE_TAG } from "./HaiToDiamondPage";
 import NewsNoticeLink from "@/components/NewsNoticeLink";
 
 const GEM_SIZE = 64;              // 累計の左に置く💎の大きさ【仮】。押す的ではなく目印（2026-09-10 に動線を変えて縮めた）
@@ -138,7 +138,7 @@ export default function DiamondEntry({ total, gemColor, videoBottom, videoReady,
           color: "#aab0b6",
         }}
       >
-        {SHARE_TAG}
+        {SUBTITLE_TAG}
       </p>
       <NewsNoticeLink />
 
