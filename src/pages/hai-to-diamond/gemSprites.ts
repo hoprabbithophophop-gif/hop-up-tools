@@ -125,6 +125,21 @@ function hexOf(rgb: [number, number, number]): string {
   return "#" + h(rgb[0]) + h(rgb[1]) + h(rgb[2]);
 }
 
+/** 石として焼く時だけ、名簿の色を別の色に読み替える表（名簿の色 → 石に渡す色）。
+ *  オレンジ #fc4c02 は、黄色の側へ 16度 振った #df6f00 で焼く（Hop決定 2026-09-20）。
+ *  石の描き手は色の明るさを捨てて一番強い色を1に揃えるので、オレンジと赤（#e70033）は緑の通し方の
+ *  わずかな差でしか分かれず、混ざって飛ぶとほとんど見分けがつかなかった（色合いの差 11度 → 27度）。
+ *  シェアのリンクに付く絵（public/ogp/hai-to-diamond/kiyono-*.jpg）も同じ #df6f00 で焼いてあり、看板とページの石の色が揃う。
+ *  読み替えるのは石の絵だけ。色えらびの丸・終了画面の数字・名簿（ハイ！テンションと共用）は名簿の色のまま。
+ *  絵の控えの鍵は名簿の色のままなので、焼きを頼む側は何も変えなくていい */
+const STONE_HEX_FOR_BAKE: Readonly<Record<string, string>> = {
+  "#fc4c02": "#df6f00",
+};
+export function stoneHexForBake(rgb: [number, number, number]): string {
+  const hex = hexOf(rgb);
+  return STONE_HEX_FOR_BAKE[hex] ?? hex;
+}
+
 /** 今までの描き方の絵。石を回した絵を向きごとに持つ（貼る時は回さない） */
 function buildFallback(rgb: [number, number, number]): HTMLCanvasElement[] {
   const arr: HTMLCanvasElement[] = [];
@@ -164,7 +179,7 @@ function pump() {
       return;
     }
     if (!bakeT0) bakeT0 = performance.now();   // 焼き始めた時刻。読み取りの起点なので最初の1回だけ
-    job = startBake(hexOf(rgb), STONE_PX, getPoses(), POSE_KEY);
+    job = startBake(stoneHexForBake(rgb), STONE_PX, getPoses(), POSE_KEY);
     jobKey = key;
     if (!job) {
       // 端末がこの描き方に対応していない。以後どの色も焼かず、代わりの絵で通す
