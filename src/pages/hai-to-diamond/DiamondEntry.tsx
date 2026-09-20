@@ -104,6 +104,23 @@ export default function DiamondEntry({ total, gemColor, videoBottom, videoReady,
         position: "relative",
       }}
     >
+      {/* main 以外の枝のプレビューと手元でだけ、右下に版番号を出す（どの版を見ているか確かめるため。本番には出ない）。
+          ハイ！テンションの入口（MemberSelect.tsx）と同じ作り。画面の右下の隅で、動画からは離れている */}
+      {__SHOW_VERSION__ && (
+        <span
+          style={{
+            position: "absolute",
+            bottom: "calc(4px + env(safe-area-inset-bottom))",
+            right: 8,
+            fontSize: "0.5rem",
+            color: "#6b7076",
+            letterSpacing: "0.02em",
+            pointerEvents: "none",
+          }}
+        >
+          v.{__COMMIT_SHA__}
+        </span>
+      )}
       {onOpenSettings && (
         <button
           type="button"
