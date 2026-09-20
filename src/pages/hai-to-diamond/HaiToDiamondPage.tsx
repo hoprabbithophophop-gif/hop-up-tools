@@ -9,8 +9,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "../hi-tension/components/YouTubePlayer";
 import LoadingDots from "../hi-tension/components/LoadingDots";
 import { ARENA_BG, ALL_HI_MEMBERS } from "../hi-tension/data";
-import { findDiamondMember, GRADUATED_MEMBERS, DIAMOND_COLOR_ORDER, DIAMOND_COLOR_PAGES, pickInitialMemberId, shareLinkTag } from "./members";
-import { getLastSelectedMemberId, setLastSelectedMemberId, getOrCreateAnonymousSessionId } from "../hi-tension/storage";
+import { findDiamondMember, GRADUATED_MEMBERS, DIAMOND_COLOR_ORDER, DIAMOND_COLOR_PAGES, pickInitialMemberId, shareLinkTag, getLastDiamondMemberId, setLastDiamondMemberId } from "./members";
+import { getOrCreateAnonymousSessionId } from "../hi-tension/storage";
 import { submitHiSessions } from "../hi-tension/api";
 import { fetchReplay, type ReplayRow } from "./replay";
 import DiamondCanvas, { type DiamondCanvasApi } from "./DiamondCanvas";
@@ -282,7 +282,7 @@ function isTouchDevice(): boolean {
 
 /** 最初の色。決め方は members.ts の pickInitialMemberId（最後に使った色 → シェアのリンクの色 → いつもの最初の色） */
 function initialMemberId(): string {
-  return pickInitialMemberId(getLastSelectedMemberId(), window.location.pathname);
+  return pickInitialMemberId(getLastDiamondMemberId(), window.location.pathname);
 }
 
 export default function HaiToDiamondPage() {
@@ -705,7 +705,7 @@ export default function HaiToDiamondPage() {
       if (peak == null) return;                    // その人は一度も上位に来ていない＝飛び先が無いので選択も変えない
       memberIdRef.current = id;
       setMemberId(id);
-      setLastSelectedMemberId(id);
+      setLastDiamondMemberId(id);
       canvasRef.current?.setOwnColor(hex, id);
       setPeakTime(peak);
       jumpToHighlight(peak);
@@ -713,7 +713,7 @@ export default function HaiToDiamondPage() {
     }
     memberIdRef.current = id;
     setMemberId(id);
-    setLastSelectedMemberId(id);
+    setLastDiamondMemberId(id);
     canvasRef.current?.setOwnColor(hex, id);
     setPeakTime(canvasRef.current?.getPeakTime(id) ?? null);
   }, [jumpToHighlight]);

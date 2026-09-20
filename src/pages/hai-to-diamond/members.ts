@@ -42,6 +42,28 @@ export const DIAMOND_COLOR_PAGES: readonly (readonly string[])[] = [
 /** 色えらびの最初の色。前回の色が使えなければ西田さんのホットピンク（Hop決定 2026-09-07） */
 export const DIAMOND_DEFAULT_MEMBER_ID = "nishida";
 
+/** 灰toダイヤモンドで最後に使った色の控え。ハイ！テンションの控え（hi_tension:last_selected_member_id）とは分ける。
+ *  「この曲ではこっちの色」という人がいるため（Hop決定 2026-09-20）。以前は共用で、こちらで色を替えると
+ *  ハイ！テンションの色まで替わっていた。共用の控えは読みも書きも消しもしない＝ハイ！テンションの色は今のまま残る。
+ *  分けた時点でこちらの控えは全員空から始まる（引き継ぎはしない。共用の色がどちらで選ばれた物か見分けられないため） */
+const KEY_LAST_MEMBER = "hai_to_diamond:last_selected_member_id";
+
+export function getLastDiamondMemberId(): string | null {
+  try {
+    return localStorage.getItem(KEY_LAST_MEMBER);
+  } catch {
+    return null;
+  }
+}
+
+export function setLastDiamondMemberId(id: string): void {
+  try {
+    localStorage.setItem(KEY_LAST_MEMBER, id);
+  } catch {
+    // ignore (private mode etc.)
+  }
+}
+
 /** シェアのリンクに付く絵（OGP）の構図の数。色ごとに 1=引き 2=中 3=寄り の3枚が public/ogp/hai-to-diamond/ にある。
  *  受付係の側（functions/_shared/haiToDiamondCard.ts の CARD_COMPS）と数を合わせること */
 export const SHARE_CARD_COMPS = 3;
