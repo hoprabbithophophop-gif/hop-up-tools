@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--FRAGMENT-START-->
+<title>💎 OGPの構図の調整台（写し）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@700&display=swap" rel="stylesheet">
+<style>
+  /* 画面は明るい設定でも暗い設定でも同じ見え方にする。
+     カードの中身がもともと暗いので、まわりも暗いままにそろえる */
+  :root {
+    color-scheme: dark;
+    /* 留める位置。狭い画面では画面のいちばん上（切り欠きの下）に留める */
+    --gs-top: 16px;
+    /* 留めたカードの高さ。タブの列はそのすぐ下に留めるので、中で測って入れる */
+    --gs-lefth: 0px;
+    --gs-bg: #0b0d12;
+  }
+  @media (max-width: 1000px) { :root { --gs-top: env(safe-area-inset-top, 0px); } }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    padding: 20px 16px 48px;
+    background: var(--gs-bg);
+    color: #e6e9ee;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    /* clip は「はみ出しを切る」だけで、中の留める仕掛けを壊さない。
+       hidden にすると body 自体が送り場所になってしまい、上に留められなくなる */
+    overflow-x: clip;
+  }
+  #gem-studio-root { max-width: 2100px; margin: 0 auto; }
+
+  .gs-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 24px; align-items: start; }
+  @media (max-width: 1000px) { .gs-wrap { grid-template-columns: minmax(0, 1fr); } }
+
+  /* カードとシャッフルの列と状態の1行は、送っても画面の上に留める。
+     下の項目が透けないよう、下地と同じ色で塗る */
+  .gs-left {
+    min-width: 0; position: sticky; top: var(--gs-top); z-index: 3;
+    background: var(--gs-bg); padding-bottom: 8px;
+  }
+
+  .gs-cardbox { width: 100%; max-width: 1200px; overflow: hidden; border-radius: 0; background: #07080c; }
+  .gs-card {
+    width: 1200px; height: 630px; position: relative; overflow: hidden;
+    transform-origin: top left; touch-action: none; cursor: grab; user-select: none;
+  }
+  .gs-card:active { cursor: grabbing; }
+  .gs-card canvas { position: absolute; left: 0; top: 0; width: 1200px; height: 630px; display: block; }
+  .gs-texts {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    justify-content: center; align-items: flex-start; pointer-events: none;
+    font-family: "Shippori Mincho B1", serif;
+  }
+  .gs-texts h1 { margin: 0; font-weight: 700; letter-spacing: 0.01em; color: #f5f7fa; line-height: 1.2; white-space: nowrap; }
+  .gs-texts p { margin: 0; font-weight: 700; letter-spacing: 0.05em; color: #aab0b6; line-height: 1.2; white-space: nowrap; }
+
+  /* シャッフルの列。親指で押せる大きさにする */
+  .gs-shuffle { display: flex; gap: 10px; margin: 12px 0 0; align-items: stretch; }
+  .gs-big {
+    flex: 1 1 auto; min-height: 56px; font-size: 17px; font-weight: 700; font-family: inherit;
+    background: #2c3644; color: #f2f5f9; border: 1px solid #3a4557; border-radius: 10px; cursor: pointer;
+  }
+  .gs-big:hover { background-color: #354152; }
+  .gs-big:active { background-color: #3d4b5f; }
+  .gs-back {
+    flex: 0 0 auto; min-height: 56px; min-width: 128px; padding: 0 14px; font-size: 14px; font-family: inherit;
+    background: #1b1f28; color: #c3cad4; border: 1px solid #2e3543; border-radius: 10px; cursor: pointer;
+  }
+  /* 種と点、描き直しの時間を1行にまとめる。長ければ末尾を省いて1行に収める */
+  .gs-statusline {
+    display: flex; gap: 10px; align-items: baseline;
+    margin: 6px 0 0; min-height: 1.6em; overflow: hidden;
+  }
+  .gs-seed {
+    margin: 0; flex: 0 1 auto; font-size: 12px; color: #8d96a2;
+    font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .gs-status {
+    margin: 0; flex: 1 1 auto; min-width: 0; font-size: 12px; color: #7d8794;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .gs-hint { margin: 10px 0 0; font-size: 13px; color: #9aa2ad; }
+
+  .gs-right { min-width: 0; }
+
+  /* 項目のタブ。列は1行で、狭い画面ではこの列だけ横に送れる */
+  .gs-tabs {
+    display: flex; gap: 6px; position: sticky; top: calc(var(--gs-top) + var(--gs-lefth));
+    z-index: 2; background: var(--gs-bg); padding: 4px 0 8px;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+  }
+  .gs-tabs::-webkit-scrollbar { display: none; }
+  .gs-tab {
+    flex: 0 0 auto; min-height: 40px; padding: 0 14px; white-space: nowrap;
+    background: #1b1f28; border: 1px solid #262c37; border-radius: 8px;
+    color: #aab3bf; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;
+  }
+  .gs-tab:hover { background: #242b37; }
+  .gs-tab[aria-selected="true"] { background: #2c3644; border-color: #93a8c6; color: #f2f5f9; }
+  .gs-tab:focus-visible { outline: 2px solid #93a8c6; outline-offset: 2px; }
+  .gs-body[hidden] { display: none; }
+
+  /* 配置の見本。カードを縮めた図で、文字の帯と石の丸の位置だけを出す */
+  .gs-places { display: flex; flex-wrap: wrap; gap: 8px; }
+  .gs-place {
+    flex: 0 0 auto; padding: 6px; background: #1b1f28; border: 1px solid #262c37;
+    border-radius: 8px; cursor: pointer; line-height: 0;
+  }
+  .gs-place:hover { background: #242b37; }
+  .gs-place.on { border-color: #93a8c6; background: #232a36; }
+  .gs-place:focus-visible { outline: 2px solid #93a8c6; outline-offset: 2px; }
+  .gs-mini {
+    display: block; position: relative; width: 148px; overflow: hidden;
+    border-radius: 3px; background: #0e1016;
+  }
+  .gs-mini i { position: absolute; display: block; }
+  .gs-mgem { border-radius: 50%; background: #6c7789; }
+  .gs-mbar { background: #dfe4ea; border-radius: 1px; }
+  .gs-msub { background: #8d96a2; }
+  .gs-sec { background: #14171e; border-radius: 8px; padding: 14px 16px 16px; margin: 0 0 14px; }
+  .gs-sec h2 { margin: 0 0 6px; font-size: 15px; font-weight: 700; color: #f2f5f9; }
+  .gs-sec h3 { margin: 14px 0 4px; font-size: 13px; font-weight: 700; color: #cfd6df; }
+  .gs-note { margin: 0 0 10px; font-size: 12px; line-height: 1.7; color: #8d96a2; }
+  .gs-compnote { margin-top: 2px; }
+
+  .gs-row { margin: 8px 0 0; }
+  .gs-row label { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: #c3cad4; }
+  .gs-row label b { font-weight: 600; color: #f2f5f9; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .gs-row input[type=range] { width: 100%; margin: 2px 0 0; accent-color: #8fa6c4; height: 22px; }
+
+  .gs-light { border-top: 1px solid #222731; padding-top: 8px; margin-top: 12px; }
+  .gs-light:first-of-type { border-top: 0; margin-top: 0; }
+  .gs-light h3 { margin: 0; }
+
+  .gs-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 6px; }
+  .gs-sw {
+    display: flex; align-items: center; gap: 6px; padding: 6px 7px; min-width: 0;
+    background: #1b1f28; border: 1px solid #262c37; border-radius: 6px; cursor: pointer;
+    color: #c3cad4; font-size: 12px; font-family: inherit;
+  }
+  .gs-sw i { width: 16px; height: 16px; border-radius: 50%; flex: 0 0 auto; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
+  .gs-sw span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gs-sw.on { border-color: #93a8c6; background: #232a36; color: #f2f5f9; }
+
+  /* 背景色の組えらび。文字は出さず、色の丸だけを並べる */
+  .gs-setopts { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 10px; }
+  .gs-setopt {
+    padding: 8px 10px; background: #1b1f28; border: 1px solid #262c37; border-radius: 8px;
+    cursor: pointer; line-height: 0;
+  }
+  .gs-setopt.on { border-color: #93a8c6; background: #232a36; }
+  .gs-setopt:hover { background: #242b37; }
+  .gs-dots { display: inline-flex; gap: 4px; }
+  .gs-dots i { width: 18px; height: 18px; border-radius: 50%; display: block; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
+  .gs-dots i.gs-empty { background: transparent; box-shadow: inset 0 0 0 1px #4a5361; }
+
+  .gs-custom { margin: 0 0 10px; }
+  .gs-crow { display: flex; gap: 6px; margin: 0 0 6px; }
+  .gs-cdot {
+    width: 26px; height: 26px; border-radius: 50%; padding: 0; cursor: pointer;
+    border: 2px solid transparent; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35);
+  }
+  .gs-cdot.on { border-color: #f2f5f9; }
+
+  .gs-btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; }
+  .gs-btn {
+    padding: 7px 11px; background: #222834; border: 1px solid #2e3543; border-radius: 6px;
+    color: #dde3ea; font-size: 13px; font-family: inherit; cursor: pointer;
+  }
+  .gs-btn:hover { background: #2a3140; }
+
+  .gs-radios { display: flex; flex-direction: column; gap: 4px; margin: 0 0 6px; }
+  .gs-radios label, .gs-check { display: flex; align-items: center; gap: 7px; font-size: 13px; color: #c3cad4; cursor: pointer; }
+  .gs-check { margin: 0 0 4px; }
+
+  .gs-json {
+    width: 100%; margin: 10px 0 6px; padding: 8px; background: #0d1016; color: #cfd6df;
+    border: 1px solid #262c37; border-radius: 6px; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 12px; line-height: 1.5; resize: vertical;
+  }
+</style>
+<!--HEAD-END-->
+</head>
+<body>
+<!--BODY-START-->
+<div id="gem-studio-root"></div>
+<!--FRAGMENT-END-->
+<script type="module" src="/scripts/hai-to-diamond/ogp-card/ogpComp.ts"></script>
+</body>
+</html>

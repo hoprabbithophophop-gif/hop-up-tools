@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>写しと本番の突き合わせ</title>
+<style>
+  body { margin: 0; padding: 16px; background: #0b0d12; color: #e6e9ee; font-family: system-ui, sans-serif; }
+  .row { display: flex; gap: 16px; }
+  .box { background: #07080c; padding: 8px; }
+  h2 { font-size: 13px; margin: 0 0 6px; color: #9aa2ad; }
+  #out { margin: 12px 0 0; font-family: monospace; font-size: 14px; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div><h2>本番の描き手</h2><div class="box" id="a"></div></div>
+    <div><h2>写した描き手（3x3 の回転で指定）</h2><div class="box" id="b"></div></div>
+  </div>
+  <p id="out">確かめています…</p>
+  <script type="module" src="/scripts/hai-to-diamond/gem-studio/gemEquiv.ts"></script>
+</body>
+</html>
