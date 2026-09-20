@@ -119,17 +119,53 @@ export default function FcTicketPage() {
   // Supabase から全データを取得
   useEffect(() => {
     const sb = getSupabase();
-    Promise.all([
-      sb.from("fc_news").select("uid, title, category, detail_url"),
+    // 締切は「これから」と「過ぎた60日ぶん」を別々に取る。
+    // 以前は60日前から日付順に1回で取って500件で切っていたため、過ぎた分が500件を食い尽くすと
+    // これからの申込締切が丸ごと落ち、ガントが「申込期間データなし」になった（2026-09-17 本番で発生）。
+    // 型は絞らない。日付タップの一覧と結果タブは公演・通販の行も出す（2026-09-18 監査で判明。一度絞って本番で行が消えた）。
+    // Supabase は頼んだ数に関わらず最大1000件で黙って切る（既定の Max rows）。そこで毎回、
+    // データベースに件数も数えてもらい、届いた数と食い違えば静かに欠けた画面を出さず「取得に失敗」へ倒す。
+    const nowIso = new Date().toISOString();
+    const pastFromIso = new Date(Date.now() - 60 * 86400000).toISOString();
+    const deadlineQuery = () =>
       sb
         .from("fc_deadlines")
-        .select("*, fc_news(title, detail_url, category)")
-        .gte("deadline_at", new Date(Date.now() - 60 * 86400000).toISOString())
+        .select("*, fc_news(title, detail_url, category)", { count: "exact" })
         .order("deadline_at", { ascending: true })
-        .limit(500),
-    ]).then(([newsRes, dlRes]) => {
-      if (newsRes.data) setAllNews(newsRes.data as FcNewsRow[]);
-      if (dlRes.data) setAllDeadlines(dlRes.data as Deadline[]);
+        .limit(1000);
+    // 記事は増える一方で消えないので、1000件ずつ順に取り切る（1000件を超えた日に画面ごと止まらないように。2026-09-19 監査）
+    const fetchAllNews = async (): Promise<FcNewsRow[]> => {
+      const PAGE = 1000;
+      const rows: FcNewsRow[] = [];
+      let total: number | null = null;
+      // 進める幅は「届いた件数」。Supabase の上限（Max rows）が1000より小さくても大きくても正しく回る（2026-09-19 監査）
+      for (let from = 0, pages = 0; pages < 20; pages++) {
+        const res = await sb
+          .from("fc_news")
+          .select("uid, title, category, detail_url", { count: "exact" })
+          .order("uid", { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (res.error || res.count == null) throw new Error("fetch failed");
+        total = res.count;
+        const got = (res.data ?? []) as FcNewsRow[];
+        rows.push(...got);
+        from += got.length;
+        if (rows.length >= total || got.length === 0) break;
+      }
+      if (total == null || rows.length !== total) throw new Error("row count mismatch");
+      return rows;
+    };
+    Promise.all([
+      fetchAllNews(),
+      deadlineQuery().gte("deadline_at", nowIso),
+      deadlineQuery().gte("deadline_at", pastFromIso).lt("deadline_at", nowIso),
+    ]).then(([newsRows, futureRes, pastRes]) => {
+      for (const res of [futureRes, pastRes]) {
+        if (res.error) throw new Error("fetch failed");
+        if (res.count == null || (res.data ?? []).length !== res.count) throw new Error("row count mismatch");
+      }
+      setAllNews(newsRows);
+      setAllDeadlines([...(pastRes.data ?? []), ...(futureRes.data ?? [])] as Deadline[]);
       setLoading(false);
     }).catch(() => {
       setFetchError(true);
