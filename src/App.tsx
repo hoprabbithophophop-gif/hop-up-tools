@@ -39,6 +39,8 @@ function AnimatedRoutes() {
         <Route path="/the-ballad" element={<TheBalladPage />} />
         <Route path="/hi-tension" element={<HiTensionPage />} />
         <Route path="/hai-to-diamond" element={<HaiToDiamondPage />} />
+        {/* シェアのリンクに乗る色と構図の札つきの住所。ページは同じ物を出す（札は看板の絵と入口の最初の色に使う） */}
+        <Route path="/hai-to-diamond/:member/:comp" element={<HaiToDiamondPage />} />
         <Route path="/hi-tension/author" element={<HiTensionAuthorPage />} />
         <Route path="/hi-tension/practice" element={<HiTensionPracticePage />} />
         <Route path="/arigato-beat/beat" element={<ArigatoBeatTapPage />} />

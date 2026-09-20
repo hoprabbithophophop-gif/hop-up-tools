@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import YouTubePlayer, { type YouTubePlayerApi } from "../hi-tension/components/YouTubePlayer";
 import LoadingDots from "../hi-tension/components/LoadingDots";
 import { ARENA_BG, ALL_HI_MEMBERS } from "../hi-tension/data";
-import { findDiamondMember, GRADUATED_MEMBERS, DIAMOND_COLOR_ORDER, DIAMOND_COLOR_PAGES, DIAMOND_DEFAULT_MEMBER_ID } from "./members";
+import { findDiamondMember, GRADUATED_MEMBERS, DIAMOND_COLOR_ORDER, DIAMOND_COLOR_PAGES, pickInitialMemberId, shareLinkTag } from "./members";
 import { getLastSelectedMemberId, setLastSelectedMemberId, getOrCreateAnonymousSessionId } from "../hi-tension/storage";
 import { submitHiSessions } from "../hi-tension/api";
 import { fetchReplay, type ReplayRow } from "./replay";
@@ -46,14 +46,21 @@ const PC_VIDEO_WIDTH = 480;
  *  「届くよ」を「届けよ」に変えたひねり入り（Hop決定 2026-09-07） */
 export const SHARE_TAG = "#銀河to銀河届けよ";
 const SHARE_URL = "https://hop-up-tools.pages.dev/hai-to-diamond";
-function buildShareText(count: number): string {
+/** シェアのリンク。終了画面で選んでいる色と、くじ引きで当たった構図の番号を住所に乗せる。
+ *  受付係（functions/hai-to-diamond/[[path]].ts）がこの札を読んで、その色の💎1個の絵を看板に出す。
+ *  遊んだ人には何も選ばせない。構図の番号まで住所に入るので、X の側の控えとぶつからず番号ごとに別の看板になる（Hop決定 2026-09-20） */
+function buildShareUrl(memberId: string): string {
+  return SHARE_URL + shareLinkTag(memberId);
+}
+function buildShareText(count: number, memberId: string): string {
   const firstLine = count === 0
     ? "下の💎をタップで💎が降ってくる！BEYOOOOONDSに輝いてほしい分だけをキラキラにしましょう！"
     : `灰toダイヤモンドに合わせて 💎を ${count.toLocaleString()}個 降らせました`;
-  return `${firstLine}\n${SHARE_TAG}\n${SHARE_URL}`;
+  return `${firstLine}\n${SHARE_TAG}\n${buildShareUrl(memberId)}`;
 }
-function shareToX(count: number) {
-  window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(buildShareText(count))}`, "_blank", "noopener,noreferrer");
+function shareToX(count: number, memberId: string) {
+  // 投稿画面を開く住所は、X の公式の説明書が案内している x.com の方（twitter.com は転送で届くだけ）
+  window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(buildShareText(count, memberId))}`, "_blank", "noopener,noreferrer");
 }
 /** 他の人の💎を1回の時刻更新（0.1秒）で出す上限。大勢の同時押しで一気に固まらないための蓋。設定「みんなの💎」で変わる。
  *  標準は 20（Hop決定 2026-09-13。25 から下げて、同時に飛ぶ数＝描く枚数を減らす）。「かるくする」の 6 は【仮】 */
@@ -273,10 +280,9 @@ function isTouchDevice(): boolean {
   return /iPhone|iPad|iPod|Android/.test(navigator.userAgent);
 }
 
-/** 最初の色。前回この端末で最後に使った色、無ければ（または今の並びに無いIDなら）西田さんのホットピンク */
+/** 最初の色。決め方は members.ts の pickInitialMemberId（最後に使った色 → シェアのリンクの色 → いつもの最初の色） */
 function initialMemberId(): string {
-  const last = getLastSelectedMemberId();
-  return last && DIAMOND_COLOR_ORDER.includes(last) ? last : DIAMOND_DEFAULT_MEMBER_ID;
+  return pickInitialMemberId(getLastSelectedMemberId(), window.location.pathname);
 }
 
 export default function HaiToDiamondPage() {
@@ -1243,7 +1249,7 @@ export default function HaiToDiamondPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => shareToX(finalCount)}
+                  onClick={() => shareToX(finalCount, memberId)}
                   style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", padding: "0.8rem 0.4rem", background: "rgba(14,16,22,0.85)", color: "#f5f7fa", border: "1px solid rgba(255,255,255,0.5)", fontSize: "0.875rem", fontWeight: 700, letterSpacing: "0.05em", cursor: "pointer" }}
                 >
                   𝕏 でシェア

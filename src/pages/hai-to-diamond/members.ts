@@ -41,3 +41,29 @@ export const DIAMOND_COLOR_PAGES: readonly (readonly string[])[] = [
 
 /** 色えらびの最初の色。前回の色が使えなければ西田さんのホットピンク（Hop決定 2026-09-07） */
 export const DIAMOND_DEFAULT_MEMBER_ID = "nishida";
+
+/** シェアのリンクに付く絵（OGP）の構図の数。色ごとに 1=引き 2=中 3=寄り の3枚が public/ogp/hai-to-diamond/ にある。
+ *  受付係の側（functions/_shared/haiToDiamondCard.ts の CARD_COMPS）と数を合わせること */
+export const SHARE_CARD_COMPS = 3;
+
+/** シェアのリンクの札の部分。選んでいる色と、くじ引きで当たった構図の番号を「/色/番号」にする。
+ *  並びに無い色なら札なし（空文字）＝全員の💎の看板になる。rand は 0以上1未満を返す関数 */
+export function shareLinkTag(memberId: string, rand: () => number = Math.random): string {
+  if (!DIAMOND_COLOR_ORDER.includes(memberId)) return "";
+  const comp = 1 + Math.min(SHARE_CARD_COMPS - 1, Math.floor(rand() * SHARE_CARD_COMPS));
+  return `/${memberId}/${comp}`;
+}
+
+/** シェアのリンクに乗ってきた色の札（/hai-to-diamond/<色>/<構図> の <色>）。並びに無いIDや札なしは null */
+export function memberIdFromShareLink(pathname: string): string | null {
+  const m = /^\/hai-to-diamond\/([^/]+)\/[^/]+\/?$/.exec(pathname);
+  return m && DIAMOND_COLOR_ORDER.includes(m[1]) ? m[1] : null;
+}
+
+/** 最初の色を決める。前回この端末で最後に使った色が第一。無ければ（または今の並びに無いIDなら）、
+ *  シェアのリンクの看板と同じ色（看板とページを地続きに見せる・Hop決定 2026-09-20）。
+ *  それも無ければ DIAMOND_DEFAULT_MEMBER_ID。遊んだことがある人の色を、人のシェアで上書きしない */
+export function pickInitialMemberId(last: string | null, pathname: string): string {
+  if (last && DIAMOND_COLOR_ORDER.includes(last)) return last;
+  return memberIdFromShareLink(pathname) ?? DIAMOND_DEFAULT_MEMBER_ID;
+}
