@@ -1372,16 +1372,20 @@ export default function HiTensionPage() {
       {(import.meta.env.DEV || HI_DEBUG) && <FpsMeter />}
 
       {/* QAモード中の印：このプレイは保存されない、が見える（起動ジェスチャーの手応えも兼ねる）。
-          全画面の上(z:300)・左下。文字は仮置き「QA」（変えたければhopと相談）。 */}
-      {qaMode && (
+          全画面の上(z:300)・動画のすぐ下の左すみ（videoBottom+4）。iPhoneのアドレスバーに隠れず、
+          動画の四角にも重ならない位置として、既に測ってある動画の器の下端を使う。
+          videoBottom がまだ測れていない間は出さない：測る effect はマウント直後に走るため、
+          QA成立に必要な20タップ（5秒窓）より確実に先に済み、実質発生しない分岐。
+          文字は仮置き「QA」（変えたければhopと相談）、大きさだけ帯全体の「14px以上」ルールに合わせた。 */}
+      {qaMode && videoBottom != null && (
         <div
           aria-hidden
           style={{
             position: "fixed",
-            bottom: 4,
+            top: videoBottom + 4,
             left: 8,
             zIndex: 300,
-            fontSize: "0.625rem",
+            fontSize: "0.875rem",
             fontWeight: 700,
             letterSpacing: "0.08em",
             color: "#9aa0a6",
@@ -1394,7 +1398,7 @@ export default function HiTensionPage() {
 
       {/* 同期デバッグ表示（?hidebug=1 の時だけ。本番では出さない）。
           動画が画面の一番上に出るようになったので、重ならないよう下側に置く
-          （QAの印は左下の一番下、版の札は入口の帯の右下なので、その間を空けて左下に積む）。 */}
+          （版の札は入口の帯の右下、QAの印は動画のすぐ下の左すみへ移ったので、ここは左下のまま）。 */}
       {HI_DEBUG && debugInfo && (
         <div
           style={{
