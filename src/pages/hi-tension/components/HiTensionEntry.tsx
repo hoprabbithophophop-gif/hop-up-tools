@@ -324,6 +324,11 @@ export default function HiTensionEntry({
   // 丸1個ぶんの横幅を測って位置を引き直す。回転・画面の大きさ変更でも真ん中の色は真ん中のまま
   // （目盛りは触らず、幅だけ測り直して置き直すため）。
   useLayoutEffect(() => {
+    // 縦⇄横で丸の部品そのものが作り直される（縦用と横用で別の場所に描くため）。
+    // 「前に塗った値」の控えは古い部品の物なので捨てる＝捨てないと、新しい丸には
+    // 「もう塗ってある」と勘違いして位置も輪も付かず、選んだ色が真ん中からずれて見える。
+    paintedRef.current = [];
+    paintedBaseRef.current = -1;
     const measure = () => {
       const el = itemsRef.current[0];
       const w = el ? el.getBoundingClientRect().width : 0;
@@ -338,7 +343,8 @@ export default function HiTensionEntry({
     ro.observe(strip);
     if (slot) ro.observe(slot);   // 丸の直径が変わった時（＝1個ぶんの幅が変わった時）を直に拾う
     return () => ro.disconnect();
-  }, [paint]);
+    // isLandscape：向きが変わったら、新しく出来た丸を測り直して見張り直す。
+  }, [paint, isLandscape]);
 
   // 描き直しのあとに、いまの目盛りの見た目へ合わせ直す。位置・大きさ・輪は JSX に書いていないので、
   // React の描き直しで元に戻ることはない（書くと取り合いになる）。
