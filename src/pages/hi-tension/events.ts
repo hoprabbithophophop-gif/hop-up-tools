@@ -147,6 +147,23 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
 ${SHARE_URL}`,
     enterLabel: "音楽の力を信じている人〜？",
   },
+  {
+    key: "satoyoshi_bd_2026",
+    title: "里吉うたのさんバースデースペシャル",
+    shortTitle: "里吉うたのさん💙",
+    heart: "💙",
+    color: "#005eb8",
+    targetMemberId: "satoyoshi",
+    kind: "birthday",
+    start: "2026-09-22T00:00:00+09:00",
+    end: "2026-09-23T00:00:00+09:00",
+    // バースデーメッセージカードの締切（翌月15日）に合わせ、10/15いっぱいまで参加可。
+    joinableUntil: "2026-10-16T00:00:00+09:00",
+    endCardCongrats: "里吉うたのさん お誕生日おめでとう🎂💙",
+    shareText: (count: number) =>
+      `里吉うたのさん お誕生日おめでとう🎂💙\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
+    enterLabel: "テンション高く手を挙げよう",
+  },
 ];
 
 export function getEvent(key: string | null | undefined): SpecialEvent | null {
