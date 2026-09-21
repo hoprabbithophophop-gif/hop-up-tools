@@ -67,8 +67,12 @@ interface Props {
   onToggleQa?: () => void;
   /** 上級編（振り練習）へ移動する。アイコンのみの控えめな導線。 */
   onOpenAdvanced?: () => void;
-  /** 横向きか。ダイヤルの仕組みは縦横で同じで、まわりの余白の詰め方だけ変える。 */
+  /** 横向きか。横向きだけレイアウトそのものを丸ごと作り替える（動画の左右の帯へ要素を振り分ける）。 */
   isLandscape: boolean;
+  /** 横向きの時だけ使う：動画の器の下端（HiTensionPage 側の LANDSCAPE_VIDEO_BOTTOM と同じ式を
+   *  そのまま受け取る）。下の帯（色えらびだけの帯）をここから画面の下端まで敷くのに使う。
+   *  縦向きでは使わない。 */
+  landscapeVideoBottom?: string;
 }
 
 export default function HiTensionEntry({
@@ -81,6 +85,7 @@ export default function HiTensionEntry({
   onToggleQa,
   onOpenAdvanced,
   isLandscape,
+  landscapeVideoBottom,
 }: Props) {
   // 色タップごとに +1。背景✋の key に混ぜて「同じ色を選び直しても」再マウント→ポップさせる。
   // 指で送っている最中は key を変えない＝色だけ変わって、跳ねる演出は押した時だけ出る。
@@ -479,9 +484,9 @@ export default function HiTensionEntry({
         }
       `}</style>
 
-      {/* なぞる器。帯より中身が高い端末だけ、ここが縦にスクロールする（横は常に不可）。
-          padding はここに置かない＝cqh は「なぞる器」の中身の箱(padding抜きの矩形)基準なので、
-          ここに余白を持たせると物差し自体が動いてしまう。余白は内側の .hi-entry-inner 側。 */}
+      {/* 縦画面はここから下、今まで通り。横画面はレイアウトそのものが別物なので、
+          後ろの isLandscape ブロックへ丸ごと分けた（このブロックは縦の時しか描かれない）。 */}
+      {!isLandscape && (
       <div
         className="hi-entry-scroll"
         style={{
@@ -800,6 +805,330 @@ export default function HiTensionEntry({
           </div>
         </div>
       </div>
+      )}
+
+      {/* ---- ここから横画面専用レイアウト（2026-09-22 案2で確定）----
+          動画の器は画面上部に固定のまま動かさない前提なので、その左右に空く帯へ
+          タイトル・公式動画リンク等を振り分け、動画の下の帯は色えらびだけにする。
+          動画に重なる要素は無い（左右の帯は動画の幅ぶん内側に入り込まない計算、
+          下の帯は動画の下端より下だけ）。
+          左右の帯の幅は「(画面の横幅－動画の幅)÷2－動画との間の8px」。動画の幅の式は
+          HiTensionPage 側の動画 style（width: min(94vw, calc(60dvh*16/9))）と同じものを使う
+          ＝ここか向こうのどちらかだけ変えると帯と動画がずれるので、直す時は両方合わせる。
+          見本: hi-landscape-entry-samples.html の案2（下の帯だけ、実物に合わせて画面幅のまま
+          にしてある＝見本では動画幅に絞っていたが、ダイヤルの見える丸の数を減らさないため）。
+          コンポーネントの上のほうにある stripRef・itemsRef 等のダイヤル用の仕組みは、
+          縦画面のダイヤルとまったく同じものをそのままここでも使っている（二重に動かない
+          よう、縦と横のどちらか片方しか描かれない＝早期リターンではなく isLandscape の
+          分岐で切り替えているのはそのため）。 */}
+      {isLandscape && (() => {
+        // 帯1本ぶんの幅。動画の幅の式は上のコメント参照。8px は動画との最低の間。
+        const sideColW = "calc((100vw - min(94vw, calc(60dvh * 16 / 9))) / 2 - 8px)";
+        // 下の帯の開始位置。渡されていない場合（呼び出し側の不備）は 0 にして、
+        // 少なくとも画面から消えたりはしないようにする。
+        const bandTop = landscapeVideoBottom ?? "0";
+        return (
+          <>
+            {/* 左の帯：タイトル〜誘いの一言を縦中央に積む。画面の上から下まで確保するが、
+                中身は少ないので実際にはだいたい真ん中に収まる（入り切らない端末だけ
+                この帯の中で見えなくなる＝動画側へはみ出したり帯からはみ出たりはしない）。 */}
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: sideColW,
+                overflow: "hidden",
+                boxSizing: "border-box",
+                padding: "0 0.3rem",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "0.35rem",
+                color: "#e8eaed",
+                fontFamily: "Inter, 'Noto Sans JP', sans-serif",
+              }}
+            >
+              <h1
+                style={{
+                  fontSize: "clamp(0.875rem, 5vw, 1.25rem)", // 14px〜20px。帯に入らない端末だけ縮む
+                  fontWeight: 700,
+                  letterSpacing: "-0.02em",
+                  margin: 0,
+                  textAlign: "center",
+                  color: "#f5f7fa",
+                  lineHeight: 1.2,
+                }}
+              >
+                {/* 「ハイ！」の直後だけ折り返し可（wbr）。各語は nowrap にして語の途中では
+                    絶対に割れないようにする＝「テンショ／ン」のような1文字だけ落ちる折れ方を防ぐ。 */}
+                <span style={{ display: "inline-block", whiteSpace: "nowrap" }}>ハイ！</span>
+                <wbr />
+                <span style={{ display: "inline-block", whiteSpace: "nowrap" }}>テンション</span>
+              </h1>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "0.875rem", // 14px
+                  fontWeight: 600,
+                  letterSpacing: "0.04em",
+                  textAlign: "center",
+                  color: "#aab0b6",
+                }}
+              >
+                ✋ Practice ver.
+              </p>
+              {/* 副題はスペシャル回の時だけ出す。左の帯は縦中央寄せなので、無い日は残りが詰まって中央に寄る。 */}
+              {isSpecial && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "0.875rem", // 14px
+                    fontWeight: 700,
+                    letterSpacing: "0.02em",
+                    textAlign: "center",
+                    color: eventColor ?? "#777",
+                  }}
+                >
+                  {`〜${selectedEvent.title}〜`}
+                </p>
+              )}
+              {/* 誘いの一言。縦画面と同じくボタンには見せない（箱・下線・cursor:pointer なし）。
+                  押しても何も起きない（始まるのは動画側の再生ボタンから）。 */}
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "1rem", // 16px
+                  fontWeight: 700,
+                  textAlign: "center",
+                  color: "#f5f7fa",
+                }}
+              >
+                {selectedEvent?.enterLabel ?? "みんな、幸せになりたいか～！？"}
+              </p>
+            </div>
+
+            {/* 右の帯：歯車は右上の隅、公式動画のかたまりは縦中央、👆はそこから
+                リンク同士の行間（0.3rem）の3倍ぶん離して下に置く＝別物だと分かる間を空ける。 */}
+            <div
+              style={{
+                position: "absolute",
+                right: 0,
+                top: 0,
+                bottom: 0,
+                width: sideColW,
+                overflow: "hidden",
+                boxSizing: "border-box",
+                padding: "0 0.3rem",
+              }}
+            >
+              {onOpenSettings && (
+                <button
+                  type="button"
+                  aria-label="表示設定"
+                  onClick={onOpenSettings}
+                  style={{
+                    position: "absolute",
+                    top: "0.2rem",
+                    right: "0.2rem",
+                    background: "none",
+                    border: "none",
+                    fontSize: "1.25rem",
+                    lineHeight: 1,
+                    color: "#9aa0a6",
+                    cursor: "pointer",
+                    padding: "0.3rem",
+                  }}
+                >
+                  ⚙
+                </button>
+              )}
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: "0.3rem", // リンク同士の行間。👆まではこの3倍（0.9rem）空ける
+                    fontSize: "0.875rem", // 14px
+                    color: "#9aa0a6",
+                    textAlign: "center",
+                  }}
+                >
+                  <span style={{ fontWeight: 600 }}>公式動画</span>
+                  {PRACTICE_VIDEOS.map((v) => (
+                    <a
+                      key={v.id}
+                      href={`https://youtu.be/${v.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "#9aa0a6", fontWeight: 600, textDecoration: "underline", textUnderlineOffset: "0.2rem" }}
+                    >
+                      ▶ {v.label}
+                    </a>
+                  ))}
+                </div>
+                {onOpenAdvanced && (
+                  <button
+                    type="button"
+                    aria-label="上級編へ"
+                    onClick={onOpenAdvanced}
+                    style={{
+                      marginTop: "0.9rem", // 公式動画のかたまりとは別物だと分かる間（行間0.3remの3倍）
+                      minWidth: 44,
+                      minHeight: 44,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      opacity: 0.85,
+                    }}
+                  >
+                    <FaIcon icon={faHandPointer} size={26} color="#9aa0a6" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 下の帯：動画の下端〜画面の下端。動画の幅ではなく画面の幅のまま（今までの帯と同じ）。
+                タイトル・リンクは左右の帯へ引っ越したので、ここは背景✋と色えらびだけ。 */}
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                top: bandTop,
+                bottom: 0,
+                overflow: "hidden", // ✋のはみ出しをここで切る（見え方自体は変えない・今までの帯の枠と同じ）
+                isolation: "isolate", // ✋(zIndex:-1)をこの帯の中だけで背面に固定する
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {/* 背景の✋モチーフ。大きさ・不透明度・合成方法は縦画面とまったく同じ値のまま
+                  （オーナー指定：小さくしない・動かさない）。帯の外へ出た分はこの枠が切るだけ。 */}
+              <div
+                key={popTick}
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  transform: "translate(-50%, -50%)",
+                  mixBlendMode: "screen",
+                  opacity: selectedColor ? 0.7 : 0.13,
+                  pointerEvents: "none",
+                  zIndex: -1,
+                  animation: "hi-tension-hand-pop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1)",
+                }}
+              >
+                <HandIcon size="min(122vw, 84vh)" color={selectedColor ?? (isSpecial && eventColor ? eventColor : "#cfd6de")} />
+              </div>
+
+              <p
+                style={{
+                  margin: "0 0 0.4rem",
+                  fontSize: "0.95rem", // 15.2px
+                  fontWeight: 500,
+                  textAlign: "center",
+                  color: "#c6ccd2",
+                  position: "relative",
+                  zIndex: 1,
+                }}
+              >
+                {isSpecial ? "好きな色だよね？" : "好きな色は？"}
+              </p>
+
+              <div style={{ width: "100%", maxWidth: 560, position: "relative", zIndex: 1 }}>
+                {isSpecial ? (
+                  // スペシャル回はダイヤルを出さず主役1人の丸だけ（縦画面と同じ挙動）。
+                  <div style={{ display: "flex", justifyContent: "center" }}>
+                    <button
+                      type="button"
+                      aria-label="主役の色"
+                      onClick={() => setPopTick((t) => t + 1)}
+                      className="hi-color-circle-event"
+                      style={{
+                        borderRadius: "50%",
+                        background: eventColor ?? "#000",
+                        border: "none",
+                        padding: 0,
+                        cursor: "pointer",
+                        boxShadow: `0 0 0 3px #f8f9fa, 0 0 0 5px ${eventColor ?? "#000"}`,
+                      }}
+                    />
+                  </div>
+                ) : (
+                  // 普段の日の横一列ダイヤル。仕組み・イベントハンドラは縦画面と完全に同じもの
+                  // （stripRef 等は共有の ref なので、縦横どちらか一方しか描かれない前提が壊れると壊れる）。
+                  <div
+                    ref={stripRef}
+                    className="hi-color-strip"
+                    onPointerDown={(e) => beginDrag(e, null)}
+                    onPointerMove={handleMove}
+                    onPointerUp={(e) => endDrag(true, e)}
+                    onPointerCancel={(e) => endDrag(false, e)}
+                    onLostPointerCapture={(e) => endDrag(false, e)}
+                    onContextMenu={(e) => e.preventDefault()}
+                    style={{
+                      touchAction: "none",
+                      userSelect: "none",
+                      WebkitUserSelect: "none",
+                      WebkitTouchCallout: "none",
+                      WebkitTapHighlightColor: "transparent",
+                    }}
+                  >
+                    {colors.map((m, i) => (
+                      <button
+                        key={m.id}
+                        ref={(el) => { itemsRef.current[i] = el; }}
+                        type="button"
+                        aria-label={`color ${m.color}`}
+                        aria-pressed={m.id === initialId}
+                        className="hi-color-slot"
+                        onPointerDown={(e) => { e.stopPropagation(); beginDrag(e, i); }}
+                        onFocus={() => handleFocusItem(i)}
+                        onClick={(e) => { if (e.detail === 0) pickItem(i); }}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          padding: 0,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          touchAction: "none",
+                          WebkitTapHighlightColor: "transparent",
+                        }}
+                      >
+                        <span
+                          className="hi-color-circle"
+                          style={{ display: "block", borderRadius: "50%", background: m.color }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* 版の札。分岐プレビュー・手元だけ右下に出す（本番には出ない）。
           なぞる中身(.hi-entry-inner)の外＝帯の器（HiTensionPage 側の入口コンテナ）を基準にした

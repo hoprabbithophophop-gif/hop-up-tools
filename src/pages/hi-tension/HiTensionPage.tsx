@@ -1548,17 +1548,17 @@ export default function HiTensionPage() {
             style={
               isLandscape
                 ? {
-                    // 横：動画が絶対配置で浮いているので、帯も動画の下端から画面の下までを絶対配置で取る。
+                    // 横：動画の左右にも入口の要素を振り分けるようになったため（2026-09-22
+                    // 案2で確定）、帯は画面の上から下まで丸ごと確保する。動画自体の位置・大きさは
+                    // ここでは触っていない＝動画は変わらず絶対配置で上に浮いたまま。
                     // 背景は敷かない＝外側の器が画面いっぱいに敷いている物がそのまま透ける
                     // （横の play-area も画面いっぱいなので、再生に移っても背景の見え方が変わらない）。
                     position: "absolute",
                     left: 0,
                     right: 0,
-                    top: LANDSCAPE_VIDEO_BOTTOM,
+                    top: 0,
                     bottom: 0,
                     zIndex: 1,
-                    display: "flex",
-                    flexDirection: "column",
                   }
                 : {
                     // 縦：動画の下の残り全部。play-area（再生中）と同じ取り方にそろえる。
@@ -1582,6 +1582,9 @@ export default function HiTensionPage() {
               onToggleQa={() => setQaMode((v) => !v)}
               onOpenAdvanced={() => navigate("/hi-tension/practice")}
               isLandscape={isLandscape}
+              // 横画面の「下の帯」の開始位置。動画の下端の式（このファイル冒頭の
+              // LANDSCAPE_VIDEO_BOTTOM）をそのまま渡す＝2箇所に同じ式を書いて食い違う事故を防ぐ。
+              landscapeVideoBottom={LANDSCAPE_VIDEO_BOTTOM}
             />
           </div>
         )}
