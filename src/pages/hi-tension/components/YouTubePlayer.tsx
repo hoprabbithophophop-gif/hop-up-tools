@@ -107,6 +107,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   const isReadyRef = useRef(false);
   const wantPlayRef = useRef(false);
   const wantLoadRef = useRef<{ id: string; opts?: { startSeconds?: number; endSeconds?: number; cover?: boolean } } | null>(null);
+  const wantCueRef = useRef<{ id: string; opts?: { startSeconds?: number; endSeconds?: number } } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onEndedRef = useRef(onEnded);
   const onTimeUpdateRef = useRef(onTimeUpdate);
@@ -176,6 +177,11 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
             if (!mounted) return;
             isReadyRef.current = true;
             setIsReady(true);
+            // load と cue の予約が両方立っている場合は、後着順ではなく load を優先する
+            // （cue は読み込むだけで再生を止めてしまうため、害が大きい方を避ける）。
+            if (wantLoadRef.current && wantCueRef.current) {
+              wantCueRef.current = null;
+            }
             // 準備前に loadVideo が呼ばれていれば、ここで読み込み（loadVideoById は自動再生）。
             // 動画切替で player を作り直した直後の loadVideo が空振りして再生が始まらない問題の対策。
             if (wantLoadRef.current) {
@@ -183,6 +189,18 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
               wantLoadRef.current = null;
               try {
                 (playerRef.current as unknown as { loadVideoById?: (a: { videoId: string; startSeconds?: number; endSeconds?: number }) => void })?.loadVideoById?.({
+                  videoId: id,
+                  startSeconds: opts?.startSeconds ?? 0,
+                  ...(opts?.endSeconds !== undefined ? { endSeconds: opts.endSeconds } : {}),
+                });
+              } catch { /* ignore */ }
+            }
+            // 準備前に cueVideo が呼ばれていれば、ここで cue（loadVideo と同じ空振り対策）
+            if (wantCueRef.current) {
+              const { id, opts } = wantCueRef.current;
+              wantCueRef.current = null;
+              try {
+                (playerRef.current as unknown as { cueVideoById?: (a: { videoId: string; startSeconds?: number; endSeconds?: number }) => void })?.cueVideoById?.({
                   videoId: id,
                   startSeconds: opts?.startSeconds ?? 0,
                   ...(opts?.endSeconds !== undefined ? { endSeconds: opts.endSeconds } : {}),
@@ -325,7 +343,9 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
         } catch { /* ignore */ }
       } else {
         // プレイヤー準備前（動画切替で作り直し中など）は、準備完了後に実行を予約。
+        // 後から来た方が勝つように、逆方向の予約（cue）は取り消す。
         wantLoadRef.current = { id, opts };
+        wantCueRef.current = null;
       }
     },
     cueVideo(id: string, opts?: { startSeconds?: number; endSeconds?: number }) {
@@ -338,6 +358,11 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
             ...(opts?.endSeconds !== undefined ? { endSeconds: opts.endSeconds } : {}),
           });
         } catch { /* ignore */ }
+      } else {
+        // プレイヤー準備前は、準備完了後に実行を予約。
+        // 後から来た方が勝つように、逆方向の予約（load）は取り消す。
+        wantCueRef.current = { id, opts };
+        wantLoadRef.current = null;
       }
     },
   }), []);

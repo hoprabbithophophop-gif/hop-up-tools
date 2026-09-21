@@ -20,6 +20,8 @@ interface Props {
   selectedEventKey?: string | null;
   /** 表示する回を選ぶ（null=通常練習に戻す）。 */
   onSelectEvent?: (key: string | null) => void;
+  /** 動画の矩形の下端。画面の上からのpxで渡すと、シートを動画より下に寄せて動画に重ならないようにする（灰toダイヤモンドのDiamondSettingsSheetと同じ考え方）。渡さない時は今までどおり画面中央。 */
+  avoidBottom?: number;
 }
 
 // セグメント選択の1択肢。選択中は黒地・白字、未選択は薄いグレー（入口/EndCardのボタン語彙に合わせる）。
@@ -107,6 +109,7 @@ export default function SettingsSheet({
   heartRowEvents = [],
   selectedEventKey = null,
   onSelectEvent,
+  avoidBottom,
 }: Props) {
   const set = (patch: Partial<HiSettings>) => onChange({ ...settings, ...patch });
   const isLight =
@@ -122,6 +125,10 @@ export default function SettingsSheet({
   const isSpecial = selectedEventKey != null && events.some((e) => e.key === selectedEventKey);
   const showHeartRow = onSelectEvent != null && (heartRowEvents.length > 0 || isSpecial);
   const showVideo = videos.length > 1 && onSelectVideo != null && videoId != null && !isSpecial;
+  // 動画の下端が分かっている時は、画面ぜんぶを受ける外側もそこから下だけにする。透明でも動画の矩形に
+  // 重なっていると指のタップを先に取ってしまい、動画の操作を塞ぐ（YouTube埋め込みの規約）ため。
+  // 暗い幕も、動画の外まで含めて色を付けない（灰toダイヤモンドのDiamondSettingsSheetと同じ扱い）。
+  const dockBottom = avoidBottom != null;
 
   return (
     <div
@@ -131,13 +138,13 @@ export default function SettingsSheet({
       onClick={onClose}
       style={{
         position: "fixed",
-        inset: 0,
+        ...(dockBottom ? { top: avoidBottom, left: 0, right: 0, bottom: 0 } : { inset: 0 }),
         zIndex: 200, // 入口(select)ラッパーの zIndex:100 より前面に出す（裏に隠れて開かないのを防ぐ）
-        background: "rgba(0,0,0,0.45)",
+        background: dockBottom ? "transparent" : "rgba(0,0,0,0.45)",
         display: "flex",
-        alignItems: "center",
+        alignItems: dockBottom ? "flex-end" : "center",
         justifyContent: "center",
-        padding: "1.2rem",
+        padding: dockBottom ? "0 1.2rem" : "1.2rem",
         animation: "hi-tension-fade-in 160ms ease-out",
       }}
     >
@@ -146,7 +153,7 @@ export default function SettingsSheet({
         style={{
           width: "100%",
           maxWidth: 340,
-          maxHeight: "88dvh",
+          maxHeight: dockBottom ? `calc(100dvh - ${avoidBottom}px - 8px)` : "88dvh",
           overflowY: "auto",
           background: "#f8f9fa",
           color: "#191c1d",

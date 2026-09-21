@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import MemberSelect from "./components/MemberSelect";
+import HiTensionEntry from "./components/HiTensionEntry";
 import YouTubePlayer, { type YouTubePlayerApi } from "./components/YouTubePlayer";
 import HandsCanvas, { type HandsCanvasApi } from "./components/HandsCanvas";
 import WaitingRoom from "./WaitingRoom";
 import RoomMenu from "./RoomMenu";
 import ReadyCheck from "./ReadyCheck";
-import { PRACTICE_VIDEOS, WARMUP_VIDEO_ID, WARMUP_VIDEO_START, WARMUP_VIDEO_END, findMember, ARENA_BG } from "./data";
+import { PRACTICE_VIDEOS, WARMUP_VIDEO_ID, WARMUP_VIDEO_START, WARMUP_VIDEO_END, findMember, ARENA_BG, ALL_HI_MEMBERS } from "./data";
 
 // 待機室で暖機再生する warmup クリップの YouTube 再生オプション
 const WARMUP_LOAD_OPTS = { startSeconds: WARMUP_VIDEO_START, endSeconds: WARMUP_VIDEO_END };
@@ -111,6 +111,15 @@ function searchToLevel(search: string): number {
 // 長押し連打・ボタン寸法は components/HiTapButton.tsx へ移動（タップのstateをページから隔離）。
 const BOUNCE_DURATION_MS = 400;
 
+// 横画面での動画の器の下端（画面の上から）。入口の帯をここから下に敷くのに使う。
+// 器は top:1.5dvh・幅 min(94vw, 60dvh*16/9)・16:9・高さの下限 200px なので、
+// 高さは max(min(94vw*9/16, 60dvh), 200px) になる。再生中の器の式と同じ値を保つこと。
+const LANDSCAPE_VIDEO_BOTTOM = "calc(1.5dvh + max(min(52.875vw, 60dvh), 200px))";
+// 横画面の再生中、盛り上がりタイムラインを動画の下端のすぐ下に置くための位置。
+// 高さの下限が効かない端末では従来の 62dvh と同じ値になり、下限が効いて動画が高くなる
+// 端末（横にして高さが 333px を切る画面）では下端に合わせて下がる＝動画に乗らない。
+const LANDSCAPE_HEATMAP_TOP = "calc(2dvh + max(min(52.875vw, 60dvh), 200px))";
+
 // せーの失敗判定: 窓 + ready 受信のための余裕
 const SENO_FAIL_TIMEOUT_MS = SENO_WINDOW_MS + 1500;
 // 同期方式：rate は弄らない（一切 setPlaybackRate を呼ばない）。
@@ -193,6 +202,8 @@ export default function HiTensionPage() {
   // 表示設定（群衆量・ヒートマップ・動き軽減）。既定は今までの見え方。入口の歯車から変更＝localStorageへ。
   const [settings, setSettingsState] = useState<HiSettings>(() => getHiSettings());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 動画の器の下端（画面の上からのpx）。設定の板をここから下に寄せて動画に重ねないために測る。
+  const [videoBottom, setVideoBottom] = useState<number | null>(null);
   const updateSettings = (next: HiSettings) => { setSettingsState(next); setHiSettings(next); };
   // QAモード：このページ読み込み中だけ送信をスキップ（保存しない＝リロードで解除。事故防止のA案）。
   // 起動は入口の隠しジェスチャー（nishida⇄eguchiを5秒内に10往復）。もう一度で解除。
@@ -220,6 +231,12 @@ export default function HiTensionPage() {
   const eventVideoOptsRef = useRef<{ startSeconds?: number; endSeconds?: number } | undefined>(undefined);
   const handleVideoEndedRef = useRef<() => void>(() => {});
   const lastPlayStartRef = useRef(0); // 直近の再生開始時刻(performance.now)。再開直後の誤ENDED無視用。
+  // 動画本体の再生ボタンから始まった1回の最中か。入口へ戻るたびに false に戻す。
+  const startedRef = useRef(false);
+  // 1回ぶんの支度。PLAYING を受け取る関数の方が先に組み立てられるので、控え越しに呼ぶ。
+  const beginSessionRef = useRef<() => void>(() => {});
+  // 動画の器。下端を測って設定の板の置き場所に使う。
+  const videoBoxRef = useRef<HTMLDivElement | null>(null);
   const endingIframeRef = useRef<HTMLIFrameElement | null>(null); // 歓迎クリップiframe（YT APIで消音解除する）。
   const [seatHash, setSeatHash] = useState<number>(0);
   // 端末の向き。横（landscape）になったら横レイアウト＋サイド席ONに切り替える。
@@ -334,6 +351,33 @@ export default function HiTensionPage() {
 
   useEffect(() => { isRealtimePlayRef.current = isRealtimePlay; }, [isRealtimePlay]);
   useEffect(() => { screenRef.current = screen; }, [screen]);
+
+  // ページのタイトル（入口の幕をやめたので、幕が持っていたこの役目をページ側へ移した）。
+  useEffect(() => {
+    document.title = "ハイ！テンション✋ Practice ver. | hop-up-tools";
+  }, []);
+
+  // 動画の器の下端を測る。回転・画面の大きさの変化と、器の置き方が変わる場面
+  // （入口/再生中/完走後）で測り直す。設定の板をこの下だけに収めるのに使う。
+  useEffect(() => {
+    const measure = () => {
+      const box = videoBoxRef.current;
+      if (!box) return;
+      setVideoBottom(box.getBoundingClientRect().bottom);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+    // Safari は下のバーが出入りすると窓の大きさは変わらないまま見える高さだけ縮むので、
+    // その変わり目も聞いておく。
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("orientationchange", measure);
+      vv?.removeEventListener("resize", measure);
+    };
+  }, [isLandscape, screen, videoEnded]);
 
   // 診断ログ：syncActive 変化を追う（pause/rate が動かない原因切り分け）
   useEffect(() => {
@@ -627,8 +671,9 @@ export default function HiTensionPage() {
 
   // --- YouTube プレイヤー状態の監視 ---
   const handlePlayerStateChange = useCallback((state: number) => {
-    // 診断ログ：待機室・ready-check・play すべての状態遷移を記録（暖機動画の挙動も追跡したいため）
-    if (screenRef.current === "waiting" || screenRef.current === "ready-check" || screenRef.current === "play") {
+    // 診断ログ：入口・待機室・ready-check・play すべての状態遷移を記録
+    // （入口は再生ボタンからの開始を追うため、待機室は暖機動画の挙動を追うため）
+    if (screenRef.current === "select" || screenRef.current === "waiting" || screenRef.current === "ready-check" || screenRef.current === "play") {
       logHiEvent(anonSessionId, "state", YT_STATE_NAMES[state] ?? String(state));
     }
     if (state === 3 /* BUFFERING */) {
@@ -638,6 +683,12 @@ export default function HiTensionPage() {
         isBufferingRef.current = false;
         bufferRecoveryGraceUntilRef.current = Date.now() + BUFFER_RECOVERY_GRACE_MS;
       }
+      // 入口で動画本体の再生ボタンが押された＝ここから1回が始まる。
+      // 部屋の暖機や songstart の loadVideo による PLAYING は screen が違うので拾わない。
+      if (screenRef.current === "select" && !startedRef.current) { beginSessionRef.current(); return; }
+      // 曲が終わった後に YouTube 本体の「もう一度再生」が押された＝同じ色でもう1回ぶん。
+      if (screenRef.current === "play" && videoEndedRef.current) { beginSessionRef.current(); return; }
+      // 一時停止からの再開・シーク後の PLAYING はここを素通りする（1回の数え直しをしない）。
     }
   }, [anonSessionId]);
 
@@ -904,23 +955,15 @@ export default function HiTensionPage() {
     tapBtnRef.current?.reset(); // カウンタ・押下状態（HiTapButton内部）を初期化
   };
 
-  // ひとりで始める
-  const handleConfirm = (id: string) => {
-    // ★ iOS Safari autoplay 対策: gesture スコープ内で最初に呼ぶ
-    logHiEvent(anonSessionId, "play_called", "confirm");
-    isWarmupRef.current = false;
-    playerApiRef.current?.unMute();
-    playerApiRef.current?.loadVideo(videoIdRef.current, eventVideoOptsRef.current); // 専用動画ならトリム付き
+  // 入口で色の丸を押した。色を覚えるだけで再生は始めない
+  // （再生は動画本体の再生ボタンから。1回ぶんの支度は beginSession が PLAYING で行う）。
+  const handlePickColor = (id: string) => {
     setMemberId(id);
     setLastSelectedMemberId(id);
-    setSeatHash(newSeatHash());
-    resetPlayState();
-    setPlaySeatIndex(-1);
-    setIsRealtimePlay(false);
-    setScreen("play");
   };
 
-  // 合言葉の部屋メニューを開く
+  // 合言葉の部屋メニューを開く。入口から部屋へ入る導線は今は出していないので
+  // 呼び出し元は無い（部屋へは ?s=room の URL から入る）。部屋の道を残すため関数は残す。
   const handleOpenRoomMenu = (id: string) => {
     setMemberId(id);
     setLastSelectedMemberId(id);
@@ -967,9 +1010,11 @@ export default function HiTensionPage() {
     setSyncActive(false); // ロビーに戻る → 同期動作を完全停止
     warmupAnchorReceivedRef.current = false;
     clockAnchorRef.current = null;
-    // 暖機/cue 中の動画を止める（ロビーに戻ったら鳴らない/データ消費しない）
+    // 入口はサムネと再生ボタンが出て止まっている状態に戻す（暖機の音も止まる）。
+    // 一時停止だと最後のコマが止まったまま残り、次の1回を本体の再生ボタンから始められない。
     isWarmupRef.current = false;
-    playerApiRef.current?.pause();
+    startedRef.current = false;
+    playerApiRef.current?.cueVideo(videoIdRef.current, eventVideoOptsRef.current);
     setRoomCode(null);
     setEnteredByCode(false);
     setScreen("select");
@@ -1011,11 +1056,21 @@ export default function HiTensionPage() {
       playerApiRef.current?.setPlaybackRate(1.0);
       playerApiRef.current?.unMute();
       playerApiRef.current?.loadVideo(WARMUP_VIDEO_ID, { ...WARMUP_LOAD_OPTS, cover: true });
+    } else if (target === "select") {
+      // 入口へ戻る：サムネと再生ボタンの状態に戻す（次の1回も本体の再生ボタンから始まる）。
+      // 完走後の戻る操作でもここに来るので、終了画面の状態も畳んでおく
+      // （畳まないと videoEnded が立ったままで、入口に終了画面の並びが残る）。
+      setSyncActive(false);
+      isWarmupRef.current = false;
+      startedRef.current = false;
+      resetPlayState();
+      playerApiRef.current?.cueVideo(videoIdRef.current, eventVideoOptsRef.current);
+      setRoomCode(null);
     } else {
+      // 部屋の途中（部屋メニュー・ready-check）へ戻る道は今までどおり一時停止のまま。
       setSyncActive(false);
       isWarmupRef.current = false;
       playerApiRef.current?.pause();
-      if (target === "select") setRoomCode(null);
     }
     skipUrlSyncRef.current = true; // この setScreen で URL push を再発火させない
     setScreen(target);
@@ -1119,7 +1174,10 @@ export default function HiTensionPage() {
   };
 
   const handleChangeColor = () => {
-    playerApiRef.current?.pause();
+    // 入口はサムネと再生ボタンが出て止まっている状態に戻す。一時停止だと最後のコマが
+    // 止まったまま残り、次の1回を本体の再生ボタンから始められない。
+    startedRef.current = false;
+    playerApiRef.current?.cueVideo(videoIdRef.current, eventVideoOptsRef.current);
     stopDriftLoop();
     setSyncActive(false); // ロビーに戻る → 同期動作を完全停止
     warmupAnchorReceivedRef.current = false;
@@ -1209,11 +1267,48 @@ export default function HiTensionPage() {
     if (ev?.videoId) setVideoId(ev.videoId);
     else setVideoId((cur) => (PRACTICE_VIDEOS.some((v) => v.id === cur) ? cur : PRACTICE_VIDEOS[0].id));
   }, [selectedEventKey]);
+
+  // 回や映像が変わった時、入口にいる間だけサムネと再生ボタンの状態に戻す（トリムもここで渡す）。
+  // 部屋にいる間の暖機を cue が止めてしまわないよう、screen の見張りを必ず通す。
+  // videoId が変わるとプレイヤーが作り直されるので、この cue は作り直しの後に実行される
+  // 予約として渡る（YouTubePlayer 側が準備完了時にまとめて流す）。
+  useEffect(() => {
+    if (screenRef.current !== "select") return;
+    startedRef.current = false;
+    playerApiRef.current?.cueVideo(videoId, eventVideoOptsRef.current);
+  }, [videoId, selectedEventKey]);
+
+  // 動画本体の再生ボタンから再生が始まった合図で、1回ぶんを始める支度をする。
+  // 再生そのものはこちらから呼ばない（プレイヤー本体の再生ボタンから始まった再生だけが
+  // 公式の視聴回数に数えられるため。このツールは公式動画の再生回数に足すために作っている）。
+  const beginSession = () => {
+    // 色を選ばずに再生ボタンを押された人の色をここで当てる。memberId は端末に残っている
+    // 前回の色で初期化されているので、null＝前回の色が無い人。その人には普段の日の色選びに
+    // 並んでいる色から1色を当てる。自分で選んだ物ではないので端末には保存しない。
+    // スペシャル回は選んだ色に関わらずその回の主役として参加する（入口の色の丸も1個だけ）。
+    const id = selectedEvent?.targetMemberId
+      ?? memberId
+      ?? ALL_HI_MEMBERS[Math.floor(Math.random() * ALL_HI_MEMBERS.length)].id;
+    if (id !== memberId) setMemberId(id);
+    logHiEvent(anonSessionId, "play_called", "player");
+    isWarmupRef.current = false;
+    startedRef.current = true;
+    setSeatHash(newSeatHash());
+    resetPlayState();
+    setPlaySeatIndex(-1);
+    setIsRealtimePlay(false);
+    setScreen("play");
+  };
+  beginSessionRef.current = beginSession;
+
   const eventColor = selectedEvent?.color ?? null;
   // 入口/再生中の主役色：スペシャル回中は回の色、通常はメンバーカラー。
   const accentColor = (eventColor ?? member?.color) ?? "#000";
   // 期限切れスペシャル回＝閲覧専用：✋ボタン非表示・保存なし・客席は満員凍結で「見守るだけ」。
   const viewOnlySpecial = selectedEventKey != null && !isEventKeyJoinable(selectedEventKey);
+
+  // 合言葉の部屋の道にいる間。この間だけプレイヤーに黒いカバーを出す（出囃子の差し替えを隠すため）。
+  const inRoom = screen === "room-menu" || screen === "waiting" || screen === "ready-check";
 
   // ヒートマップを出すか。ユーザー設定でオフにできるが、閲覧専用スペシャル回は主役の見せ場なので常に出す。
   const showHeatmap = settings.heatmap || viewOnlySpecial;
@@ -1297,12 +1392,14 @@ export default function HiTensionPage() {
         </div>
       )}
 
-      {/* 同期デバッグ表示（?hidebug=1 の時だけ。本番では出さない） */}
+      {/* 同期デバッグ表示（?hidebug=1 の時だけ。本番では出さない）。
+          動画が画面の一番上に出るようになったので、重ならないよう下側に置く
+          （QAの印は左下の一番下、版の札は入口の帯の右下なので、その間を空けて左下に積む）。 */}
       {HI_DEBUG && debugInfo && (
         <div
           style={{
             position: "fixed",
-            top: 4,
+            bottom: 24,
             left: 4,
             zIndex: 300,
             background: "rgba(0,0,0,0.72)",
@@ -1340,11 +1437,13 @@ export default function HiTensionPage() {
             PC ブラウザのデコード負荷が下がる（rate≈1.0 維持＝同期破綻防止）。
             iOS/Android はモバイルの縦画面いっぱいで従来通り。 */}
         <div
+          ref={videoBoxRef}
           style={
-            isLandscape && screen === "play" && !videoEnded
+            isLandscape && (screen === "play" || screen === "select") && !videoEnded
               ? {
-                  // 横（再生中）：動画を中央上に大きく（高さ基準60vh＝主役）。幅は高さ×16/9 で逆算し、
+                  // 横（入口・再生中）：動画を中央上に大きく（高さ基準60vh＝主役）。幅は高さ×16/9 で逆算し、
                   // 画面幅を超えないよう min でガード。左右に空く三角ゾーンがサイド席になる。
+                  // 入口も同じ置き方にする＝入口から再生に移っても動画が1pxも動かない。
                   position: "absolute",
                   top: "1.5dvh",
                   left: "50%",
@@ -1379,8 +1478,16 @@ export default function HiTensionPage() {
             onEnded={handleVideoEnded}
             onTimeUpdate={handleTimeUpdate}
             onPlayerStateChange={handlePlayerStateChange}
+            // 黒いカバーは部屋にいる間だけ。部屋は出囃子を loadVideo で差し替えるので、切替の隙間に
+            // 前の動画のコマが見えるのを隠す必要がある。ひとりで遊ぶ道は本体の再生ボタンで始まるため、
+            // プレイヤーの前に見える物を置いてはいけない決まりに合わせて出さない。
+            startCover={inRoom}
+            loadingCover={inRoom}
+            // 埋め込みのプレイヤーは 200×200px を下回ってはいけない決まりがあるので下限を渡す。
+            minHeight={200}
           />
-          {/* 回終了後、専用エンディング動画（加入発表の歓迎シーン等）を別プレイヤー(iframe)で上に重ねて再生。
+          {/* 【仮】動画に重なる別iframe。扱いはオーナーに確認中
+              回終了後、専用エンディング動画（加入発表の歓迎シーン等）を別プレイヤー(iframe)で上に重ねて再生。
               メインプレイヤーに触れない＝再入・状態混乱が起きない。表示専用・記録しない。 */}
           {videoEnded && selectedEvent?.endingVideoId && (
             <iframe
@@ -1413,6 +1520,50 @@ export default function HiTensionPage() {
             >
               🔊 タップで音を出す
             </button>
+          </div>
+        )}
+
+        {/* 入口：動画の下の帯。再生が始まると、この帯ごと下の play-area（✋の領域とハイ！ボタン）に
+            入れ替わる。動画の器は入口でも再生中でも同じ置き方なので、入れ替わっても動画は動かない。 */}
+        {screen === "select" && (
+          <div
+            style={
+              isLandscape
+                ? {
+                    // 横：動画が絶対配置で浮いているので、帯も動画の下端から画面の下までを絶対配置で取る。
+                    // 背景は敷かない＝外側の器が画面いっぱいに敷いている物がそのまま透ける
+                    // （横の play-area も画面いっぱいなので、再生に移っても背景の見え方が変わらない）。
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    top: LANDSCAPE_VIDEO_BOTTOM,
+                    bottom: 0,
+                    zIndex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                  }
+                : {
+                    // 縦：動画の下の残り全部。play-area（再生中）と同じ取り方にそろえる。
+                    flex: 1,
+                    minHeight: 0,
+                    position: "relative",
+                    zIndex: 1,
+                    background: ARENA_BG,
+                    display: "flex",
+                    flexDirection: "column",
+                  }
+            }
+          >
+            <HiTensionEntry
+              selectedId={memberId}
+              onPickColor={handlePickColor}
+              events={SPECIAL_EVENTS}
+              selectedEventKey={selectedEventKey}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onToggleQa={() => setQaMode((v) => !v)}
+              onOpenAdvanced={() => navigate("/hi-tension/practice")}
+              isLandscape={isLandscape}
+            />
           </div>
         )}
 
@@ -1507,9 +1658,9 @@ export default function HiTensionPage() {
                 style={
                   isLandscape
                     ? {
-                        // 横：動画(高さ60vh+上1.5vh)のすぐ下に、動画幅と揃えて中央に。
+                        // 横：動画のすぐ下に、動画幅と揃えて中央に。
                         position: "absolute",
-                        top: "62dvh",
+                        top: LANDSCAPE_HEATMAP_TOP,
                         left: "50%",
                         transform: "translateX(-50%)",
                         width: "min(80vw, calc(60dvh * 16 / 9))",
@@ -1657,23 +1808,6 @@ export default function HiTensionPage() {
         )}
       </div>
 
-      {/* Select 画面 */}
-      {screen === "select" && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 100, background: ARENA_BG, overflowY: "auto" }}>
-          <MemberSelect
-            initialSelectedId={memberId}
-            onConfirm={handleConfirm}
-            onOpenRoomMenu={handleOpenRoomMenu}
-            events={SPECIAL_EVENTS}
-            viewOnly={viewOnlySpecial}
-            selectedEventKey={selectedEventKey}
-            onOpenSettings={() => setSettingsOpen(true)}
-            onToggleQa={() => setQaMode((v) => !v)}
-            onOpenAdvanced={() => navigate("/hi-tension/practice")}
-          />
-        </div>
-      )}
-
       {/* 表示設定シート（入口の歯車から開く。最前面でオーバーレイ） */}
       {settingsOpen && (
         <SettingsSheet
@@ -1687,6 +1821,8 @@ export default function HiTensionPage() {
           heartRowEvents={joinableEvents}
           selectedEventKey={selectedEventKey}
           onSelectEvent={selectEvent}
+          // 動画の下端から下だけに板を収める（動画の前には何も置かない）。
+          avoidBottom={videoBottom ?? undefined}
         />
       )}
 
@@ -1703,9 +1839,10 @@ export default function HiTensionPage() {
 
       {/* 待機室・ready-check は動画ラッパーの直下に重ねる。動画の実高さに合わせて top を計算：
           PC（other）: 動画ラッパーを PC_VIDEO_WIDTH に縮めているので 16:9 で PC_VIDEO_HEIGHT_PX。
-          モバイル: 動画は画面幅いっぱい × 9/16 = 56.25vw。 */}
+          モバイル: 動画は画面幅いっぱい × 9/16 = 56.25vw。ただし器に 200px の下限があるので、
+          幅の狭い端末で動画が高くなるぶんを max で拾って食い込まないようにする。 */}
       {(() => {
-        const overlayTop = detectDevice() === "other" ? `${PC_VIDEO_HEIGHT_PX}px` : "56.25vw";
+        const overlayTop = detectDevice() === "other" ? `${PC_VIDEO_HEIGHT_PX}px` : "max(56.25vw, 200px)";
         return (
           <>
             {screen === "waiting" && (
