@@ -1,22 +1,64 @@
-import { useRef, useState } from "react";
-import { UNIT_ROWS, NEW_MEMBERS, findMember, PRACTICE_VIDEOS } from "../data";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { ALL_HI_MEMBERS, findMember, PRACTICE_VIDEOS } from "../data";
 import HandIcon from "./HandIcon";
 import FaIcon from "./FaIcon";
 import { faHandPointer } from "@fortawesome/free-solid-svg-icons";
 import type { SpecialEvent } from "../events";
 
 // YouTube の規約対応で入口を作り直した版。動画そのものはページ側が常に一番上に出していて、
-// 視聴者は YouTube 本体の再生ボタンで始める。ここは「動画の下の帯」に入る、状態を持たない
-// 見た目だけの部品（選んだ色は親が持ち、選ぶたびに onPickColor で親に伝える）。
-// 色選び・背景✋・QA隠しジェスチャーの作りは components/MemberSelect.tsx から丸ごと移した。
+// 視聴者は YouTube 本体の再生ボタンで始める。ここは「動画の下の帯」に入る部品。
 // 「はじめる」ボタンと合言葉の部屋（ROOM_ENABLED=false で非表示）は移していない
 // ＝再生は動画側のボタンで始まる前提のため、この部品には「押すと始まる」要素を置かない。
+//
+// 色えらびは横一列のダイヤル（2026-09-22 Hop決定）。段を4つ積むと幅375pxの端末で帯に収まらないため、
+// 1行に並べて指で横に送り、真ん中に来た色が選ばれる形にした。スペシャル回の日は今までどおり
+// 主役の色の丸が1個だけで、ダイヤルは出さない。
+
+// ---- ダイヤルの決めごと ----
+// 指ざわりの数値（しきい値・滑る時間・速さの測り方）は、灰toダイヤモンドの色の帯
+// （hai-to-diamond/DiamondColorCarousel.tsx）と同じ値をそのまま使う。同じ「一列でループする
+// 色えらび」なので、ツールごとに感触が違うと戸惑うため。
+/** 丸と丸のあいだ(px)。段の中の間隔（1rem）をそのまま横に持ってきた値 */
+const STRIP_GAP = 16;
+/** これだけ指が動いたらスワイプ扱いにして、丸の押し（色えらび）を取り消す(px) */
+const DRAG_THRESHOLD = 8;
+/** 指を離してから一番近い色が真ん中に収まるまでの時間(ms)。勢いが無かった時に使う */
+const SNAP_MS = 220;
+/** 勢いを付けて滑る時の、いちばん短い／長い時間(ms)。急に止まる・だらだら続くのを防ぐ */
+const GLIDE_MIN_MS = 160;
+const GLIDE_MAX_MS = 900;
+/** 指の速さを測る窓(ms)。これより古い動きは勢いの計算に入れない */
+const VELOCITY_WINDOW_MS = 100;
+/** 指が止まってからこれ以上経って離した場合は、勢い無し＝一番近い色へ吸い付くだけにする(ms) */
+const VELOCITY_STALE_MS = 100;
+/** 指の速さから「この先どこまで滑るか」を見積もる時間(ms) */
+const GLIDE_PROJECTION_MS = 100;
+/** 1回のスワイプで進める上限（個）。速く払っても行き過ぎないための蓋 */
+const GLIDE_MAX_STEPS = 6;
+
+/** 差 d を「一周のうち近い方の回り方」に直す。例: 12色で 10 個先は、逆回りで 2 個手前 */
+function wrapDelta(d: number, n: number): number {
+  const x = ((d % n) + n) % n;
+  return x > n / 2 ? x - n : x;
+}
+
+/** 目盛りを 0 以上 n 未満に収める */
+function wrapIndex(v: number, n: number): number {
+  return ((v % n) + n) % n;
+}
+
+/** 端末側で「動きを減らす」設定になっているか。滑る動きを一足飛びに切り替えるのに使う */
+function prefersReducedMotion(): boolean {
+  try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
+}
 
 interface Props {
-  /** 選んでいる色（メンバーID）。親が持つ状態で、ここではただ表示するだけ。 */
+  /** 端末に残っている「最後に選んだ色」。ダイヤルを最初に置く位置にだけ使う。 */
   selectedId: string | null;
-  /** 色の丸をタップした時に親へ伝える。 */
+  /** 色が選ばれた時に親へ伝える（親が覚えて端末にも保存する）。指を離した時・丸を押した時だけ呼ぶ。 */
   onPickColor: (id: string) => void;
+  /** いま真ん中に居る色を親へ伝える。保存はさせない＝まだ本人が選んだとは限らないため。 */
+  onCenterColor?: (id: string) => void;
   events?: readonly SpecialEvent[];
   selectedEventKey?: string | null;
   /** 右上にあった表示設定の歯車。今回はタイトル行の中に置く。 */
@@ -25,13 +67,14 @@ interface Props {
   onToggleQa?: () => void;
   /** 上級編（振り練習）へ移動する。アイコンのみの控えめな導線。 */
   onOpenAdvanced?: () => void;
-  /** 横向きか。今回は縦持ちと同じ並びのままなので、色の丸の並べ方以外には使わない。 */
+  /** 横向きか。ダイヤルの仕組みは縦横で同じで、まわりの余白の詰め方だけ変える。 */
   isLandscape: boolean;
 }
 
 export default function HiTensionEntry({
   selectedId,
   onPickColor,
+  onCenterColor,
   events = [],
   selectedEventKey = null,
   onOpenSettings,
@@ -40,11 +83,125 @@ export default function HiTensionEntry({
   isLandscape,
 }: Props) {
   // 色タップごとに +1。背景✋の key に混ぜて「同じ色を選び直しても」再マウント→ポップさせる。
-  // 選択そのものは親の state（selectedId）なので、これは見た目の演出だけのローカル state。
+  // 指で送っている最中は key を変えない＝色だけ変わって、跳ねる演出は押した時だけ出る。
   const [popTick, setPopTick] = useState(0);
+
+  // 表示中のスペシャル回（お祝い等）。選ばれていれば入口の色・文言をその回仕様にする。
+  const selectedEvent = events.find((e) => e.key === selectedEventKey) ?? null;
+  const isSpecial = selectedEvent != null;
+  const eventColor = selectedEvent?.color ?? null;
+
+  // ---- ダイヤル（普段の日の色えらび）----
+  // 並び順は今の段（ユニット3段＋新メンバーの1段）を上から順につないだ並びそのまま。
+  const colors = ALL_HI_MEMBERS;
+  const n = colors.length;
+  // 最初に真ん中へ置く色。端末に残っていればその色、無ければその都度1色を当てる。
+  // 当てただけの色は本人が選んだ物ではないので保存しない（押す／指で送ると保存される）。
+  const [initialId] = useState<string>(
+    () => findMember(selectedId)?.id ?? colors[Math.floor(Math.random() * n)].id,
+  );
+  // 真ん中に居る色。背景✋の着色と読み上げに使う。指を動かしている最中も追従する。
+  const [centerId, setCenterId] = useState<string>(initialId);
+  const centerIdRef = useRef(initialId);
+
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  /** 丸の要素の控え。色の並び順にそのまま入れる（並べ替えないので番号＝色の番号） */
+  const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  /** 前回書き込んだ見た目。同じ値なら書き込まない＝指を動かしている間の無駄な書き換えを減らす */
+  const paintedRef = useRef<{ t: string; s: string; b: string }[]>([]);
+  /** 丸1個ぶんの横幅(px)。丸の直径は帯の高さに合わせて変わるので、置かれた後に測る */
+  const strideRef = useRef(0);
+  /** 前回の「真ん中の丸」。読み上げ用の印を、変わった時だけ書き換えるために覚えておく */
+  const paintedBaseRef = useRef(-1);
+  /** 真ん中に来ている位置。整数なら色がぴたりと真ん中、小数はその途中。
+   *  指を追っている間も滑っている間もこの値だけを動かし、画面へは paint() で直に書き込む */
+  const offsetRef = useRef(Math.max(0, colors.findIndex((c) => c.id === initialId)));
+  /** 指の情報。null なら触っていない。anchorX は「スワイプと認めた地点」で、ここからの差分で列を動かす */
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; anchorX: number; startOffset: number; item: number | null; moved: boolean } | null>(null);
+  /** 指の速さを測るための、直前の動きの控え（時刻と目盛り） */
+  const samplesRef = useRef<{ t: number; o: number }[]>([]);
+  const animRef = useRef<number | null>(null);
+
+  /** いまの目盛りから、丸の位置・大きさ・輪を画面へ直に書き込む。
+   *  React を通さないので、指を動かしている間も要素を作り直さずに済む
+   *  （灰toダイヤモンドの帯で「指でスライドすると引っかかる」を直した時と同じ作り）。 */
+  const paint = useCallback(() => {
+    const stride = strideRef.current;
+    if (stride <= 0) return;
+    const off = offsetRef.current;
+    const base = wrapIndex(Math.round(off), n);
+    for (let i = 0; i < n; i++) {
+      const el = itemsRef.current[i];
+      if (!el) continue;
+      const d = wrapDelta(i - off, n);
+      // 真ん中にどれだけ近いか（1＝真ん中、0＝隣より外）。選択中の見た目をこの割合で効かせる＝
+      // 指で送っている途中も、大きさと輪が真ん中の丸へなめらかに移っていく。
+      const k = Math.max(0, 1 - Math.abs(d));
+      const t = `translate3d(calc(-50% + ${(d * stride).toFixed(2)}px), 0, 0)`;
+      const s = `scale(${(1 + 0.2 * k).toFixed(3)})`;
+      // 輪は box-shadow（場所を取らないので列の幅が動かない）。いちばん外の 1px は
+      // 白メンカラが暗背景から浮いて見えないようにする縁で、輪が出ると裏に隠れる。
+      const b = `0 0 0 ${(3 * k).toFixed(2)}px #f8f9fa, 0 0 0 ${(5 * k).toFixed(2)}px ${colors[i].color}, 0 0 0 1px rgba(0,0,0,0.08)`;
+      if (!paintedRef.current[i]) paintedRef.current[i] = { t: "", s: "", b: "" };
+      const p = paintedRef.current[i];
+      const dot = el.firstElementChild as HTMLElement | null;
+      if (p.t !== t) { el.style.transform = t; p.t = t; }
+      if (dot && p.s !== s) { dot.style.transform = s; p.s = s; }
+      if (dot && p.b !== b) { dot.style.boxShadow = b; p.b = b; }
+      if (paintedBaseRef.current !== base) el.setAttribute("aria-pressed", i === base ? "true" : "false");
+    }
+    paintedBaseRef.current = base;
+  }, [colors, n]);
+
+  /** 真ん中の色が変わったら、背景✋の色と読み上げを合わせる。
+   *  親には「今これが真ん中に居る」とだけ伝える＝端末には保存させない。 */
+  const syncCenter = useCallback(() => {
+    const id = colors[wrapIndex(Math.round(offsetRef.current), n)].id;
+    if (id === centerIdRef.current) return;
+    centerIdRef.current = id;
+    setCenterId(id);
+    onCenterColor?.(id);
+  }, [colors, n, onCenterColor]);
+
+  const stopAnim = useCallback(() => {
+    if (animRef.current != null) { cancelAnimationFrame(animRef.current); animRef.current = null; }
+  }, []);
+
+  /** 目盛りを行き先まで滑らせる。終わりに向かってなめらかに減速する。
+   *  follow を立てると、滑っている途中に通り過ぎる色にも背景✋が追従する（指で払った時）。
+   *  端末が「動きを減らす」設定なら一足飛びに置く。 */
+  const glideTo = useCallback((target: number, ms: number, follow: boolean) => {
+    stopAnim();
+    const from = offsetRef.current;
+    const dist = target - from;
+    if (prefersReducedMotion() || Math.abs(dist) < 0.001) {
+      offsetRef.current = wrapIndex(target, n);
+      paint();
+      if (follow) syncCenter();
+      return;
+    }
+    const t0 = performance.now();
+    const tick = () => {
+      const p = Math.min(1, (performance.now() - t0) / ms);
+      const e = 1 - Math.pow(1 - p, 3);          // 終わりでゆっくり止まる
+      if (p >= 1) {
+        animRef.current = null;
+        offsetRef.current = wrapIndex(target, n); // 目盛りが際限なく伸びないよう、収まったところで色の数の範囲へ戻す
+        paint();
+        if (follow) syncCenter();
+        return;
+      }
+      offsetRef.current = from + dist * e;
+      paint();
+      if (follow) syncCenter();
+      animRef.current = requestAnimationFrame(tick);
+    };
+    animRef.current = requestAnimationFrame(tick);
+  }, [n, paint, stopAnim, syncCenter]);
 
   // QAモード起動の隠しジェスチャー（hop指定）：nishida⇄eguchi の色を5秒以内に10往復（交互20タップ）。
   // 実機でURLにパラメータを打つのが面倒なため。成立でトグル（もう一度で解除）。保存はしない。
+  // 数えるのは「丸を押した事」だけ＝滑って真ん中を通り過ぎた色は数に入らない。滑り終わるのも待たない。
   const qaTapsRef = useRef<{ id: string; t: number }[]>([]);
   const detectQaGesture = (id: string) => {
     if (id !== "nishida" && id !== "eguchi") {
@@ -66,27 +223,140 @@ export default function HiTensionEntry({
     }
   };
 
-  // 色の丸を押した時の共通処理：選択を親に伝える → ポップ演出 → QAジェスチャー判定。
-  const handlePickColor = (id: string) => {
-    onPickColor(id);
+  /** 丸を押した：その丸を真ん中へ呼んで、その色を選ぶ。指で送れない環境でもここで選べる。 */
+  const pickItem = (i: number) => {
+    const id = colors[i].id;
+    // 押した色は滑り終わりを待たずに選ばれた扱いにする＝背景✋は押した瞬間にその色で跳ねる。
+    // 途中で通り過ぎる色に✋がちらつかないよう、この滑りでは色を追従させない（follow=false）。
+    centerIdRef.current = id;
+    setCenterId(id);
     setPopTick((t) => t + 1);
     detectQaGesture(id);
+    glideTo(offsetRef.current + wrapDelta(i - offsetRef.current, n), SNAP_MS, false);
+    onPickColor(id);
   };
 
-  // 表示中のスペシャル回（お祝い等）。選ばれていれば入口の色・文言をその回仕様にする。
-  const selectedEvent = events.find((e) => e.key === selectedEventKey) ?? null;
-  const isSpecial = selectedEvent != null;
-  const eventColor = selectedEvent?.color ?? null;
+  /** 指が触れた瞬間 */
+  const beginDrag = (e: ReactPointerEvent<HTMLElement>, item: number | null) => {
+    if (dragRef.current) return;
+    stopAnim();
+    stripRef.current?.setPointerCapture?.(e.pointerId);
+    dragRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, anchorX: e.clientX, startOffset: offsetRef.current, item, moved: false };
+    samplesRef.current = [];
+  };
+
+  const handleMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (!d.moved) {
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      d.moved = true;
+      // ここを起点にする＝しきい値を越えた瞬間に列が8pxぶん飛ばない
+      d.anchorX = e.clientX;
+      d.startOffset = offsetRef.current;
+    }
+    const stride = strideRef.current || 1;
+    offsetRef.current = d.startOffset - (e.clientX - d.anchorX) / stride;
+    // 指の速さを測るための控え。窓より古いものは捨てる
+    const now = performance.now();
+    const s = samplesRef.current;
+    s.push({ t: now, o: offsetRef.current });
+    while (s.length > 2 && now - s[0].t > VELOCITY_WINDOW_MS) s.shift();
+    paint();
+    syncCenter();
+  };
+
+  /** 指を離した／取り上げられた時の共通の後片付け。iOS は画面の操作を横取りする時に
+   *  pointercancel を送ってくるので、そこで片付けを忘れるとボタンが二度と押せなくなる */
+  const endDrag = (commit: boolean, e?: ReactPointerEvent<HTMLElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    if (e && e.pointerId !== d.pointerId) return;
+    dragRef.current = null;
+    // 動かさずに丸を押した＝その色を選ぶ
+    if (commit && !d.moved && d.item != null) {
+      pickItem(d.item);
+      return;
+    }
+    // iOS に操作を取り上げられた時(commit=false)も、ここから下は同じように通す。
+    // 通さないと、色と色のあいだで止まったままになる。
+    // 指の速さ（払った勢い）を測る。指が止まったまま離した時は勢い無しとして一番近い色へ
+    const now = performance.now();
+    const s = samplesRef.current;
+    let v = 0;                                     // 目盛り／ms
+    if (s.length >= 2 && now - s[s.length - 1].t <= VELOCITY_STALE_MS) {
+      const first = s[0];
+      const last = s[s.length - 1];
+      const dt = last.t - first.t;
+      if (dt > 0) v = (last.o - first.o) / dt;
+    }
+    const from = offsetRef.current;
+    // 速さのぶんだけ先を見て、そこから一番近い色を行き先にする＝必ずどれかの色の真ん中で止まる
+    const glide = Math.max(-GLIDE_MAX_STEPS, Math.min(GLIDE_MAX_STEPS, v * GLIDE_PROJECTION_MS));
+    const target = Math.round(from + glide);
+    const dist = Math.abs(target - from);
+    // 離した瞬間の速さと滑り出しの速さを揃えると、動き出しの段差が出ない
+    // （終わりでゆっくり止まる曲線では、滑り出しの速さ＝距離×3÷時間）
+    const ms = Math.abs(v) > 0.0005
+      ? Math.max(GLIDE_MIN_MS, Math.min(GLIDE_MAX_MS, (3 * dist) / Math.abs(v)))
+      : SNAP_MS;
+    samplesRef.current = [];
+    glideTo(target, ms, true);
+    // 保存を伴う「選んだ」は1回のスワイプにつきここ1回だけ。行き先はもう決まっているので、
+    // 滑り終わりを待たずに伝える＝滑っている最中に動画の再生ボタンを押されても色が合う。
+    onPickColor(colors[wrapIndex(target, n)].id);
+  };
+
+  /** キーボードで丸に移った時は、その色を真ん中へ呼んで見せるだけ（選ぶのは Enter / Space）。 */
+  const handleFocusItem = (i: number) => {
+    if (dragRef.current) return;
+    if (wrapIndex(Math.round(offsetRef.current), n) === i) return;
+    glideTo(offsetRef.current + wrapDelta(i - offsetRef.current, n), SNAP_MS, true);
+  };
+
+  // 丸1個ぶんの横幅を測って位置を引き直す。回転・画面の大きさ変更でも真ん中の色は真ん中のまま
+  // （目盛りは触らず、幅だけ測り直して置き直すため）。
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = itemsRef.current[0];
+      const w = el ? el.getBoundingClientRect().width : 0;
+      if (w > 0) strideRef.current = w;
+      paint();
+    };
+    measure();
+    const strip = stripRef.current;
+    const slot = itemsRef.current[0];
+    if (!strip || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(strip);
+    if (slot) ro.observe(slot);   // 丸の直径が変わった時（＝1個ぶんの幅が変わった時）を直に拾う
+    return () => ro.disconnect();
+  }, [paint]);
+
+  // 描き直しのあとに、いまの目盛りの見た目へ合わせ直す。位置・大きさ・輪は JSX に書いていないので、
+  // React の描き直しで元に戻ることはない（書くと取り合いになる）。
+  useLayoutEffect(paint);
+
+  useEffect(() => stopAnim, [stopAnim]);
+
+  // 最初に真ん中へ置いた色を親へ伝える。端末に残っていた色でも、その都度当てた色でも、
+  // これで「常にどれかの色が選ばれている」状態になる（保存はしない）。
+  useEffect(() => {
+    if (isSpecial) return;
+    onCenterColor?.(initialId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 選択中のメンバーカラー。背景の✋モチーフの着色に使う。スペシャル回中は回の色に統一。
-  const selectedColor = isSpecial ? eventColor : (findMember(selectedId)?.color ?? null);
-  // 各スウォッチ/アクセントの表示色（配置はそのまま、見た目だけ統一）。
-  const tint = (c: string) => (isSpecial && eventColor ? eventColor : c);
+  const selectedColor = isSpecial ? eventColor : (findMember(centerId)?.color ?? null);
 
   return (
     <>
       <style>{`
         /* 本編/待機室の hand-hop と同じ「squash→stretch」の感触。全画面の✋なので
-           平行移動はせず、その場で潰れて伸びて戻る（色変更のたびに走る）。 */
+           平行移動はせず、その場で潰れて伸びて戻る（色を押すたびに走る）。 */
         @keyframes hi-tension-hand-pop {
           0%   { transform: translate(-50%, -50%) scaleX(1.06) scaleY(0.9); }
           45%  { transform: translate(-50%, -50%) scaleX(0.97) scaleY(1.05); }
@@ -117,36 +387,38 @@ export default function HiTensionEntry({
           padding: clamp(0.4rem, 4cqh, 0.7rem) 1rem clamp(0.4rem, 4cqh, 0.7rem);
         }
 
-        /* 色の丸の段と段の間隔。0.6rem を下限にしているのは、選択中の丸が
-           scale(1.2)+リング(box-shadow 5px)で膨らむ分（実測で片側約9.4px）を
-           隣の段と重ねないため。 */
-        .hi-color-rows {
-          gap: 0.8rem;
-          gap: clamp(0.6rem, 3cqh, 0.8rem);
+        /* 色の丸を横一列に送るダイヤルの器。列の外へ出た丸はここで切る＝見えない丸が
+           押せてしまわない。切った所で丸が半分見えるのが「まだ続きがある」合図になる。
+           左右だけ切って上下は切らない＝真ん中の丸が大きくなって輪が付いても、その輪のぶんの
+           高さをこの器に足さずに済む（輪は上下の余白へはみ出すだけ。帯の端では .hi-entry-inner が切る）。
+           古いエンジンは上下も切れるので、そちらのフォールバック値だけ輪のぶんを含めた高さにする。
+           器の幅（横向きで最大560px）が、一周ぶん(色の数×丸1個ぶん)の半分より狭いことが前提。
+           列は一周を回り込ませて並べ直すので、この範囲を超えると回り込む瞬間が見えてしまう。 */
+        .hi-color-strip {
+          position: relative;
+          width: 100%;
+          overflow: hidden;
+          overflow: clip visible;
+          height: 84px;
+          height: clamp(44px, 17cqh, 56px);
         }
-        /* 丸と丸の間隔（縦持ちの同じ段の中）。段間隔と同じ理由で下限0.6rem。 */
-        .hi-color-row {
-          gap: 1rem;
-          gap: clamp(0.6rem, 3cqh, 1rem);
+        /* 丸1個ぶんの場所。丸の直径＋丸と丸のあいだ＝当たり判定に隙間ができない幅にする
+           （押し損ねが起きないように。QAの隠し操作もこの幅で拾う）。 */
+        .hi-color-slot {
+          position: absolute;
+          left: 50%;
+          top: 0;
+          height: 100%;
+          width: 72px;
+          width: calc(clamp(44px, 17cqh, 56px) + ${STRIP_GAP}px);
         }
-
-        /* 色の丸の直径。3段構え：①どのエンジンでも通る素の44px ②旧来のdvh基準の式
-           ③帯の高さ基準のcqhの式（後勝ちなので、対応エンジンほど後の式が効く）。 */
+        /* 色の丸の直径。44px を下限に、帯の高さに余裕があれば 56px まで戻る。
+           2段構え：①どのエンジンでも通る素の値 ②帯の高さ基準のcqhの式（後勝ち）。 */
         .hi-color-circle {
-          width: 44px;
-          width: clamp(44px, 7.5dvh, 56px);
-          width: clamp(44px, 13cqh, 56px);
-          height: 44px;
-          height: clamp(44px, 7.5dvh, 56px);
-          height: clamp(44px, 13cqh, 56px);
-        }
-        .hi-color-circle-landscape {
-          width: 44px;
-          width: clamp(44px, 14dvh, 52px);
-          width: clamp(44px, 13cqh, 52px);
-          height: 44px;
-          height: clamp(44px, 14dvh, 52px);
-          height: clamp(44px, 13cqh, 52px);
+          width: 56px;
+          width: clamp(44px, 17cqh, 56px);
+          height: 56px;
+          height: clamp(44px, 17cqh, 56px);
         }
         /* スペシャル回の主役1人ぶんの丸（通常より大きめの56〜72px）。 */
         .hi-color-circle-event {
@@ -159,9 +431,8 @@ export default function HiTensionEntry({
         }
 
         /* ここから追加：タイトル周り〜リンク行の上下の余白と行の高さ（line-height）も帯の高さに
-           合わせて詰める。フォールバック→cqh の2段構え（丸の直径と違い、こちらはdvh基準の
-           旧式が無いのでシンプルに2段）。line-height の下限は1.2em＝文字が上下で切れない目安
-           （FaIcon/絵文字/日本語とも、行の高さが文字サイズの1.2倍を割らなければ欠けない）。
+           合わせて詰める。フォールバック→cqh の2段構え。line-height の下限は1.2em＝文字が
+           上下で切れない目安（FaIcon/絵文字/日本語とも、行の高さが文字サイズの1.2倍を割らなければ欠けない）。
            フォールバック値の1.45は、日本語混在時にNoto Sans JPのnormalが1.2よりかなり大きく
            出ることがあるための仮置き（Latin主体の要素は実際はもっと1.2寄りになる想定）。 */
         .hi-subtitle {
@@ -315,9 +586,7 @@ export default function HiTensionEntry({
             {isSpecial ? `〜${selectedEvent.title}〜` : ""}
           </p>
 
-          {/* 中央：背景の✋モチーフに重ねて、色選択を縦中央に置く。
-              【仮】横画面の並べ方はオーナーに確認中：今回は縦持ちと同じ並びのままにしてある。
-              色の丸を1列に詰める部分（isLandscape 分岐）だけは MemberSelect からそのまま移した。 */}
+          {/* 中央：背景の✋モチーフに重ねて、色選択を縦中央に置く。 */}
           <div
             style={{
               flex: 1,
@@ -330,10 +599,10 @@ export default function HiTensionEntry({
             }}
           >
             {/* 背景に画面いっぱいの✋（このツールの核アイコン）。選んだ色で着色して「自分の色の手」を示唆。
-                色を変えるたび key が変わって再マウント→小さく跳ねる演出が走る。
+                色の丸を押すたび key が変わって再マウント→小さく跳ねる演出が走る。
                 大きさ・位置は変えない（オーナー指定）。はみ出しは外側の .hi-entry-inner が切る。 */}
             <div
-              key={`${selectedId ?? "none"}-${popTick}`}
+              key={popTick}
               aria-hidden
               style={{
                 position: "absolute",
@@ -367,13 +636,12 @@ export default function HiTensionEntry({
             </p>
 
             <div
-              className="hi-color-rows"
               style={{
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
                 width: "100%",
-                // 横向きは9個1列ぶんの幅（≈9×52+gap）を許容する
+                // 横向きは列を広く見せる（丸がもっと多く見える）
                 maxWidth: isLandscape ? 560 : 360,
                 position: "relative",
                 zIndex: 1,
@@ -382,7 +650,7 @@ export default function HiTensionEntry({
             {isSpecial ? (
               // スペシャル回は色選択をまとめる：主役1人として参加（memberId=主役のid）。通常は選んだ色のメンバー。
               // タップで背景✋がポップ（通常の色選び直しと同じ手触り）。選択自体はスペシャル回で固定済みなので
-              // onPickColor は呼ばない（MemberSelect と同じ挙動）。
+              // onPickColor は呼ばない（MemberSelect と同じ挙動）。ダイヤルは出さない（1色しかないため）。
               <div style={{ display: "flex", justifyContent: "center" }}>
                 <button
                   type="button"
@@ -400,89 +668,60 @@ export default function HiTensionEntry({
                 />
               </div>
             ) : (
-              <>
-              {/* 横向きは全員を1列に（縦の3段だと低い画面で収まらない）。 */}
-              {(isLandscape
-                ? [{ unit: "all", members: UNIT_ROWS.flatMap((r) => r.members) }]
-                : UNIT_ROWS
-              ).map((row) => (
-                <div
-                  key={row.unit}
-                  className={isLandscape ? undefined : "hi-color-row"}
-                  style={{
-                    display: "flex",
-                    justifyContent: "center",
-                    flexWrap: "nowrap",
-                    ...(isLandscape ? { gap: "0.5rem" } : {}),
-                  }}
-                >
-                  {row.members.map((m) => {
-                    const isSelected = selectedId === m.id;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        aria-label={`color ${m.color}`}
-                        aria-pressed={isSelected}
-                        onClick={() => handlePickColor(m.id)}
-                        className={isLandscape ? "hi-color-circle-landscape" : "hi-color-circle"}
-                        style={{
-                          // 選択時は transform: scale で拡大するだけなので、
-                          // 行の高さも他の丸の位置も動かない。
-                          borderRadius: "50%",
-                          background: tint(m.color),
-                          border: "none",
-                          // リングは box-shadow(レイアウトに影響しない)で表現
-                          boxShadow: isSelected
-                            ? `0 0 0 3px #f8f9fa, 0 0 0 5px ${tint(m.color)}`
-                            : "0 0 0 1px rgba(0,0,0,0.08)",
-                          padding: 0,
-                          cursor: "pointer",
-                          transform: isSelected ? "scale(1.2)" : "scale(1)",
-                          transition: "transform 0.18s, box-shadow 0.18s",
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-              ))}
-              {/* 2026-06-13 加入の新メンバー3人（最下段に独立した1行） */}
+              // 普段の日：色の丸を横一列に並べたダイヤル。指で横に送ると端でつながって回り続け、
+              // 真ん中に来た色が選ばれる。丸は色の数だけ置いたきりで、位置・大きさ・輪は paint() が
+              // 直に書き込む（指を動かすたびに React が組み直すと引っかかるため）。
               <div
-                className={isLandscape ? undefined : "hi-color-row"}
+                ref={stripRef}
+                className="hi-color-strip"
+                onPointerDown={(e) => beginDrag(e, null)}
+                onPointerMove={handleMove}
+                onPointerUp={(e) => endDrag(true, e)}
+                onPointerCancel={(e) => endDrag(false, e)}
+                onLostPointerCapture={(e) => endDrag(false, e)}
+                onContextMenu={(e) => e.preventDefault()}
                 style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  flexWrap: "nowrap",
-                  ...(isLandscape ? { gap: "0.5rem" } : {}),
+                  // 列の上で指を縦に動かしても帯や画面が動かないように、この器では
+                  // ブラウザ側のスクロールを一切起こさせない（位置は指の動きから自前で計算する）。
+                  touchAction: "none",
+                  userSelect: "none",
+                  WebkitUserSelect: "none",
+                  WebkitTouchCallout: "none",
+                  WebkitTapHighlightColor: "transparent",
                 }}
               >
-                {NEW_MEMBERS.map((m) => {
-                  const isSelected = selectedId === m.id;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      aria-label={`color ${m.color}`}
-                      aria-pressed={isSelected}
-                      onClick={() => handlePickColor(m.id)}
-                      className={isLandscape ? "hi-color-circle-landscape" : "hi-color-circle"}
-                      style={{
-                        borderRadius: "50%",
-                        background: tint(m.color),
-                        border: "none",
-                        boxShadow: isSelected
-                          ? `0 0 0 3px #f8f9fa, 0 0 0 5px ${tint(m.color)}`
-                          : "0 0 0 1px rgba(0,0,0,0.08)",
-                        padding: 0,
-                        cursor: "pointer",
-                        transform: isSelected ? "scale(1.2)" : "scale(1)",
-                        transition: "transform 0.18s, box-shadow 0.18s",
-                      }}
+                {colors.map((m, i) => (
+                  <button
+                    key={m.id}
+                    ref={(el) => { itemsRef.current[i] = el; }}
+                    type="button"
+                    aria-label={`color ${m.color}`}
+                    aria-pressed={m.id === initialId}
+                    className="hi-color-slot"
+                    onPointerDown={(e) => { e.stopPropagation(); beginDrag(e, i); }}
+                    onFocus={() => handleFocusItem(i)}
+                    // 指・マウスの押しは pointer の側で拾うので、ここで拾うのはキーボード
+                    // （Enter / Space）で押された時だけ（detail===0）。二重に選ばれないように。
+                    onClick={(e) => { if (e.detail === 0) pickItem(i); }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      touchAction: "none",
+                      WebkitTapHighlightColor: "transparent",
+                    }}
+                  >
+                    <span
+                      className="hi-color-circle"
+                      style={{ display: "block", borderRadius: "50%", background: m.color }}
                     />
-                  );
-                })}
+                  </button>
+                ))}
               </div>
-              </>
             )}
             </div>
           </div>

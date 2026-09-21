@@ -235,6 +235,9 @@ export default function HiTensionPage() {
   const startedRef = useRef(false);
   // 1回ぶんの支度。PLAYING を受け取る関数の方が先に組み立てられるので、控え越しに呼ぶ。
   const beginSessionRef = useRef<() => void>(() => {});
+  // 入口の色の列で、いま真ん中に居る色。入口が出ている間は常にどれかの色が入っている。
+  // 再生ボタンが押された瞬間に「画面に映っている色」を取り違えないための控え。
+  const entryCenterMemberIdRef = useRef<string | null>(null);
   // 動画の器。下端を測って設定の板の置き場所に使う。
   const videoBoxRef = useRef<HTMLDivElement | null>(null);
   const endingIframeRef = useRef<HTMLIFrameElement | null>(null); // 歓迎クリップiframe（YT APIで消音解除する）。
@@ -955,11 +958,19 @@ export default function HiTensionPage() {
     tapBtnRef.current?.reset(); // カウンタ・押下状態（HiTapButton内部）を初期化
   };
 
-  // 入口で色の丸を押した。色を覚えるだけで再生は始めない
+  // 入口で色が選ばれた。色を覚えるだけで再生は始めない
   // （再生は動画本体の再生ボタンから。1回ぶんの支度は beginSession が PLAYING で行う）。
   const handlePickColor = (id: string) => {
     setMemberId(id);
     setLastSelectedMemberId(id);
+    entryCenterMemberIdRef.current = id;
+  };
+
+  // 入口の色の列で、いま真ん中に居る色。指で送っている最中も入ってくる。
+  // 端末には保存しない＝本人が選んだとは限らないため。画面の描き直しを起こさない控えにしているのは、
+  // 指を動かしている最中にページ全体を組み直すと動きが引っかかるため。
+  const handleCenterColor = (id: string) => {
+    entryCenterMemberIdRef.current = id;
   };
 
   // 合言葉の部屋メニューを開く。入口から部屋へ入る導線は今は出していないので
@@ -1282,11 +1293,13 @@ export default function HiTensionPage() {
   // 再生そのものはこちらから呼ばない（プレイヤー本体の再生ボタンから始まった再生だけが
   // 公式の視聴回数に数えられるため。このツールは公式動画の再生回数に足すために作っている）。
   const beginSession = () => {
-    // 色を選ばずに再生ボタンを押された人の色をここで当てる。memberId は端末に残っている
-    // 前回の色で初期化されているので、null＝前回の色が無い人。その人には普段の日の色選びに
-    // 並んでいる色から1色を当てる。自分で選んだ物ではないので端末には保存しない。
+    // 入口の色の列で真ん中に居た色＝画面の✋が光っていた色で始める。指で送っている最中に
+    // 再生ボタンを押されても、その瞬間に真ん中だった色になる。入口を一度も見ていない等で
+    // 控えが空なら、端末に残っている前回の色→それも無ければ普段の日の色から1色を当てる。
+    // 当てただけの色は自分で選んだ物ではないので端末には保存しない。
     // スペシャル回は選んだ色に関わらずその回の主役として参加する（入口の色の丸も1個だけ）。
     const id = selectedEvent?.targetMemberId
+      ?? entryCenterMemberIdRef.current
       ?? memberId
       ?? ALL_HI_MEMBERS[Math.floor(Math.random() * ALL_HI_MEMBERS.length)].id;
     if (id !== memberId) setMemberId(id);
@@ -1425,6 +1438,7 @@ export default function HiTensionPage() {
         style={{
           height: "100dvh",
           overflow: "hidden",
+          overscrollBehavior: "none",   // 入口を指で送る時・連打中に指が滑った時に画面ごと引っ張られないように（灰toダイヤモンドと同じ手当て）
           // 本編と同じ暗背景に統一（横EndCardで動画の左右にこのコンテナが覗いて
           // 白帯になっていたのを解消・2026-06-13 hop指摘）。
           background: ARENA_BG,
@@ -1561,6 +1575,7 @@ export default function HiTensionPage() {
             <HiTensionEntry
               selectedId={memberId}
               onPickColor={handlePickColor}
+              onCenterColor={handleCenterColor}
               events={SPECIAL_EVENTS}
               selectedEventKey={selectedEventKey}
               onOpenSettings={() => setSettingsOpen(true)}
