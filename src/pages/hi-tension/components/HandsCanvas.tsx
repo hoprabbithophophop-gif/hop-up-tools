@@ -64,6 +64,18 @@ const TOP_MARGIN = 80;
 const CANVAS_UNDERLAP = 40;
 // ✋の跳ね上がり量(px)。jumpScale を掛けて使う（spawnHand の jumpHeight と同じ値）。
 const JUMP_PX = 80;
+// 横画面のときの跳ね上がり量の上限(px)。動画が画面の上6割を占めるので、その下に残る帯が狭い。
+// 跳ねが大きいと✋の先が動画の裏へ回り込み、客席の真ん中に「動きが全部見える席」が1つも
+// 作れない。横の見本画面3枚すべてで、動画の下の中央 x 0.3〜0.7 に見える席が8席以上でき、
+// かつ左右のスタンド席も見える席として残る、を満たす最大の値として計算で出した。
+// 33px 以上にすると中央の見える席が5席まで減る。縦画面にはこの上限をかけない。
+const LANDSCAPE_JUMP_MAX_PX = 32;
+
+/** その✋が跳ね上がる量(px)。横画面だけ上限で抑える。演出の時間と消え方は変えない。 */
+function jumpHeightPx(jumpScale: number | undefined, capped: boolean): number {
+  const raw = JUMP_PX * (jumpScale ?? 1);
+  return capped ? Math.min(raw, LANDSCAPE_JUMP_MAX_PX) : raw;
+}
 
 function hexToTint(hex: string): number {
   return parseInt(hex.replace(/^#/, ""), 16);
@@ -199,7 +211,7 @@ function canvasGeometry(viewW: number, viewH: number, landscape: boolean) {
 }
 
 /** 見本の画面1枚で、その席の✋が動きの間ずっと見えているか。 */
-function visibleInSample(slot: Slot, geo: ReturnType<typeof canvasGeometry>): boolean {
+function visibleInSample(slot: Slot, geo: ReturnType<typeof canvasGeometry>, landscape: boolean): boolean {
   // ✋の実寸(px)。crowdScale(人が増えると縮む)と ageScale(日が経つと縮む)は最大の 1.0 として
   // 一番大きい✋で見る＝安全側。テクスチャは正方形なので幅と高さは同じ。
   const size = BASE_SIZE * viewportSizeK(geo.w, geo.h) * slot.depthK;
@@ -219,7 +231,8 @@ function visibleInSample(slot: Slot, geo: ReturnType<typeof canvasGeometry>): bo
   const baseLow = TOP_MARGIN + (slot.yRatio + JITTER_Y_MAX) * usableH;  // 一番下に振れた着地点
   const baseHigh = TOP_MARGIN + (slot.yRatio - JITTER_Y_MAX) * usableH; // 一番上に振れた着地点
   const bottom = baseLow + downExt;                                      // 動きの中で一番下になる点
-  const top = baseHigh - JUMP_PX * (slot.jumpScale ?? 1) - upExt;        // 跳ねの頂点での上端
+  // 跳ねの頂点での上端。跳ね量は spawnHand と同じ関数で出すので、判定と実際の動きがずれない。
+  const top = baseHigh - jumpHeightPx(slot.jumpScale, landscape) - upExt;
   if (bottom > geo.h) return false;          // 下端からはみ出す（最前列＝着地点が画面の下）
   if (top < CANVAS_UNDERLAP) return false;   // 上端の帯＝動画の裏、または画面の外へ出る
   if (geo.video) {
@@ -233,7 +246,7 @@ function visibleInSample(slot: Slot, geo: ReturnType<typeof canvasGeometry>): bo
 /** すべての見本画面で見えている席か（＝人数が少ない日に優先して座らせてよい席か）。 */
 function isFullyVisibleSeat(slot: Slot, landscape: boolean): boolean {
   const samples = landscape ? VIEW_SAMPLES_LANDSCAPE : VIEW_SAMPLES_PORTRAIT;
-  return samples.every((s) => visibleInSample(slot, canvasGeometry(s.viewW, s.viewH, landscape)));
+  return samples.every((s) => visibleInSample(slot, canvasGeometry(s.viewW, s.viewH, landscape), landscape));
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
@@ -370,7 +383,9 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       const A_ZNEAR = 1.0, A_ZFAR = 2.2;   // 遠近の強さ。比2.2＝ゆるい（ホールは6.0で急）
       const A_FRONT = 1.5;                  // 手前の✋倍率（ホールは4.2で急。フラット床は控えめ）
       const A_YTOP = 0.77, A_YBOT = 1.0;    // 上端0.77＝跳ねても動画(0.615)の裏に入らない
-      const A_JUMP = 0.55;                  // 跳ね量を55%に抑える（裏回り込み防止＋穏やかな床）
+      // 跳ね量を55%に抑える（裏回り込み防止＋穏やかな床）。横画面では更に
+      // LANDSCAPE_JUMP_MAX_PX が上限としてかかるので、実際の跳ねはそちらで決まる。
+      const A_JUMP = 0.55;
       const A_LATERAL = 0.085, A_ROWS = 11;
       for (let r = 0; r < A_ROWS; r++) {
         const t = r / (A_ROWS - 1);
@@ -676,7 +691,9 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     // タップした瞬間に一瞬グッと縮んでから勢いよく上がる「予備動作」で手応えを出し、
     // 最後は元の位置に落ちながら消えるので、連打しても上に積もって居座らない。
     // 値はすべて固定（揺らさない）。狙った1つの気持ちいいモーションを全✋で再現するため。
-    const jumpHeight = JUMP_PX * (params.jumpScale ?? 1);   // 上昇量(px)。アリーナは抑えて動画裏に入れない
+    // 上昇量(px)。横画面の客席は上限で抑える＝動画の下の狭い帯でも動きが全部見える。
+    // 自分の✋は席ではなく別キャンバスの主役なので、これまでどおりの跳ね量のままにする。
+    const jumpHeight = jumpHeightPx(params.jumpScale, landscapeRef.current && !params.isSelf);
     const squashDur = 50;         // 溜め: scale を SQUASH_SCALE まで縮める時間
     const upDur = 220;            // 上昇: しっかり見せる
     const holdDur = 80;           // 滞空: 頂点で軽く粘る
