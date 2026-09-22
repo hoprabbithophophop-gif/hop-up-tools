@@ -19,7 +19,18 @@ import {
   type HiSettings,
 } from "./storage";
 import SettingsSheet from "./components/SettingsSheet";
-import { submitHiSession, fetchHiSessions, fetchHiHeatmap, type HiSession, type HiHeatmap } from "./api";
+import {
+  submitHiSession,
+  fetchHiSessions,
+  fetchHiSessionRoster,
+  fetchHiSessionSegment,
+  mergeHiSessionSegment,
+  hiSegmentCount,
+  HI_SEGMENT_SECONDS,
+  fetchHiHeatmap,
+  type HiSession,
+  type HiHeatmap,
+} from "./api";
 import { useHiTensionRealtime, MAX_PARTICIPANTS, SENO_WINDOW_MS, type LiveDriftReport, type LiveTap } from "./useHiTensionRealtime";
 import EndCard from "./components/EndCard";
 import FpsMeter from "./components/FpsMeter";
@@ -39,6 +50,11 @@ import {
   hasPreviewOverride,
 } from "./events";
 import { getSupabase } from "@/lib/supabase";
+
+/** 席が挙げた✋の総数。名簿だけ届いた段階では bucket_indices が空なので hi_count を使う
+ *  （そうしないと歴代累計が、区間が揃うまで欠けた数で出てしまう）。 */
+const countHi = (list: HiSession[]) =>
+  list.reduce((sum, s) => sum + (s.hi_count ?? s.bucket_indices.length), 0);
 
 // 同期デバッグ用のデバイス判定（後で削除）
 function detectDevice(): string {
@@ -924,14 +940,61 @@ export default function HiTensionPage() {
   // 自分があふれ（3人目以降＝同じ合言葉に定員超で来た）か
   const isOverflow = mySeatIndex >= MAX_PARTICIPANTS;
 
+  // 客席の読み込み。「名簿を先に、タップの中身は 30 秒の区間ごとに順に」取る。
+  //
+  // 全件は本番で 7.3MB あり、読み終わるまで席が決まらないので最初の✋が遅れていた。
+  // 席は session_hash だけで決まるので、名簿が届いた時点で席は確定する。あとは
+  // タップの中身を区間ごとに足していけば、席はそのままで✋だけ増えていく。
+  //
+  // 取る順番は「今いる場所の区間 → 曲の終わりまで → 曲の頭に戻って残り」。再生前の
+  // 入口にいる間に始まり、再生の有無に関わらず最後まで取り切る（曲の終わりのリズム判定は
+  // 全員の全タップから拍の位置を割り出すので、歯抜けだと物差しが狂う）。
+  // 同時に走らせるのは 1 本だけ（回線と端末を占有しない）。
   useEffect(() => {
     let alive = true;
-    fetchHiSessions(videoId).then((data) => {
+    (async () => {
+      const roster = await fetchHiSessionRoster(videoId);
       if (!alive) return;
-      setSessions(data);
-      const totalHi = data.reduce((sum, s) => sum + s.bucket_indices.length, 0);
-      console.log(`[hi-tension] loaded ${data.length} sessions, ${totalHi} hi total`);
-    });
+      if (!roster) {
+        // 名簿の入口が無い／壊れている（手元の開発サーバーなど）→ 今までどおり全件を一度に読む。
+        const data = await fetchHiSessions(videoId);
+        if (!alive) return;
+        setSessions(data);
+        console.log(`[hi-tension] loaded ${data.length} sessions, ${countHi(data)} hi total (full)`);
+        return;
+      }
+      setSessions(roster.sessions);
+      console.log(
+        `[hi-tension] loaded ${roster.sessions.length} sessions, ${countHi(roster.sessions)} hi total (roster)`,
+      );
+      if (roster.sessions.length === 0) return;
+
+      const segCount = hiSegmentCount(roster.maxBucket);
+      const done = new Set<number>();
+      while (alive && done.size < segCount) {
+        // 毎回いまの再生位置を見るので、途中で飛ばされたら次に欲しい区間が入れ替わる。
+        const here = Math.floor(Math.max(0, currentTimeRef.current) / HI_SEGMENT_SECONDS);
+        let target = -1;
+        for (let i = 0; i < segCount; i++) {
+          const s = (here + i) % segCount;
+          if (!done.has(s)) { target = s; break; }
+        }
+        if (target < 0) break;
+        let rows = await fetchHiSessionSegment(videoId, target);
+        if (!alive) return;
+        if (!rows) {
+          rows = await fetchHiSessionSegment(videoId, target); // 一度だけ取り直す
+          if (!alive) return;
+        }
+        done.add(target); // 失敗しても印を付ける（同じ所で永久に足踏みしない）
+        if (!rows) {
+          console.warn(`[hi-tension] segment ${target} unavailable`);
+          continue;
+        }
+        const got = rows;
+        setSessions((prev) => mergeHiSessionSegment(prev, got));
+      }
+    })();
     return () => { alive = false; };
   }, [videoId]);
 
@@ -1346,7 +1409,7 @@ export default function HiTensionPage() {
   const displaySessions = selectedEventKey
     ? sessions.filter((s) => sessionEventKey(s) === selectedEventKey)
     : sessions.filter((s) => sessionEventKey(s) == null);
-  const displayTotal = displaySessions.reduce((sum, s) => sum + s.bucket_indices.length, 0);
+  const displayTotal = countHi(displaySessions);
 
   // 群衆量設定を HandsCanvas に渡す席に反映：
   //   self  = 自分だけ（みんなの✋を出さない＝1人イメトレ）
