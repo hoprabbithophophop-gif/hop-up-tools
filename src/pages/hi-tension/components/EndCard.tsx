@@ -169,6 +169,10 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
   //   左＝数字を縦並び ／ 右＝ボタンを縦並び（動画の左右に空く帯の中央。play-area 基準の absolute。
   //   ※position:fixed は iOS Safari のアドレスバー伸縮で位置が狂うことがあるため使わない）。
   //   文言・ボタンの種類・順序は縦と同一。
+  //   左右の top:50% は「play-area が画面いっぱいの高さ」である前提で動画の真横に来る
+  //   （HiTensionPage.tsx 側の play-area が横の完走後も position:absolute;inset:0 になっている
+  //   必要がある＝2026-09-22 直し。play-area を動画の下だけの flex 積みに戻すと、この 50% が
+  //   その狭い残り高さの中央に戻ってしまい、数字/ボタンが動画の下に押し込まれる形にぶり返す）。
   // 中央列（動画・ヒートマップ）の幅。HiTensionPage の完走後動画と同じ式（時間軸をぴったり揃える）。
   // 左右の帯の幅 = (100% - これ) / 2 ＝数字/ボタンをその帯の真ん中に置くのにも使う。
   const CENTER_W = "min(calc(100vw - 320px), calc(48dvh * 16 / 9))";

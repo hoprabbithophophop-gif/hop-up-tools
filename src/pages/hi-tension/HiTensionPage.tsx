@@ -1476,6 +1476,10 @@ export default function HiTensionPage() {
                     // EndCard のヒートマップと同一にして時間軸をぴったり揃える。
                     // 100vw-320px＝左右ブロック(各≈150px)の幅を必ず確保した上で、
                     // 高さ48dvh相当を上限に画面に応じて大きくなる（SE横でも被らない）。
+                    // ここでは top を指定していない＝flexの通常の並びで一番上(y=0)に来る。
+                    // 下の play-area 側の paddingTop はこの動画の下端（幅×9/16 と 200px下限の
+                    // 大きい方）に合わせてある。幅の式を変える時は両方直すこと（2026-09-22
+                    // 完走画面の左右帯を画面いっぱいの高さ基準にする直しに合わせて追記）。
                     position: "relative",
                     zIndex: 2,
                     width: "min(calc(100vw - 320px), calc(48dvh * 16 / 9))",
@@ -1521,7 +1525,9 @@ export default function HiTensionPage() {
 
         {/* 歓迎クリップの「音を出す」は動画の"下"に置く（YouTube動画の上に独自UIを重ねない規約対応）。 */}
         {videoEnded && selectedEvent?.endingVideoId && !endingUnmuted && (
-          <div style={{ display: "flex", justifyContent: "center", padding: "0.6rem 0" }}>
+          // position/zIndex：横の完走後は play-area が画面全面（z:1）に敷かれるので、前に出さないと
+          // このボタンが play-area の裏に隠れて押せなくなる。
+          <div style={{ display: "flex", justifyContent: "center", padding: "0.6rem 0", position: "relative", zIndex: 2 }}>
             <button
               type="button"
               onClick={() => {
@@ -1599,8 +1605,13 @@ export default function HiTensionPage() {
             style={{
               // 横（再生中）：画面全面に敷いて動画の背面(z:1<動画z:2)に回す＝サイド席が動画の左右、
               //     センター席が動画の下に自然に並ぶ（enableSides の三角ゾーン幾何を流用）。
-              // 縦・横の完走後：従来どおり動画の下に flex で積む（完走後はスクロールで全部届く）。
-              ...(isLandscape && !videoEnded
+              // 横（完走後）：同じく画面全面に敷く。以前は縦と同じ flex 積みで、動画の下に残った
+              //     わずかな高さの中に EndCard の数字/ボタンを押し込めていたため、左右の帯
+              //     （動画の真横）に置いた数字/ボタンが動画の下の狭い所にはみ出して切れていた。
+              //     画面全面を基準にすることで、EndCard 側の「play-area の縦中央(50%)」が
+              //     画面全体の中央になり、動画の真横に来るようになる（2026-09-22 直し）。
+              // 縦：従来どおり動画の下に flex で積む（完走後はスクロールで全部届く）。
+              ...(isLandscape
                 ? { position: "absolute", inset: 0 }
                 : {
                     flex: 1,
@@ -1624,10 +1635,17 @@ export default function HiTensionPage() {
               // 再生中はタップボタンを動かしたくないのでスクロールさせない。
               overflowY: videoEnded ? "auto" : undefined,
               WebkitOverflowScrolling: "touch",
-              // 横の再生中は子を絶対配置するのでパディング不要。完走後は EndCard 用に確保
-              // （横は1画面に収めるため上下を詰める）。
+              // 横の再生中は子を絶対配置するのでパディング不要。横の完走後は画面全面が基準に
+              // なったので、上端だけ動画の下端（動画の器のstyle・1472行あたりの幅の式を
+              // 9/16 した高さと 200px 下限の大きい方＝幅の式を変えたらここも直す）まで空け、
+              // EndCard の中央列（ヒートマップ等）がその下から始まるようにする。左右ブロックは
+              // play-area 全体の縦中央(50%)基準の absolute なので、この padding の影響を受けない。
+              // 縦は従来どおり。
               padding: videoEnded
-                ? (isLandscape ? "0.5rem 1rem 0.3rem" : "1.2rem 1.2rem 2rem")
+                ? (isLandscape
+                    ? // 歓迎クリップの「音を出す」ボタンが動画の下に出ている間は、そのぶん（約3.2rem）も空ける。
+                      `calc(max(min(calc(56.25vw - 180px), 48dvh), 200px) + ${selectedEvent?.endingVideoId && !endingUnmuted ? "3.7rem" : "0.5rem"}) 1rem 0.3rem`
+                    : "1.2rem 1.2rem 2rem")
                 : isLandscape
                   ? 0
                   : "2.4rem 1.2rem 2rem",
