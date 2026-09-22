@@ -150,10 +150,13 @@ export default function HiTensionEntry({
       if (!paintedRef.current[i]) paintedRef.current[i] = { t: "", s: "", b: "" };
       const p = paintedRef.current[i];
       const dot = el.firstElementChild as HTMLElement | null;
-      if (p.t !== t) { el.style.transform = t; p.t = t; }
-      if (dot && p.s !== s) { dot.style.transform = s; p.s = s; }
-      if (dot && p.b !== b) { dot.style.boxShadow = b; p.b = b; }
-      if (paintedBaseRef.current !== base) el.setAttribute("aria-pressed", i === base ? "true" : "false");
+      // 控え(p)だけでなく丸そのものの今の値とも比べる＝丸の部品が作り直された時
+      // （縦⇄横・設定で回を切り替えた時・スペシャル回の終了で普段の日に変わった時）に、控えが
+      // 「もう塗った」のままで新しい丸に何も塗られず、全部が真ん中に重なって1個に見える事故を防ぐ。
+      if (p.t !== t || el.style.transform !== t) { el.style.transform = t; p.t = t; }
+      if (dot && (p.s !== s || dot.style.transform !== s)) { dot.style.transform = s; p.s = s; }
+      if (dot && (p.b !== b || dot.style.boxShadow === "")) { dot.style.boxShadow = b; p.b = b; }
+      if (paintedBaseRef.current !== base || el.getAttribute("aria-pressed") === null) el.setAttribute("aria-pressed", i === base ? "true" : "false");
     }
     paintedBaseRef.current = base;
   }, [colors, n]);
