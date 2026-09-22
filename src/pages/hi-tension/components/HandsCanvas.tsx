@@ -59,6 +59,23 @@ const NON_TODAY_ALPHA = 0.4;
 // 動画の下あたりまで届く。タップ✋ボタンは z 上位(z3)で前面に残るので、帯が上がって
 // ボタン裏に✋が来ても自然に重なる。最上段の跳躍ピークが一瞬上端で軽く切れる程度は許容。
 const TOP_MARGIN = 80;
+// 群衆キャンバスを動画の下へ潜り込ませる量(px)。下の style(top:-CANVAS_UNDERLAP)と、
+// 「見える席」判定で使う『上端のこの帯は動画の裏＝見えない』の両方でこの値を使う。
+const CANVAS_UNDERLAP = 40;
+// ✋の跳ね上がり量(px)。jumpScale を掛けて使う（spawnHand の jumpHeight と同じ値）。
+const JUMP_PX = 80;
+// 横画面のときの跳ね上がり量の上限(px)。動画が画面の上6割を占めるので、その下に残る帯が狭い。
+// 跳ねが大きいと✋の先が動画の裏へ回り込み、客席の真ん中に「動きが全部見える席」が1つも
+// 作れない。横の見本画面3枚すべてで、動画の下の中央 x 0.3〜0.7 に見える席が8席以上でき、
+// かつ左右のスタンド席も見える席として残る、を満たす最大の値として計算で出した。
+// 33px 以上にすると中央の見える席が5席まで減る。縦画面にはこの上限をかけない。
+const LANDSCAPE_JUMP_MAX_PX = 32;
+
+/** その✋が跳ね上がる量(px)。横画面だけ上限で抑える。演出の時間と消え方は変えない。 */
+function jumpHeightPx(jumpScale: number | undefined, capped: boolean): number {
+  const raw = JUMP_PX * (jumpScale ?? 1);
+  return capped ? Math.min(raw, LANDSCAPE_JUMP_MAX_PX) : raw;
+}
 
 function hexToTint(hex: string): number {
   return parseInt(hex.replace(/^#/, ""), 16);
@@ -139,6 +156,99 @@ function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
 
+/** 客席の1席ぶんの情報。jumpScale は跳ね量の倍率（未指定=1）、spread は隣の席との間隔。 */
+type Slot = { xRatio: number; yRatio: number; depthK: number; rotation: number; spread: number; jumpScale?: number };
+
+// ──「動きが最初から最後まで見える席」の判定 ───────────────────────────────
+// ✋には「湧く → しゃがむ → 跳ぶ → 着地 → 消える」という一連の動きがある。人が少ない日は、
+// その動きが全部見える席に座ってもらわないと「誰も来ていない」ように見えてしまう。
+// 困るのは、席を決める時点ではキャンバスの実寸がまだ分からないこと（実寸は描画時に決まる）。
+// そこで代表的な画面をいくつか「見本」として持ち、その全部で見えている席だけを見える席と呼ぶ。
+// 見本より広い画面なら余裕はもっと増えるので、これは安全側の見立てになる。
+//
+// 見本は「表示領域(dvh/vw)の実ピクセル」で持ち、HiTensionPage のレイアウトと同じ計算で
+// キャンバスと動画の位置に直す。
+const VIEW_SAMPLES_LANDSCAPE = [
+  { viewW: 568, viewH: 320 },   // 小さいスマホを横に持ったとき（iPhone SE 相当）
+  { viewW: 844, viewH: 390 },   // ふつうのスマホを横に持ったとき
+  { viewW: 1024, viewH: 768 },  // タブレット横。動画が左右へ一番張り出す形
+];
+const VIEW_SAMPLES_PORTRAIT = [
+  { viewW: 320, viewH: 548 },   // 小さいスマホ縦
+  { viewW: 390, viewH: 750 },   // ふつうのスマホ縦
+  { viewW: 820, viewH: 1080 },  // タブレット縦
+];
+// 傾けた✋（サイド席）は板を回して台形に投影するので、手首を基準にした張り出しが正面向きと違う。
+// spawnHand の投影式に yaw=±0.95 を入れて出した値（上へ1.23倍/下へ0.23倍/左右へ0.43倍・切り上げ）。
+const TILT_UP = 1.23, TILT_DOWN = 0.23, TILT_SIDE = 0.43;
+// 割り当て時に足すゆらぎ（assign 内のジッター）の最大幅。これを含めて見えるかを判定する。
+const JITTER_X_RATE = 0.25; // 席の間隔 spread に対する割合
+const JITTER_Y_MAX = 0.008;
+
+/** 表示領域の実ピクセルから、群衆キャンバスの大きさと（横画面なら）動画の矩形を割り出す。 */
+function canvasGeometry(viewW: number, viewH: number, landscape: boolean) {
+  if (landscape) {
+    // 横：キャンバスは画面全面＋上へ潜り込む分。動画は上から1.5%の位置に高さ60%（幅は16:9換算、
+    // ただし画面幅の94%まで）で中央に置かれる。✋は動画より背面なので、この矩形の中は見えない。
+    const h = viewH + CANVAS_UNDERLAP;
+    const videoW = Math.min(viewW * 0.94, ((viewH * 0.6) * 16) / 9);
+    const videoTop = viewH * 0.015 + CANVAS_UNDERLAP;
+    return {
+      w: viewW,
+      h,
+      video: {
+        top: videoTop,
+        bottom: videoTop + (videoW * 9) / 16,
+        left: (viewW - videoW) / 2,
+        right: (viewW + videoW) / 2,
+      },
+    };
+  }
+  // 縦：動画は画面幅いっぱい(16:9)で上にあり、キャンバスはその下＋上へ潜り込む分。
+  // 動画そのものはキャンバスの外なので、隠れるのは潜り込ませた上端の帯だけ。
+  // （PC は動画を 480px 幅に縮めるのでキャンバスはもっと縦に長い＝この見立てより余裕がある）
+  return { w: viewW, h: viewH - (viewW * 9) / 16 + CANVAS_UNDERLAP, video: null };
+}
+
+/** 見本の画面1枚で、その席の✋が動きの間ずっと見えているか。 */
+function visibleInSample(slot: Slot, geo: ReturnType<typeof canvasGeometry>, landscape: boolean): boolean {
+  // ✋の実寸(px)。crowdScale(人が増えると縮む)と ageScale(日が経つと縮む)は最大の 1.0 として
+  // 一番大きい✋で見る＝安全側。テクスチャは正方形なので幅と高さは同じ。
+  const size = BASE_SIZE * viewportSizeK(geo.w, geo.h) * slot.depthK;
+  const tilted = Math.abs(slot.rotation) > 0.001;
+  const halfW = (tilted ? TILT_SIDE : 0.5) * size;
+  const upExt = (tilted ? TILT_UP : 1) * size;    // 手首より上への張り出し
+  const downExt = (tilted ? TILT_DOWN : 0) * size; // 手首より下への張り出し
+
+  // 左右：ゆらぎで振れた先でも、✋の幅ぶんキャンバスの中に収まっているか
+  const jitterX = slot.spread * JITTER_X_RATE * geo.w;
+  const left = slot.xRatio * geo.w - jitterX - halfW;
+  const right = slot.xRatio * geo.w + jitterX + halfW;
+  if (left < 0 || right > geo.w) return false;
+
+  // 縦：着地点は spawnHand と同じ式（上に TOP_MARGIN を空けた残りに yRatio を当てる）。
+  const usableH = geo.h - TOP_MARGIN;
+  const baseLow = TOP_MARGIN + (slot.yRatio + JITTER_Y_MAX) * usableH;  // 一番下に振れた着地点
+  const baseHigh = TOP_MARGIN + (slot.yRatio - JITTER_Y_MAX) * usableH; // 一番上に振れた着地点
+  const bottom = baseLow + downExt;                                      // 動きの中で一番下になる点
+  // 跳ねの頂点での上端。跳ね量は spawnHand と同じ関数で出すので、判定と実際の動きがずれない。
+  const top = baseHigh - jumpHeightPx(slot.jumpScale, landscape) - upExt;
+  if (bottom > geo.h) return false;          // 下端からはみ出す（最前列＝着地点が画面の下）
+  if (top < CANVAS_UNDERLAP) return false;   // 上端の帯＝動画の裏、または画面の外へ出る
+  if (geo.video) {
+    const v = geo.video;
+    // 横画面：動きのどこかで動画の矩形に重なるなら、その分だけ裏に隠れる＝見える席ではない
+    if (right > v.left && left < v.right && top < v.bottom && bottom > v.top) return false;
+  }
+  return true;
+}
+
+/** すべての見本画面で見えている席か（＝人数が少ない日に優先して座らせてよい席か）。 */
+function isFullyVisibleSeat(slot: Slot, landscape: boolean): boolean {
+  const samples = landscape ? VIEW_SAMPLES_LANDSCAPE : VIEW_SAMPLES_PORTRAIT;
+  return samples.every((s) => visibleInSample(slot, canvasGeometry(s.viewW, s.viewH, landscape), landscape));
+}
+
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent },
   ref,
@@ -173,6 +283,12 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   useEffect(() => { onPixiEventRef.current = onPixiEvent; }, [onPixiEvent]);
   // WebGL コンテキストロスト時の再初期化トリガ（カウンタを増やすと init useEffect が再実行される）
   const [reinitCount, setReinitCount] = useState(0);
+  // 画面を開くたびに1回だけ作る乱数。席順の種に必ず混ぜて「開くたびに席替え」を保証する。
+  // selfSeatHash は再生を始めるときに作り直されるが、待機室のURLへ直接来た・リロードした場合は
+  // 作り直されずに 0 のまま再生へ入る道がある（HiTensionPage の reconcileToLevel）。種が 0 だと
+  // 毎回まったく同じ並び＝同じ人がいつも目の前、になるのでここで必ず崩す。
+  // ref なので sessions が入れ替わっても表示中は変わらない＝再生の途中で席がワープしない。
+  const openSaltRef = useRef<number>((Math.random() * 0x7fffffff) | 0);
 
   // バケット → 該当セッションのインデックス(検索を O(1) にする)
   const bucketIndex = useMemo<Map<number, BucketEntry[]>>(() => {
@@ -198,15 +314,16 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
   // セッション → ✋の配置（横アリ風・両サイドV字スタンド）。
   // 動画(=ステージ)を上に見立て、左右のスタンドが内側に傾いて中央を囲む配置にする。
   // 奥(上=ステージ際)ほど小さく(depthK)、手前(下)ほど大きく見せて疑似的な奥行きを出す。
-  // 中央下はアリーナ席として少しだけ✋を置く。並び順は毎プレイ(selfSeatHash)で席替えし、
-  // 色と位置を固定で結びつけない。同一プレイ中は安定なので再生中に✋がワープしない。
+  // 中央下はアリーナ席として少しだけ✋を置く。並び順は毎プレイ(selfSeatHash＋開いた時の乱数)で
+  // 席替えし、色と位置を固定で結びつけない。同一プレイ中は安定なので再生中に✋がワープしない。
   // 安全帯 BAND_TOP〜BAND_BOT に収め、上部のタップボタン裏は中央を空けることで避ける。
+  // 人が少ない日は、動きが全部見える席（isFullyVisibleSeat）から先に埋める。
   const sessionLayout = useMemo<Map<number, { xRatio: number; yRatio: number; depthK: number; rotation: number; jumpScale?: number }>>(() => {
     const n = sessions.length;
     const map = new Map<number, { xRatio: number; yRatio: number; depthK: number; rotation: number; jumpScale?: number }>();
     if (n === 0) return map;
-    // selfSeatHash を種に session_hash を撹拌して並べ替える（毎プレイで席替え）。
-    const seed = selfSeatHash >>> 0;
+    // selfSeatHash と「開いたときの乱数」を種に session_hash を撹拌して並べ替える（毎プレイで席替え）。
+    const seed = (selfSeatHash ^ openSaltRef.current) >>> 0;
     const mix = (h: number) => {
       let x = (h ^ seed) >>> 0;
       x = Math.imul(x ^ (x >>> 16), 2246822507) >>> 0;
@@ -223,8 +340,6 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     const sorted = [...sessions].sort((a, b) => mix(a.session_hash) - mix(b.session_hash));
     const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
-    // jumpScale: 跳ね量の倍率（80px に掛ける。未指定=1）。アリーナは動画裏に入らないよう抑える。
-    type Slot = { xRatio: number; yRatio: number; depthK: number; rotation: number; spread: number; jumpScale?: number };
     // ★ スロット幾何は人数に依存しない固定配置（セッションが増えても席数・描画は一定＝軽い。
     //   ✋は「今そのバケットで叩いた人」だけ湧くので、人が増えれば自然に密になる）。
     //   同じスロットに複数人が乗っても、各自ハッシュで決まる固有オフセット(間隔spreadに比例)で
@@ -268,7 +383,9 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       const A_ZNEAR = 1.0, A_ZFAR = 2.2;   // 遠近の強さ。比2.2＝ゆるい（ホールは6.0で急）
       const A_FRONT = 1.5;                  // 手前の✋倍率（ホールは4.2で急。フラット床は控えめ）
       const A_YTOP = 0.77, A_YBOT = 1.0;    // 上端0.77＝跳ねても動画(0.615)の裏に入らない
-      const A_JUMP = 0.55;                  // 跳ね量を55%に抑える（裏回り込み防止＋穏やかな床）
+      // 跳ね量を55%に抑える（裏回り込み防止＋穏やかな床）。横画面では更に
+      // LANDSCAPE_JUMP_MAX_PX が上限としてかかるので、実際の跳ねはそちらで決まる。
+      const A_JUMP = 0.55;
       const A_LATERAL = 0.085, A_ROWS = 11;
       for (let r = 0; r < A_ROWS; r++) {
         const t = r / (A_ROWS - 1);
@@ -343,8 +460,10 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       });
       arr.forEach((s, i) => {
         const slot = slotArr[ord[i % slotArr.length]];
-        const jx = (rand01(s.session_hash, 0x11) - 0.5) * slot.spread * 0.5; // 間隔比例で散らす(千鳥は残す)
-        const jy = (rand01(s.session_hash, 0x22) - 0.5) * 0.016;
+        // ゆらぎの最大幅は JITTER_X_RATE / JITTER_Y_MAX と対で決まっている（見える席の判定が
+        // このゆらぎ込みで「はみ出さないか」を見ている）。片方だけ変えると判定と食い違う。
+        const jx = (rand01(s.session_hash, 0x11) - 0.5) * slot.spread * (JITTER_X_RATE * 2); // 間隔比例で散らす(千鳥は残す)
+        const jy = (rand01(s.session_hash, 0x22) - 0.5) * (JITTER_Y_MAX * 2);
         // 画面端の見切れ・下端のはみ出しを許すため 0〜1 に丸めない（緩い範囲で安全のみ確保）。
         map.set(s.session_hash, {
           xRatio: Math.max(-0.1, Math.min(1.1, slot.xRatio + jx)),
@@ -355,10 +474,23 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         });
       });
     };
-    // sideRatio ぶんをサイド席へ、残りをセンター/アリーナへ（縦PCは10%、横は34%、スマホ縦は0）。
-    const sideCount = sideSlots.length > 0 ? Math.round(n * sideRatio) : 0;
-    assign(sorted.slice(0, sideCount), sideSlots, 0x5e);
-    assign(sorted.slice(sideCount), centerSlots, 0x0c);
+    // ── 座らせる順番 ──
+    // ① まず「動きが最初から最後まで見える席」を埋める。人が少ない日に、画面の端で見切れる席や
+    //    動画の裏、画面の下にはみ出す最前列へ全員が飛ばされて「誰も来ていない」ように見えるのを防ぐ。
+    //    誰がその席に座るかは sorted（開くたびに変わる乱数順）の先頭から取るので、同じ人がいつも
+    //    目の前に来ることはない。席の選び方も今までと同じハッシュ順＋間隔比例のゆらぎのまま。
+    // ② 見える席が全部埋まってから、残りを今までどおりサイド席とセンター席へ振り分ける。
+    //    人が多い日は①で各席に1人ずつ乗るだけで、あとは②が今までと同じ密度で埋めるので、
+    //    見た目はこれまでと変わらない。
+    const visibleSlots = [...sideSlots, ...centerSlots].filter((s) => isFullyVisibleSeat(s, landscape));
+    const visibleCount = Math.min(n, visibleSlots.length);
+    assign(sorted.slice(0, visibleCount), visibleSlots, 0x7a);
+
+    // sideRatio ぶんをサイド席へ、残りをセンター/アリーナへ（縦PCは10%、横は24%、スマホ縦は0）。
+    const rest = sorted.slice(visibleCount);
+    const sideCount = sideSlots.length > 0 ? Math.round(rest.length * sideRatio) : 0;
+    assign(rest.slice(0, sideCount), sideSlots, 0x5e);
+    assign(rest.slice(sideCount), centerSlots, 0x0c);
 
     return map;
   }, [sessions, selfSeatHash, enableSides, landscape]);
@@ -559,7 +691,9 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     // タップした瞬間に一瞬グッと縮んでから勢いよく上がる「予備動作」で手応えを出し、
     // 最後は元の位置に落ちながら消えるので、連打しても上に積もって居座らない。
     // 値はすべて固定（揺らさない）。狙った1つの気持ちいいモーションを全✋で再現するため。
-    const jumpHeight = 80 * (params.jumpScale ?? 1);        // 上昇量(px)。アリーナは抑えて動画裏に入れない
+    // 上昇量(px)。横画面の客席は上限で抑える＝動画の下の狭い帯でも動きが全部見える。
+    // 自分の✋は席ではなく別キャンバスの主役なので、これまでどおりの跳ね量のままにする。
+    const jumpHeight = jumpHeightPx(params.jumpScale, landscapeRef.current && !params.isSelf);
     const squashDur = 50;         // 溜め: scale を SQUASH_SCALE まで縮める時間
     const upDur = 220;            // 上昇: しっかり見せる
     const holdDur = 80;           // 滞空: 頂点で軽く粘る
@@ -786,7 +920,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
           position: "absolute",
           // 上端を動画下に40px潜らせる（このキャンバスだけ。カウント数字/ボタンの位置は動かさない）。
           // 動画は前面(z:2)なので、最上段の✋がジャンプした先っぽだけ動画の裏に隠れる＝動画の延長感。
-          top: -40,
+          top: -CANVAS_UNDERLAP,
           left: 0,
           right: 0,
           bottom: 0,
