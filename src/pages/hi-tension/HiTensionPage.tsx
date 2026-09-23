@@ -1667,8 +1667,7 @@ export default function HiTensionPage() {
               // 縦は従来どおり。
               padding: videoEnded
                 ? (isLandscape
-                    ? // 歓迎クリップの「音を出す」ボタンが動画の下に出ている間は、そのぶん（約3.2rem）も空ける。
-                      `calc(max(min(calc(56.25vw - 180px), 48dvh), 200px) + 0.5rem) 1rem 0.3rem`
+                    ? `calc(max(min(calc(56.25vw - 180px), 48dvh), 200px) + 0.5rem) 1rem 0.3rem`
                     : "1.2rem 1.2rem 2rem")
                 : isLandscape
                   ? 0
