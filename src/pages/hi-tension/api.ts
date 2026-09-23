@@ -105,17 +105,17 @@ async function fetchHiSessionsDirect(videoId: string = VIDEO_ID): Promise<HiSess
   return all;
 }
 
-// ───────── 名簿を先に、タップの中身は 30 秒の区間ごとに ─────────
+// ───────── 名簿を先に、タップの中身は 60 秒の区間ごとに ─────────
 // 本番の全件は 7.3MB あり、読み終わるまで席が決まらないので最初の✋が遅れる。
 // 席の割り当ては session_hash だけで決まる（HandsCanvas の sessionLayout）ので、
 // 名簿（誰がいたか）さえ届けば席は確定し、タップの中身は後から足しても席は動かない。
 
 /** 1 区間の長さ（秒）。サーバー側 _hi-sessions-parts.ts と必ず同じ値にする。 */
-export const HI_SEGMENT_SECONDS = 30;
-/** bucket_indices は 0.1 秒刻み ＝ 30 秒で 300 目盛り。区間数の逆算に使う。 */
+export const HI_SEGMENT_SECONDS = 60;
+/** bucket_indices は 0.1 秒刻み ＝ 60 秒で 600 目盛り。区間数の逆算に使う。 */
 const BUCKETS_PER_SEGMENT_10 = HI_SEGMENT_SECONDS * 10;
 
-/** 区間で届く 1 行。誰の分かが分かる番号と、その 30 秒に入るタップだけ。 */
+/** 区間で届く 1 行。誰の分かが分かる番号と、その 60 秒に入るタップだけ。 */
 export type HiSessionSegmentRow = {
   session_hash: number;
   bucket_indices: number[];
@@ -164,7 +164,7 @@ export async function fetchHiSessionRoster(videoId: string = VIDEO_ID): Promise<
   }
 }
 
-/** seg 番目の 30 秒区間を取る。失敗したら null。 */
+/** seg 番目の 60 秒区間を取る。失敗したら null。 */
 export async function fetchHiSessionSegment(
   videoId: string,
   seg: number,

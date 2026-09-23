@@ -10,7 +10,7 @@
  *   1枚の紙に印刷された状態でやって来る。全員分をまとめて渡すと紙束が 7MB を超えて
  *   読み終わるまで席が決まらない。そこで
  *     ① 札の部分だけを抜いた「名簿」
- *     ② 目盛り表を 30 秒ずつに切った「区間」
+ *     ② 目盛り表を 60 秒ずつに切った「区間」
  *   の2種類に分けて、必要な順に渡せるようにする。
  *
  * ここは外部（ネットワーク・キャッシュ）に一切触らない純粋な計算だけ。
@@ -42,7 +42,7 @@ export type HiRosterRow = {
   hi_count: number;
 };
 
-/** 区間の 1 行。誰の分かが分かる番号と、その 30 秒に入るタップだけ。 */
+/** 区間の 1 行。誰の分かが分かる番号と、その 60 秒に入るタップだけ。 */
 export type HiSegmentRow = {
   session_hash: number;
   bucket_indices: number[];
@@ -50,10 +50,10 @@ export type HiSegmentRow = {
 };
 
 /** 1 区間の長さ（秒）。 */
-export const SEGMENT_SECONDS = 30;
-/** bucket_indices は 0.1 秒刻み ＝ 30 秒で 300 目盛り。 */
+export const SEGMENT_SECONDS = 60;
+/** bucket_indices は 0.1 秒刻み ＝ 60 秒で 600 目盛り。 */
 export const BUCKETS_PER_SEGMENT_10 = SEGMENT_SECONDS * 10;
-/** bucket_indices_20 は 0.05 秒刻み ＝ 30 秒で 600 目盛り。 */
+/** bucket_indices_20 は 0.05 秒刻み ＝ 60 秒で 1200 目盛り。 */
 export const BUCKETS_PER_SEGMENT_20 = SEGMENT_SECONDS * 20;
 
 /**
@@ -100,11 +100,11 @@ function sliceRange(values: number[] | null | undefined, lo: number, hi: number)
 }
 
 /**
- * seg 番目の 30 秒区間を切り出す。
- * 0.1 秒刻みの列は [seg*300, (seg+1)*300)、0.05 秒刻みの列は [seg*600, (seg+1)*600)。
+ * seg 番目の 60 秒区間を切り出す。
+ * 0.1 秒刻みの列は [seg*600, (seg+1)*600)、0.05 秒刻みの列は [seg*1200, (seg+1)*1200)。
  * どちらの区切りも同じ実時間を指しているので、2つの列の中身は食い違わない。
  *
- * その 30 秒に 1 回も手を挙げていない人は行ごと落とす（大半の人は曲の一部でしか叩かない）。
+ * その 60 秒に 1 回も手を挙げていない人は行ごと落とす（大半の人は曲の一部でしか叩かない）。
  * 回（お祝い等）での絞り込みはここではしない。曲の終わりのリズム判定が全員のタップを
  * 使って拍の位置を推定するため、サーバー側で間引くとその物差しが狂う。
  * 画面に出す／出さないの選り分けは、今までどおりクライアントがやる。
@@ -120,7 +120,7 @@ export function buildSegment(rows: HiFullRow[], seg: number): HiSegmentRow[] {
     const cut10 = sliceRange(row.bucket_indices, lo10, hi10);
     const has20 = row.bucket_indices_20 != null;
     const cut20 = has20 ? sliceRange(row.bucket_indices_20, lo20, hi20) : [];
-    // 両方とも空＝この 30 秒には居なかった人。行ごと落として転送量を減らす。
+    // 両方とも空＝この 60 秒には居なかった人。行ごと落として転送量を減らす。
     if (cut10.length === 0 && cut20.length === 0) continue;
     const entry: HiSegmentRow = { session_hash: row.session_hash, bucket_indices: cut10 };
     // 細かい列を持っていない古い行には、こちらでも足さない。空配列を入れてしまうと
