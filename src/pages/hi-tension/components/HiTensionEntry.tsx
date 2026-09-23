@@ -491,6 +491,19 @@ export default function HiTensionEntry({
           line-height: 1.45;
           line-height: clamp(1.2em, 6cqh, 1.45em);
         }
+
+        /* 「動画再生でスタート」の点滅。ゲームの PRESS START と同じく、ふわっとではなく
+           出る／消えるをパッと切り替える。動きを減らす設定の人には出しっぱなしにする。 */
+        @keyframes hi-start-blink {
+          0% { opacity: 1; }
+          50% { opacity: 0; }
+        }
+        .hi-start-blink {
+          animation: hi-start-blink 1s steps(1, end) infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .hi-start-blink { animation: none; }
+        }
       `}</style>
 
       {/* 縦画面はここから下、今まで通り。横画面はレイアウトそのものが別物なので、
@@ -524,6 +537,20 @@ export default function HiTensionEntry({
             isolation: "isolate", // ✋モチーフ(zIndex:-1)を背景の前・全コンテンツの背面に固定する
           }}
         >
+          {/* 動画のすぐ下。始まるのは動画側の再生ボタンからなので、押しても何も起きない素の文字。 */}
+          <p
+            className="hi-start-blink"
+            style={{
+              margin: "0 0 0.4rem",
+              fontSize: "1rem", // 16px
+              fontWeight: 700,
+              textAlign: "center",
+              color: "#f5f7fa",
+            }}
+          >
+            動画再生でスタート
+          </p>
+
           {/* タイトル行：見出しと設定の歯車を同じ行に。歯車は動画の上ではなくこの帯の中に置く。 */}
           <div
             style={{
@@ -1048,6 +1075,22 @@ export default function HiTensionEntry({
               >
                 <HandIcon size="min(122vw, 84vh)" color={selectedColor ?? (isSpecial && eventColor ? eventColor : "#cfd6de")} />
               </div>
+
+              {/* 動画のすぐ下。縦画面と同じ文字・同じ点滅。 */}
+              <p
+                className="hi-start-blink"
+                style={{
+                  margin: "0 0 0.3rem",
+                  fontSize: "1rem", // 16px
+                  fontWeight: 700,
+                  textAlign: "center",
+                  color: "#f5f7fa",
+                  position: "relative",
+                  zIndex: 1,
+                }}
+              >
+                動画再生でスタート
+              </p>
 
               <p
                 style={{

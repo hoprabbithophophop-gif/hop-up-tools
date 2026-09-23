@@ -175,7 +175,7 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
   //   その狭い残り高さの中央に戻ってしまい、数字/ボタンが動画の下に押し込まれる形にぶり返す）。
   // 中央列（動画・ヒートマップ）の幅。HiTensionPage の完走後動画と同じ式（時間軸をぴったり揃える）。
   // 左右の帯の幅 = (100% - これ) / 2 ＝数字/ボタンをその帯の真ん中に置くのにも使う。
-  const CENTER_W = "min(calc(100vw - 320px), calc(48dvh * 16 / 9))";
+  const CENTER_W = "max(200px, min(calc(100vw - 320px), calc(48dvh * 16 / 9)))";
   const sideBandStyle = (side: "left" | "right"): CSSProperties => ({
     position: "absolute",
     zIndex: 3,

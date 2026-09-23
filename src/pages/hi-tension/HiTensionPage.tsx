@@ -1545,7 +1545,7 @@ export default function HiTensionPage() {
                     // 完走画面の左右帯を画面いっぱいの高さ基準にする直しに合わせて追記）。
                     position: "relative",
                     zIndex: 2,
-                    width: "min(calc(100vw - 320px), calc(48dvh * 16 / 9))",
+                    width: "max(200px, min(calc(100vw - 320px), calc(48dvh * 16 / 9)))",
                     margin: "0 auto",
                   }
                 : {
