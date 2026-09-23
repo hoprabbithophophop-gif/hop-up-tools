@@ -85,10 +85,8 @@ export const SPECIAL_EVENTS: readonly SpecialEvent[] = [
     videoStart: 55.9,
     videoEnd: 303.1,
     enterLabel: "ウェルカム（ウェルカム！）",
-    // 終了後、加入発表の歓迎シーン（メンバーが「ようこそー！」）をEndCard上で1回だけ流す。
-    endingVideoId: "atBnm5ZZZ8Y",
-    endingVideoStart: 188,
-    endingVideoEnd: 258,
+    // 終了後の歓迎クリップ（atBnm5ZZZ8Y の 188〜258秒）は 2026-09-23 に取りやめ。
+    // 本編の上に別の動画枠を重ねる形で、YouTube の必須機能の規定（埋め込みの前に frames を置かない）に反するため。
   },
   {
     key: "maeda_bd_2026",
