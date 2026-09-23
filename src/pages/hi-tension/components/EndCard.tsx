@@ -286,23 +286,6 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
               ▶ 本編の映像を見る
             </a>
           )}
-          {event?.endingVideoId && (
-            <a
-              href={`https://youtu.be/${event.endingVideoId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                fontSize: "0.6875rem",
-                fontWeight: 600,
-                color: "#9aa0a6",
-                textDecoration: "underline",
-                textUnderlineOffset: "0.2rem",
-                textAlign: "center",
-              }}
-            >
-              ▶ 加入発表の映像を見る
-            </a>
-          )}
           </div>
         </div>
       </>
@@ -395,23 +378,6 @@ export default function EndCard({ selfCount, totalCount, memberColor, onChangeCo
             }}
           >
             ▶ 本編の映像を見る
-          </a>
-        )}
-        {event?.endingVideoId && (
-          <a
-            href={`https://youtu.be/${event.endingVideoId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              marginTop: "0.4rem",
-              fontSize: "0.75rem",
-              fontWeight: 600,
-              color: "#9aa0a6",
-              textDecoration: "underline",
-              textUnderlineOffset: "0.2rem",
-            }}
-          >
-            ▶ 加入発表の映像を見る
           </a>
         )}
       </div>

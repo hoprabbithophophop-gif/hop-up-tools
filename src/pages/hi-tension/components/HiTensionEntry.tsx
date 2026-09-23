@@ -73,6 +73,8 @@ interface Props {
    *  そのまま受け取る）。下の帯（色えらびだけの帯）をここから画面の下端まで敷くのに使う。
    *  縦向きでは使わない。 */
   landscapeVideoBottom?: string;
+  /** 表示設定の「動きを減らす」。true なら「動画再生でスタート」を点滅させず出しっぱなしにする。 */
+  reduceMotion?: boolean;
 }
 
 export default function HiTensionEntry({
@@ -86,6 +88,7 @@ export default function HiTensionEntry({
   onOpenAdvanced,
   isLandscape,
   landscapeVideoBottom,
+  reduceMotion = false,
 }: Props) {
   // 色タップごとに +1。背景✋の key に混ぜて「同じ色を選び直しても」再マウント→ポップさせる。
   // 指で送っている最中は key を変えない＝色だけ変わって、跳ねる演出は押した時だけ出る。
@@ -493,7 +496,7 @@ export default function HiTensionEntry({
         }
 
         /* 「動画再生でスタート」の点滅。ゲームの PRESS START と同じく、ふわっとではなく
-           出る／消えるをパッと切り替える。動きを減らす設定の人には出しっぱなしにする。 */
+           出る／消えるをパッと切り替える。表示設定の「動きを減らす」と端末の同様の設定では出しっぱなし。 */
         @keyframes hi-start-blink {
           0% { opacity: 1; }
           50% { opacity: 0; }
@@ -539,7 +542,7 @@ export default function HiTensionEntry({
         >
           {/* 動画のすぐ下。始まるのは動画側の再生ボタンからなので、押しても何も起きない素の文字。 */}
           <p
-            className="hi-start-blink"
+            className={reduceMotion ? undefined : "hi-start-blink"}
             style={{
               margin: "0 0 0.4rem",
               fontSize: "1rem", // 16px
@@ -1078,7 +1081,7 @@ export default function HiTensionEntry({
 
               {/* 動画のすぐ下。縦画面と同じ文字・同じ点滅。 */}
               <p
-                className="hi-start-blink"
+                className={reduceMotion ? undefined : "hi-start-blink"}
                 style={{
                   margin: "0 0 0.3rem",
                   fontSize: "1rem", // 16px

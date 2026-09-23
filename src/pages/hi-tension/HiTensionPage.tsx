@@ -256,7 +256,6 @@ export default function HiTensionPage() {
   const entryCenterMemberIdRef = useRef<string | null>(null);
   // 動画の器。下端を測って設定の板の置き場所に使う。
   const videoBoxRef = useRef<HTMLDivElement | null>(null);
-  const endingIframeRef = useRef<HTMLIFrameElement | null>(null); // 歓迎クリップiframe（YT APIで消音解除する）。
   const [seatHash, setSeatHash] = useState<number>(0);
   // 端末の向き。横（landscape）になったら横レイアウト＋サイド席ONに切り替える。
   // matchMedia の change を購読して回転に即追従。SSR/未対応環境は false（縦扱い）。
@@ -271,7 +270,6 @@ export default function HiTensionPage() {
     return () => mq.removeEventListener("change", onChange);
   }, []);
   const [videoEnded, setVideoEnded] = useState(false);
-  const [endingUnmuted, setEndingUnmuted] = useState(false); // 歓迎クリップの音をタップで出したか
   const [endedSelfCount, setEndedSelfCount] = useState(0);
   // 押下カウント・押し込みエフェクトは HiTapButton 内部 state（タップでページ全体を再レンダーしない）。
   const [isRealtimePlay, setIsRealtimePlay] = useState(false);
@@ -1016,7 +1014,6 @@ export default function HiTensionPage() {
     lastPlayStartRef.current = performance.now();
     soloModeRef.current = false; // 連携終了→ソロのフラグを次の再生に持ち越さない
     setVideoEnded(false);
-    setEndingUnmuted(false);
     setEndedSelfCount(0);
     tapBtnRef.current?.reset(); // カウンタ・押下状態（HiTapButton内部）を初期化
   };
@@ -1571,44 +1568,7 @@ export default function HiTensionPage() {
             // 埋め込みのプレイヤーは 200×200px を下回ってはいけない決まりがあるので下限を渡す。
             minHeight={200}
           />
-          {/* 【仮】動画に重なる別iframe。扱いはオーナーに確認中
-              回終了後、専用エンディング動画（加入発表の歓迎シーン等）を別プレイヤー(iframe)で上に重ねて再生。
-              メインプレイヤーに触れない＝再入・状態混乱が起きない。表示専用・記録しない。 */}
-          {videoEnded && selectedEvent?.endingVideoId && (
-            <iframe
-              ref={endingIframeRef}
-              key={selectedEvent.endingVideoId}
-              title="ending"
-              src={`https://www.youtube.com/embed/${selectedEvent.endingVideoId}?start=${Math.floor(selectedEvent.endingVideoStart ?? 0)}&end=${Math.ceil(selectedEvent.endingVideoEnd ?? 0)}&autoplay=1&mute=1&enablejsapi=1&playsinline=1&rel=0&modestbranding=1`}
-              allow="autoplay; encrypted-media; picture-in-picture"
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", zIndex: 3 }}
-            />
-          )}
         </div>
-
-        {/* 歓迎クリップの「音を出す」は動画の"下"に置く（YouTube動画の上に独自UIを重ねない規約対応）。 */}
-        {videoEnded && selectedEvent?.endingVideoId && !endingUnmuted && (
-          // position/zIndex：横の完走後は play-area が画面全面（z:1）に敷かれるので、前に出さないと
-          // このボタンが play-area の裏に隠れて押せなくなる。
-          <div style={{ display: "flex", justifyContent: "center", padding: "0.6rem 0", position: "relative", zIndex: 2 }}>
-            <button
-              type="button"
-              onClick={() => {
-                endingIframeRef.current?.contentWindow?.postMessage(
-                  JSON.stringify({ event: "command", func: "unMute", args: [] }), "*",
-                );
-                setEndingUnmuted(true);
-              }}
-              style={{
-                border: "none", borderRadius: 999, cursor: "pointer",
-                background: "rgba(255,255,255,0.16)", color: "#fff", fontWeight: 700,
-                fontSize: "0.85rem", padding: "0.5rem 1.2rem", fontFamily: "inherit",
-              }}
-            >
-              🔊 タップで音を出す
-            </button>
-          </div>
-        )}
 
         {/* 入口：動画の下の帯。再生が始まると、この帯ごと下の play-area（✋の領域とハイ！ボタン）に
             入れ替わる。動画の器は入口でも再生中でも同じ置き方なので、入れ替わっても動画は動かない。 */}
@@ -1654,6 +1614,7 @@ export default function HiTensionPage() {
               // 横画面の「下の帯」の開始位置。動画の下端の式（このファイル冒頭の
               // LANDSCAPE_VIDEO_BOTTOM）をそのまま渡す＝2箇所に同じ式を書いて食い違う事故を防ぐ。
               landscapeVideoBottom={LANDSCAPE_VIDEO_BOTTOM}
+              reduceMotion={settings.reduceMotion}
             />
           </div>
         )}
@@ -1707,7 +1668,7 @@ export default function HiTensionPage() {
               padding: videoEnded
                 ? (isLandscape
                     ? // 歓迎クリップの「音を出す」ボタンが動画の下に出ている間は、そのぶん（約3.2rem）も空ける。
-                      `calc(max(min(calc(56.25vw - 180px), 48dvh), 200px) + ${selectedEvent?.endingVideoId && !endingUnmuted ? "3.7rem" : "0.5rem"}) 1rem 0.3rem`
+                      `calc(max(min(calc(56.25vw - 180px), 48dvh), 200px) + 0.5rem) 1rem 0.3rem`
                     : "1.2rem 1.2rem 2rem")
                 : isLandscape
                   ? 0
