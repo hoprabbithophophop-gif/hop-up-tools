@@ -936,6 +936,11 @@ export default function HiTensionEntry({
                 width: sideColW,
                 overflow: "hidden",
                 boxSizing: "border-box",
+                // 後から描かれる下の帯より前に出す（👆が帯の上端にかかるため）。列そのものと
+                // 中の寄せ用の箱は指を素通りさせ、歯車・リンク・👆だけが指を受け取る
+                // ＝帯の色の丸は今までどおり押せる。入口全体が動画より奥なので、動画の前には出ない。
+                zIndex: 1,
+                pointerEvents: "none",
               }}
             >
               {onOpenSettings && (
@@ -944,6 +949,7 @@ export default function HiTensionEntry({
                   aria-label="表示設定"
                   onClick={onOpenSettings}
                   style={{
+                    pointerEvents: "auto",
                     position: "absolute",
                     // 見本の上10px・右14px。ボタンの内側の余白(0.3rem)ぶんを差し引いて印の位置をそろえる。
                     top: "calc(10px - 0.3rem)",
@@ -989,7 +995,7 @@ export default function HiTensionEntry({
                       href={`https://youtu.be/${v.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      style={{ color: TEXT_WHITE, fontWeight: 600, textDecoration: "underline", textUnderlineOffset: "0.2rem" }}
+                      style={{ pointerEvents: "auto", color: TEXT_WHITE, fontWeight: 600, textDecoration: "underline", textUnderlineOffset: "0.2rem" }}
                     >
                       ▶ {v.label}
                     </a>
@@ -1003,6 +1009,7 @@ export default function HiTensionEntry({
                     style={{
                       // 押せる範囲は印の周り9pxずつ広げ、その分を負の余白で打ち消す＝見た目は印が
                       // 公式動画のかたまりの1.4em下・右端そろえ。
+                      pointerEvents: "auto",
                       marginTop: "calc(1.4em - 9px)",
                       marginRight: -9,
                       marginBottom: -9,
