@@ -906,7 +906,7 @@ export default function HiTensionEntry({
                 width: sideColW,
                 overflow: "hidden",
                 boxSizing: "border-box",
-                padding: "4px 4px 0 12px",
+                padding: "4px 4px 12px 12px",
                 containerType: "inline-size",
                 display: "flex",
                 flexDirection: "column",
@@ -937,7 +937,7 @@ export default function HiTensionEntry({
               <p
                 className="hi-invite-left"
                 style={{
-                  margin: "16px 0 0",
+                  margin: "auto 0 0", // 列の下の端へ押し下げる（名札は上の端）
                   fontSize: "1rem", // 16px
                   fontWeight: 700,
                   lineHeight: 1.4,
