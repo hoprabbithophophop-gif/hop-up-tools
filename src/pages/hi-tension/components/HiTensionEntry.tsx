@@ -47,6 +47,9 @@ function wrapIndex(v: number, n: number): number {
   return ((v % n) + n) % n;
 }
 
+/** 入口の文字の色。見出し・リンク・問いかけまで全部この白にそろえる（印の灰色は別）。 */
+const TEXT_WHITE = "#f5f7fa";
+
 /** 端末側で「動きを減らす」設定になっているか。滑る動きを一足飛びに切り替えるのに使う */
 function prefersReducedMotion(): boolean {
   try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
@@ -73,6 +76,9 @@ interface Props {
    *  そのまま受け取る）。下の帯（色えらびだけの帯）をここから画面の下端まで敷くのに使う。
    *  縦向きでは使わない。 */
   landscapeVideoBottom?: string;
+  /** 横向きの時だけ使う：動画の器の上端（HiTensionPage 側の LANDSCAPE_VIDEO_TOP）。
+   *  左の列の上端（名札）を動画の上端にそろえるのに使う。 */
+  landscapeVideoTop?: string;
   /** 表示設定の「動きを減らす」。true なら「動画再生でスタート」を点滅させず出しっぱなしにする。 */
   reduceMotion?: boolean;
 }
@@ -88,6 +94,7 @@ export default function HiTensionEntry({
   onOpenAdvanced,
   isLandscape,
   landscapeVideoBottom,
+  landscapeVideoTop,
   reduceMotion = false,
 }: Props) {
   // 色タップごとに +1。背景✋の key に混ぜて「同じ色を選び直しても」再マウント→ポップさせる。
@@ -369,6 +376,43 @@ export default function HiTensionEntry({
   // 選択中のメンバーカラー。背景の✋モチーフの着色に使う。スペシャル回中は回の色に統一。
   const selectedColor = isSpecial ? eventColor : (findMember(centerId)?.color ?? null);
 
+  // 「↑ 動画再生でスタート」。矢印と文字をひとまとまりにして、まとまりごと同じ点滅をかける。
+  // 動画のすぐ下。始まるのは動画側の再生ボタンからなので、押しても何も起きない素の文字。
+  const startLine = (className?: string) => (
+    <div
+      className={[reduceMotion ? "" : "hi-start-blink", className ?? ""].join(" ").trim() || undefined}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        fontSize: "1rem", // 16px
+        fontWeight: 700,
+        color: TEXT_WHITE,
+        position: "relative",
+        zIndex: 1,
+      }}
+    >
+      <span aria-hidden style={{ fontSize: 18 }}>↑</span>
+      <span>動画再生でスタート</span>
+    </div>
+  );
+
+  // 名札：絵文字の✋を2行ぶんの高さで左、右に「Practice」「ver.」を1行ずつ。
+  // 縦持ちは固定の大きさ、横持ちは左の列の幅（cqw）に合わせて縮む。
+  const banner = (handSize: string, textSize: string, inline: boolean) => {
+    const text = { fontSize: textSize, fontWeight: 900, color: "#ffffff", letterSpacing: "-0.03em" } as const;
+    return (
+      <div style={{ display: inline ? "inline-flex" : "flex", alignItems: "center", gap: 6 }}>
+        <span aria-hidden style={{ fontSize: handSize, lineHeight: 1 }}>✋</span>
+        <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.02 }}>
+          <span style={text}>Practice</span>
+          <span style={text}>ver.</span>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <style>{`
@@ -396,8 +440,8 @@ export default function HiTensionEntry({
 
         /* 帯の上下の余白。上：古いエンジン向けの元の固定値→次点でcqh。cqh非対応なら固定値のまま。 */
         .hi-entry-pad {
-          padding: 1.5rem 1.2rem 1.5rem;
-          padding: clamp(0.5rem, 5cqh, 1.5rem) 1.2rem clamp(0.5rem, 5cqh, 1.5rem);
+          padding: 14px 0 26px;
+          padding: clamp(0.5rem, 5cqh, 14px) 0 clamp(0.5rem, 5cqh, 26px);
         }
         .hi-entry-pad-landscape {
           padding: 0.7rem 1rem 0.7rem;
@@ -447,52 +491,57 @@ export default function HiTensionEntry({
           height: clamp(44px, 15cqh, 72px);
         }
 
-        /* ここから追加：タイトル周り〜リンク行の上下の余白と行の高さ（line-height）も帯の高さに
-           合わせて詰める。フォールバック→cqh の2段構え。line-height の下限は1.2em＝文字が
-           上下で切れない目安（FaIcon/絵文字/日本語とも、行の高さが文字サイズの1.2倍を割らなければ欠けない）。
-           フォールバック値の1.45は、日本語混在時にNoto Sans JPのnormalが1.2よりかなり大きく
-           出ることがあるための仮置き（Latin主体の要素は実際はもっと1.2寄りになる想定）。 */
-        .hi-subtitle {
-          margin: 0.3rem 0 0;
-          margin: clamp(0.15rem, 2cqh, 0.3rem) 0 0;
-          line-height: 1.45;
-          line-height: clamp(1.2em, 6cqh, 1.45em);
-        }
+        /* スペシャル回の副題（縦持ち）。行の高さを帯の高さに合わせて詰める。フォールバック→cqh の2段構え。
+           line-height の下限は1.2em＝文字が上下で切れない目安。 */
         .hi-special-subtitle {
           margin: 0.25rem 0 0;
           margin: clamp(0.15rem, 2cqh, 0.25rem) 0 0;
           line-height: 1.45;
           line-height: clamp(1.2em, 6cqh, 1.45em);
         }
-        .hi-color-intro {
-          margin: 0 0 1rem;
-          margin: 0 0 clamp(0.3rem, 4cqh, 1rem);
-          line-height: 1.45;
-          line-height: clamp(1.2em, 6cqh, 1.45em);
+
+        /* 縦持ちの塊（好きな色は？→色のダイヤル→問いかけ）。間は全部 12px。 */
+        .hi-entry-cluster {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 12px;
+          width: 100%;
         }
-        .hi-color-intro-landscape {
-          margin: 0 0 0.6rem;
-          margin: 0 0 clamp(0.3rem, 3cqh, 0.6rem);
-          line-height: 1.45;
-          line-height: clamp(1.2em, 6cqh, 1.45em);
+        /* ダイヤルの上下の余白。真ん中の丸が大きくなって付く輪のぶんを、この中に収める
+           （見本の色の丸の器＝丸の直径＋上下 6px と同じ）。 */
+        .hi-dial-pad {
+          padding: 6px 0;
         }
-        .hi-invite {
-          margin: 0.6rem 0 0;
-          margin: clamp(0.25rem, 3cqh, 0.6rem) 0 0;
-          line-height: 1.5;
-          line-height: clamp(1.2em, 6cqh, 1.5em);
+
+        /* 横持ちの動画の下の帯。帯の高さを物差しにして、行の高さ・色の丸の大きさを詰める。 */
+        .hi-landscape-band {
+          container-type: size;
         }
-        .hi-links-row {
-          margin-top: 0.6rem;
-          margin-top: clamp(0.25rem, 3cqh, 0.6rem);
+        .hi-landscape-band .hi-fl-line {
+          line-height: 1.4;
         }
-        .hi-advanced-btn {
-          padding: 0.4rem;
-          padding: clamp(0.15rem, 2cqh, 0.4rem);
+        /* 色の丸は帯の高さに合わせて 44〜56px（44px 未満にはしない）。 */
+        .hi-landscape-band .hi-color-strip {
+          height: clamp(44px, 38cqh, 56px);
         }
-        .hi-links-text {
-          line-height: 1.45;
-          line-height: clamp(1.2em, 6cqh, 1.45em);
+        .hi-landscape-band .hi-color-slot {
+          width: calc(clamp(44px, 38cqh, 56px) + ${STRIP_GAP}px);
+        }
+        .hi-landscape-band .hi-color-circle {
+          width: clamp(44px, 38cqh, 56px);
+          height: clamp(44px, 38cqh, 56px);
+        }
+        .hi-landscape-band .hi-color-circle-event {
+          width: clamp(44px, 38cqh, 72px);
+          height: clamp(44px, 38cqh, 72px);
+        }
+        .hi-landscape-band .hi-dial-pad {
+          padding: calc(clamp(44px, 38cqh, 56px) * 0.1 + 2px) 0;
+        }
+        @container (max-height: 130px) {
+          .hi-landscape-band .hi-fl-line { line-height: 1.15; }
+          .hi-landscape-band .hi-color-label { font-size: 14px; }
         }
 
         /* 「動画再生でスタート」の点滅。ゲームの PRESS START と同じく、ふわっとではなく
@@ -540,51 +589,28 @@ export default function HiTensionEntry({
             isolation: "isolate", // ✋モチーフ(zIndex:-1)を背景の前・全コンテンツの背面に固定する
           }}
         >
-          {/* 動画のすぐ下。始まるのは動画側の再生ボタンからなので、押しても何も起きない素の文字。 */}
-          <p
-            className={reduceMotion ? undefined : "hi-start-blink"}
-            style={{
-              margin: "0 0 0.4rem",
-              fontSize: "1rem", // 16px
-              fontWeight: 700,
-              textAlign: "center",
-              color: "#f5f7fa",
-            }}
-          >
-            動画再生でスタート
-          </p>
+          {/* 1. 「↑ 動画再生でスタート」。動画のすぐ下、動画との間に他の行は足さない。 */}
+          {startLine()}
 
-          {/* タイトル行：見出しと設定の歯車を同じ行に。歯車は動画の上ではなくこの帯の中に置く。 */}
+          {/* 2. 名札の行：左に名札、右端に歯車だけ。歯車は動画の上ではなくこの帯の中に置く。 */}
           <div
             style={{
-              position: "relative",
               width: "100%",
               display: "flex",
               alignItems: "center",
-              justifyContent: "center",
+              justifyContent: "space-between",
+              // 見本の左18px・右26px。歯車はボタンの内側の余白(0.3rem)ぶんを差し引いて、印の右端を26pxにそろえる。
+              padding: "14px calc(26px - 0.3rem) 0 18px",
+              boxSizing: "border-box",
             }}
           >
-            <h1
-              style={{
-                fontSize: "clamp(1.3rem, 6.5vw, 1.6rem)",
-                fontWeight: 700,
-                letterSpacing: "-0.02em",
-                margin: 0,
-                textAlign: "center",
-                color: "#f5f7fa",
-                lineHeight: 1.2,
-              }}
-            >
-              ハイ！テンション
-            </h1>
+            {banner("52px", "28px", false)}
             {onOpenSettings && (
               <button
                 type="button"
                 aria-label="表示設定"
                 onClick={onOpenSettings}
                 style={{
-                  position: "absolute",
-                  right: 0,
                   background: "none",
                   border: "none",
                   fontSize: "1.25rem",
@@ -599,24 +625,9 @@ export default function HiTensionEntry({
             )}
           </div>
 
-          <p
-            className="hi-subtitle"
-            style={{
-              // 元は 0.8125rem(13px)。帯全体の「14px以上」ルールに合わせて引き上げ。
-              fontSize: "0.875rem",
-              fontWeight: 600,
-              letterSpacing: "0.04em",
-              textAlign: "center",
-              color: "#aab0b6",
-            }}
-          >
-            ✋ Practice ver.
-          </p>
-          {/* 副題の行は通常/スペシャルで常に確保（高さ固定）＝切替時に背景✋が上下しない。
-              以前は minHeight で固定していたが、line-height を帯の高さに合わせて詰める今回、
-              この行にも同じ line-height を適用すれば（中身が空文字でも1行ぶんの高さは残るため）
-              通常/スペシャルで常に同じ高さになる＝minHeight を持たせなくても崩れない。
-              元は 0.75rem(12px)。文言・色の決まりは MemberSelect と同じ、フォントサイズだけ14px以上に引き上げ。 */}
+          {/* スペシャル回の副題。名札の行のすぐ下。
+              副題の行は通常/スペシャルで常に確保（中身が空文字でも1行ぶんの高さは残る）＝切替時に背景✋が上下しない。
+              文言・色の決まりは MemberSelect と同じ、フォントサイズだけ14px以上に引き上げ。 */}
           <p
             className="hi-special-subtitle"
             style={{
@@ -665,13 +676,17 @@ export default function HiTensionEntry({
               <HandIcon size="min(122vw, 84vh)" color={selectedColor ?? (isSpecial && eventColor ? eventColor : "#cfd6de")} />
             </div>
 
+            {/* 4. 塊：「好きな色は？」→ 色のダイヤル → 問いかけ。間は全部 12px。
+                この中央の器が上下の残りを等しく分ける（justifyContent:center）。 */}
+            <div className="hi-entry-cluster">
             <p
-              className={isLandscape ? "hi-color-intro-landscape" : "hi-color-intro"}
               style={{
+                margin: 0,
+                lineHeight: 1.45,
                 fontSize: "0.95rem",
                 fontWeight: 500,
                 textAlign: "center",
-                color: "#c6ccd2",
+                color: TEXT_WHITE,
                 position: "relative",
                 zIndex: 1,
               }}
@@ -680,13 +695,13 @@ export default function HiTensionEntry({
             </p>
 
             <div
+              className="hi-dial-pad"
               style={{
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
                 width: "100%",
-                // 横向きは列を広く見せる（丸がもっと多く見える）
-                maxWidth: isLandscape ? 560 : 360,
+                maxWidth: 360,
                 position: "relative",
                 zIndex: 1,
               }}
@@ -768,43 +783,65 @@ export default function HiTensionEntry({
               </div>
             )}
             </div>
+
+            {/* 問いかけ。ボタンには見せない＝箱・下線・cursor:pointer・onClick を持たせない素の文。
+                押しても何も起きない（始まるのは動画側の再生ボタンから）。 */}
+            <p
+              style={{
+                margin: 0,
+                lineHeight: 1.4,
+                fontSize: "1rem", // 16px
+                fontWeight: 700,
+                textAlign: "center",
+                color: TEXT_WHITE,
+                position: "relative",
+                zIndex: 1,
+              }}
+            >
+              {selectedEvent?.enterLabel ?? "みんな、幸せになりたいか～！？"}
+            </p>
+            </div>
           </div>
 
-          {/* 誘いの一言。ボタンには見せない＝箱・下線・cursor:pointer・onClick を持たせない素の文。
-              押しても何も起きない（始まるのは動画側の再生ボタンから）。 */}
-          <p
-            className="hi-invite"
-            style={{
-              fontSize: "1rem", // 16px以上
-              fontWeight: 700,
-              textAlign: "center",
-              color: "#f5f7fa",
-              position: "relative",
-              zIndex: 1,
-            }}
-          >
-            {selectedEvent?.enterLabel ?? "みんな、幸せになりたいか～！？"}
-          </p>
-
-          {/* 公式動画リンクと、上級編（振り練習）へのアイコンを同じ行に並べる。
-              見た目（アイコン単体の控えめなボタン、リンクの下線）は元のまま、位置だけ同じ行へ寄せた。 */}
+          {/* 6. 一番下の1行：公式動画＋3リンク＋最後に👆。折り返さない。 */}
           <div
-            className="hi-links-row"
             style={{
               display: "flex",
               justifyContent: "center",
               alignItems: "center",
-              gap: "0.6rem",
-              flexWrap: "wrap",
+              gap: 8,
+              whiteSpace: "nowrap",
+              letterSpacing: "-0.02em",
+              fontSize: "0.875rem", // 14px
+              color: TEXT_WHITE,
+              lineHeight: 1.45,
+              position: "relative",
+              zIndex: 1,
             }}
           >
+            <span style={{ fontWeight: 400 }}>公式動画</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
+              {PRACTICE_VIDEOS.map((v) => (
+                <a
+                  key={v.id}
+                  href={`https://youtu.be/${v.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: TEXT_WHITE, fontWeight: 600, textDecoration: "underline", textUnderlineOffset: "0.2rem" }}
+                >
+                  ▶ {v.label}
+                </a>
+              ))}
+            </div>
             {onOpenAdvanced && (
               <button
                 type="button"
                 aria-label="上級編へ"
                 onClick={onOpenAdvanced}
-                className="hi-advanced-btn"
                 style={{
+                  // 押せる範囲は印の周り9pxずつ広げ、その分を負の余白で打ち消す＝見た目の間は見本どおり（前に8px）。
+                  padding: 9,
+                  margin: "-9px -9px -9px -1px",
                   background: "none",
                   border: "none",
                   cursor: "pointer",
@@ -815,32 +852,6 @@ export default function HiTensionEntry({
                 <FaIcon icon={faHandPointer} size={26} color="#9aa0a6" />
               </button>
             )}
-            <div
-              className="hi-links-text"
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                gap: "0.55rem",
-                flexWrap: "wrap",
-                // 元は 0.6875rem(11px)。帯全体の「14px以上」ルールに合わせて引き上げ。
-                fontSize: "0.875rem",
-                color: "#9aa0a6",
-              }}
-            >
-              <span>公式動画</span>
-              {PRACTICE_VIDEOS.map((v) => (
-                <a
-                  key={v.id}
-                  href={`https://youtu.be/${v.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "#9aa0a6", fontWeight: 600, textDecoration: "underline", textUnderlineOffset: "0.2rem" }}
-                >
-                  ▶ {v.label}
-                </a>
-              ))}
-            </div>
           </div>
         </div>
       </div>
@@ -866,64 +877,37 @@ export default function HiTensionEntry({
         // 下の帯の開始位置。渡されていない場合（呼び出し側の不備）は 0 にして、
         // 少なくとも画面から消えたりはしないようにする。
         const bandTop = landscapeVideoBottom ?? "0";
+        // 左の列の上端。動画の器の上端（ページ側の LANDSCAPE_VIDEO_TOP）にそろえる。
+        const videoTop = landscapeVideoTop ?? "0";
         return (
           <>
-            {/* 左の帯：タイトル〜誘いの一言を縦中央に積む。画面の上から下まで確保するが、
-                中身は少ないので実際にはだいたい真ん中に収まる（入り切らない端末だけ
-                この帯の中で見えなくなる＝動画側へはみ出したり帯からはみ出たりはしない）。 */}
+            {/* 左の帯：名札だけを上の端に揃えて置く（縦中央に寄せない）。列の上端は動画の上端にそろえる。
+                列の幅に合わせて名札が縮むよう、列そのものを幅の物差し（container-type:inline-size）にする。 */}
             <div
               style={{
                 position: "absolute",
                 left: 0,
-                top: 0,
+                top: videoTop,
                 bottom: 0,
                 width: sideColW,
                 overflow: "hidden",
                 boxSizing: "border-box",
-                padding: "0 0.3rem",
+                padding: "4px 4px 0 12px",
+                containerType: "inline-size",
                 display: "flex",
                 flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "0.35rem",
+                alignItems: "flex-start",
+                justifyContent: "flex-start",
                 color: "#e8eaed",
                 fontFamily: "Inter, 'Noto Sans JP', sans-serif",
               }}
             >
-              <h1
-                style={{
-                  fontSize: "clamp(0.875rem, 5vw, 1.25rem)", // 14px〜20px。帯に入らない端末だけ縮む
-                  fontWeight: 700,
-                  letterSpacing: "-0.02em",
-                  margin: 0,
-                  textAlign: "center",
-                  color: "#f5f7fa",
-                  lineHeight: 1.2,
-                }}
-              >
-                {/* 「ハイ！」の直後だけ折り返し可（wbr）。各語は nowrap にして語の途中では
-                    絶対に割れないようにする＝「テンショ／ン」のような1文字だけ落ちる折れ方を防ぐ。 */}
-                <span style={{ display: "inline-block", whiteSpace: "nowrap" }}>ハイ！</span>
-                <wbr />
-                <span style={{ display: "inline-block", whiteSpace: "nowrap" }}>テンション</span>
-              </h1>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "0.875rem", // 14px
-                  fontWeight: 600,
-                  letterSpacing: "0.04em",
-                  textAlign: "center",
-                  color: "#aab0b6",
-                }}
-              >
-                ✋ Practice ver.
-              </p>
-              {/* 副題はスペシャル回の時だけ出す。左の帯は縦中央寄せなので、無い日は残りが詰まって中央に寄る。 */}
+              {banner("clamp(24px, 25cqw, 52px)", "clamp(16px, 14cqw, 28px)", true)}
+              {/* 副題はスペシャル回の時だけ出す。名札の下。 */}
               {isSpecial && (
                 <p
                   style={{
-                    margin: 0,
+                    margin: "0.35rem 0 0",
                     fontSize: "0.875rem", // 14px
                     fontWeight: 700,
                     letterSpacing: "0.02em",
@@ -934,23 +918,10 @@ export default function HiTensionEntry({
                   {`〜${selectedEvent.title}〜`}
                 </p>
               )}
-              {/* 誘いの一言。縦画面と同じくボタンには見せない（箱・下線・cursor:pointer なし）。
-                  押しても何も起きない（始まるのは動画側の再生ボタンから）。 */}
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "1rem", // 16px
-                  fontWeight: 700,
-                  textAlign: "center",
-                  color: "#f5f7fa",
-                }}
-              >
-                {selectedEvent?.enterLabel ?? "みんな、幸せになりたいか～！？"}
-              </p>
             </div>
 
-            {/* 右の帯：歯車は右上の隅、公式動画のかたまりは縦中央、👆はそこから
-                リンク同士の行間（0.3rem）の3倍ぶん離して下に置く＝別物だと分かる間を空ける。 */}
+            {/* 右の帯：歯車は右上の隅、公式動画のかたまりは右揃えで上下の真ん中、
+                その下に1行ぶん（1.4em）空けて👆（右揃え）。 */}
             <div
               style={{
                 position: "absolute",
@@ -960,7 +931,6 @@ export default function HiTensionEntry({
                 width: sideColW,
                 overflow: "hidden",
                 boxSizing: "border-box",
-                padding: "0 0.3rem",
               }}
             >
               {onOpenSettings && (
@@ -970,8 +940,9 @@ export default function HiTensionEntry({
                   onClick={onOpenSettings}
                   style={{
                     position: "absolute",
-                    top: "0.2rem",
-                    right: "0.2rem",
+                    // 見本の上10px・右14px。ボタンの内側の余白(0.3rem)ぶんを差し引いて印の位置をそろえる。
+                    top: "calc(10px - 0.3rem)",
+                    right: "calc(14px - 0.3rem)",
                     background: "none",
                     border: "none",
                     fontSize: "1.25rem",
@@ -990,29 +961,30 @@ export default function HiTensionEntry({
                   inset: 0,
                   display: "flex",
                   flexDirection: "column",
-                  alignItems: "center",
+                  alignItems: "flex-end",
                   justifyContent: "center",
+                  paddingRight: 20,
+                  fontSize: "0.875rem", // 14px
                 }}
               >
                 <div
                   style={{
                     display: "flex",
                     flexDirection: "column",
-                    alignItems: "center",
-                    gap: "0.3rem", // リンク同士の行間。👆まではこの3倍（0.9rem）空ける
-                    fontSize: "0.875rem", // 14px
-                    color: "#9aa0a6",
-                    textAlign: "center",
+                    alignItems: "flex-end",
+                    gap: 5,
+                    color: TEXT_WHITE,
+                    textAlign: "right",
                   }}
                 >
-                  <span style={{ fontWeight: 600 }}>公式動画</span>
+                  <span style={{ fontWeight: 500 }}>公式動画</span>
                   {PRACTICE_VIDEOS.map((v) => (
                     <a
                       key={v.id}
                       href={`https://youtu.be/${v.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      style={{ color: "#9aa0a6", fontWeight: 600, textDecoration: "underline", textUnderlineOffset: "0.2rem" }}
+                      style={{ color: TEXT_WHITE, fontWeight: 600, textDecoration: "underline", textUnderlineOffset: "0.2rem" }}
                     >
                       ▶ {v.label}
                     </a>
@@ -1024,12 +996,13 @@ export default function HiTensionEntry({
                     aria-label="上級編へ"
                     onClick={onOpenAdvanced}
                     style={{
-                      marginTop: "0.9rem", // 公式動画のかたまりとは別物だと分かる間（行間0.3remの3倍）
-                      minWidth: 44,
-                      minHeight: 44,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
+                      // 押せる範囲は印の周り9pxずつ広げ、その分を負の余白で打ち消す＝見た目は印が
+                      // 公式動画のかたまりの1.4em下・右端そろえ。
+                      marginTop: "calc(1.4em - 9px)",
+                      marginRight: -9,
+                      marginBottom: -9,
+                      padding: 9,
+                      display: "inline-flex",
                       background: "none",
                       border: "none",
                       cursor: "pointer",
@@ -1043,8 +1016,11 @@ export default function HiTensionEntry({
             </div>
 
             {/* 下の帯：動画の下端〜画面の下端。動画の幅ではなく画面の幅のまま（今までの帯と同じ）。
-                タイトル・リンクは左右の帯へ引っ越したので、ここは背景✋と色えらびだけ。 */}
+                上から「↑ 動画再生でスタート」→「好きな色は？」→ 色のダイヤル → 問いかけ。すべて中央。
+                帯そのものを高さの物差し（.hi-landscape-band＝container-type:size）にして、
+                帯が低い端末では行の高さと文字・丸を詰める。 */}
             <div
+              className="hi-landscape-band"
               style={{
                 position: "absolute",
                 left: 0,
@@ -1079,29 +1055,16 @@ export default function HiTensionEntry({
                 <HandIcon size="min(122vw, 84vh)" color={selectedColor ?? (isSpecial && eventColor ? eventColor : "#cfd6de")} />
               </div>
 
-              {/* 動画のすぐ下。縦画面と同じ文字・同じ点滅。 */}
-              <p
-                className={reduceMotion ? undefined : "hi-start-blink"}
-                style={{
-                  margin: "0 0 0.3rem",
-                  fontSize: "1rem", // 16px
-                  fontWeight: 700,
-                  textAlign: "center",
-                  color: "#f5f7fa",
-                  position: "relative",
-                  zIndex: 1,
-                }}
-              >
-                動画再生でスタート
-              </p>
+              {startLine("hi-fl-line")}
 
               <p
+                className="hi-fl-line hi-color-label"
                 style={{
-                  margin: "0 0 0.4rem",
-                  fontSize: "0.95rem", // 15.2px
+                  margin: 0,
+                  fontSize: "0.95rem", // 15.2px（帯が低い時は14px）
                   fontWeight: 500,
                   textAlign: "center",
-                  color: "#c6ccd2",
+                  color: TEXT_WHITE,
                   position: "relative",
                   zIndex: 1,
                 }}
@@ -1109,7 +1072,7 @@ export default function HiTensionEntry({
                 {isSpecial ? "好きな色だよね？" : "好きな色は？"}
               </p>
 
-              <div style={{ width: "100%", maxWidth: 560, position: "relative", zIndex: 1 }}>
+              <div className="hi-dial-pad" style={{ width: "100%", maxWidth: 560, position: "relative", zIndex: 1, flex: "none" }}>
                 {isSpecial ? (
                   // スペシャル回はダイヤルを出さず主役1人の丸だけ（縦画面と同じ挙動）。
                   <div style={{ display: "flex", justifyContent: "center" }}>
@@ -1180,6 +1143,21 @@ export default function HiTensionEntry({
                   </div>
                 )}
               </div>
+
+              <p
+                className="hi-fl-line"
+                style={{
+                  margin: 0,
+                  fontSize: "1rem", // 16px
+                  fontWeight: 700,
+                  textAlign: "center",
+                  color: TEXT_WHITE,
+                  position: "relative",
+                  zIndex: 1,
+                }}
+              >
+                {selectedEvent?.enterLabel ?? "みんな、幸せになりたいか～！？"}
+              </p>
             </div>
           </>
         );

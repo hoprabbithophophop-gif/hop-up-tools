@@ -130,6 +130,8 @@ const BOUNCE_DURATION_MS = 400;
 // 横画面での動画の器の下端（画面の上から）。入口の帯をここから下に敷くのに使う。
 // 器は top:1.5dvh・幅 min(94vw, 60dvh*16/9)・16:9・高さの下限 200px なので、
 // 高さは max(min(94vw*9/16, 60dvh), 200px) になる。再生中の器の式と同じ値を保つこと。
+// 横画面での動画の器の上端（画面の上から）。入口の左の列の上端をここにそろえるのに使う。
+const LANDSCAPE_VIDEO_TOP = "1.5dvh";
 const LANDSCAPE_VIDEO_BOTTOM = "calc(1.5dvh + max(min(52.875vw, 60dvh), 200px))";
 // 横画面の再生中、盛り上がりタイムラインを動画の下端のすぐ下に置くための位置。
 // 高さの下限が効かない端末では従来の 62dvh と同じ値になり、下限が効いて動画が高くなる
@@ -1523,7 +1525,7 @@ export default function HiTensionPage() {
                   // 画面幅を超えないよう min でガード。左右に空く三角ゾーンがサイド席になる。
                   // 入口も同じ置き方にする＝入口から再生に移っても動画が1pxも動かない。
                   position: "absolute",
-                  top: "1.5dvh",
+                  top: LANDSCAPE_VIDEO_TOP,
                   left: "50%",
                   transform: "translateX(-50%)",
                   width: "min(94vw, calc(60dvh * 16 / 9))",
@@ -1614,6 +1616,7 @@ export default function HiTensionPage() {
               // 横画面の「下の帯」の開始位置。動画の下端の式（このファイル冒頭の
               // LANDSCAPE_VIDEO_BOTTOM）をそのまま渡す＝2箇所に同じ式を書いて食い違う事故を防ぐ。
               landscapeVideoBottom={LANDSCAPE_VIDEO_BOTTOM}
+              landscapeVideoTop={LANDSCAPE_VIDEO_TOP}
               reduceMotion={settings.reduceMotion}
             />
           </div>
