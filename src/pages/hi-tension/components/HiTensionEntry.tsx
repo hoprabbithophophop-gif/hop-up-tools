@@ -548,6 +548,13 @@ export default function HiTensionEntry({
         @container (max-height: 115px) {
           .hi-landscape-band .hi-fl-line { line-height: 1; }
         }
+        /* 横持ちの問いかけの置き場所。帯が130px以下になる画面（見える高さ336px以下）では、
+           帯から外して左の列の名札の下へ。条件を1つにして、両方出る・どちらも出ないを防ぐ。 */
+        .hi-invite-left { display: none; }
+        @media (max-height: 336px) {
+          .hi-invite-left { display: block; }
+          .hi-invite-band { display: none; }
+        }
 
         /* 「動画再生でスタート」の点滅。ゲームの PRESS START と同じく、ふわっとではなく
            出る／消えるをパッと切り替える。表示設定の「動きを減らす」と端末の同様の設定では出しっぱなし。 */
@@ -923,6 +930,21 @@ export default function HiTensionEntry({
                   {`〜${selectedEvent.title}〜`}
                 </p>
               )}
+              {/* 問いかけ。帯が低い画面（見える高さ336px以下＝帯130px以下）の時だけ、動画の下の帯から
+                  ここへ移す（.hi-invite-left / .hi-invite-band の切り替えは上の <style>）。名札とは間を空ける。 */}
+              <p
+                className="hi-invite-left"
+                style={{
+                  margin: "16px 0 0",
+                  fontSize: "1rem", // 16px
+                  fontWeight: 700,
+                  lineHeight: 1.4,
+                  textAlign: "left",
+                  color: TEXT_WHITE,
+                }}
+              >
+                {selectedEvent?.enterLabel ?? "みんな、幸せになりたいか～！？"}
+              </p>
             </div>
 
             {/* 右の帯：歯車は右上の隅、公式動画のかたまりは右揃えで上下の真ん中、
@@ -1157,7 +1179,7 @@ export default function HiTensionEntry({
               </div>
 
               <p
-                className="hi-fl-line"
+                className="hi-fl-line hi-invite-band"
                 style={{
                   margin: 0,
                   fontSize: "1rem", // 16px
