@@ -902,7 +902,8 @@ export default function HiTensionEntry({
                 position: "absolute",
                 left: 0,
                 top: videoTop,
-                bottom: 0,
+                // 列の下の端は動画の下の端（＝下の帯の上端）。帯の中に入り込んで色の丸に重ならないように。
+                bottom: `calc(100% - (${bandTop}))`,
                 width: sideColW,
                 overflow: "hidden",
                 boxSizing: "border-box",
