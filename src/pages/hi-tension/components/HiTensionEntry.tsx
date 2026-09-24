@@ -47,6 +47,23 @@ function wrapIndex(v: number, n: number): number {
   return ((v % n) + n) % n;
 }
 
+/** 文を「、」「。」の後ろと「（」「～」の前で塊に分け、塊の途中では折らない形で並べる。
+ *  塊が列の幅より長い時だけ、その塊の中でも折れる（max-width:100%）。
+ *  iPhone の Safari で word-break:keep-all が効かず「幸せにな／りたいか」と折れたための書き方。 */
+function phraseSpans(text: string) {
+  const parts: string[] = [];
+  let cur = "";
+  for (const ch of text) {
+    if ((ch === "（" || ch === "～") && cur) { parts.push(cur); cur = ""; }
+    cur += ch;
+    if (ch === "、" || ch === "。") { parts.push(cur); cur = ""; }
+  }
+  if (cur) parts.push(cur);
+  return parts.map((p, i) => (
+    <span key={i} style={{ display: "inline-block", maxWidth: "100%" }}>{p}</span>
+  ));
+}
+
 /** 入口の文字の色。見出し・リンク・問いかけまで全部この白にそろえる（印の灰色は別）。 */
 const TEXT_WHITE = "#f5f7fa";
 
@@ -944,12 +961,9 @@ export default function HiTensionEntry({
                   lineHeight: 1.4,
                   textAlign: "left",
                   color: TEXT_WHITE,
-                  // 言葉の途中では折らず、「、」などの区切りで折る。
-                  wordBreak: "keep-all",
-                  overflowWrap: "anywhere",
                 }}
               >
-                {selectedEvent?.enterLabel ?? "みんな、幸せになりたいか～！？"}
+                {phraseSpans(selectedEvent?.enterLabel ?? "みんな、幸せになりたいか～！？")}
               </p>
             </div>
 
