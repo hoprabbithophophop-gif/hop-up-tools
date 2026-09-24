@@ -554,6 +554,8 @@ export default function HiTensionEntry({
         @media (max-height: 336px) {
           .hi-invite-left { display: block; }
           .hi-invite-band { display: none; }
+          /* 帯は3行に減るので、4行ぶんの詰め方を戻して行の高さにゆとりを持たせる。 */
+          .hi-landscape-band .hi-fl-line { line-height: 1.3; }
         }
 
         /* 「動画再生でスタート」の点滅。ゲームの PRESS START と同じく、ふわっとではなく
@@ -941,6 +943,9 @@ export default function HiTensionEntry({
                   lineHeight: 1.4,
                   textAlign: "left",
                   color: TEXT_WHITE,
+                  // 言葉の途中では折らず、「、」などの区切りで折る。
+                  wordBreak: "keep-all",
+                  overflowWrap: "anywhere",
                 }}
               >
                 {selectedEvent?.enterLabel ?? "みんな、幸せになりたいか～！？"}
