@@ -543,6 +543,11 @@ export default function HiTensionEntry({
           .hi-landscape-band .hi-fl-line { line-height: 1.15; }
           .hi-landscape-band .hi-color-label { font-size: 14px; }
         }
+        /* iPhone を横にして Safari のバーが出ている時は、見える高さが約311px・帯が約106pxしかない
+           （実機で確認）。行の高さを文字ぴったりまで詰める。色の丸は44pxのまま。 */
+        @container (max-height: 115px) {
+          .hi-landscape-band .hi-fl-line { line-height: 1; }
+        }
 
         /* 「動画再生でスタート」の点滅。ゲームの PRESS START と同じく、ふわっとではなく
            出る／消えるをパッと切り替える。表示設定の「動きを減らす」と端末の同様の設定では出しっぱなし。 */
