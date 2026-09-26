@@ -22,7 +22,7 @@ import DiamondColorPages from "./DiamondColorPages";
 import DiamondCommentTicker, { TICKER_HEIGHT, type TickerComment } from "./DiamondCommentTicker";
 import DiamondSettingsSheet, { getDiamondSettings, setDiamondSettings, type DiamondSettings } from "./DiamondSettingsSheet";
 import BouncyNumber from "../hi-tension/components/BouncyNumber";
-import StoneCanvas from "./stone/StoneCanvas";
+import StoneCanvas, { type StoneCanvasApi } from "./stone/StoneCanvas";
 import type { StoneLayout, StoneLayoutMode } from "./stone/stoneTypes";
 
 /** 演出の版。mirrorball＝公開中のミラーボール（既定・今までどおり）／stone＝原石が削れてダイヤになる版（2026-09-26 着手）。
@@ -691,7 +691,12 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
     // 入口の💎を、消すのではなく動画（裏のミラーボール）へ飛ばす。タップの記録には数えない（Hop指示 2026-09-14）。
     // spawnSuck は自分の分の出発点から SELF_ABOVE_BUTTON(28px) 上げて飛ばすので、
     // 入口の💎が実際に立っていた位置ちょうどから飛び立つよう、その分をあらかじめ足しておく
-    if (entryPos && hex) canvasRef.current?.spawn(hex, true, { x: entryPos.x, y: entryPos.y + 28 }, memberIdRef.current);
+    if (entryPos && hex) {
+      const api = canvasRef.current;
+      // 原石の版は、入口の1個を回数にも山の個数にも数えない口（spawnEntry）で飛ばす。今の版は今までどおり
+      if (api && "spawnEntry" in api) (api as StoneCanvasApi).spawnEntry(hex, { x: entryPos.x, y: entryPos.y + 28 }, memberIdRef.current);
+      else api?.spawn(hex, true, { x: entryPos.x, y: entryPos.y + 28 }, memberIdRef.current);
+    }
     highlightRef.current = null;
     seekPendingRef.current = null;
     launchedRef.current = false;   // 次の回はまた山から
@@ -1025,7 +1030,7 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
       >
         {/* 光と💎の層。動画の裏（zIndex 0）。版で器を差し替える。窓口（DiamondCanvasApi）は同じ */}
         {stone
-          ? <StoneCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={frame} reduceMotion={settings.reduceMotion} layout={stoneLayout} />
+          ? <StoneCanvas ref={canvasRef as React.Ref<StoneCanvasApi>} videoBoxRef={videoBoxRef} frame={frame} reduceMotion={settings.reduceMotion} layout={stoneLayout} />
           : <DiamondCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={frame} reduceMotion={settings.reduceMotion} />}
 
         {/* 動画。入口の見出しの直下に固定。SE で下のコメントと色えらびが重ならないように上へ寄せた（Hop決定 2026-09-12）。

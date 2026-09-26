@@ -35,17 +35,23 @@ function url() {
 
 /** 撮る場面。時刻は区切りの終わりの 1.5 秒手前（区切りの終わりの景色）。完成・降り注ぎは別に */
 const SCENES = [
-  ['01-intro', 25.5], ['02-head-chorus', 36], ['03-prelude', 54.5], ['04-verse-a', 84.5], ['05-verse-b', 100.5],
+  ['01-intro', 25.5], ['02-head-chorus', 28.9], ['03-prelude', 54.5], ['04-verse-a', 84.5], ['05-verse-b', 100.5],
   ['06-chorus', 130.5], ['07-interlude', 145.5], ['08-verse-a2', 160.5], ['09-verse-b2', 176.5],
   ['10-rap', 191.5], ['11-epiano', 206.5], ['12-complete', 213.5], ['13-final-chorus', 240], ['14-outro', 268.5],
   ['15-rain', 273], ['16-pile', 279],
 ];
 const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+/** 撮る画面。SE（375×667）は一番狭い端末として縦横とも入れる。
+ *  reduceMotion=true の枠は、端末の覚え書きに「動きを減らす」を入れて開き、3場面だけ撮る */
 const SCREENS = [
   ['phone-portrait', { viewport: { width: 390, height: 844 }, hasTouch: true, userAgent: IPHONE_UA, isMobile: true }],
   ['phone-landscape', { viewport: { width: 844, height: 390 }, hasTouch: true, userAgent: IPHONE_UA, isMobile: true }],
+  ['se-portrait', { viewport: { width: 375, height: 667 }, hasTouch: true, userAgent: IPHONE_UA, isMobile: true }],
+  ['se-landscape', { viewport: { width: 667, height: 375 }, hasTouch: true, userAgent: IPHONE_UA, isMobile: true }],
   ['pc', { viewport: { width: 1280, height: 800 }, hasTouch: false }],
+  ['phone-portrait-reduce-motion', { viewport: { width: 390, height: 844 }, hasTouch: true, userAgent: IPHONE_UA, isMobile: true, reduceMotion: true }],
 ];
+const REDUCED_SCENES = new Set(['06-chorus', '12-complete', '16-pile']);
 
 async function up(port) {
   for (let i = 0; i < 120; i++) {
@@ -122,8 +128,15 @@ let browser = null;
 try {
   if (dev && !(await up(PORT))) throw new Error('開発サーバーが立たなかった');
   browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required', '--use-angle=swiftshader', '--mute-audio'] });
-  for (const [screen, opts] of SCREENS) {
+  for (const [screen, allOpts] of SCREENS) {
+    const { reduceMotion, ...opts } = allOpts;
     const ctx = await browser.newContext(opts);
+    if (reduceMotion) {
+      // 設定の覚え書き（DiamondSettingsSheet.tsx の鍵と形）に「動きを減らす」を入れてから開く
+      await ctx.addInitScript(() => {
+        try { localStorage.setItem('hai_to_diamond:settings', JSON.stringify({ crowd: 'full', reduceMotion: true, colorLayout: 'pages', scene: 'mirrorball' })); } catch { /* 無視 */ }
+      });
+    }
     const page = await ctx.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e).slice(0, 200)));
@@ -152,6 +165,7 @@ try {
       await page.waitForTimeout(500);
     }
     for (const [name, t] of SCENES) {
+      if (reduceMotion && !REDUCED_SCENES.has(name)) continue;
       await cmd(page, 'seekTo', [t, true]);
       await page.waitForTimeout(name === '12-complete' ? 900 : 1600);
       await page.screenshot({ path: path.join(OUT, `${screen}-${name}.png`) });

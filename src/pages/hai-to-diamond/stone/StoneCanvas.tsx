@@ -33,6 +33,12 @@ import {
 import { createPileState, resetPile, setPileTarget, startRain, stepPile, drawPile } from "./stonePile";
 import { COMPLETE_TIME, RAIN_TIME, cutFractionAt, sectionAt, sectionProgress, type SectionKey } from "./stoneTimeline";
 
+/** この器の窓口。今の版の窓口に、入口の💎を飛ばす口を1つ足した物。
+ *  spawnEntry は「再生開始の合図で入口の💎が飛ぶ」1個で、自分の回数にも山の個数にも数えない（今の版でも回数には数えない） */
+export type StoneCanvasApi = DiamondCanvasApi & {
+  spawnEntry: (color: string, origin: { x: number; y: number }, key?: string) => void;
+};
+
 interface Props {
   /** 動画本体（16:9の箱）の要素。毎フレーム位置を測る */
   videoBoxRef: React.RefObject<HTMLElement | null>;
@@ -101,7 +107,7 @@ type Flight = {
 
 const flyDraw = { x: 0, y: 0, ang: 0, path: 0, roll: 0, size: 0, rgb: [0, 0, 0] as RGB };
 
-const StoneCanvas = forwardRef<DiamondCanvasApi, Props>(function StoneCanvas({ videoBoxRef, frame, reduceMotion = false, layout }, ref) {
+const StoneCanvas = forwardRef<StoneCanvasApi, Props>(function StoneCanvas({ videoBoxRef, frame, reduceMotion = false, layout }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const reduceMotionRef = useRef(reduceMotion);
   useEffect(() => { reduceMotionRef.current = reduceMotion; }, [reduceMotion]);
@@ -190,15 +196,33 @@ const StoneCanvas = forwardRef<DiamondCanvasApi, Props>(function StoneCanvas({ v
   /** いま石が画面のどこにあるか（置き場所と動画の位置から） */
   const isWhite = (rgb: RGB) => rgb[0] >= WHITE_MIN && rgb[1] >= WHITE_MIN && rgb[2] >= WHITE_MIN;
 
-  useImperativeHandle(ref, () => ({
-    spawn(color: string, self = false, origin?: { x: number; y: number }, key?: string) {
+  /** 💎を当てる面を選ぶ。表を向いていて削れ始めた面のうち、投影した中心が動画の矩形の外にある面を優先する
+   *  （横長のPCでは原石が動画の裏にあり、動画の中に着くと自分の💎も印も見えないため）。外に無ければ中も許す */
+  const pickVisibleFace = (prefer: "uncolored" | "any"): number => {
+    const st = faceRef.current, view = viewRef.current, v = videoRectRef.current;
+    const p = { x: 0, y: 0, depth: 0, front: false };
+    let last = -1;
+    for (let tries = 0; tries < 10; tries++) {
+      const f = pickTargetFace(mesh, vertsRef.current, st, view, prefer, Math.random);
+      if (f < 0) return -1;
+      last = f;
+      if (!v.w) return f;
+      projectFaceCenter(mesh, vertsRef.current, f, view, p);
+      const inside = p.x > v.x && p.x < v.x + v.w && p.y > v.y && p.y < v.y + v.h;
+      if (!inside) return f;
+    }
+    return last;
+  };
+
+  /** 1個飛ばす。counted=false は入口の💎（回数にも山の個数にも数えない） */
+  const launch = (color: string, self: boolean, origin: { x: number; y: number } | undefined, key: string | undefined, counted: boolean) => {
       const { W, H } = sizeRef.current;
       if (!W) return;
       const now = performance.now();
       const rgb = hexToRgb(color);
       spawnedRef.current += 1;
-      if (self) selfCountRef.current += 1;
-      recentRef.current.push({ t: now, key: key ?? rgb.join(","), rgb });
+      if (self && counted) selfCountRef.current += 1;
+      if (counted) recentRef.current.push({ t: now, key: key ?? rgb.join(","), rgb });
       const view = viewRef.current;
       // 出発点。自分は押した💎のボタンのすぐ上（無ければ画面の下の方の中央寄り）、他の人は画面の縁の外
       let x0: number, y0: number, bow = 0;
@@ -217,7 +241,7 @@ const StoneCanvas = forwardRef<DiamondCanvasApi, Props>(function StoneCanvas({ v
       }
       const shrink = Math.max(SHRINK_MIN, Math.min(1, Math.sqrt(SHRINK_REF / Math.max(1, spawnedRef.current))));
       const size = (SIZE_MIN + Math.random() * SIZE_RANGE) * shrink * (self ? 1 : OTHER_FLY_RATIO) * FLY_SCALE;
-      const face = pickTargetFace(mesh, vertsRef.current, faceRef.current, view, "uncolored", Math.random);
+      const face = pickVisibleFace("uncolored");
       const a = Math.random() * Math.PI * 2;
       flightsRef.current.push({
         x0, y0, t0: now,
@@ -232,8 +256,16 @@ const StoneCanvas = forwardRef<DiamondCanvasApi, Props>(function StoneCanvas({ v
         size, rgb, self, key: key ?? rgb.join(","),
         x: x0, y: y0,
       });
-      // 押した手応えの閃光は出発点に（今の版と同じ）
-      if (self) flashesRef.current.push({ x: x0, y: y0, t0: now, rgb, size: 10 });
+      // 押した手応えの閃光は出発点に（今の版と同じ）。入口の💎は押していないので出さない
+      if (self && counted) flashesRef.current.push({ x: x0, y: y0, t0: now, rgb, size: 10 });
+  };
+
+  useImperativeHandle(ref, () => ({
+    spawn(color: string, self = false, origin?: { x: number; y: number }, key?: string) {
+      launch(color, self, origin, key, true);
+    },
+    spawnEntry(color: string, origin: { x: number; y: number }, key?: string) {
+      launch(color, true, origin, key, false);
     },
     setTime(t: number, duration: number) {
       timeRef.current = { t: Math.max(0, t), d: Math.max(1, duration) };
@@ -403,9 +435,9 @@ const StoneCanvas = forwardRef<DiamondCanvasApi, Props>(function StoneCanvas({ v
       // 押した時に選んだ面が、飛んでいる間に裏へ回っていたら選び直す
       if (f >= 0) {
         projectFaceCenter(mesh, vertsRef.current, f, view, proj);
-        if (!proj.front) f = pickTargetFace(mesh, vertsRef.current, st, view, "uncolored", Math.random);
+        if (!proj.front) f = pickVisibleFace("uncolored");
       }
-      if (f < 0) f = pickTargetFace(mesh, vertsRef.current, st, view, "uncolored", Math.random);
+      if (f < 0) f = pickVisibleFace("uncolored");
       if (f >= 0 && !st.clear) {
         st.color[f] = fl.rgb;
         st.glow[f] = 1;
@@ -566,7 +598,7 @@ const StoneCanvas = forwardRef<DiamondCanvasApi, Props>(function StoneCanvas({ v
         let tx: number, ty: number;
         if (fl.face >= 0) {
           projectFaceCenter(mesh, vertsRef.current, fl.face, view, proj);
-          if (!proj.front) { fl.face = pickTargetFace(mesh, vertsRef.current, st, view, "uncolored", Math.random); }
+          if (!proj.front) { fl.face = pickVisibleFace("uncolored"); }
         }
         if (fl.face >= 0) { projectFaceCenter(mesh, vertsRef.current, fl.face, view, proj); tx = proj.x; ty = proj.y; }
         else { tx = view.cx + fl.ox * view.r; ty = view.cy + fl.oy * view.r; }
@@ -596,12 +628,13 @@ const StoneCanvas = forwardRef<DiamondCanvasApi, Props>(function StoneCanvas({ v
       if (lay) drawPile(ctx, pileRef.current, now, lay.pile, dpr, pileColorsRef.current);
       drawParticlesBehind(ctx, part, now, v);
       const opts = { now, reduceMotion: rm, light, clip: v };
+      drawStone(ctx, mesh, vertsRef.current, st, view, opts);
       if (sk === "headChorus" && !st.clear) {
-        // 一瞬だけ中から光が漏れ、完成形がちらっと透けて灰色に戻る（頭サビの間に2回・山なりに）【仮】
+        // 一瞬だけ中から光が漏れ、完成形がちらっと透けて灰色に戻る（頭サビの間に2回・山なりに）【仮】。
+        // 原石の上に重ねて描く（先に描くと原石に隠れて見えない）
         const pulse = Math.max(0, Math.sin(sp * Math.PI * 4)) ** 3;
         if (pulse > 0.02) drawStoneGhost(ctx, mesh, view, pulse * 0.85, opts);
       }
-      drawStone(ctx, mesh, vertsRef.current, st, view, opts);
       drawParticlesFront(ctx, part, now, v);
       // 飛んでいる💎（動画の裏を通る＝クリップしない。今の版と同じ）
       for (const fl of flights) {
