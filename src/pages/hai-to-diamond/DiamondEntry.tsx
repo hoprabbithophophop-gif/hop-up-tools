@@ -66,9 +66,12 @@ interface Props {
   reduceMotion?: boolean;
   /** 横向きか。横向きの間は入口の中身を出さない。代わりにページ側が案内だけを出す（Hop決定 2026-09-12） */
   landscape?: boolean;
+  /** 原石の版のスマホ横（動画が左）で、見出し・案内・累計を右の列に置く時の、その列の左端(px)。
+   *  null なら今までどおり（見出しは上・案内は動画の下）。動画の上に文字を重ねないための置き方 */
+  splitRight?: number | null;
 }
 
-export default function DiamondEntry({ total, gemColor, videoBottom, videoReady, loadingSlow, videoFailed = false, onRetry, onOpenSettings, reduceMotion = false, landscape = false }: Props) {
+export default function DiamondEntry({ total, gemColor, videoBottom, videoReady, loadingSlow, videoFailed = false, onRetry, onOpenSettings, reduceMotion = false, landscape = false, splitRight = null }: Props) {
   const [isLandscape, setIsLandscape] = useState<boolean>(() => {
     try { return window.matchMedia("(orientation: landscape)").matches; } catch { return false; }
   });
@@ -88,6 +91,63 @@ export default function DiamondEntry({ total, gemColor, videoBottom, videoReady,
 
   // 横向きの間は何も出さない。部品としては残したまま中身だけ引っ込める＝縦に戻した時に作り直さない
   if (landscape) return null;
+
+  // 原石の版のスマホ横: 動画が左にあるので、見出し・案内・累計は右の列に縦に並べる（動画の上には何も置かない）
+  if (splitRight != null) {
+    return (
+      // 画面ぜんぶを今までと同じ背景で覆い（入口の間は裏の絵を見せない）、その上の右の列に中身を並べる。
+      // 動画（左）は入口より手前に置かれているので隠れない
+      <div style={{ position: "absolute", inset: 0, background: ARENA_BG }}>
+      <div
+        style={{
+          position: "absolute",
+          top: 0, bottom: 0, left: splitRight, right: 0,
+          overflow: "hidden",
+          color: "#e8eaed",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "0.5rem",
+          padding: "0.5rem 0.8rem",
+          fontFamily: "Inter, 'Noto Sans JP', sans-serif",
+          textAlign: "center",
+        }}
+      >
+        {onOpenSettings && (
+          <button type="button" aria-label="表示設定" onClick={onOpenSettings} style={{ position: "absolute", top: 6, right: 6, zIndex: 2, background: "none", border: "none", fontSize: "1.25rem", lineHeight: 1, color: "#9aa0a6", cursor: "pointer", padding: "0.3rem" }}>⚙</button>
+        )}
+        <h1 style={{ fontSize: "1.2rem", fontWeight: 700, letterSpacing: "-0.02em", margin: 0, color: "#f5f7fa", lineHeight: 1.2 }}>灰toダイヤモンド</h1>
+        <p style={{ fontSize: "0.8125rem", fontWeight: 600, letterSpacing: "0.04em", margin: 0, color: "#aab0b6" }}>{SUBTITLE_TAG}</p>
+        <p style={{ fontSize: "0.875rem", fontWeight: 600, margin: "0.4rem 0 0", color: "#e8eaed", lineHeight: 1.5 }}>
+          {videoReady
+            ? "動画の再生ボタンを押すと はじまります"
+            : videoFailed
+              ? "動画を読み込めませんでした。通信を確かめて、もう一度お試しください"
+              : loadingSlow
+                ? "準備に少し時間がかかっています"
+                : "動画を読み込んでいます"}
+        </p>
+        {!videoReady && videoFailed && onRetry && (
+          <button type="button" onClick={onRetry} style={{ background: "#e8eaed", color: "#0b0d13", border: "none", padding: "0.5rem 1.2rem", fontSize: "0.875rem", fontWeight: 700, cursor: "pointer" }}>もう一度</button>
+        )}
+        {shownTotal !== null && (
+          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+            <span aria-hidden="true" style={{ display: "flex", flexShrink: 0 }}>
+              <EntryGem size={GEM_SIZE_LANDSCAPE} color={gemColor} animate={!reduceMotion} />
+            </span>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", textAlign: "left" }}>
+              <span style={{ fontSize: "0.75rem", color: "#9aa0a6" }}>歴代累計</span>
+              <span style={{ fontSize: "1.4rem", fontWeight: 800, letterSpacing: "-0.02em", color: "#f5f7fa", lineHeight: 1, fontVariantNumeric: "tabular-nums", textShadow: "0 2px 6px rgba(0,0,0,0.45)" }}>
+                {shownTotal.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+      </div>
+    );
+  }
 
   return (
     <div

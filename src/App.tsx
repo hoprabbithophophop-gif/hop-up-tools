@@ -41,6 +41,9 @@ function AnimatedRoutes() {
         <Route path="/hai-to-diamond" element={<HaiToDiamondPage />} />
         {/* シェアのリンクに乗る色と構図の札つきの住所。ページは同じ物を出す（札は看板の絵と入口の最初の色に使う） */}
         <Route path="/hai-to-diamond/:member/:comp" element={<HaiToDiamondPage />} />
+        {/* 原石が削れてダイヤになる版【仮の住所】。公開の形（差し替えか並べて置くか・名前）は Hop が決める。
+            住所の文字は HaiToDiamondPage.tsx の STONE_VARIANT_PATH と同じにしておくこと */}
+        <Route path="/hai-to-diamond/stone" element={<HaiToDiamondPage variant="stone" />} />
         <Route path="/hi-tension/author" element={<HiTensionAuthorPage />} />
         <Route path="/hi-tension/practice" element={<HiTensionPracticePage />} />
         <Route path="/arigato-beat/beat" element={<ArigatoBeatTapPage />} />

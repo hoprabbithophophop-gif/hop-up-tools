@@ -85,22 +85,25 @@ interface Props {
   avoidTop?: number;
   /** 動画の矩形の下端。画面の上からのpxで渡す。渡すとシートを動画より下に寄せ、動画に重ならないようにする */
   avoidBottom?: number;
+  /** 動画の矩形の右端。画面の左からのpxで渡す。渡すとシートを動画より右の列に置く（原石の版のスマホ横。動画が左にある） */
+  avoidLeft?: number;
 }
 
-export default function DiamondSettingsSheet({ settings, onChange, onClose, avoidTop, avoidBottom }: Props) {
+export default function DiamondSettingsSheet({ settings, onChange, onClose, avoidTop, avoidBottom, avoidLeft }: Props) {
   // お問い合わせ窓。設定シートとは別の重なり（ContactModal は独自のオーバーレイを持つ）で開くので、
   // シートの背景クリックによる onClose には触れず、閉じても設定シートはそのまま開いたまま
   const [contactOpen, setContactOpen] = useState(false);
   // 動画の矩形をよける置き場所。下端が分かっていればその下へ、上端しか分からなければその上へ。
   // どちらも渡されなければ今までどおり画面の真ん中
-  const dock = avoidBottom != null ? "bottom" : avoidTop != null ? "top" : "center";
+  const dock = avoidLeft != null ? "right" : avoidBottom != null ? "bottom" : avoidTop != null ? "top" : "center";
   const overlayAlign = dock === "bottom" ? "flex-end" : dock === "top" ? "flex-start" : "center";
   // よける時は上下の余白を取らない。ここに余白を入れると、そのぶん板の上端が動画側へせり上がる
-  const overlayPadding = dock === "center" ? "1.2rem" : "0 1.2rem";
+  const overlayPadding = dock === "center" ? "1.2rem" : dock === "right" ? "0.5rem" : "0 1.2rem";
   const panelMaxHeight =
     dock === "bottom" ? `calc(100dvh - ${avoidBottom}px - 8px)`
       : dock === "top" ? `calc(${avoidTop}px - 8px)`
-        : "88dvh";
+        : dock === "right" ? "calc(100dvh - 16px)"
+          : "88dvh";
   const isLight = settings.crowd === LIGHT_DIAMOND_SETTINGS.crowd && settings.reduceMotion === LIGHT_DIAMOND_SETTINGS.reduceMotion;
   const isDefault = settings.crowd === DEFAULT_DIAMOND_SETTINGS.crowd && settings.reduceMotion === DEFAULT_DIAMOND_SETTINGS.reduceMotion;
   const presetBtn = (active: boolean): CSSProperties => ({
@@ -121,7 +124,9 @@ export default function DiamondSettingsSheet({ settings, onChange, onClose, avoi
       onClick={onClose}
       style={{
         position: "fixed",
-        ...(dock === "bottom" ? { top: avoidBottom, left: 0, right: 0, bottom: 0 } : { inset: 0 }),
+        ...(dock === "bottom" ? { top: avoidBottom, left: 0, right: 0, bottom: 0 }
+          : dock === "right" ? { top: 0, bottom: 0, left: avoidLeft, right: 0 }
+            : { inset: 0 }),
         zIndex: 200,
         background: "transparent",
         display: "flex",

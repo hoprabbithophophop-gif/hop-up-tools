@@ -22,6 +22,35 @@ import DiamondColorPages from "./DiamondColorPages";
 import DiamondCommentTicker, { TICKER_HEIGHT, type TickerComment } from "./DiamondCommentTicker";
 import DiamondSettingsSheet, { getDiamondSettings, setDiamondSettings, type DiamondSettings } from "./DiamondSettingsSheet";
 import BouncyNumber from "../hi-tension/components/BouncyNumber";
+import StoneCanvas from "./stone/StoneCanvas";
+import type { StoneLayout, StoneLayoutMode } from "./stone/stoneTypes";
+
+/** 演出の版。mirrorball＝公開中のミラーボール（既定・今までどおり）／stone＝原石が削れてダイヤになる版（2026-09-26 着手）。
+ *  どちらを公開するか・並べて置くかは Hop が後で決める。この値で変わるのは絵の器と置き場所だけで、
+ *  再生の始め方（動画自身の再生ボタン）・記録の送り方・終了画面は同じ */
+export type DiamondVariant = "mirrorball" | "stone";
+/** 原石の版の住所【仮】。名前は Hop が決める。App.tsx の道の振り分けと合わせること */
+export const STONE_VARIANT_PATH = "/hai-to-diamond/stone";
+/** 原石の版で、動画の下（コメントの下端）と原石の間に空ける隙間(px)【仮】 */
+const STONE_GAP = 6;
+/** 原石の版の縦長で、原石と山の領域の分け方（原石側の割合）【仮】 */
+const STONE_PORTRAIT_SPLIT = 0.6;
+/** 原石の版のスマホ横で、動画を画面の左に置く時の上端(px)と、動画が使う幅の割合【仮】 */
+const LS_VIDEO_TOP = 8;
+const LS_VIDEO_WIDTH_RATIO = 0.56;
+/** 原石の版のスマホ横で、動画の下に残す高さ(px)【仮】。チャンネル名の1行と流れるコメント2行ぶん */
+const LS_UNDER_RESERVE = 72;
+/** 原石の版のスマホ横で、右の列の上に置く数字（あなたの💎）の高さ(px)【仮】。原石はその下から */
+const LS_NUMBERS_H = 66;
+/** 原石の版のスマホ横で、原石と山の領域の分け方（原石側の割合）【仮】 */
+const STONE_LANDSCAPE_SPLIT = 0.58;
+/** 原石の版の横長のPCで、山の領域が画面の下からどれだけを使うか（画面の高さの割合）【仮】。コメントと重なる時はコメントの下まで */
+const WIDE_PILE_RATIO = 0.28;
+/** 原石の版で、横長のPCと見なす条件【仮】: 触れる端末でなく、幅が高さの1.1倍以上で、幅 900px 以上 */
+function stoneLayoutModeFor(w: number, h: number): StoneLayoutMode {
+  if (isTouchDevice()) return w > h ? "phoneLandscape" : "portrait";
+  return w >= h * 1.1 && w >= 900 ? "wide" : "portrait";
+}
 
 /** BEYOOOOONDS『灰toダイヤモンド』Promotion Edit（公式）。https://youtu.be/ImXkCr22kCU */
 const VIDEO_ID = "_56xLKRcVYM";   // YOKOOOOOHAMA ARENA Live Edit.（2026-09-07 公開・Hop指定）。前の Promotion Edit は ImXkCr22kCU（記録の池は動画IDごとに別）
@@ -304,7 +333,9 @@ function initialMemberId(): string {
   return pickInitialMemberId(getLastDiamondMemberId(), window.location.pathname);
 }
 
-export default function HaiToDiamondPage() {
+export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?: DiamondVariant } = {}) {
+  /** 原石の版か。false なら今までどおり（ミラーボール）で、以下の stone の分岐は1つも通らない */
+  const stone = variant === "stone";
   const playerRef = useRef<YouTubePlayerApi>(null);
   /** いま1回の最中か（動画の再生の合図を受け取る側から見るための控え） */
   const startedRef = useRef(false);
@@ -451,8 +482,14 @@ export default function HaiToDiamondPage() {
       window.removeEventListener("orientationchange", onResize);
     };
   }, []);
-  /** 横向き。スマホを寝かせた時だけ。この間は中身を出さず、画面いっぱいに案内だけを出す */
-  const landscape = isTouchDevice() && viewport.w > viewport.h;
+  /** 横向き。スマホを寝かせた時だけ。この間は中身を出さず、画面いっぱいに案内だけを出す。
+   *  原石の版は横向きにも置き場所がある（動画が左・原石と山が右）ので、案内は出さない */
+  const landscape = !stone && isTouchDevice() && viewport.w > viewport.h;
+  /** 原石の版の置き方（縦長／横長のPC／スマホ横）。画面の縦横で自動で切り替える */
+  const stoneMode: StoneLayoutMode = stoneLayoutModeFor(viewport.w, viewport.h);
+  /** 原石の版のスマホ横で、動画の中身に使う幅(px)。画面の幅の一定の割合か、高さから 16:9 で決まる幅の小さい方。
+   *  ただし YouTube の必須要件（MIN_VIDEO_WIDTH）は割らない */
+  const lsVideoWidth = Math.max(MIN_VIDEO_WIDTH, Math.min(Math.floor(viewport.w * LS_VIDEO_WIDTH_RATIO), Math.floor((viewport.h - LS_VIDEO_TOP - frame * 2 - LS_UNDER_RESERVE) * 16 / 9)));
   // 横へ倒したら動画を止める。縦に戻しても自動では再生しない＝人が動画の再生ボタンを押す
   useEffect(() => {
     if (landscape) playerRef.current?.pause();
@@ -852,6 +889,46 @@ export default function HaiToDiamondPage() {
   const creditTop = underBox ? underBox.top + frame + COMMENT_GAP : 0;
   const commentTop = creditTop + creditHeight;
   const commentMaxHeight = underBox && bandTop != null ? bandTop - commentTop - TICKER_BAND_GAP : undefined;
+  /** 原石の版の置き場所。コメントの下端から色えらびの上端までを原石と山で分ける（縦長）。
+   *  横長のPCは動画の裏に原石・画面下の端いっぱいに山。スマホ横は動画が左・原石と山が右。
+   *  コメントの流れる場所（動画の下）とは重ねない【仮：解釈A。候補は報告に書く】 */
+  const stoneLayout: StoneLayout | null = (() => {
+    if (!stone || !underBox) return null;
+    const W = viewport.w, H = viewport.h;
+    const bottom = bandTop ?? H - 110;
+    const commentsBottom = commentTop + Math.max(0, Math.min(TICKER_HEIGHT, commentMaxHeight ?? TICKER_HEIGHT));
+    if (stoneMode === "wide") {
+      // 山は画面下の端いっぱい。ただし下端は色えらび（曲の終わりは「最初に戻る」の帯）の上端まで＝
+      // 帯の暗い下地に山と「N個」が隠れないように（PC の終了画面で隠れたのを直した）
+      const pileTop = Math.max(commentsBottom + STONE_GAP, Math.round(H * (1 - WIDE_PILE_RATIO)));
+      return {
+        mode: "wide",
+        stone: { x: 0, y: 0, w: W, h: H },   // 中心と大きさは器が動画の位置から決める
+        pile: { x: 0, y: pileTop, w: W, h: Math.max(0, bottom - pileTop) },
+      };
+    }
+    if (stoneMode === "phoneLandscape") {
+      const right = underBox.left + underBox.width + STONE_GAP;
+      const top = LS_VIDEO_TOP + LS_NUMBERS_H;
+      const h = Math.max(0, bottom - top);
+      const stoneH = Math.round(h * STONE_LANDSCAPE_SPLIT);
+      return {
+        mode: "phoneLandscape",
+        stone: { x: right, y: top, w: Math.max(0, W - right), h: stoneH },
+        pile: { x: right, y: top + stoneH, w: Math.max(0, W - right), h: Math.max(0, h - stoneH) },
+      };
+    }
+    const top = commentsBottom + STONE_GAP;
+    const h = Math.max(0, bottom - top);
+    const stoneH = Math.round(h * STONE_PORTRAIT_SPLIT);
+    return {
+      mode: "portrait",
+      stone: { x: 0, y: top, w: W, h: stoneH },
+      pile: { x: 0, y: top + stoneH, w: W, h: Math.max(0, h - stoneH) },
+    };
+  })();
+  /** 原石の版のスマホ横で、右の列（原石と山と数字）の左端(px)。測れていない間は画面の右半分 */
+  const lsRightX = underBox ? underBox.left + underBox.width + STONE_GAP : Math.round(viewport.w * 0.6);
   /** コメント全文を開いている時の高さ。下のボタンを隠すので画面の下端（セーフエリアの手前）まで目一杯広げる */
   const openCommentHeight = `calc(100dvh - ${commentTop}px - 0.75rem - env(safe-area-inset-bottom))`;
   /** 開いているコメントを YouTube で見る行き先。札が揃っていなければ道を出さない */
@@ -926,11 +1003,14 @@ export default function HaiToDiamondPage() {
         <div style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: landscape ? "none" : undefined }}>
           {/* 動画の下端がまだ測れていない間は設定を開かない。開くと板の置き場所が決まらず
               画面の真ん中＝動画の上に出てしまう。見た目は変えず、押しても何も起きないだけ */}
-          <DiamondEntry landscape={landscape} gemColor={color} videoBottom={underBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} videoFailed={videoFailed && !videoReady} onRetry={retryVideo} onOpenSettings={() => { if (underBox) setSettingsOpen(true); }} reduceMotion={settings.reduceMotion} />
+          <DiamondEntry landscape={landscape} splitRight={stone && stoneMode === "phoneLandscape" ? lsRightX : null} gemColor={color} videoBottom={underBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} videoFailed={videoFailed && !videoReady} onRetry={retryVideo} onOpenSettings={() => { if (underBox) setSettingsOpen(true); }} reduceMotion={settings.reduceMotion} />
         </div>
       )}
       {settingsOpen && !landscape && (
-        <DiamondSettingsSheet avoidBottom={underBox?.top} settings={settings} onChange={handleSettingsChange} onClose={() => setSettingsOpen(false)} />
+        <DiamondSettingsSheet
+          avoidBottom={stone && stoneMode === "phoneLandscape" ? undefined : underBox?.top}
+          avoidLeft={stone && stoneMode === "phoneLandscape" ? lsRightX : undefined}
+          settings={settings} onChange={handleSettingsChange} onClose={() => setSettingsOpen(false)} />
       )}
 
       {/* 光と💎の層と動画は、横向きの間も作り直さずそのまま持っておく＝縦に戻した時に
@@ -943,21 +1023,25 @@ export default function HaiToDiamondPage() {
           ...(landscape ? { transform: "translateX(-200vw)", pointerEvents: "none" as const } : {}),
         }}
       >
-        {/* 光と💎の層。動画の裏（zIndex 0） */}
-        <DiamondCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={frame} reduceMotion={settings.reduceMotion} />
+        {/* 光と💎の層。動画の裏（zIndex 0）。版で器を差し替える。窓口（DiamondCanvasApi）は同じ */}
+        {stone
+          ? <StoneCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={frame} reduceMotion={settings.reduceMotion} layout={stoneLayout} />
+          : <DiamondCanvas ref={canvasRef} videoBoxRef={videoBoxRef} frame={frame} reduceMotion={settings.reduceMotion} />}
 
         {/* 動画。入口の見出しの直下に固定。SE で下のコメントと色えらびが重ならないように上へ寄せた（Hop決定 2026-09-12）。
-            額縁ぶんの余白を空け、背景は透明にして裏のキャンバスの額縁を見せる */}
+            額縁ぶんの余白を空け、背景は透明にして裏のキャンバスの額縁を見せる。
+            原石の版: 横長のPCでは画面の縦の真ん中（ただし上の数字の空きは VIDEO_TOP_PX ぶん残す）、スマホ横では左に置く */}
         <div
           style={{
             position: "absolute",
             // 入口の間は動画を入口の上に出す＝真ん中に動画が見えていて、その再生ボタンを押せる（Hop決定 2026-09-10）
             zIndex: started ? 2 : 20,
-            top: VIDEO_TOP_PX,
-            left: "50%",
-            transform: "translate(-50%, 0)",
+            ...(stone && stoneMode === "phoneLandscape"
+              ? { top: LS_VIDEO_TOP, left: 0, transform: "none", width: lsVideoWidth + frame * 2 }
+              : stone && stoneMode === "wide"
+                ? { top: Math.max(VIDEO_TOP_PX, Math.round((viewport.h - PC_VIDEO_WIDTH * 9 / 16) / 2) - 60), left: "50%", transform: "translate(-50%, 0)", width: PC_VIDEO_WIDTH + FRAME * 2 }
+                : { top: VIDEO_TOP_PX, left: "50%", transform: "translate(-50%, 0)", width: isTouchDevice() ? "100%" : PC_VIDEO_WIDTH + FRAME * 2 }),
             padding: frame,
-            width: isTouchDevice() ? "100%" : PC_VIDEO_WIDTH + FRAME * 2,
             maxWidth: "100%",
             boxSizing: "border-box",
           }}
@@ -1105,9 +1189,10 @@ export default function HaiToDiamondPage() {
           style={{
             position: "absolute",
             zIndex: 3,
-            left: 0,
-            right: 0,
-            bottom: numbersBottom,
+            // 原石の版のスマホ横は、動画の上に空きが無いので右の列（原石の上）に置く【仮】
+            ...(stone && stoneMode === "phoneLandscape"
+              ? { left: lsRightX, right: 0, top: LS_VIDEO_TOP }
+              : { left: 0, right: 0, bottom: numbersBottom }),
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -1210,7 +1295,8 @@ export default function HaiToDiamondPage() {
         style={{
           position: "absolute",
           zIndex: 3,
-          left: 0,
+          // 原石の版のスマホ横は、動画（左）に掛からないよう右の列の中に置く【仮】
+          left: stone && stoneMode === "phoneLandscape" ? lsRightX : 0,
           right: 0,
           // iPhone のホームバーに掛からないよう、端末が空けてほしいと言っている下の余白を足す。
           // index.html の指定で画面の端まで描く形にしてあるので、この余白は自分で足さないと入らない
