@@ -85,7 +85,9 @@ const OTHER_FLY_RATIO = 0.5;
 /** まだ面が1つも削れていない間に届いた色を、次に削れる面へ回すための待ち行列の上限 */
 const COLOR_QUEUE_MAX = 64;
 /** 💎が当たった時に出す削りかすの数 */
-const CHIPS_SELF = 7, CHIPS_OTHER = 3;
+const CHIPS_SELF = 7, CHIPS_OTHER = 1;   // 他の人の分は1粒に間引いた（Hop報告 2026-09-26: 粒が多すぎて表面が光っているだけに見える）
+/** 他の人の💎が当たった時の面の輝き（自分は1）と閃光の大きさ【仮】 */
+const OTHER_GLOW = 0.5, OTHER_FLASH = 4;
 /** 間奏の飛び散り: 拍ごとに出す削りかすの数 */
 const SCATTER_PER_BEAT = 14;
 /** 白い色の判定。r,g,b が全部この値以上なら白扱い＝放つ時は十字のきらめき */
@@ -440,11 +442,11 @@ const StoneCanvas = forwardRef<StoneCanvasApi, Props>(function StoneCanvas({ vid
       if (f < 0) f = pickVisibleFace("uncolored");
       if (f >= 0 && !st.clear) {
         st.color[f] = fl.rgb;
-        st.glow[f] = 1;
+        st.glow[f] = fl.self ? 1 : Math.max(st.glow[f], OTHER_GLOW);
         if (fl.self) st.own[f] = 1;
       } else if (f >= 0) {
         // 完成した後は色は放たれた後なので面には残さない。輝きだけ
-        st.glow[f] = 1;
+        st.glow[f] = fl.self ? 1 : Math.max(st.glow[f], OTHER_GLOW);
         if (fl.self) st.own[f] = 1;
       } else {
         // まだ面が無い。色は次に削れる面へ回す
@@ -452,7 +454,7 @@ const StoneCanvas = forwardRef<StoneCanvasApi, Props>(function StoneCanvas({ vid
         q.push(fl.rgb);
         if (q.length > COLOR_QUEUE_MAX) q.shift();
       }
-      flashesRef.current.push({ x: fl.x, y: fl.y, t0: now, rgb: fl.rgb, size: fl.self ? 12 : 7 });
+      flashesRef.current.push({ x: fl.x, y: fl.y, t0: now, rgb: fl.rgb, size: fl.self ? 12 : OTHER_FLASH });
       emitChips(partRef.current, fl.x, fl.y, fl.rgb, fl.self ? CHIPS_SELF : CHIPS_OTHER, now, floorY);
       void section;
     };

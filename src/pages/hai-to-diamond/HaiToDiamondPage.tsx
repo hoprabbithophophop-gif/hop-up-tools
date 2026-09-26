@@ -36,12 +36,14 @@ const STONE_GAP = 6;
 /** 原石の版の縦長で、再生中の動画の上端(px)【仮】。上の「あなたの💎」の空きを 108 から詰めて原石の場所を稼ぐ
  *  （Hop決定 2026-09-26: 375×667 では原石の場所が約28pxしか残らなかったため）。
  *  入口の間は見出しが動画に重ならないよう今までどおり VIDEO_TOP_PX。数字の塊は約72pxなのでこれより詰めない */
-const STONE_VIDEO_TOP_PX = 20;   // 案A（Hop決定 2026-09-26）: 再生中は動画を最上段へ。左上の「QA」の印（高さ約20px）にだけ掛からない位置
+const STONE_VIDEO_TOP_PX = 0;    // 案A（Hop決定 2026-09-26）: 入口も再生中も曲の終わりも動画を最上段に。⚙と「QA」の印は動画の下
 /** 案A のスマホ縦で、💎ボタンの大きさ(px)・コメントの行数ぶんの高さ(px)・山の領域の高さの下限(px)・山の領域の割合【仮】 */
 const STONE_GEM_SIZE = 48;
 const STONE_COMMENT_ROWS_PX = 22;
 const STONE_PILE_MIN_PX = 50;
 const STONE_PILE_RATIO = 0.18;
+/** 原石の版で、他の人の💎を0.1秒に当てる上限【仮】（今の版の20から間引く・Hop報告 2026-09-26） */
+const STONE_OTHERS_PER_TICK = 5;
 /** 原石の版の縦長で、原石と山の領域の分け方（原石側の割合）【仮】 */
 const STONE_PORTRAIT_SPLIT = 0.6;
 /** 原石の版のスマホ横で、動画を画面の左に置く時の上端(px)と、動画が使う幅の割合【仮】 */
@@ -465,6 +467,17 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
   /** 数字ブロックの下端＝動画の額縁の上端。動画の位置を測って決める（画面サイズで変わる） */
   const numbersRef = useRef<HTMLDivElement>(null);
   const [numbersBottom, setNumbersBottom] = useState<number | string>("60%");
+  /** 曲の終わりの数字の塊の高さ(px)。案A のスマホ縦では塊が動画の直下に来るので、原石の領域をその下から始める */
+  const [numbersHeight, setNumbersHeight] = useState(0);
+  useEffect(() => {
+    const el = numbersRef.current;
+    if (!el) { setNumbersHeight(0); return; }
+    const measureH = () => setNumbersHeight(Math.round(el.getBoundingClientRect().height));
+    measureH();
+    const ro = new ResizeObserver(measureH);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ended, started, playing]);
   /** 動画の矩形の下端の位置と、額縁の左端・幅。その下に置く流れるコメント・入口・設定の置き場所の基準 */
   const [underBox, setUnderBox] = useState<{ top: number; left: number; width: number } | null>(null);
   /** 色えらびの器の上端。ここまでに入る行数だけコメントを流す＝下の2行が色えらびの裏に隠れない */
@@ -841,7 +854,8 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
     let last = lastBucketRef.current;
     if (cur < last) { last = cur - 1; spawnBacklog.fill(0); }        // 巻き戻し（頭出し等）。飛ばし残しの控えも捨てる
     if (cur - last > 40) { last = cur - 40; spawnBacklog.fill(0); }  // 大きく飛んだ時は直近2秒ぶんだけ
-    const budget = OTHERS_PER_TICK[settingsRef.current.crowd];
+    // 原石の版は当たりを間引く。0.1秒に20個が当たると石の表面がずっと光って何か分からない（Hop報告 2026-09-26）
+    const budget = Math.min(OTHERS_PER_TICK[settingsRef.current.crowd], stone ? STONE_OTHERS_PER_TICK : Infinity);
     if (budget > 0) {
       // まずこの0.1秒ぶんの登録を人ごとに数える（同じ色の人がいても合算しない・Hop指摘 2026-09-14）
       tickCounts.fill(0);
@@ -941,7 +955,7 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
     // 縦長・案A（Hop決定 2026-09-26）: 原石の領域はチャンネル名の行のすぐ下から。コメント1行はその上端を流れる（原石に重なる）。
     // 山は下の一定の割合（下限あり）で、残りが全部原石。
     // 以前はコメントの下から始めていて、375×667 では原石の場所が約28pxしか残らず原石が見えなかった
-    const top = commentTop;
+    const top = ended ? underBox.top + frame + 2 + numbersHeight + STONE_GAP : commentTop;
     const h = Math.max(0, bottom - top);
     const pileH = Math.min(h, Math.max(STONE_PILE_MIN_PX, Math.round(h * STONE_PILE_RATIO)));
     const stoneH = h - pileH;
@@ -987,7 +1001,8 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
           data-testid="diamond-qa-mark"
           style={{
             position: "absolute",
-            top: "calc(6px + env(safe-area-inset-top))",
+            // 案A のスマホ縦は動画が最上段なので、印は動画の下（Hop指示 2026-09-26）
+            top: compactStone ? (underBox ? underBox.top + frame + 2 : 0) : "calc(6px + env(safe-area-inset-top))",
             left: 8,
             zIndex: 300,
             fontSize: "0.75rem",
@@ -1027,7 +1042,7 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
         <div style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: landscape ? "none" : undefined }}>
           {/* 動画の下端がまだ測れていない間は設定を開かない。開くと板の置き場所が決まらず
               画面の真ん中＝動画の上に出てしまう。見た目は変えず、押しても何も起きないだけ */}
-          <DiamondEntry landscape={landscape} splitRight={stone && stoneMode === "phoneLandscape" ? lsRightX : null} gemColor={color} videoBottom={underBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} videoFailed={videoFailed && !videoReady} onRetry={retryVideo} onOpenSettings={() => { if (underBox) setSettingsOpen(true); }} reduceMotion={settings.reduceMotion} />
+          <DiamondEntry landscape={landscape} splitRight={stone && stoneMode === "phoneLandscape" ? lsRightX : null} stackBelow={compactStone} gemColor={color} videoBottom={underBox?.top ?? null} videoReady={entryReady} loadingSlow={loadingSlow} total={othersTotal === null ? null : Math.max(othersTotal, totalFloorRef.current)} videoFailed={videoFailed && !videoReady} onRetry={retryVideo} onOpenSettings={() => { if (underBox) setSettingsOpen(true); }} reduceMotion={settings.reduceMotion} />
         </div>
       )}
       {settingsOpen && !landscape && (
@@ -1064,7 +1079,7 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
               ? { top: LS_VIDEO_TOP, left: 0, transform: "none", width: lsVideoWidth + frame * 2 }
               : stone && stoneMode === "wide"
                 ? { top: Math.max(VIDEO_TOP_PX, Math.round((viewport.h - PC_VIDEO_WIDTH * 9 / 16) / 2) - 60), left: "50%", transform: "translate(-50%, 0)", width: PC_VIDEO_WIDTH + FRAME * 2 }
-                : { top: compactStone && started && !ended ? STONE_VIDEO_TOP_PX : VIDEO_TOP_PX, left: "50%", transform: "translate(-50%, 0)", width: isTouchDevice() ? "100%" : PC_VIDEO_WIDTH + FRAME * 2 }),
+                : { top: compactStone ? STONE_VIDEO_TOP_PX : VIDEO_TOP_PX, left: "50%", transform: "translate(-50%, 0)", width: isTouchDevice() ? "100%" : PC_VIDEO_WIDTH + FRAME * 2 }),
             padding: frame,
             maxWidth: "100%",
             boxSizing: "border-box",
@@ -1220,7 +1235,9 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
               ? { left: lsRightX, right: 0, top: LS_VIDEO_TOP }
               : compactStone && !ended && stoneLayout
                 ? { left: "auto", right: 10, top: stoneLayout.stone.y + STONE_COMMENT_ROWS_PX + 2, alignItems: "flex-end" as const }
-                : { left: 0, right: 0, bottom: numbersBottom }),
+                : compactStone && underBox
+                  ? { left: 0, right: 0, top: underBox.top + frame + 2 }   // 曲の終わりの塊は動画の直下（案A）
+                  : { left: 0, right: 0, bottom: numbersBottom }),
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
