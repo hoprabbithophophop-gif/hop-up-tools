@@ -103,6 +103,8 @@ interface Props {
   reduceMotion?: boolean;
   /** 一時停止中など、薄く見せて押しても💎を降らせないようにする（色えらびとページ送りはできたまま） */
   disabled?: boolean;
+  /** 1つの💎の大きさ(px)。渡さなければ今までどおり GEM_SIZE（64）。原石の版のスマホ縦は 48 にして原石の場所を稼ぐ（Hop決定 2026-09-26 案A） */
+  gemSize?: number;
 }
 
 /** 輪の上での差 d(px) を「近い方の回り方」に直す。帯の長さ L で一周 */
@@ -126,8 +128,12 @@ const DiamondColorPages = memo(function DiamondColorPages({
   inviting = false,
   reduceMotion = false,
   disabled = false,
+  gemSize = GEM_SIZE,
 }: Props) {
   const n = pages.length;
+  /** 💎の列の中心の高さ。💎が小さい時はそのぶん上へ寄せる＝下の点との間隔を保つ */
+  const gemCenterY = GEM_CENTER_Y - (GEM_SIZE - gemSize) / 2;
+  const dotsTop = DOTS_TOP - (GEM_SIZE - gemSize);
   const containerRef = useRef<HTMLDivElement>(null);
   const windowRef = useRef<HTMLDivElement>(null);
   /** ページの要素の控え。並べ替えないので番号＝ページの番号 */
@@ -143,8 +149,8 @@ const DiamondColorPages = memo(function DiamondColorPages({
 
   /** ページごとの💎の列の幅(px)。人数が違うのでページごとに違う */
   const contentWidths = useMemo(
-    () => pages.map((p) => (p.length > 0 ? p.length * GEM_SIZE + (p.length - 1) * GEM_GAP : 0)),
-    [pages],
+    () => pages.map((p) => (p.length > 0 ? p.length * gemSize + (p.length - 1) * GEM_GAP : 0)),
+    [pages, gemSize],
   );
   /** 各ページの中心が、繋げた帯の上のどこにあるか(px)と、帯を一周した長さ(px) */
   const { centers, ringLength } = useMemo(() => {
@@ -402,7 +408,7 @@ const DiamondColorPages = memo(function DiamondColorPages({
       style={{
         position: "relative",
         width: "100%",
-        height: BAND_HEIGHT,
+        height: BAND_HEIGHT - (GEM_SIZE - gemSize),   // 💎が小さい時はそのぶん器も低く
         // 一時停止中は全体を薄くして「押しても降らない」ことを見た目でも伝える
         opacity: disabled ? 0.4 : 1,
         touchAction: "none",       // 横になぞってもページが動かないように
@@ -436,8 +442,8 @@ const DiamondColorPages = memo(function DiamondColorPages({
           position: "absolute",
           left: 0,
           right: 0,
-          top: GEM_CENTER_Y - GEM_SIZE / 2 - BAND_PAD,
-          height: DOTS_TOP + DOT_SIZE + BAND_PAD - (GEM_CENTER_Y - GEM_SIZE / 2 - BAND_PAD),
+          top: gemCenterY - gemSize / 2 - BAND_PAD,
+          height: dotsTop + DOT_SIZE + BAND_PAD - (gemCenterY - gemSize / 2 - BAND_PAD),
           zIndex: 0,
           background: BAND_BG,
           backdropFilter: `blur(${BAND_BLUR}px)`,
@@ -459,7 +465,7 @@ const DiamondColorPages = memo(function DiamondColorPages({
           top: 0,
           width: "100%",
           maxWidth: WINDOW_MAX_WIDTH + PEEK_OUTSIDE * 2,
-          height: BAND_HEIGHT,
+          height: BAND_HEIGHT - (GEM_SIZE - gemSize),
           overflow: "hidden",
           zIndex: 1,
         }}
@@ -474,9 +480,9 @@ const DiamondColorPages = memo(function DiamondColorPages({
               // 帯の上での置き場所は paint() が transform で入れる。ここでは窓の真ん中に据えるだけ
               left: "50%",
               marginLeft: -contentWidths[pi] / 2,
-              top: GEM_CENTER_Y - GEM_SIZE / 2,
+              top: gemCenterY - gemSize / 2,
               width: contentWidths[pi],
-              height: GEM_SIZE,
+              height: gemSize,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -497,8 +503,8 @@ const DiamondColorPages = memo(function DiamondColorPages({
                   onPointerDown={(e) => { e.stopPropagation(); beginDrag(e, { key, id: opt.id, page: pi }); }}
                   style={{
                     flex: "0 0 auto",
-                    width: GEM_SIZE,
-                    height: GEM_SIZE,
+                    width: gemSize,
+                    height: gemSize,
                     background: "none",
                     border: "none",
                     padding: 0,
@@ -520,19 +526,19 @@ const DiamondColorPages = memo(function DiamondColorPages({
                           position: "absolute",
                           left: "50%",
                           top: "50%",
-                          width: GEM_SIZE,
-                          height: GEM_SIZE,
-                          marginLeft: -GEM_SIZE / 2,
-                          marginTop: -GEM_SIZE / 2,
+                          width: gemSize,
+                          height: gemSize,
+                          marginLeft: -gemSize / 2,
+                          marginTop: -gemSize / 2,
                           transform: `scale(${SELECTED_RING_SCALE})`,
                           pointerEvents: "none",
                         }}
                       >
-                        <FaIcon icon={faGem} size={GEM_SIZE} color={SELECTED_RING_COLOR} />
+                        <FaIcon icon={faGem} size={gemSize} color={SELECTED_RING_COLOR} />
                       </span>
                     )}
                     <span style={{ display: "block", position: "relative" }}>
-                      <FaIcon icon={faGem} size={GEM_SIZE} color={opt.color} />
+                      <FaIcon icon={faGem} size={gemSize} color={opt.color} />
                     </span>
                     {/* 初回タップまでの誘い: 白い斜線2本が💎の上を左から右へ流れる。いまの色の💎にだけ出し、1回押したら消える */}
                     {inviting && !reduceMotion && opt.id === selectedId && (
@@ -577,7 +583,7 @@ const DiamondColorPages = memo(function DiamondColorPages({
           position: "absolute",
           left: 0,
           right: 0,
-          top: DOTS_TOP,
+          top: dotsTop,
           zIndex: 1,
           display: "flex",
           justifyContent: "center",

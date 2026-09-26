@@ -31,8 +31,17 @@ import type { StoneLayout, StoneLayoutMode } from "./stone/stoneTypes";
 export type DiamondVariant = "mirrorball" | "stone";
 /** 原石の版の住所【仮】。名前は Hop が決める。App.tsx の道の振り分けと合わせること */
 export const STONE_VARIANT_PATH = "/hai-to-diamond/stone";
-/** 原石の版で、動画の下（コメントの下端）と原石の間に空ける隙間(px)【仮】 */
+/** 原石の版で、動画の額縁の下端と原石の領域の間に空ける隙間(px)【仮】 */
 const STONE_GAP = 6;
+/** 原石の版の縦長で、再生中の動画の上端(px)【仮】。上の「あなたの💎」の空きを 108 から詰めて原石の場所を稼ぐ
+ *  （Hop決定 2026-09-26: 375×667 では原石の場所が約28pxしか残らなかったため）。
+ *  入口の間は見出しが動画に重ならないよう今までどおり VIDEO_TOP_PX。数字の塊は約72pxなのでこれより詰めない */
+const STONE_VIDEO_TOP_PX = 20;   // 案A（Hop決定 2026-09-26）: 再生中は動画を最上段へ。左上の「QA」の印（高さ約20px）にだけ掛からない位置
+/** 案A のスマホ縦で、💎ボタンの大きさ(px)・コメントの行数ぶんの高さ(px)・山の領域の高さの下限(px)・山の領域の割合【仮】 */
+const STONE_GEM_SIZE = 48;
+const STONE_COMMENT_ROWS_PX = 22;
+const STONE_PILE_MIN_PX = 50;
+const STONE_PILE_RATIO = 0.18;
 /** 原石の版の縦長で、原石と山の領域の分け方（原石側の割合）【仮】 */
 const STONE_PORTRAIT_SPLIT = 0.6;
 /** 原石の版のスマホ横で、動画を画面の左に置く時の上端(px)と、動画が使う幅の割合【仮】 */
@@ -487,6 +496,8 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
   const landscape = !stone && isTouchDevice() && viewport.w > viewport.h;
   /** 原石の版の置き方（縦長／横長のPC／スマホ横）。画面の縦横で自動で切り替える */
   const stoneMode: StoneLayoutMode = stoneLayoutModeFor(viewport.w, viewport.h);
+  /** 案A の置き方（原石の版のスマホ縦）。再生中は動画を最上段に、数字は原石の右上に小さく、コメントは1行、💎ボタンは 48px */
+  const compactStone = stone && stoneMode === "portrait";
   /** 原石の版のスマホ横で、動画の中身に使う幅(px)。画面の幅の一定の割合か、高さから 16:9 で決まる幅の小さい方。
    *  ただし YouTube の必須要件（MIN_VIDEO_WIDTH）は割らない */
   const lsVideoWidth = Math.max(MIN_VIDEO_WIDTH, Math.min(Math.floor(viewport.w * LS_VIDEO_WIDTH_RATIO), Math.floor((viewport.h - LS_VIDEO_TOP - frame * 2 - LS_UNDER_RESERVE) * 16 / 9)));
@@ -530,7 +541,8 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
     };
     // gemsReady は、読み込み画面が消えて本編の器が初めて置かれる合図。
     // ここを入れておかないと、器が無い間に測って諦めたまま測り直さない
-  }, [started, frame, landscape, gemsReady]);
+    // ended は原石の版（案A）で動画が最上段から元の位置へ戻る合図。戻った後の位置で測り直す
+  }, [started, frame, landscape, gemsReady, ended]);
 
   /** チャンネル名と動画タイトルの器。描かれた時に高さを測り、折り返しで高さが変われば測り直す */
   const creditRef = useCallback((el: HTMLDivElement | null) => {
@@ -893,14 +905,17 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
    *  コメントの上にチャンネル名と動画タイトルの1行が入るので、その高さも引いておく */
   const creditTop = underBox ? underBox.top + frame + COMMENT_GAP : 0;
   const commentTop = creditTop + creditHeight;
-  const commentMaxHeight = underBox && bandTop != null ? bandTop - commentTop - TICKER_BAND_GAP : undefined;
+  const commentMaxHeight = compactStone
+    ? STONE_COMMENT_ROWS_PX   // 案A: コメントは1行だけ（原石の領域の上端を流れる）
+    : underBox && bandTop != null ? bandTop - commentTop - TICKER_BAND_GAP : undefined;
   /** 原石の版の置き場所。コメントの下端から色えらびの上端までを原石と山で分ける（縦長）。
    *  横長のPCは動画の裏に原石・画面下の端いっぱいに山。スマホ横は動画が左・原石と山が右。
-   *  コメントの流れる場所（動画の下）とは重ねない【仮：解釈A。候補は報告に書く】 */
+   *  縦長ではコメントを原石に重ねて流す（Hop決定 2026-09-26。狭い端末で原石の場所が無くなるため）。横長のPCの山はコメントの下 */
   const stoneLayout: StoneLayout | null = (() => {
     if (!stone || !underBox) return null;
     const W = viewport.w, H = viewport.h;
     const bottom = bandTop ?? H - 110;
+    /** コメントの下端。横長のPCで山の上端を決めるのに使う（縦長は原石にコメントを重ねるので使わない） */
     const commentsBottom = commentTop + Math.max(0, Math.min(TICKER_HEIGHT, commentMaxHeight ?? TICKER_HEIGHT));
     if (stoneMode === "wide") {
       // 山は画面下の端いっぱい。ただし下端は色えらび（曲の終わりは「最初に戻る」の帯）の上端まで＝
@@ -923,9 +938,13 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
         pile: { x: right, y: top + stoneH, w: Math.max(0, W - right), h: Math.max(0, h - stoneH) },
       };
     }
-    const top = commentsBottom + STONE_GAP;
+    // 縦長・案A（Hop決定 2026-09-26）: 原石の領域はチャンネル名の行のすぐ下から。コメント1行はその上端を流れる（原石に重なる）。
+    // 山は下の一定の割合（下限あり）で、残りが全部原石。
+    // 以前はコメントの下から始めていて、375×667 では原石の場所が約28pxしか残らず原石が見えなかった
+    const top = commentTop;
     const h = Math.max(0, bottom - top);
-    const stoneH = Math.round(h * STONE_PORTRAIT_SPLIT);
+    const pileH = Math.min(h, Math.max(STONE_PILE_MIN_PX, Math.round(h * STONE_PILE_RATIO)));
+    const stoneH = h - pileH;
     return {
       mode: "portrait",
       stone: { x: 0, y: top, w: W, h: stoneH },
@@ -1045,7 +1064,7 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
               ? { top: LS_VIDEO_TOP, left: 0, transform: "none", width: lsVideoWidth + frame * 2 }
               : stone && stoneMode === "wide"
                 ? { top: Math.max(VIDEO_TOP_PX, Math.round((viewport.h - PC_VIDEO_WIDTH * 9 / 16) / 2) - 60), left: "50%", transform: "translate(-50%, 0)", width: PC_VIDEO_WIDTH + FRAME * 2 }
-                : { top: VIDEO_TOP_PX, left: "50%", transform: "translate(-50%, 0)", width: isTouchDevice() ? "100%" : PC_VIDEO_WIDTH + FRAME * 2 }),
+                : { top: compactStone && started && !ended ? STONE_VIDEO_TOP_PX : VIDEO_TOP_PX, left: "50%", transform: "translate(-50%, 0)", width: isTouchDevice() ? "100%" : PC_VIDEO_WIDTH + FRAME * 2 }),
             padding: frame,
             maxWidth: "100%",
             boxSizing: "border-box",
@@ -1090,8 +1109,9 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
             ref={creditRef}
             data-testid="diamond-video-credit"
             style={{
-              fontSize: 12,
-              lineHeight: `${CREDIT_LINE_HEIGHT}px`,
+              // 案A のスマホ縦は小さい字で（1行に近づけて原石の場所を稼ぐ。文字は省略しない）
+              fontSize: compactStone ? 10 : 12,
+              lineHeight: compactStone ? "13px" : `${CREDIT_LINE_HEIGHT}px`,
               color: "#9aa0a6",
               textShadow: "0 0 8px rgba(0,0,0,0.8)",
             }}
@@ -1194,10 +1214,13 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
           style={{
             position: "absolute",
             zIndex: 3,
-            // 原石の版のスマホ横は、動画の上に空きが無いので右の列（原石の上）に置く【仮】
+            // 原石の版のスマホ横は、動画の上に空きが無いので右の列（原石の上）に置く【仮】。
+            // 案A のスマホ縦の再生中は、原石の領域の右上に小さく置く（曲の終わりは今までどおり動画の上）
             ...(stone && stoneMode === "phoneLandscape"
               ? { left: lsRightX, right: 0, top: LS_VIDEO_TOP }
-              : { left: 0, right: 0, bottom: numbersBottom }),
+              : compactStone && !ended && stoneLayout
+                ? { left: "auto", right: 10, top: stoneLayout.stone.y + STONE_COMMENT_ROWS_PX + 2, alignItems: "flex-end" as const }
+                : { left: 0, right: 0, bottom: numbersBottom }),
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -1281,9 +1304,9 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
             </>
           ) : (
             <div style={{ display: "flex", gap: "1.8rem", justifyContent: "center", alignItems: "flex-end" }}>
-              <div>
-                <p style={endLabelStyle}>あなたの💎</p>
-                <BouncyNumber value={liveCount} color={color} size="2.2rem" outlineColor={NUMBER_OUTLINE} />
+              <div style={compactStone ? { textAlign: "right" } : undefined}>
+                <p style={compactStone ? { ...endLabelStyle, fontSize: "0.625rem", margin: "0 0 0.1rem" } : endLabelStyle}>あなたの💎</p>
+                <BouncyNumber value={liveCount} color={color} size={compactStone ? "1.4rem" : "2.2rem"} outlineColor={NUMBER_OUTLINE} />
               </div>
             </div>
           )}
@@ -1351,6 +1374,7 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
                 inviting={liveCount === 0}
                 reduceMotion={settings.reduceMotion}
                 disabled={paused}
+                gemSize={compactStone ? STONE_GEM_SIZE : undefined}
               />
             )
           ) : highlighting ? (
@@ -1369,6 +1393,7 @@ export default function HaiToDiamondPage({ variant = "mirrorball" }: { variant?:
                 selectedId={memberId}
                 onSelect={handlePickColor}
                 reduceMotion={settings.reduceMotion}
+                gemSize={compactStone ? STONE_GEM_SIZE : undefined}
               />
             )
           ) : ended ? (
