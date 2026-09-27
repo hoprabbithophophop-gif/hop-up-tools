@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import LoadingDots from "../../hi-tension/components/LoadingDots";
 import { tbLog, reportIncidentThrottled } from "@/utils/debugLog";
+import { PAUSE_PLAYERS_EVENT } from "@/lib/pageWave";
 
 // 聴き比べ用の1枚プレイヤー。hi-tension の YouTubePlayer を流用（CONTAINER_ID と LoadingDots パスのみ変更）。
 // iOS対策の要: 再生開始/動画切替はユーザーのタップハンドラ内で同期的に loadVideo/unMute を呼ぶこと。
@@ -81,6 +82,13 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   useEffect(() => { onEndedRef.current = onEnded; }, [onEnded]);
   useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
   useEffect(() => { onPlayerStateChangeRef.current = onPlayerStateChange; }, [onPlayerStateChange]);
+
+  // ページ移動の波でページが空白になる時は止める（src/lib/pageWave.ts）
+  useEffect(() => {
+    const pause = () => { wantPlayRef.current = false; try { playerRef.current?.pauseVideo(); } catch { /* ignore */ } };
+    window.addEventListener(PAUSE_PLAYERS_EVENT, pause);
+    return () => window.removeEventListener(PAUSE_PLAYERS_EVENT, pause);
+  }, []);
 
   useEffect(() => {
     let mounted = true;

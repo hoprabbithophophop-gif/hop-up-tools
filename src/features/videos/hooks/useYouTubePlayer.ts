@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { PAUSE_PLAYERS_EVENT } from '../../../lib/pageWave';
 
 const PLAYER_CONTAINER_ID = 'chapter-player';
 const POLLING_MS = 250;
@@ -72,6 +73,13 @@ export function useYouTubePlayer({
   useEffect(() => {
     onChapterEndRef.current = onChapterEnd;
   }, [onChapterEnd]);
+
+  // ページ移動の波でページが空白になる時は止める（src/lib/pageWave.ts）
+  useEffect(() => {
+    const pause = () => { try { playerRef.current?.pauseVideo(); } catch { /* ignore */ } };
+    window.addEventListener(PAUSE_PLAYERS_EVENT, pause);
+    return () => window.removeEventListener(PAUSE_PLAYERS_EVENT, pause);
+  }, []);
 
   useEffect(() => {
     onPlayStateChangeRef.current = onPlayStateChange;

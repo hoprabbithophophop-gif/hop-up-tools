@@ -27,10 +27,16 @@ export function hasEmbeddedPlayer(area: HTMLElement): boolean {
   return area.querySelector(PLAYER_SELECTOR) !== null;
 }
 
+// 空白にしたページの動画は止めてもらう（見えないプレーヤーから音だけ鳴らさない。YouTube Developer Policies III.I.9）。
+// 各プレーヤーはこの合図を聞いて自分で一時停止する
+export const PAUSE_PLAYERS_EVENT = "pagewave:pause-players";
+
 // 見張りを始めた時点から止めるまで、プレーヤーが現れたら次の描画より前にページ部分を空白にする
 export function guardPlayers(area: HTMLElement): () => void {
   const hideIfPlayer = () => {
-    if (hasEmbeddedPlayer(area)) area.style.visibility = "hidden";
+    if (!hasEmbeddedPlayer(area) || area.style.visibility === "hidden") return;
+    area.style.visibility = "hidden";
+    window.dispatchEvent(new Event(PAUSE_PLAYERS_EVENT));
   };
   hideIfPlayer();
   const mo = new MutationObserver(hideIfPlayer);
