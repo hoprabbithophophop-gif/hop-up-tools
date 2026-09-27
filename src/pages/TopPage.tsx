@@ -99,7 +99,7 @@ export default function TopPage() {
       {/* フッター */}
       <footer style={{ padding: "3rem 2rem", marginTop: "3rem", borderTop: "1px solid rgba(198,198,198,0.2)" }}>
         <p style={{ fontSize: "0.625rem", color: "#c6c6c6", margin: "0 0 1rem" }}>
-          非公式ファンツール。株式会社アップフロントワークスとは無関係です。
+          非公式ファンツール。株式会社アップフロントグループとは無関係です。
         </p>
         {/* 「お知らせ」が増えて4つになり、390pxでは横一列に収まらなくなった。
             間隔を詰めた上で、入らない時は折り返して次の行へ回す */}

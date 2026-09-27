@@ -63,7 +63,7 @@ export default function TermsPage() {
       <div style={s.updated}>最終更新日: 2026年9月28日</div>
 
       <div style={s.warning}>
-        ⚠️ 本サービスは<strong>非公式のファンツール</strong>です。株式会社アップフロントワークス、ハロー！プロジェクト、Hello! Projectオフィシャルファンクラブ（UPFC、株式会社アップフロントインターナショナル）、e-LineUP!Mallとは一切関係ありません。
+        ⚠️ 本サービスは<strong>非公式のファンツール</strong>です。株式会社アップフロントグループ、ハロー！プロジェクト、Hello! Projectオフィシャルファンクラブ（UPFC、株式会社アップフロントインターナショナル）、e-LineUP!Mallとは一切関係ありません。
       </div>
 
       <p style={s.p}>

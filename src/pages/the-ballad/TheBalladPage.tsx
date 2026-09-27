@@ -183,7 +183,7 @@ export default function TheBalladPage() {
       {/* フッター */}
       <footer style={{ maxWidth: 720, margin: "0 auto", padding: "2.4rem 1.6rem", borderTop: `1px solid ${C.line}` }}>
         <p style={{ fontSize: "0.625rem", color: C.hair, margin: "0 0 0.8rem", lineHeight: 1.6 }}>
-          非公式ファンツール。株式会社アップフロントワークスとは無関係です。映像は公式チャンネルへのリンク（埋め込み）であり、本サイトは映像を保持していません。
+          非公式ファンツール。株式会社アップフロントグループとは無関係です。映像は公式チャンネルへのリンク（埋め込み）であり、本サイトは映像を保持していません。
         </p>
         <p style={{ fontSize: "0.625rem", color: C.hair, margin: 0, lineHeight: 1.6 }}>
           セットリスト・歌唱者データは有志のまとめ（出典：鳩スレ）を元に作成しています。
