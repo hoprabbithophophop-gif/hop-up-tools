@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from "react";
-import { BrowserRouter, Routes, Route, useLocation, matchRoutes, type Location } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, useNavigationType, matchRoutes, type Location } from "react-router-dom";
 import TeloppOverlay from "./components/TeloppOverlay";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { WAVE_COLORS, coverScreen, holdUntilReady, iconFontReady, isWaveExcluded, prefersReducedMotion, revealScreen } from "./lib/pageWave";
+import { WAVE_COLOR, coverScreen, holdUntilReady, iconFontReady, isWaveExcluded, prefersReducedMotion, revealScreen } from "./lib/pageWave";
 
 // ルートごとにコード分割（初期バンドルサイズを削減して LCP を改善）。
 // 読み込み関数を表にしておき、ページ移動の演出中に次のページを先に読み込む。
@@ -47,14 +47,19 @@ function MountSignal({ onMount }: { onMount: () => void }) {
 
 // ページ移動の演出（全ページ共通・1箇所）。
 // 通常は図形の波で画面を覆い、次のページとアイコンの準備ができてから引く（src/lib/pageWave.ts）。
-// 独自の演出を持つページへの出入りと、動きを減らす設定のときは、従来の軽いフェードインにする。
+// 戻る・進む（スワイプやブラウザのボタン）、独自の演出を持つページへの出入り、動きを減らす設定のときは、
+// 従来の軽いフェードインにする（iPhone のスワイプで戻る動きと二重にならないように）。
 function AnimatedRoutes() {
   const location = useLocation();
+  const navType = useNavigationType();
+  const pageAreaRef = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState<Location>(location);
   const [fade, setFade] = useState(true);
   const layerRef = useRef<HTMLDivElement>(null);
   const latest = useRef(location);
   latest.current = location;
+  const latestType = useRef(navType);
+  latestType.current = navType;
   const shownRef = useRef(location);
   shownRef.current = shown;
   const busy = useRef(false);
@@ -72,11 +77,12 @@ function AnimatedRoutes() {
   const pageShown = (key: string) =>
     mountedKey.current === key ? Promise.resolve() : new Promise<void>((r) => waiters.current.set(key, r));
 
-  const go = (target: Location) => {
+  const go = (target: Location, type: string) => {
     const from = shownRef.current.pathname;
     const layer = layerRef.current;
+    const area = pageAreaRef.current;
     if (target.pathname === from) { setShown(target); return; }
-    if (!layer || prefersReducedMotion() || isWaveExcluded(from) || isWaveExcluded(target.pathname)) {
+    if (!layer || !area || type === "POP" || prefersReducedMotion() || isWaveExcluded(from) || isWaveExcluded(target.pathname)) {
       setFade(true);
       setShown(target);
       return;
@@ -86,12 +92,17 @@ function AnimatedRoutes() {
       preloadPage(target.pathname);
       const cover = await coverScreen(layer);
       const dest = latest.current;
+      // 覆っている間に入れ替える。次のページが描かれるまで前のページの長さを保ち（途中でページが
+      // 空になって高さが縮むと、スクロール位置とツールバーが動いて画面が上下する）、先頭へ移しておく
+      area.style.minHeight = `${document.documentElement.scrollHeight}px`;
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
       setFade(false);
       setShown(dest);
-      await holdUntilReady(layer, cover, Promise.all([pageShown(dest.key), iconFontReady()]).then(nextFrames));
+      await holdUntilReady(layer, Promise.all([pageShown(dest.key), iconFontReady()]).then(nextFrames));
+      area.style.minHeight = "";
       await revealScreen(layer, cover);
       busy.current = false;
-      if (latest.current !== dest) go(latest.current);
+      if (latest.current !== dest) go(latest.current, latestType.current);
     })();
   };
 
@@ -105,34 +116,36 @@ function AnimatedRoutes() {
       const cover = await coverScreen(layer, true);
       setStaticCover(false);
       setFade(false);
-      await holdUntilReady(layer, cover, Promise.all([pageShown(location.key), iconFontReady()]).then(nextFrames));
+      await holdUntilReady(layer, Promise.all([pageShown(location.key), iconFontReady()]).then(nextFrames));
       await revealScreen(layer, cover);
       busy.current = false;
-      if (latest.current !== shownRef.current) go(latest.current);
+      if (latest.current !== shownRef.current) go(latest.current, latestType.current);
     })();
   }, []);
 
   useEffect(() => {
-    if (!busy.current && location !== shownRef.current) go(location);
+    if (!busy.current && location !== shownRef.current) go(location, navType);
   }, [location]);
 
   return (
     <>
-      <Suspense fallback={null}>
-        <div key={shown.pathname} className={fade ? "page-fade-in" : undefined}>
-          <Routes location={shown}>
-            {PAGES.map(({ path, Page }) => (
-              <Route key={path} path={path} element={<Page />} />
-            ))}
-          </Routes>
-        </div>
-        <MountSignal onMount={onPageMount} />
-      </Suspense>
+      <div ref={pageAreaRef}>
+        <Suspense fallback={null}>
+          <div key={shown.pathname} className={fade ? "page-fade-in" : undefined}>
+            <Routes location={shown}>
+              {PAGES.map(({ path, Page }) => (
+                <Route key={path} path={path} element={<Page />} />
+              ))}
+            </Routes>
+          </div>
+          <MountSignal onMount={onPageMount} />
+        </Suspense>
+      </div>
       <div
         ref={layerRef}
         className="page-wave"
         aria-hidden="true"
-        style={staticCover ? { background: WAVE_COLORS[0], pointerEvents: "auto" } : undefined}
+        style={staticCover ? { background: WAVE_COLOR, pointerEvents: "auto" } : undefined}
       />
     </>
   );

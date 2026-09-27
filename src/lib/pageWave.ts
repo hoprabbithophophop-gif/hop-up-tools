@@ -1,9 +1,9 @@
 // ページ移動のときに画面全体を図形で覆う演出。
 // 覆う → 裏でページを入れ替える → 次のページとアイコンの準備を待つ → 引く、の順で App.tsx から使う。
-// 形は毎回ランダム（同じ形は続けない）、色は薄いグレーと濃いグレーを交互に使う。
+// 形は毎回ランダム（同じ形は続けない）、色は薄いグレーで固定。
 
-export const WAVE_COLORS = ["#d2d4d8", "#585f6c"] as const;
-const LABEL_COLORS: Record<string, string> = { "#d2d4d8": "#585f6c", "#585f6c": "#ffffff" };
+export const WAVE_COLOR = "#d2d4d8";
+const LABEL_COLOR = "#585f6c";
 
 // 覆う・引くそれぞれの長さを見本（一覧ページ）の何倍にするか
 const SPEED = 0.6;
@@ -100,7 +100,7 @@ const EFFECTS: Record<string, Effect> = {
   square: {
     async cover(f, W, H, c) {
       const S = (W + H) * 0.75;
-      const e = box(f, c, { width: S + "px", height: S + "px", left: (W - S) / 2 + "px", top: (H - S) / 2 + "px", transform: "rotate(0deg) scale(0)" });
+      const e = box(f, c, { width: S + "px", height: S + "px", left: (W - S) / 2 + "px", top: (f.clientHeight - S) / 2 + "px", transform: "rotate(0deg) scale(0)" });
       await anim(e, [{ transform: "rotate(0deg) scale(0)" }, { transform: "rotate(135deg) scale(1)" }], 400, STD);
       return [e];
     },
@@ -145,7 +145,7 @@ const EFFECTS: Record<string, Effect> = {
   },
   halftone: {
     async cover(f, W, H, c) {
-      const C = 9, cw = W / C, R = Math.ceil(H / cw) + 1, cx = W / 2, cy = H / 2, far = Math.hypot(cx, cy), els: HTMLElement[] = [];
+      const C = 9, cw = W / C, R = Math.ceil(H / cw) + 1, cx = W / 2, cy = f.clientHeight / 2, far = Math.hypot(cx, cy), els: HTMLElement[] = [];
       for (let y = 0; y < R; y++) for (let x = 0; x < C; x++) {
         const px = x * cw + cw / 2, py = y * cw + cw / 2;
         const e = box(f, c, { left: px - cw * 0.75 + "px", top: py - cw * 0.75 + "px", width: cw * 1.5 + "px", height: cw * 1.5 + "px", borderRadius: "50%", transform: "scale(0)" });
@@ -163,36 +163,39 @@ const EFFECTS: Record<string, Effect> = {
 const COLUMN_ORDER = [3, 1, 5, 0, 6, 2, 4];
 
 let lastEffect = "";
-let colorTurn = 0;
 
-export type WaveCover = { effect: Effect; els: HTMLElement[]; color: string };
+export type WaveCover = { effect: Effect; els: HTMLElement[] };
+
+// 図形を並べる高さ。iPhone の Safari は途中でツールバーが出入りして画面の高さが変わるので、
+// 画面そのものの高さまで余分に覆っておく
+function coverHeight(layer: HTMLElement): number {
+  return Math.max(layer.clientHeight, window.innerHeight, window.screen?.height ?? 0);
+}
 
 // 画面を覆う。instant のときは動きなしで一瞬で覆う（サイトを開いた最初の1回用）
 export async function coverScreen(layer: HTMLElement, instant = false): Promise<WaveCover> {
   const names = Object.keys(EFFECTS).filter((n) => n !== lastEffect);
   const name = names[Math.floor(Math.random() * names.length)];
   lastEffect = name;
-  const color = WAVE_COLORS[colorTurn++ % WAVE_COLORS.length];
   const effect = EFFECTS[name];
   layer.style.pointerEvents = "auto";
-  const W = layer.clientWidth, H = layer.clientHeight;
-  const pending = effect.cover(layer, W, H, color);
+  const pending = effect.cover(layer, layer.clientWidth, coverHeight(layer), WAVE_COLOR);
   if (instant) layer.getAnimations({ subtree: true }).forEach((a) => a.finish());
-  return { effect, els: await pending, color };
+  return { effect, els: await pending };
 }
 
 export async function revealScreen(layer: HTMLElement, cover: WaveCover): Promise<void> {
-  await cover.effect.reveal(layer, layer.clientWidth, layer.clientHeight, cover.els);
+  await cover.effect.reveal(layer, layer.clientWidth, coverHeight(layer), cover.els);
   layer.replaceChildren();
   layer.style.pointerEvents = "none";
 }
 
 // 覆っている間、準備（ready）が済むまで待つ。0.4秒を超えたら LOADING を出す。最長 capMs で打ち切る
-export async function holdUntilReady(layer: HTMLElement, cover: WaveCover, ready: Promise<unknown>, capMs = 1500): Promise<void> {
+export async function holdUntilReady(layer: HTMLElement, ready: Promise<unknown>, capMs = 1500): Promise<void> {
   const label = document.createElement("div");
   Object.assign(label.style, {
     position: "absolute", inset: "0", display: "grid", placeItems: "center",
-    fontSize: "11px", fontWeight: "700", letterSpacing: "0.2em", color: LABEL_COLORS[cover.color],
+    fontSize: "11px", fontWeight: "700", letterSpacing: "0.2em", color: LABEL_COLOR,
     opacity: "0", zIndex: "1",
   });
   label.textContent = "LOADING";
