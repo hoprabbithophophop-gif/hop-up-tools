@@ -1,46 +1,11 @@
 import { Link } from "react-router-dom";
+import { s as base } from "./news/style";
 
+// 見た目はお知らせのページ（src/pages/news/style.ts）と同じ定義を使う。
+// 以前の桃色から紫への渡しは作り替える前の配色なのでやめた（DESIGN.md に揃える・Hop 2026-09-28）
 const s = {
-  wrap: {
-    maxWidth: 640,
-    margin: "2rem auto",
-    padding: "0 1.25rem 4rem",
-    fontFamily: "'Inter','Noto Sans JP',sans-serif",
-    fontSize: "0.875rem",
-    lineHeight: 1.8,
-    color: "#333",
-  } as React.CSSProperties,
-  header: {
-    fontSize: "1.25rem",
-    fontWeight: 800,
-    background: "linear-gradient(135deg,#E5457D,#ba3cb8)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-    marginBottom: "0.25rem",
-  } as React.CSSProperties,
-  back: {
-    display: "inline-block",
-    fontSize: "0.8rem",
-    color: "#E5457D",
-    textDecoration: "none",
-    marginBottom: "1.5rem",
-  } as React.CSSProperties,
-  updated: {
-    fontSize: "0.78rem",
-    color: "#999",
-    marginBottom: "2rem",
-  } as React.CSSProperties,
-  h2: {
-    fontSize: "1rem",
-    fontWeight: 700,
-    marginTop: "2rem",
-    marginBottom: "0.5rem",
-    borderBottom: "2px solid #f0f0f0",
-    paddingBottom: "0.25rem",
-  } as React.CSSProperties,
-  p: {
-    marginBottom: "0.75rem",
-  } as React.CSSProperties,
+  ...base,
+  updated: { ...base.meta, marginBottom: "2rem" } as React.CSSProperties,
   ul: {
     paddingLeft: "1.25rem",
     marginBottom: "0.75rem",
@@ -49,7 +14,7 @@ const s = {
 
 export default function PrivacyPage() {
   return (
-    <div style={s.wrap}>
+    <div style={{ background: "#f8f9fa", minHeight: "100vh" }}><div style={s.wrap}>
       <Link to="/" style={s.back}>← ホームに戻る</Link>
       <div style={s.header}>プライバシーポリシー</div>
       <div style={s.updated}>最終更新日: 2026年9月28日</div>
@@ -96,8 +61,8 @@ export default function PrivacyPage() {
         YouTube API サービスの利用により、以下の規約が適用されます。
       </p>
       <ul style={s.ul}>
-        <li><a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>YouTube 利用規約</a></li>
-        <li><a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>Google プライバシーポリシー</a></li>
+        <li><a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer" style={s.link}>YouTube 利用規約</a></li>
+        <li><a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style={s.link}>Google プライバシーポリシー</a></li>
       </ul>
       <p style={s.p}>
         本サービスは YouTube から取得した動画情報（タイトル、サムネイル画像URL等）をデータベースに保存しています。
@@ -125,8 +90,8 @@ export default function PrivacyPage() {
         Google AdSenseは、ユーザーの興味・関心に基づく広告を表示するためにCookieを使用する場合があります。
       </p>
       <ul style={s.ul}>
-        <li>Googleによる広告Cookieの使用を無効にするには、<a href="https://adssettings.google.com/" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>広告設定ページ</a>をご利用ください。</li>
-        <li>広告Cookieの詳細は<a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>Googleのポリシーと規約</a>をご確認ください。</li>
+        <li>Googleによる広告Cookieの使用を無効にするには、<a href="https://adssettings.google.com/" target="_blank" rel="noopener noreferrer" style={s.link}>広告設定ページ</a>をご利用ください。</li>
+        <li>広告Cookieの詳細は<a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener noreferrer" style={s.link}>Googleのポリシーと規約</a>をご確認ください。</li>
       </ul>
 
       <h2 style={s.h2}>6. 第三者サービスへのリンク</h2>
@@ -144,8 +109,8 @@ export default function PrivacyPage() {
 
       <h2 style={s.h2}>8. お問い合わせ</h2>
       <p style={s.p}>
-        本ポリシーに関するお問い合わせは、トップページの「お問い合わせ」フォーム、またはX（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>@hop_rabbit_hop</a> までDMにてご連絡ください。
+        本ポリシーに関するお問い合わせは、トップページの「お問い合わせ」フォーム、またはX（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={s.link}>@hop_rabbit_hop</a> までDMにてご連絡ください。
       </p>
-    </div>
+    </div></div>
   );
 }

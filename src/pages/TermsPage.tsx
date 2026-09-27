@@ -1,63 +1,26 @@
 import { Link } from "react-router-dom";
+import { s as base, quote } from "./news/style";
 
+// 見た目はお知らせのページ（src/pages/news/style.ts）と同じ定義を使う。
+// 以前の桃色から紫への渡しは作り替える前の配色なのでやめた（DESIGN.md に揃える・Hop 2026-09-28）
 const s = {
-  wrap: {
-    maxWidth: 640,
-    margin: "2rem auto",
-    padding: "0 1.25rem 4rem",
-    fontFamily: "'Inter','Noto Sans JP',sans-serif",
-    fontSize: "0.875rem",
-    lineHeight: 1.8,
-    color: "#333",
-  } as React.CSSProperties,
-  header: {
-    fontSize: "1.25rem",
-    fontWeight: 800,
-    background: "linear-gradient(135deg,#E5457D,#ba3cb8)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-    marginBottom: "0.25rem",
-  } as React.CSSProperties,
-  back: {
-    display: "inline-block",
-    fontSize: "0.8rem",
-    color: "#E5457D",
-    textDecoration: "none",
-    marginBottom: "1.5rem",
-  } as React.CSSProperties,
-  updated: {
-    fontSize: "0.78rem",
-    color: "#999",
-    marginBottom: "2rem",
-  } as React.CSSProperties,
-  h2: {
-    fontSize: "1rem",
-    fontWeight: 700,
-    marginTop: "2rem",
-    marginBottom: "0.5rem",
-    borderBottom: "2px solid #f0f0f0",
-    paddingBottom: "0.25rem",
-  } as React.CSSProperties,
-  p: {
-    marginBottom: "0.75rem",
-  } as React.CSSProperties,
+  ...base,
+  updated: { ...base.meta, marginBottom: "2rem" } as React.CSSProperties,
   ul: {
     paddingLeft: "1.25rem",
     marginBottom: "0.75rem",
   } as React.CSSProperties,
   warning: {
-    background: "#fff3f6",
-    border: "1px solid #E5457D",
-    borderRadius: 8,
-    padding: "0.75rem 1rem",
-    marginBottom: "1.5rem",
+    ...quote,
+    margin: "0 0 1.5rem",
     fontSize: "0.85rem",
+    color: "#191c1d",
   } as React.CSSProperties,
 };
 
 export default function TermsPage() {
   return (
-    <div style={s.wrap}>
+    <div style={{ background: "#f8f9fa", minHeight: "100vh" }}><div style={s.wrap}>
       <Link to="/" style={s.back}>← ホームに戻る</Link>
       <div style={s.header}>利用規約</div>
       <div style={s.updated}>最終更新日: 2026年9月28日</div>
@@ -79,7 +42,7 @@ export default function TermsPage() {
 
       <h2 style={s.h2}>2. 情報の正確性・最新性について</h2>
       <p style={s.p}>
-        本サービスに表示される公演・締切情報は、UPFC（<a href="https://www.upfc.jp/helloproject/" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>https://www.upfc.jp/helloproject/</a>）および e-LineUP!Mall（<a href="https://www.elineupmall.com/" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>https://www.elineupmall.com/</a>）の公開ページから自動取得したものです。
+        本サービスに表示される公演・締切情報は、UPFC（<a href="https://www.upfc.jp/helloproject/" target="_blank" rel="noopener noreferrer" style={s.link}>https://www.upfc.jp/helloproject/</a>）および e-LineUP!Mall（<a href="https://www.elineupmall.com/" target="_blank" rel="noopener noreferrer" style={s.link}>https://www.elineupmall.com/</a>）の公開ページから自動取得したものです。
       </p>
       <ul style={s.ul}>
         <li>情報の正確性・完全性・最新性を保証しません。</li>
@@ -125,8 +88,8 @@ export default function TermsPage() {
 
       <h2 style={s.h2}>9. お問い合わせ</h2>
       <p style={s.p}>
-        本規約に関するお問い合わせは、X（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>@hop_rabbit_hop</a> までDMにてご連絡ください。
+        本規約に関するお問い合わせは、X（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={s.link}>@hop_rabbit_hop</a> までDMにてご連絡ください。
       </p>
-    </div>
+    </div></div>
   );
 }
