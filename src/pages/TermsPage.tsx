@@ -60,10 +60,10 @@ export default function TermsPage() {
     <div style={s.wrap}>
       <Link to="/" style={s.back}>← ホームに戻る</Link>
       <div style={s.header}>利用規約</div>
-      <div style={s.updated}>最終更新日: 2026年7月5日</div>
+      <div style={s.updated}>最終更新日: 2026年9月28日</div>
 
       <div style={s.warning}>
-        ⚠️ 本サービスは<strong>非公式のファンツール</strong>です。株式会社アップフロントワークス、ハロー！プロジェクト、UPFC（ユナイテッドプロモーション）、e-LineUP!Mallとは一切関係ありません。
+        ⚠️ 本サービスは<strong>非公式のファンツール</strong>です。株式会社アップフロントワークス、ハロー！プロジェクト、Hello! Projectオフィシャルファンクラブ（UPFC、株式会社アップフロントインターナショナル）、e-LineUP!Mallとは一切関係ありません。
       </div>
 
       <p style={s.p}>

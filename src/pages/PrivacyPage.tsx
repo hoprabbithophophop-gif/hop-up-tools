@@ -52,7 +52,7 @@ export default function PrivacyPage() {
     <div style={s.wrap}>
       <Link to="/" style={s.back}>← ホームに戻る</Link>
       <div style={s.header}>プライバシーポリシー</div>
-      <div style={s.updated}>最終更新日: 2026年7月10日</div>
+      <div style={s.updated}>最終更新日: 2026年9月28日</div>
 
       <p style={s.p}>
         hop-up-tools（以下「本サービス」）は、hop_rabbit（以下「運営者」）が提供するHello! Project ファン向けWebツール集です。
@@ -131,7 +131,7 @@ export default function PrivacyPage() {
 
       <h2 style={s.h2}>6. 第三者サービスへのリンク</h2>
       <p style={s.p}>
-        本サービスはUPFC（ユナイテッドプロモーション）、e-LineUP!Mallなど外部サービスへのリンクを含みます。
+        本サービスはHello! Projectオフィシャルファンクラブ（UPFC、株式会社アップフロントインターナショナル）、e-LineUP!Mallなど外部サービスへのリンクを含みます。
         これら外部サービスのプライバシーポリシーについては、各サービスの規定をご確認ください。
         運営者はリンク先サービスの内容・取り扱いに責任を負いません。
       </p>
