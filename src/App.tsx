@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type Comp
 import { BrowserRouter, Routes, Route, useLocation, useNavigationType, matchRoutes, type Location } from "react-router-dom";
 import TeloppOverlay from "./components/TeloppOverlay";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { WAVE_COLOR, coverScreen, holdUntilReady, iconFontReady, isWaveExcluded, prefersReducedMotion, revealScreen } from "./lib/pageWave";
+import { WAVE_COLOR, coverScreen, guardPlayers, hasEmbeddedPlayer, holdUntilReady, iconFontReady, isWaveExcluded, prefersReducedMotion, revealScreen, showAreaAfterWave, supportsWave } from "./lib/pageWave";
 
 // ルートごとにコード分割（初期バンドルサイズを削減して LCP を改善）。
 // 読み込み関数を表にしておき、ページ移動の演出中に次のページを先に読み込む。
@@ -64,7 +64,7 @@ function AnimatedRoutes() {
   shownRef.current = shown;
   const busy = useRef(false);
   const started = useRef(false);
-  const [firstCover] = useState(() => !prefersReducedMotion() && !isWaveExcluded(location.pathname));
+  const [firstCover] = useState(() => supportsWave() && !prefersReducedMotion() && !isWaveExcluded(location.pathname));
   const [staticCover, setStaticCover] = useState(firstCover);
   const mountedKey = useRef<string | null>(null);
   const waiters = useRef(new Map<string, () => void>());
@@ -82,13 +82,15 @@ function AnimatedRoutes() {
     const layer = layerRef.current;
     const area = pageAreaRef.current;
     if (target.pathname === from) { setShown(target); return; }
-    if (!layer || !area || type === "POP" || prefersReducedMotion() || isWaveExcluded(from) || isWaveExcluded(target.pathname)) {
+    if (!layer || !area || type === "POP" || !supportsWave() || prefersReducedMotion() || isWaveExcluded(from) || isWaveExcluded(target.pathname)) {
       setFade(true);
       setShown(target);
       return;
     }
     busy.current = true;
     void (async () => {
+      // 出ていくページに動画プレーヤーがあれば、先に空白にしてから覆う
+      const stopGuard = guardPlayers(area);
       preloadPage(target.pathname);
       const cover = await coverScreen(layer);
       const dest = latest.current;
@@ -99,25 +101,33 @@ function AnimatedRoutes() {
       setFade(false);
       setShown(dest);
       await holdUntilReady(layer, Promise.all([pageShown(dest.key), iconFontReady()]).then(nextFrames));
+      // 前のページが外れたので空白を解く。次のページにプレーヤーがあれば見張りがまた空白にする
+      if (!hasEmbeddedPlayer(area)) area.style.visibility = "";
       area.style.minHeight = "";
       await revealScreen(layer, cover);
+      stopGuard();
+      showAreaAfterWave(area);
       busy.current = false;
       if (latest.current !== dest) go(latest.current, latestType.current);
     })();
   };
 
   // サイトを開いた最初の1回：覆った状態から始め、準備ができたら引く
-  useEffect(() => {
-    if (!firstCover || started.current || !layerRef.current) return;
+  useLayoutEffect(() => {
+    if (!firstCover || started.current || !layerRef.current || !pageAreaRef.current) return;
     started.current = true;
     const layer = layerRef.current;
+    const area = pageAreaRef.current;
     busy.current = true;
+    const stopGuard = guardPlayers(area);
     void (async () => {
       const cover = await coverScreen(layer, true);
       setStaticCover(false);
       setFade(false);
       await holdUntilReady(layer, Promise.all([pageShown(location.key), iconFontReady()]).then(nextFrames));
       await revealScreen(layer, cover);
+      stopGuard();
+      showAreaAfterWave(area);
       busy.current = false;
       if (latest.current !== shownRef.current) go(latest.current, latestType.current);
     })();

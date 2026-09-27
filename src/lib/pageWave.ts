@@ -15,6 +15,36 @@ export function isWaveExcluded(pathname: string): boolean {
   return EXCLUDED.test(pathname);
 }
 
+// 動きの仕組み（Web Animations）が無い古いブラウザでは波を出さない（出すと覆ったまま外れなくなる）
+export function supportsWave(): boolean {
+  return typeof Element !== "undefined" && "animate" in Element.prototype && "getAnimations" in Element.prototype;
+}
+
+// YouTube の埋め込みプレーヤーの上に図形を重ねない（YouTube API 規約: プレーヤーの前に何も表示しない）。
+// 波が出ている間にプレーヤーが画面にあれば、ページ部分を空白にしておき、波が引いてから出す
+const PLAYER_SELECTOR = 'iframe[src*="youtube.com/"], iframe[src*="youtube-nocookie.com/"]';
+export function hasEmbeddedPlayer(area: HTMLElement): boolean {
+  return area.querySelector(PLAYER_SELECTOR) !== null;
+}
+
+// 見張りを始めた時点から止めるまで、プレーヤーが現れたら次の描画より前にページ部分を空白にする
+export function guardPlayers(area: HTMLElement): () => void {
+  const hideIfPlayer = () => {
+    if (hasEmbeddedPlayer(area)) area.style.visibility = "hidden";
+  };
+  hideIfPlayer();
+  const mo = new MutationObserver(hideIfPlayer);
+  mo.observe(area, { childList: true, subtree: true, attributes: true, attributeFilter: ["src"] });
+  return () => mo.disconnect();
+}
+
+// 空白にしていたページ部分を、波が引いたあとに出す
+export function showAreaAfterWave(area: HTMLElement): void {
+  if (area.style.visibility !== "hidden") return;
+  area.style.visibility = "";
+  area.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: STD });
+}
+
 export function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
