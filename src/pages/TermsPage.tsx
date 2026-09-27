@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { s as base, quote } from "./news/style";
+import { s as base } from "./news/style";
 
 // 見た目はお知らせのページ（src/pages/news/style.ts）と同じ定義を使う。
 // 以前の桃色から紫への渡しは作り替える前の配色なのでやめた（DESIGN.md に揃える・Hop 2026-09-28）
@@ -10,11 +10,15 @@ const s = {
     paddingLeft: "1.25rem",
     marginBottom: "0.75rem",
   } as React.CSSProperties,
+  // 線は引かず、地の灰色の上に白い面を置くだけで区切る（DESIGN.md の線を使わない決まり）
   warning: {
-    ...quote,
+    background: "#ffffff",
+    padding: "0.75rem 0.9rem",
     margin: "0 0 1.5rem",
     fontSize: "0.85rem",
+    lineHeight: 1.7,
     color: "#191c1d",
+    overflowWrap: "anywhere",
   } as React.CSSProperties,
 };
 
@@ -26,7 +30,7 @@ export default function TermsPage() {
       <div style={s.updated}>最終更新日: 2026年9月28日</div>
 
       <div style={s.warning}>
-        ⚠️ 本サービスは<strong>非公式のファンツール</strong>です。株式会社アップフロントグループ、ハロー！プロジェクト、Hello! Projectオフィシャルファンクラブ（UPFC、株式会社アップフロントインターナショナル）、e-LineUP!Mallとは一切関係ありません。
+        本サービスは<strong>非公式のファンツール</strong>です。株式会社アップフロントグループ、ハロー！プロジェクト、Hello! Projectオフィシャルファンクラブ（UPFC、株式会社アップフロントインターナショナル）、e-LineUP!Mallとは一切関係ありません。
       </div>
 
       <p style={s.p}>
