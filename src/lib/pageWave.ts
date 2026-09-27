@@ -10,7 +10,7 @@ const SPEED = 0.6;
 const STD = "cubic-bezier(.4,0,.2,1)";
 
 // 独自の演出を持つページには出さない（出入りのどちらかが該当すれば従来のフェード）
-const EXCLUDED = /^\/(hi-tension|arigato-beat|the-ballad|hai-to-diamond)(\/|$)/;
+const EXCLUDED = /^\/(hi-tension|arigato-beat|hai-to-diamond)(\/|$)/;
 export function isWaveExcluded(pathname: string): boolean {
   return EXCLUDED.test(pathname);
 }
