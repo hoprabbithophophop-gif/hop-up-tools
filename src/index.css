@@ -117,6 +117,15 @@ body {
   animation: page-fade-in 0.18s var(--ease-standard) both;
 }
 
+/* ページ移動の波の層（src/lib/pageWave.ts が中に図形を置く） */
+.page-wave {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 /* アコーディオン開閉（高さを滑らかに伸縮）。開いてる間だけ中身をマウント */
 .acc-grid {
   display: grid;
