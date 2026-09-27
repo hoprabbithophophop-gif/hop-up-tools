@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "path";
+import { materialSymbolsSubset } from "./scripts/material-symbols-subset.mjs";
 
 // ビルド時のコミットハッシュ（更新確認用のバージョン表記）。
 // Cloudflare Pages では CF_PAGES_COMMIT_SHA が自動で入る。ローカルは "dev"。
@@ -17,7 +18,7 @@ function shouldShowVersion(): boolean {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), materialSymbolsSubset({ srcDir: resolve(__dirname, "./src") })],
   define: {
     __COMMIT_SHA__: JSON.stringify(getCommitSha()),
     __SHOW_VERSION__: JSON.stringify(shouldShowVersion()),
