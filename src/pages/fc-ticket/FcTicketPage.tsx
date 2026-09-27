@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import UpfcDummyPreview from "./UpfcDummyPreview";
 import { getSupabase } from "../../lib/supabase";
+import { usePageReady } from "../../lib/pageReady";
 import { generateIcs, downloadIcs, generateGoogleCalendarUrl, generateYahooCalendarUrl, type IcsEvent } from "../../lib/ics";
 import {
   parseUpfcText,
@@ -88,6 +89,7 @@ export default function FcTicketPage() {
   const [matchResults, setMatchResults] = useState<MatchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
+  usePageReady(!loading);
   const [watchlist, setWatchlistState] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("fc-watchlist") ?? "[]"); }
     catch { return []; }

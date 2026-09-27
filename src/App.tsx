@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from "react";
 import { BrowserRouter, Routes, Route, useLocation, useNavigationType, matchRoutes, type Location } from "react-router-dom";
 import TeloppOverlay from "./components/TeloppOverlay";
+import { pageDataReady } from "./lib/pageReady";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { WAVE_COLOR, coverScreen, guardPlayers, hasEmbeddedPlayer, holdUntilReady, iconFontReady, isWaveExcluded, prefersReducedMotion, revealScreen, showAreaAfterWave, supportsWave } from "./lib/pageWave";
 
@@ -36,6 +37,9 @@ function preloadPage(pathname: string): Promise<unknown> {
   const route = hit && ROUTES[Number(hit[hit.length - 1].route.id)];
   return route ? route.load() : Promise.resolve();
 }
+
+// 波で覆ったまま待つ上限。データが届かない時はここで引いて、ページ自身の読み込み中の表示に任せる【仮】
+const DATA_WAIT_CAP_MS = 5000;
 
 const nextFrames = () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 
@@ -100,7 +104,7 @@ function AnimatedRoutes() {
       window.scrollTo({ top: 0, left: 0, behavior: "instant" });
       setFade(false);
       setShown(dest);
-      await holdUntilReady(layer, Promise.all([pageShown(dest.key), iconFontReady()]).then(nextFrames));
+      await holdUntilReady(layer, pageShown(dest.key).then(() => Promise.all([iconFontReady(), pageDataReady()])).then(nextFrames), DATA_WAIT_CAP_MS);
       // 前のページが外れたので空白を解く。次のページにプレーヤーがあれば見張りがまた空白にする
       if (!hasEmbeddedPlayer(area)) area.style.visibility = "";
       area.style.minHeight = "";
@@ -124,7 +128,7 @@ function AnimatedRoutes() {
       const cover = await coverScreen(layer, true);
       setStaticCover(false);
       setFade(false);
-      await holdUntilReady(layer, Promise.all([pageShown(location.key), iconFontReady()]).then(nextFrames));
+      await holdUntilReady(layer, pageShown(location.key).then(() => Promise.all([iconFontReady(), pageDataReady()])).then(nextFrames), DATA_WAIT_CAP_MS);
       await revealScreen(layer, cover);
       stopGuard();
       showAreaAfterWave(area);

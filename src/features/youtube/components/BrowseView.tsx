@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { getSupabase } from '../../../lib/supabase';
+import { usePageReady } from '../../../lib/pageReady';
 import { useChapterPlaylistContext } from '../../videos/context/ChapterPlaylistContext';
 import { VideoChapterSheet } from './VideoChapterSheet';
 import { ZappingCard } from './ZappingCard';
@@ -148,6 +149,9 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayer
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  // 最初の一覧が届くまでページ移動の波に待ってもらう（検索で開いた時は一覧を読まないので待たない）
+  const [firstLoadDone, setFirstLoadDone] = useState(false);
+  usePageReady(firstLoadDone || Boolean(isSearchActive));
   const [offset, setOffset] = useState(0);
   const isFetchingRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -178,6 +182,7 @@ export function BrowseView({ searchOpen, onSearchClose, formatFilter, showPlayer
     } finally {
       isFetchingRef.current = false;
       setLoading(false);
+      setFirstLoadDone(true);
     }
   }, []);
 
