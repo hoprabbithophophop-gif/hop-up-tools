@@ -140,9 +140,8 @@ Deno.serve(async (req) => {
   if (ics.length > 1048576) {
     return json({ error: "Content too large (>1MB)" }, 413);
   }
-  if (!ics.includes("BEGIN:VEVENT")) {
-    return json({ error: "配信できる予定がありません（選択した予定が見つかりませんでした）" }, 400);
-  }
+  // 選んだ予定が全部保持期限を過ぎた等で0件でも、空のカレンダーを置いて成功とする。
+  // 断ると画面の送り直しが永久に失敗し続け、控えの更新日時も進まず1年の自動削除に掛かってしまう（2026-09-28 監査）
 
   const { error: uploadError } = await supabase.storage
     .from("fc-ics")

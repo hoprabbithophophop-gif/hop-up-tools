@@ -321,7 +321,10 @@ export default function FcTicketPage() {
 
   // 同期（カレンダー購読）の保存の係。どの画面を開いていても働くよう、常に動いているここで1回だけ呼ぶ。
   // 同期画面の中に置くと、カレンダー画面で付けた「入金済み」が届かない（実際に起きた不具合）。
-  const saver = useSubscriptionSaver(matchResults, paid);
+  // 公式記事の一覧が届き、保存済みの貼り付けの判定まで済んだか。済む前に送ると、
+  // 貼り付けから判定した当選・入金済みが抜けた設定がサーバーに残りうる（2026-09-28 監査）
+  const [syncReady, setSyncReady] = useState(false);
+  const saver = useSubscriptionSaver(matchResults, paid, syncReady);
 
   // Supabase から全データを取得
   useEffect(() => {
@@ -349,9 +352,9 @@ export default function FcTicketPage() {
 
   // allNews ロード完了後、保存済み入力テキストがあれば自動パース
   useEffect(() => {
-    if (allNews.length === 0 || !pasteText.trim()) return;
-    const parsed = parseUpfcText(pasteText);
-    setMatchResults(matchApplications(parsed, allNews));
+    if (allNews.length === 0) return;
+    if (pasteText.trim()) setMatchResults(matchApplications(parseUpfcText(pasteText), allNews));
+    setSyncReady(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allNews]);
 
@@ -765,7 +768,7 @@ function ResultScreen({
             <span className="material-symbols-outlined">sync</span>
             <div>
               <p className="text-xs font-bold uppercase tracking-widest mb-1">カレンダーアプリに同期</p>
-              <p className="text-[0.6875rem] opacity-90 leading-tight">TimeTree・iPhone標準カレンダーに自動同期</p>
+              <p className="text-[0.6875rem] opacity-90 leading-tight">iPhone標準カレンダーに自動同期</p>
             </div>
           </button>
         </aside>
@@ -3158,7 +3161,7 @@ function SubscribeScreen({
             </button>
             {/* 操作の瞬間の一言（段階表示） */}
             <p className="text-xs text-on-surface-variant">
-              登録すると、選んだ締切がカレンダーに自動で並びます。新しい締切も自動で追加されます。
+              登録すると、選んだ締切がカレンダーに自動で並びます。このツールを開くと、新しい締切が自動で追加されます。
             </p>
           </div>
         ) : (
@@ -3214,7 +3217,7 @@ function SubscribeScreen({
           <ul className="text-xs text-on-surface-variant space-y-2 list-disc list-inside mt-4">
             <li>このツールは締切を忘れないためのリマインダーです。予定にチェックを付けても、公演への申込・入金は完了しません。申込は各公式ページで行ってください。</li>
             <li>入力した申込状況や登録内容はお使いの端末内に保存され、運営が収集・分析することはありません。（同期用URLを発行した場合のみ、選んだ予定がURL先に保管されます）</li>
-            <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切は自動で追加、終わった予定は自動で整理されます（反映まで最大数時間。すぐ反映したい時は画面を下に引っ張って更新）。含まれるのは予定だけで、お名前・ログイン・支払いの情報は入りません。</li>
+            <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切はこのツールを開いた時に自動で追加、終わった予定は自動で整理されます。反映のタイミングはカレンダーアプリと端末の設定によります。すぐ反映したい時は画面を下に引っ張って更新してください。含まれるのは予定だけで、お名前・ログイン・支払いの情報は入りません。</li>
             <li>iPhoneで通知が届かない時は、「設定 → 通知 → カレンダー」の通知がオンになっているか、同期を追加した時に「通知を削除」をオフにしたかをご確認ください。位置情報の設定はオフのままでも通知は届きます。</li>
             <li>「設定 → プライバシーとセキュリティ → 位置情報サービス → システムサービス → 位置情報に基づく通知」をオンにすると、公演の予定にiPhoneが計算する出発時刻の通知も使えます（任意です）。位置情報はiPhoneの中で使われるだけで、このツールや運営者に送られることはありません。</li>
             <li>カレンダーアプリによっては読み取り専用で表示されます（編集できません）。</li>

@@ -28,7 +28,8 @@ Deno.serve(async (req) => {
   }
 
   const ipRaw = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
-  const ipHash = await sha256(ipRaw);
+  // IP は秘密の値（サービス用の鍵）を混ぜてから変換する。混ぜないと IPv4 の全件を試せば元に戻せてしまう（fc-ics-upload と同じ形・2026-09-28 監査）
+  const ipHash = await sha256(`fc-ics-delete:${ipRaw}:${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}`);
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -62,13 +63,17 @@ Deno.serve(async (req) => {
     return json({ error: "Invalid slug format" }, 400);
   }
 
+  // 先に再生成用マニフェストを消し、失敗したら止める。ここを見ずに成功を返すと、
+  // 翌日の再生成でICSが復活し「無効化したはずのURL」が生き返る（2026-09-28 監査）
+  const { error: manifestError } = await supabase.from("fc_subscriptions").delete().eq("slug", slug);
+  if (manifestError) {
+    return json({ error: "Delete failed: " + manifestError.message }, 500);
+  }
+
   const { error } = await supabase.storage.from("fc-ics").remove([`${slug}.ics`]);
   if (error) {
     return json({ error: "Delete failed: " + error.message }, 500);
   }
-
-  // 再生成用マニフェストも削除（残すと翌日の再生成でICSが復活してしまう）。
-  await supabase.from("fc_subscriptions").delete().eq("slug", slug);
 
   await supabase.from("rate_limit_log").insert({
     ip_hash: ipHash,

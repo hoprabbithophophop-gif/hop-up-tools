@@ -116,7 +116,7 @@ export interface SubscriptionSaver {
   saveImmediately: () => Promise<boolean>;
 }
 
-export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]): SubscriptionSaver {
+export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[], ready: boolean): SubscriptionSaver {
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [hasUnsaved, setHasUnsaved] = useState(false);
   const [isStuck, setIsStuck] = useState(false);
@@ -125,6 +125,7 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
   // タイマーから最新値を読むためのref
   const matchResultsRef = useRef(matchResults); matchResultsRef.current = matchResults;
   const paidRef = useRef(paid); paidRef.current = paid;
+  const readyRef = useRef(ready); readyRef.current = ready;
   const timerRef = useRef<number | null>(null);
   const retryIndexRef = useRef(0);
   const inFlightRef = useRef(false);
@@ -140,6 +141,7 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
 
   const doSave = useCallback(async (): Promise<boolean> => {
     if (inFlightRef.current) return false;
+    if (!readyRef.current) return false; // データが揃うまでは送らない（揃った時に下の起動時の処理が送る）
     const built = buildOrder(matchResultsRef.current, paidRef.current);
     const sig = signatureOf(built);
     // 送るものが無くなった（同期をやめた等）／送る必要が消えた（元の状態に戻した）場合は、
@@ -183,7 +185,7 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
    *  チェックを1つ付けるたびに画面が反応して、見張られているように見える。
    *  表示が動くのは、実際に送り始めた doSave の中だけ。 */
   const scheduleSave = useCallback(() => {
-    if (!refreshUnsaved()) return;
+    if (!refreshUnsaved() || !readyRef.current) return;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => { void doSave(); }, DEBOUNCE_MS);
   }, [doSave, refreshUnsaved]);
@@ -194,11 +196,11 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
   // 入金済み・貼り付け結果の変更を受け取る（これらは親が持っている状態）
   useEffect(() => { scheduleSave(); }, [paid, matchResults, scheduleSave]);
 
-  // 起動時：前回送れなかった変更が残っていれば送り直す
+  // 起動時（データが揃った時）：前回送れなかった変更や、30日たった送り直しがあれば送る
   useEffect(() => {
-    if (refreshUnsaved()) void doSave();
+    if (ready && refreshUnsaved()) void doSave();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [ready]);
 
   // 離脱時（タブを閉じる・隠れる）に保留中を即送信
   useEffect(() => {

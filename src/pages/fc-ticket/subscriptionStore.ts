@@ -24,6 +24,10 @@ const KEY_EVENT_LEAD_OLD = "fc-sub-event-lead"; // 旧形式("PT3H"/"P1D"/"none"
 const KEY_EVENT_LEAD_OVR = "fc-sub-event-lead-ovr";
 /** 最後に「サーバーへ送信が成功した」ときの内容の指紋。次に開いたとき未送信を見つけるために残す */
 const KEY_LAST_SAVED_SIG = "fc-sub-last-saved-sig";
+/** 最後に送信が成功した日時（ミリ秒）。サーバーは最後の更新から1年で同期を消すので、開いている人の分は途中で送り直す */
+const KEY_LAST_SAVED_AT = "fc-sub-last-saved-at";
+/** これより前に送ったきりなら、内容が同じでも送り直してサーバーの「最後の更新」を新しくする */
+const RESEND_AFTER_MS = 30 * 24 * 3600 * 1000;
 
 export const DEFAULT_EVENT_LEAD: EventLeadSetting = { hours: 3, dayBefore: false };
 
@@ -97,7 +101,12 @@ export function readInputs(): SubscriptionInputs {
 
 /** 未保存の判定に使う印。保存の係が「送信成功したとき」だけ書き換える */
 export function readLastSavedSig(): string | null {
-  try { return localStorage.getItem(KEY_LAST_SAVED_SIG); } catch { return null; }
+  try {
+    const at = Number(localStorage.getItem(KEY_LAST_SAVED_AT));
+    // 送った日時が無い・古い時は「未送信」として扱い、同じ内容を送り直させる
+    if (!at || Date.now() - at > RESEND_AFTER_MS) return null;
+    return localStorage.getItem(KEY_LAST_SAVED_SIG);
+  } catch { return null; }
 }
 
 // ─── 書き込み（すべて合図を出す） ─────────────────────────────
@@ -150,11 +159,13 @@ export function writeEventLeadOverrides(ovr: Record<string, EventLeadSetting>) {
 /** 送信が成功したときだけ呼ぶ。ここを送信前に呼ぶと、失敗した変更が「送信済み」になって永久に消える */
 export function writeLastSavedSig(sig: string | null) {
   writeRaw(KEY_LAST_SAVED_SIG, sig);
+  writeRaw(KEY_LAST_SAVED_AT, sig === null ? null : String(Date.now()));
 }
 
 /** 同期をやめたとき用。設定値は残し、購読URLと保存済みの印だけ消す */
 export function clearPublished() {
   writeRaw(KEY_SLUG, null);
   writeRaw(KEY_LAST_SAVED_SIG, null);
+  writeRaw(KEY_LAST_SAVED_AT, null);
   notifyChanged();
 }
