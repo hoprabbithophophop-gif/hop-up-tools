@@ -74,6 +74,8 @@ interface ElineupGoodsRow {
 // e-LineUPグッズを「イベント＋締切」単位でまとめ、締切パイプライン(Deadline)に乗せる形へ変換。
 // 同一イベントの複数商品は同じ受付締切なので1件に集約する。
 // fc_deadlines.id はUUID。購読の注文票にはUUIDの行だけを載せる（疑似的な行を除くため）
+// 2次受付・追加受付の記事の題名（本番の fc_news では「FC2次受付」「2次受付」「追加受付」の3通り・2026-09-28）
+const LATER_ROUND_RE = /[2-9２-９二三四]\s*次受付|追加受付/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -2558,7 +2560,8 @@ function computeDefaultIncluded(
 
     // 関わる公演 = 二次/追加受付・公演予定・グッズ含め、未来の予定を全部ON
     if (involvedGroups.has(eventGroupKey(dl.fc_news.title))) {
-      if (dl.type === "apply_end" && appliedUids.has(dl.news_uid)) continue; // 申込済→申込締切は配信しない
+      // 申込済→申込締切は配信しない。2次・追加受付は別の申込なので入れる（LATER_ROUND_RE の説明参照）
+      if (dl.type === "apply_end" && appliedUids.has(dl.news_uid) && !LATER_ROUND_RE.test(dl.fc_news.title)) continue;
       if (dl.type === "payment" && paidUids.has(dl.news_uid)) continue;      // 入金済→入金締切は配信しない
       included.add(dl.id);
       continue;
@@ -2739,7 +2742,9 @@ function SubscribeScreen({
       if (!SUBSCRIPTION_TYPES_TO_SUBSCRIBE.includes(dl.type)) continue;
       if (includedIds.has(dl.id)) continue;
       if (dl.type === "event" && multiGroups.has(eventGroupKey(dl.fc_news.title))) continue; // 複数回公演は初期OFF維持
-      if (dl.type === "apply_end" && isApplied(dl.news_uid)) continue; // 申込済→申込締切は再追加しない
+      // 申込済→申込締切は再追加しない。ただし2次・追加受付は別の申込なので入れる（要らなければ外せる）。
+      // 貼り付けの公演名は先行の記事と2次受付の記事の両方に当たり、両方が申込済みに見えるため（2026-09-28 QA・Hop 決定）
+      if (dl.type === "apply_end" && isApplied(dl.news_uid) && !LATER_ROUND_RE.test(dl.fc_news.title)) continue;
       if (dl.type === "payment" && isPaid(dl.news_uid)) continue;      // 入金済→入金締切は再追加しない
       if (involved.has(eventGroupKey(dl.fc_news.title))) toAdd.push(dl.id);
     }
