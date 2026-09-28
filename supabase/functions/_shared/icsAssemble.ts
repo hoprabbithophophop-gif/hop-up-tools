@@ -175,6 +175,17 @@ function calendarWrap(veventBlocks: string[]): string {
     "PRODID:-//hop-up-tools//FC Ticket Subscription//JA",
     "CALSCALE:GREGORIAN",
     "X-WR-CALNAME:FC締切リマインダー",
+    // 規格(RFC 5545)ではカレンダーに部品が最低1つ要る。予定が0件の日も正しいファイルにするため、
+    // 日本時間の定義を常に入れておく。予定の日時は世界標準時(Z)で書いているので、時刻には影響しない（2026-09-28 監査）
+    "BEGIN:VTIMEZONE",
+    "TZID:Asia/Tokyo",
+    "BEGIN:STANDARD",
+    "DTSTART:19700101T000000",
+    "TZOFFSETFROM:+0900",
+    "TZOFFSETTO:+0900",
+    "TZNAME:JST",
+    "END:STANDARD",
+    "END:VTIMEZONE",
     ...veventBlocks,
     "END:VCALENDAR",
   ].join("\r\n");
