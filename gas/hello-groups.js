@@ -69,7 +69,8 @@ var CHANNEL_GROUP_MAP = {
 // ===== グループタグ判定キーワード =====
 // 専用チャンネル: CHANNEL_GROUP_MAP で決め打ち（このテーブルは使われない）
 // 混在・外部チャンネル: タイトル + 概要欄（URLより前のみ）をチェック
-// ※メンバー名は卒業・加入で変わるので定期的に要確認
+// ※メンバー名は、週1回の syncMembers が公式サイトから写す名簿（hello_members の在籍者）も
+//   detectGroups が足して使う。この一覧は名簿を読めなかった時の予備と、卒業メンバーの過去動画用。
 // ※2026年9月時点（加入メンバーを追加。卒業メンバーは過去動画の振り分け用に残す）
 var GROUP_KEYWORDS = {
   'モーニング娘。': [
@@ -137,8 +138,9 @@ function detectGroups(channelId, title, description) {
   var text = title + ' ' + descHead;
 
   var tags = [];
+  var roster = _loadRosterKeywords();
   Object.keys(GROUP_KEYWORDS).forEach(function(group) {
-    var keywords = GROUP_KEYWORDS[group];
+    var keywords = GROUP_KEYWORDS[group].concat(roster[group] || []);
     for (var i = 0; i < keywords.length; i++) {
       if (text.indexOf(keywords[i]) !== -1) {
         tags.push(group);
@@ -158,6 +160,36 @@ function detectGroups(channelId, title, description) {
     }
   }
   return tags;
+}
+
+// 週1回の syncMembers が写した在籍メンバーを、グループ名ごとの名前の一覧で返す。
+// 1回の実行につき1度だけ読む。読めなければ空（＝手書きの GROUP_KEYWORDS だけで判定）。
+// ハロプロ研修生は名前では振り分けない（従来どおり「研修生」の語だけ）。
+var _rosterKeywordsCache = null;
+function _loadRosterKeywords() {
+  if (_rosterKeywordsCache !== null) return _rosterKeywordsCache;
+  _rosterKeywordsCache = {};
+  if (typeof UrlFetchApp === 'undefined') return _rosterKeywordsCache;
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var supabaseUrl = props.getProperty('SUPABASE_URL');
+    var supabaseKey = props.getProperty('SUPABASE_SERVICE_KEY');
+    var res = UrlFetchApp.fetch(supabaseUrl + '/rest/v1/hello_members?active=eq.true&select=name,group_name', {
+      headers: { 'apikey': supabaseKey, 'Authorization': 'Bearer ' + supabaseKey },
+      muteHttpExceptions: true,
+    });
+    if (res.getResponseCode() !== 200) {
+      Logger.log('[名簿] 読めなかったので手書きの一覧だけで振り分け: HTTP ' + res.getResponseCode());
+      return _rosterKeywordsCache;
+    }
+    JSON.parse(res.getContentText()).forEach(function(m) {
+      if (!m.name || !GROUP_KEYWORDS[m.group_name] || m.group_name === 'ハロプロ研修生') return;
+      (_rosterKeywordsCache[m.group_name] = _rosterKeywordsCache[m.group_name] || []).push(m.name);
+    });
+  } catch (e) {
+    Logger.log('[名簿] 読めなかったので手書きの一覧だけで振り分け: ' + e);
+  }
+  return _rosterKeywordsCache;
 }
 
 // URLより前のテキストを抽出（概要欄のリンクセクションを除外）
