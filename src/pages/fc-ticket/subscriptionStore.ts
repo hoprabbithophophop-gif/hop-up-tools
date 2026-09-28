@@ -19,6 +19,8 @@ import type { EventLeadSetting, RetentionMode } from "../../lib/icsCore";
 const KEY_SLUG = "fc-sub-slug";
 const KEY_RETENTION = "fc-sub-retention";
 const KEY_INCLUDED = "fc-sub-included";
+/** 利用者が自分で外した予定のid。自動で足す処理はこれを飛ばす（端末の中だけ・サーバーには送らない） */
+const KEY_DISMISSED = "fc-sub-dismissed";
 const KEY_EVENT_LEAD = "fc-sub-event-lead2";
 const KEY_EVENT_LEAD_OLD = "fc-sub-event-lead"; // 旧形式("PT3H"/"P1D"/"none")
 const KEY_EVENT_LEAD_OVR = "fc-sub-event-lead-ovr";
@@ -88,6 +90,14 @@ export function readIncludedIds(): string[] {
   return [];
 }
 
+export function readDismissedIds(): Set<string> {
+  try {
+    const v = JSON.parse(localStorage.getItem(KEY_DISMISSED) ?? "[]");
+    if (Array.isArray(v)) return new Set(v.filter((x): x is string => typeof x === "string"));
+  } catch { /* ignore */ }
+  return new Set();
+}
+
 /** 保存の係が送信直前に読む。画面の状態ではなく、ここが唯一の正とする */
 export function readInputs(): SubscriptionInputs {
   return {
@@ -144,6 +154,11 @@ export function writeRetention(retention: RetentionMode) {
 export function writeIncludedIds(ids: Iterable<string>) {
   writeRaw(KEY_INCLUDED, JSON.stringify([...ids]));
   notifyChanged();
+}
+
+/** 外した記録は送信内容ではないので合図を出さない */
+export function writeDismissedIds(ids: Iterable<string>) {
+  writeRaw(KEY_DISMISSED, JSON.stringify([...ids]));
 }
 
 export function writeEventLead(lead: EventLeadSetting) {

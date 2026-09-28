@@ -12,7 +12,7 @@
  * - 印は端末に残すので、ページを閉じて開き直しても未送信を見つけて送り直せる。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MatchResult } from "../../lib/parseUpfcText";
+import { LATER_ROUND_RE, type MatchResult } from "../../lib/parseUpfcText";
 import type { OrderTicket } from "../../lib/icsCore";
 import { uploadSubscriptionIcs } from "../../lib/icsSubscription";
 import { onInputsChanged, readInputs, readLastSavedSig, writeLastSavedSig } from "./subscriptionStore";
@@ -58,7 +58,8 @@ export function computePaidNewsUids(matchResultsList: MatchResult[], paidList: s
   const paidSet = new Set(paidList);
   for (const r of matchResultsList) {
     if (!r.parsed.status.includes("入金済")) continue;
-    for (const m of r.matched) paidSet.add(m.uid);
+    // 2次・追加受付の記事は貼り付けの判定では入金済みにしない（LATER_ROUND_RE の説明参照）。画面の「入金済み」は上で入っている
+    for (const m of r.matched) if (!LATER_ROUND_RE.test(m.title)) paidSet.add(m.uid);
   }
   return [...paidSet].sort();
 }

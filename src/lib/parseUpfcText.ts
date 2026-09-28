@@ -266,3 +266,8 @@ export function filterMatched(results: MatchResult[]): MatchResult[] {
 export function getUnmatched(results: MatchResult[]): ParsedApplication[] {
   return results.filter((r) => r.matched.length === 0).map((r) => r.parsed);
 }
+
+// 2次受付・追加受付の記事の題名（本番の fc_news では「FC2次受付」「2次受付」「追加受付」の3通り・2026-09-28）。
+// 貼り付けの公演名は先行の記事と2次受付の記事の両方に当たるため、貼り付けからの「申込済み」「入金済み」の判定を
+// 2次・追加受付の記事には使わない（申込締切・入金締切が外れたり通知が止まったりしないように。Hop 決定）
+export const LATER_ROUND_RE = /[2-9２-９二三四]\s*次受付|追加受付/;

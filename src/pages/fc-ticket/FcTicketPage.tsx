@@ -30,6 +30,8 @@ import {
   writeSlug,
   writeRetention,
   writeIncludedIds,
+  readDismissedIds,
+  writeDismissedIds,
   writeEventLead,
   writeEventLeadOverrides,
   clearPublished,
@@ -42,6 +44,7 @@ import {
   type ParsedApplication,
   type FcNewsRow,
   type MatchResult,
+  LATER_ROUND_RE,
 } from "../../lib/parseUpfcText";
 
 // ─── 型定義 ───────────────────────────────────────────────
@@ -74,8 +77,6 @@ interface ElineupGoodsRow {
 // e-LineUPグッズを「イベント＋締切」単位でまとめ、締切パイプライン(Deadline)に乗せる形へ変換。
 // 同一イベントの複数商品は同じ受付締切なので1件に集約する。
 // fc_deadlines.id はUUID。購読の注文票にはUUIDの行だけを載せる（疑似的な行を除くため）
-// 2次受付・追加受付の記事の題名（本番の fc_news では「FC2次受付」「2次受付」「追加受付」の3通り・2026-09-28）
-const LATER_ROUND_RE = /[2-9２-９二三四]\s*次受付|追加受付/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -2560,9 +2561,13 @@ function computeDefaultIncluded(
 
     // 関わる公演 = 二次/追加受付・公演予定・グッズ含め、未来の予定を全部ON
     if (involvedGroups.has(eventGroupKey(dl.fc_news.title))) {
-      // 申込済→申込締切は配信しない。2次・追加受付は別の申込なので入れる（LATER_ROUND_RE の説明参照）
-      if (dl.type === "apply_end" && appliedUids.has(dl.news_uid) && !LATER_ROUND_RE.test(dl.fc_news.title)) continue;
-      if (dl.type === "payment" && paidUids.has(dl.news_uid)) continue;      // 入金済→入金締切は配信しない
+      // 申込済→申込締切は配信しない。ただし貼り付けからの判定だけのときは、2次・追加受付の締切は入れる
+      // （貼り付けは先行と2次受付の両方の記事に当たるため）。画面で「申込んだ」「入金済み」を押した記録は尊重する
+      if (dl.type === "apply_end" && appliedUids.has(dl.news_uid)
+        && (appliedSet.has(dl.news_uid) || paidSet.has(dl.news_uid) || !LATER_ROUND_RE.test(dl.fc_news.title))) continue;
+      // 入金済→入金締切は配信しない。申込締切と同じく、貼り付けからの判定だけなら2次・追加受付の締切は入れる
+      if (dl.type === "payment" && paidUids.has(dl.news_uid)
+        && (paidSet.has(dl.news_uid) || !LATER_ROUND_RE.test(dl.fc_news.title))) continue;
       included.add(dl.id);
       continue;
     }
@@ -2665,7 +2670,14 @@ function SubscribeScreen({
     setInitialized(true);
   }, [allDeadlines, matchResults, watchlistSet, appliedSet, paidSet, favorites, initialized]);
 
+  // 付け外しはすべてここを通る。外した予定は「外した記録」に残し、入れ直したら記録から消す。
+  // 自動で足す処理（推し・貼り付け）はこの記録を飛ばす。記録が無いと、開くたびに貼り付けの判定が
+  // やり直されて、外した予定が戻ってしまう（2026-09-28 QA で確認・Hop 決定で合流前に直す）
   function persistIncluded(next: Set<string>) {
+    const dismissed = readDismissedIds();
+    for (const id of includedIds) if (!next.has(id)) dismissed.add(id);
+    for (const id of next) dismissed.delete(id);
+    writeDismissedIds(dismissed);
     setIncludedIds(next);
     writeIncludedIds(next);
   }
@@ -2706,12 +2718,13 @@ function SubscribeScreen({
     if (!initialized) return;
     if (favoritesAreEmpty(favorites)) return;
     const multiGroups = multiShowGroupKeys(allDeadlines); // 複数回公演は自動追加しない（行く回はユーザーが選ぶ）
+    const dismissed = readDismissedIds();
     const now = new Date();
     const toAdd: string[] = [];
     for (const dl of allDeadlines) {
       if (new Date(dl.deadline_at) < now) continue;
       if (!FAVORITE_ACTIONABLE_TYPES.includes(dl.type)) continue;
-      if (includedIds.has(dl.id)) continue;
+      if (includedIds.has(dl.id) || dismissed.has(dl.id)) continue; // 自分で外した予定は戻さない
       if (dl.type === "event" && multiGroups.has(eventGroupKey(dl.fc_news.title))) continue; // 複数回公演は初期OFF維持
       if (titleMatchesFavorites(dl.fc_news.title, favorites)) toAdd.push(dl.id);
     }
@@ -2735,17 +2748,22 @@ function SubscribeScreen({
     }
     if (involved.size === 0) return;
     const multiGroups = multiShowGroupKeys(allDeadlines); // 複数回公演は自動追加しない（行く回はユーザーが選ぶ／全通）
+    const dismissed = readDismissedIds();
     const now = new Date();
     const toAdd: string[] = [];
     for (const dl of allDeadlines) {
       if (new Date(dl.deadline_at) < now) continue;
       if (!SUBSCRIPTION_TYPES_TO_SUBSCRIBE.includes(dl.type)) continue;
-      if (includedIds.has(dl.id)) continue;
+      if (includedIds.has(dl.id) || dismissed.has(dl.id)) continue; // 自分で外した予定は戻さない
       if (dl.type === "event" && multiGroups.has(eventGroupKey(dl.fc_news.title))) continue; // 複数回公演は初期OFF維持
-      // 申込済→申込締切は再追加しない。ただし2次・追加受付は別の申込なので入れる（要らなければ外せる）。
-      // 貼り付けの公演名は先行の記事と2次受付の記事の両方に当たり、両方が申込済みに見えるため（2026-09-28 QA・Hop 決定）
-      if (dl.type === "apply_end" && isApplied(dl.news_uid) && !LATER_ROUND_RE.test(dl.fc_news.title)) continue;
-      if (dl.type === "payment" && isPaid(dl.news_uid)) continue;      // 入金済→入金締切は再追加しない
+      // 申込済→申込締切は再追加しない。ただし貼り付けからの判定だけのときは、2次・追加受付の締切は入れる（要らなければ外せる）。
+      // 貼り付けの公演名は先行の記事と2次受付の記事の両方に当たり、両方が申込済みに見えるため（2026-09-28 QA・Hop 決定）。
+      // 画面で「申込んだ」を押して外した物は、開き直しても戻さない
+      if (dl.type === "apply_end" && isApplied(dl.news_uid)
+        && (appliedSet.has(dl.news_uid) || paidSet.has(dl.news_uid) || !LATER_ROUND_RE.test(dl.fc_news.title))) continue;
+      // 入金済→入金締切は再追加しない。申込締切と同じく、貼り付けからの判定だけなら2次・追加受付の締切は入れる
+      if (dl.type === "payment" && isPaid(dl.news_uid)
+        && (paidSet.has(dl.news_uid) || !LATER_ROUND_RE.test(dl.fc_news.title))) continue;
       if (involved.has(eventGroupKey(dl.fc_news.title))) toAdd.push(dl.id);
     }
     if (toAdd.length > 0) persistIncluded(new Set([...includedIds, ...toAdd]));
