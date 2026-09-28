@@ -820,6 +820,8 @@ function ResultArticle({
 }) {
   const isRejected = parsed.status.includes("落選");
   const isCompleted = parsed.status.includes("入金済") || parsed.status.includes("当選");
+  // 入金締切を払い済みの見た目にするのは「入金済」の時だけ。「当選」はまだ入金していない状態（Hop 確認 2026-09-29）
+  const isPaidUp = parsed.status.includes("入金済");
   const hasFutureDeadlines = deadlines.length > 0;
 
   const borderClass = isRejected
@@ -854,7 +856,7 @@ function ResultArticle({
               )}
               <div className="space-y-4">
                 {dls.map((dl, idx) => (
-                  <DeadlineRow key={dl.id} dl={dl} paidUp={isCompleted && dl.type === "payment" && !LATER_ROUND_RE.test(dl.fc_news.title)} isFirst={idx === 0} />
+                  <DeadlineRow key={dl.id} dl={dl} paidUp={isPaidUp && dl.type === "payment" && !LATER_ROUND_RE.test(dl.fc_news.title)} isFirst={idx === 0} />
                 ))}
               </div>
             </div>
