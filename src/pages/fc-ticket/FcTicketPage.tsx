@@ -32,6 +32,7 @@ import {
   writeIncludedIds,
   readDismissedIds,
   writeDismissedIds,
+  readIncludedIds,
   writeEventLead,
   writeEventLeadOverrides,
   clearPublished,
@@ -1182,6 +1183,15 @@ function CalendarScreen({
       onAppliedChange(applied.filter((u) => u !== uid));
       // 申込解除したら入金済みも解除
       onPaidChange(paid.filter((u) => u !== uid));
+      // 同期の画面の「申込んだ」で外れたこの記事の申込締切（外した記録にある、これからの物）を同期に戻す（Hop 決定 2026-09-28）
+      const dismissed = readDismissedIds();
+      const now = new Date();
+      const back = allDeadlines.filter((dl) => dl.news_uid === uid && dl.type === "apply_end" && dismissed.has(dl.id) && new Date(dl.deadline_at) >= now).map((dl) => dl.id);
+      if (back.length > 0) {
+        for (const id of back) dismissed.delete(id);
+        writeDismissedIds(dismissed);
+        writeIncludedIds(new Set([...readIncludedIds(), ...back]));
+      }
     } else {
       onAppliedChange([...applied, uid]);
       // 申込時にwatchlistにも追加
@@ -2666,7 +2676,11 @@ function SubscribeScreen({
       setInitialized(true);
       return;
     }
-    setIncludedIds(computeDefaultIncluded(allDeadlines, matchResults, watchlistSet, appliedSet, paidSet, favorites));
+    // 最初の選択は端末にも保存する。送信の係と自動追加は端末の一覧を正とするため、
+    // 画面の中だけに置くと、初回の発行が空で送られたり自動追加で消えたりする（2026-09-28 QA）
+    const initial = computeDefaultIncluded(allDeadlines, matchResults, watchlistSet, appliedSet, paidSet, favorites);
+    setIncludedIds(initial);
+    writeIncludedIds(initial);
     setInitialized(true);
   }, [allDeadlines, matchResults, watchlistSet, appliedSet, paidSet, favorites, initialized]);
 
@@ -2677,7 +2691,8 @@ function SubscribeScreen({
   // 同じ推しを登録し直したら戻す（Hop 決定 2026-09-28）
   function persistIncluded(next: Set<string>, recordDismissed = true) {
     const dismissed = readDismissedIds();
-    if (recordDismissed) for (const id of includedIds) if (!next.has(id)) dismissed.add(id);
+    // 外した物の判定は、画面の手元の値でなく端末に保存された最新の一覧と比べる
+    if (recordDismissed) for (const id of readIncludedIds()) if (!next.has(id)) dismissed.add(id);
     for (const id of next) dismissed.delete(id);
     writeDismissedIds(dismissed);
     setIncludedIds(next);
@@ -2730,7 +2745,8 @@ function SubscribeScreen({
       if (dl.type === "event" && multiGroups.has(eventGroupKey(dl.fc_news.title))) continue; // 複数回公演は初期OFF維持
       if (titleMatchesFavorites(dl.fc_news.title, favorites)) toAdd.push(dl.id);
     }
-    if (toAdd.length > 0) persistIncluded(new Set([...includedIds, ...toAdd]));
+    // 土台は端末に保存された最新の一覧（同じ描画でもう一方の自動追加が先に書いた分を消さないため）
+    if (toAdd.length > 0) persistIncluded(new Set([...readIncludedIds(), ...toAdd]));
     // includedIds は依存に含めない（追加のたびに再発火させない）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [favorites, initialized, allDeadlines]);
@@ -2768,9 +2784,19 @@ function SubscribeScreen({
         && (paidSet.has(dl.news_uid) || !LATER_ROUND_RE.test(dl.fc_news.title))) continue;
       if (involved.has(eventGroupKey(dl.fc_news.title))) toAdd.push(dl.id);
     }
-    if (toAdd.length > 0) persistIncluded(new Set([...includedIds, ...toAdd]));
+    if (toAdd.length > 0) persistIncluded(new Set([...readIncludedIds(), ...toAdd]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchResults, initialized, allDeadlines]);
+
+  // 外した記録から、もう締切の一覧に無い古い予定を捨てる（記録が増え続けないように）。
+  // 一覧の取得に失敗して空の時は捨てない（全部消えてしまうため）
+  useEffect(() => {
+    if (allDeadlines.length === 0) return;
+    const known = new Set(allDeadlines.map((dl) => dl.id));
+    const dismissed = readDismissedIds();
+    const kept = [...dismissed].filter((id) => known.has(id));
+    if (kept.length !== dismissed.size) writeDismissedIds(kept);
+  }, [allDeadlines]);
 
   // ── 自動保存は親（FcTicketPage）の保存の係が受け持つ ──
   // 以前はこの画面の中に係がいたため、カレンダー画面で付けた「入金済み」が届かなかった。
@@ -2933,6 +2959,8 @@ function SubscribeScreen({
         writeSlug(useSlug); // 合図が出て、親の保存の係が送信する
       }
       setPublishedUrls(subscriptionUrls(useSlug));
+      // 送る前に画面の選択を端末へ揃える（送信の係は端末の一覧から注文票を作る）
+      writeIncludedIds(ids);
       // 送信そのものは保存の係に任せる（成功したときだけ「送信済み」の印が付く）
       const ok = await saver.saveImmediately();
       if (!ok && saver.lastError) {
