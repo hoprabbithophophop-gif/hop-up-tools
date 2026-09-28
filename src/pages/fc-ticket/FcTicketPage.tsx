@@ -2590,8 +2590,10 @@ function computeDefaultIncluded(
   return included;
 }
 
-function statusBadgeFor(newsUid: string, matchResults: MatchResult[], appliedSet: Set<string>, paidSet: Set<string>): { label: string; tone: "primary" | "muted" | "danger" } | null {
-  const m = matchResults.find((r) => r.matched.some((mm) => mm.uid === newsUid));
+function statusBadgeFor(newsUid: string, title: string, matchResults: MatchResult[], appliedSet: Set<string>, paidSet: Set<string>): { label: string; tone: "primary" | "muted" | "danger" } | null {
+  // 2次・追加受付の記事には貼り付けの結果（先行の当選・入金済・落選）を当てない。
+  // 申込状況には公演名しか無く、先行と2次の両方の記事に当たってしまうため（Hop 決定 2026-09-29）
+  const m = LATER_ROUND_RE.test(title) ? undefined : matchResults.find((r) => r.matched.some((mm) => mm.uid === newsUid));
   if (m) {
     if (m.parsed.status.includes("入金済")) return { label: "入金済", tone: "muted" };
     if (m.parsed.status.includes("当選")) return { label: "当選", tone: "primary" };
@@ -2896,7 +2898,8 @@ function SubscribeScreen({
   const dlById = new Map(futureDeadlinesRaw.map((d) => [d.id, d]));
   const badgeForTwins = (dl: Deadline) => {
     for (const id of twinIdsOf(dl.id)) {
-      const b = statusBadgeFor(dlById.get(id)?.news_uid ?? dl.news_uid, matchResults, appliedSet, paidSet);
+      const src = dlById.get(id) ?? dl;
+      const b = statusBadgeFor(src.news_uid, src.fc_news.title, matchResults, appliedSet, paidSet);
       if (b) return b;
     }
     return null;
@@ -2904,7 +2907,8 @@ function SubscribeScreen({
 
   // 完了済み (入金済 or paid) のDeadlineを分離
   const completedDeadlines = futureDeadlines.filter((dl) => {
-    const status = matchResults.find((r) => r.matched.some((m) => m.uid === dl.news_uid))?.parsed.status ?? "";
+    // 2次・追加受付は貼り付けの結果では完了扱いにしない（statusBadgeFor と同じ理由）
+    const status = LATER_ROUND_RE.test(dl.fc_news.title) ? "" : matchResults.find((r) => r.matched.some((m) => m.uid === dl.news_uid))?.parsed.status ?? "";
     return status.includes("入金済") || paidSet.has(dl.news_uid);
   });
   const activeDeadlines = futureDeadlines.filter((dl) => !completedDeadlines.includes(dl));
