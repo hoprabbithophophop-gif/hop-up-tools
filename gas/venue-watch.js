@@ -12,6 +12,8 @@
  * 【保管庫へ移した関数（gas/archive/venue-setup-trigger.js にそのまま残してある）】
  * VENUEsetupTrigger（2026-09-04。トリガー作成が済み、二度目は要らないため）
  *
+ * 座標の探し方（strictGeocode）: 会場の公式サイトの住所 → 国土地理院の住所検索。出なければ Supabase の geocode-venue（Wikidata を会場名で）。
+ *
  * 自動採用の厳格ルール（手作業ジオコーディング時の事故から導出）:
  *  - 都道府県が一致（「（東京）」と返ってきた住所の都道府県を照合）
  *  - 施設名が会場名を内包 or 会場名が施設名を内包（部分かすりは不採用。
@@ -19,8 +21,6 @@
  *  - 通らなければ「座標なし」のまま＝間違いピンは絶対に配らない
  */
 
-const VENUE_GEOCODER_UA = 'hop-up-tools-geocoder/1.0 (https://hop-up-tools.pages.dev)';
-const VENUE_PREF_FULL = { '東京': '東京都', '大阪': '大阪府', '京都': '京都府' };
 const VENUE_NOTIFIED_PROP = 'VENUE_WATCH_NOTIFIED';
 
 /** エントリポイント（日次トリガー） */
@@ -43,7 +43,7 @@ function VENUEmain() {
 
   // 会場辞書（座標の有無も見る）
   const vRes = UrlFetchApp.fetch(
-    supabaseUrl + '/rest/v1/schedule_venues?select=name,prefecture,latitude,longitude',
+    supabaseUrl + '/rest/v1/schedule_venues?select=name,prefecture,latitude,longitude,official_url',
     { headers: sbHeaders, muteHttpExceptions: true }
   );
   if (vRes.getResponseCode() !== 200) throw new Error('schedule_venues取得失敗: ' + vRes.getContentText());
@@ -63,7 +63,18 @@ function VENUEmain() {
       return v.latitude != null && v.prefecture && paren.indexOf(v.prefecture) >= 0 && venueCharBag(v.name) === venueCharBag(name);
     });
     if (bagHit) continue;
-    unresolved[name] = { name: name, pref: paren.replace(/^(東京都|北海道|(.{2,3}?)[都道府県]).*$/, '$1').replace(/[都府県]$/, '') || paren };
+    // 公式サイトの URL（辞書の同じ会場から。ファンクラブ側の表記が少し違う「Zepp Namba」と「Zepp Namba(OSAKA)」のような
+    // 前方一致も、都道府県が同じなら同じ会場とみなす）。住所から座標を出すのに使う
+    const urlHit = (hit && hit.official_url) ? hit : venues.find(function (v) {
+      if (!v.official_url || !v.prefecture || paren.indexOf(v.prefecture) < 0) return false;
+      const a = normalizeVenueChars(v.name), b = normalizeVenueChars(name);
+      return a.indexOf(b) === 0 || b.indexOf(a) === 0;
+    });
+    unresolved[name] = {
+      name: name,
+      pref: paren.replace(/^(東京都|北海道|(.{2,3}?)[都道府県]).*$/, '$1').replace(/[都府県]$/, '') || paren,
+      url: urlHit ? urlHit.official_url : null,
+    };
   }
 
   const names = Object.keys(unresolved);
@@ -75,7 +86,7 @@ function VENUEmain() {
   const failed = [];
   for (const name of names) {
     const pref = unresolved[name].pref;
-    const hit = strictGeocode(name, pref);
+    const hit = strictGeocode(name, pref, unresolved[name].url);
     if (hit) {
       const ins = UrlFetchApp.fetch(supabaseUrl + '/rest/v1/schedule_venues?on_conflict=name', {
         method: 'post',
@@ -85,7 +96,11 @@ function VENUEmain() {
           'Authorization': 'Bearer ' + supabaseKey,
           'Prefer': 'resolution=merge-duplicates',
         },
-        payload: JSON.stringify([{ name: name, prefecture: pref, latitude: hit.lat, longitude: hit.lon, is_online: false }]),
+        payload: JSON.stringify([Object.assign(
+          { name: name, prefecture: pref, latitude: hit.lat, longitude: hit.lon, is_online: false },
+          hit.address ? { address: hit.address } : {},
+          unresolved[name].url ? { official_url: unresolved[name].url } : {}
+        )]),
         muteHttpExceptions: true,
       });
       if (ins.getResponseCode() < 300) {
@@ -130,32 +145,107 @@ function VENUEmain() {
   props.setProperty(VENUE_NOTIFIED_PROP, JSON.stringify(notified));
 }
 
-/** 厳格ルールのジオコーディング（Nominatim・1.1秒間隔） */
-function strictGeocode(name, pref) {
-  const queries = [name, name + ' ' + pref];
-  for (const q of queries) {
-    const res = UrlFetchApp.fetch(
-      'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=3&countrycodes=jp&accept-language=ja&q=' + encodeURIComponent(q),
-      { headers: { 'User-Agent': VENUE_GEOCODER_UA }, muteHttpExceptions: true }
-    );
-    Utilities.sleep(1100);
-    if (res.getResponseCode() !== 200) {
-      // 注: GASはUser-Agentを自由に名乗れないため、Nominatim側に弾かれる可能性あり（要観察）
-      Logger.log('geocode HTTP ' + res.getResponseCode() + ': ' + q + ' / ' + res.getContentText().slice(0, 120));
-      continue;
-    }
-    const list = JSON.parse(res.getContentText());
-    if (list.length === 0) { Logger.log('geocode ヒットなし: ' + q); continue; }
-    for (const r of list) {
-      if (String(r.display_name).indexOf(VENUE_PREF_FULL[pref] || pref) < 0) continue; // 都道府県不一致
-      const resultName = normalizeVenueChars(String(r.name || String(r.display_name).split(',')[0]));
-      const queryName = normalizeVenueChars(name);
-      if (resultName.length < 4) continue;
-      const contains = resultName.indexOf(queryName) >= 0; // 施設名が会場名を内包（例: チームスマイル・豊洲PIT ⊇ 豊洲PIT）
-      const contained = queryName.indexOf(resultName) >= 0 && resultName.length >= queryName.length * 0.6; // 会場名がホール名付きの場合（例: タワーホール船堀 ⊆ …大ホール）
-      if (!contains && !contained) { Logger.log('geocode 名前不一致で見送り: ' + q + ' → ' + r.name); continue; }
-      return { lat: Number(r.lat), lon: Number(r.lon), label: String(r.display_name).split(',').slice(0, 3).join(',') };
+/**
+ * 厳格ルールのジオコーディング。見つからなければ null（＝座標なしのまま。間違ったピンは配らない）。
+ *  1. 会場の公式サイト（schedule_venues.official_url）から「〒」の住所を読み取り、国土地理院の住所検索で位置を出す。
+ *     返ってきた住所の都道府県が公演の都道府県と同じ時だけ採用（住所なら番地まで正確に出る）
+ *  2. 出なければ Supabase の geocode-venue（Wikidata を会場名で探す）に聞く
+ * 以前は Nominatim を使っていたが、日本の会場名に弱く（2026-09-28 実測で未解決10会場中0件）、
+ * 定期実行の利用方針（1分4件まで）にも合っていなかったのでやめた。
+ * hp-schedule-scraper.js からも呼ばれる（同一 GAS プロジェクト内で共有）。
+ */
+function strictGeocode(name, pref, officialUrl) {
+  if (officialUrl) {
+    const byAddress = addressGeocode(officialUrl, pref);
+    if (byAddress) return byAddress;
+  }
+  return nameGeocode(name, pref);
+}
+
+/** 「東京」「東京都」→「東京都」のような正式な都道府県名。分からなければ空文字 */
+function venuePrefFull(pref) {
+  const p = String(pref || '').trim();
+  if (p === '北海道' || /[都府県]$/.test(p)) return p;
+  if (p === '東京') return '東京都';
+  if (p === '大阪' || p === '京都') return p + '府';
+  return p ? p + '県' : '';
+}
+
+/** 公式サイトのページを文字で取る（Shift_JIS 等のページも読めるように） */
+function venueFetchText(url) {
+  const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+  if (res.getResponseCode() !== 200) return '';
+  const head = res.getBlob().getDataAsString('ISO-8859-1').slice(0, 3000);
+  const m = head.match(/charset=["']?(shift_jis|sjis|x-sjis|euc-jp)/i);
+  return m ? res.getContentText(/euc/i.test(m[1]) ? 'EUC-JP' : 'Shift_JIS') : res.getContentText();
+}
+
+/** ページの中から「〒」で始まる住所を1つ取り出す（電話番号などの後ろは切る） */
+function venueExtractAddress(html) {
+  const text = String(html).replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/[\s　]+/g, ' ');
+  const m = text.match(/〒\s?\d{3}\s?[-‐ー－]\s?\d{4}\s*(.{4,80})/);
+  if (!m) return '';
+  // 「青海 1-1-10」のように町名と番地の間に空白が入るサイトがあるので、数字の前の空白は詰める
+  const rest = m[1].replace(/([^\s])\s+(?=[0-9０-９])/g, '$1').split(/\s?(TEL|Tel|tel|電話|代表|FAX|Fax|ＴＥＬ|MAP|地図|アクセス|※)/)[0].trim();
+  // 「…9番16号 日本消防会館2階 お問い合わせ…」のように後ろにメニューの文字が続くことがあるので、号・番地で切る
+  const cut = rest.match(/^.*?[0-9０-９](号|番地)/);
+  return cut ? cut[0] : rest.split(' ')[0];
+}
+
+function addressGeocode(officialUrl, pref) {
+  const prefFull = venuePrefFull(pref);
+  if (!prefFull) return null;
+  let html = venueFetchText(officialUrl);
+  let address = venueExtractAddress(html);
+  if (!address && html) {
+    // トップに住所が無ければ、同じサイトの「アクセス」のページを1つだけ見る
+    const host = String(officialUrl).match(/^https?:\/\/[^/]+/);
+    const links = String(html).match(/href=["'][^"']*(access|アクセス|map|about)[^"']*["']/gi) || [];
+    for (const l of links) {
+      let href = l.replace(/^href=["']|["']$/g, '');
+      if (/^\//.test(href) && host) href = host[0] + href;
+      else if (!/^https?:/.test(href)) href = String(officialUrl).replace(/[^/]*$/, '') + href;
+      if (host && href.indexOf(host[0]) !== 0) continue; // よそのサイトへは行かない
+      address = venueExtractAddress(venueFetchText(href));
+      if (address) break;
     }
   }
+  if (!address) { Logger.log('住所が見つからず: ' + officialUrl); return null; }
+
+  // 国土地理院の住所検索（公式に公開された API ではない。止まっていれば「見つからず」に倒れるだけ）
+  const res = UrlFetchApp.fetch(
+    'https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(address),
+    { muteHttpExceptions: true }
+  );
+  if (res.getResponseCode() !== 200) { Logger.log('住所検索 HTTP ' + res.getResponseCode() + ': ' + address); return null; }
+  const list = JSON.parse(res.getContentText()) || [];
+  for (const r of list) {
+    const title = String((r.properties || {}).title || '');
+    if (title.indexOf(prefFull) !== 0) continue; // 都道府県が違う（別の同名の住所）なら使わない
+    // 番地が合わず町の中心しか返らない時（例「東京都江東区青海」）は、会場から1km近くずれうるので使わない
+    if (!/[0-9０-９]|丁目/.test(title.slice(prefFull.length))) { Logger.log('住所検索が町までしか一致せず見送り: ' + title); continue; }
+    const c = (r.geometry || {}).coordinates;
+    if (!c) continue;
+    return { lat: Number(c[1]), lon: Number(c[0]), label: title + '（公式サイトの住所・国土地理院）', address: address };
+  }
+  Logger.log('住所検索で都道府県一致なし: ' + address + '（' + prefFull + '）');
   return null;
+}
+
+/** Supabase の geocode-venue に会場名で聞く（Wikidata。都道府県は向こうで照合する） */
+function nameGeocode(name, pref) {
+  const props = PropertiesService.getScriptProperties();
+  const supabaseUrl = props.getProperty('SUPABASE_URL');
+  const supabaseKey = props.getProperty('SUPABASE_SERVICE_KEY');
+  if (!supabaseUrl || !supabaseKey) return null;
+  const res = UrlFetchApp.fetch(supabaseUrl + '/functions/v1/geocode-venue', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'Authorization': 'Bearer ' + supabaseKey },
+    payload: JSON.stringify({ name: name, pref: pref }),
+    muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 200) { Logger.log('geocode-venue HTTP ' + res.getResponseCode() + ': ' + name); return null; }
+  const hit = (JSON.parse(res.getContentText()) || {}).hit;
+  return hit ? { lat: Number(hit.lat), lon: Number(hit.lon), label: hit.label } : null;
 }

@@ -379,10 +379,11 @@ function upsertEventToSupabase(supabaseUrl, supabaseKey, ev) {
   for (const name of venueNames) {
     const row = uniqVenues[name];
     if (existingCoords[name] == null && row.prefecture) {
-      const hit = strictGeocode(name, row.prefecture);
+      const hit = strictGeocode(name, row.prefecture, row.official_url);
       if (hit) {
         row.latitude = hit.lat;
         row.longitude = hit.lon;
+        if (!row.address && hit.address) row.address = hit.address;
         Logger.log('会場ジオコーディング成功: ' + name + ' → ' + hit.lat + ',' + hit.lon + ' (' + hit.label + ')');
       } else {
         Logger.log('会場ジオコーディング失敗（座標なしのまま）: ' + name);
