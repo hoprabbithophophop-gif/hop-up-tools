@@ -9,8 +9,6 @@ import { WAVE_COLOR, coverScreen, guardPlayers, hasEmbeddedPlayer, holdUntilRead
 // 読み込み関数を表にしておき、ページ移動の演出中に次のページを先に読み込む。
 const ROUTES: { path: string; load: () => Promise<{ default: ComponentType }> }[] = [
   { path: "/", load: () => import("./pages/TopPage") },
-  { path: "/profile", load: () => import("./pages/profile/ProfilePage") },
-  { path: "/p/:slug", load: () => import("./pages/profile/SlugPage") },
   { path: "/fc-ticket", load: () => import("./pages/fc-ticket/FcTicketPage") },
   { path: "/youtube", load: () => import("./pages/youtube/YouTubePage") },
   { path: "/youtube/pickup", load: () => import("./pages/youtube/YouTubePickupPage") },

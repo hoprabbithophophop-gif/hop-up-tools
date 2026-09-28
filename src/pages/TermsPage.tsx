@@ -46,7 +46,7 @@ export default function TermsPage() {
 
       <h2 style={s.h2}>2. 情報の正確性・最新性について</h2>
       <p style={s.p}>
-        本サービスに表示される公演・締切情報は、UPFC（<a href="https://www.upfc.jp/helloproject/" target="_blank" rel="noopener noreferrer" style={s.link}>https://www.upfc.jp/helloproject/</a>）および e-LineUP!Mall（<a href="https://www.elineupmall.com/" target="_blank" rel="noopener noreferrer" style={s.link}>https://www.elineupmall.com/</a>）の公開ページから自動取得したものです。
+        本サービスに表示される公演・締切情報は、UPFC（<a href="https://www.upfc.jp/helloproject/" target="_blank" rel="noopener noreferrer" style={s.link}>https://www.upfc.jp/helloproject/</a>）の公開ページから、メンバー情報はハロー！プロジェクト公式サイト（<a href="https://www.helloproject.com/" target="_blank" rel="noopener noreferrer" style={s.link}>https://www.helloproject.com/</a>）から、動画情報は YouTube（YouTube API サービス）から自動取得したものです。
       </p>
       <ul style={s.ul}>
         <li>情報の正確性・完全性・最新性を保証しません。</li>
@@ -66,6 +66,9 @@ export default function TermsPage() {
         <li>法令または公序良俗に反する利用</li>
         <li>その他、運営者が不適切と判断する行為</li>
       </ul>
+      <p style={s.p}>
+        プレイリスト名、不具合報告やお問い合わせの内容など、利用者が入力・共有した内容に、差別・性的・暴力的な表現、誹謗中傷、違法行為の示唆、他者の権利を侵害する内容が含まれる場合、運営者はその内容の削除や共有の停止を行うことがあります。
+      </p>
 
       <h2 style={s.h2}>5. サービスの変更・終了</h2>
       <p style={s.p}>
@@ -92,7 +95,7 @@ export default function TermsPage() {
 
       <h2 style={s.h2}>9. お問い合わせ</h2>
       <p style={s.p}>
-        本規約に関するお問い合わせは、X（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={s.link}>@hop_rabbit_hop</a> までDMにてご連絡ください。
+        本規約に関するお問い合わせは、トップページの「お問い合わせ」フォーム、またはX（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={s.link}>@hop_rabbit_hop</a> までDMにてご連絡ください。
       </p>
     </div></div>
   );
