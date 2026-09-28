@@ -1,0 +1,138 @@
+import { OMAKE, omakeVideo, OMAKE_CHUSEN, chusenVideo } from "@/data/the-ballad";
+import type { VideoLink } from "@/data/the-ballad";
+import { C } from "../ui";
+import { MemberEmph } from "./Emph";
+import { Count, Empty } from "./SongView";
+
+// OMAKE タブ: The Ballad 楽曲のスタジオソロカバー（各ユニット公式チャンネルの単独動画）と、
+// 各会場ブロックの歌唱順抽選会（舞台裏）を一覧表示。いずれもタップで全編再生。
+// ※スタジオ収録のみで公演映像と混ざらないため、聴き比べ（同曲の別歌唱の切替）は置かない。
+export default function OmakeView({
+  query,
+  onPlay,
+  onOpenQuiz,
+}: {
+  query: string;
+  onPlay: (v: VideoLink) => void;
+  onOpenQuiz: () => void;
+}) {
+  const q = query.trim().toLowerCase();
+  // 「どの公演のふるさと？」全問正解済みなら、クイズリンクを金の額縁で豪華にする(ご褒美)
+  const cleared = (() => { try { return localStorage.getItem("the-ballad.furusato-cleared") === "1"; } catch { return false; } })();
+
+  const covers = OMAKE.filter((e) => {
+    if (!q) return true;
+    return (
+      e.songCore.toLowerCase().includes(q) ||
+      e.artist.toLowerCase().includes(q) ||
+      e.member.toLowerCase().includes(q) ||
+      e.channel.toLowerCase().includes(q)
+    );
+  });
+
+  // 歌唱順抽選会（会場ブロックごとの舞台裏動画）。検索は日付・会場・チームに掛ける。
+  const chusen = OMAKE_CHUSEN.filter((e) => {
+    if (!q) return true;
+    return (
+      e.venue.toLowerCase().includes(q) ||
+      e.date.includes(q) ||
+      (e.team && `${e.team}チーム`.toLowerCase().includes(q)) ||
+      "歌唱順抽選会".includes(q)
+    );
+  });
+
+  if (covers.length === 0 && chusen.length === 0) return <Empty videoOnly={false} />;
+
+  return (
+    <div>
+      {covers.length > 0 && (
+        <p style={{ fontSize: "0.8125rem", color: C.meta, margin: "0 0 1rem", lineHeight: 1.6 }}>
+          「Hello! Project 2020 Summer COVERS 〜The Ballad〜」で披露された楽曲の、公式チャンネル配信のスタジオソロカバーです。
+        </p>
+      )}
+      {covers.length > 0 && <Count n={covers.length} unit="曲" />}
+      {covers.map((e) => (
+        <button key={e.videoId} onClick={() => onPlay(omakeVideo(e))} style={card}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: "0.7rem", color: C.body, marginBottom: "0.15rem" }}>
+              <MemberEmph member={e.member} big="0.7rem" small="0.7rem" />
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "0.95rem", fontWeight: 700, color: C.ink }}>{e.songCore}</span>
+              <span style={{ fontSize: "0.7rem", color: C.meta }}>{e.artist}</span>
+            </div>
+            <div style={{ fontSize: "0.625rem", color: C.faint, marginTop: "0.2rem", letterSpacing: "0.02em" }}>{e.channel}</div>
+          </div>
+          <span style={{ fontSize: "0.7rem", color: C.hair, flexShrink: 0 }}>▶</span>
+        </button>
+      ))}
+
+      {chusen.length > 0 && (
+        <div style={{ marginTop: covers.length > 0 ? "2rem" : 0 }}>
+          <h2 style={{ fontSize: "0.8125rem", fontWeight: 700, color: C.ink, margin: "0 0 0.4rem", letterSpacing: "0.02em" }}>
+            歌唱順抽選会
+          </h2>
+          <p style={{ fontSize: "0.75rem", color: C.meta, margin: "0 0 0.8rem", lineHeight: 1.6 }}>
+            各会場ブロックで歌唱順をくじ引きで決める、公式チャンネルの舞台裏映像です。
+          </p>
+          {chusen.map((e) => (
+            <button key={e.videoId} onClick={() => onPlay(chusenVideo(e))} style={card}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: "0.9rem", fontWeight: 700, color: C.ink }}>{e.date}</span>
+                  <span style={{ fontSize: "0.8rem", color: C.body }}>{e.venue}</span>
+                  {e.team && (
+                    <span style={{ fontSize: "0.625rem", fontWeight: 700, color: "#fff", background: C.ink, padding: "0.05rem 0.35rem", letterSpacing: "0.04em" }}>
+                      {e.team}チーム
+                    </span>
+                  )}
+                </div>
+              </div>
+              <span style={{ fontSize: "0.7rem", color: C.hair, flexShrink: 0 }}>▶</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* どの公演のふるさと？（検索なし時に最下層へ）。全問正解済みなら金の額縁で豪華に */}
+      {!q && (
+        <button onClick={onOpenQuiz} style={{ ...card, marginTop: "2rem", justifyContent: "space-between", position: "relative", overflow: "hidden", boxShadow: cleared ? "inset 0 0 0 1px #d4af37, inset 0 0 0 4px #ffffff, inset 0 0 0 5px #d4af37, 0 2px 16px rgba(212,175,55,0.28)" : undefined }}>
+          {cleared && (
+            <>
+              <style>{`@keyframes tb-furusato-shine { 0% { transform: translateX(-140%) skewX(-16deg); } 55%, 100% { transform: translateX(360%) skewX(-16deg); } }`}</style>
+              <span aria-hidden style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: "45%", background: "linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.95) 48%, rgba(212,175,55,0.4) 56%, transparent 82%)", animation: "tb-furusato-shine 2.2s ease-in-out infinite", pointerEvents: "none", zIndex: 2 }} />
+              {[
+                { top: 9, left: 9, borderTop: true, borderLeft: true },
+                { top: 9, right: 9, borderTop: true, borderRight: true },
+                { bottom: 9, left: 9, borderBottom: true, borderLeft: true },
+                { bottom: 9, right: 9, borderBottom: true, borderRight: true },
+              ].map((cc, i) => (
+                <span key={`fc${i}`} aria-hidden style={{ position: "absolute", width: 14, height: 14, top: cc.top, bottom: cc.bottom, left: cc.left, right: cc.right, borderTop: cc.borderTop ? "2px solid #d4af37" : undefined, borderBottom: cc.borderBottom ? "2px solid #d4af37" : undefined, borderLeft: cc.borderLeft ? "2px solid #d4af37" : undefined, borderRight: cc.borderRight ? "2px solid #d4af37" : undefined, zIndex: 3, pointerEvents: "none" }} />
+              ))}
+            </>
+          )}
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: "0.95rem", fontWeight: 700, color: C.ink }}>どの公演のふるさと？</div>
+            <div style={{ fontSize: "0.7rem", color: C.meta, marginTop: "0.2rem", lineHeight: 1.5 }}>
+              全公演の「ふるさと」全員合唱を聴いて、どの公演か当てるクイズ
+            </div>
+          </div>
+          <span style={{ fontSize: "0.7rem", color: C.hair, flexShrink: 0 }}>▶</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+const card: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "1rem",
+  width: "100%",
+  padding: "1rem 1.4rem",
+  marginBottom: 2,
+  background: C.card,
+  border: "none",
+  cursor: "pointer",
+  textAlign: "left",
+};

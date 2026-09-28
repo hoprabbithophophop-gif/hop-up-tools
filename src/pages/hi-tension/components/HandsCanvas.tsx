@@ -4,38 +4,78 @@ import {
   useImperativeHandle,
   useMemo,
   useRef,
+  useState,
 } from "react";
 // PixiJS は内部で `new Function(...)` を使うため、CSP の script-src に unsafe-eval が
 // 含まれない環境(Cloudflare Pages のデフォルト)では起動できない。
 // `pixi.js/unsafe-eval` を side-effect import すると eval を使わない別実装に切り替わる。
 // import そのものに副作用があるので、pixi.js の他 import より前に置く。
 import "pixi.js/unsafe-eval";
-import { Application, Container, Sprite, Texture, Ticker } from "pixi.js";
-import { getHandTexture, seatFromHash } from "../handTexture";
+import { Application, Container, PerspectiveMesh, Sprite, Texture, Ticker } from "pixi.js";
+import { getHandTexture, getHandOutlineTexture, seatFromHash } from "../handTexture";
 import { findMember } from "../data";
 import type { HiSession } from "../api";
 
 export type HandsCanvasApi = {
   spawnSelf: () => void;
   onTimeUpdate: (currentTime: number) => void;
-  receiveLiveTap: (memberId: string, seatIndex: number, videoTime: number) => void;
+  receiveLiveTap: (memberId: string, seatIndex: number, videoTime: number, lagMs: number) => void;
 };
 
 interface Props {
   sessions: HiSession[];
   selfMemberId: string | null;
   selfSeatHash: number;
+  /** リアルタイム再生中の自分の席番号（0始まり）。横一列の整列位置に使う。ソロ時は -1 */
+  selfSeatIndex?: number;
+  /** サイド席（左右スタンド）を出すか。PC（動画が小さく横が空く）でのみ true 想定。スマホは false。 */
+  enableSides?: boolean;
+  /** 横画面（アリーナ）レイアウト。動画を中央上(高さ60vh)に置く前提で、左右=縦長サイド席/
+   *  下40vh=フラットなアリーナ席（傾斜なし＝全員同じ目線）にする。動画の裏には席を置かない。 */
+  landscape?: boolean;
+  /** 全✋の色を強制上書き（誕生日モード等）。未指定は各メンバーカラー。 */
+  overrideColor?: string;
+  /** ✋サイズ算出(crowdScale)に使う人数。客席を分離表示しても全体登録数で安定させる用。未指定=表示中の数。 */
+  scaleCount?: number;
+  /** ✋の経日減衰(ageScale)を無効化。スペシャル回の客席を「満員のまま」凍結表示する用。 */
+  freezeAge?: boolean;
+  /** 動き軽減：✋の跳ねる演出（squash→jump→fade）を止め、その場で出して静かに消す（軽量・酔い対策）。 */
+  reduceMotion?: boolean;
+  /** 診断用: Pixi/WebGL 関連イベントを親に通知（後で削除） */
+  onPixiEvent?: (event: string, detail?: string) => void;
 }
 
 // バケットインデックスに紐づく「(セッション, このバケットでの押下回数)」
 type BucketEntry = { session: HiSession; count: number };
 
-const BASE_SIZE = 60;
-const SELF_SIZE = 72; // 仕様5.5: 自分は他人の約20%大きく
+const BASE_SIZE = 84;
+const SELF_SIZE = 84; // 自分は群衆より明確に大きく（埋もれ防止。白フチも併用）
+// 自分=最前列の「あなた」。手前の客席(FRONT_SCALE=4.2)の半分は超える程度に。
+// 大きすぎると視界を塞ぐので 4.2 の約6割で抑える（半分=2.1 以下だと小さすぎて違和感）。
+const SELF_DEPTH = 2.5;
 const NON_TODAY_ALPHA = 0.4;
 // 跳躍してもキャンバス上端(プレイヤー直下)で✋が見切れないための上余白。
-// スプライト高(最大 SELF_SIZE) + 最大跳躍(jumpHeight 最大100) + バッファ。
-const TOP_MARGIN = SELF_SIZE + 120;
+// 上端(動画直下)に確保する余白。小さくするほど✋の着地帯が上へ広がり、跳躍ピークが
+// 動画の下あたりまで届く。タップ✋ボタンは z 上位(z3)で前面に残るので、帯が上がって
+// ボタン裏に✋が来ても自然に重なる。最上段の跳躍ピークが一瞬上端で軽く切れる程度は許容。
+const TOP_MARGIN = 80;
+// 群衆キャンバスを動画の下へ潜り込ませる量(px)。下の style(top:-CANVAS_UNDERLAP)と、
+// 「見える席」判定で使う『上端のこの帯は動画の裏＝見えない』の両方でこの値を使う。
+const CANVAS_UNDERLAP = 40;
+// ✋の跳ね上がり量(px)。jumpScale を掛けて使う（spawnHand の jumpHeight と同じ値）。
+const JUMP_PX = 80;
+// 横画面のときの跳ね上がり量の上限(px)。動画が画面の上6割を占めるので、その下に残る帯が狭い。
+// 跳ねが大きいと✋の先が動画の裏へ回り込み、客席の真ん中に「動きが全部見える席」が1つも
+// 作れない。横の見本画面3枚すべてで、動画の下の中央 x 0.3〜0.7 に見える席が8席以上でき、
+// かつ左右のスタンド席も見える席として残る、を満たす最大の値として計算で出した。
+// 33px 以上にすると中央の見える席が5席まで減る。縦画面にはこの上限をかけない。
+const LANDSCAPE_JUMP_MAX_PX = 32;
+
+/** その✋が跳ね上がる量(px)。横画面だけ上限で抑える。演出の時間と消え方は変えない。 */
+function jumpHeightPx(jumpScale: number | undefined, capped: boolean): number {
+  const raw = JUMP_PX * (jumpScale ?? 1);
+  return capped ? Math.min(raw, LANDSCAPE_JUMP_MAX_PX) : raw;
+}
 
 function hexToTint(hex: string): number {
   return parseInt(hex.replace(/^#/, ""), 16);
@@ -51,6 +91,15 @@ function crowdScale(sessionCount: number): number {
   return 1 - t * 0.5;
 }
 
+// 画面サイズに応じた✋の基準倍率。狭い/低い画面(iPhone SE 等)ほど小さくして窮屈さを解消する。
+// w,h は再生エリア(動画下のキャンバス)の実ピクセル。基準(REF)より小さければ縮め、大きくても等倍で頭打ち。
+// 縦・横どちらかが詰まっていれば小さい方に合わせる(min)。下限 0.6 で潰れすぎない。間引きはしない。
+const REF_W = 412;
+const REF_H = 560;
+function viewportSizeK(w: number, h: number): number {
+  return Math.min(1, Math.max(0.6, Math.min(w / REF_W, h / REF_H)));
+}
+
 /**
  * セッションの日付に応じた✋サイズの倍率（区間線形減衰）。
  * day0=100%, day1=80%, day7=50%, day30=20%, それ以降は20%固定。
@@ -64,55 +113,193 @@ function ageScale(playedDate: string): number {
   return 0.2;
 }
 
+// ✋の着地点を収める安全な縦帯（0=領域上端/TOP_MARGIN直下, 1=領域下端＝免責文字の下）。
+// タップボタンは再生エリア上部にあり TOP_MARGIN で上側を保護済みなので、帯を下へ広げても
+// ボタン裏には回り込まない。下端付近(免責文字の上)まで使って、小さい画面(iPhone SE 等)で
+// ✋が一箇所に集中しないよう縦の散らばりを確保する。
+// ※「中断して戻る」ボタンは z-order で✋履歴より下に置く（HiTensionPage 側）ので、下端まで
+// 広げても✋がボタンの上に重なって自然。
+const BAND_TOP = 0.08;
+// 下端は再生エリアの最下部(免責文字のあたり)まで使う。免責文字は z 上位(z3)で前面に残るので
+// ✋(z2)はその裏に回り、文字は読めたまま下端まで✋で埋まる。
+const BAND_BOT = 1.0;
+
+// 自分（と相手）の大きい✋の着地点。タップボタンは再生エリア上部にあるので、
+// ここを下寄り(0.75)にして上昇アニメがボタンに重なって隠れないようにする。
+// （履歴✋は小さいので帯の中＝多少ボタン寄りでも問題ない）
+const SELF_Y = 0.75;
+// ソロ時はxRatio中央＝タップボタン真下になるため、TOP_MARGIN短縮後はボタン裏に寄る。
+// ボタンの下に抜けるよう更に下げて、自分✋(大＋白フチ)がちゃんと見えるようにする。
+const SELF_Y_SOLO = 0.88;
+
 /**
- * 参加順インデックスから✋の位置を決める（リアルタイムセッション用）。
- * 最大8人（2行×4列）。
+ * 参加順インデックスから✋の位置を決める（リアルタイムセッション用・上限2人）。
+ * 左右に等間隔（1/3・2/3）。yは下寄り（上昇アニメがタップボタンの裏に隠れない）。
  */
 function seatIndexToPosition(index: number): { xRatio: number; yRatio: number } {
-  const col = index % 4;
-  const row = Math.floor(index / 4);
+  const col = index % 2;                 // 上限2人
   return {
-    xRatio: 0.15 + col * 0.233,
-    yRatio: 0.82 - row * 0.18,
+    xRatio: (col + 1) / 3,               // 0→0.333, 1→0.667（左右等間隔）
+    yRatio: SELF_Y,                       // 下寄り
   };
 }
 
 const LIVE_QUEUE_MAX = 100;
 const LIVE_DISCARD_SEC = 3;
-// 遅延した✋のアニメ先送り量の上限（ms）。これ以上ズレても消さず軽く先送りして出す。
-const MAX_EXTRAPOLATION_MS = 200;
+// 遅延した✋のアニメ先送り量の上限（ms）。上昇(最大120ms)+滞空(最大50ms)分までは飛ばし、
+// それ以上ラグが大きくても「上昇アニメ」だけは必ず見せる(挙げた瞬間を残すため)。
+const MAX_EXTRAPOLATION_MS = 170;
 
 type QueuedLiveTap = { videoTime: number; memberId: string; seatIndex: number };
 
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
-function easeInQuad(t: number): number {
-  return t * t;
+
+/** 客席の1席ぶんの情報。jumpScale は跳ね量の倍率（未指定=1）、spread は隣の席との間隔。 */
+type Slot = { xRatio: number; yRatio: number; depthK: number; rotation: number; spread: number; jumpScale?: number };
+
+// ──「動きが最初から最後まで見える席」の判定 ───────────────────────────────
+// ✋には「湧く → しゃがむ → 跳ぶ → 着地 → 消える」という一連の動きがある。人が少ない日は、
+// その動きが全部見える席に座ってもらわないと「誰も来ていない」ように見えてしまう。
+// 困るのは、席を決める時点ではキャンバスの実寸がまだ分からないこと（実寸は描画時に決まる）。
+// そこで代表的な画面をいくつか「見本」として持ち、その全部で見えている席だけを見える席と呼ぶ。
+// 見本より広い画面なら余裕はもっと増えるので、これは安全側の見立てになる。
+//
+// 見本は「表示領域(dvh/vw)の実ピクセル」で持ち、HiTensionPage のレイアウトと同じ計算で
+// キャンバスと動画の位置に直す。
+const VIEW_SAMPLES_LANDSCAPE = [
+  { viewW: 568, viewH: 320 },   // 小さいスマホを横に持ったとき（iPhone SE 相当）
+  { viewW: 844, viewH: 390 },   // ふつうのスマホを横に持ったとき
+  { viewW: 1024, viewH: 768 },  // タブレット横。動画が左右へ一番張り出す形
+];
+const VIEW_SAMPLES_PORTRAIT = [
+  { viewW: 320, viewH: 548 },   // 小さいスマホ縦
+  { viewW: 390, viewH: 750 },   // ふつうのスマホ縦
+  { viewW: 820, viewH: 1080 },  // タブレット縦
+];
+// 傾けた✋（サイド席）は板を回して台形に投影するので、手首を基準にした張り出しが正面向きと違う。
+// spawnHand の投影式に yaw=±0.95 を入れて出した値（上へ1.23倍/下へ0.23倍/左右へ0.43倍・切り上げ）。
+const TILT_UP = 1.23, TILT_DOWN = 0.23, TILT_SIDE = 0.43;
+// 割り当て時に足すゆらぎ（assign 内のジッター）の最大幅。これを含めて見えるかを判定する。
+const JITTER_X_RATE = 0.25; // 席の間隔 spread に対する割合
+const JITTER_Y_MAX = 0.008;
+
+/** 表示領域の実ピクセルから、群衆キャンバスの大きさと（横画面なら）動画の矩形を割り出す。 */
+function canvasGeometry(viewW: number, viewH: number, landscape: boolean) {
+  if (landscape) {
+    // 横：キャンバスは画面全面＋上へ潜り込む分。動画は上から1.5%の位置に高さ60%（幅は16:9換算、
+    // ただし画面幅の94%まで）で中央に置かれる。✋は動画より背面なので、この矩形の中は見えない。
+    const h = viewH + CANVAS_UNDERLAP;
+    const videoW = Math.min(viewW * 0.94, ((viewH * 0.6) * 16) / 9);
+    const videoTop = viewH * 0.015 + CANVAS_UNDERLAP;
+    return {
+      w: viewW,
+      h,
+      video: {
+        top: videoTop,
+        bottom: videoTop + (videoW * 9) / 16,
+        left: (viewW - videoW) / 2,
+        right: (viewW + videoW) / 2,
+      },
+    };
+  }
+  // 縦：動画は画面幅いっぱい(16:9)で上にあり、キャンバスはその下＋上へ潜り込む分。
+  // 動画そのものはキャンバスの外なので、隠れるのは潜り込ませた上端の帯だけ。
+  // （PC は動画を 480px 幅に縮めるのでキャンバスはもっと縦に長い＝この見立てより余裕がある）
+  return { w: viewW, h: viewH - (viewW * 9) / 16 + CANVAS_UNDERLAP, video: null };
+}
+
+/** 見本の画面1枚で、その席の✋が動きの間ずっと見えているか。 */
+function visibleInSample(slot: Slot, geo: ReturnType<typeof canvasGeometry>, landscape: boolean): boolean {
+  // ✋の実寸(px)。crowdScale(人が増えると縮む)と ageScale(日が経つと縮む)は最大の 1.0 として
+  // 一番大きい✋で見る＝安全側。テクスチャは正方形なので幅と高さは同じ。
+  const size = BASE_SIZE * viewportSizeK(geo.w, geo.h) * slot.depthK;
+  const tilted = Math.abs(slot.rotation) > 0.001;
+  const halfW = (tilted ? TILT_SIDE : 0.5) * size;
+  const upExt = (tilted ? TILT_UP : 1) * size;    // 手首より上への張り出し
+  const downExt = (tilted ? TILT_DOWN : 0) * size; // 手首より下への張り出し
+
+  // 左右：ゆらぎで振れた先でも、✋の幅ぶんキャンバスの中に収まっているか
+  const jitterX = slot.spread * JITTER_X_RATE * geo.w;
+  const left = slot.xRatio * geo.w - jitterX - halfW;
+  const right = slot.xRatio * geo.w + jitterX + halfW;
+  if (left < 0 || right > geo.w) return false;
+
+  // 縦：着地点は spawnHand と同じ式（上に TOP_MARGIN を空けた残りに yRatio を当てる）。
+  const usableH = geo.h - TOP_MARGIN;
+  const baseLow = TOP_MARGIN + (slot.yRatio + JITTER_Y_MAX) * usableH;  // 一番下に振れた着地点
+  const baseHigh = TOP_MARGIN + (slot.yRatio - JITTER_Y_MAX) * usableH; // 一番上に振れた着地点
+  const bottom = baseLow + downExt;                                      // 動きの中で一番下になる点
+  // 跳ねの頂点での上端。跳ね量は spawnHand と同じ関数で出すので、判定と実際の動きがずれない。
+  const top = baseHigh - jumpHeightPx(slot.jumpScale, landscape) - upExt;
+  if (bottom > geo.h) return false;          // 下端からはみ出す（最前列＝着地点が画面の下）
+  if (top < CANVAS_UNDERLAP) return false;   // 上端の帯＝動画の裏、または画面の外へ出る
+  if (geo.video) {
+    const v = geo.video;
+    // 横画面：動きのどこかで動画の矩形に重なるなら、その分だけ裏に隠れる＝見える席ではない
+    if (right > v.left && left < v.right && top < v.bottom && bottom > v.top) return false;
+  }
+  return true;
+}
+
+/** すべての見本画面で見えている席か（＝人数が少ない日に優先して座らせてよい席か）。 */
+function isFullyVisibleSeat(slot: Slot, landscape: boolean): boolean {
+  const samples = landscape ? VIEW_SAMPLES_LANDSCAPE : VIEW_SAMPLES_PORTRAIT;
+  return samples.every((s) => visibleInSample(slot, canvasGeometry(s.viewW, s.viewH, landscape), landscape));
 }
 
 const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
-  { sessions, selfMemberId, selfSeatHash },
+  { sessions, selfMemberId, selfSeatHash, selfSeatIndex, enableSides = false, landscape = false, overrideColor, scaleCount, freezeAge = false, reduceMotion = false, onPixiEvent },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const textureRef = useRef<Texture | null>(null);
   const layerRef = useRef<Container | null>(null);
+  // 自分の✋は「別のpixiキャンバス」に描く。DOM上でそのキャンバスを✋ボタン(z:3)より上(z:4)に
+  // 重ねることで「自分✋ > ✋ボタン > 群衆✋」を満たす（1枚キャンバスだと自分と群衆が同一zで両立不可）。
+  // 動きは群衆と同じ spawnHand をそのまま使う（CSS等で作り直さない）。
+  const selfContainerRef = useRef<HTMLDivElement>(null);
+  const selfAppRef = useRef<Application | null>(null);
   const lastBucketRef = useRef<number>(-1);
   const currentTimeRef = useRef<number>(0);
   const liveQueueRef = useRef<QueuedLiveTap[]>([]);
   const sessionsRef = useRef<HiSession[]>(sessions);
   const selfMemberIdRef = useRef<string | null>(selfMemberId);
   const selfSeatHashRef = useRef<number>(selfSeatHash);
+  const selfSeatIndexRef = useRef<number | undefined>(selfSeatIndex);
+  const onPixiEventRef = useRef<typeof onPixiEvent>(onPixiEvent);
+  const overrideColorRef = useRef<string | undefined>(overrideColor);
+  useEffect(() => { overrideColorRef.current = overrideColor; }, [overrideColor]);
+  const freezeAgeRef = useRef<boolean>(freezeAge);
+  useEffect(() => { freezeAgeRef.current = freezeAge; }, [freezeAge]);
+  const reduceMotionRef = useRef<boolean>(reduceMotion);
+  useEffect(() => { reduceMotionRef.current = reduceMotion; }, [reduceMotion]);
+  const landscapeRef = useRef<boolean>(landscape);
+  useEffect(() => { landscapeRef.current = landscape; }, [landscape]);
+  const scaleCountRef = useRef<number | undefined>(scaleCount);
+  useEffect(() => { scaleCountRef.current = scaleCount; }, [scaleCount]);
+  useEffect(() => { onPixiEventRef.current = onPixiEvent; }, [onPixiEvent]);
+  // WebGL コンテキストロスト時の再初期化トリガ（カウンタを増やすと init useEffect が再実行される）
+  const [reinitCount, setReinitCount] = useState(0);
+  // 画面を開くたびに1回だけ作る乱数。席順の種に必ず混ぜて「開くたびに席替え」を保証する。
+  // selfSeatHash は再生を始めるときに作り直されるが、待機室のURLへ直接来た・リロードした場合は
+  // 作り直されずに 0 のまま再生へ入る道がある（HiTensionPage の reconcileToLevel）。種が 0 だと
+  // 毎回まったく同じ並び＝同じ人がいつも目の前、になるのでここで必ず崩す。
+  // ref なので sessions が入れ替わっても表示中は変わらない＝再生の途中で席がワープしない。
+  const openSaltRef = useRef<number>((Math.random() * 0x7fffffff) | 0);
 
   // バケット → 該当セッションのインデックス(検索を O(1) にする)
   const bucketIndex = useMemo<Map<number, BucketEntry[]>>(() => {
     const map = new Map<number, BucketEntry[]>();
     for (const session of sessions) {
-      // bucket_indices は重複あり(同じ 0.1秒に2回押せばダブる)
+      // 0.05秒刻みの細かいバケットを優先(人間の叩くブレが同じマスに丸まって機械っぽく揃うのを防ぐ)。
+      // 古いビューで列が無い場合は 0.1秒刻みを2倍して 0.05秒スケールに合わせる。
+      const buckets = session.bucket_indices_20 ?? session.bucket_indices.map((b) => b * 2);
+      // 重複あり(同じ 0.05秒に2回押せばダブる)
       const counts = new Map<number, number>();
-      for (const b of session.bucket_indices) {
+      for (const b of buckets) {
         counts.set(b, (counts.get(b) ?? 0) + 1);
       }
       for (const [bucket, count] of counts) {
@@ -124,10 +311,195 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     return map;
   }, [sessions]);
 
+  // セッション → ✋の配置（横アリ風・両サイドV字スタンド）。
+  // 動画(=ステージ)を上に見立て、左右のスタンドが内側に傾いて中央を囲む配置にする。
+  // 奥(上=ステージ際)ほど小さく(depthK)、手前(下)ほど大きく見せて疑似的な奥行きを出す。
+  // 中央下はアリーナ席として少しだけ✋を置く。並び順は毎プレイ(selfSeatHash＋開いた時の乱数)で
+  // 席替えし、色と位置を固定で結びつけない。同一プレイ中は安定なので再生中に✋がワープしない。
+  // 安全帯 BAND_TOP〜BAND_BOT に収め、上部のタップボタン裏は中央を空けることで避ける。
+  // 人が少ない日は、動きが全部見える席（isFullyVisibleSeat）から先に埋める。
+  const sessionLayout = useMemo<Map<number, { xRatio: number; yRatio: number; depthK: number; rotation: number; jumpScale?: number }>>(() => {
+    const n = sessions.length;
+    const map = new Map<number, { xRatio: number; yRatio: number; depthK: number; rotation: number; jumpScale?: number }>();
+    if (n === 0) return map;
+    // selfSeatHash と「開いたときの乱数」を種に session_hash を撹拌して並べ替える（毎プレイで席替え）。
+    const seed = (selfSeatHash ^ openSaltRef.current) >>> 0;
+    const mix = (h: number) => {
+      let x = (h ^ seed) >>> 0;
+      x = Math.imul(x ^ (x >>> 16), 2246822507) >>> 0;
+      x = Math.imul(x ^ (x >>> 13), 3266489909) >>> 0;
+      return (x ^ (x >>> 16)) >>> 0;
+    };
+    // session_hash から決定的な擬似乱数 [0,1)（格子を少し崩すジッター用。毎プレイ変わる）。
+    const rand01 = (h: number, salt: number) => {
+      let x = (h ^ salt ^ seed) >>> 0;
+      x = Math.imul(x ^ (x >>> 15), 2246822507) >>> 0;
+      x = Math.imul(x ^ (x >>> 13), 3266489909) >>> 0;
+      return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+    };
+    const sorted = [...sessions].sort((a, b) => mix(a.session_hash) - mix(b.session_hash));
+    const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+    // ★ スロット幾何は人数に依存しない固定配置（セッションが増えても席数・描画は一定＝軽い。
+    //   ✋は「今そのバケットで叩いた人」だけ湧くので、人が増えれば自然に密になる）。
+    //   同じスロットに複数人が乗っても、各自ハッシュで決まる固有オフセット(間隔spreadに比例)で
+    //   散らすので、同座標スタックが起きず隙間も埋まる。
+    const sideSlots: Slot[] = [];
+    const centerSlots: Slot[] = [];
+    let sideRatio: number;       // セッションのうちサイド席へ流す割合（残りはセンター/アリーナ）
+
+    if (landscape) {
+      // ── 横画面（アリーナ）── 実際の横アリ（センター席から見た図）に寄せる。動画＝中央上のステージ、
+      //   その左右に客席スタンドが立ち上がり、手前下に平らなアリーナフロアが奥(ステージ)へ広がる。
+      //   ✋は動画より背面なので、動画の矩形(中央上)に入る位置には置かない（裏に回って消えるのを防ぐ）。
+
+      // ── サイド席（スタンド）── 動画(ステージ)の左右、外端を基準に密に詰めた三角スタンド。
+      //   ✋同士の余白を消すピッチ(SIDE_DX=0.022≒手幅)で隙間なく敷き、上1列→下9列の t² カーブで
+      //   急傾斜の三角。段ごとに半ピッチずらす千鳥で「縦一直線の整列」を崩す。
+      //   外端(画面端)基準なので動画側へは最大でも x≈0.20 まで＝動画(左端≈0.25)の裏に入らない。
+      //   手の傾き(SIDE_YAW)は変えない。
+      const SIDE_YAW = 0.95;
+      const SIDE_ROWS = 11;
+      const SIDE_YTOP = 0.04, SIDE_YBOT = 0.57;  // 上端〜下端（動画の高さを覆う）
+      const SIDE_X0 = 0.012, SIDE_DX = 0.022;    // 外端起点・密ピッチ（余白を残さない）
+      for (let i = 0; i < SIDE_ROWS; i++) {
+        const t = i / (SIDE_ROWS - 1);                 // 0=上(奥/ステージ際) .. 1=下(手前/フロア際)
+        const yy = SIDE_YTOP + (SIDE_YBOT - SIDE_YTOP) * t;
+        const depthK = 0.5 + 0.42 * t;                 // 下ほど大きい（手前）
+        const cols = 2 + Math.round(7 * t * t);        // 上2列 →（下で加速）→ 下9列＝急傾斜の三角
+        const brick = (i % 2) * SIDE_DX * 0.5;         // 段ごと半ピッチずらす千鳥＝縦の整列を崩す
+        for (let j = 0; j < cols; j++) {
+          const xx = SIDE_X0 + brick + j * SIDE_DX;    // 外端から内側へ密に詰める
+          sideSlots.push({ xRatio: xx, yRatio: yy, depthK, rotation: -SIDE_YAW, spread: SIDE_DX });     // 左スタンド
+          sideSlots.push({ xRatio: 1 - xx, yRatio: yy, depthK, rotation: SIDE_YAW, spread: SIDE_DX });  // 右スタンド
+        }
+      }
+
+      // ── アリーナ(フロア)席 ── 下のフラットな面。手前=大きめ/奥=小さめのゆるい遠近で奥(動画側)へ広がる。
+      //   フラット床なのでホールのような急な段差はない。跳ねを含めても動画(下端≈0.615)の裏に入らないよう、
+      //   上端を下げ(A_YTOP)＋跳ね量を抑える(A_JUMP)。
+      const projY = (z: number, zNear: number, zFar: number, yTop: number, yBot: number) =>
+        yTop + (yBot - yTop) * ((1 / z - 1 / zFar) / (1 / zNear - 1 / zFar));
+      const A_ZNEAR = 1.0, A_ZFAR = 2.2;   // 遠近の強さ。比2.2＝ゆるい（ホールは6.0で急）
+      const A_FRONT = 1.5;                  // 手前の✋倍率（ホールは4.2で急。フラット床は控えめ）
+      const A_YTOP = 0.77, A_YBOT = 1.0;    // 上端0.77＝跳ねても動画(0.615)の裏に入らない
+      // 跳ね量を55%に抑える（裏回り込み防止＋穏やかな床）。横画面では更に
+      // LANDSCAPE_JUMP_MAX_PX が上限としてかかるので、実際の跳ねはそちらで決まる。
+      const A_JUMP = 0.55;
+      const A_LATERAL = 0.085, A_ROWS = 11;
+      for (let r = 0; r < A_ROWS; r++) {
+        const t = r / (A_ROWS - 1);
+        const z = A_ZNEAR + (A_ZFAR - A_ZNEAR) * t;
+        const yy = projY(z, A_ZNEAR, A_ZFAR, A_YTOP, A_YBOT);
+        const depthK = (A_ZNEAR / z) * A_FRONT;
+        const pitch = A_LATERAL / z;                       // 手前ほど席間隔が広い
+        const maxCols = Math.max(1, Math.floor(0.92 / pitch));
+        const rowBrick = ((r % 2) ? 0.25 : -0.25) * pitch; // 段ごと±1/4ピッチの千鳥
+        for (let cc = -maxCols; cc <= maxCols; cc++) {
+          const xx = 0.5 + cc * pitch + rowBrick;
+          if (xx < -0.05 || xx > 1.05) continue;
+          centerSlots.push({ xRatio: xx, yRatio: yy, depthK, rotation: 0, spread: pitch, jumpScale: A_JUMP });
+        }
+      }
+      sideRatio = 0.24;
+    } else {
+      // ── 縦（ホール）── 奥ほど高く小さい透視配置。サイド有り(PC)はセンターを HORIZON より下に。
+      // サイド有り(PC)＝この線より上はサイド用に空ける。サイド無し(スマホ)＝センターを上まで詰めて全面化。
+      const HORIZON = enableSides ? 0.32 : 0.06;
+      // 最前列の着地点は画面下端(1.0)より下＝最大の✋は下半分が画面外（飛んでも視界を全部塞がない）。
+      const CENTER_BOT = 1.35;
+      // 1/z 補間で縦位置（手前=下=yBot、奥=上=yTop、手前ほど縦に広い）。
+      const projY = (z: number, zNear: number, zFar: number, yTop: number, yBot: number) =>
+        yTop + (yBot - yTop) * ((1 / z - 1 / zFar) / (1 / zNear - 1 / zFar));
+      const Z_NEAR = 1.0, Z_FAR = 6.0;    // 視点からの距離。比が大きいほど遠近が強い（小さめ=奥を底上げ）
+      const FRONT_SCALE = 4.2;            // 最前列の✋サイズ倍率（手前で視界が半分以上隠れる）
+
+      // ── サイド席：左右上部の直角三角形スロット。ヨー＋左右ミラーで内向き ──
+      const SIDE_SIZE = 0.6;        // 一定サイズ（遠いので差なし）
+      const SIDE_ROWS = 6;          // 1+..+6 = 21席/側
+      const SIDE_X0 = 0.012, SIDE_DX = 0.032; // 横（さらに詰める）
+      const SIDE_Y0 = 0.05, SIDE_DY = 0.043;  // 縦（上部に収める）
+      const SIDE_YAW = 0.95;        // z軸ヨー角(rad)
+      for (let i = 0; i < SIDE_ROWS; i++) {
+        const yy = SIDE_Y0 + i * SIDE_DY;
+        for (let j = 0; j <= i; j++) {
+          const xx = SIDE_X0 + j * SIDE_DX;
+          sideSlots.push({ xRatio: xx, yRatio: yy, depthK: SIDE_SIZE, rotation: -SIDE_YAW, spread: SIDE_DX });     // 左席
+          sideSlots.push({ xRatio: 1 - xx, yRatio: yy, depthK: SIDE_SIZE, rotation: SIDE_YAW, spread: SIDE_DX });  // 右席
+        }
+      }
+
+      // ── センター席：前は席少・奥は席多の透視スロット（HORIZONより下、固定）──
+      const LATERAL = 0.18, ROWS = 22;               // 列を詰め段数を増やして間を詰める
+      for (let r = 0; r < ROWS; r++) {
+        const t = r / (ROWS - 1);
+        const z = Z_NEAR + (Z_FAR - Z_NEAR) * t;
+        const yRatio = projY(z, Z_NEAR, Z_FAR, HORIZON, CENTER_BOT);
+        const depthK = (Z_NEAR / z) * FRONT_SCALE;
+        const pitch = LATERAL / z;                     // 手前ほど席間隔が広い＝1段に入る人が少ない
+        const maxCols = Math.max(0, Math.floor(0.80 / pitch)); // 下段の隅(ボタン付近)まで届かせる
+        const rowBrick = ((r % 2) ? 0.25 : -0.25) * pitch; // 段ごと±1/4ピッチ＝左右対称の千鳥(片側の空白を防ぐ)
+        for (let cc = -maxCols; cc <= maxCols; cc++) {
+          const xRatio = 0.5 + cc * pitch + rowBrick;
+          if (xRatio < -0.15 || xRatio > 1.15) continue; // 画面端で見切れる✋を残す（隅まで埋める）
+          centerSlots.push({ xRatio, yRatio, depthK, rotation: 0, spread: pitch });
+        }
+      }
+      sideRatio = (enableSides && sideSlots.length > 0) ? 0.10 : 0;
+    }
+
+    if (centerSlots.length === 0 && sideSlots.length === 0) return map;
+
+    // 循環割り当て＋間隔比例ジッター（同一スロットに複数人乗っても座標が散って重ならない）。
+    const assign = (arr: typeof sorted, slotArr: Slot[], salt: number) => {
+      if (slotArr.length === 0) return;
+      const ord = slotArr.map((_, idx) => idx).sort((a, b) => {
+        const ha = (Math.imul(a + 1, 2654435761) ^ seed ^ salt) >>> 0;
+        const hb = (Math.imul(b + 1, 2654435761) ^ seed ^ salt) >>> 0;
+        return ha - hb;
+      });
+      arr.forEach((s, i) => {
+        const slot = slotArr[ord[i % slotArr.length]];
+        // ゆらぎの最大幅は JITTER_X_RATE / JITTER_Y_MAX と対で決まっている（見える席の判定が
+        // このゆらぎ込みで「はみ出さないか」を見ている）。片方だけ変えると判定と食い違う。
+        const jx = (rand01(s.session_hash, 0x11) - 0.5) * slot.spread * (JITTER_X_RATE * 2); // 間隔比例で散らす(千鳥は残す)
+        const jy = (rand01(s.session_hash, 0x22) - 0.5) * (JITTER_Y_MAX * 2);
+        // 画面端の見切れ・下端のはみ出しを許すため 0〜1 に丸めない（緩い範囲で安全のみ確保）。
+        map.set(s.session_hash, {
+          xRatio: Math.max(-0.1, Math.min(1.1, slot.xRatio + jx)),
+          yRatio: Math.max(-0.1, Math.min(1.5, slot.yRatio + jy)),
+          depthK: slot.depthK,
+          rotation: slot.rotation,
+          jumpScale: slot.jumpScale,
+        });
+      });
+    };
+    // ── 座らせる順番 ──
+    // ① まず「動きが最初から最後まで見える席」を埋める。人が少ない日に、画面の端で見切れる席や
+    //    動画の裏、画面の下にはみ出す最前列へ全員が飛ばされて「誰も来ていない」ように見えるのを防ぐ。
+    //    誰がその席に座るかは sorted（開くたびに変わる乱数順）の先頭から取るので、同じ人がいつも
+    //    目の前に来ることはない。席の選び方も今までと同じハッシュ順＋間隔比例のゆらぎのまま。
+    // ② 見える席が全部埋まってから、残りを今までどおりサイド席とセンター席へ振り分ける。
+    //    人が多い日は①で各席に1人ずつ乗るだけで、あとは②が今までと同じ密度で埋めるので、
+    //    見た目はこれまでと変わらない。
+    const visibleSlots = [...sideSlots, ...centerSlots].filter((s) => isFullyVisibleSeat(s, landscape));
+    const visibleCount = Math.min(n, visibleSlots.length);
+    assign(sorted.slice(0, visibleCount), visibleSlots, 0x7a);
+
+    // sideRatio ぶんをサイド席へ、残りをセンター/アリーナへ（縦PCは10%、横は24%、スマホ縦は0）。
+    const rest = sorted.slice(visibleCount);
+    const sideCount = sideSlots.length > 0 ? Math.round(rest.length * sideRatio) : 0;
+    assign(rest.slice(0, sideCount), sideSlots, 0x5e);
+    assign(rest.slice(sideCount), centerSlots, 0x0c);
+
+    return map;
+  }, [sessions, selfSeatHash, enableSides, landscape]);
+
   // 最新の props を ref に反映(imperative メソッドの中で参照する用)
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
   useEffect(() => { selfMemberIdRef.current = selfMemberId; }, [selfMemberId]);
   useEffect(() => { selfSeatHashRef.current = selfSeatHash; }, [selfSeatHash]);
+  useEffect(() => { selfSeatIndexRef.current = selfSeatIndex; }, [selfSeatIndex]);
 
   // 区間遷移時にlastBucketを初期化(別動画再生・再入場時)
   useEffect(() => {
@@ -136,45 +508,88 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
 
   useEffect(() => {
     let cancelled = false;
-    let app: Application | null = null;
+    let onContextLost: ((e: Event) => void) | null = null;
+    let onContextRestored: (() => void) | null = null;
+    let crowdCanvas: HTMLCanvasElement | null = null;
+    let selfCanvas: HTMLCanvasElement | null = null;
+
+    onPixiEventRef.current?.("pixi_init_start", reinitCount > 0 ? `reinit=${reinitCount}` : undefined);
 
     (async () => {
       const container = containerRef.current;
-      if (!container) return;
+      const selfContainer = selfContainerRef.current;
+      if (!container || !selfContainer) { onPixiEventRef.current?.("pixi_init_fail", "no container"); return; }
 
       const texture = getHandTexture();
 
-      app = new Application();
-      await app.init({
-        resizeTo: container,
-        backgroundAlpha: 0,
-        antialias: true,
-        autoDensity: true,
-        resolution: window.devicePixelRatio || 1,
-      });
+      // 群衆用と自分用、2つの pixi を作る（自分用キャンバスは DOM で✋ボタンより上に重ねる）。
+      const crowdApp = new Application();
+      const selfApp = new Application();
+      try {
+        const opts = { backgroundAlpha: 0, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 } as const;
+        await crowdApp.init({ resizeTo: container, ...opts });
+        await selfApp.init({ resizeTo: selfContainer, ...opts });
+      } catch (e) {
+        onPixiEventRef.current?.("pixi_init_fail", e instanceof Error ? e.message : String(e));
+        return;
+      }
       if (cancelled) {
-        app.destroy(true, { children: true });
+        try { crowdApp.destroy(true, { children: true }); } catch { /* ignore */ }
+        try { selfApp.destroy(true, { children: true }); } catch { /* ignore */ }
         return;
       }
 
-      container.appendChild(app.canvas);
+      container.appendChild(crowdApp.canvas);
+      selfContainer.appendChild(selfApp.canvas);
       const layer = new Container();
-      app.stage.addChild(layer);
+      crowdApp.stage.addChild(layer);
 
-      appRef.current = app;
+      appRef.current = crowdApp;
+      selfAppRef.current = selfApp;
       textureRef.current = texture;
       layerRef.current = layer;
+      crowdCanvas = crowdApp.canvas as HTMLCanvasElement;
+      selfCanvas = selfApp.canvas as HTMLCanvasElement;
+
+      // WebGL コンテキストロスト復旧（Android 等の GPU 圧迫時に発生しやすい）。両キャンバス共通。
+      onContextLost = (e: Event) => {
+        e.preventDefault(); // ブラウザにコンテキスト復元の機会を与える
+        onPixiEventRef.current?.("webgl_context_lost");
+      };
+      onContextRestored = () => {
+        onPixiEventRef.current?.("webgl_context_restored");
+        // useEffect を再実行させて Pixi 全体を作り直す
+        setReinitCount(c => c + 1);
+      };
+      crowdCanvas.addEventListener("webglcontextlost", onContextLost);
+      crowdCanvas.addEventListener("webglcontextrestored", onContextRestored);
+      selfCanvas.addEventListener("webglcontextlost", onContextLost);
+      selfCanvas.addEventListener("webglcontextrestored", onContextRestored);
+
+      const rendererType = (crowdApp.renderer as unknown as { type?: number }).type === 1 ? "webgl" : "unknown";
+      onPixiEventRef.current?.("pixi_init_ok", `r=${rendererType}`);
     })();
 
     return () => {
       cancelled = true;
-      const a = appRef.current;
+      if (crowdCanvas) {
+        if (onContextLost) crowdCanvas.removeEventListener("webglcontextlost", onContextLost);
+        if (onContextRestored) crowdCanvas.removeEventListener("webglcontextrestored", onContextRestored);
+      }
+      if (selfCanvas) {
+        if (onContextLost) selfCanvas.removeEventListener("webglcontextlost", onContextLost);
+        if (onContextRestored) selfCanvas.removeEventListener("webglcontextrestored", onContextRestored);
+      }
+      const ca = appRef.current;
+      const sa = selfAppRef.current;
       appRef.current = null;
+      selfAppRef.current = null;
       textureRef.current = null;
       layerRef.current = null;
-      try { a?.destroy(true, { children: true }); } catch { /* ignore */ }
+      try { ca?.destroy(true, { children: true }); } catch { /* ignore */ }
+      try { sa?.destroy(true, { children: true }); } catch { /* ignore */ }
     };
-  }, []);
+  }, [reinitCount]);
 
   function spawnHand(params: {
     xRatio: number;
@@ -185,51 +600,131 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
     playedDate?: string;
     /** アニメをこの ms 分だけ先に進めてスポーンする（遅延した他人の✋の補正） */
     animationOffsetMs?: number;
+    /** 客席の奥行きに応じた縮小倍率（奥=小さい）。未指定=1.0（リアルタイム/自分✋は等倍）。 */
+    depthK?: number;
+    /** ✋の傾き(rad)。サイド席を内向きに見せる用。未指定=0（正面）。 */
+    rotation?: number;
+    /** 跳ね量の倍率（80px に掛ける）。未指定=1。アリーナは動画裏に入らないよう抑える。 */
+    jumpScale?: number;
   }) {
-    const app = appRef.current;
     const texture = textureRef.current;
-    const layer = layerRef.current;
-    if (!app || !texture || !layer) return;
+    // 自分✋は自分用pixi(別キャンバス・✋ボタンより上)、群衆は群衆pixiに描く。
+    const app = params.isSelf ? selfAppRef.current : appRef.current;
+    const targetLayer = params.isSelf ? (selfAppRef.current?.stage ?? null) : layerRef.current;
+    if (!app || !texture || !targetLayer) return;
 
     const w = app.screen.width;
     const h = app.screen.height;
     if (w === 0 || h === 0) return;
 
-    const sprite = new Sprite(texture);
-    sprite.anchor.set(0.5, 1.0); // 下端中央(着地地点を yRatio に固定)
-    // 累計セッション数 × 日付経過に応じて✋を縮小(自分も同率なので「自分は1.2倍」は維持)
-    const crowdK = crowdScale(sessionsRef.current.length);
-    const ageK = params.playedDate ? ageScale(params.playedDate) : 1.0;
-    const targetSize = (params.isSelf ? SELF_SIZE : BASE_SIZE) * crowdK * ageK;
+    // 画面サイズ × 累計セッション数 × 日付経過に応じて✋を縮小(自分も同率なので「自分は約20%大きい」は維持)
+    const viewK = viewportSizeK(w, h);
+    const crowdK = crowdScale(scaleCountRef.current ?? sessionsRef.current.length);
+    const ageK = (freezeAgeRef.current || !params.playedDate) ? 1.0 : ageScale(params.playedDate);
+    const depthK = params.depthK ?? 1.0;
+    const targetSize = (params.isSelf ? SELF_SIZE : BASE_SIZE) * viewK * crowdK * ageK * depthK;
     const texMax = Math.max(texture.width, texture.height) || 1;
-    sprite.scale.set(targetSize / texMax);
-    sprite.tint = hexToTint(params.color);
+    const spriteScale = targetSize / texMax;
+    const colorTint = hexToTint(params.color);
     const baseAlpha = params.isToday ? 1.0 : NON_TODAY_ALPHA;
-    sprite.alpha = baseAlpha;
+
+    // node = 動かす対象。他人は単一スプライト。自分の✋だけは群衆に埋もれないよう白フチを付ける：
+    // 事前に焼いた白フチ版テクスチャ(1枚)を背面に、色付き本体(1枚)を前面に置いた Container。
+    // 実行時の重ね描き(オーバードロー)が背面1枚で済むので軽い。
+    // 位置/スケール/αのアニメは node に対して共通で回す（自分は基準スケール1）。
+    const yaw = params.rotation ?? 0;
+    let node: Sprite | Container;
+    if (params.isSelf) {
+      const container = new Container();
+      const outlineTex = getHandOutlineTexture();
+      const outline = new Sprite(outlineTex.texture);
+      outline.anchor.set(outlineTex.anchorX, outlineTex.anchorY); // 中身の手を本体とぴったり重ねる
+      outline.scale.set(spriteScale);
+      container.addChild(outline);
+      const fg = new Sprite(texture);
+      fg.anchor.set(0.5, 1.0);
+      fg.scale.set(spriteScale);
+      fg.tint = colorTint;
+      container.addChild(fg);
+      node = container;
+    } else if (Math.abs(yaw) > 0.001) {
+      // サイド席：板を縦軸(z軸)まわりに3D回転→透視投影した台形に✋テクスチャをマッピング。
+      // 奥側(ステージ寄り)の辺が短く・手前の辺が長くなり「内を向く」。親指の大小も自然に出る。
+      const dispW = texture.width * spriteScale;
+      const dispH = texture.height * spriteScale;
+      const D = dispW * 1.3;               // 透視距離（小さいほど台形が強い）
+      const cs = Math.cos(yaw), sn = Math.sin(yaw);
+      // ローカル四隅(中心基準)を投影し、手首(下端中央)を原点(0,0)に合わせる
+      const proj = (px: number, py: number): [number, number] => {
+        const s = D / (D + px * sn);
+        return [-(px * cs * s), py * s - dispH / 2]; // x反転=左右ミラー（親指を反対側へ）
+      };
+      const [x0, y0] = proj(-dispW / 2, -dispH / 2); // 上左
+      const [x1, y1] = proj(dispW / 2, -dispH / 2);  // 上右
+      const [x2, y2] = proj(dispW / 2, dispH / 2);   // 下右
+      const [x3, y3] = proj(-dispW / 2, dispH / 2);  // 下左
+      const mesh = new PerspectiveMesh({
+        texture, verticesX: 8, verticesY: 8,
+        x0, y0, x1, y1, x2, y2, x3, y3,
+      });
+      mesh.tint = colorTint;
+      node = mesh;
+    } else {
+      const sprite = new Sprite(texture);
+      sprite.anchor.set(0.5, 1.0); // 下端中央(着地地点を yRatio に固定)
+      sprite.scale.set(spriteScale);
+      sprite.tint = colorTint;
+      node = sprite;
+    }
+    node.alpha = baseAlpha;
 
     // 上端に TOP_MARGIN 分の余白を確保した残り領域に着地点を配置する。
     // これで yRatio が小さい(=上寄りの)席でも、跳躍が上端で見切れない。
     const usableH = Math.max(1, h - TOP_MARGIN);
     const baselineY = TOP_MARGIN + params.yRatio * usableH;
-    sprite.x = params.xRatio * w;
-    sprite.y = baselineY;
+    node.x = params.xRatio * w;
+    node.y = baselineY;
 
-    layer.addChild(sprite);
+    targetLayer.addChild(node);
 
-    // ぴょん1回(+20%で二段ジャンプ)、フェードアウト
-    // up + hold + down を 230〜290ms に収める(0.3s 以内)
-    const jumpHeight = 60 + Math.random() * 40;       // 60〜100px
-    const upDur = 100 + Math.random() * 20;           // 100〜120ms
-    const holdDur = 30 + Math.random() * 20;          // 30〜50ms
-    const downDur = 100 + Math.random() * 20;         // 100〜120ms
-    const fadeDur = 120;
-    const doDouble = Math.random() < 0.2;
-    const bounceFactor = 0.5; // 二段目は1段目の50%
+    // 溜め(squash) → 上昇 → 軽い滞空 → 下降しながらフェードアウト（二段ジャンプなし）。
+    // タップした瞬間に一瞬グッと縮んでから勢いよく上がる「予備動作」で手応えを出し、
+    // 最後は元の位置に落ちながら消えるので、連打しても上に積もって居座らない。
+    // 値はすべて固定（揺らさない）。狙った1つの気持ちいいモーションを全✋で再現するため。
+    // 上昇量(px)。横画面の客席は上限で抑える＝動画の下の狭い帯でも動きが全部見える。
+    // 自分の✋は席ではなく別キャンバスの主役なので、これまでどおりの跳ね量のままにする。
+    const jumpHeight = jumpHeightPx(params.jumpScale, landscapeRef.current && !params.isSelf);
+    const squashDur = 50;         // 溜め: scale を SQUASH_SCALE まで縮める時間
+    const upDur = 220;            // 上昇: しっかり見せる
+    const holdDur = 80;           // 滞空: 頂点で軽く粘る
+    const downFadeDur = 180;      // 下降しながらフェードアウト
+    const SQUASH_SCALE = 0.85;    // 溜め時の最小スケール倍率
+    const baseScale = node.scale.x; // spawn 時に設定済みのスケールを基準にする（自分=1, 他人=spriteScale）
 
-    let phase:
-      | "up" | "hold" | "down"
-      | "up2" | "hold2" | "down2"
-      | "fade" | "done" = "up";
+    // 動き軽減：跳ね・溜めを一切せず、その場に出して少し留めて静かに消すだけ。
+    // 揺れる演出が無いぶん軽く（scale更新も無し）、酔い・感覚過敏にもやさしい。✋自体は出る＝密度は保つ。
+    if (reduceMotionRef.current) {
+      node.scale.set(baseScale);
+      node.alpha = baseAlpha;
+      const holdMs = 250;          // 出てから留まる時間
+      const fadeMs = 200;          // 静かに消える時間
+      let t = params.animationOffsetMs ?? 0;
+      const onTickStatic = (ticker: Ticker) => {
+        t += ticker.deltaMS;
+        if (t > holdMs) {
+          const k = Math.min(1, (t - holdMs) / fadeMs);
+          node.alpha = baseAlpha * (1 - k);
+          if (k >= 1) {
+            app.ticker.remove(onTickStatic);
+            try { node.destroy({ children: true }); } catch { /* ignore */ }
+          }
+        }
+      };
+      app.ticker.add(onTickStatic);
+      return;
+    }
+
+    let phase: "squash" | "up" | "hold" | "downfade" | "done" = "squash";
     let phaseStart = 0;
     // 遅延した✋はアニメを先に進めた状態から開始（FPS式の予測）
     let totalMs = params.animationOffsetMs ?? 0;
@@ -239,11 +734,27 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       const local = totalMs - phaseStart;
 
       switch (phase) {
+        case "squash": {
+          if (local < squashDur) {
+            // baseScale → baseScale*SQUASH_SCALE へ縮む（タップの溜め）
+            const k = local / squashDur;
+            node.scale.set(baseScale * (1 - (1 - SQUASH_SCALE) * k));
+          } else {
+            node.scale.set(baseScale * SQUASH_SCALE);
+            phaseStart = totalMs;
+            phase = "up";
+          }
+          break;
+        }
         case "up": {
           if (local < upDur) {
-            sprite.y = baselineY - jumpHeight * easeOutCubic(local / upDur);
+            const k = easeOutCubic(local / upDur);
+            node.y = baselineY - jumpHeight * k;
+            // 縮んだスケールを上昇とともに通常へ戻す（伸び＝stretch感）
+            node.scale.set(baseScale * (SQUASH_SCALE + (1 - SQUASH_SCALE) * k));
           } else {
-            sprite.y = baselineY - jumpHeight;
+            node.y = baselineY - jumpHeight;
+            node.scale.set(baseScale);
             phaseStart = totalMs;
             phase = "hold";
           }
@@ -252,52 +763,17 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         case "hold": {
           if (local >= holdDur) {
             phaseStart = totalMs;
-            phase = "down";
+            phase = "downfade";
           }
           break;
         }
-        case "down": {
-          if (local < downDur) {
-            sprite.y = baselineY - jumpHeight * (1 - easeInQuad(local / downDur));
-          } else {
-            sprite.y = baselineY;
-            phaseStart = totalMs;
-            phase = doDouble ? "up2" : "fade";
-          }
-          break;
-        }
-        case "up2": {
-          const dur = upDur * bounceFactor;
-          if (local < dur) {
-            sprite.y = baselineY - jumpHeight * bounceFactor * easeOutCubic(local / dur);
-          } else {
-            sprite.y = baselineY - jumpHeight * bounceFactor;
-            phaseStart = totalMs;
-            phase = "hold2";
-          }
-          break;
-        }
-        case "hold2": {
-          if (local >= holdDur * bounceFactor) {
-            phaseStart = totalMs;
-            phase = "down2";
-          }
-          break;
-        }
-        case "down2": {
-          const dur = downDur * bounceFactor;
-          if (local < dur) {
-            sprite.y = baselineY - jumpHeight * bounceFactor * (1 - easeInQuad(local / dur));
-          } else {
-            sprite.y = baselineY;
-            phaseStart = totalMs;
-            phase = "fade";
-          }
-          break;
-        }
-        case "fade": {
-          if (local < fadeDur) {
-            sprite.alpha = baseAlpha * (1 - local / fadeDur);
+        case "downfade": {
+          if (local < downFadeDur) {
+            const k = local / downFadeDur;
+            // 頂点(baselineY - jumpHeight)から元の baselineY へ落としつつ消す。
+            // 落下は easeIn(k*k)で「重力で加速して落ちる」感、フェードは線形。
+            node.y = baselineY - jumpHeight * (1 - k * k);
+            node.alpha = baseAlpha * (1 - k);
           } else {
             phase = "done";
           }
@@ -307,27 +783,28 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
 
       if (phase === "done") {
         app.ticker.remove(onTick);
-        try { sprite.destroy(); } catch { /* ignore */ }
+        try { node.destroy({ children: true }); } catch { /* ignore */ }
       }
     };
 
     app.ticker.add(onTick);
   }
 
-  function spawnForBucket(bucket: number) {
+  function spawnForBucket(bucket: number, animationOffsetMs: number) {
     const entries = bucketIndex.get(bucket);
     if (!entries) return;
     for (const { session, count } of entries) {
       const member = findMember(session.member_id);
       if (!member) continue;
-      const { xRatio, yRatio } = seatFromHash(session.session_hash);
+      const pos = sessionLayout.get(session.session_hash) ?? { ...seatFromHash(session.session_hash), depthK: 1, rotation: 0 };
       for (let i = 0; i < count; i++) {
         spawnHand({
-          xRatio, yRatio,
-          color: member.color,
+          xRatio: pos.xRatio, yRatio: pos.yRatio, depthK: pos.depthK, rotation: pos.rotation, jumpScale: pos.jumpScale,
+          color: overrideColorRef.current ?? member.color,
           isSelf: false,
           isToday: session.is_today,
           playedDate: session.played_date,
+          animationOffsetMs,
         });
       }
     }
@@ -339,16 +816,28 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
       if (!memberId) return;
       const member = findMember(memberId);
       if (!member) return;
-      const { xRatio, yRatio } = seatFromHash(selfSeatHashRef.current);
+      // リアルタイム時は席ベースの等間隔、ソロ時は中段。横ではハイ！ボタン(右下)の近くから挙げる。
+      const seatIdx = selfSeatIndexRef.current;
+      const { xRatio, yRatio } =
+        seatIdx != null && seatIdx >= 0
+          ? seatIndexToPosition(seatIdx)
+          : landscapeRef.current
+            ? { xRatio: 0.85, yRatio: 0.93 } // 横：右下のボタン付近（アリーナ手前列あたり）で跳ねる
+            : { xRatio: 0.5, yRatio: SELF_Y_SOLO };
       spawnHand({
         xRatio, yRatio,
-        color: member.color,
+        color: overrideColorRef.current ?? member.color,
         isSelf: true,
         isToday: true,
+        depthK: SELF_DEPTH,
       });
     },
-    receiveLiveTap(memberId: string, seatIndex: number, videoTime: number) {
+    receiveLiveTap(memberId: string, seatIndex: number, videoTime: number, lagMs: number) {
       const now = currentTimeRef.current;
+      // 実測ラグが大きいときだけ記録(効果検証用)。
+      if (lagMs > 300) {
+        onPixiEventRef.current?.("tap_recv_diff", `lag=${Math.round(lagMs)}ms`);
+      }
       const ageSecs = now - videoTime;
       if (ageSecs > LIVE_DISCARD_SEC) return; // 古すぎ → 捨てる
       const member = findMember(memberId);
@@ -357,7 +846,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         const { xRatio, yRatio } = seatIndexToPosition(seatIndex);
         spawnHand({
           xRatio, yRatio,
-          color: member.color,
+          color: overrideColorRef.current ?? member.color,
           isSelf: false,
           isToday: true,
           playedDate: new Date().toISOString().slice(0, 10),
@@ -365,8 +854,10 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         });
       };
       if (videoTime <= now) {
-        // 既に過ぎたタップ = 遅れて届いた → 遅れ分アニメを先送りして補正
-        spawn(Math.min((now - videoTime) * 1000, MAX_EXTRAPOLATION_MS));
+        // 既に過ぎたタップ = 遅れて届いた → 実測した片道ラグ分アニメを先送りして補正。
+        // ラグ実測値が無い(0)場合は動画位置差で近似フォールバック。
+        const offsetMs = lagMs > 0 ? lagMs : (now - videoTime) * 1000;
+        spawn(Math.min(offsetMs, MAX_EXTRAPOLATION_MS));
       } else {
         const queue = liveQueueRef.current;
         queue.push({ videoTime, memberId, seatIndex });
@@ -387,7 +878,7 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
               const { xRatio, yRatio } = seatIndexToPosition(tap.seatIndex);
               spawnHand({
                 xRatio, yRatio,
-                color: member.color,
+                color: overrideColorRef.current ?? member.color,
                 isSelf: false,
                 isToday: true,
                 playedDate: new Date().toISOString().slice(0, 10),
@@ -401,32 +892,57 @@ const HandsCanvas = forwardRef<HandsCanvasApi, Props>(function HandsCanvas(
         liveQueueRef.current = remaining;
       }
 
-      // バケット先頭で発火させる単純な floor。
-      // 100ms poll の平均遅延が +50ms 乗ることで、結果的にバケット中央で
-      // 発火する形になる(押下時刻の期待値=中央と一致)。
-      // 余計なシフトを足すと平均ズレを増やすだけなので素のままで良い。
-      const newBucket = Math.floor(currentTime * 10);
+      // 0.05秒刻みのバケット先頭で発火させる単純な floor。
+      // poll 間に跨いだバケットは下の for で全て埋めるので取りこぼさない。
+      const newBucket = Math.floor(currentTime * 20);
       const lastBucket = lastBucketRef.current;
       if (newBucket === lastBucket) return;
       lastBucketRef.current = newBucket;
-      // 初回・大ジャンプ(シーク)時は湧き出しスキップ
-      if (lastBucket < 0 || newBucket < lastBucket || newBucket - lastBucket > 30) return;
+      // 初回・大ジャンプ(シーク)時は湧き出しスキップ(60バケット=3秒以上飛んだら無効)
+      if (lastBucket < 0 || newBucket < lastBucket || newBucket - lastBucket > 60) return;
+      // poll は 100ms 間隔なので、1回で複数バケットがまとめて来る。全部を同フレームに
+      // 湧かすと「壁」になって機械っぽく揃う。各バケットが「実際に何ms前だったか」だけ
+      // アニメを先送りして湧かすと、早い✋は少し上がった状態・遅い✋は出たて、で
+      // さざ波状にバラける（バケット内の本物のタイミング差をそのまま見せる）。
       for (let b = lastBucket + 1; b <= newBucket; b++) {
-        spawnForBucket(b);
+        const ageMs = (currentTime - b / 20) * 1000;
+        spawnForBucket(b, Math.max(0, Math.min(ageMs, MAX_EXTRAPOLATION_MS)));
       }
     },
-  }), [bucketIndex]);
+  }), [bucketIndex, sessionLayout]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        position: "absolute",
-        inset: 0,
-        pointerEvents: "none",
-        overflow: "hidden",
-      }}
-    />
+    <>
+      {/* 群衆✋キャンバス（z:2）。✋ボタン(z:3)・自分✋(z:4)より下。 */}
+      <div
+        ref={containerRef}
+        style={{
+          position: "absolute",
+          // 上端を動画下に40px潜らせる（このキャンバスだけ。カウント数字/ボタンの位置は動かさない）。
+          // 動画は前面(z:2)なので、最上段の✋がジャンプした先っぽだけ動画の裏に隠れる＝動画の延長感。
+          top: -CANVAS_UNDERLAP,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          pointerEvents: "none",
+          overflow: "hidden",
+          zIndex: 2, // 「中断して戻る」(z:1)より上＝✋履歴がボタンに被る。
+        }}
+      />
+      {/* 自分✋専用キャンバス（z:4）＝✋ボタン(z:3)より上。pointerEvents:none でタップは透過。
+          別pixiにすることで「自分✋ > ✋ボタン > 群衆✋ > 中断」を1枚キャンバスの制約なく満たす。
+          再生エリア全体を覆う（潜り込みの -40 は不要＝自分✋の着地点 yRatio がそのまま対応）。 */}
+      <div
+        ref={selfContainerRef}
+        style={{
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          overflow: "hidden",
+          zIndex: 4,
+        }}
+      />
+    </>
   );
 });
 

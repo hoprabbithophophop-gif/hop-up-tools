@@ -1,0 +1,123 @@
+import { useEffect, useState, type RefObject } from "react";
+import type { VideoLink } from "@/data/the-ballad";
+import { SHOW_BY_NO, showLabel } from "@/data/the-ballad";
+import { useBackClose } from "@/hooks/useBackClose";
+import { MemberEmph } from "./Emph";
+import YouTubePlayer, { type YouTubePlayerApi } from "./YouTubePlayer";
+import ReportForm from "./ReportForm";
+
+// visible の間だけ「戻る/Escで閉じる」を有効化する小コンポーネント(hookを条件付きにするため分離)。
+function BackClose({ onClose }: { onClose: () => void }) {
+  const requestClose = useBackClose(onClose);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") requestClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [requestClose]);
+  return null;
+}
+
+// 単体の動画モーダル。プレイヤーは TheBalladPage 側が常時 ready で保持し、再生(PlayChip)の
+// タップハンドラ内で loadVideo される(iOS対策)。ここは常時マウントし visible で表示だけ切替。
+export default function VideoModal({
+  video,
+  visible,
+  playerRef,
+  onClose,
+}: {
+  video: VideoLink | null;
+  visible: boolean;
+  playerRef: RefObject<YouTubePlayerApi | null>;
+  onClose: () => void;
+}) {
+  const requestClose = () => window.history.back();
+  const [showReport, setShowReport] = useState(false);
+  // 閉じたら映像なしで音だけ鳴り続けないよう一時停止(規約対策)＋報告フォームを畳む
+  useEffect(() => {
+    if (!visible) {
+      playerRef.current?.pause();
+      setShowReport(false);
+    }
+  }, [visible, playerRef]);
+
+  const show = video ? SHOW_BY_NO.get(video.showNo) : undefined;
+
+  return (
+    <div
+      onClick={requestClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.72)",
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "center",
+        padding: "1.2rem",
+        zIndex: 1000,
+        opacity: visible ? 1 : 0,
+        pointerEvents: visible ? "auto" : "none",
+        transition: "opacity 0.12s",
+      }}
+    >
+      {visible && <BackClose onClose={onClose} />}
+      {/* maxHeight: svh=ブラウザUI(アドレスバー/ツールバー)表示時の可視高。safe-area分も引きノッチ機でも収める */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 880, maxHeight: "calc(100svh - 2.4rem - env(safe-area-inset-bottom))", display: "flex", flexDirection: "column" }}
+      >
+        {video && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "0.6rem", flexShrink: 0 }}>
+            <div>
+              <p style={{ fontSize: "0.6875rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#c6c6c6", margin: 0 }}>
+                <MemberEmph member={video.member} big="0.6875rem" small="0.6875rem" inkColor="#c6c6c6" />
+              </p>
+              <p style={{ fontSize: "0.95rem", fontWeight: 700, color: "#fff", margin: "0.1rem 0 0" }}>{video.songCore}</p>
+              {show && (
+                <p style={{ fontSize: "0.6875rem", color: "rgba(255,255,255,0.6)", margin: "0.2rem 0 0" }}>{showLabel(show)}</p>
+              )}
+            </div>
+            <button
+              onClick={requestClose}
+              style={{ background: "transparent", border: "none", color: "#fff", fontSize: "1.1rem", cursor: "pointer", padding: "0.4rem 0.6rem" }}
+              aria-label="閉じる"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* 動画は常に上部に固定 */}
+        <div style={{ position: "relative", width: "100%", paddingTop: "56.25%", background: "#000", flexShrink: 0 }}>
+          <div style={{ position: "absolute", inset: 0 }}>
+            <YouTubePlayer ref={playerRef} containerId="ballad-single-player" />
+          </div>
+        </div>
+
+        {/* 動画の下: 既定は説明＋報告ボタン。報告フォームを開いたらここにインライン展開し、
+            残りスペース内でスクロール（動画には重ならない）。 */}
+        {video && (
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", marginTop: "0.6rem" }}>
+            {showReport ? (
+              <ReportForm video={video} onClose={() => setShowReport(false)} inline />
+            ) : (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "0.8rem" }}>
+                <p style={{ fontSize: "0.625rem", color: "rgba(255,255,255,0.45)", margin: 0, lineHeight: 1.5, flex: 1 }}>
+                  {video.caption
+                    ?? "公式ダイジェスト映像の該当箇所を再生しています（抜粋のため曲の全編が含まれない場合があります）。"}
+                </p>
+                <button
+                  onClick={() => setShowReport(true)}
+                  style={{ flexShrink: 0, padding: "0.4rem 0.6rem", background: "#241414", color: "#d3a", border: "none", fontSize: "0.6rem", cursor: "pointer", whiteSpace: "nowrap" }}
+                >
+                  ⚠ 再生がおかしい
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

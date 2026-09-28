@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { usePageReady } from '../../lib/pageReady';
 import { ChapterPlaylistProvider } from '../../features/videos/context/ChapterPlaylistContext';
 import { useChapterPlaylistContext } from '../../features/videos/context/ChapterPlaylistContext';
 import { BrowseView } from '../../features/youtube/components/BrowseView';
@@ -172,6 +173,7 @@ function ChapterPickupContent() {
   }, []);
 
   const isLoading = restoreStatus === 'loading';
+  usePageReady(!isLoading);
   const isExpired = restoreStatus === 'expired';
 
   const isNotPlay = pageState !== 'play';

@@ -7,6 +7,7 @@ import { OG_MEMBERS, OG_GROUP_LABEL } from "@/data/ogMembers";
 import { eventGroupKey, dedupeEventTwins, eventTwinKey } from "@/lib/eventGrouping";
 import { loadVenueGeo, geoForLocation, mapSearchUrl } from "@/lib/venueGeo";
 import { getSupabase } from "../../lib/supabase";
+import { usePageReady } from "../../lib/pageReady";
 import {
   generateIcs,
   downloadIcs,
@@ -89,20 +90,47 @@ const DEADLINE_MAX_PAGES = 20; // 万一終わらないときの安全弁（= �
 async function fetchAllDeadlines(sb: ReturnType<typeof getSupabase>): Promise<Deadline[]> {
   const since = new Date(Date.now() - 60 * 86400000).toISOString();
   const rows: Deadline[] = [];
-  for (let page = 0; page < DEADLINE_MAX_PAGES; page++) {
-    const from = page * DEADLINE_PAGE_SIZE;
-    const { data, error } = await sb
+  let total: number | null = null;
+  // 進める幅は「届いた件数」。Supabase の上限（Max rows）が1000より小さくても大きくても正しく回る（2026-09-19 監査）
+  for (let from = 0, page = 0; page < DEADLINE_MAX_PAGES; page++) {
+    const { data, error, count } = await sb
       .from("fc_deadlines")
-      .select("*, fc_news(title, detail_url, category)")
+      .select("*, fc_news(title, detail_url, category)", { count: "exact" })
       .gte("deadline_at", since)
       .order("deadline_at", { ascending: true })
       .order("id", { ascending: true }) // 同時刻の並びを固定して取りこぼし・重複を防ぐ
       .range(from, from + DEADLINE_PAGE_SIZE - 1);
-    if (error) throw error;
+    if (error || count == null) throw new Error("fetch failed");
+    total = count;
     const batch = (data as Deadline[]) ?? [];
     rows.push(...batch);
-    if (batch.length < DEADLINE_PAGE_SIZE) return rows; // 最後まで取り終えた
+    from += batch.length;
+    if (rows.length >= total || batch.length === 0) break;
   }
+  // 届いた数とデータベースの件数が食い違えば、静かに欠けた画面を出さず「取得に失敗」へ倒す
+  if (total == null || rows.length !== total) throw new Error("row count mismatch");
+  return rows;
+}
+
+// 記事は増える一方で消えないので、1000件ずつ順に取り切る（1000件を超えた日に画面ごと止まらないように。2026-09-19 監査）
+async function fetchAllNews(sb: ReturnType<typeof getSupabase>): Promise<FcNewsRow[]> {
+  const PAGE = 1000;
+  const rows: FcNewsRow[] = [];
+  let total: number | null = null;
+  for (let from = 0, pages = 0; pages < 20; pages++) {
+    const res = await sb
+      .from("fc_news")
+      .select("uid, title, category, detail_url", { count: "exact" })
+      .order("uid", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (res.error || res.count == null) throw new Error("fetch failed");
+    total = res.count;
+    const got = (res.data ?? []) as FcNewsRow[];
+    rows.push(...got);
+    from += got.length;
+    if (rows.length >= total || got.length === 0) break;
+  }
+  if (total == null || rows.length !== total) throw new Error("row count mismatch");
   return rows;
 }
 
@@ -262,6 +290,7 @@ export default function FcTicketPage() {
   const [inputCollapsed, setInputCollapsed] = useState(true);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
+  usePageReady(!loading);
   const [watchlist, setWatchlistState] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("fc-watchlist") ?? "[]"); }
     catch { return []; }
@@ -298,7 +327,7 @@ export default function FcTicketPage() {
   useEffect(() => {
     const sb = getSupabase();
     Promise.all([
-      sb.from("fc_news").select("uid, title, category, detail_url"),
+      fetchAllNews(sb),
       fetchAllDeadlines(sb),
       sb
         .from("elineup_goods")
@@ -307,8 +336,8 @@ export default function FcTicketPage() {
         .gte("sale_end_at", new Date(Date.now() - 7 * 86400000).toISOString()),
       // 会場名→座標の辞書（カレンダー予定の地図タップ用）。描画前に揃えておく
       loadVenueGeo(sb),
-    ]).then(([newsRes, deadlines, goodsRes]) => {
-      if (newsRes.data) setAllNews(newsRes.data as FcNewsRow[]);
+    ]).then(([newsRows, deadlines, goodsRes]) => {
+      setAllNews(newsRows);
       const goodsDeadlines = buildGoodsDeadlines((goodsRes.data as ElineupGoodsRow[]) ?? []);
       setAllDeadlines([...deadlines, ...goodsDeadlines]);
       setLoading(false);

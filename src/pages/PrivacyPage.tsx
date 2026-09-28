@@ -1,46 +1,11 @@
 import { Link } from "react-router-dom";
+import { s as base } from "./news/style";
 
+// 見た目はお知らせのページ（src/pages/news/style.ts）と同じ定義を使う。
+// 以前の桃色から紫への渡しは作り替える前の配色なのでやめた（DESIGN.md に揃える・Hop 2026-09-28）
 const s = {
-  wrap: {
-    maxWidth: 640,
-    margin: "2rem auto",
-    padding: "0 1.25rem 4rem",
-    fontFamily: "'Inter','Noto Sans JP',sans-serif",
-    fontSize: "0.875rem",
-    lineHeight: 1.8,
-    color: "#333",
-  } as React.CSSProperties,
-  header: {
-    fontSize: "1.25rem",
-    fontWeight: 800,
-    background: "linear-gradient(135deg,#E5457D,#ba3cb8)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-    marginBottom: "0.25rem",
-  } as React.CSSProperties,
-  back: {
-    display: "inline-block",
-    fontSize: "0.8rem",
-    color: "#E5457D",
-    textDecoration: "none",
-    marginBottom: "1.5rem",
-  } as React.CSSProperties,
-  updated: {
-    fontSize: "0.78rem",
-    color: "#999",
-    marginBottom: "2rem",
-  } as React.CSSProperties,
-  h2: {
-    fontSize: "1rem",
-    fontWeight: 700,
-    marginTop: "2rem",
-    marginBottom: "0.5rem",
-    borderBottom: "2px solid #f0f0f0",
-    paddingBottom: "0.25rem",
-  } as React.CSSProperties,
-  p: {
-    marginBottom: "0.75rem",
-  } as React.CSSProperties,
+  ...base,
+  updated: { ...base.meta, marginBottom: "2rem" } as React.CSSProperties,
   ul: {
     paddingLeft: "1.25rem",
     marginBottom: "0.75rem",
@@ -49,10 +14,10 @@ const s = {
 
 export default function PrivacyPage() {
   return (
-    <div style={s.wrap}>
+    <div style={{ background: "#f8f9fa", minHeight: "100vh" }}><div style={s.wrap}>
       <Link to="/" style={s.back}>← ホームに戻る</Link>
       <div style={s.header}>プライバシーポリシー</div>
-      <div style={s.updated}>最終更新日: 2026年4月23日</div>
+      <div style={s.updated}>最終更新日: 2026年9月28日</div>
 
       <p style={s.p}>
         hop-up-tools（以下「本サービス」）は、hop_rabbit（以下「運営者」）が提供するHello! Project ファン向けWebツール集です。
@@ -61,19 +26,36 @@ export default function PrivacyPage() {
 
       <h2 style={s.h2}>1. 収集する情報</h2>
       <p style={s.p}>
-        本サービスは、<strong>ユーザーの個人情報をサーバーに収集・保存しません。</strong>
+        本サービスは、<strong>原則として、お名前・連絡先など、ユーザーを個人として特定できる情報を収集しません。</strong>
       </p>
       <p style={s.p}>
         FC締切リマインダーのテキストエリアに貼り付けた内容は、お使いのブラウザ内でのみ処理されます。
         その内容がサーバーに送信されることはありません。
       </p>
+      <p style={s.p}>
+        ただし、一部ツール（THE BALLAD 歌唱曲データベース等）の「不具合を報告」フォームから送信いただいた場合に限り、選択した症状・任意で入力された説明・報告対象の動画情報（曲名・出演者・動画ID等）・ブラウザの種類（User-Agent）が<strong>匿名で</strong>サーバーに保存されます。お名前や連絡先など個人を特定できる情報は含まれず、再生位置の見直しにのみ使用します。送信内容は運営者への通知（Discordを使用）にも送られます。
+      </p>
+      <p style={s.p}>
+        お問い合わせフォームから送信いただいた場合、内容・種類・対象ツールがサーバーに保存されます。
+        <strong>返信先は任意項目であり、入力された場合もサーバーには保存されず、運営者への通知（Discordを使用）にのみ含まれ、返信の目的にのみ使用します。</strong>
+      </p>
+      <p style={s.p}>
+        また、連続した送信を防ぐため、送信時にIPアドレスを復元できない形に変換した値を一時的に記録し、<strong>1時間以内に削除します</strong>。
+      </p>
+      <p style={s.p}>
+        HELLO! VIDEO でプレイリストを共有した場合、プレイリスト名と動画・再生区間の情報がサーバーに保存されます。
+        共有URLを知っている人は誰でも見ることができます。共有URLの期限は7日間で、開かれるたびに7日間延び、期限を過ぎたものは削除されます。
+      </p>
+      <p style={s.p}>
+        ハイ！テンションと灰toダイヤモンドでは、タップの記録（タップした時刻・選んだメンバー・再生した動画等）を、個人と結びつかない識別番号とともにサーバーに送信し、全体の集計の表示に使用します。連続した送信を防ぐため、送信時にIPアドレスを復元できない形に変換した値を一時的に記録し、1時間以内に削除します。
+      </p>
 
       <h2 style={s.h2}>2. ブラウザへのデータ保存（localStorage）</h2>
-      <p style={s.p}>本サービスは利便性のため、以下のデータをお使いのブラウザのlocalStorageに保存します。</p>
+      <p style={s.p}>本サービスは利便性のため、以下のようなデータをお使いのブラウザのlocalStorageに保存します。</p>
       <ul style={s.ul}>
-        <li>FC締切リマインダーの入力テキスト（再訪時の自動復元用）</li>
-        <li>ウォッチリストに追加した「気になる公演」のID一覧</li>
-        <li>プロフィール帳メーカーで入力したプロフィール情報</li>
+        <li>FC締切リマインダーの入力テキスト（再訪時の自動復元用）と、「気になる」「申込済み」「入金済み」にした公演のID一覧</li>
+        <li>HELLO! VIDEO の再生待ちの一覧と、直近の再生履歴（最大3件）</li>
+        <li>各ツールで選んだメンバーや表示の設定、The Ballad の参戦記録など、各ツールの入力内容と設定</li>
       </ul>
       <p style={s.p}>
         これらはお使いのブラウザにのみ保存され、運営者を含む第三者には送信されません。
@@ -82,42 +64,46 @@ export default function PrivacyPage() {
 
       <h2 style={s.h2}>3. YouTube API サービスの利用</h2>
       <p style={s.p}>
-        本サービスの「HELLO! VIDEOS」機能は、YouTube API サービスを利用して動画情報を取得・表示しています。
+        本サービスの「HELLO! VIDEO」機能は、YouTube API サービスを利用して動画情報を取得・表示しています。
         YouTube API サービスの利用により、以下の規約が適用されます。
       </p>
       <ul style={s.ul}>
-        <li><a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>YouTube 利用規約</a></li>
-        <li><a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>Google プライバシーポリシー</a></li>
+        <li><a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer" style={s.link}>YouTube 利用規約</a></li>
+        <li><a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style={s.link}>Google プライバシーポリシー</a></li>
       </ul>
       <p style={s.p}>
         本サービスは YouTube から取得した動画情報（タイトル、サムネイル画像URL等）をデータベースに保存しています。
         動画が YouTube から削除・非公開になった場合、保存していたデータも削除されます。
       </p>
-      <p style={s.p}>
-        また、直近の再生履歴（最大3件）がお使いのブラウザの localStorage に一時的に保存されます。
-        これはサーバーには送信されず、ブラウザの設定からいつでも削除できます。
-      </p>
 
-      <h2 style={s.h2}>4. アクセス解析</h2>
+      <h2 style={s.h2}>4. アクセス解析・不正利用の防止</h2>
       <p style={s.p}>
         本サービスはCloudflare Pages上で動作しており、Cloudflareが匿名のアクセスログ（IPアドレス・ブラウザ情報等）を収集する場合があります。
         これらはCloudflareのプライバシーポリシーに従って処理されます。
         運営者がユーザーを個人として特定することはありません。
       </p>
+      <p style={s.p}>
+        また、ページの閲覧状況を把握するため、Cloudflare Web Analytics を使用しています。
+      </p>
+      <p style={s.p}>
+        お問い合わせフォームの送信時に、自動送信を防ぐためCloudflare Turnstileによる確認を行います。
+        この確認のため、Cloudflareに対してブラウザに関する情報が送信されます。
+      </p>
 
       <h2 style={s.h2}>5. 広告（Google AdSense）</h2>
       <p style={s.p}>
-        本サービスでは、Google LLC が提供する広告配信サービス「Google AdSense」を使用しています（または使用を予定しています）。
+        本サービスでは、Google LLC が提供する広告配信サービス「Google AdSense」を導入しています。
+        広告が表示されていない場合も、Google との通信やCookieの使用が行われる場合があります。
         Google AdSenseは、ユーザーの興味・関心に基づく広告を表示するためにCookieを使用する場合があります。
       </p>
       <ul style={s.ul}>
-        <li>Googleによる広告Cookieの使用を無効にするには、<a href="https://adssettings.google.com/" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>広告設定ページ</a>をご利用ください。</li>
-        <li>広告Cookieの詳細は<a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>Googleのポリシーと規約</a>をご確認ください。</li>
+        <li>Googleによる広告Cookieの使用を無効にするには、<a href="https://adssettings.google.com/" target="_blank" rel="noopener noreferrer" style={s.link}>広告設定ページ</a>をご利用ください。</li>
+        <li>広告Cookieの詳細は<a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener noreferrer" style={s.link}>Googleのポリシーと規約</a>をご確認ください。</li>
       </ul>
 
       <h2 style={s.h2}>6. 第三者サービスへのリンク</h2>
       <p style={s.p}>
-        本サービスはUPFC（ユナイテッドプロモーション）、e-LineUP!Mallなど外部サービスへのリンクを含みます。
+        本サービスはHello! Projectオフィシャルファンクラブ（UPFC、株式会社アップフロントインターナショナル）、YouTube、OFUSEなど外部サービスへのリンクを含みます。
         これら外部サービスのプライバシーポリシーについては、各サービスの規定をご確認ください。
         運営者はリンク先サービスの内容・取り扱いに責任を負いません。
       </p>
@@ -130,8 +116,8 @@ export default function PrivacyPage() {
 
       <h2 style={s.h2}>8. お問い合わせ</h2>
       <p style={s.p}>
-        本ポリシーに関するお問い合わせは、X（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>@hop_rabbit_hop</a> までDMにてご連絡ください。
+        本ポリシーに関するお問い合わせは、トップページの「お問い合わせ」フォーム、またはX（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={s.link}>@hop_rabbit_hop</a> までDMにてご連絡ください。
       </p>
-    </div>
+    </div></div>
   );
 }

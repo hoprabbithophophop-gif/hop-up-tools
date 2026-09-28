@@ -1,69 +1,36 @@
 import { Link } from "react-router-dom";
+import { s as base } from "./news/style";
 
+// 見た目はお知らせのページ（src/pages/news/style.ts）と同じ定義を使う。
+// 以前の桃色から紫への渡しは作り替える前の配色なのでやめた（DESIGN.md に揃える・Hop 2026-09-28）
 const s = {
-  wrap: {
-    maxWidth: 640,
-    margin: "2rem auto",
-    padding: "0 1.25rem 4rem",
-    fontFamily: "'Inter','Noto Sans JP',sans-serif",
-    fontSize: "0.875rem",
-    lineHeight: 1.8,
-    color: "#333",
-  } as React.CSSProperties,
-  header: {
-    fontSize: "1.25rem",
-    fontWeight: 800,
-    background: "linear-gradient(135deg,#E5457D,#ba3cb8)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-    marginBottom: "0.25rem",
-  } as React.CSSProperties,
-  back: {
-    display: "inline-block",
-    fontSize: "0.8rem",
-    color: "#E5457D",
-    textDecoration: "none",
-    marginBottom: "1.5rem",
-  } as React.CSSProperties,
-  updated: {
-    fontSize: "0.78rem",
-    color: "#999",
-    marginBottom: "2rem",
-  } as React.CSSProperties,
-  h2: {
-    fontSize: "1rem",
-    fontWeight: 700,
-    marginTop: "2rem",
-    marginBottom: "0.5rem",
-    borderBottom: "2px solid #f0f0f0",
-    paddingBottom: "0.25rem",
-  } as React.CSSProperties,
-  p: {
-    marginBottom: "0.75rem",
-  } as React.CSSProperties,
+  ...base,
+  updated: { ...base.meta, marginBottom: "2rem" } as React.CSSProperties,
   ul: {
     paddingLeft: "1.25rem",
     marginBottom: "0.75rem",
   } as React.CSSProperties,
+  // 線は引かず、地の灰色の上に白い面を置くだけで区切る（DESIGN.md の線を使わない決まり）
   warning: {
-    background: "#fff3f6",
-    border: "1px solid #E5457D",
-    borderRadius: 8,
-    padding: "0.75rem 1rem",
-    marginBottom: "1.5rem",
+    background: "#ffffff",
+    padding: "0.75rem 0.9rem",
+    margin: "0 0 1.5rem",
     fontSize: "0.85rem",
+    lineHeight: 1.7,
+    color: "#191c1d",
+    overflowWrap: "anywhere",
   } as React.CSSProperties,
 };
 
 export default function TermsPage() {
   return (
-    <div style={s.wrap}>
+    <div style={{ background: "#f8f9fa", minHeight: "100vh" }}><div style={s.wrap}>
       <Link to="/" style={s.back}>← ホームに戻る</Link>
       <div style={s.header}>利用規約</div>
-      <div style={s.updated}>最終更新日: 2026年3月30日</div>
+      <div style={s.updated}>最終更新日: 2026年9月28日</div>
 
       <div style={s.warning}>
-        ⚠️ 本サービスは<strong>非公式のファンツール</strong>です。株式会社アップフロントワークス、ハロー！プロジェクト、UPFC（ユナイテッドプロモーション）、e-LineUP!Mallとは一切関係ありません。
+        本サービスは<strong>非公式のファンツール</strong>です。株式会社アップフロントグループ、ハロー！プロジェクト、Hello! Projectオフィシャルファンクラブ（UPFC、株式会社アップフロントインターナショナル）、e-LineUP!Mallとは一切関係ありません。
       </div>
 
       <p style={s.p}>
@@ -79,7 +46,7 @@ export default function TermsPage() {
 
       <h2 style={s.h2}>2. 情報の正確性・最新性について</h2>
       <p style={s.p}>
-        本サービスに表示される公演・締切情報は、UPFC（<a href="https://www.upfc.jp/helloproject/" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>https://www.upfc.jp/helloproject/</a>）および e-LineUP!Mall（<a href="https://www.elineupmall.com/" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>https://www.elineupmall.com/</a>）の公開ページから自動取得したものです。
+        本サービスに表示される公演・締切情報は、UPFC（<a href="https://www.upfc.jp/helloproject/" target="_blank" rel="noopener noreferrer" style={s.link}>https://www.upfc.jp/helloproject/</a>）の公開ページから自動取得したものです。動画情報は YouTube（YouTube API サービス）から自動取得しています。動画をグループ別に分けるためのメンバー名は、運営者が登録しています。
       </p>
       <ul style={s.ul}>
         <li>情報の正確性・完全性・最新性を保証しません。</li>
@@ -99,6 +66,9 @@ export default function TermsPage() {
         <li>法令または公序良俗に反する利用</li>
         <li>その他、運営者が不適切と判断する行為</li>
       </ul>
+      <p style={s.p}>
+        プレイリスト名、不具合報告やお問い合わせの内容など、利用者が入力・共有した内容に、差別・性的・暴力的な表現、誹謗中傷、違法行為の示唆、他者の権利を侵害する内容が含まれる場合、運営者はその内容の削除や共有の停止を行うことがあります。
+      </p>
 
       <h2 style={s.h2}>5. サービスの変更・終了</h2>
       <p style={s.p}>
@@ -118,10 +88,15 @@ export default function TermsPage() {
         本規約は日本法に準拠します。本サービスに関する紛争は、東京地方裁判所を第一審の専属的合意管轄裁判所とします。
       </p>
 
-      <h2 style={s.h2}>8. お問い合わせ</h2>
+      <h2 style={s.h2}>8. 支援について</h2>
       <p style={s.p}>
-        本規約に関するお問い合わせは、X（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={{ color: "#E5457D" }}>@hop_rabbit_hop</a> までDMにてご連絡ください。
+        本サービスは無料でご利用いただけます。外部サービス（OFUSE等）を通じた任意の支援を受け付けていますが、支援は完全に任意であり、支援の有無によって機能や内容に差は生じません。いただいた支援に対する返金・特典の提供は行いません。
       </p>
-    </div>
+
+      <h2 style={s.h2}>9. お問い合わせ</h2>
+      <p style={s.p}>
+        本規約に関するお問い合わせは、トップページの「お問い合わせ」フォーム、またはX（旧Twitter）<a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer" style={s.link}>@hop_rabbit_hop</a> までDMにてご連絡ください。
+      </p>
+    </div></div>
   );
 }

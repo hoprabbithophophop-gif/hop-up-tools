@@ -1,0 +1,221 @@
+// 入口：動画の再生ボタンを押してもらう画面。色はここでは選ばず、始まった後の再生中に選ぶ（別担当）。
+//
+// 再生を始めるのは、この画面のボタンではなく動画そのものの再生ボタン（Hop決定 2026-09-10）。
+// 外側のボタンから呼んで始めた再生は、YouTube 側で1回として数えられていない疑いが強く、
+// このツールは公式動画の再生回数に足すために作っているので、数えられる始め方に合わせる。
+// そのため、この画面は動画の場所を空けたまま上下に置かれる＝真ん中は動画が見えている。
+// 見出し・副題・歯車は色を選ぶ版(DiamondMemberSelect.tsx)と同じものをそのまま移した。
+// 動画の下の案内文は3段。支度の途中は「動画を読み込んでいます」、それが長引いたら
+// 「準備に少し時間がかかっています」【仮】、支度が済んだら「動画の再生ボタンを押すと はじまります」。
+// 【仮】と付いた文はHopが差し替える。
+import { useEffect, useRef, useState } from "react";
+import { ARENA_BG } from "../hi-tension/data";
+import EntryGem from "./EntryGem";
+import { SUBTITLE_TAG } from "./HaiToDiamondPage";
+
+const GEM_SIZE = 64;              // 累計の左に置く💎の大きさ【仮】。押す的ではなく目印（2026-09-10 に動線を変えて縮めた）
+const GEM_SIZE_LANDSCAPE = 48;    // 横向きの低い画面でも縦に収まるよう小さくする【仮】
+const COUNT_UP_MS = 1400;         // 歴代累計が目標の数まで伸びる時間【仮】
+
+/** いま出ている数字から目標の数まで、はじめ速く終わりゆっくり伸ばす。まだ何も出ていなければ 0 から。
+ *  動き軽減では最初から目標の数を出す */
+function useCountUp(target: number | null, reduceMotion: boolean): number | null {
+  const [shown, setShown] = useState<number | null>(null);
+  /** いま出ている数字の控え。これを効果の依存に入れると数字が動くたびに走り直すので ref で持つ */
+  const shownRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (target === null) { shownRef.current = null; setShown(null); return; }
+    if (reduceMotion) { shownRef.current = target; setShown(target); return; }
+    const from = shownRef.current;
+    if (from === target) return;
+    const start = from ?? 0;
+    let raf = 0;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const k = Math.min(1, (now - t0) / COUNT_UP_MS);
+      const eased = 1 - Math.pow(1 - k, 3);
+      const value = k >= 1 ? target : Math.round(start + (target - start) * eased);
+      shownRef.current = value;
+      setShown(value);
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, reduceMotion]);
+  return shown;
+}
+
+interface Props {
+  /** みんなの累計（読み込み前は null） */
+  total: number | null;
+  /** 累計の横の💎の色（hex）。いま選んでいる色。本編と同じ本物の描き方で焼いた絵を出す */
+  gemColor: string;
+  /** 動画の矩形の下端（ページの上端からの px）。案内と累計をその真下に置く。測れていなければ null */
+  videoBottom: number | null;
+  /** 動画が届いて再生ボタンを押せる状態か。届く前は「読み込んでいます」を出す */
+  videoReady: boolean;
+  /** 支度が長引いているか。videoReady が false のまま長く待たせている時に立つ */
+  loadingSlow: boolean;
+  /** 動画が読み込めなかったか。立っている間は案内を切り替え、「もう一度」を出す */
+  videoFailed?: boolean;
+  /** 「もう一度」を押した時 */
+  onRetry?: () => void;
+  /** 右上の歯車（表示設定） */
+  onOpenSettings?: () => void;
+  /** 動き軽減（瞬きを止める） */
+  reduceMotion?: boolean;
+  /** 横向きか。横向きの間は入口の中身を出さない。代わりにページ側が案内だけを出す（Hop決定 2026-09-12） */
+  landscape?: boolean;
+}
+
+export default function DiamondEntry({ total, gemColor, videoBottom, videoReady, loadingSlow, videoFailed = false, onRetry, onOpenSettings, reduceMotion = false, landscape = false }: Props) {
+  const [isLandscape, setIsLandscape] = useState<boolean>(() => {
+    try { return window.matchMedia("(orientation: landscape)").matches; } catch { return false; }
+  });
+  useEffect(() => {
+    document.title = "灰toダイヤモンド #銀河to銀河届けよ | hop-up-tools";
+  }, []);
+  useEffect(() => {
+    let mq: MediaQueryList;
+    try { mq = window.matchMedia("(orientation: landscape)"); } catch { return; }
+    const onChange = (e: MediaQueryListEvent) => setIsLandscape(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  const gemSize = isLandscape ? GEM_SIZE_LANDSCAPE : GEM_SIZE;
+  const shownTotal = useCountUp(total, reduceMotion);
+
+  // 横向きの間は何も出さない。部品としては残したまま中身だけ引っ込める＝縦に戻した時に作り直さない
+  if (landscape) return null;
+
+  return (
+    <div
+      style={{
+        height: "100dvh",
+        overflow: "hidden",
+        background: ARENA_BG,
+        color: "#e8eaed",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: isLandscape ? "0.7rem 1rem 0.7rem" : "0.7rem 1.2rem 1.5rem",
+        fontFamily: "Inter, 'Noto Sans JP', sans-serif",
+        position: "relative",
+      }}
+    >
+      {/* main 以外の枝のプレビューと手元でだけ、右下に版番号を出す（どの版を見ているか確かめるため。本番には出ない）。
+          ハイ！テンションの入口（MemberSelect.tsx）と同じ作り。画面の右下の隅で、動画からは離れている */}
+      {__SHOW_VERSION__ && (
+        <span
+          style={{
+            position: "absolute",
+            bottom: "calc(4px + env(safe-area-inset-bottom))",
+            right: 8,
+            fontSize: "0.5rem",
+            color: "#6b7076",
+            letterSpacing: "0.02em",
+            pointerEvents: "none",
+          }}
+        >
+          v.{__COMMIT_SHA__}
+        </span>
+      )}
+      {onOpenSettings && (
+        <button
+          type="button"
+          aria-label="表示設定"
+          onClick={onOpenSettings}
+          style={{ position: "absolute", top: 10, right: 10, zIndex: 2, background: "none", border: "none", fontSize: "1.25rem", lineHeight: 1, color: "#9aa0a6", cursor: "pointer", padding: "0.3rem" }}
+        >
+          ⚙
+        </button>
+      )}
+      <h1
+        style={{
+          fontSize: "clamp(1.3rem, 6.5vw, 1.6rem)",
+          fontWeight: 700,
+          letterSpacing: "-0.02em",
+          margin: 0,
+          textAlign: "center",
+          color: "#f5f7fa",
+          lineHeight: 1.2,
+        }}
+      >
+        灰toダイヤモンド
+      </h1>
+      <p
+        style={{
+          fontSize: "0.8125rem",
+          fontWeight: 600,
+          letterSpacing: "0.04em",
+          margin: "0.3rem 0 0",
+          textAlign: "center",
+          color: "#aab0b6",
+        }}
+      >
+        {SUBTITLE_TAG}
+      </p>
+
+      {/* 真ん中は空けておく。ここに動画が見えていて、その再生ボタンを押すと始まる */}
+      <div style={{ flex: 1, minHeight: 0 }} />
+
+      <div
+        style={{
+          // 動画の下端が測れていれば、その真下に置く＝どの再生ボタンの話かが一目で分かる。
+          // 測れていない一瞬だけ、画面の下に置く
+          ...(videoBottom === null
+            ? { width: "100%" }
+            : { position: "absolute" as const, top: videoBottom + 18, left: 0, right: 0 }),
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: isLandscape ? "0.5rem" : "0.9rem",
+        }}
+      >
+        <p
+          style={{
+            fontSize: "0.9375rem",
+            fontWeight: 600,
+            margin: 0,
+            textAlign: "center",
+            color: "#e8eaed",
+            lineHeight: 1.5,
+          }}
+        >
+          {videoReady
+            ? "動画の再生ボタンを押すと はじまります"
+            : videoFailed
+              ? "動画を読み込めませんでした。通信を確かめて、もう一度お試しください"
+              : loadingSlow
+                ? "準備に少し時間がかかっています"
+                : "動画を読み込んでいます"}
+        </p>
+        {!videoReady && videoFailed && onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            style={{ background: "#e8eaed", color: "#0b0d13", border: "none", padding: "0.55rem 1.4rem", fontSize: "0.9375rem", fontWeight: 700, cursor: "pointer" }}
+          >
+            もう一度
+          </button>
+        )}
+        {/* 数字が読めるまではラベルも出さない（ラベルだけ浮くと壊れて見える） */}
+        {shownTotal !== null && (
+          <div style={{ display: "flex", alignItems: "center", gap: "0.7rem" }}>
+            <span aria-hidden="true" style={{ display: "flex", flexShrink: 0 }}>
+              <EntryGem size={gemSize} color={gemColor} animate={!reduceMotion} />
+            </span>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+              <span style={{ fontSize: "0.75rem", color: "#9aa0a6" }}>歴代累計</span>
+              {/* 数え上げ中は桁が毎フレーム変わるので、桁ごとに跳ねる部品は使わず素の数字で出す */}
+              <span style={{ fontSize: "1.6rem", fontWeight: 800, letterSpacing: "-0.02em", color: "#f5f7fa", lineHeight: 1, fontVariantNumeric: "tabular-nums", textShadow: "0 2px 6px rgba(0,0,0,0.45)" }}>
+                {shownTotal.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

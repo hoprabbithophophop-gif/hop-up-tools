@@ -1,6 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import HandIcon from "./hi-tension/components/HandIcon";
+import FaIcon from "./hi-tension/components/FaIcon";
+import { faBullhorn, faGem } from "@fortawesome/free-solid-svg-icons";
+import ContactModal from "@/components/ContactModal";
+import NewsNoticeLink from "@/components/NewsNoticeLink";
 
 const TOOLS: { to: string; num: string; section: string; title: string; desc: string; wip?: boolean }[] = [
   {
@@ -18,16 +22,16 @@ const TOOLS: { to: string; num: string; section: string; title: string; desc: st
     desc:    "公式 MV・ライブ・バラエティを検索",
   },
   {
-    to:      "/profile",
+    to:      "/the-ballad",
     num:     "03",
-    section: "PROFILE",
-    title:   "プロフィール帳メーカー",
-    desc:    "推し脳マップ・プロフィール帳を作成",
-    wip:     true,
+    section: "THE BALLAD",
+    title:   "The Balladデータベース",
+    desc:    "2020 The Ballad 公演の歌唱曲・歌唱者・公式映像を検索",
   },
 ];
 
 export default function TopPage() {
+  const [contactOpen, setContactOpen] = useState(false);
   useEffect(() => { document.title = "hop-up-tools"; }, []);
 
   return (
@@ -44,6 +48,9 @@ export default function TopPage() {
         <p style={{ fontSize: "0.875rem", color: "#585f6c", margin: "1rem 0 0", lineHeight: 1.4 }}>
           Hello! Project ファン向けツール集
         </p>
+        {/* お知らせ。下の並びの「お知らせ」は小さくて見落とされるので、
+            出したい記事がある間はここにも出す */}
+        <NewsNoticeLink />
       </header>
 
       {/* ツールリスト */}
@@ -65,7 +72,7 @@ export default function TopPage() {
         )}
       </main>
 
-      <div style={{ display: "flex", justifyContent: "center", padding: "1.6rem 0 0.4rem" }}>
+      <div style={{ display: "flex", justifyContent: "center", gap: "1.5rem", padding: "1.6rem 0 0.4rem" }}>
         <Link
           to="/hi-tension"
           aria-label="ハイ！テンション Practice"
@@ -73,21 +80,42 @@ export default function TopPage() {
         >
           <HandIcon size={36} color="#191c1d" />
         </Link>
+        <Link
+          to="/arigato-beat"
+          aria-label="ありがとビート"
+          style={{ display: "inline-flex", padding: "0.8rem", textDecoration: "none" }}
+        >
+          <FaIcon icon={faBullhorn} size={36} color="#191c1d" />
+        </Link>
+        <Link
+          to="/hai-to-diamond"
+          aria-label="灰toダイヤモンド"
+          style={{ display: "inline-flex", padding: "0.8rem", textDecoration: "none" }}
+        >
+          <FaIcon icon={faGem} size={36} color="#191c1d" />
+        </Link>
       </div>
 
       {/* フッター */}
       <footer style={{ padding: "3rem 2rem", marginTop: "3rem", borderTop: "1px solid rgba(198,198,198,0.2)" }}>
         <p style={{ fontSize: "0.625rem", color: "#c6c6c6", margin: "0 0 1rem" }}>
-          非公式ファンツール。株式会社アップフロントワークスとは無関係です。
+          非公式ファンツール。株式会社アップフロントグループとは無関係です。
         </p>
-        <div style={{ display: "flex", gap: "1.5rem" }}>
+        {/* 「お知らせ」が増えて4つになり、390pxでは横一列に収まらなくなった。
+            間隔を詰めた上で、入らない時は折り返して次の行へ回す */}
+        <div style={{ display: "flex", flexWrap: "wrap", columnGap: "1.1rem", rowGap: "0.5rem" }}>
+          <Link to="/news"        style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>お知らせ</Link>
           <Link to="/privacy"     style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>プライバシーポリシー</Link>
           <Link to="/terms"       style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>利用規約</Link>
-          <a href="https://x.com/hop_rabbit_hop" target="_blank" rel="noopener noreferrer"
-             style={{ color: "#777", textDecoration: "none", fontSize: "0.6875rem" }}>お問い合わせ</a>
+          <button onClick={() => setContactOpen(true)}
+             style={{ background: "transparent", border: "none", padding: 0, fontFamily: "inherit", cursor: "pointer", color: "#777", fontSize: "0.6875rem" }}>お問い合わせ</button>
         </div>
+        <p style={{ fontSize: "0.625rem", color: "#c6c6c6", margin: "1.2rem 0 0" }}>
+          Hand icon by Font Awesome (CC BY 4.0)
+        </p>
       </footer>
 
+      {contactOpen && <ContactModal onClose={() => setContactOpen(false)} />}
     </div>
   );
 }

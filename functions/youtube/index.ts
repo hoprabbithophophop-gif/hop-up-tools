@@ -3,7 +3,7 @@
  *
  * ?p= パラメータがある場合に Supabase からプレイリストを取得し、
  * index.html の <head> に OGP / Twitter Card メタタグを注入して返す。
- * og:image は /ogp/card?p= の合成カード画像を指す（Phase 2）。
+ * og:image は YouTube のサムネイルそのもの（i.ytimg.com）を指す。こちらで切り抜いたり配ったりしない（2026-09-28）。
  */
 
 import { fetchOgpData, buildMetaTags } from '../_shared/ogp';
@@ -34,8 +34,8 @@ export async function onRequest(context: {
     const ogp = await fetchOgpData(playlistId, env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY);
     if (!ogp) return indexRes;
 
-    // Phase 2: 合成カード画像を og:image に使用
-    const cardImageUrl = `${url.origin}/ogp/card?p=${encodeURIComponent(playlistId)}`;
+    // サムネイルは YouTube の置き場所をそのまま教える（切り抜かない・自サイトから配らない）
+    const cardImageUrl = ogp.thumbnailUrl;
 
     const metaHtml = buildMetaTags({
       canonicalUrl: url.toString(),

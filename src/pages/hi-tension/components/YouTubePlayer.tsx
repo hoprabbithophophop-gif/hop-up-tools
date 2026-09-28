@@ -15,12 +15,54 @@ export type YouTubePlayerApi = {
   seekTo: (seconds: number) => void;
   /** 現在の再生位置(秒)。取得不可なら 0 */
   getCurrentTime: () => number;
+  /** PLAYING 状態か(一時停止/バッファリング中は false) */
+  isPlaying: () => boolean;
+  /** 再生速度を設定(YouTubeは 0.25/0.5/0.75/1/1.25/1.5/1.75/2 のいずれか。それ以外は最寄りに丸められる) */
+  setPlaybackRate: (rate: number) => void;
+  /** 現在の再生速度。取得不可なら 1 */
+  getPlaybackRate: () => number;
+  /** 再生品質を要求（'small'=240p, 'medium'=360p, 'large'=480p, 'hd720', 'hd1080', 'default'）。
+   *  デコード負荷を抑えたい時に呼ぶ。YouTube が auto を優先する場合は無視されることもある。 */
+  setPlaybackQuality: (quality: string) => void;
+  /** バッファ済み割合(0〜1)。取得不可なら 0 */
+  getVideoLoadedFraction: () => number;
+  /** 動画の総尺(秒)。取得不可なら 0 */
+  getDuration: () => number;
+  /** ミュート（待機室の暖機再生用） */
+  mute: () => void;
+  /** ミュート解除（本番動画再生時） */
+  unMute: () => void;
+  /** 指定動画IDをロードして即再生（同じ iframe を使い回し、JS/CDN接続を温存）。
+   *  opts で開始/終了秒を指定可能（暖機用クリップで使う） */
+  loadVideo: (id: string, opts?: { startSeconds?: number; endSeconds?: number; cover?: boolean }) => void;
+  /** 指定動画IDを cue（ロードのみで再生はしない。✋押下までの待ち時間に仕込む） */
+  cueVideo: (id: string, opts?: { startSeconds?: number; endSeconds?: number }) => void;
 };
 
 interface Props {
   videoId: string;
   onEnded: () => void;
   onTimeUpdate?: (currentTime: number) => void;
+  /** YT.PlayerState の値(1=PLAYING, 2=PAUSED, 3=BUFFERING, 0=ENDED) */
+  onPlayerStateChange?: (state: number) => void;
+  /** 動画の準備ができた瞬間に1回だけ呼ぶ。isReady が false から true に変わった時。渡さなくても今までの動きは変わらない */
+  onReady?: () => void;
+  /** 動画が読み込めなかった時に1回呼ぶ。引数は YouTube の失敗の番号（2=動画IDが不正, 5=HTML5の不具合, 100=見つからない, 101/150=埋め込み不可）。
+   *  渡さなくても今までの動きは変わらない。/hai-to-diamond は入口の案内を「読み込めませんでした」に切り替えるのに使う */
+  onError?: (code: number) => void;
+  /** 初回 play() から LOADING_MIN_MS 秒、黒カバーで隠すか。既定 true（渡さなければ今までの動きのまま）。
+   *  /hai-to-diamond は動画自身の再生ボタンで始めるので、この2秒のカバーは要らない。見返しの再生（すでに動いている映像に
+   *  重ねて呼ぶ2回目以降の play()）に黒いカバーが乗ってしまうため false を渡す */
+  startCover?: boolean;
+  /** 読み込み中の黒いカバーと点を出すか。既定 true。渡さなければ今までの動きのまま。
+   *  false の時はカバーの中身そのものを描かない。YouTube の必須要件で、プレーヤーのどの部分の前にも
+   *  見える物を置いてはいけないため。/hai-to-diamond は入口に「動画を読み込んでいます」の案内が出るので false を渡す */
+  loadingCover?: boolean;
+  /** 器の高さの下限(px)。渡さなければ今までどおり 16:9 の高さだけで決まる。
+   *  YouTube の必須要件で、埋め込みのプレーヤーは 200×200px を下回ってはいけない。幅が狭くて
+   *  16:9 では 200px を割ってしまう端末のために、下限を渡せるようにした。
+   *  下限が効いている間は器が 16:9 より縦長になるので、映像の左右に黒い帯が付く */
+  minHeight?: number;
 }
 
 function loadYouTubeAPI(): Promise<void> {
@@ -46,7 +88,7 @@ function loadYouTubeAPI(): Promise<void> {
 }
 
 const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer(
-  { videoId, onEnded, onTimeUpdate },
+  { videoId, onEnded, onTimeUpdate, onPlayerStateChange, onReady, onError, startCover = true, loadingCover = true, minHeight },
   ref,
 ) {
   const [isReady, setIsReady] = useState(false);
@@ -54,17 +96,35 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   // 再生がすぐ始まるとローディングアニメが見えないため、最低2秒は表示する。
   const [started, setStarted] = useState(false);
   const [minTimeElapsed, setMinTimeElapsed] = useState(false);
+  // 動画切替(入室時の暖機ロード)で「新しい動画が実際に PLAYING になるまで」黒カバーを保持する。
+  // 固定タイマーだと、カバーが外れた時点で iframe がまだ前の動画(本編)の最後のフレームを
+  // 保持していると一瞬見えてしまうため、PLAYING を合図に外す（安全弁つき）。
+  const [loadCovering, setLoadCovering] = useState(false);
   const startedRef = useRef(false);
   const minTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const coverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playerRef = useRef<YT.Player | null>(null);
   const isReadyRef = useRef(false);
   const wantPlayRef = useRef(false);
+  const wantLoadRef = useRef<{ id: string; opts?: { startSeconds?: number; endSeconds?: number; cover?: boolean } } | null>(null);
+  const wantCueRef = useRef<{ id: string; opts?: { startSeconds?: number; endSeconds?: number } } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onEndedRef = useRef(onEnded);
   const onTimeUpdateRef = useRef(onTimeUpdate);
+  const onPlayerStateChangeRef = useRef(onPlayerStateChange);
+  const onReadyRef = useRef(onReady);
+  const onErrorRef = useRef(onError);
 
   useEffect(() => { onEndedRef.current = onEnded; }, [onEnded]);
   useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
+  useEffect(() => { onPlayerStateChangeRef.current = onPlayerStateChange; }, [onPlayerStateChange]);
+  useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
+
+  // isReady が false→true に変わった瞬間だけ知らせる。渡されていなければ何もしない＝これまでの動きのまま
+  useEffect(() => {
+    if (isReady) onReadyRef.current?.();
+  }, [isReady]);
 
   useEffect(() => {
     let mounted = true;
@@ -117,6 +177,36 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
             if (!mounted) return;
             isReadyRef.current = true;
             setIsReady(true);
+            // load と cue の予約が両方立っている場合は、後着順ではなく load を優先する
+            // （cue は読み込むだけで再生を止めてしまうため、害が大きい方を避ける）。
+            if (wantLoadRef.current && wantCueRef.current) {
+              wantCueRef.current = null;
+            }
+            // 準備前に loadVideo が呼ばれていれば、ここで読み込み（loadVideoById は自動再生）。
+            // 動画切替で player を作り直した直後の loadVideo が空振りして再生が始まらない問題の対策。
+            if (wantLoadRef.current) {
+              const { id, opts } = wantLoadRef.current;
+              wantLoadRef.current = null;
+              try {
+                (playerRef.current as unknown as { loadVideoById?: (a: { videoId: string; startSeconds?: number; endSeconds?: number }) => void })?.loadVideoById?.({
+                  videoId: id,
+                  startSeconds: opts?.startSeconds ?? 0,
+                  ...(opts?.endSeconds !== undefined ? { endSeconds: opts.endSeconds } : {}),
+                });
+              } catch { /* ignore */ }
+            }
+            // 準備前に cueVideo が呼ばれていれば、ここで cue（loadVideo と同じ空振り対策）
+            if (wantCueRef.current) {
+              const { id, opts } = wantCueRef.current;
+              wantCueRef.current = null;
+              try {
+                (playerRef.current as unknown as { cueVideoById?: (a: { videoId: string; startSeconds?: number; endSeconds?: number }) => void })?.cueVideoById?.({
+                  videoId: id,
+                  startSeconds: opts?.startSeconds ?? 0,
+                  ...(opts?.endSeconds !== undefined ? { endSeconds: opts.endSeconds } : {}),
+                });
+              } catch { /* ignore */ }
+            }
             // 先に play() が呼ばれていれば、ここで再生開始
             if (wantPlayRef.current) {
               wantPlayRef.current = false;
@@ -126,14 +216,22 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
           onStateChange: (event) => {
             if (!mounted) return;
             const state = event.data;
+            onPlayerStateChangeRef.current?.(state);
             if (state === 1 /* PLAYING */) {
               startPolling();
+              // 新しい動画が実際に描画され始めた → 切替カバーを外す
+              setLoadCovering(false);
+              if (coverTimerRef.current) { clearTimeout(coverTimerRef.current); coverTimerRef.current = null; }
             } else if (state === 2 /* PAUSED */ || state === 3 /* BUFFERING */) {
               stopPolling();
             } else if (state === 0 /* ENDED */) {
               stopPolling();
               onEndedRef.current();
             }
+          },
+          onError: (event) => {
+            if (!mounted) return;
+            onErrorRef.current?.(event.data);
           },
         },
       });
@@ -153,6 +251,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
   useEffect(() => {
     return () => {
       if (minTimerRef.current) clearTimeout(minTimerRef.current);
+      if (coverTimerRef.current) clearTimeout(coverTimerRef.current);
     };
   }, []);
 
@@ -194,15 +293,90 @@ const YouTubePlayer = forwardRef<YouTubePlayerApi, Props>(function YouTubePlayer
     getCurrentTime() {
       try { return playerRef.current?.getCurrentTime() ?? 0; } catch { return 0; }
     },
+    isPlaying() {
+      try { return playerRef.current?.getPlayerState() === 1; } catch { return false; }
+    },
+    setPlaybackRate(rate: number) {
+      try { (playerRef.current as unknown as { setPlaybackRate?: (r: number) => void })?.setPlaybackRate?.(rate); } catch { /* ignore */ }
+    },
+    getPlaybackRate() {
+      try { return (playerRef.current as unknown as { getPlaybackRate?: () => number })?.getPlaybackRate?.() ?? 1; } catch { return 1; }
+    },
+    setPlaybackQuality(quality: string) {
+      try { (playerRef.current as unknown as { setPlaybackQuality?: (q: string) => void })?.setPlaybackQuality?.(quality); } catch { /* ignore */ }
+    },
+    getVideoLoadedFraction() {
+      try { return (playerRef.current as unknown as { getVideoLoadedFraction?: () => number })?.getVideoLoadedFraction?.() ?? 0; } catch { return 0; }
+    },
+    getDuration() {
+      try { return playerRef.current?.getDuration?.() ?? 0; } catch { return 0; }
+    },
+    mute() {
+      try { (playerRef.current as unknown as { mute?: () => void })?.mute?.(); } catch { /* ignore */ }
+    },
+    unMute() {
+      try { (playerRef.current as unknown as { unMute?: () => void })?.unMute?.(); } catch { /* ignore */ }
+    },
+    loadVideo(id: string, opts?: { startSeconds?: number; endSeconds?: number; cover?: boolean }) {
+      // 初回 play() 同様にローディング最小表示タイマーを開始
+      if (!startedRef.current) {
+        startedRef.current = true;
+        setStarted(true);
+        minTimerRef.current = setTimeout(() => setMinTimeElapsed(true), LOADING_MIN_MS);
+      }
+      // cover 指定（入室時の暖機ロード）：新しい動画が実際に PLAYING になるまで黒カバーを
+      // 保持し、切替の隙間に前の動画(本編サムネ)が一瞬見えるのを防ぐ。万一 PLAYING が
+      // 来なくても 6秒で安全に解除する。暖機ループ・本編再生・ドリフトシークには付けない。
+      if (opts?.cover) {
+        setLoadCovering(true);
+        if (coverTimerRef.current) clearTimeout(coverTimerRef.current);
+        coverTimerRef.current = setTimeout(() => setLoadCovering(false), 6000);
+      }
+      const p = playerRef.current;
+      if (p && isReadyRef.current) {
+        try {
+          (p as unknown as { loadVideoById?: (a: { videoId: string; startSeconds?: number; endSeconds?: number }) => void })?.loadVideoById?.({
+            videoId: id,
+            startSeconds: opts?.startSeconds ?? 0,
+            ...(opts?.endSeconds !== undefined ? { endSeconds: opts.endSeconds } : {}),
+          });
+        } catch { /* ignore */ }
+      } else {
+        // プレイヤー準備前（動画切替で作り直し中など）は、準備完了後に実行を予約。
+        // 後から来た方が勝つように、逆方向の予約（cue）は取り消す。
+        wantLoadRef.current = { id, opts };
+        wantCueRef.current = null;
+      }
+    },
+    cueVideo(id: string, opts?: { startSeconds?: number; endSeconds?: number }) {
+      const p = playerRef.current;
+      if (p && isReadyRef.current) {
+        try {
+          (p as unknown as { cueVideoById?: (a: { videoId: string; startSeconds?: number; endSeconds?: number }) => void })?.cueVideoById?.({
+            videoId: id,
+            startSeconds: opts?.startSeconds ?? 0,
+            ...(opts?.endSeconds !== undefined ? { endSeconds: opts.endSeconds } : {}),
+          });
+        } catch { /* ignore */ }
+      } else {
+        // プレイヤー準備前は、準備完了後に実行を予約。
+        // 後から来た方が勝つように、逆方向の予約（load）は取り消す。
+        wantCueRef.current = { id, opts };
+        wantLoadRef.current = null;
+      }
+    },
   }), []);
 
-  // 初回 play() から LOADING_MIN_MS の間、または player が ready になるまで表示
-  const showLoading = !isReady || (started && !minTimeElapsed);
+  // 初回 play() から LOADING_MIN_MS の間、player が ready になるまで、
+  // または入室時の動画切替が PLAYING に達するまで（loadCovering）黒カバーを表示。
+  // startCover=false の時は、この「最初の2秒」ぶんのカバーだけ出さない（すでに動いている映像に
+  // 重ねて呼ぶ play() で、黒いカバーが乗ってしまう場面向け）
+  const showLoading = !isReady || (startCover && started && !minTimeElapsed) || loadCovering;
 
   return (
-    <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", background: "#000" }}>
+    <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", ...(minHeight != null ? { minHeight } : {}), background: "#000" }}>
       <div id={CONTAINER_ID} style={{ width: "100%", height: "100%" }} />
-      {showLoading && (
+      {loadingCover && showLoading && (
         <div
           style={{
             position: "absolute",

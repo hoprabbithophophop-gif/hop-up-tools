@@ -1,8 +1,8 @@
-import { useRef, useState } from "react";
-import LoadingDots from "./components/LoadingDots";
+import { useRef, useState, type CSSProperties } from "react";
 import HandIcon from "./components/HandIcon";
+import NavButton from "./components/NavButton";
 import { findMember } from "./data";
-import type { Participant } from "./useHiTensionRealtime";
+import { MAX_PARTICIPANTS, type Participant } from "./useHiTensionRealtime";
 
 interface Props {
   participants: Participant[];
@@ -12,15 +12,18 @@ interface Props {
   channelError: boolean;
   isOverflow: boolean;
   roomCode: string | null;
+  /** 自分でコードを打って入った人か。true のときだけ「入力し直す」を出す（部屋を作った人には出さない） */
+  enteredByCode: boolean;
   onBounceSignal: () => void;
   bouncingSessionId: string | null;
   onSeno: () => void;
   onSolo: () => void;
   onReenterCode: () => void;
   onBackToTop: () => void;
+  /** 動画エリアの直下から始めるための top 値（例: "56.25vw"、PC では動画実高さの px 値）。
+   *  動画ラッパー縮小時に動画と密着させるため、HiTensionPage が計算して渡す。 */
+  topOffset?: string;
 }
-
-const DOT_SIZE = 12;
 
 export default function WaitingRoom({
   participants,
@@ -30,12 +33,14 @@ export default function WaitingRoom({
   channelError,
   isOverflow,
   roomCode,
+  enteredByCode,
   onBounceSignal,
   bouncingSessionId,
   onSeno,
   onSolo,
   onReenterCode,
   onBackToTop,
+  topOffset,
 }: Props) {
   const [selfBouncing, setSelfBouncing] = useState(false);
   const selfBounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -52,8 +57,13 @@ export default function WaitingRoom({
   };
 
   const count = participants.length;
+  // せーのは2人(MAX_PARTICIPANTS)揃ってから。1人で押すと相手が合流できないまま進んで詰むため。
+  const canSeno = isHost && connected && count >= MAX_PARTICIPANTS;
+  // ✋の跳躍幅は動画下の余白(高さ)に比例。狭い実機では小さく、広い画面では大きく跳ねる
+  // （上の合言葉に被らない範囲に収める）。CSS変数 --hop でキーフレームへ渡す。
+  const hopHeight = `clamp(14px, calc((100dvh - ${topOffset ?? "56.25vw"}) * 0.08), 44px)`;
 
-  // あふれ（5人目以降）: 満員パネルを表示。スタートには参加できない。
+  // あふれ（3人目以降）: 満員パネルを表示。スタートには参加できない。
   if (isOverflow) {
     return (
       <div
@@ -69,15 +79,16 @@ export default function WaitingRoom({
           padding: "2rem 1.2rem",
           fontFamily: "Inter, 'Noto Sans JP', sans-serif",
           gap: "1.5rem",
+          animation: "hi-tension-fade-in 180ms ease-out",
         }}
       >
         <p style={{ fontSize: "1.125rem", fontWeight: 700, margin: 0, color: "#000" }}>
-          満員です（4人まで）
+          満員です（{MAX_PARTICIPANTS}人まで）
         </p>
         <p style={{ fontSize: "0.875rem", color: "#474747", margin: 0, textAlign: "center", lineHeight: 1.6 }}>
-          いま4人が待ってます。
+          すでに{MAX_PARTICIPANTS}人が参加しています。
           <br />
-          ひとりで始めるか、ロビーに戻ってね。
+          ひとりで始めるか、いったん戻ってください。
         </p>
         <button
           type="button"
@@ -98,28 +109,26 @@ export default function WaitingRoom({
         >
           ひとりで始める
         </button>
-        <button
-          type="button"
-          onClick={onBackToTop}
-          style={{
-            background: "none",
-            border: "none",
-            fontSize: "0.8125rem",
-            color: "#777",
-            cursor: "pointer",
-            padding: "0.25rem 0",
-          }}
-        >
-          ← ロビーに戻る
-        </button>
+        <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>
+          <NavButton direction="back" onClick={onBackToTop}>
+            中断して戻る
+          </NavButton>
+        </div>
       </div>
     );
   }
 
+  // 暖機動画は HiTensionPage 側の常時マウントエリアで表示しているため、ここでは下半分だけ表示する。
+  // top は動画の実高さに合わせる（モバイル: 56.25vw = 動画 100vw 幅×9/16。PC: 動画 360px 縮小時は 202.5px）。
   return (
     <div
       style={{
-        height: "100dvh",
+        position: "fixed",
+        top: topOffset ?? "56.25vw",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 100,
         overflow: "hidden",
         background: "#f8f9fa",
         color: "#191c1d",
@@ -127,169 +136,158 @@ export default function WaitingRoom({
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        padding: "2rem 1.2rem",
+        gap: "0.55rem",
+        padding: "1rem 1.2rem",
         fontFamily: "Inter, 'Noto Sans JP', sans-serif",
-        gap: "2rem",
+        animation: "hi-tension-fade-in 180ms ease-out",
       }}
     >
       <style>{`
-        @keyframes dot-bounce {
+        /* ゆるやかな弧。狭い余白でも「天井にコツン」と止まらないよう、ピークでの hold と
+           オーバーシュートを無くし、じわっと上がってふわっと折り返す（ease-in-out）。 */
+        @keyframes hand-hop {
           0%   { transform: translateY(0) scale(1); }
-          20%  { transform: translateY(-22px) scale(0.93); }
-          48%  { transform: translateY(-22px) scale(0.93); }
-          72%  { transform: translateY(0) scale(1.06); }
-          88%  { transform: translateY(-7px) scale(1); }
+          22%  { transform: translateY(0) scaleX(1.04) scaleY(0.93); }
+          60%  { transform: translateY(calc(-1 * var(--hop, 32px))) scaleX(0.99) scaleY(1.02); }
           100% { transform: translateY(0) scale(1); }
         }
       `}</style>
 
-      {/* 合言葉（コード部屋のみ）。SNS等で共有して仲間を呼ぶ */}
-      {roomCode && (
-        <div style={{ textAlign: "center" }}>
-          <p style={{ fontSize: "0.6875rem", color: "#777", margin: 0, letterSpacing: "0.15em" }}>
-            あいことば
+      {/* 上部：合言葉と人数（動画の直下） */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem" }}>
+        {roomCode && (
+          <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <p style={{ fontSize: "0.6875rem", color: "#777", margin: 0, letterSpacing: "0.15em" }}>
+              合言葉
+            </p>
+            <p style={{ fontSize: "1.5rem", fontWeight: 900, letterSpacing: "0.25em", margin: "0.1rem 0 0", color: "#000" }}>
+              {roomCode}
+            </p>
+            {/* 打ち間違えた時の入れ直し。あいことば表示の真下に置き「その場で直す」を位置で示す（戻る導線とは別物）。
+                コードを打って入った人にだけ出す。打ち間違いで空室に入りホストになっても入れ直せるよう、
+                isHost ではなく入室経路(enteredByCode)で判定する。部屋を作った人には出さない。 */}
+            {enteredByCode && (
+            <button
+              type="button"
+              onClick={onReenterCode}
+              style={{
+                marginTop: "0.5rem",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.3rem",
+                minHeight: 36,
+                padding: "0 0.7rem",
+                background: "#eceef0",
+                color: "#191c1d",
+                border: "none",
+                borderRadius: 0,
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                fontFamily: "inherit",
+                whiteSpace: "nowrap",
+                cursor: "pointer",
+                touchAction: "manipulation",
+                WebkitTapHighlightColor: "transparent",
+                transition: "background 0.12s",
+              }}
+            >
+              <span aria-hidden>✎</span>
+              入力し直す
+            </button>
+            )}
+          </div>
+        )}
+        {channelError && (
+          <p style={{ fontSize: "0.8125rem", color: "#c00", textAlign: "center", margin: 0, lineHeight: 1.5 }}>
+            接続が悪いです。しばらく待つか、ひとりで始めてください。
           </p>
-          <p style={{ fontSize: "2rem", fontWeight: 900, letterSpacing: "0.25em", margin: "0.15rem 0 0", color: "#000" }}>
-            {roomCode}
-          </p>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* 動画読み込みアニメーション */}
-      <LoadingDots />
-
-      {/* ✋ボタン（アイコン自体は動かない） */}
-      <button
-        type="button"
-        onClick={handleHandTap}
-        style={{
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          padding: "0.5rem",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <HandIcon size={56} color="#191c1d" />
-      </button>
-
-      {/* 参加者ドット（✋の下に並ぶ） */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.75rem" }}>
+      {/* 中央：参加者の✋を横一列に。自分のをタップすると本編と同じ「ぴょこっと跳ね上がる」
+          動きで挨拶し、相手にも伝わって相手の✋も跳ねる。ゲストが入ると隣に増える。
+          跳躍幅は動画下の余白(高さ)に比例（CSS変数 --hop）＝上の合言葉に被らない範囲で。 */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.45rem" }}>
         <div
           style={{
             display: "flex",
-            flexWrap: "wrap",
             justifyContent: "center",
-            gap: "0.75rem",
-            minHeight: DOT_SIZE,
-          }}
+            alignItems: "flex-end",
+            gap: "1.1rem",
+            marginTop: hopHeight,
+            "--hop": hopHeight,
+          } as CSSProperties}
         >
           {participants.map((p) => {
             const member = findMember(p.memberId);
             const color = member?.color ?? "#ccc";
             const isSelf = p.sessionId === mySessionId;
             const isBouncing = isSelf ? selfBouncing : bouncingSessionId === p.sessionId;
-            return (
-              <div
+            const handStyle: CSSProperties = {
+              transformOrigin: "bottom center",
+              animation: isBouncing ? "hand-hop 0.6s ease-in-out" : "none",
+              lineHeight: 0,
+            };
+            const icon = <HandIcon size={isSelf ? 46 : 40} color={color} />;
+            return isSelf ? (
+              <button
                 key={p.sessionId}
+                type="button"
+                onClick={handleHandTap}
+                aria-label="挨拶する"
                 style={{
-                  width: DOT_SIZE,
-                  height: DOT_SIZE,
-                  borderRadius: "50%",
-                  background: color,
-                  boxShadow: isSelf
-                    ? `0 0 0 3px #f8f9fa, 0 0 0 5px ${color}`
-                    : "0 0 0 1px rgba(0,0,0,0.08)",
-                  animation: isBouncing ? "dot-bounce 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards" : "none",
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  touchAction: "manipulation",
+                  WebkitTapHighlightColor: "transparent",
+                  ...handStyle,
                 }}
-              />
+              >
+                {icon}
+              </button>
+            ) : (
+              <div key={p.sessionId} aria-hidden style={handStyle}>
+                {icon}
+              </div>
             );
           })}
         </div>
-        <p style={{ fontSize: "0.875rem", color: "#474747", margin: 0 }}>
-          {count === 0 ? "つながっています" : `${count}人が待ってる`}
+        <p style={{ fontSize: "0.8125rem", color: "#474747", margin: 0 }}>
+          {`${count}/${MAX_PARTICIPANTS}人`}
         </p>
       </div>
 
-      {/* 接続エラー */}
-      {channelError && (
-        <p style={{ fontSize: "0.8125rem", color: "#c00", textAlign: "center", margin: 0, lineHeight: 1.5 }}>
-          接続が悪いです。しばらく待つか、ひとりで始めてください。
-        </p>
-      )}
-
-      {/* せーのボタン（ホストが合図を出す） */}
-      <button
-        type="button"
-        disabled={!isHost || !connected}
-        onClick={onSeno}
-        style={{
-          width: "100%",
-          maxWidth: 360,
-          padding: "1rem",
-          background: isHost && connected ? "#000" : "#c6c6c6",
-          color: "#fff",
-          border: "none",
-          fontSize: "0.875rem",
-          fontWeight: 700,
-          letterSpacing: "0.05em",
-          textTransform: "uppercase",
-          cursor: isHost && connected ? "pointer" : "not-allowed",
-          transition: "background 0.12s",
-        }}
-      >
-        {isHost ? "せーの！" : "ホストの合図を待ってる"}
-      </button>
-
-      {/* サブ導線。合言葉部屋では「入力し直す」、グローバル部屋では「やっぱりひとりで」 */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.1rem" }}>
-        {roomCode ? (
-          <button
-            type="button"
-            onClick={onReenterCode}
-            style={{
-              background: "none",
-              border: "none",
-              fontSize: "0.8125rem",
-              color: "#777",
-              cursor: "pointer",
-              padding: "0.25rem 0",
-            }}
-          >
-            合言葉を入力し直す →
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={onSolo}
-            style={{
-              background: "none",
-              border: "none",
-              fontSize: "0.8125rem",
-              color: "#777",
-              cursor: "pointer",
-              padding: "0.25rem 0",
-            }}
-          >
-            やっぱりひとりで →
-          </button>
-        )}
+      {/* 下部：せーのボタン + サブ導線（最下部キープ） */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem", width: "100%" }}>
         <button
           type="button"
-          onClick={onBackToTop}
+          disabled={!canSeno}
+          onClick={onSeno}
           style={{
-            background: "none",
+            width: "100%",
+            maxWidth: 360,
+            padding: "0.85rem",
+            background: canSeno ? "#000" : "#c6c6c6",
+            color: "#fff",
             border: "none",
-            fontSize: "0.8125rem",
-            color: "#777",
-            cursor: "pointer",
-            padding: "0.25rem 0",
+            fontSize: "0.875rem",
+            fontWeight: 700,
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            cursor: canSeno ? "pointer" : "not-allowed",
+            transition: "background 0.12s",
           }}
         >
-          ← ロビーに戻る
+          {!isHost ? "せーの待ち" : "せーの！"}
         </button>
+        {/* 戻るは1つ（最初の画面へ）。合言葉の入れ直しは上の合言葉表示の隣に置いた。 */}
+        <div style={{ width: "100%", maxWidth: 360, display: "flex", justifyContent: "flex-start" }}>
+          <NavButton direction="back" onClick={onBackToTop}>
+            中断して戻る
+          </NavButton>
+        </div>
       </div>
     </div>
   );

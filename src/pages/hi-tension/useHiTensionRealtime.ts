@@ -4,8 +4,10 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 
 const CHANNEL_BASE = "hi-tension";
 
-// 「みんなで」待機室の参加上限。seat_index 0〜3 が正規参加者。
-export const MAX_PARTICIPANTS = 4;
+// 「みんなで」待機室の参加上限。seat_index 0〜1 が正規参加者。
+// ※同期方式（pause-and-wait＝最遅端末に合わせて待つ）は人数が増えるほど崩れやすいため、
+//   確実に揃う 2 人に絞っている。
+export const MAX_PARTICIPANTS = 2;
 
 // 「せーの」後、各端末が✋を押せる猶予（ミリ秒）
 export const SENO_WINDOW_MS = 3000;
@@ -14,8 +16,8 @@ export const SENO_WINDOW_MS = 3000;
 // 発動しない高めの値。ボタン暴走バグ等の異常送信を頭打ちにするための安全キャップ。
 const TAP_BROADCAST_MIN_INTERVAL_MS = 75;
 
-// クロック同期 ping の送信間隔
-const CLOCK_PING_INTERVAL_MS = 2000;
+// Supabase サーバー時刻の測定間隔
+const CLOCK_SYNC_INTERVAL_MS = 2000;
 
 // 部屋コードに使う文字（紛らわしい 0/O・1/I/L を除外）
 const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -50,10 +52,20 @@ export type LiveTap = {
   memberId: string;
   seatIndex: number;
   videoTime: number;
+  /** 送信時の Supabase サーバー時刻(ms)。受信側で片道ラグを実測するのに使う。 */
+  sentAt: number;
 };
 
 export type LiveBounce = {
   sessionId: string;
+};
+
+/** 端末ごとの drift / buffer 状態。pause-and-wait の相対判定と「同期できたか」の判定に使う */
+export type LiveDriftReport = {
+  sessionId: string;
+  drift: number;        // expected_canonical - actual_local（秒）。正=自分が遅れ、負=自分が先行
+  bufferAhead: number;  // バッファ残量（秒）
+  receivedAt: number;   // 受信側ローカル時刻（古い report を間引くため）
 };
 
 /**
@@ -74,6 +86,9 @@ export function useHiTensionRealtime({
   onSenoFail,
   onTap,
   onBounce,
+  onPlaybackReady,
+  onWarmupStart,
+  onDriftReport,
 }: {
   sessionId: string;
   memberId: string | null;
@@ -85,6 +100,11 @@ export function useHiTensionRealtime({
   onSenoFail: () => void;
   onTap: (tap: LiveTap) => void;
   onBounce?: (bounce: LiveBounce) => void;
+  onPlaybackReady?: (sessionId: string, tPlay: number) => void;
+  /** 暖機動画の anchor 受信（待機室で暖機を同期するため）*/
+  onWarmupStart?: (t0: number, p0: number) => void;
+  /** 他端末の drift+buffer 受信（pause-and-wait の相対判定と本動画遷移条件の判定に使う）*/
+  onDriftReport?: (report: LiveDriftReport) => void;
 }) {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [connected, setConnected] = useState(false);
@@ -102,12 +122,18 @@ export function useHiTensionRealtime({
   const onSenoFailRef = useRef(onSenoFail);
   const onTapRef = useRef(onTap);
   const onBounceRef = useRef(onBounce);
+  const onPlaybackReadyRef = useRef(onPlaybackReady);
+  const onWarmupStartRef = useRef(onWarmupStart);
+  const onDriftReportRef = useRef(onDriftReport);
   useEffect(() => { onSenoRef.current = onSeno; }, [onSeno]);
   useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
   useEffect(() => { onSongStartRef.current = onSongStart; }, [onSongStart]);
   useEffect(() => { onSenoFailRef.current = onSenoFail; }, [onSenoFail]);
   useEffect(() => { onTapRef.current = onTap; }, [onTap]);
   useEffect(() => { onBounceRef.current = onBounce; }, [onBounce]);
+  useEffect(() => { onPlaybackReadyRef.current = onPlaybackReady; }, [onPlaybackReady]);
+  useEffect(() => { onWarmupStartRef.current = onWarmupStart; }, [onWarmupStart]);
+  useEffect(() => { onDriftReportRef.current = onDriftReport; }, [onDriftReport]);
 
   // 待機登録の意図（チャンネル再接続時に subscribe コールバックから参照する）
   const inWaitingRoomRef = useRef(inWaitingRoom);
@@ -129,7 +155,8 @@ export function useHiTensionRealtime({
     if (mySeatIndex >= 0) frozenSeatIndexRef.current = mySeatIndex;
   }, [mySeatIndex]);
 
-  // クロック同期: ホスト時計 ≈ 自分の時計 + clockOffset
+  // クロック同期: Supabase サーバー時計 ≈ 自分の時計 + clockOffset
+  // 第三者（Supabase）基準なのでホストの時計に依存しない
   const clockOffsetRef = useRef<number>(0);
   const bestRoundtripRef = useRef<number>(Infinity);
 
@@ -168,27 +195,10 @@ export function useHiTensionRealtime({
 
     channel
       .on("presence", { event: "sync" }, syncParticipants)
-      // クロック同期 ping/pong
-      .on("broadcast", { event: "clock-ping" }, ({ payload }) => {
-        // ホストだけが応答する
-        if (!isHostRef.current) return;
-        if (typeof payload?.from === "string" && typeof payload?.t0 === "number") {
-          channel.send({
-            type: "broadcast",
-            event: "clock-pong",
-            payload: { to: payload.from, t0: payload.t0, t1: Date.now() },
-          });
-        }
-      })
-      .on("broadcast", { event: "clock-pong" }, ({ payload }) => {
-        if (payload?.to !== presenceKey) return;
-        if (typeof payload?.t0 !== "number" || typeof payload?.t1 !== "number") return;
-        const t2 = Date.now();
-        const roundtrip = t2 - payload.t0;
-        // 一番ブレてない（往復が最速の）サンプルだけ採用
-        if (roundtrip < bestRoundtripRef.current) {
-          bestRoundtripRef.current = roundtrip;
-          clockOffsetRef.current = ((payload.t1 - payload.t0) + (payload.t1 - t2)) / 2;
+      // 各自の再生準備完了（PLAYING 到達時刻を Supabase 時刻で報告）
+      .on("broadcast", { event: "playback-ready" }, ({ payload }) => {
+        if (typeof payload?.session_id === "string" && typeof payload?.t_play === "number") {
+          onPlaybackReadyRef.current?.(payload.session_id, payload.t_play);
         }
       })
       // せーの（ホストが合図）
@@ -211,6 +221,27 @@ export function useHiTensionRealtime({
       .on("broadcast", { event: "seno-fail" }, () => {
         onSenoFailRef.current();
       })
+      // 暖機動画の anchor 受信（待機室で暖機を同期するため）
+      .on("broadcast", { event: "warmup-start" }, ({ payload }) => {
+        if (typeof payload?.t0 === "number" && typeof payload?.p0 === "number") {
+          onWarmupStartRef.current?.(payload.t0, payload.p0);
+        }
+      })
+      // 他端末の drift / buffer 受信（pause-and-wait の相対判定に使う）
+      .on("broadcast", { event: "drift-report" }, ({ payload }) => {
+        if (
+          typeof payload?.session_id === "string" &&
+          typeof payload?.drift === "number" &&
+          typeof payload?.buffer_ahead === "number"
+        ) {
+          onDriftReportRef.current?.({
+            sessionId: payload.session_id,
+            drift: payload.drift,
+            bufferAhead: payload.buffer_ahead,
+            receivedAt: Date.now(),
+          });
+        }
+      })
       // ドット跳ね合図
       .on("broadcast", { event: "bounce" }, ({ payload }) => {
         if (typeof payload?.session_id === "string") {
@@ -231,6 +262,8 @@ export function useHiTensionRealtime({
             memberId: payload.member_id,
             seatIndex: payload.seat_index,
             videoTime: payload.video_time,
+            // 旧クライアントは sent_at を送らない → 0 を入れて受信側で実ラグ補正をスキップ
+            sentAt: typeof payload?.sent_at === "number" ? payload.sent_at : 0,
           });
         }
       })
@@ -277,22 +310,33 @@ export function useHiTensionRealtime({
     }
   }, [inWaitingRoom, memberId]);
 
-  // クロック同期 ping: 接続中、非ホストは定期的にホストへ ping
+  // クロック同期: Supabase サーバー時刻を定期測定し、自分の時計とのオフセットを推定する。
+  // Cristian's algorithm（RTT/2 を片道遅延と仮定）。最速往復のサンプルだけ採用。
   useEffect(() => {
-    if (!connected) return;
-    const timer = setInterval(() => {
-      if (isHostRef.current) return;
-      channelRef.current?.send({
-        type: "broadcast",
-        event: "clock-ping",
-        payload: { from: presenceKeyRef.current, t0: Date.now() },
-      });
-    }, CLOCK_PING_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [connected]);
+    let cancelled = false;
+    const supabase = getSupabase();
+    const measure = async () => {
+      const t1 = Date.now();
+      const { data, error } = await supabase.rpc("get_server_time");
+      const t2 = Date.now();
+      if (cancelled || error || typeof data !== "number") return;
+      const roundtrip = t2 - t1;
+      if (roundtrip < bestRoundtripRef.current) {
+        bestRoundtripRef.current = roundtrip;
+        // サーバー時刻はリクエスト受信時 ≒ (t1+t2)/2 に取得されたとみなす
+        clockOffsetRef.current = data - (t1 + t2) / 2;
+      }
+    };
+    measure(); // 即時1回
+    const timer = setInterval(measure, CLOCK_SYNC_INTERVAL_MS);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, []);
 
-  /** ホスト時計とのズレ（ms）。ホスト時計 ≈ 自分の時計 + これ */
+  /** Supabase サーバー時計とのズレ（ms）。サーバー時計 ≈ 自分の時計 + これ */
   const getClockOffset = useCallback(() => clockOffsetRef.current, []);
+
+  /** これまで測定した最良の往復遅延（ms）。未測定なら Infinity */
+  const getBestRoundtrip = useCallback(() => bestRoundtripRef.current, []);
 
   /** ホストが「せーの」を送る。group は今回の ready-check 対象（後から来た人を混ぜない） */
   const sendSeno = useCallback((group: string[]) => {
@@ -331,6 +375,39 @@ export function useHiTensionRealtime({
     onSenoFailRef.current();
   }, []);
 
+  /** ホストが暖機動画の anchor を配信。t0=Supabase時刻ms（暖機動画0秒に相当）, p0=動画位置秒 */
+  const sendWarmupStart = useCallback((t0: number, p0: number) => {
+    channelRef.current?.send({
+      type: "broadcast",
+      event: "warmup-start",
+      payload: { t0, p0 },
+    });
+    onWarmupStartRef.current?.(t0, p0); // 自分にも届ける
+  }, []);
+
+  /** 自分の drift と buffer 残量を全員に配信（毎秒1回呼ぶ） */
+  const sendDriftReport = useCallback((drift: number, bufferAhead: number) => {
+    channelRef.current?.send({
+      type: "broadcast",
+      event: "drift-report",
+      payload: {
+        session_id: presenceKeyRef.current,
+        drift,
+        buffer_ahead: bufferAhead,
+      },
+    });
+  }, []);
+
+  /** 自分の動画が PLAYING に到達した時刻（Supabase時刻）を報告する */
+  const sendPlaybackReady = useCallback((tPlay: number) => {
+    channelRef.current?.send({
+      type: "broadcast",
+      event: "playback-ready",
+      payload: { session_id: presenceKeyRef.current, t_play: tPlay },
+    });
+    onPlaybackReadyRef.current?.(presenceKeyRef.current, tPlay); // 自分の分も集計に入れる
+  }, []);
+
   /** タップを全員に送る（再生中） */
   const broadcastTap = useCallback((videoTime: number) => {
     const ch = channelRef.current;
@@ -349,6 +426,7 @@ export function useHiTensionRealtime({
         member_id: mid,
         seat_index: idx,
         video_time: videoTime,
+        sent_at: now + clockOffsetRef.current, // Supabase サーバー時刻基準の送信時刻
       },
     });
   }, [memberId]);
@@ -370,10 +448,14 @@ export function useHiTensionRealtime({
     connected,
     channelError,
     getClockOffset,
+    getBestRoundtrip,
     sendSeno,
     sendReady,
     sendSongStart,
     sendSenoFail,
+    sendPlaybackReady,
+    sendWarmupStart,
+    sendDriftReport,
     broadcastTap,
     broadcastBounce,
   };
