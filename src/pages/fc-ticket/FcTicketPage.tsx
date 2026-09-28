@@ -2908,8 +2908,31 @@ function SubscribeScreen({
   };
 
   // 完了済み (入金済 or paid) のDeadlineを分離
+  // 当選・入金済みの複数回公演で、まだ行く回が1つも選ばれていない公演グループ。
+  // 申込状況の一覧ではどの回が当たったか分からないので自動では選ばない。代わりに行く回を選ぶよう促し、
+  // 完了済みの欄にしまわず見える所に出す（選ばないと出発の通知が届かないため・2026-09-29）
+  const needsShowPick = new Set<string>();
+  {
+    const showsByGroup = new Map<string, Deadline[]>();
+    for (const dl of futureDeadlines) {
+      if (dl.type !== "event") continue;
+      const k = eventGroupKey(dl.fc_news.title);
+      showsByGroup.set(k, [...(showsByGroup.get(k) ?? []), dl]);
+    }
+    for (const [k, shows] of showsByGroup) {
+      if (new Set(shows.map((d) => eventTwinKey(d))).size < 2) continue;
+      if (shows.some((d) => isIncluded(d))) continue;
+      const attending = shows.some((d) => {
+        const label = badgeForTwins(d)?.label;
+        return label === "当選" || label === "入金済";
+      });
+      if (attending) needsShowPick.add(k);
+    }
+  }
+
   // 公演の行は複数の記事から1行に畳まれることがあるので、畳んだ全部の記事を見る（代表が2次受付の記事でも先行の入金済みを拾う）
   const completedDeadlines = futureDeadlines.filter((dl) =>
+    !(dl.type === "event" && needsShowPick.has(eventGroupKey(dl.fc_news.title))) &&
     twinIdsOf(dl.id).some((id) => {
       const src = dlById.get(id) ?? dl;
       if (paidSet.has(src.news_uid)) return true;
@@ -3090,6 +3113,11 @@ function SubscribeScreen({
                     title="この公演を一覧から外す（気になる解除）"
                   >close</button>
                 </div>
+                {needsShowPick.has(g.key) && (
+                  <p className="pl-5 mb-1 text-[0.6875rem] font-bold text-primary">
+                    行く回にチェックを入れてください。チェックした回にだけ出発の通知が届きます。
+                  </p>
+                )}
                 <div className="space-y-1 pl-5">
                   {g.deadlines.map((dl) => (
                     <DeadlineCheckRow
@@ -3280,8 +3308,8 @@ function SubscribeScreen({
           </summary>
           <ul className="text-xs text-on-surface-variant space-y-2 list-disc list-inside mt-4">
             <li>このツールは締切を忘れないためのリマインダーです。予定にチェックを付けても、公演への申込・入金は完了しません。申込は各公式ページで行ってください。</li>
-            <li>入力した申込状況や登録内容はお使いの端末内に保存され、運営が収集・分析することはありません。（同期用URLを発行した場合のみ、選んだ予定がURL先に保管されます）</li>
-            <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切はこのツールを開いた時に自動で追加、終わった予定は自動で整理されます。反映のタイミングはカレンダーアプリと端末の設定によります。すぐ反映したい時は画面を下に引っ張って更新してください。含まれるのは予定だけで、お名前・ログイン・支払いの情報は入りません。</li>
+            <li>入力した申込状況や登録内容は、お使いの端末内に保存されます。同期用URLを発行した場合は、選んだ予定の一覧、当選・入金済みの公演、通知の設定がサーバーに保管されます。貼り付けたテキストそのものは送信されません。詳しくはプライバシーポリシーをご覧ください。</li>
+            <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切はこのツールを開いた時に自動で追加、終わった予定は自動で整理されます。反映のタイミングはカレンダーアプリと端末の設定によります。すぐ反映したい時は画面を下に引っ張って更新してください。含まれるのは予定と、入金済みの印・通知の設定だけで、お名前・ログイン情報・カードなどの支払い方法は入りません。</li>
             <li>iPhoneで通知が届かない時は、「設定 → 通知 → カレンダー」の通知がオンになっているか、同期を追加した時に「通知を削除」をオフにしたかをご確認ください。位置情報の設定はオフのままでも通知は届きます。</li>
             <li>「設定 → プライバシーとセキュリティ → 位置情報サービス → システムサービス → 位置情報に基づく通知」をオンにすると、公演の予定にiPhoneが計算する出発時刻の通知も使えます（任意です）。位置情報はiPhoneの中で使われるだけで、このツールや運営者に送られることはありません。</li>
             <li>カレンダーアプリによっては読み取り専用で表示されます（編集できません）。</li>
@@ -3295,7 +3323,7 @@ function SubscribeScreen({
         <section className="mt-12 pt-6 border-t border-outline-variant/30">
           <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline mb-2">URLを無効化する</h3>
           <p className="text-xs text-on-surface-variant mb-3">
-            同期用URLを完全に削除します。流出が疑われる場合や、もう使わない場合に。
+            同期用URLを無効にし、サーバーに保管した設定とカレンダー用のファイルを削除します。反映まで少し時間がかかることがあります。カレンダーアプリに登録した分は、アプリ側でも削除してください。流出が疑われる場合や、もう使わない場合に。
           </p>
           <button
             onClick={handleDelete}
