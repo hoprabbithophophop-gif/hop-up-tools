@@ -2673,9 +2673,11 @@ function SubscribeScreen({
   // 付け外しはすべてここを通る。外した予定は「外した記録」に残し、入れ直したら記録から消す。
   // 自動で足す処理（推し・貼り付け）はこの記録を飛ばす。記録が無いと、開くたびに貼り付けの判定が
   // やり直されて、外した予定が戻ってしまう（2026-09-28 QA で確認・Hop 決定で合流前に直す）
-  function persistIncluded(next: Set<string>) {
+  // recordDismissed=false は推しの解除でまとめて外す時。推しをやめた結果で外れただけなので、
+  // 同じ推しを登録し直したら戻す（Hop 決定 2026-09-28）
+  function persistIncluded(next: Set<string>, recordDismissed = true) {
     const dismissed = readDismissedIds();
-    for (const id of includedIds) if (!next.has(id)) dismissed.add(id);
+    if (recordDismissed) for (const id of includedIds) if (!next.has(id)) dismissed.add(id);
     for (const id of next) dismissed.delete(id);
     writeDismissedIds(dismissed);
     setIncludedIds(next);
@@ -2710,7 +2712,7 @@ function SubscribeScreen({
     if (toRemove.length === 0) return;
     const names = [...removed.members, ...removed.groups].join("・");
     if (!confirm("「" + names + "」に一致する予定のチェックをまとめて外しますか？")) return;
-    persistIncluded(new Set([...includedIds].filter((id) => !toRemove.includes(id))));
+    persistIncluded(new Set([...includedIds].filter((id) => !toRemove.includes(id))), false);
   }
 
   // 推しを追加・変更したら、該当する「申込前に動く」予定を自動でチェックに追加（追加のみ・手動の外しは尊重）
