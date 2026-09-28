@@ -46,7 +46,7 @@ export default function TermsPage() {
 
       <h2 style={s.h2}>2. 情報の正確性・最新性について</h2>
       <p style={s.p}>
-        本サービスに表示される公演・締切情報は、UPFC（<a href="https://www.upfc.jp/helloproject/" target="_blank" rel="noopener noreferrer" style={s.link}>https://www.upfc.jp/helloproject/</a>）の公開ページから自動取得したものです。動画情報は YouTube（YouTube API サービス）から自動取得しています。動画をグループ別に分けるためのメンバー名は、ハロー！プロジェクト公式サイト（<a href="https://www.helloproject.com/" target="_blank" rel="noopener noreferrer" style={s.link}>https://www.helloproject.com/</a>）の掲載をもとに登録しています。
+        本サービスに表示される公演・締切情報は、UPFC（<a href="https://www.upfc.jp/helloproject/" target="_blank" rel="noopener noreferrer" style={s.link}>https://www.upfc.jp/helloproject/</a>）の公開ページから自動取得したものです。動画情報は YouTube（YouTube API サービス）から自動取得しています。動画をグループ別に分けるためのメンバー名は、運営者が登録しています。
       </p>
       <ul style={s.ul}>
         <li>情報の正確性・完全性・最新性を保証しません。</li>
