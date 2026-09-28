@@ -1,20 +1,15 @@
 /**
  * Cloudflare Pages Function: /ogp/card
  *
- * OGP カード画像（1200×630）を動的生成して返す。
- * og:image として /youtube 系ルートが参照する。
+ * 以前は YouTube のサムネイルを 1200×630 に切り抜いて返していたが、
+ * サムネイルを加工して自サイトから配らないよう、YouTube の元の画像へ 302 で案内するだけにした（2026-09-28）。
+ * 新しく貼られた共有URLの og:image は最初から YouTube の画像を指す（functions/youtube/*.ts）。
+ * この場所は、すでに X などに貼られた古いカードが画像を取りに来るために残している。
  *
  * クエリパラメータ:
  *   p - プレイリスト共有 ID（8文字 nanoid）
  *
- * 処理フロー:
- *   1. Supabase からプレイリスト情報を取得
- *   2. 1曲目の YouTube サムネを 1200×630 にセンタークロップ（cf.image）して返す
- *
- * フォールバック:
- *   - プレイリスト不在: YouTube デフォルトサムネへ 302
- *   - thumbnailUrl が無効（9412 等）: thumbnailUrl へ 302
- *   - Supabase 障害: YouTube デフォルトサムネへ 302
+ * プレイリストが無い・Supabase 障害の時は YouTube のデフォルトサムネへ 302。
  */
 
 import { fetchOgpData } from '../_shared/ogp';
@@ -48,27 +43,5 @@ export async function onRequest(context: {
 
   if (!ogp) return Response.redirect(FALLBACK, 302);
 
-  // @ts-ignore – cf は CF Workers グローバル
-  const imageRes = await fetch(ogp.thumbnailUrl, {
-    cf: {
-      image: {
-        width: 1200,
-        height: 630,
-        fit: 'cover',
-        format: 'jpeg',
-        quality: 85,
-      },
-    } as unknown,
-  });
-
-  if (!imageRes.ok || !imageRes.headers.get('content-type')?.startsWith('image/')) {
-    return Response.redirect(ogp.thumbnailUrl, 302);
-  }
-
-  return new Response(imageRes.body, {
-    headers: {
-      'Content-Type': imageRes.headers.get('content-type') ?? 'image/jpeg',
-      'Cache-Control': 'public, max-age=86400, s-maxage=604800',
-    },
-  });
+  return Response.redirect(ogp.thumbnailUrl, 302);
 }

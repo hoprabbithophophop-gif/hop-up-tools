@@ -33,7 +33,8 @@ export async function onRequest(context: {
     const ogp = await fetchOgpData(playlistId, env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY);
     if (!ogp) return indexRes;
 
-    const cardImageUrl = `${url.origin}/ogp/card?p=${encodeURIComponent(playlistId)}`;
+    // サムネイルは YouTube の置き場所をそのまま教える（切り抜かない・自サイトから配らない）
+    const cardImageUrl = ogp.thumbnailUrl;
 
     const metaHtml = buildMetaTags({
       canonicalUrl: url.toString(),
