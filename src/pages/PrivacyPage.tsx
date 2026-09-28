@@ -92,7 +92,8 @@ export default function PrivacyPage() {
 
       <h2 style={s.h2}>5. 広告（Google AdSense）</h2>
       <p style={s.p}>
-        本サービスでは、Google LLC が提供する広告配信サービス「Google AdSense」を使用しています。
+        本サービスでは、Google LLC が提供する広告配信サービス「Google AdSense」を導入しています。
+        広告が表示されていない場合も、Google との通信やCookieの使用が行われる場合があります。
         Google AdSenseは、ユーザーの興味・関心に基づく広告を表示するためにCookieを使用する場合があります。
       </p>
       <ul style={s.ul}>
