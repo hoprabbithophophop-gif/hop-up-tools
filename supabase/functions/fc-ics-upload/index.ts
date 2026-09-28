@@ -63,7 +63,8 @@ Deno.serve(async (req) => {
   }
 
   const ipRaw = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
-  const ipHash = await sha256(ipRaw);
+  // IP は秘密の値（サービス用の鍵）を混ぜてから変換する。混ぜないと IPv4 の全件を試せば元に戻せてしまう（2026-09-28）
+  const ipHash = await sha256(`fc-ics-upload:${ipRaw}:${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}`);
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
