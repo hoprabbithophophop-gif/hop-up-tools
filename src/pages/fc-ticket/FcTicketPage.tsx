@@ -854,7 +854,7 @@ function ResultArticle({
               )}
               <div className="space-y-4">
                 {dls.map((dl, idx) => (
-                  <DeadlineRow key={dl.id} dl={dl} paidUp={isCompleted && dl.type === "payment"} isFirst={idx === 0} />
+                  <DeadlineRow key={dl.id} dl={dl} paidUp={isCompleted && dl.type === "payment" && !LATER_ROUND_RE.test(dl.fc_news.title)} isFirst={idx === 0} />
                 ))}
               </div>
             </div>
@@ -2906,11 +2906,16 @@ function SubscribeScreen({
   };
 
   // 完了済み (入金済 or paid) のDeadlineを分離
-  const completedDeadlines = futureDeadlines.filter((dl) => {
-    // 2次・追加受付は貼り付けの結果では完了扱いにしない（statusBadgeFor と同じ理由）
-    const status = LATER_ROUND_RE.test(dl.fc_news.title) ? "" : matchResults.find((r) => r.matched.some((m) => m.uid === dl.news_uid))?.parsed.status ?? "";
-    return status.includes("入金済") || paidSet.has(dl.news_uid);
-  });
+  // 公演の行は複数の記事から1行に畳まれることがあるので、畳んだ全部の記事を見る（代表が2次受付の記事でも先行の入金済みを拾う）
+  const completedDeadlines = futureDeadlines.filter((dl) =>
+    twinIdsOf(dl.id).some((id) => {
+      const src = dlById.get(id) ?? dl;
+      if (paidSet.has(src.news_uid)) return true;
+      // 2次・追加受付は貼り付けの結果では完了扱いにしない（statusBadgeFor と同じ理由）
+      if (LATER_ROUND_RE.test(src.fc_news.title)) return false;
+      const status = matchResults.find((r) => r.matched.some((m) => m.uid === src.news_uid))?.parsed.status ?? "";
+      return status.includes("入金済");
+    }));
   const activeDeadlines = futureDeadlines.filter((dl) => !completedDeadlines.includes(dl));
 
   // 公演単位グルーピング（配信する予定を公演キーで束ねて表示）
