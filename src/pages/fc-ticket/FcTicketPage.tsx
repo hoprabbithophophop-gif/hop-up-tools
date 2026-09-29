@@ -2312,10 +2312,11 @@ function CalendarScreen({
                   {/* 追加直後のカレンダー登録提案 */}
                   {isPending && calEvent && (
                     hasSubscription ? (
-                      // 同期用URL発行済み → 自動で反映されるので単発登録は出さない（二重登録防止）
+                      // 同期用URL発行済み → 単発登録は出さない（二重登録防止）。気になるに入れても同期には自動で入らないので、
+                      // その事実と入れ方を案内する（以前は「追加されました」と出ていたが実際は入っていなかった・2026-09-29 監査）
                       <div className="flex items-center gap-3 px-4 py-3 bg-surface-container-high border-l-2 flex-wrap" style={{ borderColor: "#000000" }}>
-                        <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "#000000" }}>check_circle</span>
-                        <span className="text-xs font-bold flex-1">この予定は同期用URLに追加されました（自動で反映されます）。</span>
+                        <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "#000000" }}>info</span>
+                        <span className="text-xs font-bold flex-1">この公演は、まだ同期に入っていません。Sync タブで予定にチェックを入れると、カレンダーに届きます。</span>
                         <button
                           onClick={() => setPendingCalendarUid(null)}
                           className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer transition-colors"
@@ -2484,7 +2485,7 @@ function CalendarDeadlineCard({ dl, dimmed = false }: { dl: Deadline; dimmed?: b
         )}
       </div>
       <div className="flex items-center gap-3">
-        <AddOrSyncButton dl={dl} event={calEvent} demoid="watchlist-add-calendar-btn" />
+        <AddOrSyncButton dl={dl} event={calEvent} past={diffDays < 0} demoid="watchlist-add-calendar-btn" />
       </div>
     </div>
   );
