@@ -232,7 +232,7 @@ export interface OrderTicket {
   paidNewsUids?: string[];
   /**
    * 「気になる」にしている公演の news_uid の一覧（行く公演＝当選・入金済みは除く）。
-   * カレンダーの予定名の頭に【気になる】を付けるために使う（2026-09-29 Hop 決定）。
+   * カレンダーの予定名の頭に🔖を付けるために使う（2026-09-29 Hop 決定）。
    * 省略可（undefined＝ラベルを付けない）。古い画面からの注文票を弾かないため必須にしない。
    */
   watchNewsUids?: string[];

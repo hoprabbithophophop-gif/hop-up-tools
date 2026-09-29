@@ -234,7 +234,8 @@ export function assembleFromOrder(
   // 消してしまうと「通知が来ない」が《払い終わった》と《仕組みが壊れた》の両方を意味してしまい、
   // 見分けがつかない。予定が残っていれば、カレンダーを見るだけで認識されているか確かめられる。
   const paid = new Set(order.paidNewsUids ?? []);
-  // 「気になる」で入った公演。予定名の頭に【気になる】を付けて、行く公演の予定と見分けられるようにする
+  // 「気になる」で入った公演。予定名の頭に🔖を付けて、行く公演の予定と見分けられるようにする。
+  // ツールの「気になる」ボタンと同じ栞の絵で、1文字なので公演名が切れにくい（2026-09-29 Hop 決定）
   const watch = new Set(order.watchNewsUids ?? []);
   const leadAlarmsFor = (dl: DeadlineRow) => {
     const lead = order.eventLeadOverrides[eventTwinKey(dl)] ?? order.eventLead;
@@ -270,7 +271,7 @@ export function assembleFromOrder(
       `DTSTAMP:${now_}`,
       `DTSTART:${formatIcsDate(dtstart)}`,
       `DTEND:${formatIcsDate(dtend)}`,
-      `SUMMARY:${watch.has(dl.news_uid) && !isPaidOff ? "【気になる】" : ""}【${isPaidOff ? "入金済み" : dl.label}】${cleanFcTitle(dl.fc_news.title)}`,
+      `SUMMARY:${watch.has(dl.news_uid) && !isPaidOff ? "🔖" : ""}【${isPaidOff ? "入金済み" : dl.label}】${cleanFcTitle(dl.fc_news.title)}`,
       `DESCRIPTION:${description.replace(/\n/g, "\\n")}`,
       ...(dl.location ? [`LOCATION:${dl.location}`] : []),
       ...renderGeo({ geo, location: dl.location }),

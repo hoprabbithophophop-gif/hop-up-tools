@@ -51,7 +51,7 @@ function validateOrder(order: unknown): order is OrderTicket {
   if (o.paidNewsUids !== undefined) {
     if (!Array.isArray(o.paidNewsUids) || !o.paidNewsUids.every((u) => typeof u === "string")) return false;
   }
-  // watchNewsUids（【気になる】の印）も省略可。古い画面からの注文票を弾かないため
+  // watchNewsUids（🔖の印）も省略可。古い画面からの注文票を弾かないため
   if (o.watchNewsUids !== undefined) {
     if (!Array.isArray(o.watchNewsUids) || o.watchNewsUids.length > MAX_INCLUDED || !o.watchNewsUids.every((u) => typeof u === "string")) return false;
   }

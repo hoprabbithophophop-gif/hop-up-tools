@@ -2392,7 +2392,7 @@ function CalendarScreen({
                       // 同期用URL発行済み → 単発登録は出さない（二重登録防止）。気になるに入れた公演は親の処理が同期に入れる
                       <div className="flex items-center gap-3 px-4 py-3 bg-surface-container-high border-l-2 flex-wrap" style={{ borderColor: "#000000" }}>
                         <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "#000000" }}>check_circle</span>
-                        <span className="text-xs font-bold flex-1">この公演のこれからの締切を同期に入れました。カレンダーには【気になる】の印つきで届きます。</span>
+                        <span className="text-xs font-bold flex-1">この公演のこれからの締切を同期に入れました。カレンダーには🔖の印つきで届きます。</span>
                         <button
                           onClick={() => setPendingCalendarUid(null)}
                           className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer transition-colors"

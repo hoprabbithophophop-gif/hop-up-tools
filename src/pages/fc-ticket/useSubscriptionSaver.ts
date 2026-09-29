@@ -86,7 +86,7 @@ function buildOrder(matchResults: MatchResult[], paid: string[], watchlist: stri
 }
 
 /**
- * 【気になる】の印を付ける news_uid。「気になる」にしている公演のうち、行く公演（当選・入金済み）ではない物。
+ * 🔖の印を付ける news_uid。「気になる」にしている公演のうち、行く公演（当選・入金済み）ではない物。
  * 行くと決まった公演は印を外し、ふつうの予定として見せる（2026-09-29 Hop 決定）
  */
 export function computeWatchNewsUids(watchlist: string[], matchResultsList: MatchResult[], paidList: string[]): string[] {
