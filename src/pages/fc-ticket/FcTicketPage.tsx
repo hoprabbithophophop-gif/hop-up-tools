@@ -998,6 +998,26 @@ function AddOrSyncButton({ dl, event, urgent = false, past = false, demoid }: {
   );
 }
 
+// 「気になる」の付け外し。栞のアイコンの下に今の状態を文字で添える（アイコンだけだと押せる物か分からないため・2026-09-29 Hop 決定・案C）
+function WatchToggle({ watched, onClick, demoId }: { watched: boolean; onClick: () => void; demoId?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      data-demo-id={demoId}
+      className="flex flex-col items-center gap-0.5 cursor-pointer flex-shrink-0 transition-colors"
+      style={{ color: watched ? "#000000" : "#9aa0a6" }}
+      aria-pressed={watched}
+      title={watched ? "気になるから外す" : "気になるに入れる"}
+    >
+      <span
+        className="material-symbols-outlined text-xl leading-none"
+        style={{ fontVariationSettings: `'FILL' ${watched ? 1 : 0}, 'wght' 400, 'GRAD' 0, 'opsz' 24` }}
+      >bookmark</span>
+      <span className="text-[0.625rem] font-bold leading-none whitespace-nowrap">{watched ? "気になる中" : "気になる"}</span>
+    </button>
+  );
+}
+
 function AddToCalendarButton({
   event,
   urgent = false,
@@ -2253,7 +2273,7 @@ function CalendarScreen({
         {/* リスト */}
         {activeCandidates.length === 0 && doneCandidates.length === 0 ? (
           <p className="text-sm text-outline py-8 text-center">
-            {watchlistSearch ? "該当なし" : "公演の右側にある bookmark アイコンを押して追加できます"}
+            {watchlistSearch ? "該当なし" : "公演の左の「気になる」を押して追加できます"}
           </p>
         ) : (
           <div className="flex flex-col gap-px">
@@ -2294,15 +2314,11 @@ function CalendarScreen({
               return (
                 <div key={news.uid}>
                   <div className="flex items-center gap-4 px-4 py-4" style={cardStyle}>
-                    <button
+                    <WatchToggle
+                      watched={isWatched}
                       onClick={() => toggleWatchlist(news.uid)}
-                      className="material-symbols-outlined text-xl cursor-pointer transition-colors flex-shrink-0"
-                      style={{ color: isWatched ? "#000000" : "#c6c6c6", fontVariationSettings: `'FILL' ${isWatched ? 1 : 0}, 'wght' 400, 'GRAD' 0, 'opsz' 24` }}
-                      title={isWatched ? "気になるから削除" : "気になるに追加"}
-                      {...(!isWatched && news.title.includes('BEYOOOOONDS') ? { 'data-demo-id': 'watchlist-beyo-hotel-add-btn' } : {})}
-                    >
-                      bookmark
-                    </button>
+                      demoId={!isWatched && news.title.includes('BEYOOOOONDS') ? 'watchlist-beyo-hotel-add-btn' : undefined}
+                    />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 min-w-0 flex-wrap">
                         <a
@@ -2447,14 +2463,7 @@ function CalendarScreen({
                   return (
                     <div key={news.uid} className="flex items-center gap-4 px-4 py-3 bg-surface-container-low">
                       {watchlistSet.has(news.uid) && (
-                        <button
-                          onClick={() => toggleWatchlist(news.uid)}
-                          className="material-symbols-outlined text-xl cursor-pointer transition-colors flex-shrink-0"
-                          style={{ color: "#000000", fontVariationSettings: `'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24` }}
-                          title="気になるから削除"
-                        >
-                          bookmark
-                        </button>
+                        <WatchToggle watched onClick={() => toggleWatchlist(news.uid)} />
                       )}
                       <div className="flex-1 min-w-0">
                         <a
