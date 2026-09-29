@@ -254,7 +254,7 @@ const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is
 
 /**
  * 読み戻した設定のうち、この置き場が持つ分を端末に書く。
- * 選んだ予定は端末の今の選択に足す。保持期限・通知の設定は読み戻した値で上書きする
+ * 選んだ予定・保持期限・通知の設定は、読み戻した値で置き換える
  */
 export function applyRestoredSubscription(slug: string, order: {
   includedIds?: unknown;
