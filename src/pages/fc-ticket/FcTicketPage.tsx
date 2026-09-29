@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import UpfcDummyPreview from "./UpfcDummyPreview";
 import FavoritePicker, { type Favorites } from "./FavoritePicker";
@@ -33,6 +33,7 @@ import {
   readDismissedIds,
   writeDismissedIds,
   readIncludedIds,
+  onInputsChanged,
   writeEventLead,
   writeEventLeadOverrides,
   clearPublished,
@@ -330,6 +331,15 @@ export default function FcTicketPage() {
   const [syncReady, setSyncReady] = useState(false);
   const saver = useSubscriptionSaver(matchResults, paid, syncReady);
 
+  // 同期の今の状態（同期用URLがあるか・どの予定が同期に入っているか）。設定が書き換わるたびに読み直す
+  const [syncInputs, setSyncInputs] = useState(() => readInputs());
+  useEffect(() => onInputsChanged(() => setSyncInputs(readInputs())), []);
+  const syncState = useMemo<SyncState>(() => {
+    const included = new Set(syncInputs.includedIds);
+    const includedTwinKeys = new Set(allDeadlines.filter((d) => d.type === "event" && included.has(d.id)).map(eventTwinKey));
+    return { hasSlug: !!syncInputs.slug, included, includedTwinKeys };
+  }, [syncInputs, allDeadlines]);
+
   // Supabase から全データを取得
   useEffect(() => {
     const sb = getSupabase();
@@ -372,6 +382,7 @@ export default function FcTicketPage() {
   }
 
   return (
+    <SyncStateContext.Provider value={syncState}>
     <div className="bg-surface text-on-surface min-h-screen font-[Inter,sans-serif] pb-20">
       <Header tab={tab} setTab={setTab} />
 
@@ -473,6 +484,7 @@ export default function FcTicketPage() {
 
       <BottomNav tab={tab} setTab={setTab} />
     </div>
+    </SyncStateContext.Provider>
   );
 }
 
@@ -877,6 +889,54 @@ function ResultArticle({
 
 // ─── カレンダー追加ボタン（サービス選択ドロップダウン） ────────────────────
 
+// 同期（カレンダー購読）の今の状態。1件ずつの「カレンダーに追加」を、同期済みの人には出さないために使う。
+// 同期で届く予定を1件ずつも入れると、同じ予定がカレンダーに2つ入る（2026-09-29 Hop 決定・案A）
+interface SyncState {
+  hasSlug: boolean;
+  included: Set<string>;
+  includedTwinKeys: Set<string>; // 同期に入っている公演の回（双子の記事のどれで入れていても同じ回とみなす）
+}
+const SyncStateContext = createContext<SyncState>({ hasSlug: false, included: new Set(), includedTwinKeys: new Set() });
+
+/**
+ * 1件ずつ入れるボタンの置き換え。
+ * 同期していない人・同期では配れない予定（e-LineUP の疑似的な行など）には、今までどおり1件ずつの追加を出す。
+ * 同期済みなら、同期に入っている予定は「同期で届いています」、外している予定は「同期に入れる」を出す。
+ */
+function AddOrSyncButton({ dl, event, urgent = false, past = false, demoid }: {
+  dl: Deadline; event: IcsEvent; urgent?: boolean; past?: boolean; demoid?: string;
+}) {
+  const sync = useContext(SyncStateContext);
+  if (!sync.hasSlug || !UUID_RE.test(dl.id)) {
+    return <AddToCalendarButton event={event} urgent={urgent} past={past} demoid={demoid} />;
+  }
+  const inSync = sync.included.has(dl.id) || (dl.type === "event" && sync.includedTwinKeys.has(eventTwinKey(dl)));
+  if (inSync) {
+    return (
+      <span className={`flex items-center gap-2 px-2 py-3 text-xs font-bold uppercase tracking-widest ${urgent ? "" : "text-on-surface"}`}>
+        <span className="material-symbols-outlined text-sm">check</span>
+        同期で届いています
+      </span>
+    );
+  }
+  // 過ぎた締切・入金済みの入金締切（past）は、同期に入れても意味が無いので何も出さない
+  if (past) return null;
+  function addToSync() {
+    const dismissed = readDismissedIds();
+    if (dismissed.delete(dl.id)) writeDismissedIds(dismissed);
+    writeIncludedIds(new Set([...readIncludedIds(), dl.id])); // 合図が出て、保存の係が送信する
+  }
+  return (
+    <button
+      onClick={addToSync}
+      className="flex items-center justify-center gap-2 px-6 py-3 text-xs font-bold uppercase tracking-widest transition-colors cursor-pointer border border-primary text-primary hover:bg-surface-container-low"
+    >
+      <span className="material-symbols-outlined text-sm">add</span>
+      同期に入れる
+    </button>
+  );
+}
+
 function AddToCalendarButton({
   event,
   urgent = false,
@@ -1033,7 +1093,7 @@ function DeadlineRow({ dl, paidUp = false, isFirst = false }: { dl: Deadline; pa
           {dl.label} {dateStr} {timeStr}
         </p>
       </div>
-      <AddToCalendarButton event={calEvent} urgent={isUrgent} past={isPast} demoid={isFirst ? "add-calendar-btn" : undefined} />
+      <AddOrSyncButton dl={dl} event={calEvent} urgent={isUrgent} past={isPast} demoid={isFirst ? "add-calendar-btn" : undefined} />
     </div>
   );
 }
@@ -2424,7 +2484,7 @@ function CalendarDeadlineCard({ dl, dimmed = false }: { dl: Deadline; dimmed?: b
         )}
       </div>
       <div className="flex items-center gap-3">
-        <AddToCalendarButton event={calEvent} demoid="watchlist-add-calendar-btn" />
+        <AddOrSyncButton dl={dl} event={calEvent} demoid="watchlist-add-calendar-btn" />
       </div>
     </div>
   );
@@ -2839,14 +2899,6 @@ function SubscribeScreen({
     persistIncluded(next);
   }
 
-  // この公演を一覧から外す：気になる解除＋チェック全解除（申込締切後に居座る公演を消せるように）
-  function removeEventFromList(dls: Deadline[]) {
-    const uids = new Set(dls.map((d) => d.news_uid));
-    onWatchlistChange(watchlist.filter((u) => !uids.has(u)));
-    const ids = new Set(dls.flatMap((d) => twinIdsOf(d.id)));
-    persistIncluded(new Set([...includedIds].filter((id) => !ids.has(id))));
-  }
-
   function persistRetention(mode: RetentionMode) {
     setRetention(mode);
     writeRetention(mode); // 合図が出て、親の保存の係がまとめて送る
@@ -3110,11 +3162,6 @@ function SubscribeScreen({
                     </button>
                   )}
                   <span className="text-[0.625rem] text-outline flex-shrink-0">{g.deadlines.length}件</span>
-                  <button
-                    onClick={() => removeEventFromList(g.deadlines)}
-                    className="material-symbols-outlined text-base text-outline hover:text-error cursor-pointer flex-shrink-0 leading-none"
-                    title="この公演を一覧から外す（気になる解除）"
-                  >close</button>
                 </div>
                 {needsShowPick.has(g.key) && (
                   <p className="pl-5 mb-1 text-[0.6875rem] font-bold text-primary">
