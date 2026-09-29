@@ -321,8 +321,12 @@ export default function FcTicketPage() {
       const watchAdded = readWatchAddedIds();
       // 同期の最初の選択で入った分（気になるで入れた記録に無い物）も、他の理由が無ければ外す（2026-09-29 Hop 決定）。
       // 他の理由＝貼り付けに当たる・推しに当たる・申込済み・入金済み
+      // 読み方は同期画面と同じ（欄が無い古い形でも空として扱い、途中で止まらないように）
       const favorites: Favorites = (() => {
-        try { return JSON.parse(localStorage.getItem("fc-sub-favorites") ?? "") as Favorites; } catch { return { members: [], groups: [] }; }
+        try {
+          const v = JSON.parse(localStorage.getItem("fc-sub-favorites") ?? "null");
+          return { members: v?.members ?? [], groups: v?.groups ?? [] };
+        } catch { return { members: [], groups: [] }; }
       })();
       const includedNow = new Set(readIncludedIds());
       const otherReason = (d: Deadline) =>
