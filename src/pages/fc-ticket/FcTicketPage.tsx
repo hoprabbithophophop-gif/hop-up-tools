@@ -1122,20 +1122,16 @@ function StatusBadge({ status, hasFuture }: { status: string; hasFuture: boolean
   return <span className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline">{status}</span>;
 }
 
-function DeadlineRow({ dl, paidUp = false, isFirst = false }: { dl: Deadline; paidUp?: boolean; isFirst?: boolean }) {
+/** 締切1件 → カレンダーの予定。カレンダー画面の各締切と、Android の同期画面の「1件ずつ追加」で共用する */
+function deadlineToCalEvent(dl: Deadline): IcsEvent {
   const deadline = new Date(dl.deadline_at);
-  const now = new Date();
-  const diffDays = (deadline.getTime() - now.getTime()) / 86400000;
-  const isPast = diffDays < 0 || paidUp;
-  const isUrgent = !paidUp && diffDays >= 0 && diffDays < 3;
-
   // 公演(event)は「開演〜2時間」の予定として扱う。締切類は「締切の1時間前〜締切」。
   const isEvent = dl.type === "event";
   // 座標が引けない会場は、当日詰まないように予定メモへ地図検索リンクを入れる
   const geo = geoForLocation(dl.location);
   // 公演は開場時刻があれば予定の開始＝開場（通知もiOSの出発時刻も開場着基準になる）
   const openAt = isEvent && dl.open_at ? new Date(dl.open_at) : null;
-  const calEvent: IcsEvent = {
+  return {
     uid: dl.id + "@hop-up-tools",
     summary: "【" + dl.label + "】" + cleanFcTitle(dl.fc_news.title),
     description: dl.fc_news.title + doorsLine(dl) + "\n" + dl.fc_news.detail_url +
@@ -1145,6 +1141,16 @@ function DeadlineRow({ dl, paidUp = false, isFirst = false }: { dl: Deadline; pa
     location: dl.location ?? undefined,
     geo,
   };
+}
+
+function DeadlineRow({ dl, paidUp = false, isFirst = false }: { dl: Deadline; paidUp?: boolean; isFirst?: boolean }) {
+  const deadline = new Date(dl.deadline_at);
+  const now = new Date();
+  const diffDays = (deadline.getTime() - now.getTime()) / 86400000;
+  const isPast = diffDays < 0 || paidUp;
+  const isUrgent = !paidUp && diffDays >= 0 && diffDays < 3;
+
+  const calEvent = deadlineToCalEvent(dl);
 
   const dateStr = deadline.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
   const timeStr = deadline.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
@@ -2737,6 +2743,9 @@ function statusBadgeFor(newsUid: string, title: string, matchResults: MatchResul
   return null;
 }
 
+// Android の同期画面で「追加」を押した締切の id 一覧（端末内のみ）
+const GCAL_OPENED_KEY = "fc-gcal-opened";
+
 function SubscribeScreen({
   allDeadlines,
   matchResults,
@@ -2786,6 +2795,18 @@ function SubscribeScreen({
   const [error, setError] = useState<string | null>(null);
   const [publishedUrls, setPublishedUrls] = useState<SubscriptionUrls | null>(() => slug ? subscriptionUrls(slug) : null);
   const [copied, setCopied] = useState(false);
+  // Android の Google カレンダーアプリは同期用URL（購読）を登録できないため、1件ずつ追加する一覧に置き換える。
+  // ?device=android で Android 扱いにできる（確認用）
+  const [isAndroid] = useState(() => {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("device") === "android") return true;
+    return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+  });
+  // Android: 追加画面を開いた締切の id（この端末に記録）
+  const [gcalOpened, setGcalOpened] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(GCAL_OPENED_KEY) ?? "[]")); } catch { return new Set(); }
+  });
+  // Android: 「パソコンで同期用URLを登録する」で既存の同期用URLの欄を開いているか
+  const [showPcSync, setShowPcSync] = useState(false);
   // 自動保存の表示。送信は「画面を離れたとき」が主役で、開いたままのときは保険が働く。
   // 触っている間は saveState が idle のままなので、ここには何も出ない。
   const saveState = saver.saveState;
@@ -3049,16 +3070,17 @@ function SubscribeScreen({
   }
 
   // 公演の行は複数の記事から1行に畳まれることがあるので、畳んだ全部の記事を見る（代表が2次受付の記事でも先行の入金済みを拾う）
+  // その記事が入金済みか（画面で押した入金済み、または貼り付けの結果の入金済）。Android の1件ずつ追加の一覧でも使う
+  const isPaidNews = (src: Deadline) => {
+    if (paidSet.has(src.news_uid)) return true;
+    // 2次・追加受付は貼り付けの結果では完了扱いにしない（statusBadgeFor と同じ理由）
+    if (LATER_ROUND_RE.test(src.fc_news.title)) return false;
+    const status = matchResults.find((r) => r.matched.some((m) => m.uid === src.news_uid))?.parsed.status ?? "";
+    return status.includes("入金済");
+  };
   const completedDeadlines = futureDeadlines.filter((dl) =>
     !(dl.type === "event" && needsShowPick.has(eventGroupKey(dl.fc_news.title))) &&
-    twinIdsOf(dl.id).some((id) => {
-      const src = dlById.get(id) ?? dl;
-      if (paidSet.has(src.news_uid)) return true;
-      // 2次・追加受付は貼り付けの結果では完了扱いにしない（statusBadgeFor と同じ理由）
-      if (LATER_ROUND_RE.test(src.fc_news.title)) return false;
-      const status = matchResults.find((r) => r.matched.some((m) => m.uid === src.news_uid))?.parsed.status ?? "";
-      return status.includes("入金済");
-    }));
+    twinIdsOf(dl.id).some((id) => isPaidNews(dlById.get(id) ?? dl)));
   const activeDeadlines = futureDeadlines.filter((dl) => !completedDeadlines.includes(dl));
 
   // 公演単位グルーピング（配信する予定を公演キーで束ねて表示）
@@ -3151,6 +3173,66 @@ function SubscribeScreen({
 
   // 双子は1公演として数える（＝実際にカレンダーへ配信される予定数と一致させる）
   const includedCount = dedupeEventTwins(allDeadlines.filter((dl) => includedIds.has(dl.id))).deduped.length;
+
+  // Android: Googleカレンダーに1件ずつ追加する一覧。同期に入れた予定（双子は畳む）のうち、
+  // まだ終わっていないもの（締切類は締切が今より後、公演は開演+2時間が今より後）を日時の早い順に。入金済みの入金締切は出さない
+  const gcalList = isAndroid
+    ? dedupeEventTwins(allDeadlines.filter((dl) => includedIds.has(dl.id))).deduped
+        .filter((dl) => {
+          const t = new Date(dl.deadline_at).getTime();
+          return dl.type === "event" ? t + 7200000 > now.getTime() : t > now.getTime();
+        })
+        .filter((dl) => !(dl.type === "payment" && isPaidNews(dl)))
+        .sort((a, b) => new Date(a.deadline_at).getTime() - new Date(b.deadline_at).getTime())
+    : [];
+  const gcalPendingCount = gcalList.filter((dl) => !gcalOpened.has(dl.id)).length;
+
+  function openInGoogleCalendar(dl: Deadline) {
+    window.open(generateGoogleCalendarUrl(deadlineToCalEvent(dl)), "_blank", "noopener");
+    const next = new Set(gcalOpened);
+    next.add(dl.id);
+    setGcalOpened(next);
+    try { localStorage.setItem(GCAL_OPENED_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+  }
+
+  // 同期用URLの欄の中身（URLを発行する／カレンダーに追加／URLをコピー）。Android では「パソコンで同期用URLを登録する」で開く
+  const syncUrlBody = !publishedUrls ? (
+    <div className="space-y-3">
+      <button
+        onClick={() => handlePublish()}
+        disabled={publishing || includedCount === 0}
+        className="bg-primary text-on-primary-fixed px-8 py-4 text-sm font-bold uppercase tracking-[0.2em] hover:bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+      >
+        {publishing ? "発行中…" : "URLを発行する"}
+      </button>
+      {/* 操作の瞬間の一言（段階表示） */}
+      <p className="text-xs text-on-surface-variant">
+        登録すると、選んだ締切がカレンダーに自動で並びます。このツールを開くと、新しい締切が自動で追加されます。
+      </p>
+    </div>
+  ) : (
+    <div className="space-y-4">
+      {/* 主役：カレンダーに追加（この端末で同期を登録） */}
+      <a
+        href={publishedUrls.webcal}
+        className="bg-primary text-on-primary-fixed w-full px-6 py-4 text-sm font-bold uppercase tracking-[0.2em] hover:bg-secondary transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
+      >
+        <span className="material-symbols-outlined text-base">calendar_add_on</span>
+        カレンダーに追加
+      </a>
+      <p className="text-xs text-on-surface-variant">
+        ※ iPhoneは追加時の「通知を削除」をオフにすると、締切前の通知が届きます。
+      </p>
+      {/* 脇役：コピー（別端末用） */}
+      <button
+        onClick={handleCopy}
+        className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer inline-flex items-center gap-1"
+      >
+        <span className="material-symbols-outlined text-sm">content_copy</span>
+        {copied ? "コピーしました" : "URLをコピー"}
+      </button>
+    </div>
+  );
 
   return (
     <main className="pt-8 pb-32 px-6 max-w-4xl mx-auto">
@@ -3344,46 +3426,64 @@ function SubscribeScreen({
 
       {/* URL発行/表示エリア */}
       <section className="mb-8">
-        <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
-          <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">同期用URL</h3>
-        </div>
-
-        {!publishedUrls ? (
-          <div className="space-y-3">
-            <button
-              onClick={() => handlePublish()}
-              disabled={publishing || includedCount === 0}
-              className="bg-primary text-on-primary-fixed px-8 py-4 text-sm font-bold uppercase tracking-[0.2em] hover:bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-            >
-              {publishing ? "発行中…" : "URLを発行する"}
-            </button>
-            {/* 操作の瞬間の一言（段階表示） */}
-            <p className="text-xs text-on-surface-variant">
-              登録すると、選んだ締切がカレンダーに自動で並びます。このツールを開くと、新しい締切が自動で追加されます。
+        {isAndroid ? (
+          <>
+            {/* 文言【仮】（見出し・未追加の件数・説明・空の時・追加済みの印・パソコンで登録） */}
+            <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
+              <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">Googleカレンダーに追加</h3>
+              <span className="text-[0.6875rem] text-outline">未追加 {gcalPendingCount}件</span>
+            </div>
+            <p className="text-xs text-on-surface-variant mb-3">
+              Androidでは1件ずつ追加します。いつもの通知の設定で通知が届きます。
             </p>
-          </div>
+            {gcalList.length === 0 ? (
+              <p className="text-sm text-on-surface-variant py-8 text-center">同期に入れた締切はありません</p>
+            ) : (
+              <div className="space-y-1">
+                {gcalList.map((dl) => {
+                  const d = new Date(dl.deadline_at);
+                  const dateStr = d.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
+                  const timeStr = d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+                  return (
+                    <div key={dl.id} className="flex items-center gap-3 p-3 bg-surface-container-lowest">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="text-xs font-bold text-on-surface">{dl.label}</span>
+                          <span className="text-xs font-bold">{dateStr} {timeStr}</span>
+                        </div>
+                        <p className="text-xs text-on-surface-variant truncate">{cleanFcTitle(dl.fc_news.title)}</p>
+                      </div>
+                      {gcalOpened.has(dl.id) ? (
+                        <span className="text-[0.6875rem] text-outline flex-shrink-0">✓ 追加画面を開いた</span>
+                      ) : (
+                        <button
+                          onClick={() => openInGoogleCalendar(dl)}
+                          className="bg-primary text-on-primary-fixed px-4 py-2 text-xs font-bold uppercase tracking-widest hover:bg-secondary transition-colors cursor-pointer flex-shrink-0"
+                        >
+                          追加
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <button
+              onClick={() => setShowPcSync((v) => !v)}
+              className="mt-4 text-xs text-outline underline hover:text-primary cursor-pointer"
+            >
+              パソコンで同期用URLを登録する
+            </button>
+            {showPcSync && <div className="mt-4">{syncUrlBody}</div>}
+          </>
         ) : (
-          <div className="space-y-4">
-            {/* 主役：カレンダーに追加（この端末で同期を登録） */}
-            <a
-              href={publishedUrls.webcal}
-              className="bg-primary text-on-primary-fixed w-full px-6 py-4 text-sm font-bold uppercase tracking-[0.2em] hover:bg-secondary transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
-            >
-              <span className="material-symbols-outlined text-base">calendar_add_on</span>
-              カレンダーに追加
-            </a>
-            <p className="text-xs text-on-surface-variant">
-              ※ iPhoneは追加時の「通知を削除」をオフにすると、締切前の通知が届きます。
-            </p>
-            {/* 脇役：コピー（別端末用） */}
-            <button
-              onClick={handleCopy}
-              className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline hover:text-primary transition-colors cursor-pointer inline-flex items-center gap-1"
-            >
-              <span className="material-symbols-outlined text-sm">content_copy</span>
-              {copied ? "コピーしました" : "URLをコピー"}
-            </button>
-          </div>
+          <>
+            <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
+              <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">同期用URL</h3>
+            </div>
+
+            {syncUrlBody}
+          </>
         )}
 
         {error && (
