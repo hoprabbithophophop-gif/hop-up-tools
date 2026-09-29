@@ -45,7 +45,8 @@ export function exportBackup() {
   a.href = url;
   a.download = `fc-ticket-backup-${ymd}.json`;
   a.click();
-  URL.revokeObjectURL(url);
+  // すぐ解放すると、保存が終わる前に中身が消える端末がありうるので少し待つ
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 /** ファイルの中身がこのツールのバックアップの形か確かめる。合えば data を返す */

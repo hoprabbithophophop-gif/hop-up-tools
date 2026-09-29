@@ -197,6 +197,8 @@ export function clearPublished() {
   writeRaw(KEY_SLUG, null);
   writeRaw(KEY_LAST_SAVED_SIG, null);
   writeRaw(KEY_LAST_SAVED_AT, null);
+  // 引き継いだ「行く公演」も消す。残すと、無効化のあとに新しく発行した同期にも古い一覧が載り続ける
+  writeRaw(KEY_ATTENDING_RESTORED, null);
   notifyChanged();
 }
 
@@ -262,7 +264,8 @@ export function applyRestoredSubscription(slug: string, order: {
   attendingNewsUids?: unknown;
 }) {
   writeRaw(KEY_SLUG, slug);
-  writeRaw(KEY_INCLUDED, JSON.stringify([...new Set([...readIncludedIds(), ...strings(order.includedIds)])]));
+  // 選んだ予定は前の同期の内容で置き換える。足し合わせると、この端末で最初に自動で選ばれた分が上乗せされ「同じ同期の続き」にならない
+  writeRaw(KEY_INCLUDED, JSON.stringify([...new Set(strings(order.includedIds))]));
   if (typeof order.retention === "string" && (RETENTION_VALUES as string[]).includes(order.retention)) {
     writeRaw(KEY_RETENTION, order.retention);
   }

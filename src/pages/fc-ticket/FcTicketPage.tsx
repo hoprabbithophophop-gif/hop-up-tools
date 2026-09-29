@@ -3177,7 +3177,7 @@ function SubscribeScreen({
 
   async function handleDelete() {
     if (!slug) return;
-    if (!confirm("同期用URLを無効化します。\nスマホのカレンダーアプリでも同期の解除をお願いします。\n（設定 → カレンダー → アカウント → 該当カレンダーを削除）")) return;
+    if (!confirm("同期用URLを無効化します。\nスマホのカレンダーアプリでも同期の解除をお願いします。\niPhoneでは、カレンダーアプリの「カレンダー」ボタンで一覧を開き、このカレンダーの横の i ボタンから解除できます。")) return;
     setDeleting(true);
     try {
       await deleteSubscriptionIcs(slug);
@@ -3219,7 +3219,10 @@ function SubscribeScreen({
   // バックアップのファイルを読み、形を確かめてから今の端末の記録を置き換える
   async function handleImportBackup(file: File) {
     let text: string;
-    try { text = await file.text(); } catch { text = ""; }
+    try { text = await file.text(); } catch {
+      setBackupError("ファイルを読み込めませんでした"); // 文言【仮】
+      return;
+    }
     const data = parseBackup(text);
     if (!data) {
       setBackupError("バックアップのファイルではありません"); // 文言【仮】
@@ -3285,6 +3288,9 @@ function SubscribeScreen({
         前に発行した同期URLがある方
       </button>
       {showRestore && (
+        <>
+        {/* 文言【仮】 */}
+        <p className="text-xs text-on-surface-variant">前の端末の同期画面にある「URLをコピー」で控えたURLを貼り付けてください。</p>
         <div className="flex items-center gap-2">
           <input
             type="text"
@@ -3301,6 +3307,7 @@ function SubscribeScreen({
             引き継ぐ
           </button>
         </div>
+        </>
       )}
     </div>
   ) : (
@@ -3527,7 +3534,7 @@ function SubscribeScreen({
               <span className="text-[0.6875rem] text-outline">未追加 {gcalPendingCount}件</span>
             </div>
             <p className="text-xs text-on-surface-variant mb-3">
-              Androidでは、Googleカレンダーに1件ずつ追加します。通知は、Googleカレンダーで設定している通知のタイミングで届きます。締切が変わっても、追加した予定は自動では直りません。
+              Androidでは、Googleカレンダーに1件ずつ追加します。通知はGoogleカレンダー側の設定に従います。開いたGoogleカレンダーの画面で保存すると追加されます。締切が変わっても、追加した予定は自動では直りません。
             </p>
             {gcalList.length === 0 ? (
               <p className="text-sm text-on-surface-variant py-8 text-center">同期に入れた締切はありません</p>
@@ -3567,7 +3574,15 @@ function SubscribeScreen({
             >
               パソコンで同期用URLを登録する
             </button>
-            {showPcSync && <div className="mt-4">{syncUrlBody}</div>}
+            {showPcSync && (
+              <div className="mt-4 space-y-3">
+                {/* 文言【仮】。Google公式（37100）: URLでの登録はパソコンのブラウザでだけできる */}
+                <p className="text-xs text-on-surface-variant">
+                  パソコンのブラウザでGoogleカレンダーを開き、左側の「他のカレンダー」の横の「＋」から「URLで追加」を選んで、ここで発行した同期用URLを貼り付けてください。Googleカレンダーのスマホのアプリからは登録できません。
+                </p>
+                {syncUrlBody}
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -3594,7 +3609,7 @@ function SubscribeScreen({
           <ul className="text-xs text-on-surface-variant space-y-2 list-disc list-inside mt-4">
             <li>このツールは締切を忘れないためのリマインダーです。予定にチェックを付けても、公演への申込・入金は完了しません。申込は各公式ページで行ってください。</li>
             <li>入力した申込状況や登録内容は、お使いの端末内に保存されます。同期用URLを発行した場合は、選んだ予定の一覧、当選・入金済みの公演、「気になる」にした公演、通知と保持期限の設定がサーバーに保管されます。貼り付けたテキストそのものは送信されません。詳しくはプライバシーポリシーをご覧ください。</li>
-            <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切はこのツールを開いた時に自動で追加、終わった予定は自動で整理されます。反映のタイミングはカレンダーアプリと端末の設定によります。iPhoneのカレンダーですぐ反映したい時は、画面を下に引っ張って更新してください。含まれるのは予定と、入金済みと「気になる」の印・通知の設定だけで、お名前・ログイン情報・カードなどの支払い方法は入りません。</li>
+            <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切はこのツールを開いた時に自動で追加、終わった予定は自動で整理されます。反映のタイミングはカレンダーアプリと端末の設定によります。iPhoneのカレンダーアプリですぐ反映したい時は、「カレンダー」ボタンでカレンダーの一覧を開き、一覧を下に引っ張って更新を試してください。含まれるのは予定と、入金済みと「気になる」の印・通知の設定だけで、お名前・ログイン情報・カードなどの支払い方法は入りません。</li>
             <li>iPhoneで通知が届かない時は、「設定 → 通知 → カレンダー」の通知がオンになっているかをご確認ください。位置情報の設定はオフのままでも通知は届きます。</li>
             <li>「設定 → プライバシーとセキュリティ → 位置情報サービス → システムサービス → 位置情報に基づく通知」をオンにすると、公演の予定にiPhoneが計算する出発時刻の通知も使えます（任意です）。位置情報はiPhoneの中で使われるだけで、このツールや運営者に送られることはありません。</li>
             <li>カレンダーアプリによっては読み取り専用で表示されます（編集できません）。</li>
@@ -3608,6 +3623,10 @@ function SubscribeScreen({
         <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
           <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">バックアップ</h3>
         </div>
+        {/* 文言【仮】 */}
+        <p className="text-xs text-on-surface-variant mb-3">
+          ファイルには同期用URLも含まれます。人に渡さないでください。iPhoneでは、書き出したファイルは通常「ファイル」アプリの「ダウンロード」に入ります。
+        </p>
         <div className="flex items-center gap-3 flex-wrap">
           <button
             onClick={() => exportBackup()}
@@ -3643,7 +3662,7 @@ function SubscribeScreen({
         <section className="mt-12 pt-6 border-t border-outline-variant/30">
           <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest text-outline mb-2">URLを無効化する</h3>
           <p className="text-xs text-on-surface-variant mb-3">
-            同期用URLを無効にし、サーバーに保管した設定とカレンダー用のファイルを削除します。反映まで少し時間がかかることがあります。カレンダーアプリに登録した分は、アプリ側でも削除してください。流出が疑われる場合や、もう使わない場合に。
+            同期用URLを無効にし、サーバーに保管した設定とカレンダー用のファイルを削除します。反映まで少し時間がかかることがあります。カレンダーアプリに登録した分は、アプリ側でも削除してください。iPhoneでは、カレンダーアプリの「カレンダー」ボタンで一覧を開き、このカレンダーの横の i ボタンから解除できます。流出が疑われる場合や、もう使わない場合に。
           </p>
           <button
             onClick={handleDelete}
