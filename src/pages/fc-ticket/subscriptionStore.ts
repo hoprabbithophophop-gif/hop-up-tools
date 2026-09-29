@@ -199,3 +199,80 @@ export function clearPublished() {
   writeRaw(KEY_LAST_SAVED_AT, null);
   notifyChanged();
 }
+
+// ─── 前の同期URLからの引き継ぎ ─────────────────────────────────
+
+/**
+ * 同期URLの引き継ぎで受け取った「行く公演」の news_uid。
+ * 当選・未入金の公演は貼り付けた文が無いと判定できないので、引き継いだ直後の保存で
+ * 出発の通知が消えないよう、これも「行く」に含める（computeAttendingNewsUids が読む）
+ */
+const KEY_ATTENDING_RESTORED = "fc-attending-restored";
+
+export function readAttendingRestored(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(KEY_ATTENDING_RESTORED) ?? "[]");
+    if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string");
+  } catch { /* ignore */ }
+  return [];
+}
+
+/** 送信内容の材料だが、書いた直後に送信済みの印を消して読み込み直すので合図は出さない */
+export function writeAttendingRestored(uids: Iterable<string>) {
+  writeRaw(KEY_ATTENDING_RESTORED, JSON.stringify([...uids]));
+}
+
+/**
+ * 引き継ぎ・バックアップの読み込みのあと、画面を読み込み直す。
+ * 読み込み直しの瞬間（pagehide）に保存の係が送ると、画面がまだ持っている古い「入金済み」「気になる」と
+ * 新しい同期URLが混ざった内容を送ってしまう。読み込み直した後に正しい内容で送り直すので、ここでは送らせない。
+ */
+let reloadPending = false;
+
+export function isReloadPending(): boolean {
+  return reloadPending;
+}
+
+export function reloadAfterRestore() {
+  reloadPending = true;
+  writeLastSavedSig(null); // 次に開いた時に必ず送り直す
+  location.reload();
+}
+
+const RETENTION_VALUES: RetentionMode[] = ["after-event-1m", "6m", "forever"];
+
+function isEventLeadSetting(v: unknown): v is EventLeadSetting {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  const hoursOk = o.hours === null || (typeof o.hours === "number" && o.hours >= 1 && o.hours <= 24);
+  return hoursOk && typeof o.dayBefore === "boolean";
+}
+
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+/**
+ * 読み戻した設定のうち、この置き場が持つ分を端末に書く。
+ * 選んだ予定は端末の今の選択に足す。保持期限・通知の設定は読み戻した値で上書きする
+ */
+export function applyRestoredSubscription(slug: string, order: {
+  includedIds?: unknown;
+  retention?: unknown;
+  eventLead?: unknown;
+  eventLeadOverrides?: unknown;
+  attendingNewsUids?: unknown;
+}) {
+  writeRaw(KEY_SLUG, slug);
+  writeRaw(KEY_INCLUDED, JSON.stringify([...new Set([...readIncludedIds(), ...strings(order.includedIds)])]));
+  if (typeof order.retention === "string" && (RETENTION_VALUES as string[]).includes(order.retention)) {
+    writeRaw(KEY_RETENTION, order.retention);
+  }
+  if (isEventLeadSetting(order.eventLead)) writeRaw(KEY_EVENT_LEAD, JSON.stringify(order.eventLead));
+  if (typeof order.eventLeadOverrides === "object" && order.eventLeadOverrides !== null) {
+    const ovr: Record<string, EventLeadSetting> = {};
+    for (const [k, v] of Object.entries(order.eventLeadOverrides as Record<string, unknown>)) {
+      if (isEventLeadSetting(v)) ovr[k] = v;
+    }
+    writeRaw(KEY_EVENT_LEAD_OVR, JSON.stringify(ovr));
+  }
+  writeAttendingRestored(strings(order.attendingNewsUids));
+}

@@ -20,6 +20,7 @@ import {
 import type { EventLeadSetting, RetentionMode } from "../../lib/icsCore";
 import {
   deleteSubscriptionIcs,
+  restoreSubscription,
   subscriptionUrls,
   type SubscriptionUrls,
 } from "../../lib/icsSubscription";
@@ -39,8 +40,11 @@ import {
   writeEventLead,
   writeEventLeadOverrides,
   clearPublished,
+  applyRestoredSubscription,
+  reloadAfterRestore,
   DEFAULT_EVENT_LEAD,
 } from "./subscriptionStore";
+import { exportBackup, parseBackup, replaceWithBackup } from "./backup";
 import { useSubscriptionSaver, type SubscriptionSaver } from "./useSubscriptionSaver";
 import {
   parseUpfcText,
@@ -2746,6 +2750,23 @@ function statusBadgeFor(newsUid: string, title: string, matchResults: MatchResul
 // Android の同期画面で「追加」を押した締切の id 一覧（端末内のみ）
 const GCAL_OPENED_KEY = "fc-gcal-opened";
 
+/** 貼り付けた同期URL（https:// と webcal:// のどちらでも）か、slug そのものから slug を取り出す。取れなければ null */
+function slugFromSyncUrl(input: string): string | null {
+  const m = input.trim().match(/^(?:(?:https?|webcal):\/\/\S*\/fc-ics\/)?([a-z0-9]{32})(?:\.ics)?(?:[?#]\S*)?$/);
+  return m ? m[1] : null;
+}
+
+/** 端末の一覧（fc-paid・fc-watchlist）に足す。読み書きに失敗しても止めない */
+function mergeStoredList(key: string, add: unknown) {
+  if (!Array.isArray(add)) return;
+  try {
+    const cur: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
+    const base = Array.isArray(cur) ? cur.filter((x): x is string => typeof x === "string") : [];
+    const extra = add.filter((x): x is string => typeof x === "string");
+    localStorage.setItem(key, JSON.stringify([...new Set([...base, ...extra])]));
+  } catch { /* ignore */ }
+}
+
 function SubscribeScreen({
   allDeadlines,
   matchResults,
@@ -2807,6 +2828,13 @@ function SubscribeScreen({
   });
   // Android: 「パソコンで同期用URLを登録する」で既存の同期用URLの欄を開いているか
   const [showPcSync, setShowPcSync] = useState(false);
+  // 前に発行した同期URLからの引き継ぎ（まだURLが無い時だけ出す）
+  const [showRestore, setShowRestore] = useState(false);
+  const [restoreInput, setRestoreInput] = useState("");
+  const [restoring, setRestoring] = useState(false);
+  // バックアップの読み込みの失敗は、押したボタンのそばに出す（同期用URLの欄のエラーは画面の上の方で見えないため）
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const backupFileRef = useRef<HTMLInputElement>(null);
   // 自動保存の表示。送信は「画面を離れたとき」が主役で、開いたままのときは保険が働く。
   // 触っている間は saveState が idle のままなので、ここには何も出ない。
   const saveState = saver.saveState;
@@ -3163,6 +3191,46 @@ function SubscribeScreen({
     }
   }
 
+  // 前の同期URLの設定を読み戻し、この端末の記録に足してから読み込み直す。
+  // 読み込み直すと、同じ同期ファイルの続きとして保存の係が送り直す（送信済みの印は消してある）
+  async function handleRestore() {
+    const restoreSlug = slugFromSyncUrl(restoreInput);
+    if (!restoreSlug) {
+      setError("同期URLの形になっていません"); // 文言【仮】
+      return;
+    }
+    setError(null);
+    setRestoring(true);
+    const r = await restoreSubscription(restoreSlug);
+    if (!r.ok) {
+      setRestoring(false);
+      // 文言【仮】（見つからない・古い形式・その他）
+      if (r.code === "not_found") setError("この同期URLは見つかりませんでした。無効化したか、1年以上使われずに削除された可能性があります");
+      else if (r.code === "legacy") setError("この同期URLは古い形式のため引き継げません");
+      else setError("引き継ぎに失敗しました。時間をおいてもう一度お試しください");
+      return;
+    }
+    applyRestoredSubscription(restoreSlug, r.order);
+    mergeStoredList("fc-paid", r.order.paidNewsUids);
+    mergeStoredList("fc-watchlist", r.order.watchNewsUids);
+    reloadAfterRestore();
+  }
+
+  // バックアップのファイルを読み、形を確かめてから今の端末の記録を置き換える
+  async function handleImportBackup(file: File) {
+    let text: string;
+    try { text = await file.text(); } catch { text = ""; }
+    const data = parseBackup(text);
+    if (!data) {
+      setBackupError("バックアップのファイルではありません"); // 文言【仮】
+      return;
+    }
+    if (!confirm("今の端末の記録を、このファイルの内容で置き換えます。よろしいですか？")) return; // 文言【仮】
+    setBackupError(null);
+    replaceWithBackup(data);
+    reloadAfterRestore();
+  }
+
   function handleCopy() {
     if (!publishedUrls) return;
     navigator.clipboard.writeText(publishedUrls.https).then(() => {
@@ -3209,6 +3277,31 @@ function SubscribeScreen({
       <p className="text-xs text-on-surface-variant">
         登録すると、選んだ締切がカレンダーに自動で並びます。このツールを開くと、新しい締切が自動で追加されます。
       </p>
+      {/* 前の同期URLからの引き継ぎ。文言【仮】（開閉の文字ボタン・入力欄の案内・引き継ぐ） */}
+      <button
+        onClick={() => setShowRestore((v) => !v)}
+        className="text-xs text-outline underline hover:text-primary cursor-pointer"
+      >
+        前に発行した同期URLがある方
+      </button>
+      {showRestore && (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={restoreInput}
+            onChange={(e) => setRestoreInput(e.target.value)}
+            placeholder="前の同期URLを貼り付け"
+            className="flex-1 min-w-0 px-3 py-2 text-sm bg-transparent border border-outline-variant outline-none focus:border-primary"
+          />
+          <button
+            onClick={() => void handleRestore()}
+            disabled={restoring || restoreInput.trim() === ""}
+            className="bg-primary text-on-primary-fixed px-4 py-2 text-xs font-bold uppercase tracking-widest hover:bg-secondary transition-colors cursor-pointer flex-shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            引き継ぐ
+          </button>
+        </div>
+      )}
     </div>
   ) : (
     <div className="space-y-4">
@@ -3508,6 +3601,41 @@ function SubscribeScreen({
             <li>このリンクはあなた専用です。保存した予定が入っているので、他の人には共有しないでください。</li>
           </ul>
         </details>
+      </section>
+
+      {/* バックアップ（端末の記録をファイルに書き出す・読み込む）。文言【仮】（見出し・2つのボタン） */}
+      <section className="mb-8">
+        <div className="flex items-baseline justify-between border-b border-outline-variant/30 pb-2 mb-4">
+          <h3 className="text-[0.6875rem] font-bold uppercase tracking-widest">バックアップ</h3>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => exportBackup()}
+            className="text-xs uppercase tracking-widest text-primary border border-primary px-6 py-2 hover:bg-primary hover:text-on-primary transition-colors cursor-pointer"
+          >
+            ファイルに書き出す
+          </button>
+          <button
+            onClick={() => backupFileRef.current?.click()}
+            className="text-xs uppercase tracking-widest text-primary border border-primary px-6 py-2 hover:bg-primary hover:text-on-primary transition-colors cursor-pointer"
+          >
+            ファイルから読み込む
+          </button>
+          <input
+            ref={backupFileRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = ""; // 同じファイルを選び直しても反応するように
+              if (file) void handleImportBackup(file);
+            }}
+          />
+        </div>
+        {backupError && (
+          <p className="mt-4 text-sm text-tertiary bg-tertiary-container/30 px-4 py-3">{backupError}</p>
+        )}
       </section>
 
       {/* URL無効化 */}

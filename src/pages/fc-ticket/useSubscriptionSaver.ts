@@ -15,7 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { LATER_ROUND_RE, type MatchResult } from "../../lib/parseUpfcText";
 import type { OrderTicket } from "../../lib/icsCore";
 import { uploadSubscriptionIcs } from "../../lib/icsSubscription";
-import { onInputsChanged, readInputs, readLastSavedSig, writeLastSavedSig } from "./subscriptionStore";
+import { isReloadPending, onInputsChanged, readAttendingRestored, readInputs, readLastSavedSig, writeLastSavedSig } from "./subscriptionStore";
 
 /** fc_deadlines.id はUUID。画面だけの疑似的な行を注文票に載せない（載せると発行が丸ごと失敗する） */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -40,7 +40,9 @@ export type SaveState = "idle" | "saving" | "saved" | "failed";
  * （サーバーには生テキストを送らない約束を維持する）。
  */
 export function computeAttendingNewsUids(matchResultsList: MatchResult[], paidList: string[]): string[] {
-  const attending = new Set(paidList);
+  // 前の同期URLから引き継いだ「行く公演」も含める。当選・未入金は貼り付けた文が無いと判定できず、
+  // 引き継いだ直後の保存で出発の通知が消えてしまうため
+  const attending = new Set([...paidList, ...readAttendingRestored()]);
   for (const r of matchResultsList) {
     const st = r.parsed.status;
     if (!(st.includes("入金済") || (st.includes("当選") && !st.includes("当選取消")))) continue;
@@ -154,6 +156,8 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
 
   const doSave = useCallback(async (): Promise<boolean> => {
     if (inFlightRef.current) return false;
+    // 引き継ぎ・読み込みの直後の読み込み直し中は送らない（画面の古い値が混ざるため。読み込み直した後に送り直す）
+    if (isReloadPending()) return false;
     if (!readyRef.current) return false; // データが揃うまでは送らない（揃った時に下の起動時の処理が送る）
     const built = buildOrder(matchResultsRef.current, paidRef.current, watchlistRef.current);
     const sig = signatureOf(built);
