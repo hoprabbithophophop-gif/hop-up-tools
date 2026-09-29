@@ -234,6 +234,8 @@ export function assembleFromOrder(
   // 消してしまうと「通知が来ない」が《払い終わった》と《仕組みが壊れた》の両方を意味してしまい、
   // 見分けがつかない。予定が残っていれば、カレンダーを見るだけで認識されているか確かめられる。
   const paid = new Set(order.paidNewsUids ?? []);
+  // 「気になる」で入った公演。予定名の頭に【気になる】を付けて、行く公演の予定と見分けられるようにする
+  const watch = new Set(order.watchNewsUids ?? []);
   const leadAlarmsFor = (dl: DeadlineRow) => {
     const lead = order.eventLeadOverrides[eventTwinKey(dl)] ?? order.eventLead;
     const extraGapMin = dl.open_at ? 0 : doorsGapMinutes(dl.fc_news.category);
@@ -268,7 +270,7 @@ export function assembleFromOrder(
       `DTSTAMP:${now_}`,
       `DTSTART:${formatIcsDate(dtstart)}`,
       `DTEND:${formatIcsDate(dtend)}`,
-      `SUMMARY:【${isPaidOff ? "入金済み" : dl.label}】${cleanFcTitle(dl.fc_news.title)}`,
+      `SUMMARY:${watch.has(dl.news_uid) && !isPaidOff ? "【気になる】" : ""}【${isPaidOff ? "入金済み" : dl.label}】${cleanFcTitle(dl.fc_news.title)}`,
       `DESCRIPTION:${description.replace(/\n/g, "\\n")}`,
       ...(dl.location ? [`LOCATION:${dl.location}`] : []),
       ...renderGeo({ geo, location: dl.location }),

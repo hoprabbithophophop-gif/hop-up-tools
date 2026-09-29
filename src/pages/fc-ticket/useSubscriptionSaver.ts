@@ -65,7 +65,7 @@ export function computePaidNewsUids(matchResultsList: MatchResult[], paidList: s
 }
 
 /** いま送るべき注文票。送れない状態（未発行・対象ゼロ）なら null */
-function buildOrder(matchResults: MatchResult[], paid: string[]): { slug: string; order: OrderTicket } | null {
+function buildOrder(matchResults: MatchResult[], paid: string[], watchlist: string[]): { slug: string; order: OrderTicket } | null {
   const inputs = readInputs();
   if (!inputs.slug) return null; // まだ発行していない＝送る先が無い
   const includedIds = inputs.includedIds.filter((id) => UUID_RE.test(id));
@@ -80,8 +80,18 @@ function buildOrder(matchResults: MatchResult[], paid: string[]): { slug: string
       eventLeadOverrides: inputs.eventLeadOverrides,
       attendingNewsUids: computeAttendingNewsUids(matchResults, paid),
       paidNewsUids: computePaidNewsUids(matchResults, paid),
+      watchNewsUids: computeWatchNewsUids(watchlist, matchResults, paid),
     },
   };
+}
+
+/**
+ * 【気になる】の印を付ける news_uid。「気になる」にしている公演のうち、行く公演（当選・入金済み）ではない物。
+ * 行くと決まった公演は印を外し、ふつうの予定として見せる（2026-09-29 Hop 決定）
+ */
+export function computeWatchNewsUids(watchlist: string[], matchResultsList: MatchResult[], paidList: string[]): string[] {
+  const attending = new Set(computeAttendingNewsUids(matchResultsList, paidList));
+  return [...new Set(watchlist)].filter((u) => !attending.has(u)).sort();
 }
 
 /** 内容の指紋。これが前回の送信成功時と違えば未送信 */
@@ -96,6 +106,7 @@ function signatureOf(built: { slug: string; order: OrderTicket } | null): string
     JSON.stringify(o.eventLeadOverrides),
     o.attendingNewsUids.join(","),
     (o.paidNewsUids ?? []).join(","),
+    (o.watchNewsUids ?? []).join(","),
   ].join("|");
 }
 
@@ -117,7 +128,7 @@ export interface SubscriptionSaver {
   saveImmediately: () => Promise<boolean>;
 }
 
-export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[], ready: boolean): SubscriptionSaver {
+export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[], ready: boolean, watchlist: string[]): SubscriptionSaver {
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [hasUnsaved, setHasUnsaved] = useState(false);
   const [isStuck, setIsStuck] = useState(false);
@@ -126,6 +137,7 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
   // タイマーから最新値を読むためのref
   const matchResultsRef = useRef(matchResults); matchResultsRef.current = matchResults;
   const paidRef = useRef(paid); paidRef.current = paid;
+  const watchlistRef = useRef(watchlist); watchlistRef.current = watchlist;
   const readyRef = useRef(ready); readyRef.current = ready;
   const timerRef = useRef<number | null>(null);
   const retryIndexRef = useRef(0);
@@ -134,7 +146,7 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
 
   /** いま未送信かどうかを見て、画面表示を合わせる */
   const refreshUnsaved = useCallback(() => {
-    const sig = signatureOf(buildOrder(matchResultsRef.current, paidRef.current));
+    const sig = signatureOf(buildOrder(matchResultsRef.current, paidRef.current, watchlistRef.current));
     const unsaved = sig !== null && sig !== readLastSavedSig();
     setHasUnsaved(unsaved);
     return unsaved;
@@ -143,7 +155,7 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
   const doSave = useCallback(async (): Promise<boolean> => {
     if (inFlightRef.current) return false;
     if (!readyRef.current) return false; // データが揃うまでは送らない（揃った時に下の起動時の処理が送る）
-    const built = buildOrder(matchResultsRef.current, paidRef.current);
+    const built = buildOrder(matchResultsRef.current, paidRef.current, watchlistRef.current);
     const sig = signatureOf(built);
     // 送るものが無くなった（同期をやめた等）／送る必要が消えた（元の状態に戻した）場合は、
     // 失敗の帯も一緒に下ろす。ここで下ろさないと、送る相手も直す手立ても無いのに
@@ -195,7 +207,7 @@ export function useSubscriptionSaver(matchResults: MatchResult[], paid: string[]
   useEffect(() => onInputsChanged(scheduleSave), [scheduleSave]);
 
   // 入金済み・貼り付け結果の変更を受け取る（これらは親が持っている状態）
-  useEffect(() => { scheduleSave(); }, [paid, matchResults, scheduleSave]);
+  useEffect(() => { scheduleSave(); }, [paid, matchResults, watchlist, scheduleSave]);
 
   // 起動時（データが揃った時）：前回送れなかった変更や、30日たった送り直しがあれば送る
   useEffect(() => {

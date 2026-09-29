@@ -21,6 +21,8 @@ const KEY_RETENTION = "fc-sub-retention";
 const KEY_INCLUDED = "fc-sub-included";
 /** 利用者が自分で外した予定のid。自動で足す処理はこれを飛ばす（端末の中だけ・サーバーには送らない） */
 const KEY_DISMISSED = "fc-sub-dismissed";
+/** 「気になる」にしたことで同期に入れた予定のid。気になるを外した時に、これだけをまとめて外す（端末の中だけ） */
+const KEY_WATCH_ADDED = "fc-sub-watch-added";
 const KEY_EVENT_LEAD = "fc-sub-event-lead2";
 const KEY_EVENT_LEAD_OLD = "fc-sub-event-lead"; // 旧形式("PT3H"/"P1D"/"none")
 const KEY_EVENT_LEAD_OVR = "fc-sub-event-lead-ovr";
@@ -154,6 +156,19 @@ export function writeRetention(retention: RetentionMode) {
 export function writeIncludedIds(ids: Iterable<string>) {
   writeRaw(KEY_INCLUDED, JSON.stringify([...ids]));
   notifyChanged();
+}
+
+export function readWatchAddedIds(): Set<string> {
+  try {
+    const v = JSON.parse(localStorage.getItem(KEY_WATCH_ADDED) ?? "[]");
+    if (Array.isArray(v)) return new Set(v.filter((x): x is string => typeof x === "string"));
+  } catch { /* ignore */ }
+  return new Set();
+}
+
+/** 送信内容ではないので合図を出さない */
+export function writeWatchAddedIds(ids: Iterable<string>) {
+  writeRaw(KEY_WATCH_ADDED, JSON.stringify([...ids]));
 }
 
 /** 外した記録は送信内容ではないので合図を出さない */

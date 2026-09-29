@@ -34,6 +34,8 @@ import {
   writeDismissedIds,
   readIncludedIds,
   onInputsChanged,
+  readWatchAddedIds,
+  writeWatchAddedIds,
   writeEventLead,
   writeEventLeadOverrides,
   clearPublished,
@@ -312,6 +314,20 @@ export default function FcTicketPage() {
   const matchedUids = new Set(matchResults.flatMap((r) => r.matched.map((m) => m.uid)));
 
   function setWatchlist(uids: string[]) {
+    // 「気になる」を外したら、気になるで同期に入れた予定をまとめて外す（自分で入れた物・推しや貼り付けで入った物は残す）。
+    // 外した記録には入れない＝また気になるにすれば戻る（2026-09-29 Hop 決定）
+    const removed = new Set(watchlist.filter((u) => !uids.includes(u)));
+    if (removed.size > 0) {
+      const watchAdded = readWatchAddedIds();
+      const drop = allDeadlines.filter((d) => removed.has(d.news_uid) && watchAdded.has(d.id)).map((d) => d.id);
+      if (drop.length > 0) {
+        for (const id of drop) watchAdded.delete(id);
+        writeWatchAddedIds(watchAdded);
+        const inc = new Set(readIncludedIds());
+        for (const id of drop) inc.delete(id);
+        writeIncludedIds(inc);
+      }
+    }
     setWatchlistState(uids);
     localStorage.setItem("fc-watchlist", JSON.stringify(uids));
   }
@@ -329,7 +345,7 @@ export default function FcTicketPage() {
   // 公式記事の一覧が届き、保存済みの貼り付けの判定まで済んだか。済む前に送ると、
   // 貼り付けから判定した当選・入金済みが抜けた設定がサーバーに残りうる（2026-09-28 監査）
   const [syncReady, setSyncReady] = useState(false);
-  const saver = useSubscriptionSaver(matchResults, paid, syncReady);
+  const saver = useSubscriptionSaver(matchResults, paid, syncReady, watchlist);
 
   // 同期の今の状態（同期用URLがあるか・どの予定が同期に入っているか）。設定が書き換わるたびに読み直す
   const [syncInputs, setSyncInputs] = useState(() => readInputs());
@@ -339,6 +355,36 @@ export default function FcTicketPage() {
     const includedTwinKeys = new Set(allDeadlines.filter((d) => d.type === "event" && included.has(d.id)).map(eventTwinKey));
     return { hasSlug: !!syncInputs.slug, included, includedTwinKeys };
   }, [syncInputs, allDeadlines]);
+
+  // 同期済みなら、「気になる」にした公演のこれからの締切を同期に入れる（2026-09-29 Hop 決定）。
+  // どの画面を開いていても働くよう、ここで持つ。自分で外した予定は戻さない。複数回公演の回は自分で選ぶ。
+  // 入れた予定は記録しておき、気になるを外した時にまとめて外す（setWatchlist）
+  useEffect(() => {
+    if (!syncReady || !syncInputs.slug || allDeadlines.length === 0) return;
+    const now = new Date();
+    const watch = new Set(watchlist);
+    const included = new Set(readIncludedIds());
+    const dismissed = readDismissedIds();
+    const appliedS = new Set(applied);
+    const paidS = new Set(paid);
+    const multiGroups = multiShowGroupKeys(allDeadlines);
+    const toAdd: string[] = [];
+    for (const dl of allDeadlines) {
+      if (!watch.has(dl.news_uid) || !UUID_RE.test(dl.id)) continue;
+      if (new Date(dl.deadline_at) < now) continue;
+      if (!SUBSCRIPTION_TYPES_TO_SUBSCRIBE.includes(dl.type)) continue;
+      if (included.has(dl.id) || dismissed.has(dl.id)) continue;
+      if (dl.type === "event" && multiGroups.has(eventGroupKey(dl.fc_news.title))) continue;
+      if (dl.type === "apply_end" && (appliedS.has(dl.news_uid) || paidS.has(dl.news_uid))) continue;
+      if (dl.type === "payment" && paidS.has(dl.news_uid)) continue;
+      toAdd.push(dl.id);
+    }
+    if (toAdd.length === 0) return;
+    const watchAdded = readWatchAddedIds();
+    for (const id of toAdd) watchAdded.add(id);
+    writeWatchAddedIds(watchAdded);
+    writeIncludedIds(new Set([...included, ...toAdd])); // 合図が出て、保存の係が送信する
+  }, [watchlist, allDeadlines, syncReady, syncInputs.slug, applied, paid]);
 
   // Supabase から全データを取得
   useEffect(() => {
@@ -2312,11 +2358,10 @@ function CalendarScreen({
                   {/* 追加直後のカレンダー登録提案 */}
                   {isPending && calEvent && (
                     hasSubscription ? (
-                      // 同期用URL発行済み → 単発登録は出さない（二重登録防止）。気になるに入れても同期には自動で入らないので、
-                      // その事実と入れ方を案内する（以前は「追加されました」と出ていたが実際は入っていなかった・2026-09-29 監査）
+                      // 同期用URL発行済み → 単発登録は出さない（二重登録防止）。気になるに入れた公演は親の処理が同期に入れる
                       <div className="flex items-center gap-3 px-4 py-3 bg-surface-container-high border-l-2 flex-wrap" style={{ borderColor: "#000000" }}>
-                        <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "#000000" }}>info</span>
-                        <span className="text-xs font-bold flex-1">この公演は、まだ同期に入っていません。Sync タブで予定にチェックを入れると、カレンダーに届きます。</span>
+                        <span className="material-symbols-outlined text-sm flex-shrink-0" style={{ color: "#000000" }}>check_circle</span>
+                        <span className="text-xs font-bold flex-1">この公演のこれからの締切を同期に入れました。カレンダーには【気になる】の印つきで届きます。</span>
                         <button
                           onClick={() => setPendingCalendarUid(null)}
                           className="px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-widest text-outline hover:text-primary cursor-pointer transition-colors"
@@ -2697,6 +2742,9 @@ function SubscribeScreen({
   const [eventLead, setEventLead] = useState<EventLeadSetting>(readEventLead);
   const [eventLeadOverrides, setEventLeadOverrides] = useState<Record<string, EventLeadSetting>>(readEventLeadOverrides);
   const [includedIds, setIncludedIds] = useState<Set<string>>(() => new Set(readInputs().includedIds));
+  // 端末の一覧がこの画面の外（気になるの自動追加・同期に入れる等）で書き換わったら読み直す。
+  // 古い画面の値のまま付け外しすると、足された予定を「自分で外した」と誤って記録してしまうため
+  useEffect(() => onInputsChanged(() => setIncludedIds(new Set(readIncludedIds()))), []);
   const [favorites, setFavorites] = useState<Favorites>(() => {
     try {
       const saved = localStorage.getItem("fc-sub-favorites");
@@ -3359,8 +3407,8 @@ function SubscribeScreen({
           </summary>
           <ul className="text-xs text-on-surface-variant space-y-2 list-disc list-inside mt-4">
             <li>このツールは締切を忘れないためのリマインダーです。予定にチェックを付けても、公演への申込・入金は完了しません。申込は各公式ページで行ってください。</li>
-            <li>入力した申込状況や登録内容は、お使いの端末内に保存されます。同期用URLを発行した場合は、選んだ予定の一覧、当選・入金済みの公演、通知と保持期限の設定がサーバーに保管されます。貼り付けたテキストそのものは送信されません。詳しくはプライバシーポリシーをご覧ください。</li>
-            <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切はこのツールを開いた時に自動で追加、終わった予定は自動で整理されます。反映のタイミングはカレンダーアプリと端末の設定によります。すぐ反映したい時は画面を下に引っ張って更新してください。含まれるのは予定と、入金済みの印・通知の設定だけで、お名前・ログイン情報・カードなどの支払い方法は入りません。</li>
+            <li>入力した申込状況や登録内容は、お使いの端末内に保存されます。同期用URLを発行した場合は、選んだ予定の一覧、当選・入金済みの公演、「気になる」にした公演、通知と保持期限の設定がサーバーに保管されます。貼り付けたテキストそのものは送信されません。詳しくはプライバシーポリシーをご覧ください。</li>
+            <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切はこのツールを開いた時に自動で追加、終わった予定は自動で整理されます。反映のタイミングはカレンダーアプリと端末の設定によります。すぐ反映したい時は画面を下に引っ張って更新してください。含まれるのは予定と、入金済みと「気になる」の印・通知の設定だけで、お名前・ログイン情報・カードなどの支払い方法は入りません。</li>
             <li>iPhoneで通知が届かない時は、「設定 → 通知 → カレンダー」の通知がオンになっているか、同期を追加した時に「通知を削除」をオフにしたかをご確認ください。位置情報の設定はオフのままでも通知は届きます。</li>
             <li>「設定 → プライバシーとセキュリティ → 位置情報サービス → システムサービス → 位置情報に基づく通知」をオンにすると、公演の予定にiPhoneが計算する出発時刻の通知も使えます（任意です）。位置情報はiPhoneの中で使われるだけで、このツールや運営者に送られることはありません。</li>
             <li>カレンダーアプリによっては読み取り専用で表示されます（編集できません）。</li>
