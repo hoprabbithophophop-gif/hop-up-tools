@@ -3527,7 +3527,7 @@ function SubscribeScreen({
               <span className="text-[0.6875rem] text-outline">未追加 {gcalPendingCount}件</span>
             </div>
             <p className="text-xs text-on-surface-variant mb-3">
-              Androidでは1件ずつ追加します。いつもの通知の設定で通知が届きます。
+              Androidでは、Googleカレンダーに1件ずつ追加します。通知は、Googleカレンダーで設定している通知のタイミングで届きます。締切が変わっても、追加した予定は自動では直りません。
             </p>
             {gcalList.length === 0 ? (
               <p className="text-sm text-on-surface-variant py-8 text-center">同期に入れた締切はありません</p>
@@ -3547,7 +3547,7 @@ function SubscribeScreen({
                         <p className="text-xs text-on-surface-variant truncate">{cleanFcTitle(dl.fc_news.title)}</p>
                       </div>
                       {gcalOpened.has(dl.id) ? (
-                        <span className="text-[0.6875rem] text-outline flex-shrink-0">✓ 追加画面を開いた</span>
+                        <span className="text-[0.6875rem] text-outline flex-shrink-0">✓ 追加画面を開きました</span>
                       ) : (
                         <button
                           onClick={() => openInGoogleCalendar(dl)}
@@ -3594,7 +3594,7 @@ function SubscribeScreen({
           <ul className="text-xs text-on-surface-variant space-y-2 list-disc list-inside mt-4">
             <li>このツールは締切を忘れないためのリマインダーです。予定にチェックを付けても、公演への申込・入金は完了しません。申込は各公式ページで行ってください。</li>
             <li>入力した申込状況や登録内容は、お使いの端末内に保存されます。同期用URLを発行した場合は、選んだ予定の一覧、当選・入金済みの公演、「気になる」にした公演、通知と保持期限の設定がサーバーに保管されます。貼り付けたテキストそのものは送信されません。詳しくはプライバシーポリシーをご覧ください。</li>
-            <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切はこのツールを開いた時に自動で追加、終わった予定は自動で整理されます。反映のタイミングはカレンダーアプリと端末の設定によります。すぐ反映したい時は画面を下に引っ張って更新してください。含まれるのは予定と、入金済みと「気になる」の印・通知の設定だけで、お名前・ログイン情報・カードなどの支払い方法は入りません。</li>
+            <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切はこのツールを開いた時に自動で追加、終わった予定は自動で整理されます。反映のタイミングはカレンダーアプリと端末の設定によります。iPhoneのカレンダーですぐ反映したい時は、画面を下に引っ張って更新してください。含まれるのは予定と、入金済みと「気になる」の印・通知の設定だけで、お名前・ログイン情報・カードなどの支払い方法は入りません。</li>
             <li>iPhoneで通知が届かない時は、「設定 → 通知 → カレンダー」の通知がオンになっているかをご確認ください。位置情報の設定はオフのままでも通知は届きます。</li>
             <li>「設定 → プライバシーとセキュリティ → 位置情報サービス → システムサービス → 位置情報に基づく通知」をオンにすると、公演の予定にiPhoneが計算する出発時刻の通知も使えます（任意です）。位置情報はiPhoneの中で使われるだけで、このツールや運営者に送られることはありません。</li>
             <li>カレンダーアプリによっては読み取り専用で表示されます（編集できません）。</li>
