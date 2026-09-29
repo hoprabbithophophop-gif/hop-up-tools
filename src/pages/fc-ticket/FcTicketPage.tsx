@@ -319,7 +319,18 @@ export default function FcTicketPage() {
     const removed = new Set(watchlist.filter((u) => !uids.includes(u)));
     if (removed.size > 0) {
       const watchAdded = readWatchAddedIds();
-      const drop = allDeadlines.filter((d) => removed.has(d.news_uid) && watchAdded.has(d.id)).map((d) => d.id);
+      // 同期の最初の選択で入った分（気になるで入れた記録に無い物）も、他の理由が無ければ外す（2026-09-29 Hop 決定）。
+      // 他の理由＝貼り付けに当たる・推しに当たる・申込済み・入金済み
+      const favorites: Favorites = (() => {
+        try { return JSON.parse(localStorage.getItem("fc-sub-favorites") ?? "") as Favorites; } catch { return { members: [], groups: [] }; }
+      })();
+      const includedNow = new Set(readIncludedIds());
+      const otherReason = (d: Deadline) =>
+        matchedUids.has(d.news_uid) || applied.includes(d.news_uid) || paid.includes(d.news_uid) ||
+        (!favoritesAreEmpty(favorites) && titleMatchesFavorites(d.fc_news.title, favorites));
+      const drop = allDeadlines
+        .filter((d) => removed.has(d.news_uid) && (watchAdded.has(d.id) || (includedNow.has(d.id) && !otherReason(d))))
+        .map((d) => d.id);
       if (drop.length > 0) {
         for (const id of drop) watchAdded.delete(id);
         writeWatchAddedIds(watchAdded);
