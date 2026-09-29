@@ -44,7 +44,7 @@ export default function MemberFilterInput({
     <div className="relative">
       <input
         className="w-32 px-2 py-0.5 text-[0.625rem] bg-transparent border border-outline-variant outline-none focus:border-primary"
-        placeholder="メンバーで絞る"
+        placeholder="表示をメンバーで絞る"
         value={search}
         onChange={(e) => {
           setSearch(e.target.value);

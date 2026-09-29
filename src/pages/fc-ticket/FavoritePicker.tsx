@@ -109,7 +109,7 @@ export default function FavoritePicker({
       <div className="relative">
         <input
           className="w-full px-3 py-2 text-sm bg-transparent border border-outline-variant outline-none focus:border-primary"
-          placeholder="メンバー名で検索（OG・卒業メンバーを含む）"
+          placeholder="推しを登録（メンバー名で検索）"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);

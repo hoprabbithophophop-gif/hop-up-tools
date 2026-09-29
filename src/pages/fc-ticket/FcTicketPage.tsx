@@ -2324,7 +2324,7 @@ function CalendarScreen({
                           className="flex items-center gap-1 text-[0.5625rem] font-bold uppercase tracking-widest px-2 py-1.5 border border-outline text-outline hover:bg-surface-container-highest cursor-pointer transition-colors whitespace-nowrap"
                         >
                           <span className="material-symbols-outlined text-[0.75rem] leading-none">check_small</span>
-                          申込した
+                          申込んだ
                         </button>
                       )}
                       {isApplied && !isPaid && (
@@ -2927,16 +2927,6 @@ function SubscribeScreen({
     persistIncluded(next);
   }
 
-  // 公演まるごとON/OFF（全部入ってたら全部外す、そうでなければ全部入れる）
-  function toggleGroup(dls: Deadline[]) {
-    const allIn = dls.every((d) => twinIdsOf(d.id).some((t) => includedIds.has(t)));
-    const next = new Set(includedIds);
-    for (const d of dls) {
-      for (const t of twinIdsOf(d.id)) { if (allIn) next.delete(t); else next.add(t); }
-    }
-    persistIncluded(next);
-  }
-
   // 全通：この公演の回（type=event）を全部ON（行く宣言）。既に全部ONなら解除。締切類は触らない。
   function toggleGoAllShows(dls: Deadline[]) {
     const events = dls.filter((d) => d.type === "event");
@@ -3180,7 +3170,6 @@ function SubscribeScreen({
 
         <div className="space-y-4">
           {activeGroups.map((g) => {
-            const allChecked = g.deadlines.every((d) => isIncluded(d));
             // 全通ボタン: 回（公演）が2つ以上ある受付だけ。回を全部「行く」に一括ON。
             const showDls = g.deadlines.filter((d) => d.type === "event");
             const isMultiShow = new Set(showDls.map((d) => eventTwinKey(d))).size >= 2;
@@ -3193,14 +3182,8 @@ function SubscribeScreen({
                 style={{ background: highlightKey === g.key ? "rgba(0,0,0,0.07)" : "transparent", transition: "background 0.7s ease" }}
               >
                 <div className="flex items-center gap-2 mb-1">
-                  <button
-                    onClick={() => toggleGroup(g.deadlines)}
-                    className="flex items-center gap-2 text-left flex-1 min-w-0 cursor-pointer"
-                    title="公演まるごとON/OFF"
-                  >
-                    <span className={`w-3.5 h-3.5 flex-shrink-0 border ${allChecked ? "bg-primary border-primary" : "bg-transparent border-outline-variant"}`} />
-                    <span className="text-sm font-bold leading-snug">{g.key}</span>
-                  </button>
+                  {/* 公演名のチェック（まるごとON/OFF）は置かない。全通と重なるため（2026-09-29 Hop 決定・案C） */}
+                  <span className="text-sm font-bold leading-snug flex-1 min-w-0">{g.key}</span>
                   {isMultiShow && (
                     <button
                       onClick={() => toggleGoAllShows(g.deadlines)}
@@ -3376,20 +3359,6 @@ function SubscribeScreen({
               <span className="material-symbols-outlined text-sm">content_copy</span>
               {copied ? "コピーしました" : "URLをコピー"}
             </button>
-            {/* 発行完了直後の応援（C） */}
-            <div className="pt-4 border-t border-outline-variant/30">
-              <p className="text-sm text-on-surface-variant mb-3">
-                このツールが役に立ったら、維持費の足しに応援してもらえると嬉しいです（任意）。
-              </p>
-              <a
-                href="https://ofuse.me/hopuptools"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block bg-primary text-on-primary-fixed px-6 py-3 text-xs font-bold uppercase tracking-widest hover:bg-secondary transition-colors cursor-pointer"
-              >
-                応援する
-              </a>
-            </div>
           </div>
         )}
 
@@ -3409,7 +3378,7 @@ function SubscribeScreen({
             <li>このツールは締切を忘れないためのリマインダーです。予定にチェックを付けても、公演への申込・入金は完了しません。申込は各公式ページで行ってください。</li>
             <li>入力した申込状況や登録内容は、お使いの端末内に保存されます。同期用URLを発行した場合は、選んだ予定の一覧、当選・入金済みの公演、「気になる」にした公演、通知と保持期限の設定がサーバーに保管されます。貼り付けたテキストそのものは送信されません。詳しくはプライバシーポリシーをご覧ください。</li>
             <li>カレンダーに登録すると、保存した締切が自動で表示されます。新しい締切はこのツールを開いた時に自動で追加、終わった予定は自動で整理されます。反映のタイミングはカレンダーアプリと端末の設定によります。すぐ反映したい時は画面を下に引っ張って更新してください。含まれるのは予定と、入金済みと「気になる」の印・通知の設定だけで、お名前・ログイン情報・カードなどの支払い方法は入りません。</li>
-            <li>iPhoneで通知が届かない時は、「設定 → 通知 → カレンダー」の通知がオンになっているか、同期を追加した時に「通知を削除」をオフにしたかをご確認ください。位置情報の設定はオフのままでも通知は届きます。</li>
+            <li>iPhoneで通知が届かない時は、「設定 → 通知 → カレンダー」の通知がオンになっているかをご確認ください。位置情報の設定はオフのままでも通知は届きます。</li>
             <li>「設定 → プライバシーとセキュリティ → 位置情報サービス → システムサービス → 位置情報に基づく通知」をオンにすると、公演の予定にiPhoneが計算する出発時刻の通知も使えます（任意です）。位置情報はiPhoneの中で使われるだけで、このツールや運営者に送られることはありません。</li>
             <li>カレンダーアプリによっては読み取り専用で表示されます（編集できません）。</li>
             <li>このリンクはあなた専用です。保存した予定が入っているので、他の人には共有しないでください。</li>

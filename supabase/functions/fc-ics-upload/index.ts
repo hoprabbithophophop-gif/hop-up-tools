@@ -53,7 +53,7 @@ function validateOrder(order: unknown): order is OrderTicket {
   }
   // watchNewsUids（【気になる】の印）も省略可。古い画面からの注文票を弾かないため
   if (o.watchNewsUids !== undefined) {
-    if (!Array.isArray(o.watchNewsUids) || !o.watchNewsUids.every((u) => typeof u === "string")) return false;
+    if (!Array.isArray(o.watchNewsUids) || o.watchNewsUids.length > MAX_INCLUDED || !o.watchNewsUids.every((u) => typeof u === "string")) return false;
   }
   return true;
 }
