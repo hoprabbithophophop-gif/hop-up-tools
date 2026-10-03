@@ -1,5 +1,7 @@
 // 「1文字見る」とランキングの印を確かめる。
-// 記録の送信・回数を足す呼び出しは途中で受け止め、ランキングの読み込みは見本の行に差し替えるので、本物の棚は変わらない。
+// 記録の送信・回数を足す呼び出しは途中で受け止め、ランキングの読み込みは見本の行に差し替える（本物のランキングは変わらない）。
+// 丸付けと1文字見るは本物の受付係（/api/crossword-play）を通るので、遊んでいる回の記録（crossword_plays）が増える。
+// 見た数・ミス・解けた時刻は受付係の記録にしか無いので、最後に書き出す回の番号で棚を直接見て確かめる。
 // 使い方: node scripts/verify/crossword/check-reveal.mjs <サイト> <問題の番号> '<答えの配置 JSON>' <残すマス1 x,y> <残すマス2 x,y> <マス1の間違いの字>
 import { chromium } from 'playwright';
 
@@ -53,6 +55,8 @@ async function open(answers, rankingRows = []) {
   return { ctx, page, sent };
 }
 const text = (page) => page.evaluate(() => document.body.innerText);
+const tokenOf = (page) => page.evaluate((id) => JSON.parse(localStorage.getItem(`crossword_progress_${id}`) || "{}").play?.token ?? null, ID);
+const tokens = {};
 const submitName = async (page) => {
   await page.getByRole('button', { name: '載せる' }).waitFor({ timeout: 8000 });
   await page.getByPlaceholder('ニックネーム').fill('試し');
@@ -82,7 +86,8 @@ const submitName = async (page) => {
   await page.waitForTimeout(3500);
   check((await text(page)).includes('CLEARED!'), '見た字で埋まっても自動で答え合わせして終わる');
   await submitName(page);
-  check(sent.length === 1 && sent[0].reveals === 2 && sent[0].misses === 0, `見た数 2・ミス 0 で送る: ${JSON.stringify(sent.map(({ reveals, misses }) => ({ reveals, misses })))}`);
+  tokens.reveal2 = await tokenOf(page);
+  check(sent.length === 1 && sent[0].playToken === tokens.reveal2 && !('timeSeconds' in sent[0]) && !('reveals' in sent[0]), `記録は回の番号だけを送る（タイム・数は送らない）: ${JSON.stringify(sent.map((x) => Object.keys(x)))}`);
   await ctx.close();
 }
 
@@ -99,7 +104,8 @@ const submitName = async (page) => {
   await page.getByRole('button', { name: full[CELL1], exact: true }).last().click();
   await page.waitForTimeout(3500);
   await submitName(page);
-  check(sent.length === 1 && sent[0].reveals === 0 && sent[0].misses === 1, `開き直しても数が残り、見た数 0・ミス 1 で送る: ${JSON.stringify(sent.map(({ reveals, misses }) => ({ reveals, misses })))}`);
+  tokens.miss1 = await tokenOf(page);
+  check(sent.length === 1 && sent[0].playToken === tokens.miss1, '開き直しても同じ回のまま記録を送る');
   await ctx.close();
 }
 
@@ -130,5 +136,6 @@ const submitName = async (page) => {
 }
 
 await browser.close();
+console.log('回の番号（棚で確かめる）: ' + JSON.stringify(tokens));
 console.log(fail ? `NG ${fail}件` : 'すべてOK');
 process.exit(fail ? 1 : 0);
