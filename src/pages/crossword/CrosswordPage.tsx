@@ -57,7 +57,15 @@ import { C } from "./style";
 // localStorage の鍵（crossword 専用の名前）
 const HELP_KEY = "crossword_seen_help";
 const PROGRESS_PREFIX = "crossword_progress_";
-const PLAYED_PREFIX = "crossword_played_"; // 遊ばれた回数を足し済みの印
+const PLAYED_PREFIX = "crossword_played_";
+// 前回の続きを開いた時に「つづきから／はじめから」を聞くのは、前回から30分以上空いた時だけ【仮】（Hop 決定 2026-10-04）
+const RESUME_ASK_MS = 30 * 60 * 1000;
+const clock = (sec: number) => {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const ss = String(sec % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${String(m).padStart(2, "0")}:${ss}`;
+}; // 遊ばれた回数を足し済みの印
 const SAVE_COUNT_PREFIX = "crossword_save_count_";
 
 const lsGet = (k: string): string | null => {
@@ -132,6 +140,13 @@ const T = {
   } as Record<string, string>,
   // 答え合わせ・1文字見るを受付係に頼めなかった時（2026-10-04。答えを渡さない作りで足した）
   network: "通信できませんでした。もう一度お試しください。",
+  // 前回の続きを開いた時（Hop 決定 2026-10-04）【仮】
+  resume: {
+    title: "前回の続きがあります",
+    body: (t: string) => `タイムは始めた時から数えています（${t}）`,
+    cont: "つづきから",
+    restart: "はじめから",
+  },
   tooMany: "答え合わせが多すぎます。時間をおいてもう一度お試しください。",
   // 解いている途中に問題が隠された・消された時／回を始める人が多すぎる時（Hop 決定 2026-10-04）
   puzzleGone: "この問題は非表示になったか、削除されました。",
@@ -349,6 +364,8 @@ export default function CrosswordPage() {
   // （タイムは受付係の時計で「始めてから解けるまで」。画面を隠している間も進む。Hop 決定 2026-10-04）
   const playRef = useRef<{ token: string; localStart: number } | null>(null);
   const playErrorRef = useRef(""); // 回を始められなかった理由（知らせの出し分けに使う）
+  // 前回の続きを開いた時に聞く（値は始めてからの秒数）。答えるまでタイマーは動かさない
+  const [resumeAsk, setResumeAsk] = useState<number | null>(null);
   const [checking, setChecking] = useState(false);
 
   // UI States
@@ -472,7 +489,13 @@ export default function CrosswordPage() {
               if (typeof parsed.elapsedSeconds === "number") restoredElapsedRef.current = parsed.elapsedSeconds;
               if (Number.isInteger(parsed.reveals) && parsed.reveals >= 0) setReveals(parsed.reveals);
               const pl = parsed.play;
-              if (pl && typeof pl.token === "string" && typeof pl.localStart === "number") playRef.current = { token: pl.token, localStart: pl.localStart };
+              if (pl && typeof pl.token === "string" && typeof pl.localStart === "number") {
+                playRef.current = { token: pl.token, localStart: pl.localStart };
+                const savedAt = typeof parsed.savedAt === "number" ? parsed.savedAt : 0;
+                if (Date.now() - savedAt >= RESUME_ASK_MS && Object.keys(parsed.userAnswers).length > 0) {
+                  setResumeAsk(Math.max(0, Math.floor((Date.now() - pl.localStart) / 1000)));
+                }
+              }
             }
           }
         } catch (e) {
@@ -513,11 +536,19 @@ export default function CrosswordPage() {
       const hasSeenHelp = lsGet(HELP_KEY);
       if (!hasSeenHelp) {
         setShowHelp(true);
-      } else if (gamePhase === "ready") {
+      } else if (gamePhase === "ready" && resumeAsk === null) {
         beginTiming();
       }
     }
-  }, [isPlayerMode, playerPuzzle, gamePhase]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isPlayerMode, playerPuzzle, gamePhase, resumeAsk]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // はじめから: 入れた字を消して、新しい回として始める
+  const handleResumeRestart = () => {
+    setUserAnswers({});
+    setReveals(0);
+    playRef.current = null;
+    setResumeAsk(null);
+  };
 
   // 古いLocalStorageデータの自動削除（7日経過）
   useEffect(() => {
@@ -1589,6 +1620,23 @@ export default function CrosswordPage() {
         </Presence>
 
         {/* Name Entry Modal for Ranking */}
+        {resumeAsk !== null && (
+          <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: "rgba(0,0,0,0.7)" }}>
+            <Motion initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="bg-white p-6 max-w-sm w-full" style={{ boxShadow: C.modalShadow }}>
+              <h2 className="text-xl font-bold mb-2" style={{ color: C.ink }}>{T.resume.title}</h2>
+              <p className="text-sm mb-4" style={{ color: C.secondary }}>{T.resume.body(clock(resumeAsk))}</p>
+              <div className="flex gap-2">
+                <button onClick={handleResumeRestart} className="flex-1 py-2 bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.secondary }}>
+                  {T.resume.restart}
+                </button>
+                <button onClick={() => setResumeAsk(null)} className="flex-1 py-2 bg-primary hover:bg-secondary text-white font-bold transition-colors">
+                  {T.resume.cont}
+                </button>
+              </div>
+            </Motion>
+          </div>
+        )}
+
         {showNameEntry && clearTime !== null && (
           <NameEntryModal clearTime={clearTime} onSubmit={handleSubmitScore} onSkip={handleSkipScore} />
         )}
