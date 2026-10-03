@@ -2,7 +2,7 @@
 // HarmonyPalette の src/pages/PuzzleBuilderPage.tsx を土台にした移植。構造・並び・動き・文言・数値は HarmonyPalette のまま。
 // 変えた所: 見た目（docs/DESIGN.md）、アイコン（Material Symbols）、動き（framer-motion を使わず同じ式で再現）、
 // 知らせ（react-hot-toast を使わず自前）、保存先（Supabase）、持ってこない物（広告・Cookie 同意・コード進行・計測・ランキング等）、
-// 足した物（ジャンル・タグ・ヒント・降参・カタカナの ゛゜小）。
+// 足した物（ジャンル・タグ・ヒント・カタカナの ゛゜小）。
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
@@ -209,13 +209,7 @@ const GENRES: { key: Genre; label: string }[] = [
 ];
 const MAX_TAGS = 10;
 
-const dirLabel = (d: "horizontal" | "vertical") => (d === "horizontal" ? "ヨコ" : "タテ");
 const hintSummary = (h?: HintRef) => (!h ? "" : h.kind === "youtube" ? `YouTube ${formatTime(h.startSec)}` : h.url);
-const cellsOf = (item: PlacedItem) =>
-  Array.from({ length: item.length }, (_, i) => ({
-    x: item.direction === "horizontal" ? item.startX + i : item.startX,
-    y: item.direction === "vertical" ? item.startY + i : item.startY,
-  }));
 
 // 保存した中身から盤を組み直す（位置は保存時のまま。番号も同じになる）
 function recordToPuzzle(rec: PuzzleRecord): { puzzle: PuzzleData; hints: Record<string, HintRef> } {
@@ -336,11 +330,6 @@ export default function CrosswordPage() {
   const [showCloseup, setShowCloseup] = useState(false);
   const [activeCloseupIndex, setActiveCloseupIndex] = useState(0);
 
-  // 降参（案C）
-  const [surrendered, setSurrendered] = useState<string[]>([]); // 降参したカギの uuid
-  const [unsolved, setUnsolved] = useState<string[] | null>(null); // 答え合わせで合っていなかったカギ
-  const [confirmSurrender, setConfirmSurrender] = useState<string | null>(null);
-
   // タイマー関連
   const [startTime, setStartTime] = useState<number | null>(null);
   const [clearTime, setClearTime] = useState<number | null>(null);
@@ -352,7 +341,6 @@ export default function CrosswordPage() {
   // UI States
   const [showHelp, setShowHelp] = useState(false);
   const [showClearAnimation, setShowClearAnimation] = useState(false);
-  const [wrongCells, setWrongCells] = useState<Set<string>>(new Set());
   const [showCreatorHelp, setShowCreatorHelp] = useState(false);
   const [scale, setScale] = useState(1);
   const [showContact, setShowContact] = useState(false);
@@ -361,7 +349,6 @@ export default function CrosswordPage() {
   const [showNameEntry, setShowNameEntry] = useState(false);
   const [rankingRefresh, setRankingRefresh] = useState(0);
   const clearTimeRef = useRef<number | null>(null);
-  const surrenderedRef = useRef<string[]>([]);
 
   // Share Modal
   const [showShareModal, setShowShareModal] = useState(false);
@@ -415,14 +402,6 @@ export default function CrosswordPage() {
     return result;
   }, [editorItems]);
 
-  // 降参したカギのマス
-  const faintCells = useMemo(() => {
-    const s = new Set<string>();
-    if (!playerPuzzle) return s;
-    playerPuzzle.items.filter((i) => surrendered.includes(i.uuid)).forEach((i) => cellsOf(i).forEach((c) => s.add(`${c.x},${c.y}`)));
-    return s;
-  }, [playerPuzzle, surrendered]);
-
   // --- Initialization ---
   useEffect(() => {
     if (!puzzleId && !isDebugMode) return;
@@ -463,7 +442,6 @@ export default function CrosswordPage() {
             if (parsed.userAnswers && typeof parsed.userAnswers === "object") {
               setUserAnswers(parsed.userAnswers);
               if (typeof parsed.elapsedSeconds === "number") restoredElapsedRef.current = parsed.elapsedSeconds;
-              if (Array.isArray(parsed.surrendered)) setSurrendered(parsed.surrendered.filter((u: unknown) => typeof u === "string"));
             }
           }
         } catch (e) {
@@ -486,11 +464,6 @@ export default function CrosswordPage() {
     window.addEventListener("online", retry);
     return () => window.removeEventListener("online", retry);
   }, []);
-
-  // 名前入力の窓を出すかを決める時に、今の降参の状態を読む
-  useEffect(() => {
-    surrenderedRef.current = surrendered;
-  }, [surrendered]);
 
   // メンバー名・グループ名での自動判定（保存の受付係と同じ判定を先に出して知らせる）
   const detectedGroups = useMemo(
@@ -781,9 +754,9 @@ export default function CrosswordPage() {
   // Persist Progress (including elapsed time)
   useEffect(() => {
     if (playerPuzzle && gamePhase === "playing" && Object.keys(userAnswers).length > 0) {
-      lsSet(`${PROGRESS_PREFIX}${playerPuzzle.id}`, JSON.stringify({ userAnswers, elapsedSeconds, surrendered, savedAt: Date.now() }));
+      lsSet(`${PROGRESS_PREFIX}${playerPuzzle.id}`, JSON.stringify({ userAnswers, elapsedSeconds, savedAt: Date.now() }));
     }
-  }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase, surrendered]);
+  }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase]);
 
   // --- 作りかけを戻す・残す（作る画面だけ） ---
   useEffect(() => {
@@ -1073,31 +1046,15 @@ export default function CrosswordPage() {
       setStartTime(Date.now());
       setElapsedSeconds(0);
       setPausedTime(0);
-      setWrongCells(new Set());
-      setSurrendered([]);
-      setUnsolved(null);
-      setConfirmSurrender(null);
     }
   };
 
   const handleClearCheck = async () => {
     if (!playerPuzzle?.cells) return;
 
-    let allCorrect = true;
-    const wrong = new Set<string>();
-    for (const cell of playerPuzzle.cells) {
-      const userVal = userAnswers[`${cell.x},${cell.y}`];
-      if (userVal !== cell.value) {
-        allCorrect = false;
-        wrong.add(`${cell.x},${cell.y}`);
-      }
-    }
+    const allCorrect = playerPuzzle.cells.every((c) => userAnswers[`${c.x},${c.y}`] === c.value);
 
     if (allCorrect) {
-      setWrongCells(new Set());
-      setUnsolved(null);
-      setConfirmSurrender(null);
-
       // Stage 1: クリア演出開始
       setShowClearAnimation(true);
       setGamePhase("cleared");
@@ -1116,23 +1073,19 @@ export default function CrosswordPage() {
       setTimeout(() => setIsCleared(true), 1000);
 
       // Stage 4: アニメーション終了・名前入力の窓（2000ms後）
-      // 降参したカギがある回は記録しない【仮】ので、窓も出さない
       // 作った本人の端末で解いた回も記録しない（Hop 決定 2026-10-04。答えを知っている人で一番上が埋まらないように）
       setTimeout(() => {
         setShowClearAnimation(false);
         const isOwn = !!puzzleId && readMyPuzzles().some((m) => m.id === puzzleId);
-        if (puzzleId && !isOwn && clearTimeRef.current !== null && clearTimeRef.current >= 1 && surrenderedRef.current.length === 0) {
+        if (puzzleId && !isOwn && clearTimeRef.current !== null && clearTimeRef.current >= 1) {
           setShowNameEntry(true);
         }
       }, 2000);
     } else {
-      setWrongCells(wrong);
-      // 合っていないカギの一覧（降参の入口）
-      const sorted = [...playerPuzzle.items].sort((a, b) => (a.clueIndex || 0) - (b.clueIndex || 0));
-      setUnsolved(sorted.filter((i) => !surrendered.includes(i.uuid) && cellsOf(i).some((c) => wrong.has(`${c.x},${c.y}`))).map((i) => i.uuid));
-      setConfirmSurrender(null);
-      toast.error("まだ間違いがあるか、未入力のマスがあります。\n赤枠のマスを確認してください。", { duration: 5000 });
-      setTimeout(() => setWrongCells(new Set()), 3000);
+      // どこが違うかは示さない。どれが間違っているかを自分で考え直すのが楽しいので（Hop 2026-10-04。HarmonyPalette の赤枠は外した）。
+      // 文言は埋まっていないマスがあるかで分ける（Hop が任せた文言・2026-10-04）
+      const full = playerPuzzle.cells.every((c) => !!userAnswers[`${c.x},${c.y}`]);
+      toast.error(full ? "どこかに間違いがあります。" : "まだ埋まっていないマスがあります。", { duration: 4000 });
     }
   };
 
@@ -1183,32 +1136,12 @@ export default function CrosswordPage() {
     setShowNameEntry(false);
   };
 
-  // 降参: そのカギの答えをマスに入れ、薄い色で区別する
-  const handleSurrender = (uuid: string) => {
-    const item = playerPuzzle?.items.find((i) => i.uuid === uuid);
-    if (!item) return;
-    setUserAnswers((prev) => {
-      const next = { ...prev };
-      cellsOf(item).forEach((c, i) => {
-        next[`${c.x},${c.y}`] = item.answer[i];
-      });
-      return next;
-    });
-    setSurrendered((prev) => (prev.includes(uuid) ? prev : [...prev, uuid]));
-    setUnsolved((prev) => (prev ? prev.filter((u) => u !== uuid) : prev));
-    setConfirmSurrender(null);
-  };
-
   const clueList = (dir: "horizontal" | "vertical") =>
     playerPuzzle!.items.filter((i) => i.direction === dir).sort((a, b) => (a.clueIndex || 0) - (b.clueIndex || 0));
 
   // --- Render ---
 
   if (isPlayerMode && playerPuzzle) {
-    const unsolvedItems = (unsolved ?? []).map((u) => playerPuzzle.items.find((i) => i.uuid === u)).filter((i): i is PlacedItem => !!i);
-    const surrenderedItems = playerPuzzle.items
-      .filter((i) => surrendered.includes(i.uuid))
-      .sort((a, b) => (a.clueIndex || 0) - (b.clueIndex || 0));
     return (
       <div className="min-h-screen bg-surface">
         <Toaster />
@@ -1333,8 +1266,6 @@ export default function CrosswordPage() {
                         activeCell={activeCell}
                         onCellFocus={(x, y) => openCloseupForCell(x, y)}
                         onCellClick={(x, y) => openCloseupForCell(x, y)}
-                        wrongCells={wrongCells}
-                        faintCells={faintCells}
                       />
                     </FitGrid>
                   </div>
@@ -1402,47 +1333,6 @@ export default function CrosswordPage() {
                   <Button onClick={handleClearCheck} variant="primary">答え合わせ</Button>
                 </div>
 
-                {/* 合っていないカギ（答え合わせで間違い・未入力があった時だけ出る。降参の入口） */}
-                {!isCleared && unsolvedItems.length > 0 && (
-                  <div className="bg-white p-4">
-                    <h3 className="text-[0.6875rem] font-bold tracking-[0.1em] mb-2" style={{ color: C.secondary }}>合っていないカギ</h3>
-                    <ul>
-                      {unsolvedItems.map((item) => (
-                        <li key={item.uuid} className="py-2" style={{ borderTop: `1px solid ${C.ghost}` }}>
-                          {confirmSurrender === item.uuid ? (
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="flex-1 text-sm" style={{ color: C.ink }}>
-                                {item.clueIndex}（{dirLabel(item.direction)}）の答えを見る？
-                                {/* 降参すると記録されないことを、選ぶ時に知らせる（任天堂のデザイナー視点のシミュレーションで決定・2026-10-03）【仮】 */}
-                                {puzzleId && (
-                                  <span className="block text-xs mt-0.5" style={{ color: C.secondary }}>ランキングには記録されなくなります。</span>
-                                )}
-                              </span>
-                              <button onClick={() => handleSurrender(item.uuid)} className="px-3 py-1.5 text-sm font-bold bg-primary text-white hover:bg-secondary transition-colors">
-                                降参する
-                              </button>
-                              <button onClick={() => setConfirmSurrender(null)} className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.ink }}>
-                                やめる
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => focusCellByItem(item)} className="flex-1 text-left text-sm" style={{ color: C.ink }}>
-                                <span className="font-bold mr-2">{item.clueIndex}.</span>
-                                <span className="mr-2" style={{ color: C.secondary }}>{dirLabel(item.direction)}</span>
-                                {item.question}
-                              </button>
-                              <button onClick={() => setConfirmSurrender(item.uuid)} className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.ink }}>
-                                降参
-                              </button>
-                            </div>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
                 {/* Clue List */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8 bg-surface-container-low p-6">
                   {(["horizontal", "vertical"] as const).map((dir) => (
@@ -1486,32 +1376,12 @@ export default function CrosswordPage() {
                 {isCleared && (
                   <>
                     <ClearEffect />
-                    {/* 解けなかったカギ（降参したカギ） */}
-                    {surrenderedItems.length > 0 && (
-                      <div className="bg-white p-4 mt-6">
-                        <h3 className="text-[0.6875rem] font-bold tracking-[0.1em] mb-2" style={{ color: C.secondary }}>解けなかった</h3>
-                        <ul className="space-y-1">
-                          {surrenderedItems.map((item) => (
-                            <li key={item.uuid} className="text-sm" style={{ color: C.ink }}>
-                              <span className="font-bold mr-2">{item.clueIndex}.</span>
-                              <span className="mr-2" style={{ color: C.secondary }}>{dirLabel(item.direction)}</span>
-                              {item.question}
-                              <span className="ml-2 font-bold">{item.answer.join("")}</span>
-                            </li>
-                          ))}
-                        </ul>
-                        {/* 降参した回は記録しないことを知らせる（Hop 決定 2026-10-03）【仮】 */}
-                        {puzzleId && (
-                          <p className="text-xs mt-3" style={{ color: C.secondary }}>降参したカギがあるので、ランキングには記録されません。</p>
-                        )}
-                      </div>
-                    )}
-                    {/* ランキング（降参したカギがある回は今回のタイムを出さない） */}
+                    {/* ランキング */}
                     {puzzleId && (
                       <div className="mt-6">
                         <PuzzleRanking
                           puzzleId={puzzleId}
-                          currentScore={surrendered.length === 0 && clearTime !== null ? clearTime : undefined}
+                          currentScore={clearTime ?? undefined}
                           refreshKey={rankingRefresh}
                         />
                       </div>

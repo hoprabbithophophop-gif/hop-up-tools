@@ -32,7 +32,7 @@ async function solve(own) {
   await page.goto(`${BASE}/crossword`);
   await page.evaluate(({ id, answers, own }) => {
     localStorage.setItem('crossword_seen_help', 'true');
-    localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({ userAnswers: answers, elapsedSeconds: 30, surrendered: [], savedAt: Date.now() }));
+    localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({ userAnswers: answers, elapsedSeconds: 30, savedAt: Date.now() }));
     if (own) localStorage.setItem('crossword_my_puzzles', JSON.stringify([{ id, title: 't', key: 'x'.repeat(64), createdAt: 1 }]));
   }, { id: ID, answers, own });
   await page.goto(`${BASE}/crossword/${ID}`);

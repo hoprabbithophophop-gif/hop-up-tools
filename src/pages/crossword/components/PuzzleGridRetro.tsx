@@ -13,8 +13,6 @@ interface PuzzleGridRetroProps {
   onCellFocus?: (x: number, y: number) => void;
   onCellClick?: (x: number, y: number) => void;
   wrongCells?: Set<string>;
-  // 降参したカギのマス（薄い色で区別する）
-  faintCells?: Set<string>;
 }
 
 export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
@@ -25,7 +23,6 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
   onCellFocus,
   onCellClick,
   wrongCells = new Set(),
-  faintCells = new Set(),
 }) => {
   const cellSize = 48;
   const containerWidth = data.width * cellSize;
@@ -63,7 +60,6 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
           const isActive = activeCell?.x === cell.x && activeCell?.y === cell.y;
           const isRowColActive = isHighlighted(cell);
           const isWrong = wrongCells.has(cellKey);
-          const isFaint = !showSolution && faintCells.has(cellKey);
           const value = showSolution ? cell.value : userAnswers[cellKey] || "";
 
           const borderStyles = calculateBorderStyles(cell, cellsMap);
@@ -103,8 +99,8 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
                   fontSize: "1.5rem",
                   fontWeight: 900,
                   letterSpacing: "-0.02em",
-                  color: isWrong ? C.error : isFaint ? C.faint : value ? C.ink : C.placeholder,
-                  WebkitTextStroke: isActive || isFaint ? undefined : value ? "0.3px #000" : undefined,
+                  color: isWrong ? C.error : value ? C.ink : C.placeholder,
+                  WebkitTextStroke: isActive ? undefined : value ? "0.3px #000" : undefined,
                   borderTopWidth: borderStyles.top === "solid" ? "1px" : "0",
                   borderRightWidth: borderStyles.right === "solid" ? "1px" : "0",
                   borderBottomWidth: borderStyles.bottom === "solid" ? "1px" : "0",

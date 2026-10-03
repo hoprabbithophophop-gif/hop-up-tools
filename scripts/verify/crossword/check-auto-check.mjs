@@ -32,7 +32,7 @@ async function open(answers) {
   await page.goto(`${BASE}/crossword`);
   await page.evaluate(({ id, answers }) => {
     localStorage.setItem('crossword_seen_help', 'true');
-    localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({ userAnswers: answers, elapsedSeconds: 30, surrendered: [], savedAt: Date.now() }));
+    localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({ userAnswers: answers, elapsedSeconds: 30, savedAt: Date.now() }));
   }, { id: ID, answers });
   await page.goto(`${BASE}/crossword/${ID}`);
   await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
@@ -47,6 +47,10 @@ const press = (page, ch) => page.getByRole('button', { name: ch, exact: true }).
 // 1. 最後の1文字を正しく入れると、ボタンを押さずに終わる
 {
   const { ctx, page } = await open(almost);
+  await page.getByRole('button', { name: '答え合わせ' }).click();
+  await page.waitForTimeout(800);
+  check((await page.evaluate(() => document.body.innerText)).includes('まだ埋まっていないマスがあります。'), '途中で答え合わせを押すと「まだ埋まっていないマスがあります。」が出る');
+  await page.waitForTimeout(4500); // 知らせが消えるのを待つ
   await cellOf(page, '空').click();
   await press(page, LAST_CHAR);
   await page.waitForTimeout(4500);
@@ -64,7 +68,10 @@ const press = (page, ch) => page.getByRole('button', { name: ch, exact: true }).
   await press(page, WRONG_CHAR);
   await page.waitForTimeout(1200);
   const text = await page.evaluate(() => document.body.innerText);
-  check(text.includes('まだ間違いがあるか'), '間違えて埋めると、答え合わせと同じ知らせが出る');
+  check(text.includes('どこかに間違いがあります。'), '間違えて埋めると「どこかに間違いがあります。」が出る');
+  check(!text.includes('赤枠') && !text.includes('合っていないカギ') && !text.includes('降参'), 'どこが違うかは示さない（赤枠の案内・合っていないカギの一覧・降参が無い）');
+  const wrongColor = await cellOf(page, WRONG_CHAR).evaluate((el) => getComputedStyle(el).color);
+  check(wrongColor !== 'rgb(186, 26, 26)', `間違えたマスの字は赤くならない: ${wrongColor}`);
   check(!(await closeupOpen(page)), '拡大の窓は閉じて盤が見える');
   check(!(await stamped(page)), 'ハンコは出ない');
   await page.screenshot({ path: `${OUT}/auto-2-wrong.png` });
@@ -81,7 +88,7 @@ const press = (page, ch) => page.getByRole('button', { name: ch, exact: true }).
   const { ctx, page } = await open(wrongFull);
   await page.waitForTimeout(1500);
   const text = await page.evaluate(() => document.body.innerText);
-  check(!text.includes('まだ間違いがあるか') && !(await stamped(page)), '開き直しただけでは答え合わせしない');
+  check(!text.includes('どこかに間違いがあります。') && !(await stamped(page)), '開き直しただけでは答え合わせしない');
   await ctx.close();
 }
 

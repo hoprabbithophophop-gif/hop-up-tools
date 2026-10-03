@@ -18,7 +18,6 @@ export const C = {
   highlight: "#f3f4f5", // 同じ行・列
   active: "#e1e3e4", // 選んでいるマスの下地
   activeCell: "#e1e3e4", // 選んでいるマス
-  faint: "#9ca3af", // 降参して入った字【仮】
   // クリアのハンコ（DESIGN.md の例外。HarmonyPalette と同じ朱色）
   stamp: "#d9333f",
   modalShadow: "0 8px 24px rgba(0,0,0,0.12)",

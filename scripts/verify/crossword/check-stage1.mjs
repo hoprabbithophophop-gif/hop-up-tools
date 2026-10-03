@@ -17,15 +17,13 @@ const T = {
   save: '共有する',
   check: '答え合わせ',
   hint: 'ヒント',
-  giveUp: '降参',
-  giveUpYes: '降参する',
   dakuten: '゛',
   del: '削除',
   done: '決定',
   building: 'パズルを構築中',
   optimizing: '最適化中',
   clear: 'CLEAR',
-  notSolved: '解けなかった',
+  notFilled: 'まだ埋まっていないマスがあります',
 };
 
 // ひらがなで入れて、カタカナにそろうかも見る。「ボ」は文字盤の ゛ で作る
@@ -126,25 +124,13 @@ r['2 構築中の動きが出た'] = await pb.getByText(T.building).first().wait
   await pb.waitForTimeout(3000);
   r['2 開き直しても入れた答えが残る'] = (await pb.evaluate(() => document.body.innerText)).includes('ボ');
 
-  // 4. 答え合わせ → 合っていないカギの一覧 → 降参 → 確かめ → 答えが出る
+  // 4. 途中で答え合わせ → どこが違うかは示さず、埋まっていないことだけ知らせる（降参は 2026-10-04 に外した）。
+  // 全部埋めたときの自動の答え合わせとクリアの演出は check-auto-check.mjs で確かめる
   await clickText(pb, T.check);
   await pb.waitForTimeout(500);
   const afterCheck = await pb.evaluate(() => document.body.innerText);
-  r['4 答え合わせで合っていないカギの一覧が出る'] = afterCheck.includes(T.giveUp);
+  r['4 途中の答え合わせは埋まっていないことだけ知らせる'] = afterCheck.includes(T.notFilled);
   await pb.screenshot({ path: path.join(OUT, '4-check.png'), fullPage: true });
-  // 残りのカギを全部降参してクリアまで進める
-  for (let i = 0; i < WORDS.length; i++) {
-    const btn = pb.getByRole('button', { name: T.giveUp, exact: true }).first();
-    if (!(await btn.isVisible().catch(() => false))) break;
-    await btn.click();
-    await clickText(pb, T.giveUpYes);
-    await pb.waitForTimeout(300);
-  }
-  await clickText(pb, T.check);
-  r['4 全部そろうとクリアの演出が出る'] = await pb.getByText(T.clear).first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false);
-  await pb.waitForTimeout(2500);
-  await pb.screenshot({ path: path.join(OUT, '4-clear.png'), fullPage: true });
-  r['4 降参したカギが「解けなかった」と分かる'] = (await pb.evaluate(() => document.body.innerText)).includes(T.notSolved);
   await ctxB.close();
 }
 
