@@ -41,7 +41,10 @@ const errs = [];
 const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
 const browser = await chromium.launch();
 
-const fieldByLabel = (page, label) => page.getByLabel(label, { exact: false }).first();
+// 見出しと欄が仕組みの上でつながっていないので、見出しのすぐ次にある入力欄を探す。ヒントは案内の文字で探す
+const fieldByLabel = (page, label) => label === 'ヒント'
+  ? page.getByPlaceholder(/URL を貼る/).first()
+  : page.locator('xpath=//label[contains(normalize-space(.), "' + label + '")]/following-sibling::*[1]/descendant-or-self::input').first();
 const clickText = (page, text) => page.getByRole('button', { name: text, exact: false }).first().click();
 
 // ---- 1. 作る: 組み立ての動き → 保存 → URL ----
@@ -64,7 +67,9 @@ await pa.waitForTimeout(6500);
 await pa.screenshot({ path: path.join(OUT, '1-built.png'), fullPage: true });
 await clickText(pa, T.save);
 const url = await pa.waitForFunction(() => {
-  const m = document.body.innerText.match(/https?:\/\/\S+\/crossword\/[A-Za-z0-9_-]{8}/);
+  // 共有カードの URL は入力欄の中に出るので、欄の中身も合わせて探す
+  const all = document.body.innerText + ' ' + [...document.querySelectorAll('input')].map((i) => i.value).join(' ');
+  const m = all.match(/https?:\/\/\S+\/crossword\/[A-Za-z0-9_-]{8}/);
   return m ? m[0] : null;
 }, null, { timeout: 20000 }).then((h) => h.jsonValue(), () => null);
 r['1 組み立ての動きが出た'] = sawOptimizing;
@@ -76,10 +81,11 @@ await pa.getByText('ハロプロ', { exact: true }).first().click();
 await fieldByLabel(pa, 'ヒント').fill('https://youtu.be/dQw4w9WgXcQ?t=83');
 await pa.waitForTimeout(1500);
 const helloText = await pa.evaluate(() => document.body.innerText);
-r['5 ハロプロで台帳に無い YouTube を断る'] = /台帳|使えない|選べない/.test(helloText);
+r['5 ハロプロで台帳に無い YouTube を断る'] = /HELLO! VIDEO に載っている動画だけ/.test(helloText);
 await pa.getByText('その他', { exact: true }).first().click();
+await pa.waitForTimeout(500); // 切り替えで欄が空に戻るのを待ってから貼る
 await fieldByLabel(pa, 'ヒント').fill('https://youtu.be/dQw4w9WgXcQ?t=83');
-await pa.waitForTimeout(800);
+await pa.waitForTimeout(1500);
 r['5 その他で URL の時刻が欄に入る'] = await pa.locator('input').evaluateAll((els) => els.some((e) => e.value === '1:23'));
 await pa.screenshot({ path: path.join(OUT, '5-hint-picker.png'), fullPage: true });
 
@@ -89,7 +95,8 @@ if (url) {
   const pb = await ctxB.newPage();
   pb.on('pageerror', (e) => errs.push('解く画面: ' + e));
   await pb.goto(url, { waitUntil: 'domcontentloaded' });
-  r['2 構築中の動きが出た'] = await pb.getByText(T.building).first().isVisible({ timeout: 5000 }).catch(() => false);
+  // isVisible は待たないので、出るまで待つ形で見る
+r['2 構築中の動きが出た'] = await pb.getByText(T.building).first().waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false);
   await pb.waitForTimeout(2500);
   // 初回の遊び方を閉じる
   await pb.getByRole('button', { name: /始める|はじめる|閉じる/ }).first().click().catch(() => {});
@@ -99,9 +106,9 @@ if (url) {
   r['2 タイマーが進む'] = Boolean(t1 && t2 && t1 !== t2);
   await pb.screenshot({ path: path.join(OUT, '2-play.png'), fullPage: true });
 
-  // カギの一覧から「ハロウィン」のカギを開いて、文字盤で カ ホ ゛ チ ャ と入れる
+  // カギの一覧から「ハロウィン」のカギを開いて、文字盤で カ ゛ボ チ 小ャ と入れる（HarmonyPalette と同じく、空きマスでは ゛ や 小 を先に押すと、文字盤の字が濁った字・小さい字の表示に変わる）
   await pb.getByText(WORDS[0].clue).first().click();
-  for (const k of ['カ', 'ホ', T.dakuten, 'チ', 'ヤ', '小']) await pb.getByRole('button', { name: k, exact: true }).first().click();
+  for (const k of ['カ', T.dakuten, 'ボ', 'チ', '小', 'ャ']) await pb.getByRole('button', { name: k, exact: true }).first().click();
   const cardText = await pb.evaluate(() => document.body.innerText);
   r['2 文字盤でカタカナと濁点・小さい字が入る'] = cardText.includes('ボ') && cardText.includes('ャ');
 
@@ -134,7 +141,7 @@ if (url) {
     await pb.waitForTimeout(300);
   }
   await clickText(pb, T.check);
-  r['4 全部そろうとクリアの演出が出る'] = await pb.getByText(T.clear).first().isVisible({ timeout: 4000 }).catch(() => false);
+  r['4 全部そろうとクリアの演出が出る'] = await pb.getByText(T.clear).first().waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false);
   await pb.waitForTimeout(2500);
   await pb.screenshot({ path: path.join(OUT, '4-clear.png'), fullPage: true });
   r['4 降参したカギが「解けなかった」と分かる'] = (await pb.evaluate(() => document.body.innerText)).includes(T.notSolved);

@@ -13,12 +13,22 @@ import type { PuzzleData, PuzzleItem, PlacedItem } from "../../lib/crossword/typ
 import { toCells } from "../../lib/crossword/cells";
 import { determineNextSelection } from "../../lib/crossword/puzzleSelectionLogic";
 import {
+  addMyPuzzle,
+  addPlay,
+  deletePuzzle,
   isCatalogVideo,
+  isHiddenPuzzle,
+  loadPlayCounts,
   loadPuzzle,
+  makeOwnerKey,
+  readMyPuzzles,
+  removeMyPuzzle,
   savePuzzle,
+  SaveError,
   toBody,
   type Genre,
   type HintRef,
+  type MyPuzzle,
   type PuzzleRecord,
 } from "../../lib/crossword/puzzleStore";
 import { formatTime } from "../../lib/crossword/youtubeUrl";
@@ -32,6 +42,7 @@ import { PuzzleCloseupModal } from "./components/PuzzleCloseupModal";
 import { HintField } from "./components/HintField";
 import { Motion, Presence } from "./components/Motion";
 import { Toaster, toast } from "./components/Toast";
+import { SaveCheckModal } from "./components/SaveCheckModal";
 import { C } from "./style";
 
 // localStorage の鍵（crossword 専用の名前）
@@ -78,8 +89,28 @@ const T = {
   errors: {
     noTitle: "タイトルを入力してください",
     loadFailed: "パズルの読み込みに失敗しました",
+    puzzleHidden: "このパズルは運営により非表示にされています",
     loadError: "パズルデータが不正です",
     saveFailed: "パズルの保存に失敗しました",
+  },
+  // 受付係が断った理由ごとの知らせ【仮】。ここに無い理由は errors.saveFailed
+  saveReasons: {
+    too_many: "保存が集中しています。時間をおいてもう一度お試しください。",
+    verification: "確認に失敗しました。ページを再読み込みしてお試しください。",
+    video: "ハロプロのヒントに使える YouTube は、HELLO! VIDEO に載っている動画だけです。",
+    bad_request: "内容をご確認のうえ、もう一度お試しください。",
+  } as Record<string, string>,
+  // 自分が作った問題【仮】
+  myPuzzles: {
+    title: "自分が作った問題",
+    plays: "遊ばれた回数",
+    unavailable: "表示できません",
+    open: "開く",
+    delete: "削除",
+    confirm: "消す？",
+    confirmYes: "消す",
+    confirmNo: "やめる",
+    deleteFailed: "削除できませんでした",
   },
   shareModal: {
     modalTitle: "パズルを共有",
@@ -304,6 +335,13 @@ export default function CrosswordPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const [sharedTitle, setSharedTitle] = useState("");
+  const [showSaveCheck, setShowSaveCheck] = useState(false); // 保存の直前の Turnstile
+
+  // 自分が作った問題（この端末の localStorage）と遊ばれた回数
+  const [myPuzzles, setMyPuzzles] = useState<MyPuzzle[]>(() => (isPlayerMode ? [] : readMyPuzzles()));
+  const [playCounts, setPlayCounts] = useState<Record<string, number> | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // ページ移動の波は、問題が届くまで（または届かないと分かるまで）待ってもらう
   usePageReady(loadState === "done");
@@ -366,8 +404,15 @@ export default function CrosswordPage() {
       if (isDebugMode) loaded = { puzzle: DEBUG_MOCK_PUZZLE, hints: { "1": { kind: "youtube", videoId: "dQw4w9WgXcQ", startSec: 83 }, "2": { kind: "link", url: "https://example.com/" } } };
       else try {
         const rec = await loadPuzzle(puzzleId!);
-        if (!rec) failMessage = T.errors.loadFailed;
-        else loaded = recordToPuzzle(rec);
+        if (!rec) {
+          // 読めなかったときだけ、運営に隠された問題かを聞く（聞けなければ今まで通りの知らせ）
+          const hidden = await isHiddenPuzzle(puzzleId!).catch(() => false);
+          failMessage = hidden ? T.errors.puzzleHidden : T.errors.loadFailed;
+        } else {
+          loaded = recordToPuzzle(rec);
+          // 遊ばれた回数を1足す（HarmonyPalette の incrementPlayCount と同じ時機。失敗しても止めない）
+          addPlay(rec.id).catch((err) => console.warn("Play count increment failed:", err));
+        }
       } catch (error) {
         console.error("Failed to load puzzle:", error);
         failMessage = T.errors.loadError;
@@ -402,6 +447,43 @@ export default function CrosswordPage() {
       alive = false;
     };
   }, [puzzleId, isDebugMode]);
+
+  // 自分が作った問題の遊ばれた回数を読む（作る画面だけ）
+  const myPuzzleIds = myPuzzles.map((m) => m.id).join(",");
+  useEffect(() => {
+    if (isPlayerMode || !myPuzzleIds) return;
+    let alive = true;
+    setPlayCounts(null); // 読み終わるまでは空欄（新しく足した問題を「表示できません」と見せないため）
+    loadPlayCounts(myPuzzleIds.split(","))
+      .then((c) => {
+        if (alive) setPlayCounts(c);
+      })
+      .catch((err) => {
+        console.warn("Failed to load play counts:", err);
+        if (alive) setPlayCounts({});
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isPlayerMode, myPuzzleIds]);
+
+  const handleDeleteMine = async (m: MyPuzzle) => {
+    setDeletingId(m.id);
+    try {
+      const ok = await deletePuzzle(m.id, m.key);
+      if (ok) {
+        setMyPuzzles(removeMyPuzzle(m.id));
+        setConfirmDelete(null);
+      } else {
+        toast.error(T.myPuzzles.deleteFailed);
+      }
+    } catch (err) {
+      console.error("Failed to delete puzzle:", err);
+      toast.error(T.myPuzzles.deleteFailed);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   // 初回ヘルプ表示判定 + タイマー自動開始（遊び方を読んだことがあれば、問題が出たらすぐ始める）
   useEffect(() => {
@@ -818,12 +900,41 @@ export default function CrosswordPage() {
         }
         if (ng.length > 0) {
           toast.error(`ハロプロのヒントに使える YouTube は、HELLO! VIDEO に載っている動画だけです。\n（${ng.join("、")}）`, { duration: 5000 });
+          setIsSaving(false);
           return;
         }
       }
+    } catch (error) {
+      console.error("Failed to save puzzle:", error);
+      toast.error(T.errors.saveFailed);
+      setIsSaving(false);
+      return;
+    }
+    // 保存の直前に人間かどうかを確かめる。済んだら saveWithToken へ続く
+    setShowSaveCheck(true);
+  };
+
+  const cancelSaveCheck = () => {
+    setShowSaveCheck(false);
+    setIsSaving(false);
+  };
+
+  const saveWithToken = async (token: string, website: string) => {
+    setShowSaveCheck(false);
+    if (!generatedPuzzle) {
+      setIsSaving(false);
+      return;
+    }
+    const today = new Date().toISOString().split("T")[0];
+    const limitKey = `${SAVE_COUNT_PREFIX}${today}`;
+    const savedCount = parseInt(lsGet(limitKey) || "0", 10);
+    const title = puzzleTitle.trim();
+    try {
       const body = toBody(generatedPuzzle.items, generatedPuzzle.width, generatedPuzzle.height, (id) => hints[id]);
       if (creatorName.trim()) body.creatorName = creatorName.trim();
-      const id = await savePuzzle({ title, genre, tags, body });
+      const key = makeOwnerKey();
+      const id = await savePuzzle({ title, genre, tags, body }, { key, token, website });
+      setMyPuzzles(addMyPuzzle({ id, title, key, createdAt: Date.now() }));
       const url = `${window.location.origin}/crossword/${id}`;
       setShareUrl(url);
       setSharedTitle(title);
@@ -831,7 +942,8 @@ export default function CrosswordPage() {
       lsSet(limitKey, String(savedCount + 1));
     } catch (error) {
       console.error("Failed to save puzzle:", error);
-      toast.error(T.errors.saveFailed);
+      const reason = error instanceof SaveError ? error.reason : "";
+      toast.error(T.saveReasons[reason] ?? T.errors.saveFailed, { duration: 5000 });
     } finally {
       setIsSaving(false);
     }
@@ -1294,7 +1406,7 @@ export default function CrosswordPage() {
           )}
         </Presence>
 
-        {showContact && <ContactModal onClose={() => setShowContact(false)} />}
+        {showContact && <ContactModal onClose={() => setShowContact(false)} initialTool="crossword" puzzleId={puzzleId} />}
 
         <Footer bottomGap={!isCleared && !showCloseup} />
       </div>
@@ -1542,7 +1654,74 @@ export default function CrosswordPage() {
               </div>
             </div>
           </div>
+
+          {/* 自分が作った問題（この端末で作った問題だけ） */}
+          {myPuzzles.length > 0 && (
+            <div className="bg-white p-6 mt-6">
+              <h2 className="text-base font-semibold mb-4 flex items-center gap-2 pb-2" style={{ color: C.ink }}>
+                {T.myPuzzles.title}
+              </h2>
+              <ul>
+                {[...myPuzzles].sort((a, b) => b.createdAt - a.createdAt).map((m) => {
+                  const count = playCounts?.[m.id];
+                  const known = playCounts !== null;
+                  return (
+                    <li key={m.id} className="py-3" style={{ borderTop: `1px solid ${C.ghost}` }}>
+                      {confirmDelete === m.id ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="flex-1 min-w-0 text-sm truncate" style={{ color: C.ink }}>
+                            「{m.title}」{T.myPuzzles.confirm}
+                          </span>
+                          <button
+                            onClick={() => handleDeleteMine(m)}
+                            disabled={deletingId === m.id}
+                            className="px-3 py-1.5 text-sm font-bold bg-primary text-white hover:bg-secondary transition-colors disabled:opacity-50"
+                          >
+                            {T.myPuzzles.confirmYes}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(null)}
+                            disabled={deletingId === m.id}
+                            className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors disabled:opacity-50"
+                            style={{ color: C.ink }}
+                          >
+                            {T.myPuzzles.confirmNo}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-bold truncate" style={{ color: C.ink }}>{m.title}</div>
+                            <div className="text-xs" style={{ color: C.secondary }}>
+                              {!known ? "" : count === undefined ? T.myPuzzles.unavailable : `${T.myPuzzles.plays} ${count}`}
+                            </div>
+                          </div>
+                          <Link
+                            to={`/crossword/${m.id}`}
+                            className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors shrink-0"
+                            style={{ color: C.ink }}
+                          >
+                            {T.myPuzzles.open}
+                          </Link>
+                          <button
+                            onClick={() => setConfirmDelete(m.id)}
+                            className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors shrink-0"
+                            style={{ color: C.ink }}
+                          >
+                            {T.myPuzzles.delete}
+                          </button>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
         </div>
+
+        {/* 保存の直前の確認（Turnstile） */}
+        {showSaveCheck && <SaveCheckModal onPass={saveWithToken} onClose={cancelSaveCheck} />}
 
         {/* Share Modal */}
         {showShareModal && (

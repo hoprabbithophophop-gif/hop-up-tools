@@ -1,4 +1,3 @@
-import { nanoid } from "nanoid";
 import { getSupabase } from "../supabase";
 import type { PlacedItem } from "./types";
 
@@ -64,12 +63,35 @@ export const toBody = (
   })),
 });
 
-export async function savePuzzle(p: NewPuzzle): Promise<string> {
-  const id = nanoid(8);
-  const { error } = await getSupabase().from("crossword_puzzles").insert({ id, ...p });
-  if (error) throw error;
-  return id;
+// 保存は受付係（/api/crossword-save）を通す。棚へ直接は入れられない
+export class SaveError extends Error {
+  constructor(public reason: string) {
+    super(`save failed: ${reason}`);
+  }
 }
+
+export async function savePuzzle(
+  p: NewPuzzle,
+  opts: { key: string; token: string; website: string }
+): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch("/api/crossword-save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ puzzle: { ...p, key: opts.key }, token: opts.token, website: opts.website }),
+    });
+  } catch {
+    throw new SaveError("network");
+  }
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: unknown; reason?: unknown };
+  if (res.ok && data.ok && typeof data.id === "string") return data.id;
+  throw new SaveError(typeof data.reason === "string" ? data.reason : "server");
+}
+
+// 削除用の合言葉。32 バイトの乱数を16進64字にする（受付係には sha256 だけが残る）
+export const makeOwnerKey = (): string =>
+  Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("");
 
 export async function loadPuzzle(id: string): Promise<PuzzleRecord | null> {
   const { data, error } = await getSupabase()
@@ -111,4 +133,79 @@ export async function searchCatalogVideos(query: string, limit = 10): Promise<Ca
     .limit(limit);
   if (error) throw error;
   return (data as CatalogVideo[] | null) ?? [];
+}
+
+// 遊ばれた回数を1足す。失敗しても遊ぶのは止めない
+export async function addPlay(id: string): Promise<void> {
+  const { error } = await getSupabase().rpc("crossword_add_play", { p_id: id });
+  if (error) throw error;
+}
+
+// 運営に隠された問題かどうか（中身は返らない）
+export async function isHiddenPuzzle(id: string): Promise<boolean> {
+  const { data, error } = await getSupabase().rpc("crossword_is_hidden", { p_id: id });
+  if (error) throw error;
+  return data === true;
+}
+
+// 合言葉が合えば消す。合わなければ false
+export async function deletePuzzle(id: string, key: string): Promise<boolean> {
+  const { data, error } = await getSupabase().rpc("crossword_delete", { p_id: id, p_key: key });
+  if (error) throw error;
+  return data === true;
+}
+
+// 自分が作った問題の遊ばれた回数。隠された・消された問題は返ってこない（その id は含まれない）
+export async function loadPlayCounts(ids: string[]): Promise<Record<string, number>> {
+  if (ids.length === 0) return {};
+  const { data, error } = await getSupabase().from("crossword_puzzles").select("id,play_count").in("id", ids);
+  if (error) throw error;
+  const out: Record<string, number> = {};
+  for (const r of (data as { id: string; play_count: number }[] | null) ?? []) out[r.id] = r.play_count;
+  return out;
+}
+
+// --- 自分が作った問題（この端末の localStorage だけに置く） ---
+export interface MyPuzzle {
+  id: string;
+  title: string;
+  key: string;
+  createdAt: number;
+}
+
+const MY_PUZZLES_KEY = "crossword_my_puzzles";
+
+export function readMyPuzzles(): MyPuzzle[] {
+  try {
+    const raw = localStorage.getItem(MY_PUZZLES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (m): m is MyPuzzle =>
+        !!m && typeof m.id === "string" && typeof m.title === "string" && typeof m.key === "string" && typeof m.createdAt === "number"
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writeMyPuzzles(list: MyPuzzle[]): void {
+  try {
+    localStorage.setItem(MY_PUZZLES_KEY, JSON.stringify(list));
+  } catch {
+    /* 置けなくても保存そのものは済んでいる */
+  }
+}
+
+export function addMyPuzzle(m: MyPuzzle): MyPuzzle[] {
+  const list = [...readMyPuzzles().filter((x) => x.id !== m.id), m];
+  writeMyPuzzles(list);
+  return list;
+}
+
+export function removeMyPuzzle(id: string): MyPuzzle[] {
+  const list = readMyPuzzles().filter((x) => x.id !== id);
+  writeMyPuzzles(list);
+  return list;
 }

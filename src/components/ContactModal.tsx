@@ -25,6 +25,7 @@ const TOOLS = [
   { key: "hi-tension", label: "ハイ！テンション" },
   { key: "arigato-beat", label: "ありがとビート" },
   { key: "hai-to-diamond", label: "灰toダイヤモンド #銀河to銀河届けよ" },
+  { key: "crossword", label: "クロスワード" },
   { key: "site", label: "サイト全体" },
 ];
 
@@ -80,7 +81,8 @@ const field: React.CSSProperties = {
   fontFamily: "inherit",
 };
 
-export default function ContactModal({ onClose, initialTool }: { onClose: () => void; initialTool?: string }) {
+// puzzleId: クロスワードの解く画面から開いたときの問題の番号。対象がクロスワードのときだけ一緒に送る。
+export default function ContactModal({ onClose, initialTool, puzzleId }: { onClose: () => void; initialTool?: string; puzzleId?: string }) {
   const [kind, setKind] = useState("");
   const [tool, setTool] = useState(initialTool ?? "");
   const [content, setContent] = useState("");
@@ -136,7 +138,10 @@ export default function ContactModal({ onClose, initialTool }: { onClose: () => 
       const res = await fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, tool, content, replyTo, website, token }),
+        body: JSON.stringify({
+          kind, tool, content, replyTo, website, token,
+          ...(tool === "crossword" && puzzleId ? { puzzleId } : {}),
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string };
       if (res.ok && data.ok) setSent(true);
@@ -187,6 +192,13 @@ export default function ContactModal({ onClose, initialTool }: { onClose: () => 
           ))}
         </select>
       </div>
+
+      {tool === "crossword" && puzzleId && (
+        <div>
+          <p style={label}>問題の番号</p>
+          <input value={puzzleId} readOnly style={{ ...field, color: "#585f6c" }} />
+        </div>
+      )}
 
       <div>
         <p style={label}>内容</p>
