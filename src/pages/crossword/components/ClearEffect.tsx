@@ -51,22 +51,10 @@ export const ClearEffect: React.FC = () => {
         <div className="text-center">
           <div className="border-t-2 border-dashed mb-2 opacity-50" style={{ borderColor: stampColor }} />
 
+          {/* 文字は CLEARED! だけ（Hop 決定 2026-10-04。HarmonyPalette の Congratulations と APPROVED の札は外した） */}
           <h2 className="text-5xl md:text-7xl font-black tracking-tighter uppercase">CLEARED!</h2>
 
-          <div className="my-2 flex items-center justify-center gap-2 text-sm font-bold uppercase tracking-widest">
-            <span>★</span>
-            <span>Congratulations</span>
-            <span>★</span>
-          </div>
-
           <div className="border-b-2 border-dashed mt-2 opacity-50" style={{ borderColor: stampColor }} />
-
-          <div
-            className="absolute -bottom-4 -right-4 bg-white border-2 text-xs font-bold px-2 py-1 transform rotate-12"
-            style={{ borderColor: stampColor, color: stampColor }}
-          >
-            APPROVED
-          </div>
         </div>
       </Motion>
 
