@@ -16,6 +16,8 @@ const KINDS = [
   { key: "request", label: "要望" },
   { key: "question", label: "質問" },
 ];
+// クロスワードの通報のリンクから開いたときだけ出し、最初から選んでおく
+const REPORT_KIND = { key: "report", label: "通報" };
 
 const TOOLS = [
   { key: "", label: "選択しない" },
@@ -83,7 +85,8 @@ const field: React.CSSProperties = {
 
 // puzzleId: クロスワードの解く画面から開いたときの問題の番号。対象がクロスワードのときだけ一緒に送る。
 export default function ContactModal({ onClose, initialTool, puzzleId }: { onClose: () => void; initialTool?: string; puzzleId?: string }) {
-  const [kind, setKind] = useState("");
+  const kinds = puzzleId ? [...KINDS, REPORT_KIND] : KINDS;
+  const [kind, setKind] = useState(puzzleId ? REPORT_KIND.key : "");
   const [tool, setTool] = useState(initialTool ?? "");
   const [content, setContent] = useState("");
   const [replyTo, setReplyTo] = useState("");
@@ -167,7 +170,7 @@ export default function ContactModal({ onClose, initialTool, puzzleId }: { onClo
       <div>
         <p style={label}>種類</p>
         <div style={{ display: "flex", gap: 2 }}>
-          {KINDS.map((k) => (
+          {kinds.map((k) => (
             <button
               key={k.key}
               onClick={() => setKind(k.key)}

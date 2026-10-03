@@ -35,6 +35,8 @@ const KIND_LABEL: Record<string, string> = {
   bug: "バグ",
   request: "要望",
   question: "質問",
+  // クロスワードの通報のリンクから開いたときだけ使う。問題の番号が無ければ受け付けない
+  report: "通報",
 };
 const TOOLS = ["fc-ticket", "youtube", "the-ballad", "hi-tension", "arigato-beat", "hai-to-diamond", "crossword", "site"];
 /** クロスワードの問題の番号の形（crossword_puzzles.id と同じ）。 */
@@ -125,6 +127,7 @@ export async function onRequestPost(context: {
     tool === "crossword" && typeof body.puzzleId === "string" && CROSSWORD_ID_RE.test(body.puzzleId)
       ? body.puzzleId
       : null;
+  if (kind === "report" && !puzzleId) return json({ ok: false, reason: "bad_request" }, 400);
 
   const content = sanitize(body.content, MAX_CONTENT);
   if (content === "") return json({ ok: false, reason: "bad_request" }, 400);
@@ -191,7 +194,7 @@ export async function onRequestPost(context: {
 
   // クロスワードの通報。別々の3人分そろうと DB のトリガで問題が隠れる。
   // 同じ人の2回目（unique）や、もう消された問題（参照先なし）に当たったら黙って無視する。
-  if (puzzleId) {
+  if (kind === "report" && puzzleId) {
     try {
       const reporterHash = await sha256Hex(`crossword-report:${ip}:${env.TURNSTILE_SECRET}`);
       const res = await fetch(`${rest}/crossword_reports`, {
@@ -244,7 +247,7 @@ async function notifyDiscord(
   msg: { kind: string; tool: string | null; content: string; replyTo: string; puzzleId?: string | null },
 ): Promise<boolean> {
   const head = [
-    "✉️ **お問い合わせ（トップ）**",
+    msg.kind === "report" ? "✉️ **通報（クロスワード）**" : "✉️ **お問い合わせ（トップ）**",
     `種類: ${KIND_LABEL[msg.kind]}${msg.tool ? ` / 対象: ${msg.tool}` : ""}${msg.puzzleId ? ` / 問題: ${msg.puzzleId}` : ""}`,
     GUARD,
   ].join("\n");
