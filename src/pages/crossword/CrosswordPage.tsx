@@ -15,14 +15,11 @@ import { determineNextSelection } from "../../lib/crossword/puzzleSelectionLogic
 import {
   addMyPuzzle,
   addPlay,
-  deletePuzzle,
   isCatalogVideo,
   isHiddenPuzzle,
-  loadPlayCounts,
   loadPuzzle,
   makeOwnerKey,
   readMyPuzzles,
-  removeMyPuzzle,
   savePuzzle,
   SaveError,
   toBody,
@@ -133,14 +130,6 @@ const T = {
   // 自分が作った問題【仮】
   myPuzzles: {
     title: "自分が作った問題",
-    plays: "遊ばれた回数",
-    unavailable: "非表示になっています",
-    open: "開く",
-    delete: "削除",
-    confirm: "消す？",
-    confirmYes: "消す",
-    confirmNo: "やめる",
-    deleteFailed: "削除できませんでした",
   },
   shareModal: {
     modalTitle: "パズルを共有",
@@ -380,11 +369,8 @@ export default function CrosswordPage() {
   const [sharedTitle, setSharedTitle] = useState("");
   const [showSaveCheck, setShowSaveCheck] = useState(false); // 保存の直前の Turnstile
 
-  // 自分が作った問題（この端末の localStorage）と遊ばれた回数
+  // 自分が作った問題（この端末の localStorage）
   const [myPuzzles, setMyPuzzles] = useState<MyPuzzle[]>(() => (isPlayerMode ? [] : readMyPuzzles()));
-  const [playCounts, setPlayCounts] = useState<Record<string, number> | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // ページ移動の波は、問題が届くまで（または届かないと分かるまで）待ってもらう
   usePageReady(loadState === "done");
@@ -517,43 +503,6 @@ export default function CrosswordPage() {
       }),
     [puzzleTitle, editorItems]
   );
-
-  // 自分が作った問題の遊ばれた回数を読む（作る画面だけ）
-  const myPuzzleIds = myPuzzles.map((m) => m.id).join(",");
-  useEffect(() => {
-    if (isPlayerMode || !myPuzzleIds) return;
-    let alive = true;
-    setPlayCounts(null); // 読み終わるまでは空欄（新しく足した問題を「表示できません」と見せないため）
-    loadPlayCounts(myPuzzleIds.split(","))
-      .then((c) => {
-        if (alive) setPlayCounts(c);
-      })
-      .catch((err) => {
-        console.warn("Failed to load play counts:", err);
-        if (alive) setPlayCounts({});
-      });
-    return () => {
-      alive = false;
-    };
-  }, [isPlayerMode, myPuzzleIds]);
-
-  const handleDeleteMine = async (m: MyPuzzle) => {
-    setDeletingId(m.id);
-    try {
-      const ok = await deletePuzzle(m.id, m.key);
-      if (ok) {
-        setMyPuzzles(removeMyPuzzle(m.id));
-        setConfirmDelete(null);
-      } else {
-        toast.error(T.myPuzzles.deleteFailed);
-      }
-    } catch (err) {
-      console.error("Failed to delete puzzle:", err);
-      toast.error(T.myPuzzles.deleteFailed);
-    } finally {
-      setDeletingId(null);
-    }
-  };
 
   // 初回ヘルプ表示判定 + タイマー自動開始（遊び方を読んだことがあれば、問題が出たらすぐ始める）
   useEffect(() => {
@@ -921,18 +870,18 @@ export default function CrosswordPage() {
   };
 
   // カギの欄の、今の文字の位置に「○」を入れる（Hop 依頼 2026-10-03。「音大卒○○○の伝道師」のような穴あきのカギ用）
+  // 押しても欄の選ばれ方を変えない（2026-10-03「○を押すたびに入力が出入りする」）。
+  // 欄を選んでいる最中なら文字の位置に、選んでいなければ末尾に入れる。キーボードは出し入れしない
   const insertMaru = () => {
     const el = clueInputRef.current;
     const q = currentInput.q;
-    const start = el?.selectionStart ?? q.length;
-    const end = el?.selectionEnd ?? q.length;
+    const active = !!el && document.activeElement === el;
+    const start = active ? el.selectionStart ?? q.length : q.length;
+    const end = active ? el.selectionEnd ?? q.length : q.length;
     const next = q.slice(0, start) + "○" + q.slice(end);
     setCurrentInput({ ...currentInput, q: next });
-    requestAnimationFrame(() => {
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(start + 1, start + 1);
-    });
+    if (!active) return;
+    requestAnimationFrame(() => el.setSelectionRange(start + 1, start + 1));
   };
 
   const handleRemoveItem = (itemId: string) => {
@@ -1659,10 +1608,16 @@ export default function CrosswordPage() {
         </div>
 
         {/* 一覧への入口【仮】 */}
-        <div className="flex justify-center mb-6">
+        <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 mb-6">
           <Link to="/crossword/list" className="text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
             {T.stage2b.toList} <span aria-hidden="true">→</span>
           </Link>
+          {/* 自分が作った問題は別の画面（/crossword/mine【仮】）。この端末で作った問題があるときだけ出す */}
+          {myPuzzles.length > 0 && (
+            <Link to="/crossword/mine" className="text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
+              {T.myPuzzles.title} <span aria-hidden="true">→</span>
+            </Link>
+          )}
         </div>
 
         {/* ジャンル（HarmonyPalette の文字/コードの切り替えがあった場所） */}
@@ -1763,7 +1718,7 @@ export default function CrosswordPage() {
                       className={`${inputClass} flex-1 min-w-0`}
                     />
                     {/* 穴あきのカギ用。今の文字の位置に「○」を1つ入れる */}
-                    <button type="button" onClick={insertMaru} className="px-4 bg-surface-container-high hover:bg-surface-container-highest font-bold transition-colors" style={{ color: C.ink }} aria-label="○を入れる">
+                    <button type="button" onPointerDown={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()} onClick={insertMaru} className="px-4 bg-surface-container-high hover:bg-surface-container-highest font-bold transition-colors" style={{ color: C.ink }} aria-label="○を入れる">
                       ○
                     </button>
                   </div>
@@ -1913,70 +1868,6 @@ export default function CrosswordPage() {
               </div>
             </div>
           </div>
-
-          {/* 自分が作った問題（この端末で作った問題だけ） */}
-          {myPuzzles.length > 0 && (
-            <div className="bg-white p-6 mt-6">
-              <h2 className="text-base font-semibold mb-4 flex items-center gap-2 pb-2" style={{ color: C.ink }}>
-                {T.myPuzzles.title}
-              </h2>
-              <ul>
-                {[...myPuzzles].sort((a, b) => b.createdAt - a.createdAt).map((m) => {
-                  const count = playCounts?.[m.id];
-                  const known = playCounts !== null;
-                  return (
-                    <li key={m.id} className="py-3" style={{ borderTop: `1px solid ${C.ghost}` }}>
-                      {confirmDelete === m.id ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="flex-1 min-w-0 text-sm truncate" style={{ color: C.ink }}>
-                            「{m.title}」{T.myPuzzles.confirm}
-                          </span>
-                          <button
-                            onClick={() => handleDeleteMine(m)}
-                            disabled={deletingId === m.id}
-                            className="px-3 py-1.5 text-sm font-bold bg-primary text-white hover:bg-secondary transition-colors disabled:opacity-50"
-                          >
-                            {T.myPuzzles.confirmYes}
-                          </button>
-                          <button
-                            onClick={() => setConfirmDelete(null)}
-                            disabled={deletingId === m.id}
-                            className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors disabled:opacity-50"
-                            style={{ color: C.ink }}
-                          >
-                            {T.myPuzzles.confirmNo}
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-bold truncate" style={{ color: C.ink }}>{m.title}</div>
-                            <div className="text-xs" style={{ color: C.secondary }}>
-                              {!known ? "" : count === undefined ? T.myPuzzles.unavailable : `${T.myPuzzles.plays} ${count}`}
-                            </div>
-                          </div>
-                          <Link
-                            to={`/crossword/${m.id}`}
-                            className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors shrink-0"
-                            style={{ color: C.ink }}
-                          >
-                            {T.myPuzzles.open}
-                          </Link>
-                          <button
-                            onClick={() => setConfirmDelete(m.id)}
-                            className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors shrink-0"
-                            style={{ color: C.ink }}
-                          >
-                            {T.myPuzzles.delete}
-                          </button>
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
         </div>
 
         {/* 保存の直前の確認（Turnstile） */}
