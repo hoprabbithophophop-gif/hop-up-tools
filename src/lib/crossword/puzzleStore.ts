@@ -160,10 +160,16 @@ export async function isHiddenPuzzle(id: string): Promise<boolean> {
 }
 
 // 合言葉が合えば消す。合わなければ false
+// 問題と一緒にシェア画像も消すため、秘密の鍵を持つ受付係（/api/crossword-delete）を通す
 export async function deletePuzzle(id: string, key: string): Promise<boolean> {
-  const { data, error } = await getSupabase().rpc("crossword_delete", { p_id: id, p_key: key });
-  if (error) throw error;
-  return data === true;
+  const res = await fetch("/api/crossword-delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, key }),
+  });
+  const data = (await res.json().catch(() => null)) as { ok?: boolean; deleted?: boolean } | null;
+  if (!res.ok || !data?.ok) throw new Error(`crossword-delete failed: ${res.status}`);
+  return data.deleted === true;
 }
 
 // 自分が作った問題の遊ばれた回数。隠された・消された問題は返ってこない（その id は含まれない）
