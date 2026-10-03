@@ -33,7 +33,7 @@ async function open(savedAgoMs, startedAgoMs) {
   return { ctx, page };
 }
 const text = (page) => page.evaluate(() => document.body.innerText);
-const timer = (page) => page.evaluate(() => (document.body.innerText.match(/\b\d{1,2}:\d{2}(:\d{2})?\b/) || [''])[0]);
+const timer = (page) => page.evaluate(() => (document.querySelector('header')?.innerText.match(/\d+:\d{2}/) || [''])[0]);
 
 // 1. 前回から2時間空いた → 聞かれる。つづきから → 字もタイムもそのまま
 {
@@ -48,7 +48,7 @@ const timer = (page) => page.evaluate(() => (document.body.innerText.match(/\b\d
   await page.waitForTimeout(1500);
   check(!(await text(page)).includes('前回の続きがあります'), '1 つづきからで窓が閉じる');
   check((await page.getByRole('button', { name: '1行5列: ダ' }).count()) === 1, '1 入れた字は残る');
-  check(/^[2-9]:\d{2}:\d{2}$|^1\d{2}:\d{2}$/.test(await timer(page)) || (await timer(page)).startsWith('120:'), `1 タイマーは始めた時から: ${await timer(page)}`);
+  check(/^12\d:\d{2}$/.test(await timer(page)), `1 タイマーは始めた時から（2時間＝120分）: ${await timer(page)}`);
   await ctx.close();
 }
 // 2. はじめから → 字が消えて、タイマーは0から
