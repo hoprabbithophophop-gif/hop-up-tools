@@ -1117,9 +1117,11 @@ export default function CrosswordPage() {
 
       // Stage 4: アニメーション終了・名前入力の窓（2000ms後）
       // 降参したカギがある回は記録しない【仮】ので、窓も出さない
+      // 作った本人の端末で解いた回も記録しない（Hop 決定 2026-10-04。答えを知っている人で一番上が埋まらないように）
       setTimeout(() => {
         setShowClearAnimation(false);
-        if (puzzleId && clearTimeRef.current !== null && clearTimeRef.current >= 1 && surrenderedRef.current.length === 0) {
+        const isOwn = !!puzzleId && readMyPuzzles().some((m) => m.id === puzzleId);
+        if (puzzleId && !isOwn && clearTimeRef.current !== null && clearTimeRef.current >= 1 && surrenderedRef.current.length === 0) {
           setShowNameEntry(true);
         }
       }, 2000);
