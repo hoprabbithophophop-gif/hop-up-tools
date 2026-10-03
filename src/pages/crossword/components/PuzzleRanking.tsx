@@ -104,9 +104,8 @@ export const PuzzleRanking: React.FC<{ puzzleId: string; currentScore?: number; 
                 <span className="w-6 text-center font-bold shrink-0" style={{ color: C.ink }}>{entry.rank}</span>
                 <div className="min-w-0">
                   <p className="font-bold truncate" style={{ color: C.ink }}>{entry.displayName}</p>
-                  <p className="text-xs" style={{ color: C.secondary }}>
-                    {entry.completedAt.toLocaleDateString()}・{scoreMark(entry.reveals, entry.misses)}
-                  </p>
+                  <p className="text-xs" style={{ color: C.secondary }}>{entry.completedAt.toLocaleDateString()}</p>
+                  <p className="text-xs" style={{ color: C.secondary }}>{scoreMark(entry.reveals, entry.misses)}</p>
                 </div>
               </div>
               {/* 右側：タイム */}

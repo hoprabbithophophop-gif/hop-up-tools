@@ -64,6 +64,8 @@ const submitName = async (page) => {
 {
   const { ctx, page, sent } = await open(without(CELL1, CELL2));
   await page.getByRole('button', { name: `${label(CELL1)}: 空` }).click();
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: `${OUT}/reveal-0-card.png` });
   await page.getByRole('button', { name: '1文字見る' }).click();
   const t1 = await text(page);
   check(t1.includes('1文字見る？') && t1.includes('ノーヒントの印は付かなくなります。'), '初めての時はその場で確かめる');
