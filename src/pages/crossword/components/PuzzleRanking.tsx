@@ -18,6 +18,10 @@ const T = {
   notRanked: "ランク外",
 };
 
+// ランキングの印（Hop 決定 2026-10-04。LinkedIn のゲームの称号のように、できたことを祝う形で出す）
+export const scoreMark = (reveals: number, misses: number): string =>
+  [misses === 0 ? "ノーミス" : null, reveals === 0 ? "ノーヒント" : `${reveals}文字見た`].filter(Boolean).join("・");
+
 // タイムをフォーマット (秒 → M:SS)
 const formatTime = (seconds: number): string => {
   const mins = Math.floor(seconds / 60);
@@ -100,7 +104,9 @@ export const PuzzleRanking: React.FC<{ puzzleId: string; currentScore?: number; 
                 <span className="w-6 text-center font-bold shrink-0" style={{ color: C.ink }}>{entry.rank}</span>
                 <div className="min-w-0">
                   <p className="font-bold truncate" style={{ color: C.ink }}>{entry.displayName}</p>
-                  <p className="text-xs" style={{ color: C.secondary }}>{entry.completedAt.toLocaleDateString()}</p>
+                  <p className="text-xs" style={{ color: C.secondary }}>
+                    {entry.completedAt.toLocaleDateString()}・{scoreMark(entry.reveals, entry.misses)}
+                  </p>
                 </div>
               </div>
               {/* 右側：タイム */}

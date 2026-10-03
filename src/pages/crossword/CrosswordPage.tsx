@@ -349,6 +349,11 @@ export default function CrosswordPage() {
   const [showNameEntry, setShowNameEntry] = useState(false);
   const [rankingRefresh, setRankingRefresh] = useState(0);
   const clearTimeRef = useRef<number | null>(null);
+  // ランキングの印に使う数（Hop 決定 2026-10-04）。1文字見るを使った数と、答え合わせで「どこかに間違いがあります。」が出た回数
+  const [reveals, setReveals] = useState(0);
+  const [misses, setMisses] = useState(0);
+  const marksRef = useRef({ reveals: 0, misses: 0 });
+  marksRef.current = { reveals, misses };
 
   // Share Modal
   const [showShareModal, setShowShareModal] = useState(false);
@@ -442,6 +447,8 @@ export default function CrosswordPage() {
             if (parsed.userAnswers && typeof parsed.userAnswers === "object") {
               setUserAnswers(parsed.userAnswers);
               if (typeof parsed.elapsedSeconds === "number") restoredElapsedRef.current = parsed.elapsedSeconds;
+              if (Number.isInteger(parsed.reveals) && parsed.reveals >= 0) setReveals(parsed.reveals);
+              if (Number.isInteger(parsed.misses) && parsed.misses >= 0) setMisses(parsed.misses);
             }
           }
         } catch (e) {
@@ -613,6 +620,15 @@ export default function CrosswordPage() {
     if (activeCloseupIndex < activeWordItem.length - 1) setActiveCloseupIndex((prev) => prev + 1);
   };
 
+  // 1文字見る: 入力カードで選んでいるマスに正しい字を入れる（Hop 決定 2026-10-04）。もう正しい字が入っていれば数えない
+  const handleReveal = () => {
+    if (!activeWordItem || isCleared) return;
+    const ch = activeWordItem.answer[activeCloseupIndex];
+    if (!ch || userAnswers[closeupCellKey(activeCloseupIndex)] === ch) return;
+    setReveals((r) => r + 1);
+    handleCloseupKeyPress(ch);
+  };
+
   const handleCloseupBackspace = () => {
     if (!activeWordItem || isCleared) return;
     const key = closeupCellKey(activeCloseupIndex);
@@ -754,9 +770,9 @@ export default function CrosswordPage() {
   // Persist Progress (including elapsed time)
   useEffect(() => {
     if (playerPuzzle && gamePhase === "playing" && Object.keys(userAnswers).length > 0) {
-      lsSet(`${PROGRESS_PREFIX}${playerPuzzle.id}`, JSON.stringify({ userAnswers, elapsedSeconds, savedAt: Date.now() }));
+      lsSet(`${PROGRESS_PREFIX}${playerPuzzle.id}`, JSON.stringify({ userAnswers, elapsedSeconds, reveals, misses, savedAt: Date.now() }));
     }
-  }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase]);
+  }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase, reveals, misses]);
 
   // --- 作りかけを戻す・残す（作る画面だけ） ---
   useEffect(() => {
@@ -1046,6 +1062,8 @@ export default function CrosswordPage() {
       setStartTime(Date.now());
       setElapsedSeconds(0);
       setPausedTime(0);
+      setReveals(0);
+      setMisses(0);
     }
   };
 
@@ -1085,6 +1103,7 @@ export default function CrosswordPage() {
       // どこが違うかは示さない。どれが間違っているかを自分で考え直すのが楽しいので（Hop 2026-10-04。HarmonyPalette の赤枠は外した）。
       // 文言は埋まっていないマスがあるかで分ける（Hop が任せた文言・2026-10-04）
       const full = playerPuzzle.cells.every((c) => !!userAnswers[`${c.x},${c.y}`]);
+      if (full) setMisses((m) => m + 1); // 埋まっていない時に押したのはミスに数えない
       toast.error(full ? "どこかに間違いがあります。" : "まだ埋まっていないマスがあります。", { duration: 4000 });
     }
   };
@@ -1115,14 +1134,14 @@ export default function CrosswordPage() {
     const t = clearTimeRef.current;
     if (!puzzleId || t === null) return;
     try {
-      await saveScore(puzzleId, t, name);
+      await saveScore(puzzleId, t, name, marksRef.current);
       setShowNameEntry(false);
       setRankingRefresh((k) => k + 1);
     } catch (error) {
       console.error("Failed to save score:", error);
       const isNetworkError = (error instanceof ScoreError && error.reason === "network") || !navigator.onLine;
       if (isNetworkError) {
-        queueScore(puzzleId, t, name);
+        queueScore(puzzleId, t, name, marksRef.current);
         toast.success(T.stage2b.scoreQueued, { duration: 6000 });
         setShowNameEntry(false);
       } else {
@@ -1424,6 +1443,8 @@ export default function CrosswordPage() {
               onPrevCell={() => setActiveCloseupIndex((prev) => Math.max(0, prev - 1))}
               onNextCell={() => setActiveCloseupIndex((prev) => Math.min((activeWordItem?.length || 1) - 1, prev + 1))}
               onModifyChar={handleCloseupModifyChar}
+              onReveal={handleReveal}
+              revealUsed={reveals > 0}
             />
           )}
         </Presence>

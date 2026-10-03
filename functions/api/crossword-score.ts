@@ -11,6 +11,7 @@
  *   3. 中身の確かめ（ブラウザ側の確かめは信用しない）
  *   4. 記録。同じ人（端末の見分け用の番号の sha256）の記録は、速いときだけ書き換える
  *      （HarmonyPalette の saveScore と同じ動き。名前が空なら「名無し」〔Hop 決定 2026-10-03。HarmonyPalette は Anonymous〕、書き換えで名前が空なら前の名前のまま）
+ *      見た文字数とミスの回数も、そのタイムと一緒に残す（ランキングの印。Hop 決定 2026-10-04）
  *
  * Turnstile は無し【仮】。名前は事前検査しない（DESIGN.md §4-b。見えない文字を落とすのは検査ではなく掃除）。
  * 作った本人の端末で解いた回は、画面の側で送らない（ここでは分からない）。
@@ -35,6 +36,8 @@ const MAX_NAME = 20;
 const MIN_TIME = 1;
 const MAX_TIME = 86400;
 const ANONYMOUS = "名無し";
+const MAX_REVEALS = 1000;
+const MAX_MISSES = 10000;
 
 export interface CleanScore {
   puzzleId: string;
@@ -43,6 +46,10 @@ export interface CleanScore {
   /** 空なら "" */
   name: string;
   timeSeconds: number;
+  /** 1文字見るを使った数 */
+  reveals: number;
+  /** 答え合わせで「どこかに間違いがあります。」が出た回数 */
+  misses: number;
 }
 
 /** 改行・タブを含む制御文字と、見えない文字を落とす（contact.ts の stripUnsafe と同じ範囲）。 */
@@ -69,13 +76,19 @@ export function validateScorePayload(raw: unknown): CleanScore | null {
   if (typeof p.playerKey !== "string" || !PLAYER_KEY_RE.test(p.playerKey)) return null;
   if (typeof p.timeSeconds !== "number" || !Number.isInteger(p.timeSeconds)) return null;
   if (p.timeSeconds < MIN_TIME || p.timeSeconds > MAX_TIME) return null;
+  // 見た文字数・ミスの回数。送られてこなければ 0（古い画面から来た記録のため）
+  const count = (v: unknown, max: number): number | null =>
+    v === undefined || v === null ? 0 : typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= max ? v : null;
+  const reveals = count(p.reveals, MAX_REVEALS);
+  const misses = count(p.misses, MAX_MISSES);
+  if (reveals === null || misses === null) return null;
   let name = "";
   if (p.name !== undefined && p.name !== null) {
     if (typeof p.name !== "string") return null;
     name = stripUnsafe(p.name).trim();
     if (Array.from(name).length > MAX_NAME) return null;
   }
-  return { puzzleId: p.puzzleId, playerKey: p.playerKey, name, timeSeconds: p.timeSeconds };
+  return { puzzleId: p.puzzleId, playerKey: p.playerKey, name, timeSeconds: p.timeSeconds, reveals, misses };
 }
 
 async function sha256Hex(input: string): Promise<string> {
@@ -167,6 +180,8 @@ export async function onRequestPost(context: {
       player_hash: playerHash,
       display_name: score.name || ANONYMOUS,
       time_seconds: score.timeSeconds,
+      reveals: score.reveals,
+      misses: score.misses,
     }),
   });
   if (insert.ok) {
@@ -182,6 +197,8 @@ export async function onRequestPost(context: {
     // 既にある。今の記録より速いときだけ書き換える（条件つきの書き換えなので、同時に来ても遅い方で上書きしない）。
     const patch: Record<string, unknown> = {
       time_seconds: score.timeSeconds,
+      reveals: score.reveals, // 印はそのタイムを出した回のもの
+      misses: score.misses,
       updated_at: new Date().toISOString(),
     };
     if (score.name) patch.display_name = score.name; // 名前が空なら前の名前のまま

@@ -4,6 +4,7 @@
  *
  * デザイン: 画面下部のシート。周りの背景（透過）をタップすると閉じる
  * 足した物: 見出しの「ヒント」ボタン。押すと文字盤の場所にヒント（動画・リンク）が出る
+ *           見出しの「1文字見る」ボタン。その回で初めて押す時だけ、その場で確かめる（ノーヒントの印が付かなくなるため）
  */
 
 import React, { useEffect, useRef, useState } from "react";
@@ -29,6 +30,9 @@ interface PuzzleCloseupModalProps {
   onPrevCell: () => void;
   onNextCell: () => void;
   onModifyChar?: (char: string) => void;
+  onReveal?: () => void;
+  /** その回ですでに1文字見るを使ったか（使っていれば確かめずに開ける） */
+  revealUsed?: boolean;
 }
 
 // framer-motion の drag="y" / dragElastic 0.2 / dragConstraints {top:0,bottom:0} の再現に使う値
@@ -49,8 +53,11 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
   onPrevCell,
   onNextCell,
   onModifyChar,
+  onReveal,
+  revealUsed = false,
 }) => {
   const [showHint, setShowHint] = useState(false);
+  const [confirmReveal, setConfirmReveal] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: number; startY: number; dragging: boolean } | null>(null);
   const dragY = useRef(0); // 今の y（px）。ドラッグで動いた後の exit はここから始める
@@ -59,6 +66,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
   // カギが変わったら入力に戻す
   useEffect(() => {
     setShowHint(false);
+    setConfirmReveal(false);
   }, [wordItem.uuid]);
 
   // ページ移動の波が出るときは、動画を外して音を止める（見えないプレーヤーから音を鳴らさない）
@@ -174,10 +182,40 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
               ヒント
             </button>
           )}
+          {onReveal && (
+            <button
+              onClick={() => (revealUsed ? onReveal() : setConfirmReveal(true))}
+              className="px-2 py-1 text-xs font-bold bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors shrink-0"
+            >
+              1文字見る
+            </button>
+          )}
           <button onClick={onClose} className="p-1.5 hover:bg-surface-container-high transition-colors" aria-label="閉じる">
             <span className="material-symbols-outlined leading-none" style={{ fontSize: "20px", color: C.secondary }}>close</span>
           </button>
         </div>
+
+        {/* 1文字見るの確かめ（その回で初めての時だけ） */}
+        {confirmReveal && (
+          <div className="px-4 py-3 flex flex-wrap items-center gap-2" style={{ background: C.low }}>
+            <span className="flex-1 min-w-0 text-sm" style={{ color: C.ink }}>
+              1文字見る？
+              <span className="block text-xs mt-0.5" style={{ color: C.secondary }}>ノーヒントの印は付かなくなります。</span>
+            </span>
+            <button
+              onClick={() => {
+                setConfirmReveal(false);
+                onReveal?.();
+              }}
+              className="px-3 py-1.5 text-sm font-bold bg-primary text-white hover:bg-secondary transition-colors"
+            >
+              見る
+            </button>
+            <button onClick={() => setConfirmReveal(false)} className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.ink }}>
+              やめる
+            </button>
+          </div>
+        )}
 
         {/* Cells: 拡大セル表示 */}
         <div className="p-4 flex justify-center overflow-x-auto">
