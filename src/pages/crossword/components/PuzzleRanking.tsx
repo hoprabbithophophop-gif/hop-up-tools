@@ -156,7 +156,7 @@ export const PuzzleRanking: React.FC<{ puzzleId: string; currentScore?: number; 
                   <span className="text-xs" style={{ color: C.secondary }}>{T.reported}</span>
                 ) : (
                   <>
-                    <span className="flex-1 min-w-0 text-sm truncate" style={{ color: C.ink }}>{T.reportAsk(entry.displayName)}</span>
+                    <span className="w-full text-sm break-all" style={{ color: C.ink }}>{T.reportAsk(entry.displayName)}</span>
                     <button type="button" disabled={sending} onClick={() => sendReport(entry.scoreId)} className="px-3 py-1.5 text-sm font-bold bg-primary text-white hover:bg-secondary transition-colors disabled:opacity-50">
                       {T.reportYes}
                     </button>
