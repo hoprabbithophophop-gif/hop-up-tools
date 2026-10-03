@@ -13,7 +13,7 @@
  *   reveal { token, x, y }         → そのマスの字を1つ返す。{ char, reveals }
  *
  * ミスは「間違ったまま全部埋めたことがあるか」で数える（埋まったまま直している途中の丸付けは数えない）。
- * 同じ接続元から回を始められるのは 1 時間に 60 回まで【仮】。1 つの回で丸付けできるのは 2000 回まで【仮】。
+ * 同じ接続元から回を始められるのは 1 時間に 300 回まで【仮】。1 つの回で丸付けできるのは 2000 回まで【仮】。
  */
 
 interface Env {
@@ -24,7 +24,7 @@ interface Env {
 }
 
 const ENDPOINT = "crossword-play";
-const STARTS_PER_IP_PER_HOUR = 60;
+const STARTS_PER_IP_PER_HOUR = 300; // 学校・会社など同じ回線で大勢が遊んでも詰まらないように（Hop 決定 2026-10-04。最初は 60）
 const MAX_CHECKS_PER_PLAY = 2000;
 const PLAY_KEEP_DAYS = 30;
 const ID_RE = /^[A-Za-z0-9_-]{8}$/;

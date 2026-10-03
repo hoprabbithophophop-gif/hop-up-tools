@@ -14,6 +14,7 @@ import { toCells } from "../../lib/crossword/cells";
 import { determineNextSelection } from "../../lib/crossword/puzzleSelectionLogic";
 import {
   addMyPuzzle,
+  catalogVideoIdsPresent,
   addPlay,
   isCatalogVideo,
   isHiddenPuzzle,
@@ -132,6 +133,9 @@ const T = {
   // 答え合わせ・1文字見るを受付係に頼めなかった時（2026-10-04。答えを渡さない作りで足した）
   network: "通信できませんでした。もう一度お試しください。",
   tooMany: "答え合わせが多すぎます。時間をおいてもう一度お試しください。",
+  // 解いている途中に問題が隠された・消された時／回を始める人が多すぎる時（Hop 決定 2026-10-04）
+  puzzleGone: "この問題は非表示になったか、削除されました。",
+  busy: "混み合っています。少し待ってからもう一度お試しください。",
   // 自分が作った問題【仮】
   myPuzzles: {
     title: "自分が作った問題",
@@ -344,6 +348,7 @@ export default function CrosswordPage() {
   // 解いている回（/api/crossword-play）。localStart はこの端末の時計で回を始めた時刻。タイマーはここから壁時計で進む
   // （タイムは受付係の時計で「始めてから解けるまで」。画面を隠している間も進む。Hop 決定 2026-10-04）
   const playRef = useRef<{ token: string; localStart: number } | null>(null);
+  const playErrorRef = useRef(""); // 回を始められなかった理由（知らせの出し分けに使う）
   const [checking, setChecking] = useState(false);
 
   // UI States
@@ -419,6 +424,7 @@ export default function CrosswordPage() {
     (async () => {
       let loaded: { puzzle: PuzzleData; hints: Record<string, HintRef> } | null = null;
       let failMessage = "";
+      let loadedGenre: Genre | null = null;
       // ヒントの見た目を確かめるため、1 と 2 にだけ見本のヒントを付ける（デバッグ用・HarmonyPalette には無い）
       if (isDebugMode) loaded = { puzzle: DEBUG_MOCK_PUZZLE, hints: { "1": { kind: "youtube", videoId: "dQw4w9WgXcQ", startSec: 83 }, "2": { kind: "link", url: "https://example.com/" } } };
       else try {
@@ -430,6 +436,7 @@ export default function CrosswordPage() {
         } else {
           loaded = recordToPuzzle(rec);
           setPlayerGenre(rec.genre);
+          loadedGenre = rec.genre;
         }
       } catch (error) {
         console.error("Failed to load puzzle:", error);
@@ -441,6 +448,17 @@ export default function CrosswordPage() {
         const puzzleToLoad = loaded.puzzle;
         setPlayerPuzzle(puzzleToLoad);
         setPlayerHints(loaded.hints);
+        // ハロプロのジャンルは、台帳から消えた動画のヒントに印を付ける（見られなくなりましたと出す。Hop 決定 2026-10-04）
+        if (loadedGenre === "hello") {
+          const hints = loaded.hints;
+          const ids = Array.from(new Set(Object.values(hints).flatMap((h) => (h.kind === "youtube" ? [h.videoId] : []))));
+          catalogVideoIdsPresent(ids)
+            .then((present) => {
+              if (!alive || ids.every((id) => present.has(id))) return;
+              setPlayerHints(Object.fromEntries(Object.entries(hints).map(([k, h]) => [k, h.kind === "youtube" && !present.has(h.videoId) ? { ...h, gone: true } : h])));
+            })
+            .catch((err) => console.warn("Failed to check hint videos:", err));
+        }
         setIsAssemblyAnimating(true);
         setTimeout(() => setIsAssemblyAnimating(false), 2000);
 
@@ -603,8 +621,33 @@ export default function CrosswordPage() {
       return p.token;
     } catch (err) {
       console.warn("Failed to start play:", err);
+      playErrorRef.current = err instanceof PlayError ? err.reason : "network";
       return null;
     }
+  };
+
+  // 受付係に断られた理由ごとの知らせ
+  const playErrorText = (reason: string, during: "start" | "check" = "check") =>
+    reason === "not_found" ? T.puzzleGone : reason === "too_many" ? (during === "start" ? T.busy : T.tooMany) : T.network;
+
+  // 回の番号を使う呼び出し。回の記録が無くなっていたら（30 日で片付く）新しい回として始め直して1度だけやり直す。
+  // 入れた字はそのまま。タイマーは始め直した時から
+  const withPlay = async <R,>(run: (token: string) => Promise<R>): Promise<R> => {
+    const token = await ensurePlay();
+    if (!token) throw new PlayError(playErrorRef.current || "network");
+    try {
+      return await run(token);
+    } catch (err) {
+      if (!(err instanceof PlayError) || err.reason !== "no_play") throw err;
+      playRef.current = null;
+      const fresh = await ensurePlay();
+      if (!fresh) throw new PlayError(playErrorRef.current || "network");
+      return run(fresh);
+    }
+  };
+  const playErrorOf = (err: unknown) => {
+    const reason = err instanceof PlayError ? err.reason : "network";
+    return playErrorText(reason, reason === "too_many" && !playRef.current ? "start" : "check");
   };
 
   // カギクリック → クローズアップモーダルを開く
@@ -663,19 +706,14 @@ export default function CrosswordPage() {
       return;
     }
     const [x, y] = closeupCellKey(index).split(",").map(Number);
-    const token = await ensurePlay();
-    if (!token) {
-      toast.error(T.network);
-      return;
-    }
     try {
-      const r = await revealCell(token, x, y);
+      const r = await withPlay((token) => revealCell(token, x, y));
       setReveals(r.reveals);
       setUserAnswers((prev) => ({ ...prev, [`${x},${y}`]: r.char }));
       if (index < activeWordItem.length - 1) setActiveCloseupIndex(index + 1);
     } catch (err) {
       console.warn("Failed to reveal:", err);
-      toast.error(T.network);
+      toast.error(playErrorOf(err));
     }
   };
 
@@ -1122,14 +1160,9 @@ export default function CrosswordPage() {
     if (isDebugMode) {
       allCorrect = playerPuzzle.cells.every((c) => userAnswers[`${c.x},${c.y}`] === c.value);
     } else {
-      const token = await ensurePlay();
-      if (!token) {
-        if (!silent) toast.error(T.network);
-        return;
-      }
       setChecking(true);
       try {
-        const r = await checkPlay(token, userAnswers);
+        const r = await withPlay((token) => checkPlay(token, userAnswers));
         allCorrect = r.correct;
         if (r.correct && r.answers) {
           // 解けたので答えを受け取って盤に入れる（終わりの画面の答えの表示に使う）
@@ -1143,7 +1176,7 @@ export default function CrosswordPage() {
         }
       } catch (err) {
         console.warn("Failed to check:", err);
-        if (!silent) toast.error(err instanceof PlayError && err.reason === "too_many" ? T.tooMany : T.network);
+        if (!silent) toast.error(playErrorOf(err));
         return;
       } finally {
         setChecking(false);

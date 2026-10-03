@@ -13,9 +13,11 @@ interface Props {
   videoId: string;
   /** 欄に入っている開始時刻（秒）。読めない間は null */
   startSec: number | null;
+  /** 再生できない動画だった時（削除・非公開・埋め込み禁止。プレイヤーの onError 100/101/150） */
+  onUnavailable?: () => void;
 }
 
-function loadYouTubeAPI(): Promise<void> {
+export function loadYouTubeAPI(): Promise<void> {
   return new Promise((resolve) => {
     if (window.YT && window.YT.Player) {
       resolve();
@@ -37,7 +39,12 @@ function loadYouTubeAPI(): Promise<void> {
   });
 }
 
-export const HintPlayer = forwardRef<HintPlayerApi, Props>(function HintPlayer({ videoId, startSec }, ref) {
+// 再生できない動画の合図（100: 見つからない・非公開、101/150: 埋め込みが許可されていない）
+export const UNAVAILABLE_CODES = new Set([100, 101, 150]);
+
+export const HintPlayer = forwardRef<HintPlayerApi, Props>(function HintPlayer({ videoId, startSec, onUnavailable }, ref) {
+  const unavailableRef = useRef(onUnavailable);
+  unavailableRef.current = onUnavailable;
   const holderRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const playerRef = useRef<any>(null);
@@ -64,7 +71,10 @@ export const HintPlayer = forwardRef<HintPlayerApi, Props>(function HintPlayer({
         height: "100%",
         videoId,
         playerVars: { autoplay: 0, controls: 1, rel: 0, modestbranding: 1, playsinline: 1, start: Math.max(0, Math.floor(startRef.current)) },
-        events: { onReady: () => { if (mounted) readyRef.current = true; } },
+        events: {
+          onReady: () => { if (mounted) readyRef.current = true; },
+          onError: (e: { data: number }) => { if (mounted && UNAVAILABLE_CODES.has(e.data)) unavailableRef.current?.(); },
+        },
       });
     })();
     return () => {

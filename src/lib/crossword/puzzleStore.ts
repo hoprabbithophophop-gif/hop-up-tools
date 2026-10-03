@@ -5,7 +5,8 @@ export type Genre = "hello" | "other";
 
 // カギごとのヒント。YouTube はアプリ内で再生、それ以外はリンクで開く
 export type HintRef =
-  | { kind: "youtube"; videoId: string; startSec: number }
+  // gone は画面の中だけで使う印（台帳から消えた・再生できない動画）。保存はしない
+  | { kind: "youtube"; videoId: string; startSec: number; gone?: boolean }
   | { kind: "link"; url: string };
 
 export interface StoredClue {
@@ -296,4 +297,25 @@ export function removeMyPuzzle(id: string): MyPuzzle[] {
   const list = readMyPuzzles().filter((x) => x.id !== id);
   writeMyPuzzles(list);
   return list;
+}
+
+// ハロプロのジャンルのヒントの動画のうち、今も台帳（youtube_videos）にある物の番号。
+// 台帳は削除・非公開になった動画を行ごと消す（gas/youtube-scraper.js の checkVideoAvailability）ので、無い物は見られなくなった動画
+export async function catalogVideoIdsPresent(ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const { data, error } = await getSupabase().from("youtube_videos").select("video_id").in("video_id", ids);
+  if (error) throw error;
+  return new Set(((data as { video_id: string }[] | null) ?? []).map((r) => r.video_id));
+}
+
+// 自分が作った問題のうち、ヒントの動画が見られなくなった物（ハロプロのジャンルだけ。その他のジャンルの動画は台帳の外なので分からない）
+export async function loadPuzzlesWithGoneHints(ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const { data, error } = await getSupabase().from("crossword_puzzles").select("id,genre,body").in("id", ids).eq("genre", "hello");
+  if (error) throw error;
+  const rows = (data as { id: string; body: PuzzleBody | null }[] | null) ?? [];
+  const videosOf = (b: PuzzleBody | null) =>
+    (b?.clues ?? []).flatMap((c) => (c.hint?.kind === "youtube" ? [c.hint.videoId] : []));
+  const present = await catalogVideoIdsPresent(Array.from(new Set(rows.flatMap((r) => videosOf(r.body)))));
+  return new Set(rows.filter((r) => videosOf(r.body).some((v) => !present.has(v))).map((r) => r.id));
 }

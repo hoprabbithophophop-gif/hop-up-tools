@@ -16,6 +16,9 @@ import { formatTime, parseTimeInput, parseYouTubeUrl } from "../../../lib/crossw
 import { C } from "../style";
 import { HintPlayer, type HintPlayerApi } from "./HintPlayer";
 
+// 再生できない動画（削除・非公開・埋め込み禁止）を選んだ時の知らせ
+const UNUSABLE = "この動画はヒントに使えません。";
+
 export interface Selected {
   hint: HintRef;
   label: string;
@@ -206,7 +209,17 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
         )}
         {!timeOk && <p className="text-xs" style={{ color: C.error }}>時刻は「1:23」の形で入れてください。</p>}
         {selected.hint.kind === "youtube" && (
-          <HintPlayer key={selected.hint.videoId} ref={playerRef} videoId={selected.hint.videoId} startSec={sec} />
+          <HintPlayer
+            key={selected.hint.videoId}
+            ref={playerRef}
+            videoId={selected.hint.videoId}
+            startSec={sec}
+            onUnavailable={() => {
+              // 削除・非公開・埋め込みが許可されていない動画は、解く人が見られないので選べなくする（Hop 決定 2026-10-04）
+              setSelected(null);
+              setMessage(UNUSABLE);
+            }}
+          />
         )}
       </div>
     );
@@ -299,7 +312,16 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
         >
           <div className="w-full max-w-[640px] bg-white p-4 space-y-3">
             <p className="text-sm font-bold" style={{ color: C.ink }}>{preview.label}</p>
-            <HintPlayer key={`preview-${preview.hint.videoId}-${preview.hint.startSec}`} ref={previewRef} videoId={preview.hint.videoId} startSec={preview.hint.startSec} />
+            <HintPlayer
+              key={`preview-${preview.hint.videoId}-${preview.hint.startSec}`}
+              ref={previewRef}
+              videoId={preview.hint.videoId}
+              startSec={preview.hint.startSec}
+              onUnavailable={() => {
+                setPreview(null);
+                setMessage(UNUSABLE);
+              }}
+            />
             <div className="flex gap-2">
               <button
                 type="button"

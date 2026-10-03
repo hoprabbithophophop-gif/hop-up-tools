@@ -4,7 +4,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { usePageReady } from "../../lib/pageReady";
-import { deletePuzzle, loadPlayCounts, readMyPuzzles, removeMyPuzzle, type MyPuzzle } from "../../lib/crossword/puzzleStore";
+import { deletePuzzle, loadPlayCounts, loadPuzzlesWithGoneHints, readMyPuzzles, removeMyPuzzle, type MyPuzzle } from "../../lib/crossword/puzzleStore";
 import { Toaster, toast } from "./components/Toast";
 import { Footer, Icon } from "./components/ui";
 import { C } from "./style";
@@ -21,6 +21,7 @@ const T = {
   confirmYes: "消す",
   confirmNo: "やめる",
   deleteFailed: "削除できませんでした",
+  goneHints: "見られなくなったヒントがあります", // Hop 決定 2026-10-04
 };
 
 export default function MyPuzzlesPage() {
@@ -28,6 +29,7 @@ export default function MyPuzzlesPage() {
   const [playCounts, setPlayCounts] = useState<Record<string, number> | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [goneHints, setGoneHints] = useState<Set<string>>(new Set());
 
   usePageReady(true);
 
@@ -45,6 +47,18 @@ export default function MyPuzzlesPage() {
         console.warn("Failed to load play counts:", err);
         if (alive) setPlayCounts({});
       });
+    return () => {
+      alive = false;
+    };
+  }, [myPuzzleIds]);
+
+  // ヒントの動画が見られなくなった問題（ハロプロのジャンルだけ分かる）
+  useEffect(() => {
+    if (!myPuzzleIds) return;
+    let alive = true;
+    loadPuzzlesWithGoneHints(myPuzzleIds.split(","))
+      .then((g) => alive && setGoneHints(g))
+      .catch((err) => console.warn("Failed to check hint videos:", err));
     return () => {
       alive = false;
     };
@@ -118,6 +132,9 @@ export default function MyPuzzlesPage() {
                             <div className="text-xs" style={{ color: C.secondary }}>
                               {!known ? "" : count === undefined ? T.unavailable : `${T.plays} ${count}`}
                             </div>
+                            {goneHints.has(m.id) && (
+                              <div className="text-xs" style={{ color: C.secondary }}>{T.goneHints}</div>
+                            )}
                           </div>
                           <Link
                             to={`/crossword/${m.id}`}
