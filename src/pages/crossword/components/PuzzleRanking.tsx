@@ -4,7 +4,7 @@
 // 文言（HarmonyPalette の ja.json に該当の文言が無かったので新しく書いた。すべて【仮】）、
 // 記録を送った後に読み直す（refreshKey。HarmonyPalette は送る前に読んだ一覧のままだった）。
 import React, { useEffect, useState } from "react";
-import { getPuzzleRankings, type RankingEntry } from "../../../lib/crossword/scores";
+import { getPuzzleRankings, reportName, type RankingEntry } from "../../../lib/crossword/scores";
 import { C } from "../style";
 import { Motion } from "./Motion";
 
@@ -16,6 +16,13 @@ const T = {
   noRankings: "まだ記録がありません",
   yourTime: "今回のタイム",
   notRanked: "ランク外",
+  // 名前の通報（Hop 決定 2026-10-04）【仮】
+  report: "名前を通報する",
+  reportAsk: (name: string) => `「${name}」を通報する？`,
+  reportYes: "通報する",
+  reportNo: "やめる",
+  reported: "通報しました",
+  reportFailed: "通報できませんでした",
 };
 
 // ランキングの印（Hop 決定 2026-10-04。LinkedIn のゲームの称号のように、できたことを祝う形で出す）
@@ -33,6 +40,24 @@ export const PuzzleRanking: React.FC<{ puzzleId: string; currentScore?: number; 
   const [rankings, setRankings] = useState<RankingEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState<number | null>(null); // 通報を確かめている記録
+  const [reported, setReported] = useState<Set<number>>(new Set());
+  const [reportError, setReportError] = useState<number | null>(null);
+  const [sending, setSending] = useState(false);
+
+  const sendReport = async (scoreId: number) => {
+    setSending(true);
+    setReportError(null);
+    try {
+      await reportName(scoreId);
+      setReported((prev) => new Set(prev).add(scoreId));
+      setAsking(null);
+    } catch {
+      setReportError(scoreId);
+    } finally {
+      setSending(false);
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -95,8 +120,8 @@ export const PuzzleRanking: React.FC<{ puzzleId: string; currentScore?: number; 
         {rankings.map((entry) => {
           const isCurrentScore = currentScore !== undefined && Math.abs(entry.timeSeconds - currentScore) < 1;
           return (
+            <React.Fragment key={entry.scoreId}>
             <div
-              key={entry.rank}
               className={`flex items-center justify-between p-3 ${isCurrentScore ? "bg-surface-container-highest" : "bg-surface-container-low"}`}
             >
               {/* 左側：順位 + 名前 */}
@@ -108,9 +133,42 @@ export const PuzzleRanking: React.FC<{ puzzleId: string; currentScore?: number; 
                   <p className="text-xs" style={{ color: C.secondary }}>{scoreMark(entry.reveals, entry.misses)}</p>
                 </div>
               </div>
-              {/* 右側：タイム */}
-              <div className="font-mono font-bold text-lg shrink-0 ml-2" style={{ color: C.ink }}>{formatTime(entry.timeSeconds)}</div>
+              {/* 右側：タイム・名前の通報（目立たせない。押すとその場で確かめる） */}
+              <div className="flex items-center shrink-0 ml-2">
+                <div className="font-mono font-bold text-lg" style={{ color: C.ink }}>{formatTime(entry.timeSeconds)}</div>
+                {!reported.has(entry.scoreId) && (
+                  <button
+                    type="button"
+                    onClick={() => setAsking(asking === entry.scoreId ? null : entry.scoreId)}
+                    className="ml-1 p-1 hover:opacity-70 transition-opacity"
+                    style={{ color: C.secondary }}
+                    aria-label={T.report}
+                    title={T.report}
+                  >
+                    <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px" }}>flag</span>
+                  </button>
+                )}
+              </div>
             </div>
+            {(asking === entry.scoreId || reported.has(entry.scoreId)) && (
+              <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-surface-container-low">
+                {reported.has(entry.scoreId) ? (
+                  <span className="text-xs" style={{ color: C.secondary }}>{T.reported}</span>
+                ) : (
+                  <>
+                    <span className="flex-1 min-w-0 text-sm truncate" style={{ color: C.ink }}>{T.reportAsk(entry.displayName)}</span>
+                    <button type="button" disabled={sending} onClick={() => sendReport(entry.scoreId)} className="px-3 py-1.5 text-sm font-bold bg-primary text-white hover:bg-secondary transition-colors disabled:opacity-50">
+                      {T.reportYes}
+                    </button>
+                    <button type="button" disabled={sending} onClick={() => setAsking(null)} className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors disabled:opacity-50" style={{ color: C.ink }}>
+                      {T.reportNo}
+                    </button>
+                    {reportError === entry.scoreId && <span className="w-full text-xs" style={{ color: C.error }}>{T.reportFailed}</span>}
+                  </>
+                )}
+              </div>
+            )}
+            </React.Fragment>
           );
         })}
       </div>

@@ -46,6 +46,8 @@ export async function saveScore(playToken: string, name = ""): Promise<void> {
 }
 
 export interface RankingEntry {
+  /** 記録の番号（名前の通報に使う） */
+  scoreId: number;
   rank: number;
   displayName: string;
   timeSeconds: number;
@@ -57,14 +59,15 @@ export interface RankingEntry {
 export async function getPuzzleRankings(puzzleId: string, limitCount = 10): Promise<RankingEntry[]> {
   const { data, error } = await getSupabase()
     .from("crossword_scores")
-    .select("display_name,time_seconds,updated_at,reveals,misses")
+    .select("id,display_name,time_seconds,updated_at,reveals,misses")
     .eq("puzzle_id", puzzleId)
     .order("time_seconds", { ascending: true })
     .order("updated_at", { ascending: true })
     .limit(limitCount);
   if (error) throw error;
   // 同じ人の記録は棚で1つにまとまっている（unique）ので、HarmonyPalette の重なり除けは要らない
-  return ((data as { display_name: string; time_seconds: number; updated_at: string; reveals: number; misses: number }[] | null) ?? []).map((r, i) => ({
+  return ((data as { id: number; display_name: string; time_seconds: number; updated_at: string; reveals: number; misses: number }[] | null) ?? []).map((r, i) => ({
+    scoreId: r.id,
     rank: i + 1,
     displayName: r.display_name,
     timeSeconds: r.time_seconds,
@@ -72,6 +75,23 @@ export async function getPuzzleRankings(puzzleId: string, limitCount = 10): Prom
     reveals: r.reveals ?? 0,
     misses: r.misses ?? 0,
   }));
+}
+
+// ランキングの名前を通報する。別々の3人分そろうと自動で隠れる（受付係 /api/crossword-report-name。Hop 決定 2026-10-04）
+export async function reportName(scoreId: number): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch("/api/crossword-report-name", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scoreId }),
+    });
+  } catch {
+    throw new ScoreError("network");
+  }
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: unknown };
+  if (res.ok && data.ok) return;
+  throw new ScoreError(typeof data.reason === "string" ? data.reason : "server");
 }
 
 // --- 送れなかった記録の控え（HarmonyPalette の queued_scores と同じ動き） ---
