@@ -28,20 +28,14 @@ export class ScoreError extends Error {
   }
 }
 
-// marks は見た文字数とミスの回数（ランキングの印）
-export interface ScoreMarks {
-  reveals: number;
-  misses: number;
-}
-const NO_MARKS: ScoreMarks = { reveals: 0, misses: 0 };
-
-export async function saveScore(puzzleId: string, timeSeconds: number, name = "", marks: ScoreMarks = NO_MARKS): Promise<void> {
+// 記録を送る。タイム・見た文字数・ミスは受付係が、解いた回（playToken）の記録から出す（画面からは送らない）
+export async function saveScore(playToken: string, name = ""): Promise<void> {
   let res: Response;
   try {
     res = await fetch("/api/crossword-score", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ puzzleId, timeSeconds, name, playerKey: getPlayerKey(), reveals: marks.reveals, misses: marks.misses }),
+      body: JSON.stringify({ playToken, name, playerKey: getPlayerKey() }),
     });
   } catch {
     throw new ScoreError("network");
@@ -82,19 +76,16 @@ export async function getPuzzleRankings(puzzleId: string, limitCount = 10): Prom
 
 // --- 送れなかった記録の控え（HarmonyPalette の queued_scores と同じ動き） ---
 interface QueuedScore {
-  puzzleId: string;
-  timeSeconds: number;
+  playToken: string;
   playerName: string;
   timestamp: number;
-  reveals?: number;
-  misses?: number;
 }
 
 function readQueue(): QueuedScore[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]");
     return Array.isArray(parsed)
-      ? parsed.filter((s): s is QueuedScore => !!s && typeof s.puzzleId === "string" && typeof s.timeSeconds === "number" && typeof s.playerName === "string")
+      ? parsed.filter((s): s is QueuedScore => !!s && typeof s.playToken === "string" && typeof s.playerName === "string" && typeof s.timestamp === "number")
       : [];
   } catch {
     return [];
@@ -109,8 +100,8 @@ function writeQueue(list: QueuedScore[]) {
   }
 }
 
-export function queueScore(puzzleId: string, timeSeconds: number, playerName: string, marks: ScoreMarks = NO_MARKS) {
-  writeQueue([...readQueue(), { puzzleId, timeSeconds, playerName, timestamp: Date.now(), reveals: marks.reveals, misses: marks.misses }]);
+export function queueScore(playToken: string, playerName: string) {
+  writeQueue([...readQueue(), { playToken, playerName, timestamp: Date.now() }]);
 }
 
 export async function retryQueuedScores(): Promise<void> {
@@ -121,7 +112,7 @@ export async function retryQueuedScores(): Promise<void> {
   for (let i = 0; i < queued.length; i++) {
     const s = queued[i];
     try {
-      await saveScore(s.puzzleId, s.timeSeconds, s.playerName, { reveals: s.reveals ?? 0, misses: s.misses ?? 0 });
+      await saveScore(s.playToken, s.playerName);
       sent.push(i);
     } catch (error) {
       // つながらない以外の理由（形が合わない・問題が消された）で断られた物は、何度送っても通らないので控えから外す
@@ -129,5 +120,5 @@ export async function retryQueuedScores(): Promise<void> {
       else console.error("[Score Queue] Failed to save score:", error);
     }
   }
-  if (sent.length > 0) writeQueue(readQueue().filter((s) => !sent.some((i) => queued[i].timestamp === s.timestamp && queued[i].puzzleId === s.puzzleId)));
+  if (sent.length > 0) writeQueue(readQueue().filter((s) => !sent.some((i) => queued[i].timestamp === s.timestamp && queued[i].playToken === s.playToken)));
 }

@@ -12,6 +12,8 @@
  *   4. 記録。同じ人（端末の見分け用の番号の sha256）の記録は、速いときだけ書き換える
  *      （HarmonyPalette の saveScore と同じ動き。名前が空なら「名無し」〔Hop 決定 2026-10-03。HarmonyPalette は Anonymous〕、書き換えで名前が空なら前の名前のまま）
  *      見た文字数とミスの回数も、そのタイムと一緒に残す（ランキングの印。Hop 決定 2026-10-04）
+ *   タイム・見た文字数・ミスは画面の申告を使わず、遊んでいる回の記録（crossword_plays。/api/crossword-play が書く）から出す。
+ *   タイムは受付係の時計で「始めてから解けるまで」（Hop 決定 2026-10-04）。1 つの回で記録できるのは 1 度だけ。
  *
  * Turnstile は無し【仮】。名前は事前検査しない（DESIGN.md §4-b。見えない文字を落とすのは検査ではなく掃除）。
  * 作った本人の端末で解いた回は、画面の側で送らない（ここでは分からない）。
@@ -30,16 +32,23 @@ const PER_IP_PER_HOUR = 30;
 /** rate_limit_log 上でこのエンドポイントを識別する名前。 */
 const ENDPOINT = "crossword-score";
 
-const ID_RE = /^[A-Za-z0-9_-]{8}$/;
 const PLAYER_KEY_RE = /^[0-9a-f]{64}$/;
 const MAX_NAME = 20;
 const MIN_TIME = 1;
 const MAX_TIME = 86400;
 const ANONYMOUS = "名無し";
-const MAX_REVEALS = 1000;
-const MAX_MISSES = 10000;
+const TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-export interface CleanScore {
+export interface CleanScoreInput {
+  /** 遊んでいる回の番号（/api/crossword-play の start が返した物） */
+  playToken: string;
+  /** 端末の見分け用の番号（32バイトの乱数の16進）。保存するのはこの sha256 だけ */
+  playerKey: string;
+  /** 空なら "" */
+  name: string;
+}
+
+interface CleanScore {
   puzzleId: string;
   /** 端末の見分け用の番号（32バイトの乱数の16進）。保存するのはこの sha256 だけ */
   playerKey: string;
@@ -69,26 +78,18 @@ function stripUnsafe(input: string): string {
 }
 
 /** 受け取った中身を確かめる。だめなら null。DB には触らない（node で試せるように切り出してある）。 */
-export function validateScorePayload(raw: unknown): CleanScore | null {
+export function validateScorePayload(raw: unknown): CleanScoreInput | null {
   if (!raw || typeof raw !== "object") return null;
   const p = raw as Record<string, unknown>;
-  if (typeof p.puzzleId !== "string" || !ID_RE.test(p.puzzleId)) return null;
+  if (typeof p.playToken !== "string" || !TOKEN_RE.test(p.playToken)) return null;
   if (typeof p.playerKey !== "string" || !PLAYER_KEY_RE.test(p.playerKey)) return null;
-  if (typeof p.timeSeconds !== "number" || !Number.isInteger(p.timeSeconds)) return null;
-  if (p.timeSeconds < MIN_TIME || p.timeSeconds > MAX_TIME) return null;
-  // 見た文字数・ミスの回数。送られてこなければ 0（古い画面から来た記録のため）
-  const count = (v: unknown, max: number): number | null =>
-    v === undefined || v === null ? 0 : typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= max ? v : null;
-  const reveals = count(p.reveals, MAX_REVEALS);
-  const misses = count(p.misses, MAX_MISSES);
-  if (reveals === null || misses === null) return null;
   let name = "";
   if (p.name !== undefined && p.name !== null) {
     if (typeof p.name !== "string") return null;
     name = stripUnsafe(p.name).trim();
     if (Array.from(name).length > MAX_NAME) return null;
   }
-  return { puzzleId: p.puzzleId, playerKey: p.playerKey, name, timeSeconds: p.timeSeconds, reveals, misses };
+  return { playToken: p.playToken, playerKey: p.playerKey, name };
 }
 
 async function sha256Hex(input: string): Promise<string> {
@@ -166,9 +167,38 @@ export async function onRequestPost(context: {
   }
 
   // 3. 中身の確かめ。
-  const score = validateScorePayload(body);
-  if (!score) return json({ ok: false, reason: "bad_request" }, 400);
-  const playerHash = await sha256Hex(score.playerKey);
+  const input = validateScorePayload(body);
+  if (!input) return json({ ok: false, reason: "bad_request" }, 400);
+  const playerHash = await sha256Hex(input.playerKey);
+
+  // 遊んでいる回の記録から、タイム・見た文字数・ミスを出す。解けていない回、もう記録した回は断る。
+  // 記録済みの印は条件つきで付けるので、同じ回を同時に2度送っても1度しか通らない。
+  const claim = await fetch(`${rest}/crossword_plays?id=eq.${input.playToken}&solved_at=not.is.null&scored=eq.false`, {
+    method: "PATCH",
+    headers: { ...dbHeaders, Prefer: "return=representation" },
+    body: JSON.stringify({ scored: true }),
+  });
+  if (!claim.ok) {
+    console.error("crossword-score: play claim failed", claim.status);
+    return json({ ok: false, reason: "server" }, 503);
+  }
+  const play = ((await claim.json().catch(() => [])) as {
+    puzzle_id: string;
+    started_at: string;
+    solved_at: string;
+    revealed: string[];
+    misses: number;
+  }[])[0];
+  if (!play) return json({ ok: false, reason: "bad_request" }, 400);
+  const timeSeconds = Math.floor((Date.parse(play.solved_at) - Date.parse(play.started_at)) / 1000);
+  const score: CleanScore = {
+    puzzleId: play.puzzle_id,
+    playerKey: input.playerKey,
+    name: input.name,
+    timeSeconds: Math.min(MAX_TIME, Math.max(MIN_TIME, timeSeconds)),
+    reveals: Array.isArray(play.revealed) ? play.revealed.length : 0,
+    misses: play.misses,
+  };
 
   // 4. 記録。まず新しく入れてみて、同じ人の記録が既にあれば（23505）速いときだけ書き換える。
   let updated = false;

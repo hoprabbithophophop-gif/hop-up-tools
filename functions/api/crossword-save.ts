@@ -331,7 +331,8 @@ export async function onRequestPost(context: {
         title: puzzle.title,
         genre: puzzle.genre,
         tags: puzzle.tags,
-        body: puzzle.body,
+        // 誰でも読める棚には答えを置かない。答えの代わりに文字数だけ残す（Hop 決定 2026-10-04「答えを渡さない作り」）
+        body: { ...puzzle.body, clues: puzzle.body.clues.map(({ answer, ...c }) => ({ ...c, length: answer.length })) },
         is_beginner: puzzle.isBeginner,
         group_tags: puzzle.groupTags,
       }),
@@ -368,6 +369,29 @@ export async function onRequestPost(context: {
   }
   if (!keyOk) {
     // 合言葉の無い問題は誰にも消せなくなるので、問題ごと取り消す。
+    try {
+      const del = await fetch(`${rest}/crossword_puzzles?id=eq.${id}`, { method: "DELETE", headers: dbHeaders });
+      if (!del.ok) console.error("crossword-save: rollback failed", id, del.status);
+    } catch (e) {
+      console.error("crossword-save: rollback threw", id, String(e));
+    }
+    return json({ ok: false, reason: "server" }, 503);
+  }
+
+  // 答えは受付係しか読めない棚（crossword_answers）に置く。置けなければ、誰にも解けない問題になるので問題ごと取り消す。
+  let answersOk = false;
+  try {
+    const res = await fetch(`${rest}/crossword_answers`, {
+      method: "POST",
+      headers: { ...dbHeaders, Prefer: "return=minimal" },
+      body: JSON.stringify({ puzzle_id: id, answers: puzzle.body.clues.map((c) => c.answer) }),
+    });
+    answersOk = res.ok;
+    if (!res.ok) console.error("crossword-save: answers insert failed", res.status, await pgCode(res));
+  } catch (e) {
+    console.error("crossword-save: answers insert threw", String(e));
+  }
+  if (!answersOk) {
     try {
       const del = await fetch(`${rest}/crossword_puzzles?id=eq.${id}`, { method: "DELETE", headers: dbHeaders });
       if (!del.ok) console.error("crossword-save: rollback failed", id, del.status);

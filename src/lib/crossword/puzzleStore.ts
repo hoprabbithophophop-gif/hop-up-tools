@@ -14,7 +14,9 @@ export interface StoredClue {
   startX: number;
   startY: number;
   clue: string;
-  answer: string[]; // toCells 済み（カタカナ・大きい字）
+  // toCells 済み（カタカナ・大きい字）。保存する時だけ入れる。棚から読んだ物には無く、代わりに length がある（答えは受付係しか読めない棚に置く）
+  answer: string[];
+  length?: number;
   hint: HintRef;
 }
 

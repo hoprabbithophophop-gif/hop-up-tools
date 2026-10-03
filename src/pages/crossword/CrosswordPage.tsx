@@ -50,6 +50,7 @@ import { BEGINNER_LABEL } from "./components/PuzzleGalleryCard";
 import { detectGroups } from "../../lib/crossword/groupDetect";
 import { drawShareImage } from "../../lib/crossword/shareImage";
 import { queueScore, retryQueuedScores, saveScore, ScoreError } from "../../lib/crossword/scores";
+import { checkPlay, revealCell, startPlay, PlayError } from "../../lib/crossword/play";
 import { C } from "./style";
 
 // localStorage の鍵（crossword 専用の名前）
@@ -128,6 +129,9 @@ const T = {
     video: "ハロプロのヒントに使える YouTube は、HELLO! VIDEO に載っている動画だけです。",
     bad_request: "内容をご確認のうえ、もう一度お試しください。",
   } as Record<string, string>,
+  // 答え合わせ・1文字見るを受付係に頼めなかった時（2026-10-04。答えを渡さない作りで足した）
+  network: "通信できませんでした。もう一度お試しください。",
+  tooMany: "答え合わせが多すぎます。時間をおいてもう一度お試しください。",
   // 自分が作った問題【仮】
   myPuzzles: {
     title: "自分が作った問題",
@@ -219,11 +223,12 @@ function recordToPuzzle(rec: PuzzleRecord): { puzzle: PuzzleData; hints: Record<
     id: `c${i}`,
     uuid: `c${i}`,
     question: c.clue,
-    answer: c.answer,
+    // 答えはブラウザに来ない（受付係しか読めない棚にある）。解けた時に受付係から受け取って入れる
+    answer: Array.from({ length: c.length ?? c.answer?.length ?? 0 }, () => ""),
     direction: c.direction,
     startX: c.startX,
     startY: c.startY,
-    length: c.answer.length,
+    length: c.length ?? c.answer?.length ?? 0,
     clueIndex: c.clueIndex,
   }));
   const puzzle = buildGrid(items);
@@ -334,9 +339,12 @@ export default function CrosswordPage() {
   const [startTime, setStartTime] = useState<number | null>(null);
   const [clearTime, setClearTime] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [pausedTime, setPausedTime] = useState(0);
   const [gamePhase, setGamePhase] = useState<"ready" | "playing" | "cleared">("ready");
-  const restoredElapsedRef = useRef(0);
+  const restoredElapsedRef = useRef(0); // デバッグ用の見本の問題だけで使う
+  // 解いている回（/api/crossword-play）。localStart はこの端末の時計で回を始めた時刻。タイマーはここから壁時計で進む
+  // （タイムは受付係の時計で「始めてから解けるまで」。画面を隠している間も進む。Hop 決定 2026-10-04）
+  const playRef = useRef<{ token: string; localStart: number } | null>(null);
+  const [checking, setChecking] = useState(false);
 
   // UI States
   const [showHelp, setShowHelp] = useState(false);
@@ -349,11 +357,8 @@ export default function CrosswordPage() {
   const [showNameEntry, setShowNameEntry] = useState(false);
   const [rankingRefresh, setRankingRefresh] = useState(0);
   const clearTimeRef = useRef<number | null>(null);
-  // ランキングの印に使う数（Hop 決定 2026-10-04）。1文字見るを使った数と、答え合わせで「どこかに間違いがあります。」が出た回数
+  // 1文字見るを使った数。確かめを出すかどうかに使う（ランキングの印の数は受付係が数える）
   const [reveals, setReveals] = useState(0);
-  const [misses, setMisses] = useState(0);
-  const marksRef = useRef({ reveals: 0, misses: 0 });
-  marksRef.current = { reveals, misses };
 
   // Share Modal
   const [showShareModal, setShowShareModal] = useState(false);
@@ -448,7 +453,8 @@ export default function CrosswordPage() {
               setUserAnswers(parsed.userAnswers);
               if (typeof parsed.elapsedSeconds === "number") restoredElapsedRef.current = parsed.elapsedSeconds;
               if (Number.isInteger(parsed.reveals) && parsed.reveals >= 0) setReveals(parsed.reveals);
-              if (Number.isInteger(parsed.misses) && parsed.misses >= 0) setMisses(parsed.misses);
+              const pl = parsed.play;
+              if (pl && typeof pl.token === "string" && typeof pl.localStart === "number") playRef.current = { token: pl.token, localStart: pl.localStart };
             }
           }
         } catch (e) {
@@ -490,12 +496,10 @@ export default function CrosswordPage() {
       if (!hasSeenHelp) {
         setShowHelp(true);
       } else if (gamePhase === "ready") {
-        setGamePhase("playing");
-        const restoredMs = restoredElapsedRef.current * 1000;
-        setStartTime(Date.now() - restoredMs);
+        beginTiming();
       }
     }
-  }, [isPlayerMode, playerPuzzle, gamePhase]);
+  }, [isPlayerMode, playerPuzzle, gamePhase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 古いLocalStorageデータの自動削除（7日経過）
   useEffect(() => {
@@ -570,9 +574,37 @@ export default function CrosswordPage() {
   // タイマー開始。遊んでいる途中に遊び方を開き直しても、時間は巻き戻さない
   const handleStartGame = () => {
     if (gamePhase !== "ready") return;
+    beginTiming();
+  };
+
+  // 回を始める。続きの回（端末に番号が残っている）ならその時刻から、無ければ受付係に新しく始めてもらう
+  const beginTiming = () => {
     setGamePhase("playing");
-    const restoredMs = restoredElapsedRef.current * 1000;
-    setStartTime(Date.now() - restoredMs);
+    if (isDebugMode) {
+      setStartTime(Date.now() - restoredElapsedRef.current * 1000);
+      return;
+    }
+    if (playRef.current) {
+      setStartTime(playRef.current.localStart);
+      return;
+    }
+    setStartTime(Date.now());
+    void ensurePlay();
+  };
+
+  const ensurePlay = async (): Promise<string | null> => {
+    if (playRef.current) return playRef.current.token;
+    if (!puzzleId) return null;
+    try {
+      const p = await startPlay(puzzleId);
+      const localStart = Date.now();
+      playRef.current = { token: p.token, localStart };
+      setStartTime(localStart);
+      return p.token;
+    } catch (err) {
+      console.warn("Failed to start play:", err);
+      return null;
+    }
   };
 
   // カギクリック → クローズアップモーダルを開く
@@ -621,12 +653,30 @@ export default function CrosswordPage() {
   };
 
   // 1文字見る: 入力カードで選んでいるマスに正しい字を入れる（Hop 決定 2026-10-04）。もう正しい字が入っていれば数えない
-  const handleReveal = () => {
+  // 字は受付係から受け取る（答えはブラウザに無い）。同じマスを2度見ても数は増えない
+  const handleReveal = async () => {
     if (!activeWordItem || isCleared) return;
-    const ch = activeWordItem.answer[activeCloseupIndex];
-    if (!ch || userAnswers[closeupCellKey(activeCloseupIndex)] === ch) return;
-    setReveals((r) => r + 1);
-    handleCloseupKeyPress(ch);
+    const index = activeCloseupIndex;
+    if (isDebugMode) {
+      setReveals((r) => r + 1);
+      handleCloseupKeyPress(activeWordItem.answer[index]);
+      return;
+    }
+    const [x, y] = closeupCellKey(index).split(",").map(Number);
+    const token = await ensurePlay();
+    if (!token) {
+      toast.error(T.network);
+      return;
+    }
+    try {
+      const r = await revealCell(token, x, y);
+      setReveals(r.reveals);
+      setUserAnswers((prev) => ({ ...prev, [`${x},${y}`]: r.char }));
+      if (index < activeWordItem.length - 1) setActiveCloseupIndex(index + 1);
+    } catch (err) {
+      console.warn("Failed to reveal:", err);
+      toast.error(T.network);
+    }
   };
 
   const handleCloseupBackspace = () => {
@@ -737,24 +787,13 @@ export default function CrosswordPage() {
 
   // タイマーUI更新（ページ離脱対応）
   useEffect(() => {
+    // 画面を隠している間も止めない。ランキングのタイムは受付係の時計で同じように測るため（Hop 決定 2026-10-04。HarmonyPalette は隠している間止めていた）
     if (gamePhase !== "playing" || !startTime) return;
-    let lastVisibleTime = Date.now();
-    const handleVisibilityChange = () => {
-      if (document.hidden) lastVisibleTime = Date.now();
-      else {
-        const pauseDuration = Date.now() - lastVisibleTime;
-        setPausedTime((prev) => prev + pauseDuration);
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    const interval = setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - startTime - pausedTime) / 1000));
-    }, 1000);
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [gamePhase, startTime, pausedTime]);
+    const tick = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startTime) / 1000)));
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [gamePhase, startTime]);
 
   // 遊ばれた回数は、盤に最初の1文字が入ったときに1足す（Hop 決定 2026-10-04。開いただけでは数えない）。
   // 同じ端末では1つの問題につき1回だけ。作った本人の端末では数えない。失敗しても遊ぶのは止めない
@@ -770,9 +809,9 @@ export default function CrosswordPage() {
   // Persist Progress (including elapsed time)
   useEffect(() => {
     if (playerPuzzle && gamePhase === "playing" && Object.keys(userAnswers).length > 0) {
-      lsSet(`${PROGRESS_PREFIX}${playerPuzzle.id}`, JSON.stringify({ userAnswers, elapsedSeconds, reveals, misses, savedAt: Date.now() }));
+      lsSet(`${PROGRESS_PREFIX}${playerPuzzle.id}`, JSON.stringify({ userAnswers, elapsedSeconds, reveals, play: playRef.current, savedAt: Date.now() }));
     }
-  }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase, reveals, misses]);
+  }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase, reveals]);
 
   // --- 作りかけを戻す・残す（作る画面だけ） ---
   useEffect(() => {
@@ -1059,18 +1098,57 @@ export default function CrosswordPage() {
     if (confirm("入力をすべて消去しますか？")) {
       setUserAnswers({});
       setIsCleared(false);
-      setStartTime(Date.now());
       setElapsedSeconds(0);
-      setPausedTime(0);
       setReveals(0);
-      setMisses(0);
+      // やり直しは新しい回として受付係に始めてもらう
+      playRef.current = null;
+      setStartTime(Date.now());
+      if (!isDebugMode) void ensurePlay();
     }
   };
 
-  const handleClearCheck = async () => {
-    if (!playerPuzzle?.cells) return;
+  // 丸付け。空きマスがあればその場で知らせ、全部埋まっていれば受付係に丸付けしてもらう。
+  // silent は、埋まったまま直している途中の丸付け（合っていた時だけ終える。違っていても何も言わない）
+  const handleClearCheck = async (silent = false) => {
+    if (!playerPuzzle?.cells || checking || isCleared) return;
+    const full = playerPuzzle.cells.every((c) => !!userAnswers[`${c.x},${c.y}`]);
+    if (!full) {
+      if (!silent) toast.error("まだ埋まっていないマスがあります。", { duration: 4000 });
+      return;
+    }
 
-    const allCorrect = playerPuzzle.cells.every((c) => userAnswers[`${c.x},${c.y}`] === c.value);
+    let allCorrect = false;
+    let serverTime: number | null = null;
+    if (isDebugMode) {
+      allCorrect = playerPuzzle.cells.every((c) => userAnswers[`${c.x},${c.y}`] === c.value);
+    } else {
+      const token = await ensurePlay();
+      if (!token) {
+        if (!silent) toast.error(T.network);
+        return;
+      }
+      setChecking(true);
+      try {
+        const r = await checkPlay(token, userAnswers);
+        allCorrect = r.correct;
+        if (r.correct && r.answers) {
+          // 解けたので答えを受け取って盤に入れる（終わりの画面の答えの表示に使う）
+          const answers = r.answers;
+          setPlayerPuzzle((prev) => {
+            if (!prev) return prev;
+            const items = prev.items.map((it, i) => ({ ...it, answer: answers[i] ?? it.answer }));
+            return { ...buildGrid(items), id: prev.id, title: prev.title, creatorName: prev.creatorName };
+          });
+          serverTime = typeof r.timeSeconds === "number" ? r.timeSeconds : null;
+        }
+      } catch (err) {
+        console.warn("Failed to check:", err);
+        if (!silent) toast.error(err instanceof PlayError && err.reason === "too_many" ? T.tooMany : T.network);
+        return;
+      } finally {
+        setChecking(false);
+      }
+    }
 
     if (allCorrect) {
       // Stage 1: クリア演出開始
@@ -1080,8 +1158,9 @@ export default function CrosswordPage() {
       // Stage 2: タイム計算（500ms後）
       clearTimeRef.current = null;
       setTimeout(() => {
-        if (startTime && puzzleId) {
-          const timeSeconds = Math.floor((Date.now() - startTime - pausedTime) / 1000);
+        // タイムは受付係の時計で測った物（デバッグ用の見本だけこの端末の時計）
+        const timeSeconds = serverTime ?? (startTime ? Math.floor((Date.now() - startTime) / 1000) : null);
+        if (timeSeconds !== null && puzzleId) {
           setClearTime(timeSeconds);
           clearTimeRef.current = timeSeconds;
         }
@@ -1102,9 +1181,8 @@ export default function CrosswordPage() {
     } else {
       // どこが違うかは示さない。どれが間違っているかを自分で考え直すのが楽しいので（Hop 2026-10-04。HarmonyPalette の赤枠は外した）。
       // 文言は埋まっていないマスがあるかで分ける（Hop が任せた文言・2026-10-04）
-      const full = playerPuzzle.cells.every((c) => !!userAnswers[`${c.x},${c.y}`]);
-      if (full) setMisses((m) => m + 1); // 埋まっていない時に押したのはミスに数えない
-      toast.error(full ? "どこかに間違いがあります。" : "まだ埋まっていないマスがあります。", { duration: 4000 });
+      // ミスは受付係が数える（間違ったまま全部埋めたことがあるか）
+      if (!silent) toast.error("どこかに間違いがあります。", { duration: 4000 });
     }
   };
 
@@ -1122,26 +1200,30 @@ export default function CrosswordPage() {
       return;
     }
     if (!full) return;
-    const correct = playerPuzzle.cells.every((c) => userAnswers[`${c.x},${c.y}`] === c.value);
-    if (!wasFull || correct) {
+    if (!wasFull) {
       setShowCloseup(false); // 結果が盤の上で見えるように、拡大の窓は閉じる
-      handleClearCheck();
+      void handleClearCheck();
+      return;
     }
+    // 埋まったまま直している途中は、打ち終わるのを少し待ってから黙って丸付けする（1字ごとに通信しない）
+    const timer = setTimeout(() => void handleClearCheck(true), 400);
+    return () => clearTimeout(timer);
   }, [userAnswers, playerPuzzle, isCleared, gamePhase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Submit Score Logic with Network Protection（HarmonyPalette の handleSubmitScore と同じ動き） ---
   const handleSubmitScore = async (name: string) => {
     const t = clearTimeRef.current;
-    if (!puzzleId || t === null) return;
+    const token = playRef.current?.token;
+    if (!puzzleId || t === null || !token) return;
     try {
-      await saveScore(puzzleId, t, name, marksRef.current);
+      await saveScore(token, name);
       setShowNameEntry(false);
       setRankingRefresh((k) => k + 1);
     } catch (error) {
       console.error("Failed to save score:", error);
       const isNetworkError = (error instanceof ScoreError && error.reason === "network") || !navigator.onLine;
       if (isNetworkError) {
-        queueScore(puzzleId, t, name, marksRef.current);
+        queueScore(token, name);
         toast.success(T.stage2b.scoreQueued, { duration: 6000 });
         setShowNameEntry(false);
       } else {
@@ -1349,7 +1431,7 @@ export default function CrosswordPage() {
 
                 {/* Controls */}
                 <div className="flex justify-center gap-4">
-                  <Button onClick={handleClearCheck} variant="primary">答え合わせ</Button>
+                  <Button onClick={() => void handleClearCheck()} variant="primary">答え合わせ</Button>
                 </div>
 
                 {/* Clue List */}
@@ -1434,7 +1516,7 @@ export default function CrosswordPage() {
               wordItem={activeWordItem}
               userAnswers={userAnswers}
               activeIndex={activeCloseupIndex}
-              keypadType={detectKeypadType(playerPuzzle.items.map((item) => item.answer.join("")))}
+              keypadType={isDebugMode ? detectKeypadType(playerPuzzle.items.map((item) => item.answer.join(""))) : "katakana"} // 保存できる答えはカタカナだけ
               hint={playerHints[activeWordItem.uuid]}
               onKeyPress={handleCloseupKeyPress}
               onBackspace={handleCloseupBackspace}
