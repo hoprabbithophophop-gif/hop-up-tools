@@ -40,6 +40,7 @@ import { detectKeypadType } from "./components/PuzzleKeypad";
 import { StickyHintBar } from "./components/StickyHintBar";
 import { PuzzleCloseupModal } from "./components/PuzzleCloseupModal";
 import { HintField, type Selected as HintSelected } from "./components/HintField";
+import { FitGrid } from "./components/FitGrid";
 import { Motion, Presence } from "./components/Motion";
 import { Toaster, toast } from "./components/Toast";
 import { SaveCheckModal } from "./components/SaveCheckModal";
@@ -73,6 +74,26 @@ const lsSet = (k: string, v: string) => {
     /* 保存できなくても遊べる */
   }
 };
+const lsRemove = (k: string) => {
+  try {
+    localStorage.removeItem(k);
+  } catch {
+    /* 消せなくても困らない */
+  }
+};
+
+// 作りかけの問題（作る画面の入力）。読み直しやブラウザを閉じても消えないよう、変えるたびに端末に残す（Hop 依頼 2026-10-03）
+const DRAFT_KEY = "crossword_draft";
+interface Draft {
+  title: string;
+  creatorName: string;
+  genre: Genre;
+  tags: string[];
+  isBeginner: boolean;
+  items: PuzzleItem[];
+  hints: Record<string, HintRef>;
+  input: { q: string; a: string };
+}
 
 // 文言（HarmonyPalette の ja.json の puzzle.builder から。問題文の呼び名は「ヒント」→「カギ」）
 const T = {
@@ -252,7 +273,8 @@ const Button = ({ children, onClick, disabled, className, variant = "primary" }:
 );
 
 const inputClass =
-  "w-full bg-surface-container-low px-3 py-2 text-on-surface placeholder:text-outline focus:outline-none focus:bg-white focus:shadow-[inset_0_-2px_0_#000]";
+  // 文字は16px。iPhone は16pxより小さい入力欄を押すと画面を拡大するため（Hop 依頼 2026-10-03）
+  "w-full bg-surface-container-low px-3 py-2 text-base text-on-surface placeholder:text-outline focus:outline-none focus:bg-white focus:shadow-[inset_0_-2px_0_#000]";
 
 const Input = ({ value, onChange, placeholder, className, maxLength, onKeyDown }: {
   value: string;
@@ -297,6 +319,8 @@ export default function CrosswordPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [hintInitial, setHintInitial] = useState<HintSelected | null>(null);
   const clueInputRef = useRef<HTMLInputElement>(null);
+  // 作りかけを戻し終わるまで残す処理を止めておく（戻す前の空の状態で上書きしないため）
+  const [draftReady, setDraftReady] = useState(false);
   const [generatedPuzzle, setGeneratedPuzzle] = useState<PuzzleData | null>(null);
 
   // v4 Live Generation State
@@ -802,6 +826,42 @@ export default function CrosswordPage() {
     }
   }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase, surrendered]);
 
+  // --- 作りかけを戻す・残す（作る画面だけ） ---
+  useEffect(() => {
+    if (isPlayerMode) return;
+    const raw = lsGet(DRAFT_KEY);
+    if (raw) {
+      try {
+        const d = JSON.parse(raw) as Partial<Draft>;
+        if (typeof d.title === "string") setPuzzleTitle(d.title);
+        if (typeof d.creatorName === "string") setCreatorName(d.creatorName);
+        if (d.genre === "hello" || d.genre === "other") setGenre(d.genre);
+        if (Array.isArray(d.tags)) setTags(d.tags);
+        if (typeof d.isBeginner === "boolean") setIsBeginner(d.isBeginner);
+        if (d.hints && typeof d.hints === "object") setHints(d.hints);
+        if (d.input && typeof d.input.q === "string" && typeof d.input.a === "string") setCurrentInput(d.input);
+        if (Array.isArray(d.items) && d.items.length > 0) {
+          setEditorItems(d.items);
+          triggerGeneration(d.items);
+        }
+      } catch {
+        lsRemove(DRAFT_KEY);
+      }
+    }
+    setDraftReady(true);
+  }, [isPlayerMode]);
+
+  useEffect(() => {
+    if (isPlayerMode || !draftReady) return;
+    const empty = !puzzleTitle && !creatorName && tags.length === 0 && editorItems.length === 0 && !currentInput.q && !currentInput.a;
+    if (empty) {
+      lsRemove(DRAFT_KEY);
+      return;
+    }
+    const d: Draft = { title: puzzleTitle, creatorName, genre, tags, isBeginner, items: editorItems, hints, input: currentInput };
+    lsSet(DRAFT_KEY, JSON.stringify(d));
+  }, [isPlayerMode, draftReady, puzzleTitle, creatorName, genre, tags, isBeginner, editorItems, hints, currentInput]);
+
   // --- Editor Functions ---
   const handleAddItem = () => {
     if (!currentInput.a.trim() || !pendingHint) return;
@@ -1021,6 +1081,8 @@ export default function CrosswordPage() {
       setSharedTitle(title);
       setShowShareModal(true);
       lsSet(limitKey, String(savedCount + 1));
+      // 保存できたので作りかけの控えは消す（このあと入力を変えたら、また新しく残り始める）
+      lsRemove(DRAFT_KEY);
     } catch (error) {
       console.error("Failed to save puzzle:", error);
       const reason = error instanceof SaveError ? error.reason : "";
@@ -1279,11 +1341,8 @@ export default function CrosswordPage() {
               <Motion initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8">
                 {/* パズル描画エリア */}
                 <div className="mb-8 w-full">
-                  <div
-                    className="w-full bg-white p-6 flex justify-center items-center overflow-hidden"
-                    style={{ minHeight: (playerPuzzle.height * 48 + 48) * scale }}
-                  >
-                    <div style={{ transform: `scale(${scale})`, transformOrigin: "center center", transition: "transform 0.2s ease-out" }}>
+                  <div className="w-full bg-white p-6 overflow-x-auto">
+                    <FitGrid width={playerPuzzle.width} height={playerPuzzle.height} userScale={scale}>
                       <PuzzleGridRetro
                         data={playerPuzzle}
                         showSolution={isCleared}
@@ -1295,7 +1354,7 @@ export default function CrosswordPage() {
                         wrongCells={wrongCells}
                         faintCells={faintCells}
                       />
-                    </div>
+                    </FitGrid>
                   </div>
 
                   {/* Zoom Controls - 中央下に配置 */}
@@ -1778,7 +1837,9 @@ export default function CrosswordPage() {
               <div className="bg-surface-container-low min-h-[400px] flex flex-col items-center justify-center relative overflow-visible">
                 {isLiveGenerating && showPreviewAnimation && backgroundPuzzle ? (
                   <div className="w-full p-4 flex flex-col items-center">
-                    <PuzzleGridRetro data={backgroundPuzzle} showSolution={true} />
+                    <FitGrid width={backgroundPuzzle.width} height={backgroundPuzzle.height}>
+                      <PuzzleGridRetro data={backgroundPuzzle} showSolution={true} />
+                    </FitGrid>
                     {monteCarloProgress && (
                       <div className="mt-4 bg-white px-6 py-3 font-mono text-sm font-black flex items-center gap-3" style={{ color: C.ink }}>
                         <div className="w-4 h-4 border-2 border-black border-t-transparent motion-safe:animate-spin" />
@@ -1794,7 +1855,9 @@ export default function CrosswordPage() {
                   </div>
                 ) : generatedPuzzle ? (
                   <div className="w-full p-4 flex flex-col items-center">
-                    <PuzzleGridRetro data={generatedPuzzle} showSolution={true} />
+                    <FitGrid width={generatedPuzzle.width} height={generatedPuzzle.height}>
+                      <PuzzleGridRetro data={generatedPuzzle} showSolution={true} />
+                    </FitGrid>
                   </div>
                 ) : (
                   <div className="text-center p-8" style={{ color: C.secondary }}>

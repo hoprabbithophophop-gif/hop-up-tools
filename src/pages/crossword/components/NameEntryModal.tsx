@@ -27,7 +27,7 @@ export const NameEntryModal: React.FC<{
           onChange={(e) => setRankingName(e.target.value)}
           placeholder="ニックネーム"
           maxLength={20}
-          className="w-full bg-surface-container-low px-4 py-2 text-on-surface placeholder:text-outline focus:outline-none focus:bg-white focus:shadow-[inset_0_-2px_0_#000] mb-4"
+          className="w-full bg-surface-container-low px-4 py-2 text-base text-on-surface placeholder:text-outline focus:outline-none focus:bg-white focus:shadow-[inset_0_-2px_0_#000] mb-4"
         />
         <div className="flex gap-2">
           <button onClick={onSkip} className="flex-1 py-2 bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.secondary }}>

@@ -121,8 +121,8 @@ export default function GalleryPage() {
     setAppliedSearch("");
   };
 
-  const selectClass = "px-3 py-2 bg-surface-container-low text-on-surface focus:outline-none focus:bg-white focus:shadow-[inset_0_-2px_0_#000] cursor-pointer";
-  const inputClass = "w-full px-3 py-2 bg-surface-container-low text-on-surface placeholder:text-outline focus:outline-none focus:bg-white focus:shadow-[inset_0_-2px_0_#000]";
+  const selectClass = "text-base px-3 py-2 bg-surface-container-low text-on-surface focus:outline-none focus:bg-white focus:shadow-[inset_0_-2px_0_#000] cursor-pointer";
+  const inputClass = "w-full px-3 py-2 text-base bg-surface-container-low text-on-surface placeholder:text-outline focus:outline-none focus:bg-white focus:shadow-[inset_0_-2px_0_#000]";
 
   return (
     <>
