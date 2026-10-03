@@ -41,8 +41,6 @@ async function solve(own) {
   await page.waitForTimeout(2500);
   await cell.click();
   await page.getByRole('button', { name: LAST_CHAR, exact: true }).last().click();
-  await page.getByRole('button', { name: /決定/ }).last().click({ timeout: 3000 }).catch(() => {}); // 拡大の窓が開いたら決定で閉じる
-  await page.getByRole('button', { name: '答え合わせ' }).click();
   await page.waitForTimeout(4500);
   const nameEntry = (await page.getByRole('button', { name: '載せない' }).count()) > 0;
   const cleared = await page.evaluate(() => document.body.innerText.includes('CLEAR') || document.body.innerText.includes('クリア'));

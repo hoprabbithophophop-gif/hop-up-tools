@@ -1136,6 +1136,27 @@ export default function CrosswordPage() {
     }
   };
 
+  // 最後の空きマスが埋まったら、答え合わせのボタンを押さなくても答え合わせをする（Hop 依頼 2026-10-04。HarmonyPalette には無い）。
+  // 埋まった瞬間は、合っていても間違っていても答え合わせと同じ反応を返す。埋まったまま直している間は黙って見て、全部合った時だけ終える。
+  // 保存してあった盤を開き直しただけでは始めない（最初の1回は今の状態を覚えるだけ）
+  const autoCheckRef = useRef<{ ready: boolean; full: boolean }>({ ready: false, full: false });
+  useEffect(() => {
+    if (!playerPuzzle?.cells || isCleared || gamePhase !== "playing") return;
+    const full = playerPuzzle.cells.every((c) => !!userAnswers[`${c.x},${c.y}`]);
+    const wasFull = autoCheckRef.current.full;
+    autoCheckRef.current.full = full;
+    if (!autoCheckRef.current.ready) {
+      autoCheckRef.current.ready = true;
+      return;
+    }
+    if (!full) return;
+    const correct = playerPuzzle.cells.every((c) => userAnswers[`${c.x},${c.y}`] === c.value);
+    if (!wasFull || correct) {
+      setShowCloseup(false); // 結果が盤の上で見えるように、拡大の窓は閉じる
+      handleClearCheck();
+    }
+  }, [userAnswers, playerPuzzle, isCleared, gamePhase]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // --- Submit Score Logic with Network Protection（HarmonyPalette の handleSubmitScore と同じ動き） ---
   const handleSubmitScore = async (name: string) => {
     const t = clearTimeRef.current;
