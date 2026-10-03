@@ -93,12 +93,12 @@ const T = {
   close: "閉じる",
   howToPlay: "遊び方",
   previewTitle: "プレビュー",
-  previewSubtitle: "アイテムを追加してパズルを生成します",
+  previewSubtitle: "答えとカギを追加すると、ここに盤が組み上がります",
   guidelinesNotice: "※作成されたパズルの著作権および責任は作成者に帰属します。",
   errors: {
     noTitle: "タイトルを入力してください",
     loadFailed: "パズルの読み込みに失敗しました",
-    puzzleHidden: "このパズルは運営により非表示にされています",
+    puzzleHidden: "このパズルは非表示になっています",
     loadError: "パズルデータが不正です",
     saveFailed: "パズルの保存に失敗しました",
   },
@@ -113,7 +113,7 @@ const T = {
   myPuzzles: {
     title: "自分が作った問題",
     plays: "遊ばれた回数",
-    unavailable: "表示できません",
+    unavailable: "非表示になっています",
     open: "開く",
     delete: "削除",
     confirm: "消す？",
@@ -131,10 +131,10 @@ const T = {
   creatorHelp: {
     title: "パズルの作り方",
     steps: [
-      { title: "答えとカギを入力", description: "「答え」に単語を入力し、「カギ」にその単語を推測させるカギを書きます。" },
+      { title: "答え・カギ・ヒントを入力", description: "「答え」に単語を、「カギ」にその単語を当てるための問題文を書きます。「ヒント」には、答えの根拠になる動画やページのURLを貼ります。" },
       { title: "リストに追加", description: "入力したら「リストに追加」ボタンを押します。5〜10個の単語を追加するのがおすすめです。" },
       { title: "パズルを自動生成", description: "単語を追加すると、クロスワードパズルが自動で組み上がります。うまく組めない場合は「再シャッフル」でやり直せます。" },
-      { title: "保存・共有", description: "タイトルを入力して「保存する」を押すと共有URLが発行されます。SNSでシェアしてみんなに遊んでもらいましょう！" },
+      { title: "保存・共有", description: "タイトルを入力して「共有する」を押すと共有URLが発行されます。SNSでシェアしてみんなに遊んでもらいましょう！" },
     ],
     tipsTitle: "コツ",
     tips: [
@@ -964,7 +964,7 @@ export default function CrosswordPage() {
     }
     const intersectionCount = generatedPuzzle.cells.filter((c) => c.horizontalItemId && c.verticalItemId).length;
     if (intersectionCount < 1) {
-      toast.error("クロスワードパズルとして保存するには、単語同士が交差している必要があります。\n（ヒント：同じ文字を含む単語を追加してみてください）", { duration: 5000 });
+      toast.error("クロスワードパズルとして保存するには、単語同士が交差している必要があります。\n（コツ：同じ文字を含む単語を追加してみてください）", { duration: 5000 });
       return;
     }
 
@@ -1428,8 +1428,6 @@ export default function CrosswordPage() {
 
                 <div className="text-center mt-8 text-xs" style={{ color: C.secondary }}>
                   ※作成されたパズルの著作権および責任は作成者に帰属します。
-                  <br />
-                  他者の権利を侵害する内容を含めないようご注意ください。
                 </div>
 
                 {/* 不適切なパズルを通報するリンク */}
@@ -1952,8 +1950,6 @@ export default function CrosswordPage() {
               </div>
               <div className="text-xs text-center leading-relaxed pt-4 font-mono" style={{ color: C.secondary }}>
                 {T.shareModal.publicNotice}
-                <br />
-                {T.shareModal.healthyContent}
               </div>
               <div className="flex justify-center">
                 <Button onClick={() => setShowShareModal(false)} variant="secondary">

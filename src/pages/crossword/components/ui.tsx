@@ -6,10 +6,9 @@ export const Icon = ({ icon, size = 20, className = "" }: { icon: string; size?:
   </span>
 );
 
+// クロスワードには非公式の一文を出さない（Hop 決定 2026-10-03・DESIGN.md §1 の例外）。
+// クロスワードはハロプロ以外の問題も作れる道具で、アップフロントが権利を持つ物ではないため。
+// 画面下のカギの帯に中身が隠れないよう、下の余白だけ残す
 export const Footer = ({ bottomGap = false }: { bottomGap?: boolean }) => (
-  <footer style={{ padding: "3rem 2rem", marginTop: "3rem", paddingBottom: bottomGap ? "6rem" : "3rem", borderTop: "1px solid rgba(198,198,198,0.2)" }}>
-    <p style={{ fontSize: "0.625rem", color: "#c6c6c6", margin: 0 }}>
-      非公式ファンツール。株式会社アップフロントグループとは無関係です。
-    </p>
-  </footer>
+  <div aria-hidden="true" style={{ height: bottomGap ? "9rem" : "6rem" }} />
 );

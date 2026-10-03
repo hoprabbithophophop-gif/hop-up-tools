@@ -20,7 +20,7 @@ export const NameEntryModal: React.FC<{
         <p className="text-sm mb-4" style={{ color: C.secondary }}>
           タイム: <span className="font-bold" style={{ color: C.ink }}>{mmss(clearTime)}</span>
         </p>
-        <p className="text-sm mb-2" style={{ color: C.ink }}>ランキングに登録する名前を入力：</p>
+        <p className="text-sm mb-2" style={{ color: C.ink }}>ランキングに載せる名前を入力：</p>
         <input
           type="text"
           value={rankingName}

@@ -81,6 +81,11 @@ export function SaveCheckModal({ onPass, onClose }: { onPass: (token: string, we
           <input ref={websiteRef} tabIndex={-1} autoComplete="off" defaultValue="" />
         </div>
 
+        {/* 保存したあとでは遅いので、保存の前に頼む（2026-10-03 共有カードから移した） */}
+        <p style={{ fontSize: "0.75rem", color: "#585f6c", margin: 0, lineHeight: 1.6 }}>
+          健全なコンテンツの作成にご協力ください。
+        </p>
+
         <div ref={widgetRef} />
 
         {loadFailed && (
