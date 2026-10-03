@@ -28,7 +28,7 @@ async function session(ctx) {
     await page.getByRole('button', { name: /始める|はじめる|閉じる/ }).first().click({ timeout: 2000 }).catch(() => {});
   };
   const typeOne = async (ch) => {
-    await page.getByRole('button', { name: /空$/ }).first().click();
+    await page.getByRole('button', { name: /空$/ }).first().click({ timeout: 3000 }).catch(() => {}); // 拡大の窓が開いていれば、そのまま文字盤を押す
     await page.getByRole('button', { name: ch, exact: true }).last().click();
     await page.waitForTimeout(800);
   };
