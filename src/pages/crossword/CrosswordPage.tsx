@@ -55,6 +55,7 @@ import { C } from "./style";
 // localStorage の鍵（crossword 専用の名前）
 const HELP_KEY = "crossword_seen_help";
 const PROGRESS_PREFIX = "crossword_progress_";
+const PLAYED_PREFIX = "crossword_played_"; // 遊ばれた回数を足し済みの印
 const SAVE_COUNT_PREFIX = "crossword_save_count_";
 
 const lsGet = (k: string): string | null => {
@@ -440,8 +441,6 @@ export default function CrosswordPage() {
         } else {
           loaded = recordToPuzzle(rec);
           setPlayerGenre(rec.genre);
-          // 遊ばれた回数を1足す（HarmonyPalette の incrementPlayCount と同じ時機。失敗しても止めない）
-          addPlay(rec.id).catch((err) => console.warn("Play count increment failed:", err));
         }
       } catch (error) {
         console.error("Failed to load puzzle:", error);
@@ -767,6 +766,17 @@ export default function CrosswordPage() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [gamePhase, startTime, pausedTime]);
+
+  // 遊ばれた回数は、盤に最初の1文字が入ったときに1足す（Hop 決定 2026-10-04。開いただけでは数えない）。
+  // 同じ端末では1つの問題につき1回だけ。作った本人の端末では数えない。失敗しても遊ぶのは止めない
+  useEffect(() => {
+    if (!playerPuzzle || isDebugMode || Object.keys(userAnswers).length === 0) return;
+    const id = playerPuzzle.id;
+    if (lsGet(`${PLAYED_PREFIX}${id}`)) return;
+    if (readMyPuzzles().some((m) => m.id === id)) return;
+    lsSet(`${PLAYED_PREFIX}${id}`, "1");
+    addPlay(id).catch((err) => console.warn("Play count increment failed:", err));
+  }, [userAnswers, playerPuzzle, isDebugMode]);
 
   // Persist Progress (including elapsed time)
   useEffect(() => {
