@@ -14,7 +14,18 @@
  *
  * DB の BEFORE INSERT トリガに「1時間に全体100件」のブレーキ（errcode 53400）があり、
  * ここを全部すり抜けても最後に効く。
+ *
+ * 段階2b で足したもの
+ *   ・初めての人向けの印（is_beginner）
+ *   ・題名とカギの文・答えから、メンバー名・グループ名でグループを判定して group_tags に入れる。
+ *     入れるのは、作る人が「ハロプロ」を選んだ問題だけ。ジャンルは作る人の選んだまま書き換えない
+ *     （Hop 決定 2026-10-03。たまたま名前が出るだけの「その他」の問題をハロプロに分けない）
+ *   ・シェア画像（1200×630 の PNG）を確かめてから置き場 crossword-ogp に置く。置けなくても保存は成功にする
  */
+
+import { detectGroups } from "../_shared/crosswordGroups";
+import { CROSSWORD_GROUPS, CROSSWORD_MEMBERS } from "../_shared/crosswordMembers";
+import { decodeOgpPng, uploadOgpPng } from "../_shared/crosswordOgp";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -55,11 +66,17 @@ interface CleanClue {
 }
 
 export interface CleanPuzzle {
-  title: string;
+  /** 保存するジャンル。グループが見つかったら、送られてきたのが other でも hello */
   genre: "hello" | "other";
+  /** 送られてきたジャンル（断る理由の出し分けに使う） */
+  requestedGenre: "hello" | "other";
+  title: string;
   tags: string[];
   body: { version: 1; width: number; height: number; clues: CleanClue[]; creatorName?: string };
   key: string;
+  isBeginner: boolean;
+  /** メンバー名・グループ名から判定したグループ（公式表記） */
+  groupTags: string[];
   /** genre=hello のとき台帳に載っているか確かめる動画番号（重なりなし） */
   helloVideoIds: string[];
 }
@@ -127,7 +144,11 @@ export function validateSavePayload(raw: unknown): CleanPuzzle | null {
   if (charLen(title) < 1 || charLen(title) > MAX_TITLE) return null;
 
   if (p.genre !== "hello" && p.genre !== "other") return null;
-  const genre = p.genre;
+  const requestedGenre = p.genre;
+
+  // 初めての人向けの印。無ければ false、あれば true/false だけ
+  if (p.isBeginner !== undefined && typeof p.isBeginner !== "boolean") return null;
+  const isBeginner = p.isBeginner === true;
 
   const rawTags = p.tags ?? [];
   if (!Array.isArray(rawTags) || rawTags.length > MAX_TAGS) return null;
@@ -166,12 +187,21 @@ export function validateSavePayload(raw: unknown): CleanPuzzle | null {
   // 大きさは保存する形（整えた後）で測る。DB 側の上限 octet_length(body::text) と同じ 51200 バイト
   if (new TextEncoder().encode(JSON.stringify(body)).length > MAX_BODY_BYTES) return null;
 
+  const genre = requestedGenre;
+  const groupTags =
+    genre === "hello"
+      ? detectGroups(
+          { title, clues: clues.map((c) => c.clue), answers: clues.map((c) => c.answer.join("")) },
+          { members: CROSSWORD_MEMBERS, groups: CROSSWORD_GROUPS },
+        )
+      : [];
+
   const helloVideoIds =
     genre === "hello"
       ? [...new Set(clues.flatMap((c) => (c.hint.kind === "youtube" ? [c.hint.videoId] : [])))]
       : [];
 
-  return { title, genre, tags, body, key, helloVideoIds };
+  return { title, genre, requestedGenre, tags, body, key, isBeginner, groupTags, helloVideoIds };
 }
 
 /** 8字の問題番号。64字の表から選ぶので、1バイトの下6ビットでかたよりなく選べる。 */
@@ -281,7 +311,9 @@ export async function onRequestPost(context: {
       }
       const rows = (await res.json()) as { video_id: string }[];
       const found = new Set(rows.map((r) => r.video_id));
-      if (!puzzle.helloVideoIds.every((v) => found.has(v))) return json({ ok: false, reason: "video" }, 400);
+      if (!puzzle.helloVideoIds.every((v) => found.has(v))) {
+        return json({ ok: false, reason: "video" }, 400);
+      }
     } catch {
       return json({ ok: false, reason: "server" }, 503);
     }
@@ -300,6 +332,8 @@ export async function onRequestPost(context: {
         genre: puzzle.genre,
         tags: puzzle.tags,
         body: puzzle.body,
+        is_beginner: puzzle.isBeginner,
+        group_tags: puzzle.groupTags,
       }),
     });
     if (insert.ok) {
@@ -343,6 +377,12 @@ export async function onRequestPost(context: {
     return json({ ok: false, reason: "server" }, 503);
   }
 
+  // シェア画像。形が合わない・置けない場合は画像なしで続ける（問題の保存は済んでいる）
+  let ogp = false;
+  const png = decodeOgpPng(body.ogpImage);
+  if (png) ogp = await uploadOgpPng(env.VITE_SUPABASE_URL, env.SUPABASE_SECRET_KEY, id, png);
+  else if (body.ogpImage !== undefined) console.warn("crossword-save: ogp image rejected");
+
   context.waitUntil(
     fetch(`${rest}/rate_limit_log`, {
       method: "POST",
@@ -357,7 +397,7 @@ export async function onRequestPost(context: {
     }).catch(() => {}),
   );
 
-  return json({ ok: true, id });
+  return json({ ok: true, id, ogp });
 }
 
 async function verifyTurnstile(secret: string, token: string, ip: string): Promise<boolean> {

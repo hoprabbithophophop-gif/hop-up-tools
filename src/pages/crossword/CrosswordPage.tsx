@@ -43,6 +43,15 @@ import { HintField } from "./components/HintField";
 import { Motion, Presence } from "./components/Motion";
 import { Toaster, toast } from "./components/Toast";
 import { SaveCheckModal } from "./components/SaveCheckModal";
+import { Footer, Icon } from "./components/ui";
+import { PuzzleRanking } from "./components/PuzzleRanking";
+import { NameEntryModal } from "./components/NameEntryModal";
+import { HintList } from "./components/HintList";
+import { OtherPuzzles } from "./components/OtherPuzzles";
+import { BEGINNER_LABEL } from "./components/PuzzleGalleryCard";
+import { detectGroups } from "../../lib/crossword/groupDetect";
+import { drawShareImage } from "../../lib/crossword/shareImage";
+import { queueScore, retryQueuedScores, saveScore, ScoreError } from "../../lib/crossword/scores";
 import { C } from "./style";
 
 // localStorage の鍵（crossword 専用の名前）
@@ -134,6 +143,16 @@ const T = {
       "カギは簡単なものから難しいものまで、さまざまな難易度があるとより楽しめます",
     ],
     close: "閉じる",
+  },
+  // 段階2b で足した物【仮】
+  stage2b: {
+    toList: "パズルギャラリー",
+    beginner: BEGINNER_LABEL,
+    // 選ぶと得をすることを先に言う（任天堂のデザイナー視点のシミュレーションで決定・2026-10-03）
+    detected: (groups: string[]) => `ハロプロのメンバー名・グループ名が入っています（${groups.join("、")}）。ハロプロにすると、ハロプロの一覧にも並びます。`,
+    toHello: "ハロプロにする",
+    scoreFailed: "スコアの保存に失敗しました", // HarmonyPalette と同じ文言
+    scoreQueued: "ネットワーク接続がありません。\nスコアはローカルに保存されました。\n接続回復時に自動で送信されます。", // HarmonyPalette と同じ文言
   },
   playerHelp: {
     title: "遊び方",
@@ -253,19 +272,7 @@ const Input = ({ value, onChange, placeholder, className, maxLength, onKeyDown }
   />
 );
 
-const Icon = ({ icon, size = 20, className = "" }: { icon: string; size?: number; className?: string }) => (
-  <span className={`material-symbols-outlined leading-none ${className}`} style={{ fontSize: `${size}px` }}>
-    {icon}
-  </span>
-);
-
-const Footer = ({ bottomGap = false }: { bottomGap?: boolean }) => (
-  <footer style={{ padding: "3rem 2rem", marginTop: "3rem", paddingBottom: bottomGap ? "6rem" : "3rem", borderTop: "1px solid rgba(198,198,198,0.2)" }}>
-    <p style={{ fontSize: "0.625rem", color: "#c6c6c6", margin: 0 }}>
-      非公式ファンツール。株式会社アップフロントグループとは無関係です。
-    </p>
-  </footer>
-);
+// Icon と Footer は components/ui.tsx へ移した（一覧の画面でも使うため。中身は同じ）
 
 export default function CrosswordPage() {
   const { id: puzzleId } = useParams();
@@ -279,6 +286,7 @@ export default function CrosswordPage() {
   const [genre, setGenre] = useState<Genre>("hello"); // 【仮】最初の選択
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
+  const [isBeginner, setIsBeginner] = useState(false); // 初めての人向けの印
 
   const [editorItems, setEditorItems] = useState<PuzzleItem[]>([]);
   const [hints, setHints] = useState<Record<string, HintRef>>({});
@@ -300,6 +308,7 @@ export default function CrosswordPage() {
   const [loadState, setLoadState] = useState<"loading" | "done">(isPlayerMode ? "loading" : "done");
   const [playerPuzzle, setPlayerPuzzle] = useState<PuzzleData | null>(null);
   const [playerHints, setPlayerHints] = useState<Record<string, HintRef>>({});
+  const [playerGenre, setPlayerGenre] = useState<Genre | null>(null); // 終わりの画面の「ほかの問題」用
   const [isAssemblyAnimating, setIsAssemblyAnimating] = useState(false);
   const [isCleared, setIsCleared] = useState(false);
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
@@ -329,6 +338,12 @@ export default function CrosswordPage() {
   const [showCreatorHelp, setShowCreatorHelp] = useState(false);
   const [scale, setScale] = useState(1);
   const [showContact, setShowContact] = useState(false);
+
+  // ランキング（HarmonyPalette の Ranking & Name Entry）
+  const [showNameEntry, setShowNameEntry] = useState(false);
+  const [rankingRefresh, setRankingRefresh] = useState(0);
+  const clearTimeRef = useRef<number | null>(null);
+  const surrenderedRef = useRef<string[]>([]);
 
   // Share Modal
   const [showShareModal, setShowShareModal] = useState(false);
@@ -410,6 +425,7 @@ export default function CrosswordPage() {
           failMessage = hidden ? T.errors.puzzleHidden : T.errors.loadFailed;
         } else {
           loaded = recordToPuzzle(rec);
+          setPlayerGenre(rec.genre);
           // 遊ばれた回数を1足す（HarmonyPalette の incrementPlayCount と同じ時機。失敗しても止めない）
           addPlay(rec.id).catch((err) => console.warn("Play count increment failed:", err));
         }
@@ -447,6 +463,32 @@ export default function CrosswordPage() {
       alive = false;
     };
   }, [puzzleId, isDebugMode]);
+
+  // キューイングされたスコアの再送信（ネットワーク回復時。HarmonyPalette と同じ）
+  useEffect(() => {
+    const retry = () => {
+      retryQueuedScores().catch((e) => console.error("[Score Queue] Error processing queue:", e));
+    };
+    retry();
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, []);
+
+  // 名前入力の窓を出すかを決める時に、今の降参の状態を読む
+  useEffect(() => {
+    surrenderedRef.current = surrendered;
+  }, [surrendered]);
+
+  // メンバー名・グループ名での自動判定（保存の受付係と同じ判定を先に出して知らせる）
+  const detectedGroups = useMemo(
+    () =>
+      detectGroups({
+        title: puzzleTitle.trim(),
+        clues: editorItems.map((i) => i.question),
+        answers: editorItems.map((i) => i.answer.join("")),
+      }),
+    [puzzleTitle, editorItems]
+  );
 
   // 自分が作った問題の遊ばれた回数を読む（作る画面だけ）
   const myPuzzleIds = myPuzzles.map((m) => m.id).join(",");
@@ -899,7 +941,7 @@ export default function CrosswordPage() {
           if (h?.kind === "youtube" && !(await isCatalogVideo(h.videoId))) ng.push(item.answer.join(""));
         }
         if (ng.length > 0) {
-          toast.error(`ハロプロのヒントに使える YouTube は、HELLO! VIDEO に載っている動画だけです。\n（${ng.join("、")}）`, { duration: 5000 });
+          toast.error(`${T.saveReasons.video}\n（${ng.join("、")}）`, { duration: 5000 });
           setIsSaving(false);
           return;
         }
@@ -933,7 +975,9 @@ export default function CrosswordPage() {
       const body = toBody(generatedPuzzle.items, generatedPuzzle.width, generatedPuzzle.height, (id) => hints[id]);
       if (creatorName.trim()) body.creatorName = creatorName.trim();
       const key = makeOwnerKey();
-      const id = await savePuzzle({ title, genre, tags, body }, { key, token, website });
+      // シェア画像。描けなければ画像なしで保存する
+      const ogpImage = await drawShareImage(generatedPuzzle, title);
+      const id = await savePuzzle({ title, genre, tags, body, isBeginner }, { key, token, website, ogpImage });
       setMyPuzzles(addMyPuzzle({ id, title, key, createdAt: Date.now() }));
       const url = `${window.location.origin}/crossword/${id}`;
       setShareUrl(url);
@@ -1001,18 +1045,26 @@ export default function CrosswordPage() {
       setGamePhase("cleared");
 
       // Stage 2: タイム計算（500ms後）
+      clearTimeRef.current = null;
       setTimeout(() => {
         if (startTime && puzzleId) {
           const timeSeconds = Math.floor((Date.now() - startTime - pausedTime) / 1000);
           setClearTime(timeSeconds);
+          clearTimeRef.current = timeSeconds;
         }
       }, 500);
 
       // Stage 3: クリア状態確定（1000ms後）
       setTimeout(() => setIsCleared(true), 1000);
 
-      // Stage 4: アニメーション終了（2000ms後）
-      setTimeout(() => setShowClearAnimation(false), 2000);
+      // Stage 4: アニメーション終了・名前入力の窓（2000ms後）
+      // 降参したカギがある回は記録しない【仮】ので、窓も出さない
+      setTimeout(() => {
+        setShowClearAnimation(false);
+        if (puzzleId && clearTimeRef.current !== null && clearTimeRef.current >= 1 && surrenderedRef.current.length === 0) {
+          setShowNameEntry(true);
+        }
+      }, 2000);
     } else {
       setWrongCells(wrong);
       // 合っていないカギの一覧（降参の入口）
@@ -1022,6 +1074,32 @@ export default function CrosswordPage() {
       toast.error("まだ間違いがあるか、未入力のマスがあります。\n赤枠のマスを確認してください。", { duration: 5000 });
       setTimeout(() => setWrongCells(new Set()), 3000);
     }
+  };
+
+  // --- Submit Score Logic with Network Protection（HarmonyPalette の handleSubmitScore と同じ動き） ---
+  const handleSubmitScore = async (name: string) => {
+    const t = clearTimeRef.current;
+    if (!puzzleId || t === null) return;
+    try {
+      await saveScore(puzzleId, t, name);
+      setShowNameEntry(false);
+      setRankingRefresh((k) => k + 1);
+    } catch (error) {
+      console.error("Failed to save score:", error);
+      const isNetworkError = (error instanceof ScoreError && error.reason === "network") || !navigator.onLine;
+      if (isNetworkError) {
+        queueScore(puzzleId, t, name);
+        toast.success(T.stage2b.scoreQueued, { duration: 6000 });
+        setShowNameEntry(false);
+      } else {
+        toast.error(T.stage2b.scoreFailed);
+      }
+    }
+  };
+
+  // スキップしたら記録しない（Hop 決定 2026-10-03。HarmonyPalette は名前なしで記録していた）
+  const handleSkipScore = () => {
+    setShowNameEntry(false);
   };
 
   // 降参: そのカギの答えをマスに入れ、薄い色で区別する
@@ -1257,6 +1335,10 @@ export default function CrosswordPage() {
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="flex-1 text-sm" style={{ color: C.ink }}>
                                 {item.clueIndex}（{dirLabel(item.direction)}）の答えを見る？
+                                {/* 降参すると記録されないことを、選ぶ時に知らせる（任天堂のデザイナー視点のシミュレーションで決定・2026-10-03）【仮】 */}
+                                {puzzleId && (
+                                  <span className="block text-xs mt-0.5" style={{ color: C.secondary }}>ランキングには記録されなくなります。</span>
+                                )}
                               </span>
                               <button onClick={() => handleSurrender(item.uuid)} className="px-3 py-1.5 text-sm font-bold bg-primary text-white hover:bg-secondary transition-colors">
                                 降参する
@@ -1342,8 +1424,26 @@ export default function CrosswordPage() {
                             </li>
                           ))}
                         </ul>
+                        {/* 降参した回は記録しないことを知らせる（Hop 決定 2026-10-03）【仮】 */}
+                        {puzzleId && (
+                          <p className="text-xs mt-3" style={{ color: C.secondary }}>降参したカギがあるので、ランキングには記録されません。</p>
+                        )}
                       </div>
                     )}
+                    {/* ランキング（降参したカギがある回は今回のタイムを出さない） */}
+                    {puzzleId && (
+                      <div className="mt-6">
+                        <PuzzleRanking
+                          puzzleId={puzzleId}
+                          currentScore={surrendered.length === 0 && clearTime !== null ? clearTime : undefined}
+                          refreshKey={rankingRefresh}
+                        />
+                      </div>
+                    )}
+                    {/* ヒントの動画の一覧 */}
+                    <HintList items={playerPuzzle.items} hints={playerHints} />
+                    {/* ほかの問題と一覧への入口 */}
+                    {puzzleId && playerGenre && <OtherPuzzles genre={playerGenre} puzzleId={puzzleId} />}
                     {/* 作成モードへ戻るリンク */}
                     <div className="text-center mt-4">
                       <Link
@@ -1406,6 +1506,11 @@ export default function CrosswordPage() {
           )}
         </Presence>
 
+        {/* Name Entry Modal for Ranking */}
+        {showNameEntry && clearTime !== null && (
+          <NameEntryModal clearTime={clearTime} onSubmit={handleSubmitScore} onSkip={handleSkipScore} />
+        )}
+
         {showContact && <ContactModal onClose={() => setShowContact(false)} initialTool="crossword" puzzleId={puzzleId} />}
 
         <Footer bottomGap={!isCleared && !showCloseup} />
@@ -1457,6 +1562,13 @@ export default function CrosswordPage() {
           >
             <Icon icon="help" />
           </button>
+        </div>
+
+        {/* 一覧への入口【仮】 */}
+        <div className="flex justify-center mb-6">
+          <Link to="/crossword/list" className="text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
+            {T.stage2b.toList} <span aria-hidden="true">→</span>
+          </Link>
         </div>
 
         {/* ジャンル（HarmonyPalette の文字/コードの切り替えがあった場所） */}
@@ -1533,6 +1645,12 @@ export default function CrosswordPage() {
                     </div>
                   )}
                 </div>
+
+                {/* 初めての人向けの印【仮】 */}
+                <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: C.ink }}>
+                  <input type="checkbox" checked={isBeginner} onChange={(e) => setIsBeginner(e.target.checked)} className="w-4 h-4 accent-black" />
+                  {T.stage2b.beginner}
+                </label>
               </div>
 
               <div className="space-y-3">
@@ -1634,6 +1752,23 @@ export default function CrosswordPage() {
                 <div className="bg-white px-4 py-3 text-sm" style={{ color: C.ink }}>
                   <span className="text-[0.6875rem] font-bold tracking-[0.1em] mr-2" style={{ color: C.error }}>置けなかった語</span>
                   {unplaced.map((i) => i.answer.join("")).join("、")}
+                </div>
+              )}
+
+              {/* メンバー名・グループ名が入っていたら知らせ、ジャンルは作る人が選ぶ（Hop 決定 2026-10-03）【仮】 */}
+              {genre !== "hello" && detectedGroups.length > 0 && (
+                <div className="bg-white px-4 py-3 text-sm flex flex-wrap items-center gap-3" style={{ color: C.ink }}>
+                  <span className="flex-1 min-w-0">{T.stage2b.detected(detectedGroups)}</span>
+                  <Button
+                    onClick={() => {
+                      setGenre("hello");
+                      setPendingHint(null);
+                      setHintResetKey((k) => k + 1);
+                    }}
+                    variant="secondary"
+                  >
+                    {T.stage2b.toHello}
+                  </Button>
                 </div>
               )}
 

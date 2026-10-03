@@ -23,6 +23,7 @@ const ROUTES: { path: string; load: () => Promise<{ default: ComponentType }> }[
   { path: "/arigato-beat/call", load: () => import("./pages/hi-tension/ArigatoBeatCallPage") },
   { path: "/arigato-beat", load: () => import("./pages/hi-tension/ArigatoBeatQuizPage") },
   { path: "/crossword", load: () => import("./pages/crossword/CrosswordPage") },
+  { path: "/crossword/list", load: () => import("./pages/crossword/GalleryPage") },
   { path: "/crossword/:id", load: () => import("./pages/crossword/CrosswordPage") },
   { path: "/news", load: () => import("./pages/news/NewsListPage") },
   { path: "/news/:id", load: () => import("./pages/news/NewsArticlePage") },

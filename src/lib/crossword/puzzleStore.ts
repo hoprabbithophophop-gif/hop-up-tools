@@ -33,6 +33,9 @@ export interface PuzzleRecord {
   tags: string[];
   body: PuzzleBody;
   created_at: string;
+  // 段階2b。保存の受付係だけが書く
+  is_beginner?: boolean;
+  group_tags?: string[];
 }
 
 export interface NewPuzzle {
@@ -40,6 +43,7 @@ export interface NewPuzzle {
   genre: Genre;
   tags: string[];
   body: PuzzleBody;
+  isBeginner?: boolean; // 初めての人向けの印
 }
 
 // 置けた語と、それぞれのヒントから保存用の中身を作る
@@ -65,28 +69,35 @@ export const toBody = (
 
 // 保存は受付係（/api/crossword-save）を通す。棚へ直接は入れられない
 export class SaveError extends Error {
-  constructor(public reason: string) {
+  constructor(public reason: string, public groups: string[] = []) {
     super(`save failed: ${reason}`);
   }
 }
 
+// ogpImage はシェア画像（1200×630 の PNG の data URL）。無くても保存できる。受付係が置けなくても保存は成功する
 export async function savePuzzle(
   p: NewPuzzle,
-  opts: { key: string; token: string; website: string }
+  opts: { key: string; token: string; website: string; ogpImage?: string | null }
 ): Promise<string> {
   let res: Response;
   try {
     res = await fetch("/api/crossword-save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ puzzle: { ...p, key: opts.key }, token: opts.token, website: opts.website }),
+      body: JSON.stringify({
+        puzzle: { ...p, key: opts.key },
+        token: opts.token,
+        website: opts.website,
+        ...(opts.ogpImage ? { ogpImage: opts.ogpImage } : {}),
+      }),
     });
   } catch {
     throw new SaveError("network");
   }
-  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: unknown; reason?: unknown };
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: unknown; reason?: unknown; groups?: unknown };
   if (res.ok && data.ok && typeof data.id === "string") return data.id;
-  throw new SaveError(typeof data.reason === "string" ? data.reason : "server");
+  const groups = Array.isArray(data.groups) ? data.groups.filter((g): g is string => typeof g === "string") : [];
+  throw new SaveError(typeof data.reason === "string" ? data.reason : "server", groups);
 }
 
 // 削除用の合言葉。32 バイトの乱数を16進64字にする（受付係には sha256 だけが残る）
@@ -96,7 +107,7 @@ export const makeOwnerKey = (): string =>
 export async function loadPuzzle(id: string): Promise<PuzzleRecord | null> {
   const { data, error } = await getSupabase()
     .from("crossword_puzzles")
-    .select("id,title,genre,tags,body,created_at")
+    .select("id,title,genre,tags,body,created_at,is_beginner,group_tags")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
