@@ -119,10 +119,11 @@ const submitName = async (page) => {
   await page.getByRole('button', { name: '載せない' }).click();
   await page.waitForTimeout(1500);
   const t = await text(page);
-  check(/ノーミス・ノーヒント/.test(t), '両方 0 は「ノーミス・ノーヒント」');
-  check(/・ノーヒント/.test(t.replace('ノーミス・ノーヒント', '')), 'ミスありで見ていないのは「ノーヒント」');
-  check(t.includes('ノーミス・2文字見た'), 'ミス 0 で2文字見たのは「ノーミス・2文字見た」');
-  check(/・1文字見た/.test(t), 'ミスありで1文字見たのは「1文字見た」');
+  const lines = t.split(/\r?\n/).map((l) => l.trim());
+  check(lines.includes('ノーミス・ノーヒント'), '両方 0 は「ノーミス・ノーヒント」');
+  check(lines.includes('ノーヒント'), 'ミスありで見ていないのは「ノーヒント」');
+  check(lines.includes('ノーミス・2文字見た'), 'ミス 0 で2文字見たのは「ノーミス・2文字見た」');
+  check(lines.includes('1文字見た'), 'ミスありで1文字見たのは「1文字見た」');
   await page.getByText('ランキング').first().scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${OUT}/reveal-3-ranking.png` });
   await ctx.close();
