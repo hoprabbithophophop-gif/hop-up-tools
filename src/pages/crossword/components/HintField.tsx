@@ -1,5 +1,5 @@
 // 作る画面の「ヒント」欄（HarmonyPalette に無い、足した物）。
-// ハロプロ: YouTube は HELLO! VIDEO の台帳から題名・曲名で検索して選ぶ（サムネイル付き）。URL を貼った時は台帳にあるか確かめ、無ければ受け付けない
+// ハロプロ: YouTube は HELLO! VIDEO の台帳から題名・曲名で検索する。結果のサムネイルを押すと拡大の窓で再生して見られ（見る）、窓の「この位置でヒントにする」か題名側を押すと選ぶ（決める）。URL を貼った時は台帳にあるか確かめ、無ければ受け付けない
 // その他: YouTube の URL を貼ると時刻が欄に入る（直せる）
 // 選んだ YouTube はその場で埋め込み、開始時刻の位置で止めて出す。「今の位置にする」で時刻を入れられる
 // どちらのジャンルも YouTube 以外のリンクは「リンク」として貼れる（再生しない）
@@ -47,6 +47,16 @@ const Thumb: React.FC<{ id: string }> = ({ id }) => (
   />
 );
 
+// 押すと拡大して再生する（見る）。押せることが分かるよう再生の印を重ねる（印は画像の上で、プレイヤーの上ではない）
+const ThumbButton: React.FC<{ id: string; onClick: () => void; label: string }> = ({ id, onClick, label }) => (
+  <button type="button" onClick={onClick} className="relative shrink-0 block" aria-label={label} style={{ width: 120, height: 90 }}>
+    <Thumb id={id} />
+    <span className="absolute inset-0 flex items-center justify-center" aria-hidden="true">
+      <span className="material-symbols-outlined leading-none" style={{ fontSize: "32px", color: C.white, background: "rgba(0,0,0,0.55)", padding: 4 }}>play_arrow</span>
+    </span>
+  </button>
+);
+
 const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <p className="px-3 pt-2 pb-1 text-[0.6875rem] font-bold uppercase tracking-[0.1em]" style={{ color: C.secondary }}>
     {children}
@@ -63,6 +73,9 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   const [busy, setBusy] = useState(false);
   const seq = useRef(0);
   const playerRef = useRef<HintPlayerApi>(null);
+  // サムネイルを押して拡大して見ている動画（見る）。窓の中の「この位置でヒントにする」で選ぶ（決める）
+  const [preview, setPreview] = useState<Selected | null>(null);
+  const previewRef = useRef<HintPlayerApi>(null);
 
   useEffect(() => {
     setText("");
@@ -215,14 +228,18 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
               <SectionLabel>動画</SectionLabel>
               <ul>
                 {results.map((r) => (
-                  <li key={r.video_id}>
+                  <li key={r.video_id} className="flex items-start gap-3 px-3 py-2">
+                    <ThumbButton
+                      id={r.video_id}
+                      label={`${r.title} を再生して見る`}
+                      onClick={() => setPreview({ hint: { kind: "youtube", videoId: r.video_id, startSec: 0 }, label: r.title })}
+                    />
                     <button
                       type="button"
                       onClick={() => choose({ hint: { kind: "youtube", videoId: r.video_id, startSec: 0 }, label: r.title })}
-                      className="w-full flex items-start gap-3 text-left px-3 py-2 hover:bg-surface-container-high transition-colors"
+                      className="flex-1 min-w-0 text-left hover:bg-surface-container-high transition-colors"
                     >
-                      <Thumb id={r.video_id} />
-                      <span className="flex-1 min-w-0">
+                      <span className="block min-w-0">
                         <span className="block text-sm" style={{ color: C.ink }}>{r.title}</span>
                         {r.channel_name && <span className="block text-xs" style={{ color: C.secondary }}>{r.channel_name}</span>}
                         {r.published_at && <span className="block text-xs" style={{ color: C.secondary }}>{dateText(r.published_at)}</span>}
@@ -238,7 +255,12 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
               <SectionLabel>曲・場面</SectionLabel>
               <ul>
                 {chapterResults.map((c) => (
-                  <li key={`${c.video_id}-${c.seq}`}>
+                  <li key={`${c.video_id}-${c.seq}`} className="flex items-start gap-3 px-3 py-2">
+                    <ThumbButton
+                      id={c.video_id}
+                      label={`${c.song_title} を再生して見る`}
+                      onClick={() => setPreview({ hint: { kind: "youtube", videoId: c.video_id, startSec: c.startSec }, label: `${c.song_title} / ${c.videoTitle}` })}
+                    />
                     <button
                       type="button"
                       onClick={() =>
@@ -247,10 +269,9 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
                           label: `${c.song_title} / ${c.videoTitle}`,
                         })
                       }
-                      className="w-full flex items-start gap-3 text-left px-3 py-2 hover:bg-surface-container-high transition-colors"
+                      className="flex-1 min-w-0 text-left hover:bg-surface-container-high transition-colors"
                     >
-                      <Thumb id={c.video_id} />
-                      <span className="flex-1 min-w-0">
+                      <span className="block min-w-0">
                         <span className="block text-sm font-bold" style={{ color: C.ink }}>{c.song_title}</span>
                         {c.group_name && <span className="block text-xs" style={{ color: C.secondary }}>{c.group_name}</span>}
                         <span className="block text-xs" style={{ color: C.secondary }}>{c.videoTitle}</span>
@@ -265,6 +286,47 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
         </div>
       )}
       {message && <p className="text-xs" style={{ color: C.secondary }}>{message}</p>}
+
+      {/* 拡大して見る窓。動画の上には何も重ねず、操作は動画の下に置く（YouTube の決まり） */}
+      {preview && preview.hint.kind === "youtube" && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+          onClick={(e) => e.target === e.currentTarget && setPreview(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={preview.label}
+        >
+          <div className="w-full max-w-[640px] bg-white p-4 space-y-3">
+            <p className="text-sm font-bold" style={{ color: C.ink }}>{preview.label}</p>
+            <HintPlayer key={`preview-${preview.hint.videoId}-${preview.hint.startSec}`} ref={previewRef} videoId={preview.hint.videoId} startSec={preview.hint.startSec} />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const t = previewRef.current?.getCurrentTime();
+                  const start = typeof t === "number" && t > 0 ? Math.floor(t) : preview.hint.kind === "youtube" ? preview.hint.startSec : 0;
+                  if (preview.hint.kind === "youtube") choose({ hint: { ...preview.hint, startSec: start }, label: preview.label });
+                  setPreview(null);
+                }}
+                className="flex-1 flex items-center justify-center gap-1 px-3 py-3 text-sm font-bold hover:opacity-80 transition-opacity"
+                style={{ background: C.black, color: C.white }}
+              >
+                <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px" }}>pin_drop</span>
+                この位置でヒントにする
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                className="px-4 py-3 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors"
+                style={{ color: C.ink }}
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
