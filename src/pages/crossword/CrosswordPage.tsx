@@ -1650,8 +1650,8 @@ export default function CrosswordPage() {
 
         <div className="container mx-auto max-w-5xl">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Input Panel */}
-            <div className="bg-white p-6 space-y-6">
+            {/* Input Panel（縦に並ぶ幅では 640px までにして真ん中に置く。Hop 決定 2026-10-04「PCだと入力欄めっちゃ横長」） */}
+            <div className="bg-white p-6 space-y-6 w-full max-w-[640px] mx-auto lg:max-w-none">
               <div>
                 <h2 className="text-base font-semibold mb-4 flex items-center gap-2 pb-2" style={{ color: C.ink }}>
                   <Icon icon="add" /> {T.createNew}
