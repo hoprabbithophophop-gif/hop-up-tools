@@ -129,21 +129,90 @@ export interface CatalogVideo {
   video_id: string;
   title: string;
   channel_name: string | null;
+  published_at: string | null;
+}
+
+// 動画の中の曲・場面の区切り（video_chapters）。親の動画の題名とチャンネル名を付けてある
+export interface CatalogChapter {
+  video_id: string;
+  seq: number;
+  song_title: string;
+  group_name: string | null;
+  venue: string | null;
+  performed_on: string | null;
+  startSec: number; // content_start_sec、無ければ toc_sec
+  videoTitle: string;
+  channel_name: string | null;
 }
 
 // ハロプロのジャンルのヒント選び。台帳の表示してよい動画を題名で探す
-export async function searchCatalogVideos(query: string, limit = 10): Promise<CatalogVideo[]> {
+export async function searchCatalogVideos(query: string, limit = 8): Promise<CatalogVideo[]> {
   const q = query.trim();
   if (!q) return [];
   const { data, error } = await getSupabase()
     .from("youtube_videos")
-    .select("video_id,title,channel_name")
+    .select("video_id,title,channel_name,published_at")
     .eq("is_active_content", true)
     .ilike("title", `%${q}%`)
     .order("published_at", { ascending: false })
     .limit(limit);
   if (error) throw error;
   return (data as CatalogVideo[] | null) ?? [];
+}
+
+// 曲名で区切りを探す。表示してよい動画（is_active_content=true）の区切りだけ返す
+export async function searchCatalogChapters(query: string, limit = 12): Promise<CatalogChapter[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const sb = getSupabase();
+  // 表示してよい動画に絞ると落ちる分があるので、多めに取ってから絞る
+  const { data, error } = await sb
+    .from("video_chapters")
+    .select("video_id,seq,toc_sec,content_start_sec,song_title,group_name,venue,performed_on")
+    .ilike("song_title", `%${q}%`)
+    .order("performed_on", { ascending: false, nullsFirst: false })
+    .limit(limit * 4);
+  if (error) throw error;
+  const rows =
+    (data as {
+      video_id: string;
+      seq: number;
+      toc_sec: number | null;
+      content_start_sec: number | null;
+      song_title: string;
+      group_name: string | null;
+      venue: string | null;
+      performed_on: string | null;
+    }[] | null) ?? [];
+  if (rows.length === 0) return [];
+  const ids = Array.from(new Set(rows.map((r) => r.video_id)));
+  const { data: vids, error: vErr } = await sb
+    .from("youtube_videos")
+    .select("video_id,title,channel_name")
+    .eq("is_active_content", true)
+    .in("video_id", ids);
+  if (vErr) throw vErr;
+  const byId = new Map(
+    ((vids as { video_id: string; title: string; channel_name: string | null }[] | null) ?? []).map((v) => [v.video_id, v])
+  );
+  const out: CatalogChapter[] = [];
+  for (const r of rows) {
+    const v = byId.get(r.video_id);
+    if (!v) continue;
+    out.push({
+      video_id: r.video_id,
+      seq: r.seq,
+      song_title: r.song_title,
+      group_name: r.group_name,
+      venue: r.venue,
+      performed_on: r.performed_on,
+      startSec: Math.max(0, Math.floor(r.content_start_sec ?? r.toc_sec ?? 0)),
+      videoTitle: v.title,
+      channel_name: v.channel_name,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 // 遊ばれた回数を1足す。失敗しても遊ぶのは止めない
