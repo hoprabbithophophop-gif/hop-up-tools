@@ -39,7 +39,7 @@ import { ClearEffect } from "./components/ClearEffect";
 import { detectKeypadType } from "./components/PuzzleKeypad";
 import { StickyHintBar } from "./components/StickyHintBar";
 import { PuzzleCloseupModal } from "./components/PuzzleCloseupModal";
-import { HintField } from "./components/HintField";
+import { HintField, type Selected as HintSelected } from "./components/HintField";
 import { Motion, Presence } from "./components/Motion";
 import { Toaster, toast } from "./components/Toast";
 import { SaveCheckModal } from "./components/SaveCheckModal";
@@ -293,6 +293,10 @@ export default function CrosswordPage() {
   const [currentInput, setCurrentInput] = useState({ q: "", a: "" });
   const [pendingHint, setPendingHint] = useState<HintRef | null>(null);
   const [hintResetKey, setHintResetKey] = useState(0);
+  // 登録済みのカギを直している間はその id（Hop 依頼 2026-10-03。HarmonyPalette は削除だけ）
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [hintInitial, setHintInitial] = useState<HintSelected | null>(null);
+  const clueInputRef = useRef<HTMLInputElement>(null);
   const [generatedPuzzle, setGeneratedPuzzle] = useState<PuzzleData | null>(null);
 
   // v4 Live Generation State
@@ -824,24 +828,57 @@ export default function CrosswordPage() {
     };
 
     const newItem: PuzzleItem = {
-      id: generateUUID(),
+      id: editingId ?? generateUUID(),
       question: currentInput.q || "（カギなし）",
       answer: answerParts,
     };
 
-    const newItems = [...editorItems, newItem];
+    // 直している最中なら、そのカギを入れ替える（並びはそのまま）
+    const newItems = editingId ? editorItems.map((i) => (i.id === editingId ? newItem : i)) : [...editorItems, newItem];
     setEditorItems(newItems);
     setHints((prev) => ({ ...prev, [newItem.id]: pendingHint }));
-    setCurrentInput({ q: "", a: "" });
-    setPendingHint(null);
-    setHintResetKey((k) => k + 1);
+    resetItemInput();
 
     triggerGeneration(newItems);
+  };
+
+  // 入力欄を空に戻し、直している状態もやめる
+  const resetItemInput = () => {
+    setCurrentInput({ q: "", a: "" });
+    setPendingHint(null);
+    setEditingId(null);
+    setHintInitial(null);
+    setHintResetKey((k) => k + 1);
+  };
+
+  // 登録済みのカギを入力欄に戻して直せるようにする
+  const handleEditItem = (item: PuzzleItem) => {
+    const h = hints[item.id];
+    setCurrentInput({ a: item.answer.join(""), q: item.question === "（カギなし）" ? "" : item.question });
+    setEditingId(item.id);
+    setHintInitial(h ? { hint: h, label: hintSummary(h) } : null);
+    setHintResetKey((k) => k + 1);
+  };
+
+  // カギの欄の、今の文字の位置に「○」を入れる（Hop 依頼 2026-10-03。「音大卒○○○の伝道師」のような穴あきのカギ用）
+  const insertMaru = () => {
+    const el = clueInputRef.current;
+    const q = currentInput.q;
+    const start = el?.selectionStart ?? q.length;
+    const end = el?.selectionEnd ?? q.length;
+    const next = q.slice(0, start) + "○" + q.slice(end);
+    setCurrentInput({ ...currentInput, q: next });
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(start + 1, start + 1);
+    });
   };
 
   const handleRemoveItem = (itemId: string) => {
     const newItems = editorItems.filter((i) => i.id !== itemId);
     setEditorItems(newItems);
+    if (itemId === editingId) resetItemInput();
     triggerGeneration(newItems);
   };
 
@@ -1660,15 +1697,38 @@ export default function CrosswordPage() {
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-mono font-bold" style={{ color: C.secondary }}>{T.clue}</label>
-                  <Input value={currentInput.q} onChange={(v) => setCurrentInput({ ...currentInput, q: v })} placeholder={T.cluePlaceholder} />
+                  <div className="flex gap-2">
+                    <input
+                      ref={clueInputRef}
+                      value={currentInput.q}
+                      onChange={(e) => setCurrentInput({ ...currentInput, q: e.target.value })}
+                      placeholder={T.cluePlaceholder}
+                      className={`${inputClass} flex-1 min-w-0`}
+                    />
+                    {/* 穴あきのカギ用。今の文字の位置に「○」を1つ入れる */}
+                    <button type="button" onClick={insertMaru} className="px-4 bg-surface-container-high hover:bg-surface-container-highest font-bold transition-colors" style={{ color: C.ink }} aria-label="○を入れる">
+                      ○
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-mono font-bold" style={{ color: C.secondary }}>ヒント</label>
-                  <HintField genre={genre} onChange={setPendingHint} resetKey={hintResetKey} inputClassName={inputClass} />
+                  <HintField genre={genre} onChange={setPendingHint} resetKey={hintResetKey} inputClassName={inputClass} initial={hintInitial} />
                 </div>
-                <Button onClick={handleAddItem} disabled={!currentInput.a || !pendingHint} className="w-full">
-                  {T.addToList}
-                </Button>
+                {editingId ? (
+                  <div className="flex gap-2">
+                    <Button onClick={handleAddItem} disabled={!currentInput.a || !pendingHint} className="flex-1">
+                      更新する
+                    </Button>
+                    <Button onClick={resetItemInput} variant="secondary">
+                      やめる
+                    </Button>
+                  </div>
+                ) : (
+                  <Button onClick={handleAddItem} disabled={!currentInput.a || !pendingHint} className="w-full">
+                    {T.addToList}
+                  </Button>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -1676,7 +1736,7 @@ export default function CrosswordPage() {
                   {editorItems.map((item) => {
                     const chars = intersectionMarks.get(item.id);
                     return (
-                      <div key={item.id} className="flex justify-between items-center p-2 bg-surface-container-low">
+                      <div key={item.id} className={`flex justify-between items-center p-2 ${editingId === item.id ? "bg-surface-container-highest" : "bg-surface-container-low"}`}>
                         <div className="overflow-hidden flex-1">
                           <div className="font-mono text-sm font-bold truncate flex items-center gap-1" style={{ color: C.ink }}>
                             <span>{item.answer.join(" ")}</span>
@@ -1694,7 +1754,10 @@ export default function CrosswordPage() {
                           <div className="text-xs truncate" style={{ color: C.secondary }}>{item.question}</div>
                           <div className="text-xs truncate" style={{ color: C.outline }}>{hintSummary(hints[item.id])}</div>
                         </div>
-                        <button onClick={() => handleRemoveItem(item.id)} className="p-1 ml-2 flex-shrink-0 hover:bg-primary hover:text-white transition-colors" style={{ color: C.secondary }} aria-label="削除">
+                        <button onClick={() => handleEditItem(item)} className="p-1 ml-2 flex-shrink-0 hover:bg-primary hover:text-white transition-colors" style={{ color: C.secondary }} aria-label="編集">
+                          <Icon size={16} icon="edit" />
+                        </button>
+                        <button onClick={() => handleRemoveItem(item.id)} className="p-1 ml-1 flex-shrink-0 hover:bg-primary hover:text-white transition-colors" style={{ color: C.secondary }} aria-label="削除">
                           <Icon size={16} icon="delete" />
                         </button>
                       </div>

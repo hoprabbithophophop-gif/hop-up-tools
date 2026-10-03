@@ -8,7 +8,7 @@ import { isCatalogVideo, searchCatalogVideos, type CatalogVideo } from "../../..
 import { formatTime, parseTimeInput, parseYouTubeUrl } from "../../../lib/crossword/youtubeUrl";
 import { C } from "../style";
 
-interface Selected {
+export interface Selected {
   hint: HintRef;
   label: string;
 }
@@ -18,11 +18,13 @@ interface HintFieldProps {
   onChange: (hint: HintRef | null) => void;
   resetKey: number; // 変わったら欄を空にする（追加した後・ジャンルを変えた後）
   inputClassName: string;
+  /** 登録済みのカギを直すとき、resetKey が変わった時点でこのヒントが選ばれた状態にする */
+  initial?: Selected | null;
 }
 
 const looksLikeUrl = (t: string) => /^https?:\/\//i.test(t.trim());
 
-export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey, inputClassName }) => {
+export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey, inputClassName, initial }) => {
   const [text, setText] = useState("");
   const [selected, setSelected] = useState<Selected | null>(null);
   const [timeText, setTimeText] = useState("0:00");
@@ -33,8 +35,8 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
 
   useEffect(() => {
     setText("");
-    setSelected(null);
-    setTimeText("0:00");
+    setSelected(initial ?? null);
+    setTimeText(initial?.hint.kind === "youtube" ? formatTime(initial.hint.startSec) : "0:00");
     setResults([]);
     setMessage("");
   }, [resetKey]);
