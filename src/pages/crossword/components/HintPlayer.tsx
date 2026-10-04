@@ -112,7 +112,7 @@ export const HintPlayer = forwardRef<HintPlayerApi, Props>(function HintPlayer({
 
   return (
     <div className="space-y-1">
-      <div style={{ position: "relative", width: "100%", maxWidth: 480, aspectRatio: "16 / 9", background: "#000" }}>
+      <div style={{ position: "relative", width: "100%", maxWidth: 480, aspectRatio: "16 / 9", minHeight: 200, background: "#000" }}>
         <div ref={holderRef} style={{ position: "absolute", inset: 0 }} className="[&_iframe]:w-full [&_iframe]:h-full" />
       </div>
       <p className="text-xs font-bold" style={{ color: C.secondary }}>▶ YouTube</p>

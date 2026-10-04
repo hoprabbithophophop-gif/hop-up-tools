@@ -13,6 +13,8 @@
  * 返事は { ok: true, deleted: boolean }。絵を消すのに失敗しても、問題の削除の結果はそのまま返す。
  */
 
+import { deleteOgpPng } from "../_shared/crosswordOgp";
+
 interface Env {
   VITE_SUPABASE_URL?: string;
   /** 置き場の絵を消すのに使う。RLS を迂回するので絶対に外へ出さない。 */
@@ -20,7 +22,6 @@ interface Env {
 }
 
 const ID_RE = /^[A-Za-z0-9_-]{8}$/;
-const BUCKET = "crossword-ogp";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -83,16 +84,7 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
 
   // 3. 絵を消す（無ければ何も起きない）
   if (deleted || orphan) {
-    try {
-      const res = await fetch(`${base}/storage/v1/object/${BUCKET}`, {
-        method: "DELETE",
-        headers,
-        body: JSON.stringify({ prefixes: [`${id}.png`] }),
-      });
-      if (!res.ok) console.error("crossword-delete: image delete failed", res.status);
-    } catch (e) {
-      console.error("crossword-delete: image delete threw", String(e));
-    }
+    await deleteOgpPng(base, env.SUPABASE_SECRET_KEY, id);
   }
 
   return json({ ok: true, deleted });

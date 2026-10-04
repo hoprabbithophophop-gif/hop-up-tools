@@ -9,7 +9,7 @@
  * ここで index.html を返さないとページが開けなくなる。public/_redirects の頭の説明を参照）。
  *
  * 問題は公開用の鍵（anon）で読む。RLS が隠された問題を返さないので、「無い」と「隠された」は同じ扱いになる。
- * 画像の住所は保存の受付係が置く場所。置けていなかった問題では、その住所の画像が無い（カードの絵が出ない）。
+ * 画像の住所は保存の受付係が置く場所。置けていなかった・通報で消された問題は、先に HEAD で確かめて、無ければ絵の無い札にする。
  */
 
 import { buildMetaTags } from '../_shared/ogp';
@@ -24,6 +24,15 @@ interface Env {
 const ID_RE = /^[A-Za-z0-9_-]{8}$/;
 /** カードの説明文【仮】 */
 const DESCRIPTION = 'クロスワード | hop-up-tools';
+
+/** 画像が置かれているか。失敗・例外は「無い」扱い */
+async function imageExists(imageUrl: string): Promise<boolean> {
+  try {
+    return (await fetch(imageUrl, { method: 'HEAD' })).ok;
+  } catch {
+    return false;
+  }
+}
 
 export async function onRequest(context: {
   request: Request;
@@ -55,11 +64,12 @@ export async function onRequest(context: {
     const title = rows[0]?.title;
     if (typeof title !== 'string' || title === '') return indexRes;
 
+    const imageUrl = ogpPublicUrl(env.VITE_SUPABASE_URL, id);
     const metaHtml = buildMetaTags({
       canonicalUrl: `${url.origin}/crossword/${id}`,
       title,
       description: DESCRIPTION,
-      image: ogpPublicUrl(env.VITE_SUPABASE_URL, id),
+      image: (await imageExists(imageUrl)) ? imageUrl : undefined,
     });
 
     // @ts-ignore

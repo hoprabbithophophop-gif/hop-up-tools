@@ -49,7 +49,7 @@ const HintVideo: React.FC<{ videoId: string; startSec: number }> = ({ videoId, s
   if (gone) return <GoneNote />;
   return (
     <div className="p-3">
-      <div className="relative w-full" style={{ aspectRatio: "16 / 9", background: C.black }}>
+      <div className="relative w-full" style={{ aspectRatio: "16 / 9", minHeight: 200, background: C.black }}>
         <div ref={holderRef} className="absolute inset-0 [&_iframe]:w-full [&_iframe]:h-full" />
       </div>
     </div>

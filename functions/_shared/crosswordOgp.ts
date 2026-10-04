@@ -67,3 +67,23 @@ export async function uploadOgpPng(
     return false;
   }
 }
+
+/** 秘密の鍵で置き場から消す（無ければ何も起きない）。消せたら true。失敗しても投げない */
+export async function deleteOgpPng(supabaseUrl: string, secretKey: string, id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${supabaseUrl}/storage/v1/object/${OGP_BUCKET}`, {
+      method: "DELETE",
+      headers: {
+        apikey: secretKey,
+        Authorization: `Bearer ${secretKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ prefixes: [`${id}.png`] }),
+    });
+    if (!res.ok) console.error("crossword-ogp: delete failed", res.status);
+    return res.ok;
+  } catch (e) {
+    console.error("crossword-ogp: delete threw", String(e));
+    return false;
+  }
+}

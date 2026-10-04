@@ -18,6 +18,8 @@
  * ここを全部すり抜けても最後に効く。
  */
 
+import { deleteOgpPng } from "../_shared/crosswordOgp";
+
 interface Env {
   VITE_SUPABASE_URL?: string;
   /** contact_messages への書き込み用。RLS を迂回するので絶対に外へ出さない。 */
@@ -203,6 +205,8 @@ export async function onRequestPost(context: {
         body: JSON.stringify({ puzzle_id: puzzleId, reporter_hash: reporterHash }),
       });
       if (!res.ok && res.status !== 409) console.error("contact: crossword report failed", res.status);
+      // 3人目で隠れた問題の絵は公開の置き場に残るので、隠れたのを見たら消す
+      context.waitUntil(removeOgpIfHidden(rest, env.VITE_SUPABASE_URL, env.SUPABASE_SECRET_KEY, dbHeaders, puzzleId));
     } catch (e) {
       console.error("contact: crossword report threw", String(e));
     }
@@ -211,6 +215,28 @@ export async function onRequestPost(context: {
   // 6. Discord。保存は済んでいるので、ここで失敗しても利用者には成功を返す。
   const notified = await notifyDiscord(env.DISCORD_WEBHOOK_URL, { kind, tool, content, replyTo, puzzleId });
   return json({ ok: true, notified });
+}
+
+async function removeOgpIfHidden(
+  rest: string,
+  supabaseUrl: string,
+  secretKey: string,
+  dbHeaders: Record<string, string>,
+  puzzleId: string,
+): Promise<void> {
+  try {
+    const res = await fetch(`${rest}/crossword_puzzles?select=is_hidden&id=eq.${encodeURIComponent(puzzleId)}`, {
+      headers: dbHeaders,
+    });
+    if (!res.ok) {
+      console.error("contact: hidden check failed", res.status);
+      return;
+    }
+    const rows = (await res.json()) as { is_hidden?: boolean }[];
+    if (rows[0]?.is_hidden === true) await deleteOgpPng(supabaseUrl, secretKey, puzzleId);
+  } catch (e) {
+    console.error("contact: hidden check threw", String(e));
+  }
 }
 
 async function verifyTurnstile(secret: string, token: string, ip: string): Promise<boolean> {
