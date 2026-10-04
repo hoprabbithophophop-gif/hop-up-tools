@@ -34,7 +34,7 @@ interface Env {
   TURNSTILE_SECRET?: string;
 }
 
-/** 同一接続元からの上限（1時間あたり）【仮】。 */
+/** 同一接続元からの上限（1時間あたり）。 */
 const PER_IP_PER_HOUR = 10;
 /** rate_limit_log 上でこのエンドポイントを識別する名前。 */
 const ENDPOINT = "crossword-save";

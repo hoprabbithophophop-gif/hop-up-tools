@@ -18,7 +18,7 @@ const BAND_LEFT = "HOP-UP TOOLS / CROSSWORD";
 const BAND = { h: 64, fill: "#f3f4f5" }; // 下の帯。DESIGN.md の surface-container-low
 const CONTENT_H = SHARE_H - BAND.h;
 
-// 盤を置く左の正方形の枠と、題名を置く右の枠【仮】。どちらも帯より上に収める
+// 盤を置く左の正方形の枠と、題名を置く右の枠。どちらも帯より上に収める
 const BOARD_BOX = { x: 60, y: 28, size: 510 };
 const TEXT_BOX = { x: 640, y: 28, w: 500 };
 const MAX_CELL = 64;

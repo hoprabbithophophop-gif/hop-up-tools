@@ -22,7 +22,7 @@ interface Env {
 }
 
 const ID_RE = /^[A-Za-z0-9_-]{8}$/;
-/** カードの説明文【仮】 */
+/** カードの説明文 */
 const DESCRIPTION = 'クロスワード | hop-up-tools';
 
 /** 画像が置かれているか。失敗・例外は「無い」扱い */

@@ -31,7 +31,7 @@ export const NameEntryModal: React.FC<{
         />
         <div className="flex gap-2">
           <button onClick={onSkip} className="flex-1 py-2 bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.secondary }}>
-            {/* 押した結果が分かる言葉にする（スキップは記録しないため。任天堂のデザイナー視点のシミュレーションで決定・2026-10-03）【仮】 */}
+            {/* 押した結果が分かる言葉にする（スキップは記録しないため。任天堂のデザイナー視点のシミュレーションで決定・2026-10-03） */}
             載せない
           </button>
           <button onClick={() => onSubmit(rankingName.trim())} className="flex-1 py-2 bg-primary hover:bg-secondary text-white font-bold transition-colors">

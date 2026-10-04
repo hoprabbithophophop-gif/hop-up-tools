@@ -16,7 +16,7 @@
  * 字の数×MIN_SEC_PER_CELL 秒より速く解けた回は too_fast を付け、ランキングに載せない（答えを覚えた人・機械の一気入れ対策）。
  *
  * ミスは「間違ったまま全部埋めたことがあるか」で数える（埋まったまま直している途中の丸付けは数えない）。
- * 同じ接続元から回を始められるのは 1 時間に 300 回まで【仮】。1 つの回で丸付けできるのは 2000 回まで【仮】。
+ * 同じ接続元から回を始められるのは 1 時間に 300 回まで。1 つの回で丸付けできるのは 2000 回まで。
  */
 
 interface Env {
@@ -30,7 +30,7 @@ const ENDPOINT = "crossword-play";
 const STARTS_PER_IP_PER_HOUR = 300; // 学校・会社など同じ回線で大勢が遊んでも詰まらないように（Hop 決定 2026-10-04。最初は 60）
 const MAX_CHECKS_PER_PLAY = 2000;
 const PLAY_KEEP_DAYS = 30;
-const MIN_SEC_PER_CELL = 1; // 人間が答えを知っていても1マスにかかる下限【仮】（Hop 決定 2026-10-04）
+const MIN_SEC_PER_CELL = 1; // 人間が答えを知っていても1マスにかかる下限（Hop 決定 2026-10-04）
 const COUNT_ENDPOINT = "crossword-count";
 const ID_RE = /^[A-Za-z0-9_-]{8}$/;
 const TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

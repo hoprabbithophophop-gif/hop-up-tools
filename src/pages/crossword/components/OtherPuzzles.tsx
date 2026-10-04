@@ -1,4 +1,4 @@
-// 終わりの画面の「ほかの問題」。同じジャンルの新しい順【仮】に数件と、一覧への入口。
+// 終わりの画面の「ほかの問題」。同じジャンルの新しい順に数件と、一覧への入口。
 // カードは一覧と同じ PuzzleGalleryCard。読めなかった・1件も無いときは、一覧への入口だけを出す。
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -7,12 +7,12 @@ import type { Genre } from "../../../lib/crossword/puzzleStore";
 import { C } from "../style";
 import { PuzzleGalleryCard } from "./PuzzleGalleryCard";
 
-// 文言【仮】
+// 文言
 const T = {
   title: "ほかの問題",
   toList: "パズルギャラリーへ",
 };
-// 出す件数【仮】
+// 出す件数
 const COUNT = 3;
 
 export const OtherPuzzles: React.FC<{ genre: Genre; puzzleId: string }> = ({ genre, puzzleId }) => {

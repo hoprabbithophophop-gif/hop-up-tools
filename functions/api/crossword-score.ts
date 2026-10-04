@@ -15,7 +15,7 @@
  *   タイム・見た文字数・ミスは画面の申告を使わず、遊んでいる回の記録（crossword_plays。/api/crossword-play が書く）から出す。
  *   タイムは受付係の時計で「始めてから解けるまで」（Hop 決定 2026-10-04）。1 つの回で記録できるのは 1 度だけ。
  *
- * Turnstile は無し【仮】。名前は事前検査しない（DESIGN.md §4-b。見えない文字を落とすのは検査ではなく掃除）。
+ * Turnstile は無し。名前は事前検査しない（DESIGN.md §4-b。見えない文字を落とすのは検査ではなく掃除）。
  * 作った本人の端末で解いた回は、画面の側で送らない（ここでは分からない）。
  */
 
@@ -27,7 +27,7 @@ interface Env {
   TURNSTILE_SECRET?: string;
 }
 
-/** 同一接続元からの上限（1時間あたり）【仮】。 */
+/** 同一接続元からの上限（1時間あたり）。 */
 const PER_IP_PER_HOUR = 30;
 /** rate_limit_log 上でこのエンドポイントを識別する名前。 */
 const ENDPOINT = "crossword-score";

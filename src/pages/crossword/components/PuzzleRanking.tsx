@@ -1,14 +1,14 @@
 // HarmonyPalette の src/components/puzzle/PuzzleRanking.tsx の移植。上位10件・今回のタイムの強調・ランク外のときの表示は同じ。
 // 変えた所: 見た目（DESIGN.md。黒地→白い面、1〜3位の金銀銅の色つきアイコン→順位の数字だけ）、
 // 名前の出し方（HarmonyPalette は名前を8字で切って「...」を付けていた→名前をそのまま。20字まで）、
-// 文言（HarmonyPalette の ja.json に該当の文言が無かったので新しく書いた。すべて【仮】）、
+// 文言（HarmonyPalette の ja.json に該当の文言が無かったので新しく書いた。すべて）、
 // 記録を送った後に読み直す（refreshKey。HarmonyPalette は送る前に読んだ一覧のままだった）。
 import React, { useEffect, useState } from "react";
 import { getPuzzleRankings, reportName, type RankingEntry } from "../../../lib/crossword/scores";
 import { C } from "../style";
 import { Motion } from "./Motion";
 
-// 文言【仮】
+// 文言
 const T = {
   title: "ランキング",
   loading: "読み込み中...",
@@ -16,7 +16,7 @@ const T = {
   noRankings: "まだ記録がありません",
   yourTime: "今回のタイム",
   notRanked: "ランク外",
-  // 名前の通報（Hop 決定 2026-10-04）【仮】
+  // 名前の通報（Hop 決定 2026-10-04）
   report: "名前を通報する",
   reportAsk: (name: string) => `「${name}」を通報する？`,
   reportYes: "通報する",

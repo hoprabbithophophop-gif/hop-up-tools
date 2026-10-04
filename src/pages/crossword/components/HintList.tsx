@@ -8,7 +8,7 @@ import type { HintRef } from "../../../lib/crossword/puzzleStore";
 import { C } from "../style";
 import { HintView } from "./HintView";
 
-// 文言【仮】
+// 文言
 const T = {
   title: "ヒントの動画",
   play: "再生する",

@@ -18,7 +18,7 @@ import { HintPlayer, type HintPlayerApi } from "./HintPlayer";
 
 // 再生できない動画（削除・非公開・埋め込み禁止）を選んだ時の知らせ
 const UNUSABLE = "この動画はヒントに使えません。";
-// リンクの決まりに合わない時（Hop 決定 2026-10-04）【仮】
+// リンクの決まりに合わない時（Hop 決定 2026-10-04）
 const LINK_RULE = "リンクは https から始まるサイトの住所だけ使えます。";
 
 export interface Selected {
@@ -146,7 +146,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
       return;
     }
     if (genre === "hello") {
-      // 題名と、曲・場面の区切りの両方で検索（打ち終わりを 300ms 待つ）【仮】
+      // 題名と、曲・場面の区切りの両方で検索（打ち終わりを 300ms 待つ）
       window.setTimeout(() => {
         if (my !== seq.current) return;
         setBusy(true);

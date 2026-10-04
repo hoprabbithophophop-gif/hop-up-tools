@@ -57,7 +57,7 @@ import { C } from "./style";
 const HELP_KEY = "crossword_seen_help";
 const PROGRESS_PREFIX = "crossword_progress_";
 const PLAYED_PREFIX = "crossword_played_";
-// 前回の続きを開いた時に「つづきから／はじめから」を聞くのは、前回から30分以上空いた時だけ【仮】（Hop 決定 2026-10-04）
+// 前回の続きを開いた時に「つづきから／はじめから」を聞くのは、前回から30分以上空いた時だけ（Hop 決定 2026-10-04）
 const RESUME_ASK_MS = 30 * 60 * 1000;
 const clock = (sec: number) => {
   const h = Math.floor(sec / 3600);
@@ -130,7 +130,7 @@ const T = {
     loadError: "パズルデータが不正です",
     saveFailed: "パズルの保存に失敗しました",
   },
-  // 受付係が断った理由ごとの知らせ【仮】。ここに無い理由は errors.saveFailed
+  // 受付係が断った理由ごとの知らせ。ここに無い理由は errors.saveFailed
   saveReasons: {
     too_many: "保存が集中しています。時間をおいてもう一度お試しください。",
     verification: "確認に失敗しました。ページを再読み込みしてお試しください。",
@@ -139,7 +139,7 @@ const T = {
   } as Record<string, string>,
   // 答え合わせ・1文字見るを受付係に頼めなかった時（2026-10-04。答えを渡さない作りで足した）
   network: "通信できませんでした。もう一度お試しください。",
-  // 前回の続きを開いた時（Hop 決定 2026-10-04）【仮】
+  // 前回の続きを開いた時（Hop 決定 2026-10-04）
   resume: {
     title: "前回の続きがあります",
     body: (t: string) => `タイムは始めた時から数えています（${t}）`,
@@ -150,7 +150,7 @@ const T = {
   // 解いている途中に問題が隠された・消された時／回を始める人が多すぎる時（Hop 決定 2026-10-04）
   puzzleGone: "この問題は非表示になったか、削除されました。",
   busy: "混み合っています。少し待ってからもう一度お試しください。",
-  // 自分が作った問題【仮】
+  // 自分が作った問題
   myPuzzles: {
     title: "自分が作った問題",
   },
@@ -177,7 +177,7 @@ const T = {
     ],
     close: "閉じる",
   },
-  // 段階2b で足した物【仮】
+  // 段階2b で足した物
   stage2b: {
     toList: "パズルギャラリー",
     beginner: BEGINNER_LABEL,
@@ -312,7 +312,7 @@ export default function CrosswordPage() {
   // Editor State
   const [puzzleTitle, setPuzzleTitle] = useState("");
   const [creatorName, setCreatorName] = useState("");
-  const [genre, setGenre] = useState<Genre>("hello"); // 【仮】最初の選択
+  const [genre, setGenre] = useState<Genre>("hello"); // 最初の選択
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [isBeginner, setIsBeginner] = useState(false); // 初めての人向けの印
@@ -1696,12 +1696,12 @@ export default function CrosswordPage() {
           </button>
         </div>
 
-        {/* 一覧への入口【仮】 */}
+        {/* 一覧への入口 */}
         <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 mb-6">
           <Link to="/crossword/list" className="text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
             {T.stage2b.toList} <span aria-hidden="true">→</span>
           </Link>
-          {/* 自分が作った問題は別の画面（/crossword/mine【仮】）。別の端末から引き継げるよう、作った問題が無くても出す（2026-10-04） */}
+          {/* 自分が作った問題は別の画面（/crossword/mine）。別の端末から引き継げるよう、作った問題が無くても出す（2026-10-04） */}
           <Link to="/crossword/mine" className="text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
             {T.myPuzzles.title} <span aria-hidden="true">→</span>
           </Link>
@@ -1782,7 +1782,7 @@ export default function CrosswordPage() {
                   )}
                 </div>
 
-                {/* 初めての人向けの印【仮】 */}
+                {/* 初めての人向けの印 */}
                 <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: C.ink }}>
                   <input type="checkbox" checked={isBeginner} onChange={(e) => setIsBeginner(e.target.checked)} className="w-4 h-4 accent-black" />
                   {T.stage2b.beginner}
@@ -1921,7 +1921,7 @@ export default function CrosswordPage() {
                 </div>
               )}
 
-              {/* メンバー名・グループ名が入っていたら知らせ、ジャンルは作る人が選ぶ（Hop 決定 2026-10-03）【仮】 */}
+              {/* メンバー名・グループ名が入っていたら知らせ、ジャンルは作る人が選ぶ（Hop 決定 2026-10-03） */}
               {genre !== "hello" && detectedGroups.length > 0 && (
                 <div className="bg-white px-4 py-3 text-sm flex flex-wrap items-center gap-3" style={{ color: C.ink }}>
                   <span className="flex-1 min-w-0">{T.stage2b.detected(detectedGroups)}</span>

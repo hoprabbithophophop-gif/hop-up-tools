@@ -1,4 +1,4 @@
-// パズルの一覧（/crossword/list【仮】）。
+// パズルの一覧（/crossword/list）。
 // HarmonyPalette の src/pages/GalleryPage.tsx の移植。並び・動き・文言は同じ
 // （新着順・人気順、作成者名で検索、12件ずつ「もっと見る」、更新、検索中の表示とクリア、読み込み中・失敗・0件の表示）。
 // 変えた所: 見た目（DESIGN.md）、アイコン（Material Symbols）、読み込み先（Supabase。続きは何件目からで読む）、
@@ -15,7 +15,7 @@ import { C } from "./style";
 
 const PAGE_SIZE = 12;
 
-// 足した物の文言【仮】
+// 足した物の文言
 const T = {
   pageTitle: "パズルギャラリー",
   backToCreate: "クロスワードパズル作成へ戻る",

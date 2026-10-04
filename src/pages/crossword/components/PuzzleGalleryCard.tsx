@@ -7,7 +7,7 @@ import type { GalleryPuzzle } from "../../../lib/crossword/gallery";
 import { C } from "../style";
 import { Icon } from "./ui";
 
-// 「初めての人向け」の印の文言【仮】
+// 「初めての人向け」の印の文言
 export const BEGINNER_LABEL = "初めての人向け";
 
 // 日付をフォーマット（例: 1/25）

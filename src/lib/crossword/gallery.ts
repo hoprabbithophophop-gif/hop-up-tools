@@ -88,7 +88,7 @@ export async function getPublicPuzzles(q: GalleryQuery = {}): Promise<GalleryPag
   return { puzzles: rows.slice(0, limitCount).map(toGallery), hasMore: rows.length > limitCount };
 }
 
-// 終わりの画面の「ほかの問題」。同じジャンルの新しい順【仮】
+// 終わりの画面の「ほかの問題」。同じジャンルの新しい順
 export async function getOtherPuzzles(genre: Genre, excludeId: string, limitCount = 3): Promise<GalleryPuzzle[]> {
   const { data, error } = await getSupabase()
     .from("crossword_puzzles")
