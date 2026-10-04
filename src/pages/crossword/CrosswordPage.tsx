@@ -1543,6 +1543,19 @@ export default function CrosswordPage() {
                 {isCleared && (
                   <>
                     <ClearEffect />
+                    {/* 解けたことをXに投稿 */}
+                    {puzzleId && (
+                      <div className="mt-6">
+                        <a
+                          href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`解けた！　${playerPuzzle.title}`)}&url=${encodeURIComponent(`${window.location.origin}/crossword/${puzzleId}`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-2 w-full py-3 bg-primary hover:bg-secondary text-white font-black font-mono transition-colors"
+                        >
+                          <Icon size={16} icon="share" /> {T.shareModal.postToX}
+                        </a>
+                      </div>
+                    )}
                     {/* ランキング */}
                     {puzzleId && (
                       <div className="mt-6">
