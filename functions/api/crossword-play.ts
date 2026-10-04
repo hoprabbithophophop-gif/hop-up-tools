@@ -19,6 +19,8 @@
  * 同じ接続元から回を始められるのは 1 時間に 300 回まで。1 つの回で丸付けできるのは 2000 回まで。
  */
 
+import { tooLarge } from "../_shared/bodyLimit";
+
 interface Env {
   VITE_SUPABASE_URL?: string;
   SUPABASE_SECRET_KEY?: string;
@@ -94,6 +96,9 @@ export async function onRequestPost(context: {
     return json({ ok: false, reason: "server" }, 500);
   }
 
+  const large = tooLarge(request, 8192); // 本文を読む前に、大きさの申告で断る
+  if (large) return large;
+
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -168,8 +173,10 @@ export async function onRequestPost(context: {
         body: JSON.stringify({ puzzle_id: puzzleId }),
       });
       if (!ins.ok) {
-        console.error("crossword-play: start insert failed", ins.status);
-        return json({ ok: false, reason: "server" }, 503);
+        // 全体ブレーキ（crossword_plays_rate_guard・errcode 53400）に当たった場合は「混み合っています」にする
+        const code = await ins.json().then((j: { code?: unknown }) => (typeof j?.code === "string" ? j.code : "")).catch(() => "");
+        console.error("crossword-play: start insert failed", ins.status, code);
+        return json({ ok: false, reason: code === "53400" ? "too_many" : "server" }, 503);
       }
       const row = ((await ins.json()) as { id: string; started_at: string }[])[0];
 

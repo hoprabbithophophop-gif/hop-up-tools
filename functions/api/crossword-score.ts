@@ -19,6 +19,8 @@
  * 作った本人の端末で解いた回は、画面の側で送らない（ここでは分からない）。
  */
 
+import { tooLarge } from "../_shared/bodyLimit";
+
 interface Env {
   VITE_SUPABASE_URL?: string;
   /** crossword_scores への書き込み用。RLS を迂回するので絶対に外へ出さない。 */
@@ -126,6 +128,9 @@ export async function onRequestPost(context: {
     console.error("crossword-score: env missing");
     return json({ ok: false, reason: "server" }, 500);
   }
+
+  const large = tooLarge(request, 8192); // 本文を読む前に、大きさの申告で断る
+  if (large) return large;
 
   let body: Record<string, unknown>;
   try {

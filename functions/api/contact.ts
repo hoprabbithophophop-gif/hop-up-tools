@@ -19,6 +19,8 @@
  */
 
 import { deleteOgpPng } from "../_shared/crosswordOgp";
+import { tooLarge } from "../_shared/bodyLimit";
+import { reporterKey } from "../_shared/reporterKey";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -104,6 +106,9 @@ export async function onRequestPost(context: {
     console.error("contact: env missing");
     return json({ ok: false, reason: "server" }, 500);
   }
+
+  const large = tooLarge(request, 16384); // 本文を読む前に、大きさの申告で断る
+  if (large) return large;
 
   let body: Record<string, unknown>;
   try {
@@ -198,7 +203,7 @@ export async function onRequestPost(context: {
   // 同じ人の2回目（unique）や、もう消された問題（参照先なし）に当たったら黙って無視する。
   if (kind === "report" && puzzleId) {
     try {
-      const reporterHash = await sha256Hex(`crossword-report:${ip}:${env.TURNSTILE_SECRET}`);
+      const reporterHash = await sha256Hex(`crossword-report:${reporterKey(ip)}:${env.TURNSTILE_SECRET}`);
       const res = await fetch(`${rest}/crossword_reports`, {
         method: "POST",
         headers: { ...dbHeaders, Prefer: "return=minimal" },

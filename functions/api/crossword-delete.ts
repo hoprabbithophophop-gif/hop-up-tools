@@ -4,7 +4,7 @@
  * 作った人が自分の問題を消す受け口。問題と一緒に、置き場 crossword-ogp のシェア画像も消す。
  * 置き場の絵は秘密の鍵でしか消せないので、ブラウザから直接ではなくここを通す。
  *
- *   1. 番号と合言葉の形を確かめる
+ *   1. 番号と合言葉の形を確かめる（同じ接続元からは 1 時間に 20 回まで）
  *   2. rpc crossword_delete（合言葉の sha256 が合えば消す）を呼ぶ
  *   3. 消せたら、絵を消す
  *   4. 消せなかったが問題がもう棚に無い（持ち主のいない絵）なら、絵だけ消す
@@ -14,13 +14,18 @@
  */
 
 import { deleteOgpPng } from "../_shared/crosswordOgp";
+import { tooLarge } from "../_shared/bodyLimit";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
+  /** 接続元のハッシュに混ぜる秘密の値としてだけ使う（contact・crossword-save と同じ値）。 */
+  TURNSTILE_SECRET?: string;
   /** 置き場の絵を消すのに使う。RLS を迂回するので絶対に外へ出さない。 */
   SUPABASE_SECRET_KEY?: string;
 }
 
+const ENDPOINT = "crossword-delete";
+const PER_IP_PER_HOUR = 20; // 【仮】
 const ID_RE = /^[A-Za-z0-9_-]{8}$/;
 
 function json(body: unknown, status = 200): Response {
@@ -30,12 +35,24 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-export async function onRequestPost(context: { request: Request; env: Env }): Promise<Response> {
+async function sha256Hex(input: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function onRequestPost(context: {
+  request: Request;
+  env: Env;
+  waitUntil(p: Promise<unknown>): void;
+}): Promise<Response> {
   const { request, env } = context;
-  if (!env.VITE_SUPABASE_URL || !env.SUPABASE_SECRET_KEY) {
+  if (!env.VITE_SUPABASE_URL || !env.SUPABASE_SECRET_KEY || !env.TURNSTILE_SECRET) {
     console.error("crossword-delete: env missing");
     return json({ ok: false, reason: "server" }, 500);
   }
+
+  const large = tooLarge(request, 8192); // 本文を読む前に、大きさの申告で断る
+  if (large) return large;
 
   let body: Record<string, unknown>;
   try {
@@ -43,6 +60,7 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
   } catch {
     return json({ ok: false, reason: "bad_request" }, 400);
   }
+  if (!body || typeof body !== "object") return json({ ok: false, reason: "bad_request" }, 400);
   const id = typeof body.id === "string" ? body.id : "";
   const key = typeof body.key === "string" ? body.key : "";
   if (!ID_RE.test(id) || key.length < 32 || key.length > 128) return json({ ok: false, reason: "bad_request" }, 400);
@@ -53,6 +71,34 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
     Authorization: `Bearer ${env.SUPABASE_SECRET_KEY}`,
     "Content-Type": "application/json",
   };
+
+  // 接続元ごとの上限。生の IP は残さず、秘密の値を混ぜたハッシュだけを使う。照会に失敗したら通す
+  const ip = request.headers.get("CF-Connecting-IP") ?? "";
+  const ipHash = await sha256Hex(`${ENDPOINT}:${ip}:${env.TURNSTILE_SECRET}`);
+  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  try {
+    const rl = await fetch(
+      `${base}/rest/v1/rate_limit_log?select=id&endpoint=eq.${ENDPOINT}&ip_hash=eq.${ipHash}` +
+        `&created_at=gt.${encodeURIComponent(since)}&limit=${PER_IP_PER_HOUR}`,
+      { headers },
+    );
+    if (rl.ok && ((await rl.json()) as unknown[]).length >= PER_IP_PER_HOUR) return json({ ok: false, reason: "too_many" }, 429);
+  } catch {
+    /* 照会に失敗したら通す */
+  }
+  context.waitUntil(
+    Promise.all([
+      fetch(`${base}/rest/v1/rate_limit_log`, {
+        method: "POST",
+        headers: { ...headers, Prefer: "return=minimal" },
+        body: JSON.stringify({ ip_hash: ipHash, endpoint: ENDPOINT }),
+      }),
+      fetch(`${base}/rest/v1/rate_limit_log?endpoint=eq.${ENDPOINT}&created_at=lt.${encodeURIComponent(since)}`, {
+        method: "DELETE",
+        headers,
+      }),
+    ]).catch(() => {}),
+  );
 
   // 2. 合言葉が合えば消す
   let deleted = false;

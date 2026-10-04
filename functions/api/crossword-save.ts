@@ -26,6 +26,7 @@
 import { detectGroups } from "../_shared/crosswordGroups";
 import { CROSSWORD_GROUPS, CROSSWORD_MEMBERS } from "../_shared/crosswordMembers";
 import { decodeOgpPng, uploadOgpPng } from "../_shared/crosswordOgp";
+import { tooLarge } from "../_shared/bodyLimit";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -247,6 +248,9 @@ export async function onRequestPost(context: {
     console.error("crossword-save: env missing");
     return json({ ok: false, reason: "server" }, 500);
   }
+
+  const large = tooLarge(request, 450000); // 本文を読む前に、大きさの申告で断る
+  if (large) return large;
 
   let body: Record<string, unknown>;
   try {

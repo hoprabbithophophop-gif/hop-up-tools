@@ -8,6 +8,9 @@
  * 同じ接続元からの通報は 1 時間に 20 回まで。
  */
 
+import { tooLarge } from "../_shared/bodyLimit";
+import { reporterKey } from "../_shared/reporterKey";
+
 interface Env {
   VITE_SUPABASE_URL?: string;
   SUPABASE_SECRET_KEY?: string;
@@ -41,13 +44,17 @@ export async function onRequestPost(context: {
     console.error("crossword-report-name: env missing");
     return json({ ok: false, reason: "server" }, 500);
   }
+  const large = tooLarge(request, 8192); // 本文を読む前に、大きさの申告で断る
+  if (large) return large;
+
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
   } catch {
     return json({ ok: false, reason: "bad_request" }, 400);
   }
-  const scoreId = body?.scoreId;
+  if (!body || typeof body !== "object") return json({ ok: false, reason: "bad_request" }, 400);
+  const scoreId = body.scoreId;
   if (!Number.isInteger(scoreId) || (scoreId as number) <= 0) return json({ ok: false, reason: "bad_request" }, 400);
 
   const rest = `${env.VITE_SUPABASE_URL}/rest/v1`;
@@ -77,7 +84,7 @@ export async function onRequestPost(context: {
   const score = ((await sr.json()) as { display_name: string; puzzle_id: string }[])[0];
   if (!score) return json({ ok: false, reason: "bad_request" }, 400);
 
-  const reporterHash = await sha256Hex(`crossword-name-report:${ip}:${env.TURNSTILE_SECRET}`);
+  const reporterHash = await sha256Hex(`crossword-name-report:${reporterKey(ip)}:${env.TURNSTILE_SECRET}`);
   const ins = await fetch(`${rest}/crossword_score_reports`, {
     method: "POST",
     headers: { ...dbHeaders, Prefer: "return=minimal" },
