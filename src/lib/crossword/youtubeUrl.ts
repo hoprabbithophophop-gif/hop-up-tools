@@ -54,3 +54,21 @@ export const parseTimeInput = (raw: string): number | null => {
   if (parts.length < 2 || parts.length > 3 || parts.some(Number.isNaN)) return null;
   return parts.reduce((acc, p) => acc * 60 + p, 0);
 };
+
+// リンクのヒントに使える住所か（Hop 決定 2026-10-04）。使えなければ理由を返す。
+// https だけ・ユーザー名やパスワード入りは不可・IP アドレスだけの住所は不可・ドメインに「.」が要る・500 字まで
+export function linkProblem(url: string): string | null {
+  if (url.length > 500) return "long";
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return "bad";
+  }
+  if (u.protocol !== "https:") return "https";
+  if (u.username || u.password) return "userinfo";
+  const host = u.hostname;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.startsWith("[")) return "ip";
+  if (!host.includes(".")) return "host";
+  return null;
+}

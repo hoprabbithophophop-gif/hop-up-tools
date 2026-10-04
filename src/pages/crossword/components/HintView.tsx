@@ -85,7 +85,11 @@ export const HintView: React.FC<{ hint: HintRef }> = ({ hint }) => {
         className="flex items-center gap-2 px-3 py-3 bg-surface-container-low hover:bg-surface-container-high transition-colors text-sm break-all"
         style={{ color: C.ink }}
       >
-        <span className="flex-1">{hint.url}</span>
+        <span className="flex-1 min-w-0">
+          {/* 行き先が分かるように、ドメインを先に大きく出す（Hop 決定 2026-10-04） */}
+          <span className="block font-bold">{(() => { try { return new URL(hint.url).hostname; } catch { return ""; } })()}</span>
+          <span className="block text-xs" style={{ color: C.secondary }}>{hint.url}</span>
+        </span>
         <span className="material-symbols-outlined leading-none shrink-0" style={{ fontSize: "18px" }}>open_in_new</span>
       </a>
     </div>

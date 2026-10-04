@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { usePageReady } from "../../lib/pageReady";
 import { deletePuzzle, loadPlayCounts, loadPuzzlesWithGoneHints, readMyPuzzles, removeMyPuzzle, type MyPuzzle } from "../../lib/crossword/puzzleStore";
+import { applyTransferCode, makeTransferCode } from "../../lib/crossword/transfer";
 import { Toaster, toast } from "./components/Toast";
 import { Footer, Icon } from "./components/ui";
 import { C } from "./style";
@@ -22,6 +23,19 @@ const T = {
   confirmNo: "やめる",
   deleteFailed: "削除できませんでした",
   goneHints: "見られなくなったヒントがあります", // Hop 決定 2026-10-04
+  // 別の端末への引き継ぎ（Hop 決定 2026-10-04）【仮】
+  transfer: {
+    title: "別の端末へ引き継ぐ",
+    lead: "作った問題と、ランキングでの自分の記録を、別の端末へ移せます。",
+    show: "合言葉を出す",
+    copy: "写す",
+    copied: "写しました",
+    warn: "この合言葉を知っている人は、あなたの問題を消せます。人に見せないでください。",
+    inputLabel: "別の端末で出した合言葉",
+    apply: "引き継ぐ",
+    done: (n: number) => `引き継ぎました（問題 ${n} 件）`,
+    bad: "合言葉を読めませんでした。もう一度写し直してください。",
+  },
 };
 
 export default function MyPuzzlesPage() {
@@ -30,6 +44,30 @@ export default function MyPuzzlesPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [goneHints, setGoneHints] = useState<Set<string>>(new Set());
+  const [code, setCode] = useState<string | null>(null);
+  const [input, setInput] = useState("");
+
+  const handleCopy = async () => {
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      toast.success(T.transfer.copied);
+    } catch {
+      // 写せない時は欄を選んだ状態にして、手で写せるようにする
+      (document.getElementById("transfer-code") as HTMLTextAreaElement | null)?.select();
+    }
+  };
+
+  const handleApply = () => {
+    const r = applyTransferCode(input);
+    if (!r) {
+      toast.error(T.transfer.bad);
+      return;
+    }
+    setMyPuzzles(readMyPuzzles());
+    setInput("");
+    toast.success(T.transfer.done(r.added));
+  };
 
   usePageReady(true);
 
@@ -157,6 +195,60 @@ export default function MyPuzzlesPage() {
                 })}
               </ul>
             )}
+          </div>
+
+          {/* 別の端末へ引き継ぐ */}
+          <div className="bg-white p-6 mt-6 space-y-4">
+            <h2 className="text-base font-semibold" style={{ color: C.ink }}>{T.transfer.title}</h2>
+            <p className="text-sm" style={{ color: C.secondary }}>{T.transfer.lead}</p>
+            {code === null ? (
+              <button
+                type="button"
+                onClick={() => setCode(makeTransferCode())}
+                className="px-4 py-2 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors"
+                style={{ color: C.ink }}
+              >
+                {T.transfer.show}
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <textarea
+                  id="transfer-code"
+                  readOnly
+                  value={code}
+                  rows={3}
+                  className="w-full px-3 py-2 text-base bg-surface-container-low break-all"
+                  style={{ color: C.ink }}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <p className="text-xs" style={{ color: C.error }}>{T.transfer.warn}</p>
+                <button type="button" onClick={handleCopy} className="px-4 py-2 text-sm font-bold bg-primary text-white hover:bg-secondary transition-colors">
+                  {T.transfer.copy}
+                </button>
+              </div>
+            )}
+            <div className="space-y-2 pt-2" style={{ borderTop: `1px solid ${C.ghost}` }}>
+              <label htmlFor="transfer-input" className="block text-sm pt-2" style={{ color: C.ink }}>{T.transfer.inputLabel}</label>
+              <div className="flex gap-2">
+                <input
+                  id="transfer-input"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  className="flex-1 min-w-0 px-3 py-2 text-base bg-surface-container-low focus:outline-none focus:bg-white focus:shadow-[inset_0_-2px_0_#000]"
+                  style={{ color: C.ink }}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={handleApply}
+                  disabled={!input.trim()}
+                  className="px-4 py-2 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors disabled:opacity-50 shrink-0"
+                  style={{ color: C.ink }}
+                >
+                  {T.transfer.apply}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

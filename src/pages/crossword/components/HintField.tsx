@@ -12,12 +12,14 @@ import {
   type CatalogChapter,
   type CatalogVideo,
 } from "../../../lib/crossword/puzzleStore";
-import { formatTime, parseTimeInput, parseYouTubeUrl } from "../../../lib/crossword/youtubeUrl";
+import { formatTime, parseTimeInput, parseYouTubeUrl, linkProblem } from "../../../lib/crossword/youtubeUrl";
 import { C } from "../style";
 import { HintPlayer, type HintPlayerApi } from "./HintPlayer";
 
 // 再生できない動画（削除・非公開・埋め込み禁止）を選んだ時の知らせ
 const UNUSABLE = "この動画はヒントに使えません。";
+// リンクの決まりに合わない時（Hop 決定 2026-10-04）【仮】
+const LINK_RULE = "リンクは https から始まるサイトの住所だけ使えます。";
 
 export interface Selected {
   hint: HintRef;
@@ -134,6 +136,10 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
         } else {
           choose({ hint: { kind: "youtube", videoId: yt.videoId, startSec: yt.startSec }, label: t });
         }
+        return;
+      }
+      if (linkProblem(t)) {
+        setMessage(LINK_RULE);
         return;
       }
       choose({ hint: { kind: "link", url: t }, label: t });

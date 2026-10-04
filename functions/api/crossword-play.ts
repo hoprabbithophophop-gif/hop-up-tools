@@ -174,6 +174,7 @@ export async function onRequestPost(context: {
       const row = ((await ins.json()) as { id: string; started_at: string }[])[0];
 
       const old = new Date(Date.now() - PLAY_KEEP_DAYS * 86400 * 1000).toISOString();
+      const idle = new Date(Date.now() - 86400 * 1000).toISOString();
       context.waitUntil(
         Promise.all([
           fetch(`${rest}/rate_limit_log`, {
@@ -187,6 +188,11 @@ export async function onRequestPost(context: {
           }),
           // 古い回の片付け（30 日より前に始めた回）
           fetch(`${rest}/crossword_plays?started_at=lt.${encodeURIComponent(old)}`, { method: "DELETE", headers: dbHeaders }),
+          // 開いただけで何もしなかった回（丸付け・数えた印・解けた時刻が無い）は1日で片付ける（Hop 決定 2026-10-04）
+          fetch(
+            `${rest}/crossword_plays?started_at=lt.${encodeURIComponent(idle)}&checks=eq.0&counted=eq.false&solved_at=is.null`,
+            { method: "DELETE", headers: dbHeaders },
+          ),
         ]).catch(() => {}),
       );
       return json({ ok: true, token: row.id, startedAt: Date.parse(row.started_at) });

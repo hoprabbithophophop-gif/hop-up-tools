@@ -1701,12 +1701,10 @@ export default function CrosswordPage() {
           <Link to="/crossword/list" className="text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
             {T.stage2b.toList} <span aria-hidden="true">→</span>
           </Link>
-          {/* 自分が作った問題は別の画面（/crossword/mine【仮】）。この端末で作った問題があるときだけ出す */}
-          {myPuzzles.length > 0 && (
-            <Link to="/crossword/mine" className="text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
-              {T.myPuzzles.title} <span aria-hidden="true">→</span>
-            </Link>
-          )}
+          {/* 自分が作った問題は別の画面（/crossword/mine【仮】）。別の端末から引き継げるよう、作った問題が無くても出す（2026-10-04） */}
+          <Link to="/crossword/mine" className="text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
+            {T.myPuzzles.title} <span aria-hidden="true">→</span>
+          </Link>
         </div>
 
         {/* ジャンル（HarmonyPalette の文字/コードの切り替えがあった場所） */}
