@@ -133,6 +133,24 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   await ctx.close();
 }
 
+// 6. リンクのヒントの決まり（https だけ・IP アドレスだけの住所は不可。2026-10-04 洗い出しの G）
+{
+  const { ctx, page } = await open('/crossword');
+  await page.getByPlaceholder('例: 猫の鳴き声').waitFor();
+  await page.waitForTimeout(2500);
+  await page.getByRole('radio', { name: 'その他' }).click();
+  const box = page.getByPlaceholder(/URL/).first();
+  for (const bad of ['http://example.com/', 'https://192.168.0.1/']) {
+    await box.fill(bad);
+    await page.waitForTimeout(600);
+    check((await text(page)).includes('リンクは https から始まるサイトの住所だけ使えます。'), `6 ${bad} は使えないと出る`);
+  }
+  await box.fill('https://example.com/page');
+  await page.waitForTimeout(600);
+  check((await text(page)).includes('LINK') && !(await text(page)).includes('リンクは https から'), '6 https のサイトは選べる');
+  await ctx.close();
+}
+
 await browser.close();
 console.log(fail ? `NG ${fail}件` : 'すべてOK');
 process.exit(fail ? 1 : 0);
