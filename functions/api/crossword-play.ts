@@ -188,6 +188,8 @@ export async function onRequestPost(context: {
           }),
           // 古い回の片付け（30 日より前に始めた回）
           fetch(`${rest}/crossword_plays?started_at=lt.${encodeURIComponent(old)}`, { method: "DELETE", headers: dbHeaders }),
+          // 24時間より古い回数の印
+          fetch(`${rest}/crossword_play_counts?created_at=lt.${encodeURIComponent(idle)}`, { method: "DELETE", headers: dbHeaders }),
           // 開いただけで何もしなかった回（丸付け・数えた印・解けた時刻が無い）は1日で片付ける（Hop 決定 2026-10-04）
           fetch(
             `${rest}/crossword_plays?started_at=lt.${encodeURIComponent(idle)}&checks=eq.0&counted=eq.false&solved_at=is.null`,
@@ -267,26 +269,25 @@ export async function onRequestPost(context: {
       const res = await patchPlay(token, { counted: true }, "&counted=eq.false");
       const claimed = res.ok ? ((await res.json()) as Play[]).length > 0 : false;
       if (!claimed) return json({ ok: true, counted: false });
+      // 同じ回線・同じ問題は24時間に1回だけ数える。印は crossword_play_counts に置く
+      // （rate_limit_log はサイト全体の片付けで数分しかもたないため。Hop 決定 2026-10-04）
       const ip = request.headers.get("CF-Connecting-IP") ?? "";
       const key = await sha256Hex(`${COUNT_ENDPOINT}:${play.puzzle_id}:${ip}:${env.TURNSTILE_SECRET}`);
       const day = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const seen = await fetch(
-        `${rest}/rate_limit_log?select=id&endpoint=eq.${COUNT_ENDPOINT}&ip_hash=eq.${key}&created_at=gt.${encodeURIComponent(day)}&limit=1`,
-        { headers: dbHeaders },
-      ).catch(() => null);
-      if (seen?.ok && ((await seen.json()) as unknown[]).length > 0) return json({ ok: true, counted: false });
+      // 24時間より前の自分の印は消してから入れる（入れられなければ24時間以内に数え済み）
+      await fetch(`${rest}/crossword_play_counts?puzzle_id=eq.${play.puzzle_id}&ip_hash=eq.${key}&created_at=lt.${encodeURIComponent(day)}`, {
+        method: "DELETE",
+        headers: dbHeaders,
+      }).catch(() => null);
+      const mark = await fetch(`${rest}/crossword_play_counts`, {
+        method: "POST",
+        headers: { ...dbHeaders, Prefer: "resolution=ignore-duplicates,return=representation" },
+        body: JSON.stringify({ puzzle_id: play.puzzle_id, ip_hash: key }),
+      });
+      const fresh = mark.ok ? ((await mark.json().catch(() => [])) as unknown[]).length > 0 : false;
+      if (!fresh) return json({ ok: true, counted: false });
       const add = await fetch(`${rest}/rpc/crossword_add_play`, { method: "POST", headers: dbHeaders, body: JSON.stringify({ p_id: play.puzzle_id }) });
       if (!add.ok) console.error("crossword-play: add_play failed", add.status);
-      context.waitUntil(
-        Promise.all([
-          fetch(`${rest}/rate_limit_log`, {
-            method: "POST",
-            headers: { ...dbHeaders, Prefer: "return=minimal" },
-            body: JSON.stringify({ ip_hash: key, endpoint: COUNT_ENDPOINT }),
-          }),
-          fetch(`${rest}/rate_limit_log?endpoint=eq.${COUNT_ENDPOINT}&created_at=lt.${encodeURIComponent(day)}`, { method: "DELETE", headers: dbHeaders }),
-        ]).catch(() => {}),
-      );
       return json({ ok: true, counted: add.ok });
     }
 
