@@ -1,6 +1,5 @@
 {
   "base": "https://feature-crossword.hop-up-tools.pages.dev",
   "puzzleId": "SJ2cjTJe",
-  "hiddenPuzzleId": "kensyuH1",
-  "noImagePuzzleId": "kensyuN1"
+  "_note": "隠れた問題・画像の無い問題を確かめるときは、本番に検収用の問題を用意して hiddenPuzzleId・noImagePuzzleId を足す（既存の問題を SQL で写し、片方は is_hidden=true。検収後に消す）。無ければ check-fixtures は飛ばす"
 }
