@@ -173,7 +173,8 @@ export async function onRequestPost(context: {
 
   // 遊んでいる回の記録から、タイム・見た文字数・ミスを出す。解けていない回、もう記録した回は断る。
   // 記録済みの印は条件つきで付けるので、同じ回を同時に2度送っても1度しか通らない。
-  const claim = await fetch(`${rest}/crossword_plays?id=eq.${input.playToken}&solved_at=not.is.null&scored=eq.false`, {
+  // 人間には無理な速さで解けた回（too_fast）もここで断る
+  const claim = await fetch(`${rest}/crossword_plays?id=eq.${input.playToken}&solved_at=not.is.null&scored=eq.false&too_fast=eq.false`, {
     method: "PATCH",
     headers: { ...dbHeaders, Prefer: "return=representation" },
     body: JSON.stringify({ scored: true }),

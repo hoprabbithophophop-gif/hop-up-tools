@@ -218,12 +218,6 @@ export async function searchCatalogChapters(query: string, limit = 12): Promise<
   return out;
 }
 
-// 遊ばれた回数を1足す。失敗しても遊ぶのは止めない
-export async function addPlay(id: string): Promise<void> {
-  const { error } = await getSupabase().rpc("crossword_add_play", { p_id: id });
-  if (error) throw error;
-}
-
 // 運営に隠された問題かどうか（中身は返らない）
 export async function isHiddenPuzzle(id: string): Promise<boolean> {
   const { data, error } = await getSupabase().rpc("crossword_is_hidden", { p_id: id });

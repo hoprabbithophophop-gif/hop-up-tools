@@ -15,7 +15,6 @@ import { determineNextSelection } from "../../lib/crossword/puzzleSelectionLogic
 import {
   addMyPuzzle,
   catalogVideoIdsPresent,
-  addPlay,
   isCatalogVideo,
   isHiddenPuzzle,
   loadPuzzle,
@@ -51,7 +50,7 @@ import { BEGINNER_LABEL } from "./components/PuzzleGalleryCard";
 import { detectGroups } from "../../lib/crossword/groupDetect";
 import { drawShareImage } from "../../lib/crossword/shareImage";
 import { queueScore, retryQueuedScores, saveScore, ScoreError } from "../../lib/crossword/scores";
-import { checkPlay, revealCell, startPlay, PlayError } from "../../lib/crossword/play";
+import { checkPlay, revealCell, startPlay, touchPlay, PlayError } from "../../lib/crossword/play";
 import { C } from "./style";
 
 // localStorage の鍵（crossword 専用の名前）
@@ -379,6 +378,7 @@ export default function CrosswordPage() {
   const [showNameEntry, setShowNameEntry] = useState(false);
   const [rankingRefresh, setRankingRefresh] = useState(0);
   const clearTimeRef = useRef<number | null>(null);
+  const rankableRef = useRef(true); // 人間には無理な速さで解けた回は false（名前を入れる窓を出さない）
   // 1文字見るを使った数。確かめを出すかどうかに使う（ランキングの印の数は受付係が数える）
   const [reveals, setReveals] = useState(0);
 
@@ -865,14 +865,15 @@ export default function CrosswordPage() {
   }, [gamePhase, startTime]);
 
   // 遊ばれた回数は、盤に最初の1文字が入ったときに1足す（Hop 決定 2026-10-04。開いただけでは数えない）。
-  // 同じ端末では1つの問題につき1回だけ。作った本人の端末では数えない。失敗しても遊ぶのは止めない
+  // 同じ端末では1つの問題につき1回だけ。作った本人の端末では数えない。失敗しても遊ぶのは止めない。
+  // 数えるのは受付係（回ごとに1度・同じ接続元と問題は24時間に1度。外から回数を足す呼び出しは使えない）
   useEffect(() => {
     if (!playerPuzzle || isDebugMode || Object.keys(userAnswers).length === 0) return;
     const id = playerPuzzle.id;
     if (lsGet(`${PLAYED_PREFIX}${id}`)) return;
     if (readMyPuzzles().some((m) => m.id === id)) return;
     lsSet(`${PLAYED_PREFIX}${id}`, "1");
-    addPlay(id).catch((err) => console.warn("Play count increment failed:", err));
+    withPlay((token) => touchPlay(token)).catch((err) => console.warn("Play count increment failed:", err));
   }, [userAnswers, playerPuzzle, isDebugMode]);
 
   // Persist Progress (including elapsed time)
@@ -1204,6 +1205,7 @@ export default function CrosswordPage() {
             return { ...buildGrid(items), id: prev.id, title: prev.title, creatorName: prev.creatorName };
           });
           serverTime = typeof r.timeSeconds === "number" ? r.timeSeconds : null;
+          rankableRef.current = r.rankable !== false;
         }
       } catch (err) {
         console.warn("Failed to check:", err);
@@ -1238,7 +1240,7 @@ export default function CrosswordPage() {
       setTimeout(() => {
         setShowClearAnimation(false);
         const isOwn = !!puzzleId && readMyPuzzles().some((m) => m.id === puzzleId);
-        if (puzzleId && !isOwn && clearTimeRef.current !== null && clearTimeRef.current >= 1) {
+        if (puzzleId && !isOwn && rankableRef.current && clearTimeRef.current !== null && clearTimeRef.current >= 1) {
           setShowNameEntry(true);
         }
       }, 2000);

@@ -30,10 +30,15 @@ export interface CheckResult {
   answers?: string[][];
   /** 合っていた時だけ。受付係の時計で測ったタイム（秒） */
   timeSeconds?: number;
+  /** 合っていた時だけ。人間には無理な速さで解けた回は false（ランキングに載せない） */
+  rankable?: boolean;
 }
 
 // 答案を丸付けしてもらう。合っていなければ、どこが違うかは返ってこない
 export const checkPlay = (token: string, answers: Record<string, string>) => call<CheckResult>({ action: "check", token, answers });
+
+// 最初の1文字が入ったことを知らせる。遊ばれた回数は受付係がこの回で1度だけ数える
+export const touchPlay = (token: string) => call<{ counted: boolean }>({ action: "touch", token });
 
 // そのマスの字を1つ教えてもらう。reveals はこの回で見たマスの数
 export const revealCell = (token: string, x: number, y: number) => call<{ char: string; reveals: number }>({ action: "reveal", token, x, y });
