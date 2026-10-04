@@ -3,6 +3,7 @@
 // 回数を足す呼び出しとスコアの送信は途中で受け止めるので、本物の回数もランキングも変わらない。
 // 使い方: node scripts/verify/crossword/check-own-ranking.mjs <サイト> <問題の番号> '<答えの配置 JSON>' <残すマス x,y> <そのマスの字>
 import { chromium } from 'playwright';
+import { interceptCount, humanWaitMs } from './_lib.mjs';
 
 const [BASE, ID, CLUES_JSON, LAST, LAST_CHAR] = process.argv.slice(2);
 const clues = JSON.parse(CLUES_JSON);
@@ -23,10 +24,10 @@ const check = (ok, label) => {
 
 const browser = await chromium.launch();
 
-async function solve(own) {
+async function solve(own, fast = false) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   let blocked = 0;
-  await ctx.route('**/rest/v1/rpc/crossword_add_play', (r) => (blocked++, r.fulfill({ status: 204, body: '' })));
+  await interceptCount(ctx);
   await ctx.route('**/api/crossword-score', (r) => (blocked++, r.fulfill({ status: 500, body: '{}' })));
   const page = await ctx.newPage();
   await page.goto(`${BASE}/crossword`);
@@ -39,6 +40,7 @@ async function solve(own) {
   const cell = page.getByRole('button', { name: `${ly + 1}行${lx + 1}列: 空` });
   await cell.waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
+  if (!fast) await page.waitForTimeout(humanWaitMs(Object.keys(answers).length + 1));
   await cell.click();
   await page.getByRole('button', { name: LAST_CHAR, exact: true }).last().click();
   await page.waitForTimeout(4500);
@@ -53,6 +55,8 @@ const other = await solve(false);
 check(other.nameEntry, `ほかの人の端末では名前入力が出る: ${JSON.stringify(other)}`);
 const own = await solve(true);
 check(!own.nameEntry, `作った本人の端末では名前入力が出ない: ${JSON.stringify(own)}`);
+const fast = await solve(false, true);
+check(fast.cleared && !fast.nameEntry, `字の数×1秒より速く解くと名前入力が出ない: ${JSON.stringify(fast)}`);
 
 await browser.close();
 console.log(fail ? `NG ${fail}件` : 'すべてOK');

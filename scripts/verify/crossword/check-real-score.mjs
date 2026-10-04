@@ -2,6 +2,7 @@
 // 回数を足す呼び出しだけは途中で受け止める。
 // 使い方: node scripts/verify/crossword/check-real-score.mjs <サイト> <問題の番号> '<答えの配置 JSON>' <残すマス x,y> <名前>
 import { chromium } from 'playwright';
+import { interceptCount, humanWaitMs } from './_lib.mjs';
 
 const [BASE, ID, CLUES_JSON, LAST, NAME] = process.argv.slice(2);
 const OUT = process.env.OUT || '.';
@@ -15,7 +16,7 @@ const [lx, ly] = LAST.split(',').map(Number);
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
-await ctx.route('**/rest/v1/rpc/crossword_add_play', (r) => r.fulfill({ status: 204, body: '' }));
+await interceptCount(ctx);
 const page = await ctx.newPage();
 await page.goto(`${BASE}/crossword`);
 await page.evaluate(({ id, answers }) => {
@@ -26,6 +27,7 @@ await page.goto(`${BASE}/crossword/${ID}`);
 const cell = page.getByRole('button', { name: `${ly + 1}行${lx + 1}列: 空` });
 await cell.waitFor({ timeout: 20000 });
 await page.waitForTimeout(2500);
+  await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
 await cell.click();
 await page.getByRole('button', { name: full[LAST], exact: true }).last().click();
 await page.getByRole('button', { name: '載せる' }).waitFor({ timeout: 10000 });

@@ -2,6 +2,7 @@
 // 回数を足す呼び出しとスコアの送信は途中で受け止めるので、本物の回数もランキングも変わらない。
 // 使い方: node scripts/verify/crossword/check-auto-check.mjs <サイト> <問題の番号> '<答えの配置 JSON>' <残すマス x,y> <そのマスの字> <間違いの字>
 import { chromium } from 'playwright';
+import { interceptCount, humanWaitMs } from './_lib.mjs';
 
 const [BASE, ID, CLUES_JSON, LAST, LAST_CHAR, WRONG_CHAR] = process.argv.slice(2);
 const OUT = process.env.OUT || '.';
@@ -26,7 +27,7 @@ const browser = await chromium.launch();
 
 async function open(answers) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  await ctx.route('**/rest/v1/rpc/crossword_add_play', (r) => r.fulfill({ status: 204, body: '' }));
+  await interceptCount(ctx);
   await ctx.route('**/api/crossword-score', (r) => r.fulfill({ status: 500, body: '{}' }));
   const page = await ctx.newPage();
   await page.goto(`${BASE}/crossword`);
@@ -37,6 +38,7 @@ async function open(answers) {
   await page.goto(`${BASE}/crossword/${ID}`);
   await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
+  await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
   return { ctx, page };
 }
 const stamped = (page) => page.evaluate(() => document.body.innerText.includes('CLEARED!'));
@@ -66,7 +68,7 @@ const press = (page, ch) => page.getByRole('button', { name: ch, exact: true }).
   const { ctx, page } = await open(almost);
   await cellOf(page, '空').click();
   await press(page, WRONG_CHAR);
-  await page.waitForTimeout(1200);
+  await page.getByText('どこかに間違いがあります。').first().waitFor({ timeout: 8000 }).catch(() => {}); // 受付係の返事を待つ
   const text = await page.evaluate(() => document.body.innerText);
   check(text.includes('どこかに間違いがあります。'), '間違えて埋めると「どこかに間違いがあります。」が出る');
   check(!text.includes('赤枠') && !text.includes('合っていないカギ') && !text.includes('降参'), 'どこが違うかは示さない（赤枠の案内・合っていないカギの一覧・降参が無い）');

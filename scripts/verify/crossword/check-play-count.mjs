@@ -1,6 +1,7 @@
-// 遊ばれた回数を足す時機を確かめる。本物の回数は増やさない（足す呼び出しは途中で受け止めて、棚まで届けない）
+// 遊ばれた回数を足す時機を確かめる。本物の回数は増やさない（受付係への touch を途中で受け止めて、棚まで届けない）
 // 使い方: node scripts/verify/crossword/check-play-count.mjs http://localhost:5193 <問題の番号>
 import { chromium } from 'playwright';
+import { interceptCount, humanWaitMs } from './_lib.mjs';
 
 const BASE = process.argv[2] || 'https://feature-crossword.hop-up-tools.pages.dev';
 const ID = process.argv[3];
@@ -16,10 +17,7 @@ const browser = await chromium.launch();
 
 async function session(ctx) {
   let calls = 0;
-  await ctx.route('**/rest/v1/rpc/crossword_add_play', (route) => {
-    calls++;
-    return route.fulfill({ status: 204, body: '' });
-  });
+  await interceptCount(ctx, () => calls++);
   const page = await ctx.newPage();
   const open = async () => {
     await page.goto(`${BASE}/crossword/${ID}`);

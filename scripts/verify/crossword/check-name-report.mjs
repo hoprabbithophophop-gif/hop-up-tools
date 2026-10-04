@@ -2,6 +2,7 @@
 // ランキングは見本の行に差し替え、通報の送信は途中で受け止める（本物の棚にも Discord にも送らない）。
 // 使い方: node scripts/verify/crossword/check-name-report.mjs <サイト> <問題の番号> '<答えの配置 JSON>' <残すマス x,y>
 import { chromium } from 'playwright';
+import { interceptCount, humanWaitMs } from './_lib.mjs';
 
 const [BASE, ID, CLUES_JSON, LAST] = process.argv.slice(2);
 const OUT = process.env.OUT || '.';
@@ -21,7 +22,7 @@ const check = (ok, msg) => {
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const sent = [];
-await ctx.route('**/rest/v1/rpc/crossword_add_play', (r) => r.fulfill({ status: 204, body: '' }));
+await interceptCount(ctx);
 await ctx.route('**/api/crossword-score', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
 await ctx.route('**/api/crossword-report-name', async (r) => {
   sent.push(JSON.parse(r.request().postData() || '{}'));
@@ -45,6 +46,7 @@ await page.evaluate(({ id, answers }) => {
 await page.goto(`${BASE}/crossword/${ID}`);
 await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
 await page.waitForTimeout(2500);
+  await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
 await page.getByRole('button', { name: `${ly + 1}行${lx + 1}列: 空` }).click();
 await page.getByRole('button', { name: full[LAST], exact: true }).last().click();
 await page.getByRole('button', { name: '載せない' }).click({ timeout: 10000 });

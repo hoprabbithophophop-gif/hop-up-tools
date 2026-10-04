@@ -4,6 +4,7 @@
 // 見た数・ミス・解けた時刻は受付係の記録にしか無いので、最後に書き出す回の番号で棚を直接見て確かめる。
 // 使い方: node scripts/verify/crossword/check-reveal.mjs <サイト> <問題の番号> '<答えの配置 JSON>' <残すマス1 x,y> <残すマス2 x,y> <マス1の間違いの字>
 import { chromium } from 'playwright';
+import { interceptCount, humanWaitMs } from './_lib.mjs';
 
 const [BASE, ID, CLUES_JSON, CELL1, CELL2, WRONG_CHAR] = process.argv.slice(2);
 const OUT = process.env.OUT || '.';
@@ -35,7 +36,7 @@ const browser = await chromium.launch();
 async function open(answers, rankingRows = []) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const sent = [];
-  await ctx.route('**/rest/v1/rpc/crossword_add_play', (r) => r.fulfill({ status: 204, body: '' }));
+  await interceptCount(ctx);
   await ctx.route('**/api/crossword-score', async (r) => {
     sent.push(JSON.parse(r.request().postData() || '{}'));
     await r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"updated":true}' });
@@ -52,6 +53,7 @@ async function open(answers, rankingRows = []) {
   await page.goto(`${BASE}/crossword/${ID}`);
   await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
+  await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
   return { ctx, page, sent };
 }
 const text = (page) => page.evaluate(() => document.body.innerText);
@@ -75,7 +77,7 @@ const submitName = async (page) => {
   check(t1.includes('1文字見る？') && t1.includes('ノーヒントの印は付かなくなります。'), '初めての時はその場で確かめる');
   await page.screenshot({ path: `${OUT}/reveal-1-confirm.png` });
   await page.getByRole('button', { name: '見る', exact: true }).click();
-  await page.waitForTimeout(600);
+  await page.getByRole('button', { name: `${label(CELL1)}: ${full[CELL1]}` }).waitFor({ timeout: 8000 }).catch(() => {}); // 受付係の返事を待つ
   check((await page.getByRole('button', { name: `${label(CELL1)}: ${full[CELL1]}` }).count()) === 1, '選んだマスに正しい字が入る');
   await page.getByRole('button', { name: '閉じる' }).first().click().catch(() => {});
   await page.waitForTimeout(500);

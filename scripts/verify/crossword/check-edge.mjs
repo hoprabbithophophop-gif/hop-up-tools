@@ -3,6 +3,7 @@
 // 回数を足す呼び出しとランキングへの送信は受け止めるので、本物の回数とランキングは変わらない。
 // 使い方: node scripts/verify/crossword/check-edge.mjs <サイト> <ハロプロの問題の番号> '<答えの配置 JSON>' <残すマス x,y>
 import { chromium } from 'playwright';
+import { interceptCount, humanWaitMs } from './_lib.mjs';
 
 const [BASE, ID, CLUES_JSON, LAST] = process.argv.slice(2);
 const OUT = process.env.OUT || '.';
@@ -23,7 +24,7 @@ const browser = await chromium.launch();
 
 async function open(path, { answers = null, play = undefined, routes = [], mine = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  await ctx.route('**/rest/v1/rpc/crossword_add_play', (r) => r.fulfill({ status: 204, body: '' }));
+  await interceptCount(ctx);
   await ctx.route('**/api/crossword-score', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
   for (const [pattern, handler] of routes) await ctx.route(pattern, handler);
   const page = await ctx.newPage();
@@ -96,7 +97,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   const gone = ['**/api/crossword-play', (r) => {
     const body = JSON.parse(r.request().postData() || '{}');
     if (body.action === 'check') return r.fulfill({ status: 404, contentType: 'application/json', body: '{"ok":false,"reason":"not_found"}' });
-    return r.continue();
+    return r.fallback();
   }];
   const { ctx, page } = await open(`/crossword/${ID}`, { answers: almost, routes: [gone] });
   await waitBoard(page);
@@ -122,7 +123,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   const busy = ['**/api/crossword-play', (r) => {
     const body = JSON.parse(r.request().postData() || '{}');
     if (body.action === 'start') return r.fulfill({ status: 429, contentType: 'application/json', body: '{"ok":false,"reason":"too_many"}' });
-    return r.continue();
+    return r.fallback();
   }];
   const { ctx, page } = await open(`/crossword/${ID}`, { answers: almost, routes: [busy] });
   await waitBoard(page);

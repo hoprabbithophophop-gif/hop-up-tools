@@ -2,6 +2,7 @@
 // 回数を足す呼び出しは受け止める。丸付けはしないので受付係の記録は増えない（はじめからの時だけ新しい回が1つ増える）。
 // 使い方: node scripts/verify/crossword/check-resume.mjs <サイト> <問題の番号>
 import { chromium } from 'playwright';
+import { interceptCount, humanWaitMs } from './_lib.mjs';
 
 const [BASE, ID] = process.argv.slice(2);
 const OUT = process.env.OUT || '.';
@@ -15,7 +16,7 @@ const HOUR = 3600 * 1000;
 
 async function open(savedAgoMs, startedAgoMs) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  await ctx.route('**/rest/v1/rpc/crossword_add_play', (r) => r.fulfill({ status: 204, body: '' }));
+  await interceptCount(ctx);
   const page = await ctx.newPage();
   await page.goto(`${BASE}/crossword/mine`);
   await page.evaluate(({ id, savedAt, localStart }) => {
