@@ -1,12 +1,16 @@
 // 最後の空きマスが埋まったら、答え合わせのボタンを押さなくても答え合わせが始まることを確かめる。
 // 回数を足す呼び出しとスコアの送信は途中で受け止めるので、本物の回数もランキングも変わらない。
-// 使い方: node scripts/verify/crossword/check-auto-check.mjs <サイト> <問題の番号> '<答えの配置 JSON>' <残すマス x,y> <そのマスの字> <間違いの字>
+// 使い方: node scripts/verify/crossword/check-auto-check.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス x,y] [そのマスの字] [間違いの字]
+// （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
 
-const [BASE, ID, CLUES_JSON, LAST, LAST_CHAR, WRONG_CHAR] = process.argv.slice(2);
-const OUT = process.env.OUT || '.';
-const clues = JSON.parse(CLUES_JSON);
+const BASE = arg(2, BASE_DEFAULT);
+const ID = arg(3, ID_DEFAULT);
+const P = await puzzleArgs(BASE, ID, { cluesJson: arg(4), last: arg(5), lastChar: arg(6), wrongChar: arg(7) });
+const [LAST, LAST_CHAR, WRONG_CHAR] = [P.last, P.lastChar, P.wrongChar];
+const OUT = outDir('check-auto-check');
+const clues = P.cluesJson;
 const full = {};
 for (const c of clues) c.a.forEach((ch, i) => {
   const x = c.d === 'horizontal' ? c.x + i : c.x;

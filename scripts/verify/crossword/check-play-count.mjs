@@ -1,11 +1,10 @@
 // 遊ばれた回数を足す時機を確かめる。本物の回数は増やさない（受付係への touch を途中で受け止めて、棚まで届けない）
-// 使い方: node scripts/verify/crossword/check-play-count.mjs http://localhost:5193 <問題の番号>
+// 使い方: node scripts/verify/crossword/check-play-count.mjs [サイト] [問題の番号]（省略時は targets.json）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs } from './_lib.mjs';
+import { interceptCount, arg, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
 
-const BASE = process.argv[2] || 'https://feature-crossword.hop-up-tools.pages.dev';
-const ID = process.argv[3];
-if (!ID) throw new Error('問題の番号を渡してください');
+const BASE = arg(2, BASE_DEFAULT);
+const ID = arg(3, ID_DEFAULT);
 
 let fail = 0;
 const check = (ok, label) => {

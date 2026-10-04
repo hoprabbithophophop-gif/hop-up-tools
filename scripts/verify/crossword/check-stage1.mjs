@@ -1,15 +1,16 @@
 // クロスワード段階1の完成の定義（docs/definition-of-done.md）の5項目を、実際の画面で順に確かめる。
-// 使い方: `node scripts/verify/crossword/check-stage1.mjs [住所]`（省略時はプレビュー）
-// 作る画面で本当に保存するので、本番の Supabase に題名が「検収用」で始まる問題が2つ残る。片付けは Hop に確認してから
-// スクリーンショットの置き場は環境変数 VERIFY_OUT があればそこ、無ければ端末の一時置き場の下
+// 使い方: `node scripts/verify/crossword/check-stage1.mjs [住所] [--skip-save]`（住所の省略時は targets.json）
+// 作る画面で本当に保存するので、本番の Supabase に題名が「検収用」で始まる問題が残る。片付けは Hop に確認してから
+// 保存は人間確認（Turnstile）を通る必要があり、機械のブラウザでは通らない。--skip-save を付けると、
+// 保存が要る 1〜4 を飛ばして、保存の要らない 5（ヒントの選び方）だけを確かめる（run-all.mjs はこちらで流す）
+// スクリーンショットの置き場は環境変数 OUT（古い名前の VERIFY_OUT も可）があればそこ、無ければ 一時置き場/hop-up-tools-verify/crossword/check-stage1/
 import { chromium } from 'playwright';
-import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
+import { outDir, BASE_DEFAULT } from './_lib.mjs';
 
-const BASE = process.argv[2] || 'https://feature-crossword.hop-up-tools.pages.dev';
-const OUT = path.join(process.env.VERIFY_OUT || path.join(os.tmpdir(), 'crossword-verify'), 'stage1');
-mkdirSync(OUT, { recursive: true });
+const SKIP_SAVE = process.argv.includes('--skip-save');
+const BASE = process.argv.slice(2).find((a) => !a.startsWith('--')) || BASE_DEFAULT;
+const OUT = outDir('check-stage1', process.env.VERIFY_OUT ? path.join(process.env.VERIFY_OUT, 'stage1') : undefined);
 
 // 画面の言葉。実装に合わせてここだけ直す
 const T = {
@@ -49,6 +50,10 @@ const clickText = (page, text) => page.getByRole('button', { name: text, exact: 
 const ctxA = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const pa = await ctxA.newPage();
 pa.on('pageerror', (e) => errs.push('作る画面: ' + e));
+let url = null;
+if (SKIP_SAVE) {
+  console.log('飛ばす 1〜4（保存して出た URL で解く）: 保存が要るため検収役では流せない。Hop の Chrome で確認済み');
+} else {
 await pa.goto(BASE + '/crossword/create', { waitUntil: 'networkidle' });
 await fieldByLabel(pa, 'タイトル').fill(`検収用 ${stamp}`);
 await pa.getByText('その他', { exact: true }).first().click();
@@ -64,7 +69,7 @@ for (const w of WORDS) {
 await pa.waitForTimeout(6500);
 await pa.screenshot({ path: path.join(OUT, '1-built.png'), fullPage: true });
 await clickText(pa, T.save);
-const url = await pa.waitForFunction(() => {
+url = await pa.waitForFunction(() => {
   // 共有カードの URL は入力欄の中に出るので、欄の中身も合わせて探す
   const all = document.body.innerText + ' ' + [...document.querySelectorAll('input')].map((i) => i.value).join(' ');
   const m = all.match(/https?:\/\/\S+\/crossword\/[A-Za-z0-9_-]{8}/);
@@ -72,6 +77,7 @@ const url = await pa.waitForFunction(() => {
 }, null, { timeout: 20000 }).then((h) => h.jsonValue(), () => null);
 r['1 組み立ての動きが出た'] = sawOptimizing;
 r['1 保存して URL が出た'] = Boolean(url);
+}
 
 // ---- 5. ヒントの選び方（作る画面のまま確かめる） ----
 await pa.goto(BASE + '/crossword/create', { waitUntil: 'networkidle' });
@@ -137,8 +143,14 @@ r['2 構築中の動きが出た'] = await pb.getByText(T.building).first().wait
 await browser.close();
 r['残った試しの問題'] = url || 'なし';
 r['つまずき'] = errs.length ? errs : 'なし';
-console.log(JSON.stringify(r, null, 1));
-const ok = Object.entries(r).every(([k, v]) => k.startsWith('残った') || (k === 'つまずき' ? v === 'なし' : v === true));
-console.log(ok ? '合' : '否');
+let fail = 0;
+for (const [k, v] of Object.entries(r)) {
+  if (k.startsWith('残った')) { console.log(`   ${k}: ${v}`); continue; }
+  const good = k === 'つまずき' ? v === 'なし' : v === true;
+  if (!good) fail++;
+  console.log(`${good ? 'OK ' : 'NG '} ${k}${k === 'つまずき' ? ': ' + JSON.stringify(v) : ''}`);
+}
+const ok = fail === 0;
+console.log(ok ? 'すべてOK（合）' : `NG ${fail}件（否）`);
 console.log('写真: ' + OUT);
 process.exit(ok ? 0 : 1);

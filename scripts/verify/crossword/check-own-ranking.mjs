@@ -1,12 +1,17 @@
 // 作った本人の端末で解き終えたときは、ランキングの名前入力を出さないことを確かめる。
 // 1マスだけ残した途中の状態を端末に置き、最後の1文字を入れて解き終える。
 // 回数を足す呼び出しとスコアの送信は途中で受け止めるので、本物の回数もランキングも変わらない。
-// 使い方: node scripts/verify/crossword/check-own-ranking.mjs <サイト> <問題の番号> '<答えの配置 JSON>' <残すマス x,y> <そのマスの字>
+// 使い方: node scripts/verify/crossword/check-own-ranking.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス x,y] [そのマスの字]
+// （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
 
-const [BASE, ID, CLUES_JSON, LAST, LAST_CHAR] = process.argv.slice(2);
-const clues = JSON.parse(CLUES_JSON);
+const BASE = arg(2, BASE_DEFAULT);
+const ID = arg(3, ID_DEFAULT);
+const P = await puzzleArgs(BASE, ID, { cluesJson: arg(4), last: arg(5), lastChar: arg(6) });
+const [LAST, LAST_CHAR] = [P.last, P.lastChar];
+const OUT = outDir('check-own-ranking');
+const clues = P.cluesJson;
 const answers = {};
 for (const c of clues) c.a.forEach((ch, i) => {
   const x = c.d === 'horizontal' ? c.x + i : c.x;
@@ -46,7 +51,7 @@ async function solve(own, fast = false) {
   await page.waitForTimeout(4500);
   const nameEntry = (await page.getByRole('button', { name: '載せない' }).count()) > 0;
   const cleared = await page.evaluate(() => document.body.innerText.includes('CLEAR') || document.body.innerText.includes('クリア'));
-  await page.screenshot({ path: `${process.env.OUT || '.'}/own-${own}.png` });
+  await page.screenshot({ path: `${OUT}/own-${own}.png` });
   await ctx.close();
   return { nameEntry, cleared };
 }

@@ -2,13 +2,17 @@
 // 記録の送信・回数を足す呼び出しは途中で受け止め、ランキングの読み込みは見本の行に差し替える（本物のランキングは変わらない）。
 // 丸付けと1文字見るは本物の受付係（/api/crossword-play）を通るので、遊んでいる回の記録（crossword_plays）が増える。
 // 見た数・ミス・解けた時刻は受付係の記録にしか無いので、最後に書き出す回の番号で棚を直接見て確かめる。
-// 使い方: node scripts/verify/crossword/check-reveal.mjs <サイト> <問題の番号> '<答えの配置 JSON>' <残すマス1 x,y> <残すマス2 x,y> <マス1の間違いの字>
+// 使い方: node scripts/verify/crossword/check-reveal.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス1 x,y] [残すマス2 x,y] [マス1の間違いの字]
+// （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
 
-const [BASE, ID, CLUES_JSON, CELL1, CELL2, WRONG_CHAR] = process.argv.slice(2);
-const OUT = process.env.OUT || '.';
-const clues = JSON.parse(CLUES_JSON);
+const BASE = arg(2, BASE_DEFAULT);
+const ID = arg(3, ID_DEFAULT);
+const P = await puzzleArgs(BASE, ID, { cluesJson: arg(4), cell1: arg(5), cell2: arg(6), wrongChar: arg(7) });
+const [CELL1, CELL2, WRONG_CHAR] = [P.cell1, P.cell2, P.wrongChar1];
+const OUT = outDir('check-reveal');
+const clues = P.cluesJson;
 const full = {};
 for (const c of clues) c.a.forEach((ch, i) => {
   const x = c.d === 'horizontal' ? c.x + i : c.x;

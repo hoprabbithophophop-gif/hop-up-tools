@@ -1,14 +1,18 @@
 // 起こりうる困った場面（2026-10-04 洗い出しの 1〜5）で、詰まらず正しい知らせが出るかを確かめる。
 // 台帳・受付係の答えは途中で差し替えて場面を作る。4 だけは本物の受付係で、無い回の番号から始め直せるかを見る。
 // 回数を足す呼び出しとランキングへの送信は受け止めるので、本物の回数とランキングは変わらない。
-// 使い方: node scripts/verify/crossword/check-edge.mjs <サイト> <ハロプロの問題の番号> '<答えの配置 JSON>' <残すマス x,y>
+// 使い方: node scripts/verify/crossword/check-edge.mjs [サイト] [ハロプロの問題の番号] ['<答えの配置 JSON>'] [残すマス x,y]
+// （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
 
-const [BASE, ID, CLUES_JSON, LAST] = process.argv.slice(2);
-const OUT = process.env.OUT || '.';
+const BASE = arg(2, BASE_DEFAULT);
+const ID = arg(3, ID_DEFAULT);
+const P = await puzzleArgs(BASE, ID, { cluesJson: arg(4), last: arg(5) });
+const LAST = P.last;
+const OUT = outDir('check-edge');
 const full = {};
-for (const c of JSON.parse(CLUES_JSON)) c.a.forEach((ch, i) => {
+for (const c of P.cluesJson) c.a.forEach((ch, i) => {
   full[`${c.d === 'horizontal' ? c.x + i : c.x},${c.d === 'vertical' ? c.y + i : c.y}`] = ch;
 });
 const almost = { ...full };
@@ -109,11 +113,21 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
 // 4. 回の記録が無くなっていた（30 日で片付いた）→ 新しい回として始め直して解き終える（本物の受付係）
 {
   const { ctx, page } = await open(`/crossword/${ID}`, { answers: almost, play: { token: '00000000-0000-4000-8000-000000000000', localStart: Date.now() - 40 * 86400 * 1000 } });
+  // NG の時に原因を切り分けられるよう、受付係とのやり取り（動作・返事の番号・返事の頭）を控える
+  const talk = [];
+  page.on('response', async (r) => {
+    if (!r.url().includes('/api/crossword-play')) return;
+    const action = (() => { try { return JSON.parse(r.request().postData() || '{}').action; } catch { return '?'; } })();
+    talk.push(`${action}:${r.status()}:${(await r.text().catch(() => '')).slice(0, 40)}`);
+  });
   await waitBoard(page);
   await fillLast(page);
-  await page.waitForTimeout(4000);
+  // 無い回 → 始め直し → 丸付け と受付係を3往復するので、決め打ちの4秒ではなく最大15秒まで待つ（2026-10-05 run-all の中で4秒では足りず NG になった）
+  await page.getByText('CLEARED!').first().waitFor({ timeout: 15000 }).catch(() => {});
   const t = await text(page);
-  check(t.includes('CLEARED!') && !t.includes('通信できませんでした'), '4 古い回の番号でも始め直して解き終えられる');
+  const ok4 = t.includes('CLEARED!') && !t.includes('通信できませんでした');
+  if (!ok4) await page.screenshot({ path: `${OUT}/edge-4-restart.png` });
+  check(ok4, `4 古い回の番号でも始め直して解き終えられる${ok4 ? '' : '（受付係とのやり取り: ' + talk.join(' , ') + '）'}`);
   const token = await page.evaluate((id) => JSON.parse(localStorage.getItem(`crossword_progress_${id}`) || '{}').play?.token ?? null, ID);
   check(!!token && token !== '00000000-0000-4000-8000-000000000000', `4 新しい回の番号に入れ替わる: ${token}`);
   await ctx.close();

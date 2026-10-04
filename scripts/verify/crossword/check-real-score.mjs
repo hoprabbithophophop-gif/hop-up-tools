@@ -1,13 +1,26 @@
 // 本物のランキングに1件載せて、受付係の記録からタイムと印が出ることを確かめる（棚に書き込む。確かめた後は片付けること）。
 // 回数を足す呼び出しだけは途中で受け止める。
-// 使い方: node scripts/verify/crossword/check-real-score.mjs <サイト> <問題の番号> '<答えの配置 JSON>' <残すマス x,y> <名前>
+// 載せる名前は既定で「検収」＋月日時分（本番のランキングに残る行を後で見分けて片付けるための印）。
+// 使い方: node scripts/verify/crossword/check-real-score.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス x,y] [名前]
+// （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
 
-const [BASE, ID, CLUES_JSON, LAST, NAME] = process.argv.slice(2);
-const OUT = process.env.OUT || '.';
+const BASE = arg(2, BASE_DEFAULT);
+const ID = arg(3, ID_DEFAULT);
+const P = await puzzleArgs(BASE, ID, { cluesJson: arg(4), last: arg(5) });
+const LAST = P.last;
+const pad = (n) => String(n).padStart(2, '0');
+const d = new Date();
+const NAME = arg(6, `検収${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}`);
+const OUT = outDir('check-real-score');
+let fail = 0;
+const check = (ok, msg) => {
+  console.log(`${ok ? 'OK ' : 'NG '} ${msg}`);
+  if (!ok) fail++;
+};
 const full = {};
-for (const c of JSON.parse(CLUES_JSON)) c.a.forEach((ch, i) => {
+for (const c of P.cluesJson) c.a.forEach((ch, i) => {
   full[`${c.d === 'horizontal' ? c.x + i : c.x},${c.d === 'vertical' ? c.y + i : c.y}`] = ch;
 });
 const almost = { ...full };
@@ -36,11 +49,18 @@ await page.getByPlaceholder('ニックネーム').fill(NAME);
 await page.getByRole('button', { name: '載せる' }).click();
 await page.waitForTimeout(3000);
 const text = await page.evaluate(() => document.body.innerText);
-const lines = text.split(/\r?\n/).map((l) => l.trim());
+// 空の行を除く（行の並びは 順位・名前・日付・印・タイム）
+const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 const i = lines.indexOf(NAME);
+const row = i >= 0 ? lines.slice(i - 1, i + 4) : null;
 console.log('回の番号: ' + token);
-console.log('ランキングの行: ' + JSON.stringify(i >= 0 ? lines.slice(i - 1, i + 4) : null));
-console.log('名前を入れる窓が閉じた: ' + ((await page.getByRole('button', { name: '載せる' }).count()) === 0));
+console.log('載せた名前（本番のランキングに残る）: ' + NAME);
+check(i >= 0, `本物のランキングに名前が載る: ${JSON.stringify(row)}`);
+check(Boolean(row) && row.some((l) => /\d+:\d{2}/.test(l)), `タイムが出る: ${JSON.stringify(row)}`);
+check(Boolean(row) && row.includes('ノーミス・ノーヒント'), `ミス0・見た数0の回は「ノーミス・ノーヒント」: ${JSON.stringify(row)}`);
+check((await page.getByRole('button', { name: '載せる' }).count()) === 0, '名前を入れる窓が閉じた');
 await page.getByText('ランキング').first().scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/real-score.png` });
 await browser.close();
+console.log(fail ? `NG ${fail}件` : 'すべてOK');
+process.exit(fail ? 1 : 0);

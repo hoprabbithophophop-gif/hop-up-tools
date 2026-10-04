@@ -1,14 +1,18 @@
 // iPhone の大きさと Safari と同じ仕組み（WebKit）で、クロスワードを通しで遊ぶ（2026-10-04 洗い出しの D）。
 // 実機のキーボードの出方・ホーム画面に置いた時の動きは分からない。
 // 回数を数える呼び出しとランキングへの送信は受け止める。丸付けと1文字見るは本物の受付係（回の記録が増える）。
-// 使い方: node scripts/verify/crossword/check-iphone.mjs <サイト> <問題の番号> '<答えの配置 JSON>' <残すマス1 x,y> <残すマス2 x,y>
+// 使い方: node scripts/verify/crossword/check-iphone.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス1 x,y] [残すマス2 x,y]
+// （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { webkit, devices } from 'playwright';
-import { interceptCount, humanWaitMs } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
 
-const [BASE, ID, CLUES_JSON, CELL1, CELL2] = process.argv.slice(2);
-const OUT = process.env.OUT || '.';
+const BASE = arg(2, BASE_DEFAULT);
+const ID = arg(3, ID_DEFAULT);
+const P = await puzzleArgs(BASE, ID, { cluesJson: arg(4), cell1: arg(5), cell2: arg(6) });
+const [CELL1, CELL2] = [P.cell1, P.cell2];
+const OUT = outDir('check-iphone');
 const full = {};
-for (const c of JSON.parse(CLUES_JSON)) c.a.forEach((ch, i) => {
+for (const c of P.cluesJson) c.a.forEach((ch, i) => {
   full[`${c.d === 'horizontal' ? c.x + i : c.x},${c.d === 'vertical' ? c.y + i : c.y}`] = ch;
 });
 const almost = { ...full };

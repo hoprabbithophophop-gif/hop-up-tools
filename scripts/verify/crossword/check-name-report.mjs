@@ -1,13 +1,17 @@
 // ランキングの名前の通報（2026-10-04 洗い出しの 7）を確かめる。
 // ランキングは見本の行に差し替え、通報の送信は途中で受け止める（本物の棚にも Discord にも送らない）。
-// 使い方: node scripts/verify/crossword/check-name-report.mjs <サイト> <問題の番号> '<答えの配置 JSON>' <残すマス x,y>
+// 使い方: node scripts/verify/crossword/check-name-report.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス x,y]
+// （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
 
-const [BASE, ID, CLUES_JSON, LAST] = process.argv.slice(2);
-const OUT = process.env.OUT || '.';
+const BASE = arg(2, BASE_DEFAULT);
+const ID = arg(3, ID_DEFAULT);
+const P = await puzzleArgs(BASE, ID, { cluesJson: arg(4), last: arg(5) });
+const LAST = P.last;
+const OUT = outDir('check-name-report');
 const full = {};
-for (const c of JSON.parse(CLUES_JSON)) c.a.forEach((ch, i) => {
+for (const c of P.cluesJson) c.a.forEach((ch, i) => {
   full[`${c.d === 'horizontal' ? c.x + i : c.x},${c.d === 'vertical' ? c.y + i : c.y}`] = ch;
 });
 const almost = { ...full };

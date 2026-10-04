@@ -1,11 +1,13 @@
 // 前回の続きを開いた時の「つづきから／はじめから」を確かめる（2026-10-04 洗い出しの 6）。
 // 回数を足す呼び出しは受け止める。丸付けはしないので受付係の記録は増えない（はじめからの時だけ新しい回が1つ増える）。
-// 使い方: node scripts/verify/crossword/check-resume.mjs <サイト> <問題の番号>
+// 使い方: node scripts/verify/crossword/check-resume.mjs [サイト] [問題の番号]（省略時は targets.json）
+// 入れておく字は 4,0 の「ダ」（targets.json の問題 SJ2cjTJe の盤に合わせてある。別の問題では 4,0 にマスが要る）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs } from './_lib.mjs';
+import { interceptCount, arg, outDir, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
 
-const [BASE, ID] = process.argv.slice(2);
-const OUT = process.env.OUT || '.';
+const BASE = arg(2, BASE_DEFAULT);
+const ID = arg(3, ID_DEFAULT);
+const OUT = outDir('check-resume');
 let fail = 0;
 const check = (ok, msg) => {
   console.log(`${ok ? 'OK ' : 'NG '} ${msg}`);
@@ -42,14 +44,23 @@ const timer = (page) => page.evaluate(() => (document.querySelector('header')?.i
   const t = await text(page);
   check(t.includes('前回の続きがあります') && /タイムは始めた時から数えています（2:00:\d\d）/.test(t), '1 2時間空くと聞かれ、始めてからの時間が出る');
   await page.screenshot({ path: `${OUT}/resume-ask.png` });
-  const before = await timer(page);
-  await page.waitForTimeout(2000);
-  check((await timer(page)) === before, `1 答えるまでタイマーは動かない: ${before}`);
+  // 窓が出ている間は、窓の中の時間が止まったままで、盤の上のタイマーは出ない（数え始めない）
+  const askTime = async () => ((await text(page)).match(/（(\d+:\d{2}:\d{2})）/) || [])[1] || null;
+  const ask1 = await askTime();
+  const head1 = await timer(page);
+  await page.waitForTimeout(3000);
+  const ask2 = await askTime();
+  const head2 = await timer(page);
+  check(Boolean(ask1) && ask1 === ask2 && head1 === '' && head2 === '', `1 答えるまでタイマーは動かない: 窓の時間 ${ask1} → 3秒後 ${ask2} ／ 盤の上のタイマー「${head1}」→「${head2}」`);
   await page.getByRole('button', { name: 'つづきから' }).click();
   await page.waitForTimeout(1500);
   check(!(await text(page)).includes('前回の続きがあります'), '1 つづきからで窓が閉じる');
   check((await page.getByRole('button', { name: '1行5列: ダ' }).count()) === 1, '1 入れた字は残る');
-  check(/^12\d:\d{2}$/.test(await timer(page)), `1 タイマーは始めた時から（2時間＝120分）: ${await timer(page)}`);
+  const run1 = await timer(page);
+  check(/^12\d:\d{2}$/.test(run1), `1 タイマーは始めた時から（2時間＝120分）: ${run1}`);
+  await page.waitForTimeout(3000);
+  const run2 = await timer(page);
+  check(Boolean(run1) && Boolean(run2) && run1 !== run2, `1 つづきからを押すとタイマーが進み出す: ${run1} → 3秒後 ${run2}`);
   await ctx.close();
 }
 // 2. はじめから → 字が消えて、タイマーは0から

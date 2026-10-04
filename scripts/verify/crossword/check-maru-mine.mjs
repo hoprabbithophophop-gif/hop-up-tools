@@ -1,13 +1,11 @@
 // ○ボタンで欄の選ばれ方が変わらないことと、「自分が作った問題」の別画面を確かめる
-// 使い方: node scripts/verify/crossword/check-maru-mine.mjs http://localhost:5193 [スクショの置き場]
+// 使い方: node scripts/verify/crossword/check-maru-mine.mjs [サイト] [スクショの置き場]（省略時は targets.json と一時置き場）
 import { chromium } from 'playwright';
-import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
+import { arg, outDir, BASE_DEFAULT } from './_lib.mjs';
 
-const BASE = process.argv[2] || 'https://feature-crossword.hop-up-tools.pages.dev';
-const OUT = process.argv[3] || path.join(os.tmpdir(), 'crossword-maru-mine');
-mkdirSync(OUT, { recursive: true });
+const BASE = arg(2, BASE_DEFAULT);
+const OUT = outDir('check-maru-mine', process.argv[3]);
 
 let fail = 0;
 const check = (ok, label) => {
@@ -19,11 +17,11 @@ const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 const page = await ctx.newPage();
 
-// 1. この端末で作った問題が無いときは入口を出さない
+// 1. 作る画面の入口は、作った問題の数に関係なくいつも出る（紙: 作る画面には /crossword/mine の入口がいつも出る）
 await page.goto(`${BASE}/crossword/create`);
 const clue = page.getByPlaceholder('例: 猫の鳴き声').first();
 await clue.waitFor();
-check((await page.getByRole('link', { name: /自分が作った問題/ }).count()) === 0, '作った問題が無いと入口は出ない');
+check((await page.getByRole('link', { name: /自分が作った問題/ }).count()) === 1, '作った問題が無くても入口は出る');
 
 // 2. 欄を選んだまま○を押す → 欄は選ばれたまま、文字の位置に入る
 await clue.click();
