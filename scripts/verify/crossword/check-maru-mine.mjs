@@ -20,7 +20,7 @@ const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, ha
 const page = await ctx.newPage();
 
 // 1. この端末で作った問題が無いときは入口を出さない
-await page.goto(`${BASE}/crossword`);
+await page.goto(`${BASE}/crossword/create`);
 const clue = page.getByPlaceholder('例: 猫の鳴き声').first();
 await clue.waitFor();
 check((await page.getByRole('link', { name: /自分が作った問題/ }).count()) === 0, '作った問題が無いと入口は出ない');
@@ -52,7 +52,7 @@ await page.evaluate(() =>
     ])
   )
 );
-await page.goto(`${BASE}/crossword`);
+await page.goto(`${BASE}/crossword/create`);
 await page.getByPlaceholder('例: 猫の鳴き声').first().waitFor();
 check((await page.getByText('試しの問題1').count()) === 0, '作る画面に一覧は出ない');
 const entry = page.getByRole('link', { name: /自分が作った問題/ });
@@ -76,7 +76,7 @@ check((await page.getByRole('button', { name: '削除' }).count()) === 2, 'や�
 
 // 6. 戻る
 await page.getByRole('link', { name: 'クロスワードパズル作成へ戻る' }).click();
-await page.waitForURL(/\/crossword$/);
+await page.waitForURL(/\/crossword\/create$/);
 check(true, '作る画面へ戻れる');
 
 // 7. 何も無い端末で直接開いたとき

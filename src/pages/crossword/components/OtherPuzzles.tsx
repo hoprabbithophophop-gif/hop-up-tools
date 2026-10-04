@@ -44,7 +44,7 @@ export const OtherPuzzles: React.FC<{ genre: Genre; puzzleId: string }> = ({ gen
       )}
       <div className="text-center mt-4">
         <Link
-          to="/crossword/list"
+          to="/crossword"
           className="inline-flex items-center gap-2 px-6 py-3 bg-surface-container-high hover:bg-surface-container-highest transition-colors font-medium"
           style={{ color: C.ink }}
         >

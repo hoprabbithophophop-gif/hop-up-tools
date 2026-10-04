@@ -1,4 +1,4 @@
-// パズルの一覧（/crossword/list）。
+// パズルの一覧（/crossword・/crossword/list）。
 // HarmonyPalette の src/pages/GalleryPage.tsx の移植。並び・動き・文言は同じ
 // （新着順・人気順、作成者名で検索、12件ずつ「もっと見る」、更新、検索中の表示とクリア、読み込み中・失敗・0件の表示）。
 // 変えた所: 見た目（DESIGN.md）、アイコン（Material Symbols）、読み込み先（Supabase。続きは何件目からで読む）、
@@ -18,7 +18,7 @@ const PAGE_SIZE = 12;
 // 足した物の文言
 const T = {
   pageTitle: "パズルギャラリー",
-  backToCreate: "クロスワードパズル作成へ戻る",
+  backToCreate: "トップへ戻る",
   genre: "ジャンル",
   genres: [
     { key: "all", label: "すべて" },
@@ -130,10 +130,13 @@ export default function GalleryPage() {
         <div className="max-w-6xl mx-auto px-4 py-8">
           {/* ヘッダー */}
           <div className="flex items-center gap-3 mb-6">
-            <Link to="/crossword" className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title={T.backToCreate} aria-label={T.backToCreate}>
+            <Link to="/" className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title={T.backToCreate} aria-label={T.backToCreate}>
               <Icon icon="chevron_left" />
             </Link>
             <h1 className="text-2xl font-bold" style={{ color: C.ink }}>{T.pageTitle}</h1>
+            <Link to="/crossword/create" className="ml-auto text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
+              作る <span aria-hidden="true">→</span>
+            </Link>
           </div>
 
           {/* 検索・フィルタバー */}

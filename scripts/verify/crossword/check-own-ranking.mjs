@@ -30,7 +30,7 @@ async function solve(own, fast = false) {
   await interceptCount(ctx);
   await ctx.route('**/api/crossword-score', (r) => (blocked++, r.fulfill({ status: 500, body: '{}' })));
   const page = await ctx.newPage();
-  await page.goto(`${BASE}/crossword`);
+  await page.goto(`${BASE}/crossword/create`);
   await page.evaluate(({ id, answers, own }) => {
     localStorage.setItem('crossword_seen_help', 'true');
     localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({ userAnswers: answers, elapsedSeconds: 30, savedAt: Date.now() }));

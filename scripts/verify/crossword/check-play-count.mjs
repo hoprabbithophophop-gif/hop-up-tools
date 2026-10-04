@@ -50,7 +50,7 @@ await ctxA.close();
 // 2. 作った本人の端末
 const ctxB = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const b = await session(ctxB);
-await b.page.goto(`${BASE}/crossword`);
+await b.page.goto(`${BASE}/crossword/create`);
 await b.page.evaluate((id) => localStorage.setItem('crossword_my_puzzles', JSON.stringify([{ id, title: 't', key: 'x'.repeat(64), createdAt: 1 }])), ID);
 await b.open();
 await b.typeOne('ア');

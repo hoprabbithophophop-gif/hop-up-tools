@@ -126,7 +126,7 @@ export default function MyPuzzlesPage() {
       <div className="min-h-screen bg-surface">
         <div className="max-w-2xl mx-auto px-4 py-8">
           <div className="flex items-center gap-3 mb-6">
-            <Link to="/crossword" className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title={T.backToCreate} aria-label={T.backToCreate}>
+            <Link to="/crossword/create" className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title={T.backToCreate} aria-label={T.backToCreate}>
               <Icon icon="chevron_left" />
             </Link>
             <h1 className="text-2xl font-bold" style={{ color: C.ink }}>{T.title}</h1>

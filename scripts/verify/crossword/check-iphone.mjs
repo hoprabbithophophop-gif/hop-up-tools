@@ -32,7 +32,7 @@ const text = () => page.evaluate(() => document.body.innerText);
 const noSideScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
 
 // 1. 作る画面
-await page.goto(`${BASE}/crossword`);
+await page.goto(`${BASE}/crossword/create`);
 const clue = page.getByPlaceholder('例: 猫の鳴き声');
 await clue.waitFor({ timeout: 20000 });
 await page.waitForTimeout(2500);

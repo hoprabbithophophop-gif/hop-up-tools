@@ -18,7 +18,7 @@ const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
 await interceptCount(ctx);
 const page = await ctx.newPage();
-await page.goto(`${BASE}/crossword`);
+await page.goto(`${BASE}/crossword/create`);
 await page.evaluate(({ id, answers }) => {
   localStorage.setItem('crossword_seen_help', 'true');
   localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({ userAnswers: answers, elapsedSeconds: 0, savedAt: Date.now() }));

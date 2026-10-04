@@ -6,7 +6,7 @@ const [BASE, OUT = '.'] = process.argv.slice(2);
 const browser = await chromium.launch();
 for (const w of [390, 960, 1280]) {
   const page = await (await browser.newContext({ viewport: { width: w, height: 900 } })).newPage();
-  await page.goto(`${BASE}/crossword`);
+  await page.goto(`${BASE}/crossword/create`);
   await page.getByPlaceholder('例: 猫の鳴き声').waitFor();
   await page.waitForTimeout(2500);
   const panel = await page.getByPlaceholder('例: 猫の鳴き声').evaluate((el) => {

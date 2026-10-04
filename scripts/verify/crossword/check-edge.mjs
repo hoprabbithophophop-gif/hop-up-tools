@@ -81,7 +81,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
 }
 // 2. 作る画面: 再生できない動画（存在しない番号）は選べない
 {
-  const { ctx, page } = await open('/crossword');
+  const { ctx, page } = await open('/crossword/create');
   await page.getByPlaceholder('例: 猫の鳴き声').waitFor();
   await page.waitForTimeout(2500);
   await page.getByRole('radio', { name: 'その他' }).click();
@@ -135,7 +135,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
 
 // 6. リンクのヒントの決まり（https だけ・IP アドレスだけの住所は不可。2026-10-04 洗い出しの G）
 {
-  const { ctx, page } = await open('/crossword');
+  const { ctx, page } = await open('/crossword/create');
   await page.getByPlaceholder('例: 猫の鳴き声').waitFor();
   await page.waitForTimeout(2500);
   await page.getByRole('radio', { name: 'その他' }).click();

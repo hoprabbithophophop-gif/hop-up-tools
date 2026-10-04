@@ -1,4 +1,4 @@
-// クロスワード（作る画面 /crossword・解く画面 /crossword/:id）。
+// クロスワード（作る画面 /crossword/create・解く画面 /crossword/:id）。
 // HarmonyPalette の src/pages/PuzzleBuilderPage.tsx を土台にした移植。構造・並び・動き・文言・数値は HarmonyPalette のまま。
 // 変えた所: 見た目（docs/DESIGN.md）、アイコン（Material Symbols）、動き（framer-motion を使わず同じ式で再現）、
 // 知らせ（react-hot-toast を使わず自前）、保存先（Supabase）、持ってこない物（広告・Cookie 同意・コード進行・計測・ランキング等）、
@@ -1316,9 +1316,9 @@ export default function CrosswordPage() {
         <header className="sticky top-0 z-30 bg-surface h-[60px] flex items-center px-4" style={{ borderBottom: `1px solid ${C.ghost}` }}>
           <div className="container mx-auto max-w-4xl flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1 min-w-0">
-              {/* Issue 5: ゲーム中（playing）は作成モードへのリンクを非表示 */}
+              {/* Issue 5: ゲーム中（playing）はギャラリーへのリンクを非表示 */}
               {gamePhase !== "playing" && (
-                <Link to="/crossword" className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title="作成モードへ戻る">
+                <Link to="/crossword" className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title="ギャラリーへ戻る">
                   <Icon icon="chevron_left" />
                 </Link>
               )}
@@ -1573,7 +1573,7 @@ export default function CrosswordPage() {
                     {/* 作成モードへ戻るリンク */}
                     <div className="text-center mt-4">
                       <Link
-                        to="/crossword"
+                        to="/crossword/create"
                         className="inline-flex items-center gap-2 px-6 py-3 bg-surface-container-high hover:bg-surface-container-highest transition-colors font-medium"
                         style={{ color: C.ink }}
                       >
@@ -1711,7 +1711,7 @@ export default function CrosswordPage() {
 
         {/* 一覧への入口 */}
         <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 mb-6">
-          <Link to="/crossword/list" className="text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
+          <Link to="/crossword" className="text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
             {T.stage2b.toList} <span aria-hidden="true">→</span>
           </Link>
           {/* 自分が作った問題は別の画面（/crossword/mine）。別の端末から引き継げるよう、作った問題が無くても出す（2026-10-04） */}

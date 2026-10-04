@@ -49,7 +49,7 @@ const clickText = (page, text) => page.getByRole('button', { name: text, exact: 
 const ctxA = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const pa = await ctxA.newPage();
 pa.on('pageerror', (e) => errs.push('作る画面: ' + e));
-await pa.goto(BASE + '/crossword', { waitUntil: 'networkidle' });
+await pa.goto(BASE + '/crossword/create', { waitUntil: 'networkidle' });
 await fieldByLabel(pa, 'タイトル').fill(`検収用 ${stamp}`);
 await pa.getByText('その他', { exact: true }).first().click();
 let sawOptimizing = false;
@@ -74,7 +74,7 @@ r['1 組み立ての動きが出た'] = sawOptimizing;
 r['1 保存して URL が出た'] = Boolean(url);
 
 // ---- 5. ヒントの選び方（作る画面のまま確かめる） ----
-await pa.goto(BASE + '/crossword', { waitUntil: 'networkidle' });
+await pa.goto(BASE + '/crossword/create', { waitUntil: 'networkidle' });
 await pa.getByText('ハロプロ', { exact: true }).first().click();
 await fieldByLabel(pa, 'ヒント').fill('https://youtu.be/dQw4w9WgXcQ?t=83');
 await pa.waitForTimeout(1500);
