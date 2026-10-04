@@ -270,7 +270,7 @@ export async function onRequestPost(context: {
       const claimed = res.ok ? ((await res.json()) as Play[]).length > 0 : false;
       if (!claimed) return json({ ok: true, counted: false });
       // 同じ回線・同じ問題は24時間に1回だけ数える。印は crossword_play_counts に置く
-      // （rate_limit_log はサイト全体の片付けで数分しかもたないため。Hop 決定 2026-10-04）
+      // （rate_limit_log はサイト全体の片付けで1時間しかもたないため。Hop 決定 2026-10-04）
       const ip = request.headers.get("CF-Connecting-IP") ?? "";
       const key = await sha256Hex(`${COUNT_ENDPOINT}:${play.puzzle_id}:${ip}:${env.TURNSTILE_SECRET}`);
       const day = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
