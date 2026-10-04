@@ -92,7 +92,7 @@ const createCandidate = (
   };
 };
 
-const validatePlacement = (candidate: PlacedItem, placedItems: PlacedItem[]): boolean => {
+export const validatePlacement = (candidate: PlacedItem, placedItems: PlacedItem[]): boolean => {
   // Map of candidate cells: coordinate -> value
   const candidateCells = new Map<string, string>();
   for (let i = 0; i < candidate.length; i++) {

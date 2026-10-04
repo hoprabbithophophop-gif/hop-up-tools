@@ -86,6 +86,7 @@ function skip(name, why) {
 }
 
 run('check-reporter-key');
+run('check-suggest');
 run('check-entry');
 run('check-fixtures');
 run('check-maru-mine');
