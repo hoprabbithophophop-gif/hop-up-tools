@@ -10,7 +10,8 @@ export interface ShapeFixed {
   char: string;
 }
 
-export interface ShapeSuggestion {
+// 盤の上の1本の線（置ける・点数つき）
+export interface ShapeCandidate {
   length: number;
   fixed: ShapeFixed[];
   direction: 'horizontal' | 'vertical';
@@ -19,15 +20,28 @@ export interface ShapeSuggestion {
   score: number;
 }
 
+// 画面に出す1行
+export interface ShapeGuide {
+  kind: 'multi' | 'single'; // multi = 決まっている字が2つ以上・長さは「N文字以上（M文字まで）」／single = 「N文字・M文字目がX」
+  positions: number[]; // 決まっている字の位置（0 始まり）
+  alts: string[][]; // 位置ごとの字（字だけ違う型をまとめた時は複数）
+  minLength: number;
+  maxLength: number;
+  score: number;
+  members: ShapeCandidate[]; // この行にまとめた線（各型で一番点数の良い長さ）
+  lengthsByKey: Record<string, number[]>; // 型ごとの置ける長さ（確かめ用）
+}
+
 export const SUGGEST_MIN_LEN = 3;
 export const SUGGEST_MAX_LEN = 8;
 export const SUGGEST_LIMIT = 3;
+export const SUGGEST_MIN_WORDS = 3;
 const EMPTY = '\u0000';
 
-// 正方形らしさ + 詰まり（同じ重み）
+// 詰まり×2 + 正方形らしさ×1
 export const boardScore = (width: number, height: number, filled: number): number => {
   if (width <= 0 || height <= 0) return 0;
-  return Math.min(width, height) / Math.max(width, height) + filled / (width * height);
+  return (filled / (width * height)) * 2 + Math.min(width, height) / Math.max(width, height);
 };
 
 interface CellInfo {
@@ -60,8 +74,8 @@ const cellsOf = (items: PlacedItem[]) => {
   return { map, minX, minY, maxX, maxY };
 };
 
-export const shapeKey = (s: Pick<ShapeSuggestion, 'length' | 'fixed'>): string =>
-  `${s.length}:${s.fixed.map((f) => `${f.index}=${f.char}`).join(',')}`;
+// 字の位置と字の組（長さは含めない）
+export const fixedKey = (fixed: ShapeFixed[]): string => fixed.map((f) => `${f.index}=${f.char}`).join(',');
 
 export const currentBoardScore = (items: PlacedItem[]): number => {
   if (items.length === 0) return 0;
@@ -69,13 +83,12 @@ export const currentBoardScore = (items: PlacedItem[]): number => {
   return boardScore(maxX - minX + 1, maxY - minY + 1, map.size);
 };
 
-export const suggestShapes = (items: PlacedItem[], limit: number = SUGGEST_LIMIT): ShapeSuggestion[] => {
+// 置ける線を全部挙げる（点数が今の盤より低い物も含む）
+export const listCandidates = (items: PlacedItem[]): ShapeCandidate[] => {
   if (items.length === 0) return [];
   const { map, minX, minY, maxX, maxY } = cellsOf(items);
-  const baseScore = boardScore(maxX - minX + 1, maxY - minY + 1, map.size);
-
   const seenLine = new Set<string>();
-  const best = new Map<string, ShapeSuggestion>();
+  const out: ShapeCandidate[] = [];
 
   for (const [key, cell] of map) {
     const [ax, ay] = key.split(',').map(Number);
@@ -118,26 +131,103 @@ export const suggestShapes = (items: PlacedItem[], limit: number = SUGGEST_LIMIT
           if (!validatePlacement(candidate, items)) continue;
 
           const score = boardScore(hx - lx + 1, hy - ly + 1, map.size + (len - fixed.length));
-          if (score <= baseScore + 1e-9) continue;
-
-          const s: ShapeSuggestion = { length: len, fixed, direction: dir, startX: sx, startY: sy, score };
-          const k = shapeKey(s);
-          const prev = best.get(k);
-          if (!prev || s.score > prev.score) best.set(k, s);
+          out.push({ length: len, fixed, direction: dir, startX: sx, startY: sy, score });
         }
       }
     }
   }
-
-  return [...best.values()]
-    .sort((a, b) =>
-      b.score - a.score ||
-      a.fixed.length - b.fixed.length ||
-      a.length - b.length ||
-      (shapeKey(a) < shapeKey(b) ? -1 : shapeKey(a) > shapeKey(b) ? 1 : 0))
-    .slice(0, limit);
+  return out;
 };
 
-// 「4文字・3文字目がツ」「5文字・2文字目がア・4文字目がツ」
-export const formatShape = (s: Pick<ShapeSuggestion, 'length' | 'fixed'>): string =>
-  [`${s.length}文字`, ...s.fixed.map((f) => `${f.index + 1}文字目が${f.char}`)].join('・');
+const better = (a: ShapeCandidate, b: ShapeCandidate) =>
+  b.score - a.score || a.length - b.length;
+
+export const suggestGuides = (
+  items: PlacedItem[],
+  limit: number = SUGGEST_LIMIT,
+  minWords: number = SUGGEST_MIN_WORDS,
+): ShapeGuide[] => {
+  if (items.length < minWords) return [];
+  const base = currentBoardScore(items);
+  const all = listCandidates(items);
+
+  // 決まっている字が2つ以上: 字の位置と字の組ごとに、長さをまとめる
+  const groups = new Map<string, { fixed: ShapeFixed[]; lengths: Set<number>; best: ShapeCandidate }>();
+  for (const c of all) {
+    if (c.fixed.length < 2) continue;
+    const k = fixedKey(c.fixed);
+    const g = groups.get(k);
+    if (!g) groups.set(k, { fixed: c.fixed, lengths: new Set([c.length]), best: c });
+    else {
+      g.lengths.add(c.length);
+      if (better(c, g.best) < 0) g.best = c;
+    }
+  }
+  const multi = [...groups.values()]
+    .filter((g) => g.best.score > base + 1e-9)
+    .map((g) => ({ ...g, min: Math.min(...g.lengths), max: Math.max(...g.lengths), key: fixedKey(g.fixed) }))
+    .sort((a, b) =>
+      b.best.score - a.best.score ||
+      a.fixed.length - b.fixed.length ||
+      a.min - b.min ||
+      (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+
+  if (multi.length > 0) {
+    const out: (ShapeGuide & { base: string[]; vary: number })[] = [];
+    for (const g of multi) {
+      const positions = g.fixed.map((f) => f.index);
+      const chars = g.fixed.map((f) => f.char);
+      // 字の位置・長さの幅が同じで、1か所だけ字が違う行にまとめる
+      const host = out.find((e) => {
+        if (e.minLength !== g.min || e.maxLength !== g.max) return false;
+        if (e.positions.join(',') !== positions.join(',')) return false;
+        const diff = chars.map((ch, i) => (ch === e.base[i] ? -1 : i)).filter((i) => i >= 0);
+        return diff.length === 1 && (e.vary === -1 || e.vary === diff[0]);
+      });
+      if (host) {
+        const i = chars.findIndex((ch, idx) => ch !== host.base[idx]);
+        host.vary = i;
+        if (!host.alts[i].includes(chars[i])) host.alts[i].push(chars[i]);
+        host.members.push(g.best);
+        host.lengthsByKey[g.key] = [...g.lengths].sort((a, b) => a - b);
+        continue;
+      }
+      if (out.length >= limit) continue;
+      out.push({
+        kind: 'multi', positions, alts: chars.map((ch) => [ch]), minLength: g.min, maxLength: g.max,
+        score: g.best.score, members: [g.best], lengthsByKey: { [g.key]: [...g.lengths].sort((a, b) => a - b) },
+        base: chars, vary: -1,
+      });
+    }
+    return out.map(({ base: _b, vary: _v, ...rest }) => rest);
+  }
+
+  // 2つ以上の型が無い時だけ: 1つの候補を「N文字・M文字目がX」で。字だけ違う物は「／」でまとめる
+  const singles = all.filter((c) => c.fixed.length === 1 && c.score > base + 1e-9);
+  if (singles.length === 0) return [];
+  singles.sort((a, b) => better(a, b) || (fixedKey(a.fixed) < fixedKey(b.fixed) ? -1 : 1));
+  const top = singles[0];
+  const same = singles.filter((c) => c.length === top.length && c.fixed[0].index === top.fixed[0].index);
+  const alts: string[] = [];
+  const members: ShapeCandidate[] = [];
+  for (const c of same) {
+    if (alts.includes(c.fixed[0].char)) continue;
+    alts.push(c.fixed[0].char);
+    members.push(c);
+  }
+  return [{
+    kind: 'single', positions: [top.fixed[0].index], alts: [alts], minLength: top.length, maxLength: top.length,
+    score: top.score, members, lengthsByKey: Object.fromEntries(members.map((m) => [fixedKey(m.fixed), [m.length]])),
+  }];
+};
+
+// multi:「1文字目がア・3文字目がンの3文字以上の言葉（8文字まで）」／幅が無い時は「3文字の言葉」
+// single:「4文字・1文字目がグ／チ／ハ」
+export const formatGuide = (g: Pick<ShapeGuide, 'kind' | 'positions' | 'alts' | 'minLength' | 'maxLength'>): string => {
+  const parts = g.positions.map((p, i) => `${p + 1}文字目が${g.alts[i].join('／')}`);
+  if (g.kind === 'single') return [`${g.minLength}文字`, ...parts].join('・');
+  const len = g.minLength === g.maxLength
+    ? `${g.minLength}文字の言葉`
+    : `${g.minLength}文字以上の言葉（${g.maxLength}文字まで）`;
+  return `${parts.join('・')}の${len}`;
+};

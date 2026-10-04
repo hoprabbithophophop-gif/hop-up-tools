@@ -9,7 +9,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import ContactModal from "@/components/ContactModal";
 import { usePageReady } from "../../lib/pageReady";
 import { buildGrid, generateMonteCarloSteps } from "../../lib/crossword/engine";
-import { suggestShapes, formatShape } from "../../lib/crossword/suggest";
+import { suggestGuides, formatGuide } from "../../lib/crossword/suggest";
 import type { PuzzleData, PuzzleItem, PlacedItem } from "../../lib/crossword/types";
 import { toCells } from "../../lib/crossword/cells";
 import { determineNextSelection } from "../../lib/crossword/puzzleSelectionLogic";
@@ -520,8 +520,8 @@ export default function CrosswordPage() {
     return () => window.removeEventListener("online", retry);
   }, []);
 
-  // 型の案内（Hop 決定 2026-10-05・段階1）。組み上がった盤が変わった時だけ計算する
-  const shapeGuide = useMemo(() => (generatedPuzzle ? suggestShapes(generatedPuzzle.items) : []), [generatedPuzzle]);
+  // 型の案内（Hop 決定 2026-10-05・段階1）。組み上がった盤が変わった時だけ計算する。置かれた語が3つ未満では空
+  const shapeGuide = useMemo(() => (generatedPuzzle ? suggestGuides(generatedPuzzle.items) : []), [generatedPuzzle]);
 
   // メンバー名・グループ名での自動判定（保存の受付係と同じ判定を先に出して知らせる）
   const detectedGroups = useMemo(
@@ -1943,7 +1943,7 @@ export default function CrosswordPage() {
                 <div className="bg-white px-4 py-3 text-sm" style={{ color: C.ink }}>
                   <div className="text-[0.6875rem] font-bold tracking-[0.1em]" style={{ color: C.secondary }}>型の案内</div>
                   {shapeGuide.map((s) => (
-                    <div key={formatShape(s)}>{formatShape(s)}</div>
+                    <div key={formatGuide(s)}>{formatGuide(s)}</div>
                   ))}
                 </div>
               )}
