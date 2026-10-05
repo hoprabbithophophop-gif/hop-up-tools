@@ -1485,17 +1485,12 @@ export default function CrosswordPage() {
     setUserAnswers((prev) => ({ ...prev, [`${cell.x},${cell.y}`]: val }));
   };
 
+  // リセットはマスを空にするだけで、回は続ける（タイム・見た数・ミスはその回のまま）。
+  // 「途中まで埋めたが合わない所が出たので消す」が動機なので、時間は継続加算（Hop 決定 2026-10-06）
   const handleReset = () => {
     if (confirm("入力をすべて消去しますか？")) {
       setUserAnswers({});
       setIsCleared(false);
-      setElapsedSeconds(0);
-      setReveals(0);
-      // やり直しは新しい回として受付係に始めてもらう
-      playRef.current = null;
-      if (isTutorial) return;
-      setStartTime(Date.now());
-      if (!isDebugMode) void ensurePlay();
     }
   };
 
