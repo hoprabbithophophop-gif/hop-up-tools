@@ -18,6 +18,9 @@ export interface ShapeCandidate {
   startX: number;
   startY: number;
   score: number;
+  width: number;
+  height: number;
+  filled: number;
 }
 
 // 画面に出す1行
@@ -130,8 +133,9 @@ export const listCandidates = (items: PlacedItem[]): ShapeCandidate[] => {
           };
           if (!validatePlacement(candidate, items)) continue;
 
-          const score = boardScore(hx - lx + 1, hy - ly + 1, map.size + (len - fixed.length));
-          out.push({ length: len, fixed, direction: dir, startX: sx, startY: sy, score });
+          const width = hx - lx + 1, height = hy - ly + 1, filled = map.size + (len - fixed.length);
+          const score = boardScore(width, height, filled);
+          out.push({ length: len, fixed, direction: dir, startX: sx, startY: sy, score, width, height, filled });
         }
       }
     }
@@ -231,3 +235,216 @@ export const formatGuide = (g: Pick<ShapeGuide, 'kind' | 'positions' | 'alts' | 
     : `${g.minLength}文字以上の言葉（${g.maxLength}文字まで）`;
   return `${parts.join('・')}の${len}`;
 };
+
+// ---- 段階2: 置けなかった語が入るようになる型（1つの型に入れる語は1つ・語ごとに1行） ----
+
+export interface GuideNeed {
+  index: number; // 新しい語の何文字目（0 始まり）の空きに
+  word: string; // 置けなかった語
+  letters: string[]; // その空きに入れてよい、その語の字
+}
+
+export interface EnterGuide {
+  kind: 'enter';
+  positions: number[];
+  alts: string[][];
+  minLength: number;
+  maxLength: number;
+  needs: GuideNeed[]; // 1つだけ
+  entered: string[]; // 1つだけ
+  density: number;
+  square: number;
+  members: (ShapeCandidate & { assign: { index: number; char: string }[] })[];
+  lengthsByKey: Record<string, number[]>;
+}
+
+// 置けなかった語1つぶんの行。guide が null なら「入る型がありません」の行
+export interface WordGuideLine {
+  word: string;
+  guide: EnterGuide | null;
+}
+
+export interface BoardGuide {
+  mode: 'none' | 'shape' | 'enter';
+  shapes: ShapeGuide[]; // 置けなかった語が無い盤（段階1）
+  lines: WordGuideLine[]; // 置けなかった語ごと（入力順）
+  placeableNow: string[]; // 新しい語が無くても今の盤にそのまま置ける、置けなかった語（組み立てが見落とした物）
+}
+
+export const NO_ENTER_TEXT = '今の盤に交差できる字が無く、入る型がありません';
+
+const other = (d: 'horizontal' | 'vertical') => (d === 'horizontal' ? 'vertical' : 'horizontal');
+
+const wordAt = (answer: string[], dir: 'horizontal' | 'vertical', px: number, py: number, k: number): PlacedItem => ({
+  id: '', question: '', uuid: '', answer, direction: dir,
+  startX: dir === 'horizontal' ? px - k : px,
+  startY: dir === 'vertical' ? py - k : py,
+  length: answer.length,
+});
+
+const cellOf = (c: ShapeCandidate, i: number) => ({
+  x: c.direction === 'horizontal' ? c.startX + i : c.startX,
+  y: c.direction === 'vertical' ? c.startY + i : c.startY,
+});
+
+export const tentativeItem = (c: ShapeCandidate, assign: { index: number; char: string }[] = []): PlacedItem => {
+  const answer = Array.from({ length: c.length }, (_, i) =>
+    c.fixed.find((f) => f.index === i)?.char ?? assign.find((a) => a.index === i)?.char ?? EMPTY);
+  return { id: '', question: '', uuid: '', answer, direction: c.direction, startX: c.startX, startY: c.startY, length: c.length };
+};
+
+const wordText = (w: { answer: string[] }) => w.answer.join('');
+
+export const suggestForBoard = (
+  items: PlacedItem[],
+  unplaced: { answer: string[] }[],
+  limit: number = SUGGEST_LIMIT,
+  minWords: number = SUGGEST_MIN_WORDS,
+): BoardGuide => {
+  if (items.length < minWords) return { mode: 'none', shapes: [], lines: [], placeableNow: [] };
+  if (unplaced.length === 0) {
+    const shapes = suggestGuides(items, limit, minWords);
+    return { mode: shapes.length ? 'shape' : 'none', shapes, lines: [], placeableNow: [] };
+  }
+
+  // 新しい語が無くても、今の盤にそのまま置けるか（engine の判定で、交わる場所を全部試す）
+  const cells = cellsOf(items).map;
+  const placeableNow = unplaced.filter((u) => {
+    for (const [key, cell] of cells) {
+      const [x, y] = key.split(',').map(Number);
+      const dirs: ('horizontal' | 'vertical')[] = [];
+      if (cell.v) dirs.push('horizontal');
+      if (cell.h) dirs.push('vertical');
+      for (const d of dirs) for (let k = 0; k < u.answer.length; k++) {
+        if (u.answer[k] !== cell.char) continue;
+        if (validatePlacement(wordAt(u.answer, d, x, y, k), items)) return true;
+      }
+    }
+    return false;
+  }).map(wordText);
+
+  // 空きのマスに、置けなかった語の k 文字目を交わらせて置けるか。新しい語とはそのマス1つでしか交わらないので、
+  // そのマスに字を1つ置いた盤で engine の判定をすれば足りる。判定は置く語の通るマスしか見ないので、
+  // そのマスに掛かる語だけを渡しても結果は同じ（速さのため）
+  const dot = (x: number, y: number, ch: string): PlacedItem => ({ id: '', question: '', uuid: '', answer: [ch], direction: 'horizontal', startX: x, startY: y, length: 1 });
+  const itemsAtCell = new Map<string, PlacedItem[]>();
+  for (const it of items) for (let i = 0; i < it.length; i++) {
+    const key = it.direction === 'horizontal' ? `${it.startX + i},${it.startY}` : `${it.startX},${it.startY + i}`;
+    const list = itemsAtCell.get(key);
+    if (list) list.push(it);
+    else itemsAtCell.set(key, [it]);
+  }
+  const touching = (w: PlacedItem): PlacedItem[] => {
+    const set = new Set<PlacedItem>();
+    for (let i = 0; i < w.length; i++) {
+      const key = w.direction === 'horizontal' ? `${w.startX + i},${w.startY}` : `${w.startX},${w.startY + i}`;
+      for (const it of itemsAtCell.get(key) ?? []) set.add(it);
+    }
+    return [...set];
+  };
+  const ksAt = (u: { answer: string[] }, x: number, y: number, d: 'horizontal' | 'vertical'): number[] => {
+    const ks: number[] = [];
+    for (let k = 0; k < u.answer.length; k++) {
+      const w = wordAt(u.answer, d, x, y, k);
+      if (validatePlacement(w, [...touching(w), dot(x, y, u.answer[k])])) ks.push(k);
+    }
+    return ks;
+  };
+
+  const candidates = listCandidates(items);
+  type Member = EnterGuide['members'][number];
+  type G = { fixed: ShapeFixed[]; need: GuideNeed; lengths: Set<number>; best: Member; density: number; square: number; key: string };
+
+  const lines: WordGuideLine[] = unplaced.map((u) => {
+    const word = wordText(u);
+    const memo = new Map<string, number[]>();
+    const groups = new Map<string, G>();
+    for (const c of candidates) {
+      const ud = other(c.direction);
+      const density = c.filled / (c.width * c.height);
+      const square = Math.min(c.width, c.height) / Math.max(c.width, c.height);
+      for (let b = 0; b < c.length; b++) {
+        if (c.fixed.some((f) => f.index === b)) continue;
+        const { x, y } = cellOf(c, b);
+        const mk = `${x},${y},${ud}`;
+        let ks = memo.get(mk);
+        if (!ks) {
+          ks = ksAt(u, x, y, ud);
+          memo.set(mk, ks);
+        }
+        if (ks.length === 0) continue;
+        const letters = [...new Set(ks.map((k) => u.answer[k]))];
+        const need: GuideNeed = { index: b, word, letters };
+        const key = `${fixedKey(c.fixed)}|${b}:${letters.join('')}`;
+        const member: Member = { ...c, assign: [{ index: b, char: u.answer[ks[0]] }] };
+        const g = groups.get(key);
+        if (!g) groups.set(key, { fixed: c.fixed, need, lengths: new Set([c.length]), best: member, density, square, key });
+        else {
+          g.lengths.add(c.length);
+          if (density > g.density + 1e-12 || (Math.abs(density - g.density) < 1e-12 && square > g.square + 1e-12)) {
+            g.best = member;
+            g.density = density;
+            g.square = square;
+          }
+        }
+      }
+    }
+    if (groups.size === 0) return { word, guide: null };
+
+    const sorted = [...groups.values()].sort((a, b) =>
+      b.density - a.density ||
+      b.square - a.square ||
+      a.fixed.length - b.fixed.length ||
+      Math.min(...a.lengths) - Math.min(...b.lengths) ||
+      (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    const top = sorted[0];
+    const positions = top.fixed.map((f) => f.index);
+    const base = top.fixed.map((f) => f.char);
+    const min = Math.min(...top.lengths), max = Math.max(...top.lengths);
+    const needKey = top.key.slice(top.key.indexOf('|') + 1);
+    const guide: EnterGuide = {
+      kind: 'enter', positions, alts: base.map((ch) => [ch]), minLength: min, maxLength: max,
+      needs: [top.need], entered: [word], density: top.density, square: top.square,
+      members: [top.best], lengthsByKey: { [top.key]: [...top.lengths].sort((a, b) => a - b) },
+    };
+    // 字の位置・長さの幅・空きの位置が同じで、1か所だけ字が違う型は「／」で同じ行にまとめる
+    let vary = -1;
+    for (const g of sorted.slice(1)) {
+      if (g.key.slice(g.key.indexOf('|') + 1) !== needKey) continue;
+      if (Math.min(...g.lengths) !== min || Math.max(...g.lengths) !== max) continue;
+      if (g.fixed.map((f) => f.index).join(',') !== positions.join(',')) continue;
+      const diff = g.fixed.map((f, i) => (f.char === base[i] ? -1 : i)).filter((i) => i >= 0);
+      if (diff.length !== 1 || (vary !== -1 && vary !== diff[0])) continue;
+      vary = diff[0];
+      if (!guide.alts[vary].includes(g.fixed[vary].char)) guide.alts[vary].push(g.fixed[vary].char);
+      guide.members.push(g.best);
+      guide.lengthsByKey[g.key] = [...g.lengths].sort((a, b) => a - b);
+    }
+    return { word, guide };
+  });
+
+  return { mode: 'enter', shapes: [], lines, placeableNow };
+};
+
+// 「3文字目がエ・5文字目にエグチサヤの字の5文字以上の言葉（8文字まで）」
+export const formatEnterGuide = (g: Pick<EnterGuide, 'positions' | 'alts' | 'minLength' | 'maxLength' | 'needs'>): string => {
+  const parts: { at: number; text: string }[] = [
+    ...g.positions.map((p, i) => ({ at: p, text: `${p + 1}文字目が${g.alts[i].join('／')}` })),
+    ...g.needs.map((n) => {
+      const every = Array.from(n.word).every((ch) => n.letters.includes(ch));
+      return { at: n.index, text: `${n.index + 1}文字目に${n.word}の字${every ? '' : `（${n.letters.join('／')}）`}` };
+    }),
+  ].sort((a, b) => a.at - b.at);
+  const len = g.minLength === g.maxLength
+    ? `${g.minLength}文字の言葉`
+    : `${g.minLength}文字以上の言葉（${g.maxLength}文字まで）`;
+  return `${parts.map((p) => p.text).join('・')}の${len}`;
+};
+
+// 「エグチサヤ: 3文字目がエ・…の言葉（8文字まで）」／「エグチサヤ: 今の盤に交差できる字が無く、入る型がありません」
+export const formatWordLine = (l: WordGuideLine): string =>
+  `${l.word}: ${l.guide ? formatEnterGuide(l.guide) : NO_ENTER_TEXT}`;
+
+// 画面に出す行（段階1の型か、置けなかった語ごとの行）
+export const guideTexts = (b: BoardGuide): string[] =>
+  b.mode === 'enter' ? b.lines.map(formatWordLine) : b.shapes.map(formatGuide);

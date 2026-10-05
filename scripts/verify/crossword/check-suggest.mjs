@@ -21,8 +21,8 @@ load('engine');
 const stamp = `?t=${Date.now()}`;
 const engine = await import(pathToFileURL(path.join(dir, 'engine.mjs')).href + stamp);
 const sg = await import(pathToFileURL(load('suggest')).href + stamp);
-const { buildGrid, validatePlacement, findPlacement, generateMaximizedPuzzle } = engine;
-const { suggestGuides, formatGuide, boardScore, currentBoardScore, listCandidates, fixedKey } = sg;
+const { buildGrid, validatePlacement, findPlacement, generateMaximizedPuzzle, generateMonteCarloSteps } = engine;
+const { suggestGuides, formatGuide, boardScore, currentBoardScore, listCandidates, fixedKey, suggestForBoard, guideTexts, formatWordLine, tentativeItem, NO_ENTER_TEXT } = sg;
 
 let fail = 0;
 const check = (ok, msg) => {
@@ -31,6 +31,7 @@ const check = (ok, msg) => {
 };
 
 const chars = (w) => Array.from(w);
+const W = (w) => ({ id: w, question: '', answer: chars(w) });
 const item = (word, direction, startX, startY, id = word) => ({
   id, question: '', uuid: id, answer: chars(word), direction, startX, startY, length: chars(word).length,
 });
@@ -200,7 +201,156 @@ if (board15.length === 15) {
   show('(15語)', board15, out);
   checkGuides('(15語)', board15, out);
   check(noSplit(out), '(15語) 字の位置が同じで1か所だけ字が違う型は、別の行に分かれていない');
+  // 段階2: 盤に載らなかった残りの語を「置けなかった語」として渡す
+  const onBoard = new Set(board15.map((i) => i.answer.join('')));
+  const rest = WORDS.filter((w) => !onBoard.has(w)).map(W);
+  const t2 = [];
+  let r15 = null;
+  for (let r = 0; r < 11; r++) {
+    const t0 = performance.now();
+    r15 = suggestForBoard(board15, rest);
+    t2.push(performance.now() - t0);
+  }
+  t2.sort((a, b) => a - b);
+  check(t2[5] < 100, `(15語・段階2) 置けなかった語 ${rest.length}語で計算時間（Node）: 中央値 ${t2[5].toFixed(2)}ms（最大 ${t2.at(-1).toFixed(2)}・11回）目安 100ms`);
+  checkEnter('(15語・段階2)', board15, rest.map((w) => w.answer.join('')), r15);
 }
+
+// ---- 段階2: 置けなかった語ごとに、その語が入る型を1行（1つの型に入れる語は1つ） ----
+function checkEnter(label, items, unplacedWords, res) {
+  check(res.mode === 'enter', `${label}: 置けなかった語ごとの行になる: ${res.mode}`);
+  check(res.lines.length === unplacedWords.length && res.lines.every((l, i) => l.word === unplacedWords[i]),
+    `${label}: 語ごとに1行・入力順: ${res.lines.map((l) => l.word).join('、')}`);
+  const texts = guideTexts(res);
+  for (const t of texts) console.log(`    「${t}」`);
+  check(texts.every((t, i) => t.startsWith(`${unplacedWords[i]}: `)), `${label}: 行の頭に入る語の名前`);
+  check(texts.every((t) => !t.includes('→') && !t.includes('が入る')), `${label}: 末尾の「→ …が入る」が無い`);
+  check(res.lines.every((l) => !l.guide || (l.guide.needs.length === 1 && l.guide.entered.length === 1 && l.guide.entered[0] === l.word && l.guide.needs[0].word === l.word)),
+    `${label}: 1つの型に入れる置けなかった語は1つ（その行の語だけ）`);
+  let ok = 0, n = 0, lenOk = 0, lenN = 0;
+  const cells = cellMap(items);
+  for (const l of res.lines) {
+    if (!l.guide) continue;
+    for (const m of l.guide.members) {
+      n++;
+      // 型の線（空きにその語の字を1つ入れた物）を足した盤で、その語が engine の findPlacement で置ける
+      const t = { ...tentativeItem(m, m.assign), id: 't', uuid: 't' };
+      if (validatePlacement(t, items) && findPlacement(W(l.word), [...items, t])) ok++;
+      // 長さの幅: 下限から最大まで伸ばしても置けて、決まっている字が変わらず、空きの位置が線の中にある
+      for (let L = l.guide.minLength; L <= l.guide.maxLength; L++) {
+        lenN++;
+        const fixed = [];
+        for (let i = 0; i < L; i++) {
+          const ch = cells.get(`${m.direction === 'horizontal' ? m.startX + i : m.startX},${m.direction === 'vertical' ? m.startY + i : m.startY}`);
+          if (ch) fixed.push({ index: i, char: ch });
+        }
+        const line = { ...m, length: L, fixed };
+        if (fixedKey(fixed) === fixedKey(m.fixed) && validatePlacement(tentativeItem(line), items) && l.guide.needs[0].index < L) lenOk++;
+      }
+    }
+  }
+  check(n > 0 && ok === n, `${label}: 型の語を足した盤で、行の語が engine の findPlacement で本当に置ける ${ok}/${n}`);
+  check(lenN > 0 && lenOk === lenN, `${label}: 長さの下限から最大まで、どの長さでも置けて空きの位置が線の中にある ${lenOk}/${lenN}`);
+  // その語が入る型の中で一番良い（詰まり → 正方形らしさ）物を選んでいる
+  let bestOk = 0, bestN = 0;
+  for (const l of res.lines) {
+    if (!l.guide) continue;
+    bestN++;
+    let bestD = -1, bestS = -1;
+    for (const c of listCandidates(items)) {
+      const d = c.filled / (c.width * c.height), s = Math.min(c.width, c.height) / Math.max(c.width, c.height);
+      if (d < bestD - 1e-12 || (Math.abs(d - bestD) < 1e-12 && s <= bestS + 1e-12)) continue;
+      // この線のどこかの空きにこの語の字を入れると入るか
+      let enters = false;
+      for (let b = 0; b < c.length && !enters; b++) {
+        if (c.fixed.some((f) => f.index === b)) continue;
+        // 空き b に語の k 文字目を交わらせ、逆向きに置く形を engine の判定で1つずつ試す（suggest.ts の近道は使わない）
+        const bx = c.direction === 'horizontal' ? c.startX + b : c.startX;
+        const by = c.direction === 'vertical' ? c.startY + b : c.startY;
+        const ud = c.direction === 'horizontal' ? 'vertical' : 'horizontal';
+        const word = chars(l.word);
+        for (let k = 0; k < word.length && !enters; k++) {
+          const t = { ...tentativeItem(c, [{ index: b, char: word[k] }]), id: 't', uuid: 't' };
+          const u = { id: 'u', question: '', uuid: 'u', answer: word, direction: ud, startX: ud === 'horizontal' ? bx - k : bx, startY: ud === 'vertical' ? by - k : by, length: word.length };
+          if (validatePlacement(u, [...items, t])) enters = true;
+        }
+      }
+      if (enters) { bestD = d; bestS = s; }
+    }
+    if (Math.abs(l.guide.density - bestD) < 1e-12 && Math.abs(l.guide.square - bestS) < 1e-12) bestOk++;
+    else console.log(`    ずれ: ${l.word} 案内 詰まり${l.guide.density.toFixed(3)}・正方形${l.guide.square.toFixed(3)} ／ 総当たり 詰まり${bestD.toFixed(3)}・正方形${bestS.toFixed(3)}`);
+  }
+  check(bestOk === bestN, `${label}: 各行は、その語が入る型の中で詰まり → 正方形らしさが一番良い物 ${bestOk}/${bestN}`);
+}
+
+// 置けなかった語が1つ（オレンジ: 盤のどの字とも重ならない）
+const r1 = suggestForBoard(board3, [W('オレンジ')]);
+check(r1.placeableNow.length === 0, `(段階2・オレンジ) 今の盤にはそのまま置けない: ${JSON.stringify(r1.placeableNow)}`);
+checkEnter('(段階2・オレンジ)', board3, ['オレンジ'], r1);
+// 置けなかった語が2つ: 2行・入力順
+const r2 = suggestForBoard(board3, [W('ホット'), W('オレンジ')]);
+checkEnter('(段階2・ホットとオレンジ)', board3, ['ホット', 'オレンジ'], r2);
+check(formatWordLine({ word: 'エグチサヤ', guide: { kind: 'enter', positions: [2], alts: [['エ']], minLength: 5, maxLength: 8, needs: [{ index: 4, word: 'エグチサヤ', letters: chars('エグチサヤ') }], entered: ['エグチサヤ'] } })
+  === 'エグチサヤ: 3文字目がエ・5文字目にエグチサヤの字の5文字以上の言葉（8文字まで）',
+  `(段階2) 文の形の見本: ${formatWordLine({ word: 'エグチサヤ', guide: { kind: 'enter', positions: [2], alts: [['エ']], minLength: 5, maxLength: 8, needs: [{ index: 4, word: 'エグチサヤ', letters: chars('エグチサヤ') }], entered: ['エグチサヤ'] } })}`);
+// 置けなかった語が無い盤では段階1と同じ
+const r0 = suggestForBoard(board3, []);
+check(r0.mode === 'shape' && guideTexts(r0).join('|') === suggestGuides(board3).map(formatGuide).join('|'), `(段階2) 置けなかった語が無い盤は段階1と同じ: ${guideTexts(r0).join(' ／ ')}`);
+check(guideTexts(suggestForBoard(board2, [W('オレンジ')])).length === 0, '(段階2) 2語の盤では出さない');
+// 入る型が無い語は、その語の行として理由を出す（空の語で道筋だけ確かめる。実際の語ではほぼ起きない）
+const rn = suggestForBoard(board3, [W('オレンジ'), { answer: [] }]);
+const tn = guideTexts(rn);
+check(tn.length === 2 && tn[0].startsWith('オレンジ: ') && tn[1] === `: ${NO_ENTER_TEXT}`, `(段階2) 入る型が無い語は、その語の行に理由: 「${tn[1]}」`);
+check(formatWordLine({ word: 'エグチサヤ', guide: null }) === 'エグチサヤ: 今の盤に交差できる字が無く、入る型がありません', `(段階2) 理由の行の形: ${formatWordLine({ word: 'エグチサヤ', guide: null })}`);
+// 今の盤にそのまま置ける語（組み立ての見落とし）は数えて返す
+const rp = suggestForBoard(board3, [W('ウチワ')]);
+check(rp.placeableNow.includes('ウチワ'), `(段階2) 今の盤にそのまま置ける語を見分ける: ${JSON.stringify(rp.placeableNow)}`);
+// Hop の盤に近い10語で組んだ盤（画面の確かめと同じ語）
+const HOP10 = ['オレンジ', 'ライト', 'ホット', 'ミディアム', 'コジマハナ', 'スギヤマ', 'コバヤシ', 'エグチサヤ', 'ヒライミヨ', 'マエダ'];
+{
+  const placed = generateMaximizedPuzzle(HOP10.map(W), 50);
+  const bd = buildGrid(placed).items;
+  const names = new Set(bd.map((i) => i.answer.join('')));
+  const miss = HOP10.filter((w) => !names.has(w));
+  console.log(`(Hop の10語) 盤 ${bd.length}語 ${JSON.stringify(bbox(bd))} 置けなかった語 ${miss.join('、')}`);
+  if (bd.length >= 3 && miss.length) checkEnter('(Hop の10語)', bd, miss, suggestForBoard(bd, miss.map(W)));
+}
+
+// ---- 組み立て側の疑い: コジマハナ の コ から下に コバヤシ ----
+const kj = [item('コジマハナ', 'horizontal', 0, 0)];
+const pk = findPlacement(W('コバヤシ'), kj);
+check(Boolean(pk), `横コジマハナだけの盤に、engine の findPlacement で コバヤシ が置ける: ${pk ? `${pk.direction === 'vertical' ? '縦' : '横'}・(${pk.startX},${pk.startY})` : '置けない'}`);
+const HOP = ['オレンジ', 'ライト', 'ホット', 'ミディアム', 'コジマハナ', 'スギヤマ', 'コバヤシ', 'エグチサヤ', 'ヒライミヨ', 'マエダ'];
+const RUNS = 300;
+let kbIn = 0, allIn = 0, kbMissButFits = 0, kbMiss = 0;
+const missCount = {};
+const missButFits = {};
+for (let r = 0; r < RUNS; r++) {
+  // 作る画面と同じ選び方: 50回組んで、置けた語が一番多い物、同じなら面積が小さい物
+  let best = null, bestCount = 0, bestArea = Infinity;
+  for (const step of generateMonteCarloSteps(HOP.map(W), 50)) {
+    if (!step.placed.length) continue;
+    const pz = buildGrid(step.placed);
+    const area = pz.width * pz.height;
+    if (step.placed.length > bestCount || (step.placed.length === bestCount && area < bestArea)) { best = pz; bestCount = step.placed.length; bestArea = area; }
+  }
+  const names = new Set(best.items.map((i) => i.answer.join('')));
+  if (names.size === HOP.length) allIn++;
+  for (const w of HOP) if (!names.has(w)) {
+    missCount[w] = (missCount[w] || 0) + 1;
+    if (findPlacement(W(w), best.items)) missButFits[w] = (missButFits[w] || 0) + 1;
+  }
+  if (names.has('コバヤシ')) kbIn++;
+  else {
+    kbMiss++;
+    if (findPlacement(W('コバヤシ'), best.items)) kbMissButFits++;
+  }
+}
+console.log(`    Hop の盤に近い10語で、作る画面と同じ組み立て（50回組んで一番良い物）を${RUNS}回: 全部置けた ${allIn}回・コバヤシが置けた ${kbIn}回・置けなかった ${kbMiss}回`);
+console.log(`    コバヤシが置けなかった${kbMiss}回のうち、出来上がった盤にそのまま置けた（組み立てが見落とした）回: ${kbMissButFits}回`);
+console.log(`    語ごとの置けなかった回数: ${JSON.stringify(missCount)}`);
+console.log(`    そのうち出来上がった盤にそのまま置けた（組み立てが見落とした）回数: ${JSON.stringify(missButFits)}`);
+check(kbIn + kbMiss === RUNS, `組み立ての試し ${RUNS}回を数えた`);
 
 console.log(fail ? `NG ${fail}件` : 'すべてOK');
 process.exit(fail ? 1 : 0);
