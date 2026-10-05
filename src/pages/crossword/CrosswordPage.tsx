@@ -8,7 +8,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import ContactModal from "@/components/ContactModal";
 import { usePageReady } from "../../lib/pageReady";
-import { buildGrid, generateMonteCarloSteps, createPuzzleSearch, isBetterPlacement } from "../../lib/crossword/engine";
+import { buildGrid, generateMonteCarloSteps, createPuzzleSearch, isBetterPlacement, isConnected, moveItem, validatePlacement } from "../../lib/crossword/engine";
 import { suggestForBoard, guideTexts } from "../../lib/crossword/suggest";
 import type { PuzzleData, PuzzleItem, PlacedItem } from "../../lib/crossword/types";
 import { toCells } from "../../lib/crossword/cells";
@@ -41,6 +41,7 @@ import { StickyHintBar } from "./components/StickyHintBar";
 import { PuzzleCloseupModal } from "./components/PuzzleCloseupModal";
 import { HintField, type Selected as HintSelected } from "./components/HintField";
 import { FitGrid } from "./components/FitGrid";
+import { MovableBoard } from "./components/MovableBoard";
 import { Motion, Presence } from "./components/Motion";
 import { Toaster, toast } from "./components/Toast";
 import { SaveCheckModal } from "./components/SaveCheckModal";
@@ -158,9 +159,15 @@ const T = {
     title: "自分が作った問題",
   },
   // 保存した問題の組み直し（Hop 決定 2026-10-05）。文言はすべて【仮】
+  // 動かして固定した語（Hop 決定 2026-10-05・案A）
+  pins: {
+    notConnected: "固定した語がつながっていません", // 【仮】
+    release: "固定を外す", // 【仮】
+  },
   edit: {
     pageTitle: "クロスワードパズルの組み直し", // 【仮】
     update: "更新する", // 【仮】
+    heading: "組み直し", // 入力欄の上の小見出し【仮】
     notEditable: "この問題は組み直せません", // 【仮】
     alreadyPlayed: "もう遊ばれているので組み直せません", // 【仮】
   },
@@ -1095,7 +1102,31 @@ export default function CrosswordPage() {
   const SEARCH_STEP_MS = 30;
 
   // v4 Live Generation: Monte Carlo式・全50試行アニメーション
-  const triggerGeneration = async (items: PuzzleItem[], isReshuffle: boolean = false) => {
+  // 動かして固定した語を、今の語の一覧に合わせて持ち越す（消した語の固定は外す。答えを直した語は新しい答えで、
+  // 置けなくなった固定は外す）。Hop 決定 2026-10-05・案A
+  const carryPins = (items: PuzzleItem[]): PlacedItem[] => {
+    const kept: PlacedItem[] = [];
+    for (const p of generatedPuzzle?.items.filter((i) => i.pinned) ?? []) {
+      const it = items.find((i) => i.id === p.id);
+      if (!it) continue;
+      const pin: PlacedItem = { ...p, question: it.question, answer: it.answer, length: it.answer.length, pinned: true };
+      if (validatePlacement(pin, kept)) kept.push(pin);
+    }
+    return kept;
+  };
+
+  // 盤の語を指で動かした時。置けたら固定の印を付けて盤を組み直さずに置く
+  const handleMoveWord = (uuid: string, startX: number, startY: number): boolean => {
+    if (!generatedPuzzle || isLiveGenerating) return false;
+    const moved = moveItem(generatedPuzzle.items, uuid, startX, startY, generatedPuzzle.width, generatedPuzzle.height);
+    if (!moved) return false;
+    const prev = generatedPuzzle;
+    setGeneratedPuzzle({ ...buildGrid(moved), id: prev.id, title: prev.title, creatorName: prev.creatorName });
+    return true;
+  };
+
+  const triggerGeneration = async (items: PuzzleItem[], isReshuffle: boolean = false, pinsOverride?: PlacedItem[]) => {
+    const pinned = pinsOverride ?? carryPins(items);
     setShowPreviewAnimation(isReshuffle);
 
     if (items.length === 0) {
@@ -1110,9 +1141,9 @@ export default function CrosswordPage() {
     setMonteCarloProgress({ current: 0, total: 50, bestCount: 0 });
 
     try {
-      const generator = generateMonteCarloSteps(items, 50);
+      const generator = generateMonteCarloSteps(items, 50, pinned);
       // 演出の50回とは別に、裏で本気の探索を回す（Hop 決定 2026-10-05）。描き変えの合間に刻んで回し、画面を固めない
-      const search = createPuzzleSearch(items);
+      const search = createPuzzleSearch(items, undefined, undefined, pinned);
       let bestPuzzle: PuzzleData | null = null;
       let bestCount = 0;
       let bestArea = Infinity;
@@ -1253,6 +1284,21 @@ export default function CrosswordPage() {
       const message =
         reason === "already_played" ? T.edit.alreadyPlayed : reason === "not_found" ? T.edit.notEditable : T.saveReasons[reason] ?? T.errors.saveFailed;
       toast.error(message, { duration: 5000 });
+      // もう遊ばれていたら、普通の作る画面に戻す（Hop 決定 2026-10-05）。入力中の中身はそのまま残し、
+      // 下書きを戻す処理は走らせずに、ここから下書きに書く（draftReady を先に立てる）
+      if (reason === "already_played") {
+        setDraftReady(true);
+        setEditTarget(null);
+        setEditStatus("none");
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete("edit");
+            return next;
+          },
+          { replace: true }
+        );
+      }
     } finally {
       setIsSaving(false);
     }
@@ -1896,7 +1942,7 @@ export default function CrosswordPage() {
             <div className="bg-white p-6 space-y-6 w-full max-w-[640px] mx-auto lg:max-w-none">
               <div>
                 <h2 className="text-base font-semibold mb-4 flex items-center gap-2 pb-2" style={{ color: C.ink }}>
-                  <Icon icon="add" /> {T.createNew}
+                  <Icon icon="add" /> {editTarget ? T.edit.heading : T.createNew}
                 </h2>
 
                 <div className="space-y-1 mb-4">
@@ -2059,7 +2105,7 @@ export default function CrosswordPage() {
                 ) : generatedPuzzle ? (
                   <div className="w-full p-4 flex flex-col items-center">
                     <FitGrid width={generatedPuzzle.width} height={generatedPuzzle.height}>
-                      <PuzzleGridRetro data={generatedPuzzle} showSolution={true} />
+                      <MovableBoard data={generatedPuzzle} enabled={!isLiveGenerating} onDrop={handleMoveWord} />
                     </FitGrid>
                   </div>
                 ) : (
@@ -2073,6 +2119,16 @@ export default function CrosswordPage() {
                   </div>
                 )}
               </div>
+
+              {/* 動かして固定した語（Hop 決定 2026-10-05・案A）。文言は【仮】 */}
+              {generatedPuzzle && !isLiveGenerating && generatedPuzzle.items.some((i) => i.pinned) && (
+                <div className="flex flex-col items-center text-sm" style={{ color: C.ink }}>
+                  {!isConnected(generatedPuzzle.items) && <p>{T.pins.notConnected}</p>}
+                  <button type="button" className="underline min-h-[44px] px-2" style={{ color: C.ink }} onClick={() => triggerGeneration(editorItems, false, [])}>
+                    {T.pins.release}
+                  </button>
+                </div>
+              )}
 
               {/* 置けなかった語 */}
               {unplaced.length > 0 && (
@@ -2113,7 +2169,7 @@ export default function CrosswordPage() {
               {generatedPuzzle && !isLiveGenerating && (
                 <div className="flex justify-center">
                   <Button onClick={handleShare} disabled={isSaving} className="flex items-center gap-2">
-                    <Icon icon="share" />
+                    {!editTarget && <Icon icon="share" />}
                     {isSaving ? T.saving : editTarget ? T.edit.update : T.share}
                   </Button>
                 </div>

@@ -89,6 +89,7 @@ run('check-reporter-key');
 run('check-cells');
 run('check-suggest');
 run('check-build');
+run('check-pin');
 run('check-entry');
 run('check-fixtures');
 run('check-maru-mine');

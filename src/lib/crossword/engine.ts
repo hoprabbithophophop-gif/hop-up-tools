@@ -317,17 +317,25 @@ const shuffleByLength = (items: PuzzleItem[]): PuzzleItem[] =>
 // 1回の試行。語を順に1度ずつ試したあと、置けなかった語を、置ける語が増えなくなるまで試し直す
 // （先に試した時に交わる相手がまだ盤に無くて置けなかった語を拾う。Hop 決定 2026-10-05）。
 // retry=false は試し直さない元の形（確かめの台本で比べるため）
-export const tryPlaceAll = (shuffled: PuzzleItem[], retry: boolean = true): PlacedItem[] => {
-  const placed: PlacedItem[] = [];
-  const firstPlacement = findPlacement(shuffled[0], []);
-  if (!firstPlacement) return placed;
-  placed.push(firstPlacement);
+// pinned は作る人が固定した語。先にその座標のまま置いてから残りを組む（つながらなくても固定は固定として置く）
+export const tryPlaceAll = (shuffled: PuzzleItem[], retry: boolean = true, pinned: PlacedItem[] = []): PlacedItem[] => {
+  const placed: PlacedItem[] = pinned.map((p) => ({ ...p, pinned: true }));
+  const pinnedIds = new Set(pinned.map((p) => p.id));
+  const queue = shuffled.filter((i) => !pinnedIds.has(i.id));
+  let from = 0;
+  if (placed.length === 0) {
+    if (queue.length === 0) return placed;
+    const firstPlacement = findPlacement(queue[0], []);
+    if (!firstPlacement) return placed;
+    placed.push(firstPlacement);
+    from = 1;
+  }
 
   let rest: PuzzleItem[] = [];
-  for (let i = 1; i < shuffled.length; i++) {
-    const placement = findPlacement(shuffled[i], placed);
+  for (let i = from; i < queue.length; i++) {
+    const placement = findPlacement(queue[i], placed);
     if (placement) placed.push(placement);
-    else rest.push(shuffled[i]);
+    else rest.push(queue[i]);
   }
   while (retry && rest.length > 0) {
     const next: PuzzleItem[] = [];
@@ -372,7 +380,8 @@ export interface PuzzleSearch {
 export const createPuzzleSearch = (
   items: PuzzleItem[],
   timeLimitMs: number = SEARCH_TIME_LIMIT_MS,
-  now: () => number = () => (typeof performance !== "undefined" ? performance.now() : Date.now())
+  now: () => number = () => (typeof performance !== "undefined" ? performance.now() : Date.now()),
+  pinned: PlacedItem[] = []
 ): PuzzleSearch => {
   let attempts = 0;
   let best: PlacedItem[] = [];
@@ -386,7 +395,7 @@ export const createPuzzleSearch = (
       const t0 = now();
       if (startedAt === null) startedAt = t0;
       while (!finished() && now() - t0 < budgetMs) {
-        const placed = tryPlaceAll(shuffleByLength(items));
+        const placed = tryPlaceAll(shuffleByLength(items), true, pinned);
         attempts++;
         if (placed.length > 0) {
           const g = buildGrid(placed);
@@ -413,10 +422,11 @@ export const createPuzzleSearch = (
  */
 export const generateMaximizedPuzzle = (
   items: PuzzleItem[],
-  attempts: number = 50
+  attempts: number = 50,
+  pinned: PlacedItem[] = []
 ): PlacedItem[] => {
   if (items.length === 0) return [];
-  if (items.length === 1) {
+  if (items.length === 1 && pinned.length === 0) {
     const placed = findPlacement(items[0], []);
     return placed ? [placed] : [];
   }
@@ -424,7 +434,7 @@ export const generateMaximizedPuzzle = (
   let bestResult: PlacedItem[] = [];
 
   for (let attempt = 0; attempt < attempts; attempt++) {
-    const placed = tryPlaceAll(shuffleByLength(items));
+    const placed = tryPlaceAll(shuffleByLength(items), true, pinned);
     if (placed.length > bestResult.length) {
       bestResult = placed;
       // 全て配置できたら早期終了
@@ -449,14 +459,15 @@ export interface MonteCarloStep {
  */
 export function* generateMonteCarloSteps(
   items: PuzzleItem[],
-  attempts: number = 50
+  attempts: number = 50,
+  pinned: PlacedItem[] = []
 ): Generator<MonteCarloStep, void, unknown> {
   if (items.length === 0) {
     yield { attempt: 1, total: 1, placed: [], bestSoFar: [], isLast: true };
     return;
   }
 
-  if (items.length === 1) {
+  if (items.length === 1 && pinned.length === 0) {
     const placed = findPlacement(items[0], []);
     const result = placed ? [placed] : [];
     yield { attempt: 1, total: 1, placed: result, bestSoFar: result, isLast: true };
@@ -466,7 +477,7 @@ export function* generateMonteCarloSteps(
   let bestResult: PlacedItem[] = [];
 
   for (let attempt = 0; attempt < attempts; attempt++) {
-    const placed = tryPlaceAll(shuffleByLength(items));
+    const placed = tryPlaceAll(shuffleByLength(items), true, pinned);
     if (placed.length > bestResult.length) {
       bestResult = [...placed];
     }
@@ -488,3 +499,50 @@ export function* generateMonteCarloSteps(
     isLast: true
   };
 }
+
+// ---- 作る人が語を動かす（Hop 決定 2026-10-05・案A「つまんで動かす」） ----
+
+/** 盤の語が全部1つにつながっているか（字を共有するマスでつながる） */
+export const isConnected = (items: PlacedItem[]): boolean => {
+  if (items.length <= 1) return true;
+  const owner = new Map<string, number[]>();
+  items.forEach((it, idx) => {
+    for (let i = 0; i < it.length; i++) {
+      const key = it.direction === 'horizontal' ? `${it.startX + i},${it.startY}` : `${it.startX},${it.startY + i}`;
+      const list = owner.get(key);
+      if (list) list.push(idx);
+      else owner.set(key, [idx]);
+    }
+  });
+  const seen = new Set<number>([0]);
+  const stack = [0];
+  while (stack.length) {
+    const idx = stack.pop()!;
+    const it = items[idx];
+    for (let i = 0; i < it.length; i++) {
+      const key = it.direction === 'horizontal' ? `${it.startX + i},${it.startY}` : `${it.startX},${it.startY + i}`;
+      for (const o of owner.get(key) ?? []) if (!seen.has(o)) { seen.add(o); stack.push(o); }
+    }
+  }
+  return seen.size === items.length;
+};
+
+/**
+ * 盤の語（uuid）を (startX, startY) に動かせるか。向きは変えない。
+ * 置ける条件は組み立てと同じ validatePlacement を、その語自身を除いた盤に対して確かめる。加えて盤（幅×高さ）からはみ出さない
+ */
+export const canMoveTo = (items: PlacedItem[], uuid: string, startX: number, startY: number, width: number, height: number): boolean => {
+  const item = items.find((i) => i.uuid === uuid);
+  if (!item) return false;
+  const endX = item.direction === 'horizontal' ? startX + item.length - 1 : startX;
+  const endY = item.direction === 'vertical' ? startY + item.length - 1 : startY;
+  if (startX < 0 || startY < 0 || endX >= width || endY >= height) return false;
+  const others = items.filter((i) => i.uuid !== uuid);
+  return validatePlacement({ ...item, startX, startY }, others);
+};
+
+/** 動かして固定した盤の語の並び（動かせない時は null） */
+export const moveItem = (items: PlacedItem[], uuid: string, startX: number, startY: number, width: number, height: number): PlacedItem[] | null =>
+  canMoveTo(items, uuid, startX, startY, width, height)
+    ? items.map((i) => (i.uuid === uuid ? { ...i, startX, startY, pinned: true } : i))
+    : null;

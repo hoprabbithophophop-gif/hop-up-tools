@@ -11,6 +11,7 @@ export interface PlacedItem extends PuzzleItem {
   startY: number;
   length: number;
   clueIndex?: number;
+  pinned?: boolean; // 作る人が動かして固定した語（作る画面だけ。保存の本文には入れない）
 }
 
 export interface GridCell {
