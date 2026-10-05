@@ -1,7 +1,7 @@
 // 作る画面のプレビューの盤で、語をつまんで動かす（Hop 決定 2026-10-05・案A「つまんで動かす」）。
 // 押してから 300ms【仮】長押しで語が持ち上がる。長押しの前に指が動いたら普通のスクロールに任せる。
 // 持ち上がったら盤の上では touch-action: none にして、離した所に置く。置けるかどうかは呼ぶ側（engine の canMoveTo）が決める。
-// 動かした語（pinned）は先頭のマスの左上に小さな黒い四角【仮】を付ける。
+// 動かした語（pinned）は先頭のマスの右上に小さな黒い四角【仮】を付ける（左上は番号）。
 import React, { useEffect, useRef, useState } from "react";
 import type { PuzzleData, PlacedItem } from "../../../lib/crossword/types";
 import { PuzzleGridRetro } from "./PuzzleGridRetro";
@@ -153,13 +153,13 @@ export const MovableBoard: React.FC<Props> = ({ data, enabled, onDrop }) => {
     <div className="relative" style={{ width: w, height: h }}>
       <PuzzleGridRetro data={data} showSolution={true} />
 
-      {/* 固定の印（語の先頭のマスの左上）【仮】 */}
+      {/* 固定の印（語の先頭のマスの右上。左上は番号）【仮】 */}
       {pins.map((it) => (
         <div
           key={`pin-${it.uuid}`}
           data-pin={it.answer.join("")}
           className="absolute pointer-events-none z-20"
-          style={{ left: it.startX * CELL + 2, top: it.startY * CELL + 2, width: 6, height: 6, background: C.black }}
+          style={{ left: it.startX * CELL + CELL - 2 - 6, top: it.startY * CELL + 2, width: 6, height: 6, background: C.black }}
         />
       ))}
 

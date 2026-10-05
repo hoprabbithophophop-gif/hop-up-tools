@@ -85,6 +85,22 @@ check(!canMoveTo(bi, 'r', 0, 2, board.width, board.height), '(c) リズム を (
 check(!canMoveTo(bi, 'm', 3, 1, board.width, board.height), `(c) マツリ を (3,1) へ: 盤（高さ${board.height}）からはみ出すので拒否`);
 check(!canMoveTo(bi, 'm', -1, 0, board.width, board.height), '(c) 盤の左へはみ出すので拒否');
 check(!canMoveTo(bi, 'r', 0, 1, board.width, board.height), '(c) リズム を (0,1) へ: ツ と ズ がぶつかるので拒否');
+// 島を作らない（Hop 決定 2026-10-05）。盤 アイアイア 横(0,0)・アカサ 縦(0,0)・サシス 横(0,2)
+const isle = buildGrid([
+  { ...W('アイアイア'), uuid: 'h', direction: 'horizontal', startX: 0, startY: 0, length: 5 },
+  { ...W('アカサ'), uuid: 'v', direction: 'vertical', startX: 0, startY: 0, length: 3 },
+  { ...W('サシス'), uuid: 's', direction: 'horizontal', startX: 0, startY: 2, length: 3 },
+]);
+const ii = isle.items;
+const plain = (it, x, y) => validatePlacement({ ...ii.find((i) => i.uuid === it), startX: x, startY: y }, ii.filter((i) => i.uuid !== it));
+check(plain('s', 2, 1) && !canMoveTo(ii, 's', 2, 1, isle.width, isle.height), '(c) サシス を (2,1) へ: 字はぶつからず盤にも収まるが、どの語とも交わらない（島になる）ので拒否');
+check(moveItem(ii, 's', 2, 1, isle.width, isle.height) === null, '(c) 交わらない所へは動かさない（元のまま・印も付かない）');
+check(plain('v', 4, 0) && !canMoveTo(ii, 'v', 4, 0, isle.width, isle.height), '(c) アカサ を (4,0) へ: アイアイア の ア と交わるが、サシス が離れて島になるので拒否');
+check(canMoveTo(ii, 'v', 0, 0, isle.width, isle.height), '(c) アカサ は今の場所なら置ける');
+// 固定した語を、別の固定した語と交わらない所へ動かす時も同じ
+const pinnedIsle = ii.map((i) => ({ ...i, pinned: true }));
+check(!canMoveTo(pinnedIsle, 's', 2, 1, isle.width, isle.height), '(c) 固定した語どうしでも、交わらない所へは動かせない');
+
 // 置ける動かし先: 7語で組んだ盤で、今の場所以外に置ける所を総当たりで探し、そこへ動かす
 let found = null, tried = 0;
 for (let r = 0; r < 50 && !found; r++) {

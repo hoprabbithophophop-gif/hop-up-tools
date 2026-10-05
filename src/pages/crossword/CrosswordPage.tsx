@@ -8,7 +8,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import ContactModal from "@/components/ContactModal";
 import { usePageReady } from "../../lib/pageReady";
-import { buildGrid, generateMonteCarloSteps, createPuzzleSearch, isBetterPlacement, isConnected, moveItem, validatePlacement } from "../../lib/crossword/engine";
+import { buildGrid, generateMonteCarloSteps, createPuzzleSearch, isBetterPlacement, moveItem, validatePlacement } from "../../lib/crossword/engine";
 import { suggestForBoard, guideTexts } from "../../lib/crossword/suggest";
 import type { PuzzleData, PuzzleItem, PlacedItem } from "../../lib/crossword/types";
 import { toCells } from "../../lib/crossword/cells";
@@ -161,7 +161,6 @@ const T = {
   // 保存した問題の組み直し（Hop 決定 2026-10-05）。文言はすべて【仮】
   // 動かして固定した語（Hop 決定 2026-10-05・案A）
   pins: {
-    notConnected: "固定した語がつながっていません", // 【仮】
     release: "固定を外す", // 【仮】
   },
   edit: {
@@ -2123,7 +2122,6 @@ export default function CrosswordPage() {
               {/* 動かして固定した語（Hop 決定 2026-10-05・案A）。文言は【仮】 */}
               {generatedPuzzle && !isLiveGenerating && generatedPuzzle.items.some((i) => i.pinned) && (
                 <div className="flex flex-col items-center text-sm" style={{ color: C.ink }}>
-                  {!isConnected(generatedPuzzle.items) && <p>{T.pins.notConnected}</p>}
                   <button type="button" className="underline min-h-[44px] px-2" style={{ color: C.ink }} onClick={() => triggerGeneration(editorItems, false, [])}>
                     {T.pins.release}
                   </button>

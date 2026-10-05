@@ -529,7 +529,9 @@ export const isConnected = (items: PlacedItem[]): boolean => {
 
 /**
  * 盤の語（uuid）を (startX, startY) に動かせるか。向きは変えない。
- * 置ける条件は組み立てと同じ validatePlacement を、その語自身を除いた盤に対して確かめる。加えて盤（幅×高さ）からはみ出さない
+ * 置ける条件は組み立てと同じ validatePlacement を、その語自身を除いた盤に対して確かめる。加えて盤（幅×高さ）からはみ出さない。
+ * さらに島を作らない（Hop 決定 2026-10-05）: 動かした語は自分と逆向きの語と少なくとも1マス交わり（組み立ての findPlacement と同じ交わり方）、
+ * 動かした後の盤が1つにつながっている（橋になっていた語を動かして、ほかの語が離れる時も断る）
  */
 export const canMoveTo = (items: PlacedItem[], uuid: string, startX: number, startY: number, width: number, height: number): boolean => {
   const item = items.find((i) => i.uuid === uuid);
@@ -538,7 +540,12 @@ export const canMoveTo = (items: PlacedItem[], uuid: string, startX: number, sta
   const endY = item.direction === 'vertical' ? startY + item.length - 1 : startY;
   if (startX < 0 || startY < 0 || endX >= width || endY >= height) return false;
   const others = items.filter((i) => i.uuid !== uuid);
-  return validatePlacement({ ...item, startX, startY }, others);
+  const cand = { ...item, startX, startY };
+  if (!validatePlacement(cand, others)) return false;
+  const mine = new Set(Array.from({ length: cand.length }, (_, i) => (cand.direction === 'horizontal' ? `${startX + i},${startY}` : `${startX},${startY + i}`)));
+  const crosses = others.some((o) => o.direction !== cand.direction && Array.from({ length: o.length }, (_, i) => (o.direction === 'horizontal' ? `${o.startX + i},${o.startY}` : `${o.startX},${o.startY + i}`)).some((k) => mine.has(k)));
+  if (others.length > 0 && !crosses) return false;
+  return isConnected([...others, cand]);
 };
 
 /** 動かして固定した盤の語の並び（動かせない時は null） */
