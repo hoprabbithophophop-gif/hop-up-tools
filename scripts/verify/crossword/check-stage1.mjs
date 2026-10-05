@@ -132,13 +132,6 @@ r['2 構築中の動きが出た'] = await pb.getByText(T.building).first().wait
   await pb.waitForTimeout(3000);
   r['2 開き直しても入れた答えが残る'] = (await pb.evaluate(() => document.body.innerText)).includes('ボ');
 
-  // 4. 途中で答え合わせ → どこが違うかは示さず、埋まっていないことだけ知らせる（降参は 2026-10-04 に外した）。
-  // 全部埋めたときの自動の答え合わせとクリアの演出は check-auto-check.mjs で確かめる
-  await clickText(pb, T.check);
-  await pb.waitForTimeout(500);
-  const afterCheck = await pb.evaluate(() => document.body.innerText);
-  r['4 途中の答え合わせは埋まっていないことだけ知らせる'] = afterCheck.includes(T.notFilled);
-  await pb.screenshot({ path: path.join(OUT, '4-check.png'), fullPage: true });
   await ctxB.close();
 }
 

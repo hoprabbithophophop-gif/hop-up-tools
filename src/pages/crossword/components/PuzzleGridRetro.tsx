@@ -10,6 +10,8 @@ interface PuzzleGridRetroProps {
   onCellChange?: (cell: GridCell, newValue: string) => void;
   userAnswers?: Record<string, string>;
   activeCell?: { x: number; y: number } | null;
+  /** 今の語（押したマスが属する語）の uuid。この語のマスだけを薄く塗る（行と列を塗る作りは外した。Hop 決定 2026-10-06） */
+  activeWordId?: string | null;
   onCellFocus?: (x: number, y: number) => void;
   onCellClick?: (x: number, y: number) => void;
   wrongCells?: Set<string>;
@@ -22,6 +24,7 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
   showSolution = false,
   userAnswers = {},
   activeCell,
+  activeWordId = null,
   onCellFocus,
   onCellClick,
   wrongCells = new Set(),
@@ -32,8 +35,8 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
   const containerHeight = data.height * cellSize;
 
   const isHighlighted = (cell: GridCell) => {
-    if (!activeCell) return false;
-    return cell.x === activeCell.x || cell.y === activeCell.y;
+    if (!activeCell || !activeWordId) return false;
+    return !!cell.wordIds?.includes(activeWordId);
   };
 
   if (!data.cells || data.cells.length === 0) {

@@ -1882,6 +1882,7 @@ export default function CrosswordPage() {
                         userAnswers={userAnswers}
                         onCellChange={(cell, val) => handleCellChange(cell, val)}
                         activeCell={activeCell}
+                        activeWordId={activeWordItem?.uuid ?? null}
                         onCellFocus={(x, y) => openCloseupForCell(x, y)}
                         onCellClick={(x, y) => openCloseupForCell(x, y)}
                         pulseCell={showFirstCellHint ? firstCellPos : null}
@@ -1953,9 +1954,8 @@ export default function CrosswordPage() {
                   />
                 )}
 
-                {/* Controls */}
+                {/* Controls。「答え合わせ」ボタンは外した（最後のマスを埋めた瞬間に合否が出るため。Hop 決定 2026-10-06） */}
                 <div className="flex justify-center gap-4">
-                  <Button onClick={() => void handleClearCheck()} variant="primary">答え合わせ</Button>
                   {/* 練習問題から本番へ（解く前でも押せる） */}
                   {isTutorial && (
                     <div data-coach="tutorial-done">

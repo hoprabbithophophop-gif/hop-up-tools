@@ -53,10 +53,6 @@ const press = (page, ch) => page.getByRole('button', { name: ch, exact: true }).
 // 1. 最後の1文字を正しく入れると、ボタンを押さずに終わる
 {
   const { ctx, page } = await open(almost);
-  await page.getByRole('button', { name: '答え合わせ' }).click();
-  await page.waitForTimeout(800);
-  check((await page.evaluate(() => document.body.innerText)).includes('まだ埋まっていないマスがあります。'), '途中で答え合わせを押すと「まだ埋まっていないマスがあります。」が出る');
-  await page.waitForTimeout(4500); // 知らせが消えるのを待つ
   await cellOf(page, '空').click();
   await press(page, LAST_CHAR);
   await page.waitForTimeout(4500);
