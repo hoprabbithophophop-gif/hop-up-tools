@@ -26,6 +26,8 @@ const ROUTES: { path: string; load: () => Promise<{ default: ComponentType }> }[
   { path: "/crossword/list", load: () => import("./pages/crossword/GalleryPage") },
   { path: "/crossword/create", load: () => import("./pages/crossword/CrosswordPage") },
   { path: "/crossword/mine", load: () => import("./pages/crossword/MyPuzzlesPage") },
+  // 解く側の練習問題（棚に入れずコードの中に持つ。/crossword/:id より先に当てる）
+  { path: "/crossword/tutorial", load: () => import("./pages/crossword/CrosswordPage") },
   { path: "/crossword/:id", load: () => import("./pages/crossword/CrosswordPage") },
   { path: "/news", load: () => import("./pages/news/NewsListPage") },
   { path: "/news/:id", load: () => import("./pages/news/NewsArticlePage") },

@@ -23,6 +23,8 @@ interface PuzzleCloseupModalProps {
   activeIndex: number;
   keypadType: KeypadType;
   hint?: HintRef;
+  /** 練習問題のヒント（動画でなく1行の文）。あれば「ヒント」を押すと文字盤の場所にこの文が出る */
+  hintText?: string;
   onKeyPress: (char: string) => void;
   onBackspace: () => void;
   onClose: () => void;
@@ -46,6 +48,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
   activeIndex,
   keypadType,
   hint,
+  hintText,
   onKeyPress,
   onBackspace,
   onClose,
@@ -164,8 +167,8 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
           <div className="w-12 h-1" style={{ background: C.highest }} />
         </div>
 
-        {/* Header: カギ + ヒント + 閉じるボタン */}
-        <div className="p-4 flex items-center gap-3" style={{ background: C.low }}>
+        {/* Header: カギ + ヒント + 閉じるボタン（data-coach は練習問題の案内の印の目印） */}
+        <div data-coach="closeup-head" className="p-4 flex items-center gap-3" style={{ background: C.low }}>
           <div className="flex items-center gap-2 text-sm font-semibold">
             <span className="px-2 py-0.5 text-xs font-bold bg-primary text-white">{wordItem.clueIndex}</span>
             <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>
@@ -173,7 +176,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
             </span>
           </div>
           <p className="flex-1 text-sm truncate" style={{ color: C.ink }}>{wordItem.question}</p>
-          {hint && (
+          {(hint || hintText) && (
             <button
               onClick={() => setShowHint((v) => !v)}
               className={`px-2 py-1 text-xs font-bold transition-colors ${showHint ? "bg-primary text-white" : "bg-surface-container-high text-on-surface hover:bg-surface-container-highest"}`}
@@ -184,6 +187,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
           )}
           {onReveal && (
             <button
+              data-coach="reveal"
               onClick={() => (revealUsed ? onReveal() : setConfirmReveal(true))}
               className="px-2 py-1 text-xs font-bold bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors shrink-0"
             >
@@ -197,7 +201,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
 
         {/* 1文字見るの確かめ（その回で初めての時だけ） */}
         {confirmReveal && (
-          <div className="px-4 py-3 flex flex-wrap items-center gap-2" style={{ background: C.low }}>
+          <div data-coach="reveal-confirm" className="px-4 py-3 flex flex-wrap items-center gap-2" style={{ background: C.low }}>
             <span className="flex-1 min-w-0 text-sm" style={{ color: C.ink }}>
               1文字見る？
               <span className="block text-xs mt-0.5" style={{ color: C.secondary }}>ノーヒントの印は付かなくなります。</span>
@@ -218,7 +222,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
         )}
 
         {/* Cells: 拡大セル表示 */}
-        <div className="p-4 flex justify-center overflow-x-auto">
+        <div data-coach="closeup-cells" className="p-4 flex justify-center overflow-x-auto">
           <div className="flex gap-1">
             {Array.from({ length: wordItem.length }, (_, index) => {
               const value = getCellValue(index);
@@ -248,9 +252,11 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
         </div>
 
         {/* Keypad（ヒントを開いている間はここにヒントを出す） */}
-        <div>
+        <div data-coach="keypad">
           {showHint && hint ? (
             <HintView hint={hint} />
+          ) : showHint && hintText ? (
+            <p className="p-4 text-sm leading-relaxed" style={{ color: C.ink }}>{hintText}</p>
           ) : (
             <PuzzleKeypad
               type={keypadType}

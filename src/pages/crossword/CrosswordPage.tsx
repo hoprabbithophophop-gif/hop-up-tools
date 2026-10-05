@@ -4,7 +4,7 @@
 // 知らせ（react-hot-toast を使わず自前）、保存先（Supabase）、持ってこない物（広告・Cookie 同意・コード進行・計測・ランキング等）、
 // 足した物（ジャンル・タグ・ヒント・カタカナの ゛゜小）。
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import ContactModal from "@/components/ContactModal";
 import { usePageReady } from "../../lib/pageReady";
@@ -55,10 +55,16 @@ import { detectGroups } from "../../lib/crossword/groupDetect";
 import { drawShareImage } from "../../lib/crossword/shareImage";
 import { queueScore, retryQueuedScores, saveScore, ScoreError } from "../../lib/crossword/scores";
 import { checkPlay, revealCell, startPlay, touchPlay, PlayError } from "../../lib/crossword/play";
+import { CoachMarks, type CoachStep } from "./components/CoachMarks";
+import { tutorialPuzzle, TUTORIAL_HINTS } from "../../lib/crossword/tutorial";
 import { C } from "./style";
 
 // localStorage の鍵（crossword 専用の名前）
 const HELP_KEY = "crossword_seen_help";
+// 作る画面の案内を見た印（最後まで見た時も「とばす」で終えた時も付ける。Hop 決定 2026-10-05）
+const CREATE_GUIDE_KEY = "crossword_seen_create_guide";
+// 練習問題の住所（棚に入れずコードの中に持つ）
+const TUTORIAL_PATH = "/crossword/tutorial";
 const PROGRESS_PREFIX = "crossword_progress_";
 const PLAYED_PREFIX = "crossword_played_";
 // 前回の続きを開いた時に「つづきから／はじめから」を聞くのは、前回から30分以上空いた時だけ（Hop 決定 2026-10-04）
@@ -191,6 +197,17 @@ const T = {
       "短い単語と長い単語を混ぜるとバランスの良いパズルになります",
       "カギは簡単なものから難しいものまで、さまざまな難易度があるとより楽しめます",
     ],
+    // 2026-10-05 に足した物の説明（Hop 決定・案B）。文言はすべて【仮】
+    moreTitle: "ほかにできること", // 【仮】
+    more: [
+      "答えはカタカナになります。ひらがなはカタカナに、小さい字（ッ・ャ など）は大きい字になります。漢字・数字・英字・記号は使えません。",
+      "語が3つ以上になると、盤の下に「型の案内」が出ます。次に足すと盤に入る言葉の形がわかります。",
+      "盤の語は長押しで動かせます。動かした語には固定の印が付き、組み直しても動きません。「固定を外す」で、固定した語も含めて組み直します。",
+      "作りかけは、この端末に自動で残ります。閉じても続きから作れます。",
+      "作った問題は「自分が作った問題」にあります。遊ばれる前なら組み直せます。",
+      "「自分が作った問題」の合言葉で、作った問題を別の端末へ引き継げます。",
+    ],
+    guide: "案内を見る", // 【仮】
     close: "閉じる",
   },
   // 段階2b で足した物
@@ -207,6 +224,37 @@ const T = {
     title: "遊び方",
     steps: ["空欄のマスに文字を入力", "カギを参考に正解を推測", "全マス正解でクリア！"],
     start: "始める！",
+    // 練習問題の入口（Hop 決定 2026-10-05・案B）。文言は【仮】
+    practiceFirst: "練習してから始める", // 【仮】初めて開いた時
+    startNow: "このまま始める", // 【仮】初めて開いた時
+    practice: "練習する", // 【仮】「?」から開いた時
+  },
+  // 練習問題の案内（Hop 決定 2026-10-05・案B）。文言はすべて【仮】
+  tutorial: {
+    toReal: "本番へ", // 【仮】
+    next: "次へ", // 【仮】
+    skip: "とばす", // 【仮】
+    close: "閉じる",
+    cell: ["マスを押すと、字を入れる窓が開きます。", "左上のマスを押してみましょう。"],
+    keypad: ["文字盤で字を入れると、次のマスへ進みます。", "1つ目の答えは「ネコ」です。「ネ」を押してみましょう。"],
+    head: ["ここにカギが出ます。", "「ヒント」を押すと、文字盤の場所にヒントが出ます。"],
+    reveal: ["わからない時は「1文字見る」で、選んでいるマスの字が入ります。", "使うと、ノーヒントの印は付かなくなります。"],
+    free: ["残りのマスも埋めてみましょう。", "最後のマスを埋めると、自動で答え合わせをします。"],
+    done: (hasFrom: boolean) => ["全部合うと、ハンコが押されます。", hasFrom ? "「本番へ」で問題に戻ります。" : "「本番へ」で問題の一覧へ進みます。"],
+  },
+  // 作る画面の案内（Hop 決定 2026-10-05・案B）。文言はすべて【仮】
+  createGuide: {
+    answer: ["答えをカタカナで。小さい字は大きい字になります。", "例: ネコ"],
+    clue: ["カギは、答えを当てるための問題文です。", "例: ニャーと鳴く動物"],
+    hint: ["ヒントは答えの根拠です。ハロプロは HELLO! VIDEO の動画から検索、その他は URL を貼ります。"],
+    add: ["「リストに追加」を押します。"],
+    board: ["ここに盤が組み上がります。"],
+    second: ["もう1語足してみましょう。同じ字を持つ語どうしは、交差して組まれます。", "例: コアラ（カギ: ユーカリの葉を食べる動物）"],
+    shape: ["語が3つ以上になると、盤の下に「型の案内」が出ます。次に足すと盤に入る言葉の形がわかります。"],
+    move: ["盤の語は長押しで動かせます。動かした語には固定の印が付き、組み直しても動きません。", "「固定を外す」で、固定した語も含めて組み直します。"],
+    title: ["最後に題名を入れます。"],
+    share: ["「共有する」で保存すると公開され、誰でも遊べるようになります。"],
+    mine: ["作りかけは、この端末に自動で残ります。", "作った問題は「自分が作った問題」にあり、遊ばれる前なら組み直せます。"],
   },
 };
 
@@ -323,7 +371,13 @@ export default function CrosswordPage() {
   const { id: puzzleId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const isDebugMode = searchParams.get("debug") === "true"; // デバッグモード
-  const isPlayerMode = !!puzzleId || isDebugMode;
+  const navigate = useNavigate();
+  // 練習問題（/crossword/tutorial）。答え合わせはブラウザの中だけ・回を数えない・ランキングと X 投稿と通報を出さない
+  const isTutorial = useLocation().pathname === TUTORIAL_PATH;
+  // 練習の後に戻る問題の番号（?from=）
+  const fromParam = searchParams.get("from");
+  const tutorialFrom = isTutorial && fromParam && /^[A-Za-z0-9_-]{1,64}$/.test(fromParam) ? fromParam : null;
+  const isPlayerMode = !!puzzleId || isDebugMode || isTutorial;
   // 組み直し（/crossword/create?edit=<番号>。Hop 決定 2026-10-05）。
   // checking = 中身を受け取り中、editing = 組み直し中（下書きに書かない・読まない【仮】）、none = 普通の作る画面
   const editParam = isPlayerMode ? null : searchParams.get("edit");
@@ -391,6 +445,14 @@ export default function CrosswordPage() {
 
   // UI States
   const [showHelp, setShowHelp] = useState(false);
+  // 初めて開いた時の遊び方の窓か（「練習してから始める」「このまま始める」を出す）
+  const [helpFirst, setHelpFirst] = useState(false);
+  // 練習問題の案内の段。0〜4 = 案内、5 = 自由に解く間（何も出さない）、6 = 解けた後、null = 終わり
+  const [tutStep, setTutStep] = useState<number | null>(isTutorial ? 0 : null);
+  // 作る画面の案内の段（null = 出していない）。guideBaseRef は段に入った時の語の数（追加で進む段に使う）
+  const [createGuide, setCreateGuide] = useState<number | null>(null);
+  const guideBaseRef = useRef(0);
+  const guideCheckedRef = useRef(!!editParam); // 組み直しで開いた時は案内を自動で出さない
   const [showClearAnimation, setShowClearAnimation] = useState(false);
   const [showCreatorHelp, setShowCreatorHelp] = useState(false);
   const [scale, setScale] = useState(1);
@@ -458,6 +520,13 @@ export default function CrosswordPage() {
 
   // --- Initialization ---
   useEffect(() => {
+    // 練習問題は棚から読まない（コードの中の問題）。組み上がりの演出も挟まない
+    if (isTutorial) {
+      setPlayerPuzzle(tutorialPuzzle());
+      setPlayerHints({});
+      setLoadState("done");
+      return;
+    }
     if (!puzzleId && !isDebugMode) return;
     let alive = true;
     (async () => {
@@ -529,17 +598,18 @@ export default function CrosswordPage() {
     return () => {
       alive = false;
     };
-  }, [puzzleId, isDebugMode]);
+  }, [puzzleId, isDebugMode, isTutorial]);
 
   // キューイングされたスコアの再送信（ネットワーク回復時。HarmonyPalette と同じ）
   useEffect(() => {
+    if (isTutorial) return; // 練習問題では受付係に何も送らない
     const retry = () => {
       retryQueuedScores().catch((e) => console.error("[Score Queue] Error processing queue:", e));
     };
     retry();
     window.addEventListener("online", retry);
     return () => window.removeEventListener("online", retry);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 型の案内（Hop 決定 2026-10-05・段階2）。組み上がった盤が変わった時だけ計算する。置かれた語が3つ未満では空
   // 置けなかった語があれば、語ごとにその語が入る型を1行ずつ（入力順）
@@ -567,8 +637,14 @@ export default function CrosswordPage() {
   // 初回ヘルプ表示判定 + タイマー自動開始（遊び方を読んだことがあれば、問題が出たらすぐ始める）
   useEffect(() => {
     if (isPlayerMode && playerPuzzle) {
+      // 練習問題は遊び方の窓を出さず、タイマーも動かさずに始める
+      if (isTutorial) {
+        if (gamePhase === "ready") setGamePhase("playing");
+        return;
+      }
       const hasSeenHelp = lsGet(HELP_KEY);
       if (!hasSeenHelp) {
+        setHelpFirst(true);
         setShowHelp(true);
       } else if (gamePhase === "ready" && resumeAsk === null) {
         beginTiming();
@@ -650,8 +726,29 @@ export default function CrosswordPage() {
   // 遊び方を閉じたらタイマー開始（HarmonyPalette の Cookie 同意の後の開始の置き換え）
   const closeHelp = () => {
     setShowHelp(false);
+    setHelpFirst(false);
     lsSet(HELP_KEY, "true");
     handleStartGame();
+  };
+
+  // 練習問題へ。解いていた問題には練習の後に戻る（?from=）。「初めて」の印はここで付ける
+  const goPractice = () => {
+    setShowHelp(false);
+    setHelpFirst(false);
+    lsSet(HELP_KEY, "true");
+    navigate(puzzleId ? `${TUTORIAL_PATH}?from=${encodeURIComponent(puzzleId)}` : TUTORIAL_PATH);
+  };
+
+  // 練習問題から本番へ（来た問題が無ければ一覧へ）
+  const goReal = () => {
+    lsSet(HELP_KEY, "true");
+    navigate(tutorialFrom ? `/crossword/${tutorialFrom}` : "/crossword");
+  };
+
+  // 練習問題の案内を終える（とばした時も「初めて」の印を付ける）
+  const endTutorial = () => {
+    lsSet(HELP_KEY, "true");
+    setTutStep(null);
   };
 
   // タイマー開始。遊んでいる途中に遊び方を開き直しても、時間は巻き戻さない
@@ -663,6 +760,7 @@ export default function CrosswordPage() {
   // 回を始める。続きの回（端末に番号が残っている）ならその時刻から、無ければ受付係に新しく始めてもらう
   const beginTiming = () => {
     setGamePhase("playing");
+    if (isTutorial) return; // 練習問題は時間を測らない
     if (isDebugMode) {
       setStartTime(Date.now() - restoredElapsedRef.current * 1000);
       return;
@@ -765,7 +863,7 @@ export default function CrosswordPage() {
   const handleReveal = async () => {
     if (!activeWordItem || isCleared) return;
     const index = activeCloseupIndex;
-    if (isDebugMode) {
+    if (isDebugMode || isTutorial) {
       setReveals((r) => r + 1);
       handleCloseupKeyPress(activeWordItem.answer[index]);
       return;
@@ -902,20 +1000,20 @@ export default function CrosswordPage() {
   // 同じ端末では1つの問題につき1回だけ。作った本人の端末では数えない。失敗しても遊ぶのは止めない。
   // 数えるのは受付係（回ごとに1度・同じ接続元と問題は24時間に1度。外から回数を足す呼び出しは使えない）
   useEffect(() => {
-    if (!playerPuzzle || isDebugMode || Object.keys(userAnswers).length === 0) return;
+    if (!playerPuzzle || isDebugMode || isTutorial || Object.keys(userAnswers).length === 0) return;
     const id = playerPuzzle.id;
     if (lsGet(`${PLAYED_PREFIX}${id}`)) return;
     if (readMyPuzzles().some((m) => m.id === id)) return;
     lsSet(`${PLAYED_PREFIX}${id}`, "1");
     withPlay((token) => touchPlay(token)).catch((err) => console.warn("Play count increment failed:", err));
-  }, [userAnswers, playerPuzzle, isDebugMode]);
+  }, [userAnswers, playerPuzzle, isDebugMode, isTutorial]);
 
   // Persist Progress (including elapsed time)
   useEffect(() => {
-    if (playerPuzzle && gamePhase === "playing" && Object.keys(userAnswers).length > 0) {
+    if (playerPuzzle && !isTutorial && gamePhase === "playing" && Object.keys(userAnswers).length > 0) {
       lsSet(`${PROGRESS_PREFIX}${playerPuzzle.id}`, JSON.stringify({ userAnswers, elapsedSeconds, reveals, play: playRef.current, savedAt: Date.now() }));
     }
-  }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase, reveals]);
+  }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase, reveals, isTutorial]);
 
   // --- 組み直し: 端末の控えの合言葉で中身を受け取り、入力欄と盤に戻す（Hop 決定 2026-10-05） ---
   // 控えに無い・受け取れない時は知らせて普通の作る画面にする（住所の ?edit= も外す）
@@ -1365,6 +1463,7 @@ export default function CrosswordPage() {
       setReveals(0);
       // やり直しは新しい回として受付係に始めてもらう
       playRef.current = null;
+      if (isTutorial) return;
       setStartTime(Date.now());
       if (!isDebugMode) void ensurePlay();
     }
@@ -1382,7 +1481,8 @@ export default function CrosswordPage() {
 
     let allCorrect = false;
     let serverTime: number | null = null;
-    if (isDebugMode) {
+    if (isDebugMode || isTutorial) {
+      // 練習問題とデバッグ用の見本は、ブラウザの中で答え合わせする（受付係を通さない）
       allCorrect = playerPuzzle.cells.every((c) => userAnswers[`${c.x},${c.y}`] === c.value);
     } else {
       setChecking(true);
@@ -1496,6 +1596,84 @@ export default function CrosswordPage() {
     setShowNameEntry(false);
   };
 
+  // --- 練習問題の案内（Hop 決定 2026-10-05・案B） ---
+  // 0 マスを押す → 1 文字盤 → 2 カギとヒント → 3 1文字見る → 4 残りを埋める → 5 自由に解く → 6 ハンコと「本番へ」
+  useEffect(() => {
+    if (!isTutorial || tutStep === null) return;
+    if (isCleared && !showClearAnimation) {
+      if (tutStep !== 6) setTutStep(6);
+      return;
+    }
+    if (tutStep === 0 && showCloseup) setTutStep(1);
+    // 窓の中の部品に印を付けている間に窓が閉じたら、マスを押す段へ戻る
+    else if (tutStep >= 1 && tutStep <= 3 && !showCloseup) setTutStep(0);
+  }, [isTutorial, tutStep, showCloseup, isCleared, showClearAnimation]);
+
+  const tutorialSteps: CoachStep[] = [
+    { target: "#cell-0-0", lines: T.tutorial.cell, showNext: false },
+    // 窓の中に印がある段は、吹き出しを画面の上に出す（窓のマスや文字盤を隠さない）
+    { target: ['[data-coach="closeup-cells"]', '[data-coach="keypad"]'], lines: T.tutorial.keypad, canNext: Object.keys(userAnswers).length > 0, placement: "top" },
+    // 見出しの段は文字盤の場所も穴に含める（「ヒント」を押すとそこに出る文を幕で覆わない）
+    { target: ['[data-coach="closeup-head"]', '[data-coach="keypad"]'], lines: T.tutorial.head, placement: "top" },
+    { target: ['[data-coach="reveal"]', '[data-coach="reveal-confirm"]'], lines: T.tutorial.reveal, placement: "top" },
+    { lines: T.tutorial.free },
+    { lines: [] }, // 自由に解く間（出さない）
+    { target: '[data-coach="tutorial-done"]', lines: T.tutorial.done(!!tutorialFrom), nextLabel: T.tutorial.close, showSkip: false },
+  ];
+  const tutorialNext = () => {
+    if (tutStep === null) return;
+    if (tutStep >= 6) endTutorial();
+    else setTutStep(tutStep + 1);
+  };
+
+  // --- 作る画面の案内（Hop 決定 2026-10-05・案B） ---
+  // 初めて開いた時に1回だけ（作りかけを戻し終えてから）。組み直しで開いた時は出さない
+  useEffect(() => {
+    if (isPlayerMode || !draftReady || guideCheckedRef.current) return;
+    guideCheckedRef.current = true;
+    if (!lsGet(CREATE_GUIDE_KEY)) startCreateGuide();
+  }, [isPlayerMode, draftReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function startCreateGuide() {
+    guideBaseRef.current = editorItems.length;
+    setCreateGuide(0);
+  }
+  const endCreateGuide = () => {
+    lsSet(CREATE_GUIDE_KEY, "1");
+    setCreateGuide(null);
+  };
+  const answerOk = !!currentInput.a.trim() && toCells(currentInput.a).every((c) => /^[ァ-ヶー]$/.test(c));
+  const boardReady = !!generatedPuzzle && !isLiveGenerating;
+  const addedSinceStep = editorItems.length > guideBaseRef.current;
+  // done は「利用者の操作で次の段へ進む」段の終わりの印（「次へ」を出さない段）
+  const createSteps: (CoachStep & { done?: boolean })[] = [
+    { target: '[data-coach="create-answer"]', lines: T.createGuide.answer, canNext: answerOk },
+    { target: '[data-coach="create-clue"]', lines: T.createGuide.clue, canNext: !!currentInput.q.trim() },
+    { target: '[data-coach="create-hint"]', lines: T.createGuide.hint, canNext: !!pendingHint },
+    // ヒント欄も穴に含める（YouTube を選ぶと欄の中にプレーヤーが出る。プレーヤーを幕で覆わない）
+    { target: ['[data-coach="create-hint"]', '[data-coach="create-add"]'], lines: T.createGuide.add, showNext: false, done: addedSinceStep },
+    { target: '[data-coach="create-board"]', lines: T.createGuide.board, canNext: boardReady },
+    { target: '[data-coach="create-entry"]', lines: T.createGuide.second, showNext: false, done: addedSinceStep },
+    { target: '[data-coach="create-board"]', lines: T.createGuide.shape, canNext: boardReady },
+    { target: '[data-coach="create-board"]', lines: T.createGuide.move, canNext: boardReady },
+    { target: '[data-coach="create-title"]', lines: T.createGuide.title },
+    { target: '[data-coach="create-share"]', lines: T.createGuide.share, holeClickable: false },
+    { target: '[data-coach="create-mine"]', lines: T.createGuide.mine, nextLabel: T.tutorial.close, showSkip: false, holeClickable: false },
+  ];
+  const createNext = () => {
+    if (createGuide === null) return;
+    if (createGuide >= createSteps.length - 1) {
+      endCreateGuide();
+      return;
+    }
+    guideBaseRef.current = editorItems.length;
+    setCreateGuide(createGuide + 1);
+  };
+  const createStepDone = createGuide !== null && !!createSteps[createGuide]?.done;
+  useEffect(() => {
+    if (createStepDone) createNext();
+  }, [createStepDone]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const clueList = (dir: "horizontal" | "vertical") =>
     playerPuzzle!.items.filter((i) => i.direction === dir).sort((a, b) => (a.clueIndex || 0) - (b.clueIndex || 0));
 
@@ -1525,7 +1703,7 @@ export default function CrosswordPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              {gamePhase === "playing" && (
+              {gamePhase === "playing" && !isTutorial && (
                 <span className="text-lg font-mono font-bold tabular-nums" style={{ color: C.ink }}>
                   {String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:{String(elapsedSeconds % 60).padStart(2, "0")}
                 </span>
@@ -1579,16 +1757,45 @@ export default function CrosswordPage() {
                     ))}
                   </div>
 
-                  <button
-                    onClick={() => {
-                      closeHelp();
-                      handleStartGame();
-                    }}
-                    className="w-full bg-primary hover:bg-secondary text-white font-bold py-4 text-lg flex items-center justify-center gap-2 transition-colors"
-                  >
-                    <Icon icon="play_arrow" />
-                    {T.playerHelp.start}
-                  </button>
+                  {helpFirst ? (
+                    // 初めて開いた時は「練習してから始める」と「このまま始める」の2つ（Hop 決定 2026-10-05・案B）
+                    <div className="space-y-2">
+                      <button
+                        onClick={goPractice}
+                        className="w-full bg-primary hover:bg-secondary text-white font-bold py-4 text-lg flex items-center justify-center gap-2 transition-colors"
+                      >
+                        {T.playerHelp.practiceFirst}
+                      </button>
+                      <button
+                        onClick={closeHelp}
+                        className="w-full bg-surface-container-high hover:bg-surface-container-highest font-bold py-4 text-lg flex items-center justify-center gap-2 transition-colors"
+                        style={{ color: C.ink }}
+                      >
+                        <Icon icon="play_arrow" />
+                        {T.playerHelp.startNow}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => {
+                          closeHelp();
+                          handleStartGame();
+                        }}
+                        className="w-full bg-primary hover:bg-secondary text-white font-bold py-4 text-lg flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <Icon icon="play_arrow" />
+                        {T.playerHelp.start}
+                      </button>
+                      <button
+                        onClick={goPractice}
+                        className="w-full bg-surface-container-high hover:bg-surface-container-highest font-bold py-3 flex items-center justify-center gap-2 transition-colors"
+                        style={{ color: C.ink }}
+                      >
+                        {T.playerHelp.practice}
+                      </button>
+                    </div>
+                  )}
                 </Motion>
               </Motion>
             )}
@@ -1596,7 +1803,12 @@ export default function CrosswordPage() {
 
           <div className="flex justify-center items-center gap-4 mb-8">
             <p className="text-center text-sm" style={{ color: C.secondary }}>クロスワードパズル</p>
-            <button onClick={() => setShowHelp(true)} className="transition-colors hover:text-black" style={{ color: C.outline }} title={T.howToPlay}>
+            <button
+              onClick={() => (isTutorial ? setTutStep(isCleared ? 6 : 0) : setShowHelp(true))}
+              className="transition-colors hover:text-black"
+              style={{ color: C.outline }}
+              title={T.howToPlay}
+            >
               <Icon icon="help" />
             </button>
           </div>
@@ -1691,6 +1903,12 @@ export default function CrosswordPage() {
                 {/* Controls */}
                 <div className="flex justify-center gap-4">
                   <Button onClick={() => void handleClearCheck()} variant="primary">答え合わせ</Button>
+                  {/* 練習問題から本番へ（解く前でも押せる） */}
+                  {isTutorial && (
+                    <div data-coach="tutorial-done">
+                      <Button onClick={goReal} variant={isCleared ? "primary" : "secondary"}>{T.tutorial.toReal}</Button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Clue List */}
@@ -1717,11 +1935,15 @@ export default function CrosswordPage() {
                   ))}
                 </div>
 
+                {/* 練習問題には作成者がいないので、著作権の注意と通報は出さない */}
+                {!isTutorial && (
                 <div className="text-center mt-8 text-xs" style={{ color: C.secondary }}>
                   ※作成されたパズルの著作権および責任は作成者に帰属します。
                 </div>
+                )}
 
                 {/* 不適切なパズルを通報するリンク */}
+                {!isTutorial && (
                 <div className="text-center mt-2">
                   <button
                     onClick={() => setShowContact(true)}
@@ -1732,6 +1954,7 @@ export default function CrosswordPage() {
                     不適切なパズルを通報する
                   </button>
                 </div>
+                )}
 
                 {isCleared && (
                   <>
@@ -1763,7 +1986,8 @@ export default function CrosswordPage() {
                     <HintList items={playerPuzzle.items} hints={playerHints} />
                     {/* ほかの問題と一覧への入口 */}
                     {puzzleId && playerGenre && <OtherPuzzles genre={playerGenre} puzzleId={puzzleId} />}
-                    {/* 作成モードへ戻るリンク */}
+                    {/* 作成モードへ戻るリンク（練習問題では出さない） */}
+                    {!isTutorial && (
                     <div className="text-center mt-4">
                       <Link
                         to="/crossword/create"
@@ -1774,6 +1998,7 @@ export default function CrosswordPage() {
                         {T.createNew}
                       </Link>
                     </div>
+                    )}
                   </>
                 )}
               </Motion>
@@ -1790,6 +2015,7 @@ export default function CrosswordPage() {
               activeIndex={activeCloseupIndex}
               keypadType={isDebugMode ? detectKeypadType(playerPuzzle.items.map((item) => item.answer.join(""))) : "katakana"} // 保存できる答えはカタカナだけ
               hint={playerHints[activeWordItem.uuid]}
+              hintText={isTutorial ? TUTORIAL_HINTS[activeWordItem.uuid] : undefined}
               onKeyPress={handleCloseupKeyPress}
               onBackspace={handleCloseupBackspace}
               onClose={() => setShowCloseup(false)}
@@ -1851,6 +2077,18 @@ export default function CrosswordPage() {
 
         {showContact && <ContactModal onClose={() => setShowContact(false)} initialTool="crossword" puzzleId={puzzleId} />}
 
+        {/* 練習問題の案内（自由に解く間は出さない） */}
+        {isTutorial && tutStep !== null && tutStep !== 5 && (
+          <CoachMarks
+            step={tutorialSteps[tutStep]}
+            stepKey={tutStep}
+            onNext={tutorialNext}
+            onSkip={endTutorial}
+            skipLabel={T.tutorial.skip}
+            nextDefaultLabel={T.tutorial.next}
+          />
+        )}
+
         <Footer bottomGap={!isCleared && !showCloseup} />
       </div>
     );
@@ -1908,7 +2146,7 @@ export default function CrosswordPage() {
             {T.stage2b.toList} <span aria-hidden="true">→</span>
           </Link>
           {/* 自分が作った問題は別の画面（/crossword/mine）。別の端末から引き継げるよう、作った問題が無くても出す（2026-10-04） */}
-          <Link to="/crossword/mine" className="text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
+          <Link to="/crossword/mine" data-coach="create-mine" className="text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
             {T.myPuzzles.title} <span aria-hidden="true">→</span>
           </Link>
         </div>
@@ -1944,7 +2182,7 @@ export default function CrosswordPage() {
                   <Icon icon="add" /> {editTarget ? T.edit.heading : T.createNew}
                 </h2>
 
-                <div className="space-y-1 mb-4">
+                <div className="space-y-1 mb-4" data-coach="create-title">
                   <label className="text-xs font-mono font-bold" style={{ color: C.secondary }}>{T.puzzleTitle}</label>
                   <Input value={puzzleTitle} onChange={setPuzzleTitle} placeholder={T.titlePlaceholder} maxLength={50} />
                 </div>
@@ -1995,12 +2233,12 @@ export default function CrosswordPage() {
                 </label>
               </div>
 
-              <div className="space-y-3">
-                <div className="space-y-1">
+              <div className="space-y-3" data-coach="create-entry">
+                <div className="space-y-1" data-coach="create-answer">
                   <label className="text-xs font-mono font-bold" style={{ color: C.secondary }}>{T.answer}</label>
                   <Input value={currentInput.a} onChange={(v) => setCurrentInput({ ...currentInput, a: v })} placeholder={T.answerPlaceholder} />
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1" data-coach="create-clue">
                   <label className="text-xs font-mono font-bold" style={{ color: C.secondary }}>{T.clue}</label>
                   <div className="flex gap-2">
                     <input
@@ -2016,10 +2254,11 @@ export default function CrosswordPage() {
                     </button>
                   </div>
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1" data-coach="create-hint">
                   <label className="text-xs font-mono font-bold" style={{ color: C.secondary }}>ヒント</label>
                   <HintField genre={genre} onChange={setPendingHint} resetKey={hintResetKey} inputClassName={inputClass} initial={hintInitial} />
                 </div>
+                <div data-coach="create-add">
                 {editingId ? (
                   <div className="flex gap-2">
                     <Button onClick={handleAddItem} disabled={!currentInput.a || !pendingHint} className="flex-1">
@@ -2034,6 +2273,7 @@ export default function CrosswordPage() {
                     {T.addToList}
                   </Button>
                 )}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -2082,7 +2322,7 @@ export default function CrosswordPage() {
 
             {/* Preview & Output */}
             <div className="lg:col-span-2 space-y-6" id="puzzle-preview-area">
-              <div className="bg-surface-container-low min-h-[400px] flex flex-col items-center justify-center relative overflow-visible">
+              <div data-coach="create-board" className="bg-surface-container-low min-h-[400px] flex flex-col items-center justify-center relative overflow-visible">
                 {isLiveGenerating && showPreviewAnimation && backgroundPuzzle ? (
                   <div className="w-full p-4 flex flex-col items-center">
                     <FitGrid width={backgroundPuzzle.width} height={backgroundPuzzle.height}>
@@ -2166,10 +2406,12 @@ export default function CrosswordPage() {
               {/* 共有ボタン - パズルエリアの下 */}
               {generatedPuzzle && !isLiveGenerating && (
                 <div className="flex justify-center">
+                  <div data-coach="create-share">
                   <Button onClick={handleShare} disabled={isSaving} className="flex items-center gap-2">
                     {!editTarget && <Icon icon="share" />}
                     {isSaving ? T.saving : editTarget ? T.edit.update : T.share}
                   </Button>
+                  </div>
                 </div>
               )}
 
@@ -2266,7 +2508,27 @@ export default function CrosswordPage() {
                   </ul>
                 </section>
 
-                <div className="pt-4 flex justify-end">
+                <section className="space-y-3">
+                  <h4 className="text-sm font-bold uppercase tracking-wider pb-1" style={{ color: C.ink }}>{T.creatorHelp.moreTitle}</h4>
+                  <ul className="space-y-2 text-sm list-disc pl-5" style={{ color: C.secondary }}>
+                    {T.creatorHelp.more.map((line, index) => (
+                      <li key={index}>{line}</li>
+                    ))}
+                  </ul>
+                </section>
+
+                <div className="pt-4 flex justify-end gap-2">
+                  {/* 実物の上で案内する（Hop 決定 2026-10-05・案B） */}
+                  <button
+                    onClick={() => {
+                      setShowCreatorHelp(false);
+                      startCreateGuide();
+                    }}
+                    className="px-4 py-2 bg-surface-container-high hover:bg-surface-container-highest font-medium transition-colors"
+                    style={{ color: C.ink }}
+                  >
+                    {T.creatorHelp.guide}
+                  </button>
                   <button onClick={() => setShowCreatorHelp(false)} className="px-4 py-2 bg-primary hover:bg-secondary text-white font-medium transition-colors">
                     {T.creatorHelp.close}
                   </button>
@@ -2276,6 +2538,18 @@ export default function CrosswordPage() {
           </div>
         )}
       </div>
+
+      {/* 作る画面の案内 */}
+      {createGuide !== null && createSteps[createGuide] && (
+        <CoachMarks
+          step={createSteps[createGuide]}
+          stepKey={createGuide}
+          onNext={createNext}
+          onSkip={endCreateGuide}
+          skipLabel={T.tutorial.skip}
+          nextDefaultLabel={T.tutorial.next}
+        />
+      )}
 
       <Footer />
     </>
