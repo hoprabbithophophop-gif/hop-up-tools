@@ -170,14 +170,21 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
         </div>
 
         {/* Header: カギ + ヒント + 閉じるボタン（data-coach は練習問題の案内の印の目印） */}
-        <div data-coach="closeup-head" className="p-4 flex items-center gap-3" style={{ background: C.low }}>
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <span className="px-2 py-0.5 text-xs font-bold bg-primary text-white">{wordItem.clueIndex}</span>
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>
-              {wordItem.direction === "horizontal" ? "arrow_forward" : "arrow_downward"}
-            </span>
+        {/* カギの文は切り詰めずに全文を折り返して出す（Hop 2026-10-06「全文出ないのストレス」）。ボタンは下の段 */}
+        <div data-coach="closeup-head" className="p-4 flex flex-col gap-2" style={{ background: C.low }}>
+          <div className="flex items-start gap-3">
+            <div className="flex items-center gap-2 text-sm font-semibold shrink-0 pt-0.5">
+              <span className="px-2 py-0.5 text-xs font-bold bg-primary text-white">{wordItem.clueIndex}</span>
+              <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>
+                {wordItem.direction === "horizontal" ? "arrow_forward" : "arrow_downward"}
+              </span>
+            </div>
+            <p className="flex-1 min-w-0 text-sm leading-snug whitespace-pre-wrap break-words" style={{ color: C.ink }}>{wordItem.question}</p>
+            <button onClick={onClose} className="p-1.5 -mt-1 -mr-1 shrink-0 hover:bg-surface-container-high transition-colors" aria-label="閉じる">
+              <span className="material-symbols-outlined leading-none" style={{ fontSize: "20px", color: C.secondary }}>close</span>
+            </button>
           </div>
-          <p className="flex-1 text-sm truncate" style={{ color: C.ink }}>{wordItem.question}</p>
+          <div className="flex items-center gap-2 pl-[2.25rem]">
           {(hint || hintText) && (
             <button
               onClick={() => setShowHint((v) => !v)}
@@ -196,9 +203,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
               1文字見る
             </button>
           )}
-          <button onClick={onClose} className="p-1.5 hover:bg-surface-container-high transition-colors" aria-label="閉じる">
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: "20px", color: C.secondary }}>close</span>
-          </button>
+          </div>
         </div>
 
         {/* 1文字見るの確かめ（その回で初めての時だけ） */}
