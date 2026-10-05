@@ -124,19 +124,14 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
     if (hiraganaMode !== "normal") setHiraganaMode("normal");
   };
 
-  // 濁音・半濁音ボタンの処理
-  // 現在のセルに文字があれば変換、なければモードトグル
+  // 濁音・半濁音ボタンの処理。書き順どおり「字のあと」に押して、直前の字を変える。
+  // 変えられる字が無ければ何もしない（「先に ゛ を押してから字」の順は使わない。Hop 2026-10-06）
   const handleModifierClick = (mode: HiraganaMode) => {
-    if (currentChar && onModifyCurrentChar) {
-      let modified: string | undefined;
-      if (mode === "dakuten") modified = DAKUTEN_MAP[currentChar];
-      if (mode === "handakuten") modified = HANDAKUTEN_MAP[currentChar];
-      if (modified) {
-        onModifyCurrentChar(modified);
-        return;
-      }
-    }
-    setHiraganaMode((prev) => (prev === mode ? "normal" : mode));
+    if (!currentChar || !onModifyCurrentChar) return;
+    let modified: string | undefined;
+    if (mode === "dakuten") modified = DAKUTEN_MAP[currentChar];
+    if (mode === "handakuten") modified = HANDAKUTEN_MAP[currentChar];
+    if (modified) onModifyCurrentChar(modified);
   };
 
   const modifierStyle = (mode: HiraganaMode, map: Record<string, string>): React.CSSProperties =>

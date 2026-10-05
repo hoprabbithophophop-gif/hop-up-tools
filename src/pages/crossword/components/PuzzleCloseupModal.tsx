@@ -31,7 +31,7 @@ interface PuzzleCloseupModalProps {
   onComplete: () => void;
   onPrevCell: () => void;
   onNextCell: () => void;
-  onModifyChar?: (char: string) => void;
+  onModifyChar?: (char: string, index: number) => void;
   onReveal?: () => void;
   /** その回ですでに1文字見るを使ったか（使っていれば確かめずに開ける） */
   revealUsed?: boolean;
@@ -84,6 +84,8 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
     const y = wordItem.direction === "vertical" ? wordItem.startY + index : wordItem.startY;
     return userAnswers[`${x},${y}`] || "";
   };
+  // ゛゜は書き順どおり「字のあと」に効く。字を入れると次のマスへ進んでいるので、今のマスが空なら1つ前の字に効かせる（Hop 2026-10-06）
+  const modTargetIndex = !getCellValue(activeIndex) && activeIndex > 0 && getCellValue(activeIndex - 1) ? activeIndex - 1 : activeIndex;
 
   const handleBackgroundClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) onClose();
@@ -266,8 +268,8 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
               onArrowLeft={onPrevCell}
               onArrowRight={onNextCell}
               disabled={false}
-              currentChar={getCellValue(activeIndex)}
-              onModifyCurrentChar={onModifyChar}
+              currentChar={getCellValue(modTargetIndex)}
+              onModifyCurrentChar={(ch) => onModifyChar?.(ch, modTargetIndex)}
             />
           )}
         </div>

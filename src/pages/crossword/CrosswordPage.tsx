@@ -935,11 +935,12 @@ export default function CrosswordPage() {
   };
 
   // クローズアップモーダル内での文字変換（濁音・半濁音・小文字）
-  const handleCloseupModifyChar = (char: string) => {
+  const handleCloseupModifyChar = (char: string, index: number = activeCloseupIndex) => {
     if (!activeWordItem || isCleared) return;
-    const key = closeupCellKey(activeCloseupIndex);
+    const key = closeupCellKey(index);
     setUserAnswers((prev) => ({ ...prev, [key]: char.toUpperCase() }));
-    if (activeCloseupIndex < activeWordItem.length - 1) setActiveCloseupIndex((prev) => prev + 1);
+    // 1つ前の字に効かせた時は、今のマスはそのまま（すでに進んでいる）
+    if (index === activeCloseupIndex && activeCloseupIndex < activeWordItem.length - 1) setActiveCloseupIndex((prev) => prev + 1);
   };
 
   // スマートナビゲーション: 指定セルを含むワードを取得
