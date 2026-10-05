@@ -103,7 +103,7 @@ if (url) {
 r['2 構築中の動きが出た'] = await pb.getByText(T.building).first().waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false);
   await pb.waitForTimeout(2500);
   // 初回の遊び方を閉じる
-  await pb.getByRole('button', { name: /始める|はじめる|閉じる/ }).first().click().catch(() => {});
+  await pb.getByRole('button', { name: /このまま始める|始める！|はじめる|閉じる/ }).first().click().catch(() => {});
   const t1 = await pb.evaluate(() => (document.body.innerText.match(/\d\d:\d\d/) || [''])[0]);
   await pb.waitForTimeout(2200);
   const t2 = await pb.evaluate(() => (document.body.innerText.match(/\d\d:\d\d/) || [''])[0]);

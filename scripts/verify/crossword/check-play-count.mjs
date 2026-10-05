@@ -22,7 +22,7 @@ async function session(ctx) {
     await page.goto(`${BASE}/crossword/${ID}`);
     await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
     await page.waitForTimeout(2500);
-    await page.getByRole('button', { name: /始める|はじめる|閉じる/ }).first().click({ timeout: 2000 }).catch(() => {});
+    await page.getByRole('button', { name: /このまま始める|始める！|はじめる|閉じる/ }).first().click({ timeout: 2000 }).catch(() => {});
   };
   const typeOne = async (ch) => {
     await page.getByRole('button', { name: /空$/ }).first().click({ timeout: 3000 }).catch(() => {}); // 拡大の窓が開いていれば、そのまま文字盤を押す

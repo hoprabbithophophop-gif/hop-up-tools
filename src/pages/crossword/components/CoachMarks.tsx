@@ -4,6 +4,8 @@
 // - 印の位置は getBoundingClientRect で毎フレーム取り直す（スクロール・キーボードの出入り・盤の組み上がりに付いていく）
 // - 段が変わったら印の要素を画面の真ん中あたりへスクロールする
 // - YouTube のプレーヤー（iframe）が穴の外にある間は、幕も吹き出しも出さない（YouTube API 規約「プレーヤーの前に何も表示しない」）
+// - どの段でも抜けられる（Hop 2026-10-05「離脱不可能なチュートリアルやめてほしい」）。吹き出しの右上の「×」・「とばす」・
+//   幕（暗い所）をタップ・Esc キーのどれでも案内を終える。「次へ」を押せない段でも同じ
 // - 吹き出しは 390px の画面でもはみ出さないよう、左右 16px の余白の中に置く。印にも動画にも重ならない場所を選ぶ
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { C } from "../style";
@@ -19,8 +21,6 @@ export interface CoachStep {
   canNext?: boolean;
   /** 「次へ」の代わりの文字（最後の段など） */
   nextLabel?: string;
-  /** 「とばす」を出すか */
-  showSkip?: boolean;
   /** 吹き出しの置き場所。auto = 印のすぐ下か上、top = 画面の上（下から出る窓の中に印がある時。窓の字を隠さない） */
   placement?: "auto" | "top";
   /** 穴の中の部品を押せるか（説明だけの段で、押すと窓が開いてしまう部品の時は false） */
@@ -35,6 +35,8 @@ interface Props {
   onSkip: () => void;
   skipLabel?: string;
   nextDefaultLabel?: string;
+  /** 右上の「×」の読み上げ名 */
+  closeLabel?: string;
 }
 
 interface Box {
@@ -90,7 +92,7 @@ function visiblePlayers(): Box[] {
 const sameBox = (a: Box | null, b: Box | null) =>
   a === b || (!!a && !!b && Math.abs(a.top - b.top) < 0.5 && Math.abs(a.left - b.left) < 0.5 && Math.abs(a.width - b.width) < 0.5 && Math.abs(a.height - b.height) < 0.5);
 
-export const CoachMarks: React.FC<Props> = ({ step, stepKey, onNext, onSkip, skipLabel = "とばす", nextDefaultLabel = "次へ" }) => {
+export const CoachMarks: React.FC<Props> = ({ step, stepKey, onNext, onSkip, skipLabel = "とばす", nextDefaultLabel = "次へ", closeLabel = "案内を終える" }) => {
   const selectors = toSelectors(step.target);
   const selectorKey = selectors.join("|");
   const [hole, setHole] = useState<Box | null>(null);
@@ -147,6 +149,17 @@ export const CoachMarks: React.FC<Props> = ({ step, stepKey, onNext, onSkip, ski
     return () => cancelAnimationFrame(raf);
   }, [selectorKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Esc キーで終える
+  const skipRef = useRef(onSkip);
+  skipRef.current = onSkip;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") skipRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   useLayoutEffect(() => {
     const h = bubbleRef.current?.offsetHeight ?? 0;
     if (h !== bubbleH) setBubbleH(h);
@@ -179,7 +192,6 @@ export const CoachMarks: React.FC<Props> = ({ step, stepKey, onNext, onSkip, ski
 
   const showNext = step.showNext !== false;
   const canNext = step.canNext !== false;
-  const showSkip = step.showSkip !== false;
 
   // 幕（穴の上下左右の4枚。穴が無ければ1枚）
   const masks: React.CSSProperties[] = hole
@@ -194,7 +206,8 @@ export const CoachMarks: React.FC<Props> = ({ step, stepKey, onNext, onSkip, ski
   return (
     <div data-coach-layer="" aria-live="polite">
       {masks.map((s, i) => (
-        <div key={i} style={{ position: "fixed", zIndex: Z, background: MASK, ...s }} />
+        // 幕をタップしても終える
+        <div key={i} data-coach-mask="" onClick={onSkip} style={{ position: "fixed", zIndex: Z, background: MASK, ...s }} />
       ))}
       {/* 説明だけの段で、穴の中の部品を押させない時の透明なふた */}
       {hole && step.holeClickable === false && (
@@ -205,21 +218,30 @@ export const CoachMarks: React.FC<Props> = ({ step, stepKey, onNext, onSkip, ski
         role="dialog"
         aria-modal="false"
         data-coach-bubble=""
-        className="p-4"
+        className="p-4 pr-12"
         style={{ position: "fixed", zIndex: Z + 1, top: bubbleTop, left: bubbleLeft, width: bubbleW, background: C.white, boxShadow: C.modalShadow }}
       >
+        {/* どの段でも出す「×」 */}
+        <button
+          type="button"
+          onClick={onSkip}
+          data-coach-close=""
+          aria-label={closeLabel}
+          className="absolute top-1 right-1 w-11 h-11 flex items-center justify-center hover:bg-surface-container-high transition-colors"
+          style={{ color: C.secondary }}
+        >
+          <span className="material-symbols-outlined leading-none" style={{ fontSize: "20px" }}>close</span>
+        </button>
         <div className="space-y-1 text-sm leading-relaxed" style={{ color: C.ink }}>
           {step.lines.map((l, i) => (
             <p key={i}>{l}</p>
           ))}
         </div>
-        {(showSkip || showNext) && (
-          <div className="flex justify-end gap-2 mt-3">
-            {showSkip && (
-              <button type="button" onClick={onSkip} className="px-4 py-2 text-sm font-semibold bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.ink }}>
-                {skipLabel}
-              </button>
-            )}
+        {/* 「とばす」はどの段でも出す（押せない段を作らない） */}
+        <div className="flex justify-end gap-2 mt-3 -mr-8">
+            <button type="button" onClick={onSkip} className="px-4 py-2 text-sm font-semibold bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.ink }}>
+              {skipLabel}
+            </button>
             {showNext && (
               <button
                 type="button"
@@ -230,8 +252,7 @@ export const CoachMarks: React.FC<Props> = ({ step, stepKey, onNext, onSkip, ski
                 {step.nextLabel ?? nextDefaultLabel}
               </button>
             )}
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );

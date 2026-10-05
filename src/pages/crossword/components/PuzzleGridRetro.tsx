@@ -13,6 +13,8 @@ interface PuzzleGridRetroProps {
   onCellFocus?: (x: number, y: number) => void;
   onCellClick?: (x: number, y: number) => void;
   wrongCells?: Set<string>;
+  /** 静かに脈打たせるマス（初めて解く人に、押す所を知らせる。Hop 決定 2026-10-05）。色は使わず濃淡だけ */
+  pulseCell?: { x: number; y: number } | null;
 }
 
 export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
@@ -23,6 +25,7 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
   onCellFocus,
   onCellClick,
   wrongCells = new Set(),
+  pulseCell = null,
 }) => {
   const cellSize = 48;
   const containerWidth = data.width * cellSize;
@@ -52,6 +55,18 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
         .puzzle-cell:focus {
           outline: none;
         }
+        /* 押す所を知らせる脈打ち（1.2秒周期【仮】・濃淡だけ）。動きを減らす設定では止めて薄い面だけ出す */
+        @keyframes crossword-cell-pulse {
+          0%, 100% { opacity: 0; }
+          50% { opacity: 1; }
+        }
+        .crossword-cell-pulse {
+          background: rgba(0, 0, 0, 0.14);
+          animation: crossword-cell-pulse 1.2s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .crossword-cell-pulse { animation: none; opacity: 0.6; }
+        }
       `}</style>
 
       <div className="relative" style={{ width: containerWidth, height: containerHeight }}>
@@ -78,6 +93,10 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
 
               {/* [No.13] アクティブセル背景 */}
               {isActive && <div className="absolute inset-0 pointer-events-none z-0" style={{ background: C.active }} />}
+
+              {pulseCell && pulseCell.x === cell.x && pulseCell.y === cell.y && (
+                <div data-pulse="" className="crossword-cell-pulse absolute inset-0 pointer-events-none z-0" />
+              )}
 
               <button
                 id={`cell-${cell.x}-${cell.y}`}

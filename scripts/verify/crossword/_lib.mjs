@@ -4,7 +4,50 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
+import { chromium, webkit, firefox } from 'playwright';
+
 export const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+// 2026-10-05 に足した「初めて」の案内（解く画面の脈打ちと1行・作る画面の札・作る画面の案内）を、台本では出さない。
+// どの台本も playwright の chromium／webkit から開くので、ここで開く前の印を立てる（ブラウザの記録を作るたびに、ページの読み込みより先に入れる）。
+// 案内そのものを確かめる check-tutorial だけは leaveFirstVisitMarks() を呼んで印を立てずに流す。
+// もとからある遊び方の窓の印（crossword_seen_help）は立てない。遊び方の窓を確かめる台本があり、解く画面の台本はそれぞれ必要な時に自分で立てている。
+// 練習問題（/crossword/tutorial）は「?」から開いた時だけで、開けば必ず案内が出る（印 crossword_seen_tutorial は記録だけ）
+export const SEEN_MARKS = {
+  crossword_seen_create_guide: '1', // 「?」から開く作る画面の案内（今は自動では出ない）
+  crossword_seen_first_cell: '1', // 解く画面の最初のマスの脈打ちと1行
+  crossword_seen_tip_cross: '1', // 作る画面の札（最初の語の後）
+  crossword_seen_tip_move: '1', // 作る画面の札（交差して組まれた後）
+  crossword_seen_tip_saved: '1', // 共有の窓の札
+};
+let markSeen = true;
+export const leaveFirstVisitMarks = () => {
+  markSeen = false;
+};
+const seenScript = (marks) => {
+  try {
+    for (const [k, v] of Object.entries(marks)) if (!localStorage.getItem(k)) localStorage.setItem(k, v);
+  } catch { /* 記録を使えないページ（about:blank など）では何もしない */ }
+};
+const withMarks = async (ctx) => {
+  if (markSeen) await ctx.addInitScript(seenScript, SEEN_MARKS);
+  return ctx;
+};
+for (const type of [chromium, webkit, firefox]) {
+  const launch = type.launch.bind(type);
+  type.launch = async (...args) => {
+    const b = await launch(...args);
+    const newContext = b.newContext.bind(b);
+    b.newContext = async (...a) => withMarks(await newContext(...a));
+    const newPage = b.newPage.bind(b);
+    b.newPage = async (...a) => {
+      const page = await newPage(...a);
+      if (markSeen) await page.context().addInitScript(seenScript, SEEN_MARKS);
+      return page;
+    };
+    return b;
+  };
+}
 export const ROOT = path.resolve(SCRIPT_DIR, '..', '..', '..');
 
 // 既定の行き先と問題の番号（引数も環境変数も無いときに使う）。引数があれば引数が勝つ
@@ -59,7 +102,6 @@ export async function puzzleLayout(base, id) {
       if (c && c.cells && Object.keys(c.cells).length) return c;
     } catch { /* 読めなければ取り直す */ }
   }
-  const { chromium } = await import('playwright');
   const browser = await chromium.launch();
   let record = null;
   try {
