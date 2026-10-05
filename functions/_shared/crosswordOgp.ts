@@ -42,12 +42,16 @@ export function decodeOgpPng(input: unknown): Uint8Array<ArrayBuffer> | null {
   return bytes;
 }
 
-/** 秘密の鍵で置き場に置く。置けたら true。失敗しても投げない */
+/**
+ * 秘密の鍵で置き場に置く。置けたら true。失敗しても投げない。
+ * upsert が true なら、同じ番号の絵があれば置き換える（組み直し /api/crossword-update 用）
+ */
 export async function uploadOgpPng(
   supabaseUrl: string,
   secretKey: string,
   id: string,
   png: Uint8Array<ArrayBuffer>,
+  upsert = false,
 ): Promise<boolean> {
   try {
     const res = await fetch(`${supabaseUrl}/storage/v1/object/${OGP_BUCKET}/${id}.png`, {
@@ -56,7 +60,7 @@ export async function uploadOgpPng(
         apikey: secretKey,
         Authorization: `Bearer ${secretKey}`,
         "Content-Type": "image/png",
-        "x-upsert": "false",
+        "x-upsert": upsert ? "true" : "false",
       },
       body: png,
     });

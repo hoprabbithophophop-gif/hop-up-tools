@@ -17,6 +17,7 @@ const T = {
   plays: "遊ばれた回数",
   unavailable: "非表示になっています",
   open: "開く",
+  rebuild: "組み直す", // 【仮】まだ遊ばれていない問題だけ（Hop 決定 2026-10-05）
   delete: "削除",
   confirm: "消す？",
   confirmYes: "消す",
@@ -181,6 +182,15 @@ export default function MyPuzzlesPage() {
                           >
                             {T.open}
                           </Link>
+                          {known && count === 0 && (
+                            <Link
+                              to={`/crossword/create?edit=${m.id}`}
+                              className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors shrink-0"
+                              style={{ color: C.ink }}
+                            >
+                              {T.rebuild}
+                            </Link>
+                          )}
                           <button
                             onClick={() => setConfirmDelete(m.id)}
                             className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors shrink-0"

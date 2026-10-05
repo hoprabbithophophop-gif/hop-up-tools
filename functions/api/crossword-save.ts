@@ -206,6 +206,40 @@ export function validateSavePayload(raw: unknown): CleanPuzzle | null {
   return { title, genre, requestedGenre, tags, body, key, isBeginner, groupTags, helloVideoIds };
 }
 
+/**
+ * ハロプロのジャンルの YouTube ヒントが、台帳に表示してよい動画として載っているか。
+ * 全部載っていれば "ok"、載っていない物があれば "video"、台帳に聞けなければ "server"。
+ * 保存（crossword-save）と組み直し（crossword-update）の両方から使う。
+ */
+export async function checkHelloVideos(
+  rest: string,
+  headers: Record<string, string>,
+  ids: string[],
+  label: string,
+): Promise<"ok" | "video" | "server"> {
+  if (ids.length === 0) return "ok";
+  try {
+    const res = await fetch(
+      `${rest}/youtube_videos?select=video_id&is_active_content=eq.true` + `&video_id=in.(${ids.join(",")})`,
+      { headers },
+    );
+    if (!res.ok) {
+      console.error(`${label}: catalog check failed`, res.status);
+      return "server";
+    }
+    const rows = (await res.json()) as { video_id: string }[];
+    const found = new Set(rows.map((r) => r.video_id));
+    return ids.every((v) => found.has(v)) ? "ok" : "video";
+  } catch {
+    return "server";
+  }
+}
+
+/** 誰でも読める棚に置く本文。答えの代わりに文字数だけ残す（Hop 決定 2026-10-04「答えを渡さない作り」） */
+export function toStoredBody(body: CleanPuzzle["body"]) {
+  return { ...body, clues: body.clues.map(({ answer, ...c }) => ({ ...c, length: answer.length })) };
+}
+
 /** 8字の問題番号。64字の表から選ぶので、1バイトの下6ビットでかたよりなく選べる。 */
 export function makeId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(8));
@@ -214,12 +248,12 @@ export function makeId(): string {
   return id;
 }
 
-async function sha256Hex(input: string): Promise<string> {
+export async function sha256Hex(input: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function json(body: unknown, status = 200): Response {
+export function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
@@ -227,7 +261,7 @@ function json(body: unknown, status = 200): Response {
 }
 
 /** PostgREST の失敗の中身から Postgres の errcode を読む。読めなければ ""。 */
-async function pgCode(res: Response): Promise<string> {
+export async function pgCode(res: Response): Promise<string> {
   const text = await res.text().catch(() => "");
   try {
     const j = JSON.parse(text) as { code?: unknown };
@@ -303,26 +337,9 @@ export async function onRequestPost(context: {
   if (!puzzle) return json({ ok: false, reason: "bad_request" }, 400);
 
   // ハロプロのジャンルの YouTube ヒントは、台帳に表示してよい動画として載っているものだけ。
-  if (puzzle.helloVideoIds.length > 0) {
-    try {
-      const res = await fetch(
-        `${rest}/youtube_videos?select=video_id&is_active_content=eq.true` +
-          `&video_id=in.(${puzzle.helloVideoIds.join(",")})`,
-        { headers: dbHeaders },
-      );
-      if (!res.ok) {
-        console.error("crossword-save: catalog check failed", res.status);
-        return json({ ok: false, reason: "server" }, 503);
-      }
-      const rows = (await res.json()) as { video_id: string }[];
-      const found = new Set(rows.map((r) => r.video_id));
-      if (!puzzle.helloVideoIds.every((v) => found.has(v))) {
-        return json({ ok: false, reason: "video" }, 400);
-      }
-    } catch {
-      return json({ ok: false, reason: "server" }, 503);
-    }
-  }
+  const catalog = await checkHelloVideos(rest, dbHeaders, puzzle.helloVideoIds, "crossword-save");
+  if (catalog === "server") return json({ ok: false, reason: "server" }, 503);
+  if (catalog === "video") return json({ ok: false, reason: "video" }, 400);
 
   // 5. 保存。番号が重なったら作り直す。
   let id = "";
@@ -337,7 +354,7 @@ export async function onRequestPost(context: {
         genre: puzzle.genre,
         tags: puzzle.tags,
         // 誰でも読める棚には答えを置かない。答えの代わりに文字数だけ残す（Hop 決定 2026-10-04「答えを渡さない作り」）
-        body: { ...puzzle.body, clues: puzzle.body.clues.map(({ answer, ...c }) => ({ ...c, length: answer.length })) },
+        body: toStoredBody(puzzle.body),
         is_beginner: puzzle.isBeginner,
         group_tags: puzzle.groupTags,
       }),

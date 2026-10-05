@@ -16,6 +16,7 @@ import { determineNextSelection } from "../../lib/crossword/puzzleSelectionLogic
 import {
   addMyPuzzle,
   catalogVideoIdsPresent,
+  fetchOwnedPuzzle,
   isCatalogVideo,
   isHiddenPuzzle,
   loadPuzzle,
@@ -24,6 +25,7 @@ import {
   savePuzzle,
   SaveError,
   toBody,
+  updatePuzzle,
   type Genre,
   type HintRef,
   type MyPuzzle,
@@ -154,6 +156,13 @@ const T = {
   // 自分が作った問題
   myPuzzles: {
     title: "自分が作った問題",
+  },
+  // 保存した問題の組み直し（Hop 決定 2026-10-05）。文言はすべて【仮】
+  edit: {
+    pageTitle: "クロスワードパズルの組み直し", // 【仮】
+    update: "更新する", // 【仮】
+    notEditable: "この問題は組み直せません", // 【仮】
+    alreadyPlayed: "もう遊ばれているので組み直せません", // 【仮】
   },
   shareModal: {
     modalTitle: "パズルを共有",
@@ -306,9 +315,15 @@ const Input = ({ value, onChange, placeholder, className, maxLength, onKeyDown }
 
 export default function CrosswordPage() {
   const { id: puzzleId } = useParams();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isDebugMode = searchParams.get("debug") === "true"; // デバッグモード
   const isPlayerMode = !!puzzleId || isDebugMode;
+  // 組み直し（/crossword/create?edit=<番号>。Hop 決定 2026-10-05）。
+  // checking = 中身を受け取り中、editing = 組み直し中（下書きに書かない・読まない【仮】）、none = 普通の作る画面
+  const editParam = isPlayerMode ? null : searchParams.get("edit");
+  const [editStatus, setEditStatus] = useState<"none" | "checking" | "editing">(editParam ? "checking" : "none");
+  const [editTarget, setEditTarget] = useState<MyPuzzle | null>(null);
+  const editStartedRef = useRef(false);
 
   // Editor State
   const [puzzleTitle, setPuzzleTitle] = useState("");
@@ -896,9 +911,73 @@ export default function CrosswordPage() {
     }
   }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase, reveals]);
 
-  // --- 作りかけを戻す・残す（作る画面だけ） ---
+  // --- 組み直し: 端末の控えの合言葉で中身を受け取り、入力欄と盤に戻す（Hop 決定 2026-10-05） ---
+  // 控えに無い・受け取れない時は知らせて普通の作る画面にする（住所の ?edit= も外す）
   useEffect(() => {
-    if (isPlayerMode) return;
+    if (editStatus !== "checking" || !editParam || editStartedRef.current) return;
+    editStartedRef.current = true;
+    const fail = (message: string) => {
+      toast.error(message, { duration: 5000 });
+      setEditStatus("none");
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("edit");
+          return next;
+        },
+        { replace: true }
+      );
+    };
+    const mine = readMyPuzzles().find((m) => m.id === editParam);
+    if (!mine) {
+      fail(T.edit.notEditable);
+      return;
+    }
+    fetchOwnedPuzzle(mine.id, mine.key)
+      .then((owned) => {
+        if (!owned) return fail(T.edit.notEditable);
+        if ((owned.puzzle.play_count ?? 0) > 0) return fail(T.edit.alreadyPlayed);
+        const rec = owned.puzzle;
+        const clues = rec.body?.clues;
+        if (!Array.isArray(clues) || clues.length !== owned.answers.length) return fail(T.edit.notEditable);
+        const placed: PlacedItem[] = clues.map((c, i) => ({
+          id: `c${i}`,
+          uuid: `c${i}`,
+          question: c.clue,
+          answer: owned.answers[i],
+          direction: c.direction,
+          startX: c.startX,
+          startY: c.startY,
+          length: owned.answers[i].length,
+          clueIndex: c.clueIndex,
+        }));
+        const restoredHints: Record<string, HintRef> = {};
+        clues.forEach((c, i) => {
+          if (c.hint) restoredHints[`c${i}`] = c.hint;
+        });
+        setGenre(rec.genre);
+        setPuzzleTitle(rec.title);
+        setCreatorName(rec.body.creatorName ?? "");
+        setTags(Array.isArray(rec.tags) ? rec.tags : []);
+        setIsBeginner(rec.is_beginner === true);
+        setHints(restoredHints);
+        setEditorItems(placed.map(({ id, question, answer }) => ({ id, question, answer })));
+        // 盤は保存した時の形のまま組む（番号も同じ）。組み替えたい時は「再シャッフル」
+        const grid = buildGrid(placed);
+        grid.title = rec.title;
+        setGeneratedPuzzle(grid);
+        setEditTarget({ ...mine, title: rec.title });
+        setEditStatus("editing");
+      })
+      .catch((err) => {
+        console.error("Failed to load own puzzle:", err);
+        fail(T.edit.notEditable);
+      });
+  }, [editStatus, editParam]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- 作りかけを戻す・残す（作る画面だけ。組み直しの間は読まない・書かない【仮】） ---
+  useEffect(() => {
+    if (isPlayerMode || editStatus !== "none" || draftReady) return;
     const raw = lsGet(DRAFT_KEY);
     if (raw) {
       try {
@@ -919,10 +998,10 @@ export default function CrosswordPage() {
       }
     }
     setDraftReady(true);
-  }, [isPlayerMode]);
+  }, [isPlayerMode, editStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (isPlayerMode || !draftReady) return;
+    if (isPlayerMode || !draftReady || editStatus !== "none") return;
     const empty = !puzzleTitle && !creatorName && tags.length === 0 && editorItems.length === 0 && !currentInput.q && !currentInput.a;
     if (empty) {
       lsRemove(DRAFT_KEY);
@@ -930,7 +1009,7 @@ export default function CrosswordPage() {
     }
     const d: Draft = { title: puzzleTitle, creatorName, genre, tags, isBeginner, items: editorItems, hints, input: currentInput };
     lsSet(DRAFT_KEY, JSON.stringify(d));
-  }, [isPlayerMode, draftReady, puzzleTitle, creatorName, genre, tags, isBeginner, editorItems, hints, currentInput]);
+  }, [isPlayerMode, draftReady, editStatus, puzzleTitle, creatorName, genre, tags, isBeginner, editorItems, hints, currentInput]);
 
   // --- Editor Functions ---
   const handleAddItem = () => {
@@ -1075,7 +1154,8 @@ export default function CrosswordPage() {
     const today = new Date().toISOString().split("T")[0];
     const limitKey = `${SAVE_COUNT_PREFIX}${today}`;
     const savedCount = parseInt(lsGet(limitKey) || "0", 10);
-    if (savedCount >= 5) {
+    // 組み直しの更新は新しく作る数に数えない【仮】
+    if (!editTarget && savedCount >= 5) {
       toast.error("1日に作成・保存できるパズルは5個までです。\nサーバーの負荷軽減にご協力ください。明日また作成をお願いします！", { duration: 5000 });
       return;
     }
@@ -1119,8 +1199,42 @@ export default function CrosswordPage() {
       setIsSaving(false);
       return;
     }
+    // 組み直しは人間確認を挟まない【仮】（合言葉が本人確認を兼ねる）
+    if (editTarget) {
+      void updateEdited();
+      return;
+    }
     // 保存の直前に人間かどうかを確かめる。済んだら saveWithToken へ続く
     setShowSaveCheck(true);
+  };
+
+  // 組み直した問題で書き換える。成功したら共有の窓（URL は同じ）を出す
+  const updateEdited = async () => {
+    if (!generatedPuzzle || !editTarget) {
+      setIsSaving(false);
+      return;
+    }
+    const title = puzzleTitle.trim();
+    try {
+      const body = toBody(generatedPuzzle.items, generatedPuzzle.width, generatedPuzzle.height, (id) => hints[id]);
+      if (creatorName.trim()) body.creatorName = creatorName.trim();
+      const ogpImage = await drawShareImage(generatedPuzzle, title);
+      await updatePuzzle(editTarget.id, editTarget.key, { title, genre, tags, body, isBeginner }, { ogpImage });
+      const updated = { ...editTarget, title };
+      setMyPuzzles(addMyPuzzle(updated));
+      setEditTarget(updated);
+      setShareUrl(`${window.location.origin}/crossword/${editTarget.id}`);
+      setSharedTitle(title);
+      setShowShareModal(true);
+    } catch (error) {
+      console.error("Failed to update puzzle:", error);
+      const reason = error instanceof SaveError ? error.reason : "";
+      const message =
+        reason === "already_played" ? T.edit.alreadyPlayed : reason === "not_found" ? T.edit.notEditable : T.saveReasons[reason] ?? T.errors.saveFailed;
+      toast.error(message, { duration: 5000 });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const cancelSaveCheck = () => {
@@ -1710,7 +1824,7 @@ export default function CrosswordPage() {
       <div className={`min-h-screen pt-20 pb-20 px-4 relative z-10 ${backgroundPuzzle && monteCarloProgress ? "bg-transparent" : "bg-surface"}`}>
         {/* ページ見出し */}
         <div className="flex items-center justify-center gap-4 mb-6">
-          <h1 className="text-3xl font-bold text-center" style={{ color: C.ink }}>{T.pageTitle}</h1>
+          <h1 className="text-3xl font-bold text-center" style={{ color: C.ink }}>{editTarget ? T.edit.pageTitle : T.pageTitle}</h1>
           <button
             type="button"
             onClick={() => setShowCreatorHelp(true)}
@@ -1979,7 +2093,7 @@ export default function CrosswordPage() {
                 <div className="flex justify-center">
                   <Button onClick={handleShare} disabled={isSaving} className="flex items-center gap-2">
                     <Icon icon="share" />
-                    {isSaving ? T.saving : T.share}
+                    {isSaving ? T.saving : editTarget ? T.edit.update : T.share}
                   </Button>
                 </div>
               )}

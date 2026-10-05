@@ -103,6 +103,55 @@ export async function savePuzzle(
   throw new SaveError(typeof data.reason === "string" ? data.reason : "server", groups);
 }
 
+// --- 組み直し（Hop 決定 2026-10-05。作った本人の端末から、まだ遊ばれていない問題だけ） ---
+export interface OwnedPuzzle {
+  puzzle: PuzzleRecord & { play_count?: number };
+  answers: string[][]; // カギと同じ並び。1マス1字
+}
+
+// 合言葉が合えば、答えを含む中身を受け取る。合わない・無い・隠された問題は null
+export async function fetchOwnedPuzzle(id: string, key: string): Promise<OwnedPuzzle | null> {
+  let res: Response;
+  try {
+    res = await fetch("/api/crossword-owner-get", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, key }),
+    });
+  } catch {
+    throw new SaveError("network");
+  }
+  if (res.status === 404) return null;
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; puzzle?: unknown; answers?: unknown; reason?: unknown };
+  if (!res.ok || !data.ok || !data.puzzle || !Array.isArray(data.answers)) {
+    throw new SaveError(typeof data.reason === "string" ? data.reason : "server");
+  }
+  return { puzzle: data.puzzle as OwnedPuzzle["puzzle"], answers: data.answers as string[][] };
+}
+
+// 組み直した中身で書き換える。送り方は savePuzzle に合わせる（人間確認は無し。合言葉が本人確認を兼ねる）。
+// もう遊ばれていたら SaveError("already_played")、合言葉が合わなければ SaveError("not_found")
+export async function updatePuzzle(id: string, key: string, p: NewPuzzle, opts: { ogpImage?: string | null } = {}): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch("/api/crossword-update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id,
+        key,
+        puzzle: { ...p, key },
+        ...(opts.ogpImage ? { ogpImage: opts.ogpImage } : {}),
+      }),
+    });
+  } catch {
+    throw new SaveError("network");
+  }
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: unknown };
+  if (res.ok && data.ok) return;
+  throw new SaveError(typeof data.reason === "string" ? data.reason : "server");
+}
+
 // 削除用の合言葉。32 バイトの乱数を16進64字にする（受付係には sha256 だけが残る）
 export const makeOwnerKey = (): string =>
   Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("");
