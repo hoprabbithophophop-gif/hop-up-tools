@@ -314,17 +314,97 @@ const shuffleByLength = (items: PuzzleItem[]): PuzzleItem[] =>
     return Math.random() - 0.5;
   });
 
-const tryPlaceAll = (shuffled: PuzzleItem[]): PlacedItem[] => {
+// 1回の試行。語を順に1度ずつ試したあと、置けなかった語を、置ける語が増えなくなるまで試し直す
+// （先に試した時に交わる相手がまだ盤に無くて置けなかった語を拾う。Hop 決定 2026-10-05）。
+// retry=false は試し直さない元の形（確かめの台本で比べるため）
+export const tryPlaceAll = (shuffled: PuzzleItem[], retry: boolean = true): PlacedItem[] => {
   const placed: PlacedItem[] = [];
   const firstPlacement = findPlacement(shuffled[0], []);
   if (!firstPlacement) return placed;
   placed.push(firstPlacement);
 
+  let rest: PuzzleItem[] = [];
   for (let i = 1; i < shuffled.length; i++) {
     const placement = findPlacement(shuffled[i], placed);
     if (placement) placed.push(placement);
+    else rest.push(shuffled[i]);
+  }
+  while (retry && rest.length > 0) {
+    const next: PuzzleItem[] = [];
+    for (const item of rest) {
+      const placement = findPlacement(item, placed);
+      if (placement) placed.push(placement);
+      else next.push(item);
+    }
+    if (next.length === rest.length) break;
+    rest = next;
   }
   return placed;
+};
+
+export { shuffleByLength };
+
+// 置けた語が最多、同じなら面積（作る画面と同じ buildGrid の幅×高さ）が最小の方が良い
+export const isBetterPlacement = (a: PlacedItem[], aArea: number, b: PlacedItem[] | null, bArea: number): boolean =>
+  !b || a.length > b.length || (a.length === b.length && aArea < bArea);
+
+// 本気の探索の時間の上限（ミリ秒・始めてからの経過）【仮】。実測（Chromium で200回ずつ・2026-10-05）で、全部置ける15語が
+// 全部置けるまでに要った試行は最大19回・18ms。作る画面は100msごとに30msだけ探索するので、2000ms で約600ms ぶん回せる。
+// これで約30倍遅い端末でも最大の例に届く。演出の5秒の中に収まるので待ち時間は増えない
+export const SEARCH_TIME_LIMIT_MS = 2000;
+
+export interface PuzzleSearch {
+  /** budgetMs のあいだ試行を回す（画面が固まらないよう、呼ぶ側が刻んで呼ぶ） */
+  step: (budgetMs: number) => void;
+  attempts: () => number;
+  best: () => PlacedItem[];
+  bestArea: () => number;
+  /** 全部の語が置けた盤が見つかった、または最初の step から時間の上限が過ぎた */
+  finished: () => boolean;
+  allPlaced: () => boolean;
+  elapsedMs: () => number;
+}
+
+/**
+ * 裏で走らせる本気の探索。全部の語が置けた盤が見つかるか、時間の上限に達するまで試行を続け、
+ * 置けた語が最多・同じなら面積が最小の盤を持つ。演出の50回（generateMonteCarloSteps）とは別に回す
+ */
+export const createPuzzleSearch = (
+  items: PuzzleItem[],
+  timeLimitMs: number = SEARCH_TIME_LIMIT_MS,
+  now: () => number = () => (typeof performance !== "undefined" ? performance.now() : Date.now())
+): PuzzleSearch => {
+  let attempts = 0;
+  let best: PlacedItem[] = [];
+  let bestArea = Infinity;
+  let startedAt: number | null = null;
+  const spent = () => (startedAt === null ? 0 : now() - startedAt);
+  const all = () => items.length > 0 && best.length === items.length;
+  const finished = () => items.length === 0 || all() || spent() >= timeLimitMs;
+  return {
+    step: (budgetMs: number) => {
+      const t0 = now();
+      if (startedAt === null) startedAt = t0;
+      while (!finished() && now() - t0 < budgetMs) {
+        const placed = tryPlaceAll(shuffleByLength(items));
+        attempts++;
+        if (placed.length > 0) {
+          const g = buildGrid(placed);
+          const area = g.width * g.height;
+          if (isBetterPlacement(placed, area, best.length ? best : null, bestArea)) {
+            best = placed;
+            bestArea = area;
+          }
+        }
+      }
+    },
+    attempts: () => attempts,
+    best: () => best,
+    bestArea: () => bestArea,
+    finished,
+    allPlaced: all,
+    elapsedMs: spent,
+  };
 };
 
 /**

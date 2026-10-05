@@ -8,7 +8,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import ContactModal from "@/components/ContactModal";
 import { usePageReady } from "../../lib/pageReady";
-import { buildGrid, generateMonteCarloSteps } from "../../lib/crossword/engine";
+import { buildGrid, generateMonteCarloSteps, createPuzzleSearch, isBetterPlacement } from "../../lib/crossword/engine";
 import { suggestForBoard, guideTexts } from "../../lib/crossword/suggest";
 import type { PuzzleData, PuzzleItem, PlacedItem } from "../../lib/crossword/types";
 import { toCells } from "../../lib/crossword/cells";
@@ -1091,6 +1091,9 @@ export default function CrosswordPage() {
     triggerGeneration(newItems);
   };
 
+  // 裏の探索を1回の刻みで回す長さ（ミリ秒）。描き変えの100msの合間に収める
+  const SEARCH_STEP_MS = 30;
+
   // v4 Live Generation: Monte Carlo式・全50試行アニメーション
   const triggerGeneration = async (items: PuzzleItem[], isReshuffle: boolean = false) => {
     setShowPreviewAnimation(isReshuffle);
@@ -1108,11 +1111,15 @@ export default function CrosswordPage() {
 
     try {
       const generator = generateMonteCarloSteps(items, 50);
+      // 演出の50回とは別に、裏で本気の探索を回す（Hop 決定 2026-10-05）。描き変えの合間に刻んで回し、画面を固めない
+      const search = createPuzzleSearch(items);
       let bestPuzzle: PuzzleData | null = null;
       let bestCount = 0;
       let bestArea = Infinity;
 
       for (const step of generator) {
+        const tickStart = performance.now();
+        search.step(SEARCH_STEP_MS);
         if (generationIdRef.current !== currentGenId) return;
 
         if (step.placed.length > 0) {
@@ -1131,8 +1138,22 @@ export default function CrosswordPage() {
 
         setMonteCarloProgress({ current: step.attempt, total: step.total, bestCount: step.bestSoFar.length });
 
-        // Animation wait: 100ms per attempt = 5 seconds total
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        // Animation wait: 100ms per attempt = 5 seconds total（裏の探索に使った分を差し引く）
+        await new Promise((resolve) => setTimeout(resolve, Math.max(0, 100 - (performance.now() - tickStart))));
+      }
+
+      // 演出が終わっても探索が終わっていなければ、時間の上限まで刻んで続ける
+      while (!search.finished()) {
+        if (generationIdRef.current !== currentGenId) return;
+        search.step(SEARCH_STEP_MS);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      if (generationIdRef.current !== currentGenId) return;
+      const found = search.best();
+      if (found.length > 0 && isBetterPlacement(found, search.bestArea(), bestPuzzle ? bestPuzzle.items : null, bestArea)) {
+        const puzzle = buildGrid(found);
+        puzzle.title = puzzleTitle.trim() || "Generated Puzzle";
+        bestPuzzle = puzzle;
       }
 
       if (bestPuzzle) setGeneratedPuzzle(bestPuzzle);
