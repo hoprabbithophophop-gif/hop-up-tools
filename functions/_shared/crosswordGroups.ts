@@ -19,6 +19,8 @@ export interface GroupDetectInput {
   answers: readonly string[];
 }
 
+import { toLargeKanaText } from "./crosswordKana";
+
 const norm = (s: string) => s.normalize("NFKC");
 
 // ひらがなをカタカナにそろえる（答えはカタカナで保存される）
@@ -34,7 +36,8 @@ const toKatakana = (s: string) =>
 export function kanaGroupNames(groups: readonly string[]): { group: string; kana: string }[] {
   return groups
     .filter((g) => /^[ぁ-ゖァ-ヶー]+$/.test(norm(g)))
-    .map((g) => ({ group: g, kana: toKatakana(norm(g)) }));
+    // 答えは小さい字を大きい字にそろえて保存されるので、グループ名も同じくそろえて見比べる（2026-10-05）
+    .map((g) => ({ group: g, kana: toLargeKanaText(toKatakana(norm(g))) }));
 }
 
 /** 見つかったグループを、名簿のグループの並び順で返す（重なりなし） */
@@ -53,7 +56,7 @@ export function detectGroups(input: GroupDetectInput, roster: GroupRoster): stri
     if (texts.some((t) => t.includes(n))) hit.add(m.group);
   }
 
-  const answers = input.answers.map((a) => toKatakana(norm(a)));
+  const answers = input.answers.map((a) => toLargeKanaText(toKatakana(norm(a))));
   for (const { group, kana } of kanaGroupNames(roster.groups)) {
     if (answers.some((a) => a.includes(kana))) hit.add(group);
   }

@@ -1,14 +1,15 @@
 /**
  * PuzzleKeypad - カスタムキーパッドコンポーネント（HarmonyPalette からの移植）
  * パズル内容から文字種（A-Z / ひらがな / カタカナ）を自動判定して表示
- * カタカナにも、ひらがなと同じ ゛ ゜ 小 の仕組みを付けた（対応表はひらがなの表と同じ並び）
+ * カタカナにも、ひらがなと同じ ゛ ゜ の仕組みを付けた（対応表はひらがなの表と同じ並び）
+ * 「小」は外した。小さい字は大きい字と同じ扱いにそろえたため（Hop 決定 2026-10-05）。空いた所は詰める【仮】
  */
 
 import React, { useState } from "react";
 import { C } from "../style";
 
 export type KeypadType = "alphabet" | "hiragana" | "katakana";
-type HiraganaMode = "normal" | "dakuten" | "handakuten" | "small";
+type HiraganaMode = "normal" | "dakuten" | "handakuten";
 
 const ALPHABET_KEYS = [
   ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
@@ -50,16 +51,6 @@ const DAKUTEN_MAP: Record<string, string> = {
 const HANDAKUTEN_MAP: Record<string, string> = {
   は: "ぱ", ひ: "ぴ", ふ: "ぷ", へ: "ぺ", ほ: "ぽ",
   ハ: "パ", ヒ: "ピ", フ: "プ", ヘ: "ペ", ホ: "ポ",
-};
-
-// 清音→小文字マッピング
-const SMALL_MAP: Record<string, string> = {
-  あ: "ぁ", い: "ぃ", う: "ぅ", え: "ぇ", お: "ぉ",
-  や: "ゃ", ゆ: "ゅ", よ: "ょ", つ: "っ",
-  わ: "ゎ",
-  ア: "ァ", イ: "ィ", ウ: "ゥ", エ: "ェ", オ: "ォ",
-  ヤ: "ャ", ユ: "ュ", ヨ: "ョ", ツ: "ッ",
-  ワ: "ヮ",
 };
 
 const KATAKANA_KEYS = [
@@ -115,7 +106,6 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
     if (!char) return "";
     if (hiraganaMode === "dakuten" && DAKUTEN_MAP[char]) return DAKUTEN_MAP[char];
     if (hiraganaMode === "handakuten" && HANDAKUTEN_MAP[char]) return HANDAKUTEN_MAP[char];
-    if (hiraganaMode === "small" && SMALL_MAP[char]) return SMALL_MAP[char];
     return char;
   };
 
@@ -134,14 +124,13 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
     if (hiraganaMode !== "normal") setHiraganaMode("normal");
   };
 
-  // 濁音・半濁音・小文字ボタンの処理
+  // 濁音・半濁音ボタンの処理
   // 現在のセルに文字があれば変換、なければモードトグル
   const handleModifierClick = (mode: HiraganaMode) => {
     if (currentChar && onModifyCurrentChar) {
       let modified: string | undefined;
       if (mode === "dakuten") modified = DAKUTEN_MAP[currentChar];
       if (mode === "handakuten") modified = HANDAKUTEN_MAP[currentChar];
-      if (mode === "small") modified = SMALL_MAP[currentChar];
       if (modified) {
         onModifyCurrentChar(modified);
         return;
@@ -215,14 +204,6 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
               style={modifierStyle("handakuten", HANDAKUTEN_MAP)}
             >
               ゜
-            </button>
-            <button
-              onClick={() => handleModifierClick("small")}
-              disabled={disabled || (currentChar ? !SMALL_MAP[currentChar] : false)}
-              className={`px-3 py-2 font-bold text-sm ${keyBase}`}
-              style={modifierStyle("small", SMALL_MAP)}
-            >
-              小
             </button>
           </div>
         )}

@@ -1,9 +1,6 @@
-// ひらがなはカタカナにそろえる。小さい字は HarmonyPalette と同じく大きい字と区別する
-const toKatakana = (c: string): string => {
-  const code = c.charCodeAt(0);
-  const isHiragana = (code >= 0x3041 && code <= 0x3096) || code === 0x309d || code === 0x309e;
-  return isHiragana ? String.fromCharCode(code + 0x60) : c;
-};
+// ひらがなはカタカナに、小さい字は大きい字にそろえる（Hop 決定 2026-10-05。濁点・半濁点・「ー」は区別する）。
+// 字そろえの表は受付係と同じ物（functions/_shared/crosswordKana.ts）を使う
+import { hiraganaToKatakana, toLargeKana } from "../../../functions/_shared/crosswordKana";
 
 export const toCells = (text: string): string[] =>
-  Array.from(text.trim().toUpperCase()).map(toKatakana);
+  Array.from(text.trim().toUpperCase()).map((c) => toLargeKana(hiraganaToKatakana(c)));

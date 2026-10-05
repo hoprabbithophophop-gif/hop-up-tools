@@ -27,6 +27,7 @@ import { detectGroups } from "../_shared/crosswordGroups";
 import { CROSSWORD_GROUPS, CROSSWORD_MEMBERS } from "../_shared/crosswordMembers";
 import { decodeOgpPng, uploadOgpPng } from "../_shared/crosswordOgp";
 import { tooLarge } from "../_shared/bodyLimit";
+import { toLargeKana } from "../_shared/crosswordKana";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -118,7 +119,8 @@ function cleanClue(c: unknown): CleanClue | null {
   if (!Array.isArray(o.answer) || o.answer.length === 0) return null;
   // 答えは1マス1字の並び。各マスが1字で、つなげたものがカタカナ（と「ー」）だけ
   if (!o.answer.every((a) => isStr(a) && charLen(a) === 1)) return null;
-  const answer = o.answer as string[];
+  // 小さい字は大きい字にそろえてから棚へ入れる（Hop 決定 2026-10-05）
+  const answer = (o.answer as string[]).map(toLargeKana);
   if (!ANSWER_RE.test(answer.join(""))) return null;
   const hint = cleanHint(o.hint);
   if (!hint) return null;

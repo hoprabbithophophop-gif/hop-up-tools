@@ -110,11 +110,13 @@ r['2 構築中の動きが出た'] = await pb.getByText(T.building).first().wait
   r['2 タイマーが進む'] = Boolean(t1 && t2 && t1 !== t2);
   await pb.screenshot({ path: path.join(OUT, '2-play.png'), fullPage: true });
 
-  // カギの一覧から「ハロウィン」のカギを開いて、文字盤で カ ゛ボ チ 小ャ と入れる（HarmonyPalette と同じく、空きマスでは ゛ や 小 を先に押すと、文字盤の字が濁った字・小さい字の表示に変わる）
+  // カギの一覧から「ハロウィン」のカギを開いて、文字盤で カ ゛ボ チ ヤ と入れる（HarmonyPalette と同じく、空きマスでは ゛ を先に押すと、文字盤の字が濁った字の表示に変わる）
+  // 小さい字は大きい字と同じ扱い（Hop 決定 2026-10-05）。「かぼちゃ」の答えは カ・ボ・チ・ヤ で、文字盤に「小」は無い
   await pb.getByText(WORDS[0].clue).first().click();
-  for (const k of ['カ', T.dakuten, 'ボ', 'チ', '小', 'ャ']) await pb.getByRole('button', { name: k, exact: true }).first().click();
+  r['2 文字盤に「小」が無い'] = (await pb.getByRole('button', { name: '小', exact: true }).count()) === 0;
+  for (const k of ['カ', T.dakuten, 'ボ', 'チ', 'ヤ']) await pb.getByRole('button', { name: k, exact: true }).first().click();
   const cardText = await pb.evaluate(() => document.body.innerText);
-  r['2 文字盤でカタカナと濁点・小さい字が入る'] = cardText.includes('ボ') && cardText.includes('ャ');
+  r['2 文字盤でカタカナと濁点が入り、小さい字は大きい字になる'] = cardText.includes('ボ') && cardText.includes('ヤ') && !cardText.includes('ャ');
 
   // 3. ヒント: YouTube は止まった状態で時刻つき
   await clickText(pb, T.hint);
