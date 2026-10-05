@@ -10,6 +10,10 @@ import { C } from "../style";
 const CELL = 48; // PuzzleGridRetro の 1 マス
 export const LONG_PRESS_MS = 300; // 【仮】
 const MOVE_SLOP_PX = 8; // 長押しの前にこれ以上動いたらスクロールとみなす
+// 盤の周りの余白（マス数）【仮】。枠の外へも動かせる（Hop 決定 2026-10-05）ので、持ち上げている間は薄いグレーの面で見せる。
+// 置き場の大きさがずれないよう、余白の場所はいつも取っておく（呼ぶ側の FitGrid も盤の幅＋2・高さ＋2 で渡す）
+export const MOVE_MARGIN = 1;
+const M = MOVE_MARGIN * CELL;
 
 interface Props {
   data: PuzzleData;
@@ -50,12 +54,14 @@ export const MovableBoard: React.FC<Props> = ({ data, enabled, onDrop }) => {
 
   const w = data.width * CELL;
   const h = data.height * CELL;
+  const W2 = w + 2 * M;
+  const H2 = h + 2 * M;
 
   // 画面上の点 → 盤の座標（FitGrid の縮み分を割り戻す）
   const toBoard = (clientX: number, clientY: number) => {
     const rect = layerRef.current!.getBoundingClientRect();
-    const s = rect.width / w || 1;
-    return { bx: (clientX - rect.left) / s, by: (clientY - rect.top) / s };
+    const s = rect.width / W2 || 1;
+    return { bx: (clientX - rect.left) / s - M, by: (clientY - rect.top) / s - M };
   };
 
   const itemAt = (bx: number, by: number): PlacedItem | null => {
@@ -150,57 +156,67 @@ export const MovableBoard: React.FC<Props> = ({ data, enabled, onDrop }) => {
   const pins = data.items.filter((i) => i.pinned);
 
   return (
-    <div className="relative" style={{ width: w, height: h }}>
-      <PuzzleGridRetro data={data} showSolution={true} />
-
-      {/* 固定の印（語の先頭のマスの右上。左上は番号）【仮】 */}
-      {pins.map((it) => (
-        <div
-          key={`pin-${it.uuid}`}
-          data-pin={it.answer.join("")}
-          className="absolute pointer-events-none z-20"
-          style={{ left: it.startX * CELL + CELL - 2 - 6, top: it.startY * CELL + 2, width: 6, height: 6, background: C.black }}
-        />
-      ))}
-
-      {/* 持ち上げている語の元の場所を薄くする */}
+    <div className="relative" style={{ width: W2, height: H2 }}>
+      {/* 枠の外の余白（持ち上げている間だけ薄いグレーの面）【仮】 */}
       {drag &&
-        cellsOf(drag.item).map((c) => (
+        [
+          { left: 0, top: 0, width: W2, height: M },
+          { left: 0, top: H2 - M, width: W2, height: M },
+          { left: 0, top: M, width: M, height: h },
+          { left: W2 - M, top: M, width: M, height: h },
+        ].map((r, i) => <div key={`margin-${i}`} data-move-margin="" className="absolute pointer-events-none" style={{ ...r, background: C.high }} />)}
+      <div className="absolute" style={{ left: M, top: M, width: w, height: h }}>
+        <PuzzleGridRetro data={data} showSolution={true} />
+
+        {/* 固定の印（語の先頭のマスの右上。左上は番号）【仮】 */}
+        {pins.map((it) => (
           <div
-            key={`dim-${c.x},${c.y}`}
+            key={`pin-${it.uuid}`}
+            data-pin={it.answer.join("")}
             className="absolute pointer-events-none z-20"
-            style={{ left: c.x * CELL, top: c.y * CELL, width: CELL, height: CELL, background: C.white, opacity: 0.75 }}
+            style={{ left: it.startX * CELL + CELL - 2 - 6, top: it.startY * CELL + 2, width: 6, height: 6, background: C.black }}
           />
         ))}
 
-      {/* 持ち上げている語（半透明で少し大きく） */}
-      {drag && (
-        <div
-          data-ghost={drag.item.answer.join("")}
-          className="absolute pointer-events-none z-40 flex"
-          style={{
-            left: drag.left,
-            top: drag.top,
-            flexDirection: drag.item.direction === "horizontal" ? "row" : "column",
-            opacity: 0.6,
-            transform: "scale(1.06)",
-            transformOrigin: "top left",
-            filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.25))",
-          }}
-        >
-          {drag.item.answer.map((ch, i) => (
+        {/* 持ち上げている語の元の場所を薄くする */}
+        {drag &&
+          cellsOf(drag.item).map((c) => (
             <div
-              key={i}
-              className="flex items-center justify-center font-black"
-              style={{ width: CELL, height: CELL, background: C.white, border: `1px solid ${C.ink}`, color: C.ink, fontSize: "1.5rem" }}
-            >
-              {ch}
-            </div>
+              key={`dim-${c.x},${c.y}`}
+              className="absolute pointer-events-none z-20"
+              style={{ left: c.x * CELL, top: c.y * CELL, width: CELL, height: CELL, background: C.white, opacity: 0.75 }}
+            />
           ))}
-        </div>
-      )}
 
-      {/* つまむための面（盤の上に重ねる） */}
+        {/* 持ち上げている語（半透明で少し大きく） */}
+        {drag && (
+          <div
+            data-ghost={drag.item.answer.join("")}
+            className="absolute pointer-events-none z-40 flex"
+            style={{
+              left: drag.left,
+              top: drag.top,
+              flexDirection: drag.item.direction === "horizontal" ? "row" : "column",
+              opacity: 0.6,
+              transform: "scale(1.06)",
+              transformOrigin: "top left",
+              filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.25))",
+            }}
+          >
+            {drag.item.answer.map((ch, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-center font-black"
+                style={{ width: CELL, height: CELL, background: C.white, border: `1px solid ${C.ink}`, color: C.ink, fontSize: "1.5rem" }}
+              >
+                {ch}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* つまむための面（盤と余白の上に重ねる） */}
       <div
         ref={layerRef}
         data-move-layer=""

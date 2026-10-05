@@ -41,7 +41,7 @@ import { StickyHintBar } from "./components/StickyHintBar";
 import { PuzzleCloseupModal } from "./components/PuzzleCloseupModal";
 import { HintField, type Selected as HintSelected } from "./components/HintField";
 import { FitGrid } from "./components/FitGrid";
-import { MovableBoard } from "./components/MovableBoard";
+import { MovableBoard, MOVE_MARGIN } from "./components/MovableBoard";
 import { Motion, Presence } from "./components/Motion";
 import { Toaster, toast } from "./components/Toast";
 import { SaveCheckModal } from "./components/SaveCheckModal";
@@ -1117,7 +1117,7 @@ export default function CrosswordPage() {
   // 盤の語を指で動かした時。置けたら固定の印を付けて盤を組み直さずに置く
   const handleMoveWord = (uuid: string, startX: number, startY: number): boolean => {
     if (!generatedPuzzle || isLiveGenerating) return false;
-    const moved = moveItem(generatedPuzzle.items, uuid, startX, startY, generatedPuzzle.width, generatedPuzzle.height);
+    const moved = moveItem(generatedPuzzle.items, uuid, startX, startY);
     if (!moved) return false;
     const prev = generatedPuzzle;
     setGeneratedPuzzle({ ...buildGrid(moved), id: prev.id, title: prev.title, creatorName: prev.creatorName });
@@ -2103,7 +2103,7 @@ export default function CrosswordPage() {
                   </div>
                 ) : generatedPuzzle ? (
                   <div className="w-full p-4 flex flex-col items-center">
-                    <FitGrid width={generatedPuzzle.width} height={generatedPuzzle.height}>
+                    <FitGrid width={generatedPuzzle.width + 2 * MOVE_MARGIN} height={generatedPuzzle.height + 2 * MOVE_MARGIN}>
                       <MovableBoard data={generatedPuzzle} enabled={!isLiveGenerating} onDrop={handleMoveWord} />
                     </FitGrid>
                   </div>

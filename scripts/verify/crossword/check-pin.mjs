@@ -82,8 +82,41 @@ check(canMoveTo(bi, 'm', 1, 0, board.width, board.height), '(c) 今の場所は�
 check(!validatePlacement({ ...bi.find((i) => i.uuid === 'm') }, bi), '    （その語自身を含めた盤で確かめると弾かれる。除いて確かめている証拠）');
 check(!canMoveTo(bi, 'm', 2, 0, board.width, board.height), '(c) マツリ を (2,0) へ: マ と グ がぶつかるので拒否');
 check(!canMoveTo(bi, 'r', 0, 2, board.width, board.height), '(c) リズム を (0,2) へ: ズ と マツリ の リ がぶつかるので拒否');
-check(!canMoveTo(bi, 'm', 3, 1, board.width, board.height), `(c) マツリ を (3,1) へ: 盤（高さ${board.height}）からはみ出すので拒否`);
-check(!canMoveTo(bi, 'm', -1, 0, board.width, board.height), '(c) 盤の左へはみ出すので拒否');
+check(!canMoveTo(bi, 'm', -1, 0), '(c) マツリ を枠の外 (-1,0) へ: どの語とも交わらないので拒否（枠の外かどうかでは断らない）');
+
+// 枠の外の交わる所へ動かせて、盤が広がり、ほかの語との交わりが保たれる（Hop 決定 2026-10-05）
+// 盤 アイウエオ 横(0,0)・オカキ 縦(4,0)（右端）・アサシ 縦(0,0)・サカナ 横(0,1)（アサシ の サ と交わる）
+{
+  const g = buildGrid([
+    { ...W('アイウエオ'), uuid: 'h', direction: 'horizontal', startX: 0, startY: 0, length: 5 },
+    { ...W('オカキ'), uuid: 'r', direction: 'vertical', startX: 4, startY: 0, length: 3 },
+    { ...W('アサシ'), uuid: 'l', direction: 'vertical', startX: 0, startY: 0, length: 3 },
+    { ...W('サカナ'), uuid: 's', direction: 'horizontal', startX: 0, startY: 1, length: 3 },
+  ]);
+  console.log(`(枠の外) 盤 幅${g.width}×高さ${g.height}。サカナ を右端の オカキ の カ (4,1) と交わる (3,1) へ（右へ1マスはみ出す）`);
+  check(canMoveTo(g.items, 's', 3, 1), '(枠の外) 右端の語の先へはみ出す交わる所へは動かせる');
+  const mv = moveItem(g.items, 's', 3, 1);
+  const g2 = buildGrid(mv);
+  const cells = new Map(g2.cells.map((c) => [`${c.x},${c.y}`, c]));
+  const r2 = g2.items.find((i) => i.uuid === 'r'), s2 = g2.items.find((i) => i.uuid === 's');
+  const cross = cells.get(`${r2.startX},${r2.startY + 1}`);
+  check(g2.width === g.width + 1 && g2.height === g.height, `(枠の外) 置いた後は盤が広がる: 幅${g.width}→${g2.width}・高さ${g.height}→${g2.height}`);
+  check(cross && cross.value === 'カ' && cross.horizontalItemId === 's' && cross.verticalItemId === 'r', '(枠の外) オカキ と サカナ は カ のマスで交わったまま');
+  check(s2.startX === r2.startX - 1 && s2.startY === r2.startY + 1 && s2.pinned === true, '(枠の外) 動かした語に固定の印・ほかの語との位置の差もそのまま');
+  check(e.isConnected(g2.items), '(枠の外) 動かした後の盤は1つにつながっている');
+  // 上の外へ動かすと、ほかの語の座標が全部ずれる。固定した語どうしの位置の差は守る
+  // 盤 アイウエオ 横(0,0)固定・オカキ 縦(4,0)固定・ミウ 縦(2,1)（下にぶら下がる・交わらない）を、ウ が アイウエオ の ウ と交わる (2,-1) へ
+  const up = [
+    { ...W('アイウエオ'), uuid: 'h', direction: 'horizontal', startX: 0, startY: 0, length: 5, pinned: true },
+    { ...W('オカキ'), uuid: 'r', direction: 'vertical', startX: 4, startY: 0, length: 3, pinned: true },
+    { ...W('ミウ'), uuid: 'u', direction: 'vertical', startX: 2, startY: 3, length: 2 },
+  ];
+  const mu = moveItem(up, 'u', 2, -1);
+  const g3 = mu && buildGrid(mu);
+  const h3 = g3 && g3.items.find((i) => i.uuid === 'h'), r3 = g3 && g3.items.find((i) => i.uuid === 'r');
+  check(g3 && h3.startY === 1 && r3.startX - h3.startX === 4 && r3.startY - h3.startY === 0 && h3.pinned && r3.pinned,
+    `(枠の外) 上の外へ動かすと盤が上へ広がり、ほかの語の座標が全部1行ずれても、固定した語どうしの位置の差はそのまま（${g3 ? `高さ ${g3.height}・アイウエオ (${h3.startX},${h3.startY})・オカキ (${r3.startX},${r3.startY})` : '動かせない'}）`);
+}
 check(!canMoveTo(bi, 'r', 0, 1, board.width, board.height), '(c) リズム を (0,1) へ: ツ と ズ がぶつかるので拒否');
 // 島を作らない（Hop 決定 2026-10-05）。盤 アイアイア 横(0,0)・アカサ 縦(0,0)・サシス 横(0,2)
 const isle = buildGrid([
