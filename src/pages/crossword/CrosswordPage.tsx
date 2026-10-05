@@ -219,6 +219,7 @@ const T = {
       "「自分が作った問題」の合言葉で、作った問題を別の端末へ引き継げます。",
     ],
     guide: "案内を見る", // 【仮】
+    request: "要望を送る", // 【仮】
     close: "閉じる",
   },
   // 段階2b で足した物
@@ -237,6 +238,7 @@ const T = {
     start: "始める！",
     // 練習問題の入口は「?」から開いた遊び方の窓だけ（Hop 決定 2026-10-05）
     practice: "練習する", // 【仮】
+    request: "要望を送る", // 「?」の窓から問い合わせの窓を種類「要望」で開く（Hop 決定 2026-10-06）【仮】
     // 初めて解く時、盤のすぐ下の1行（最初のマスの脈打ちと一緒に出す）
     firstCell: "マスを押すと字が入ります", // 【仮】
   },
@@ -483,6 +485,7 @@ export default function CrosswordPage() {
   const [showCreatorHelp, setShowCreatorHelp] = useState(false);
   const [scale, setScale] = useState(1);
   const [showContact, setShowContact] = useState(false);
+  const [showRequest, setShowRequest] = useState(false); // 「?」の窓からの要望（種類「要望」入りで問い合わせの窓を開く）
 
   // ランキング（HarmonyPalette の Ranking & Name Entry）
   const [showNameEntry, setShowNameEntry] = useState(false);
@@ -1829,6 +1832,15 @@ export default function CrosswordPage() {
                         {T.playerHelp.practice}
                       </button>
                     )}
+                    {!helpFirst && (
+                      <button
+                        onClick={() => { setShowHelp(false); setShowRequest(true); }}
+                        className="w-full py-2 text-sm underline underline-offset-4 transition-colors hover:text-black"
+                        style={{ color: C.secondary }}
+                      >
+                        {T.playerHelp.request}
+                      </button>
+                    )}
                   </div>
                 </Motion>
               </Motion>
@@ -2117,6 +2129,7 @@ export default function CrosswordPage() {
         )}
 
         {showContact && <ContactModal onClose={() => setShowContact(false)} initialTool="crossword" puzzleId={puzzleId} />}
+        {showRequest && <ContactModal onClose={() => setShowRequest(false)} initialTool="crossword" initialKind="request" />}
 
         {/* 練習問題の案内（自由に解く間は出さない） */}
         {isTutorial && tutStep !== null && tutorialSteps[tutStep] && (
@@ -2577,6 +2590,15 @@ export default function CrosswordPage() {
                   </button>
                   <button onClick={() => setShowCreatorHelp(false)} className="px-4 py-2 bg-primary hover:bg-secondary text-white font-medium transition-colors">
                     {T.creatorHelp.close}
+                  </button>
+                </div>
+                <div className="text-center mt-3">
+                  <button
+                    onClick={() => { setShowCreatorHelp(false); setShowRequest(true); }}
+                    className="text-sm underline underline-offset-4 transition-colors hover:text-black"
+                    style={{ color: C.secondary }}
+                  >
+                    {T.creatorHelp.request}
                   </button>
                 </div>
               </div>

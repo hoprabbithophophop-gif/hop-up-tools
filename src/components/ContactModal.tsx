@@ -84,9 +84,9 @@ const field: React.CSSProperties = {
 };
 
 // puzzleId: クロスワードの解く画面から開いたときの問題の番号。対象がクロスワードのときだけ一緒に送る。
-export default function ContactModal({ onClose, initialTool, puzzleId }: { onClose: () => void; initialTool?: string; puzzleId?: string }) {
+export default function ContactModal({ onClose, initialTool, puzzleId, initialKind }: { onClose: () => void; initialTool?: string; puzzleId?: string; initialKind?: string }) {
   const kinds = puzzleId ? [...KINDS, REPORT_KIND] : KINDS;
-  const [kind, setKind] = useState(puzzleId ? REPORT_KIND.key : "");
+  const [kind, setKind] = useState(puzzleId ? REPORT_KIND.key : (initialKind ?? ""));
   const [tool, setTool] = useState(initialTool ?? "");
   const [content, setContent] = useState("");
   const [replyTo, setReplyTo] = useState("");
