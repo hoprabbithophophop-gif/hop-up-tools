@@ -1,4 +1,4 @@
--- 2026-10-05 本番未適用。適用は Hop 側。
+-- 2026-10-05 本番適用済み（Hop「3つとも入れてから公開」。適用は受付係の鍵で実行）。
 -- クロスワード: 作った本人が、まだ誰にも遊ばれていない問題を組み直す（Hop 決定 2026-10-05）。
 -- 窓口は2つ。どちらも合言葉の sha256 を crossword_owner_keys と照らす（crossword_delete と同じ流儀）。
 -- 呼べるのは受付係（秘密の鍵＝service_role）だけ。/api/crossword-owner-get・/api/crossword-update から呼ぶ。
