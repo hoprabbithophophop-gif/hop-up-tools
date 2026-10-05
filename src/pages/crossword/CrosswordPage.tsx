@@ -2528,6 +2528,7 @@ export default function CrosswordPage() {
         )}
 
         {/* 作り方ガイドモーダル */}
+        {showRequest && <ContactModal onClose={() => setShowRequest(false)} initialTool="crossword" initialKind="request" />}
         {showCreatorHelp && (
           <div className="fixed inset-0 flex items-center justify-center p-4 z-50" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => setShowCreatorHelp(false)}>
             <div className="bg-white max-w-lg w-full max-h-[80vh] overflow-y-auto" style={{ boxShadow: C.modalShadow }} onClick={(e) => e.stopPropagation()}>
