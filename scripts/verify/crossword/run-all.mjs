@@ -106,6 +106,7 @@ run('check-name-report');
 run('check-real-score');
 run('check-iphone');
 run('check-owner-edit');
+run('check-review-fixes'); // 手元の開発サーバーを立てて、2026-10-06 の公開前レビューの直し（濁点・丸付けの待ち・↻・終わりの画面・絞り込み・札など）を通しで
 run('check-tutorial'); // 手元の開発サーバーを立てて、作る側と解く側のチュートリアルを通しで（本番の棚には書かない）
 run('check-limits'); // 最後（削除の上限を使い切る）。回を始める上限の連投 (b) は既定では飛ばす（台本が理由を1行出す）
 results.push({ name: 'check-limits の (b) 回を始める連投', skipped: true, last: '回を始める上限（300/時）は同じ数え方の削除の上限（21回目で429）で確かめている。流すと1時間この回線から遊べなくなるため既定では飛ばす。流すなら node scripts/verify/crossword/check-limits.mjs --start-limit' });

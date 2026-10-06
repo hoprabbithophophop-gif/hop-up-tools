@@ -86,13 +86,13 @@ const submitName = async (page) => {
   await page.getByRole('button', { name: '閉じる' }).first().click().catch(() => {});
   await page.waitForTimeout(500);
   await page.getByRole('button', { name: `${label(CELL2)}: 空` }).click();
+  tokens.reveal2 = await tokenOf(page); // 解けると途中経過が消えるので、解ける前に回の番号を控える
   await page.getByRole('button', { name: '1文字見る' }).click();
   await page.waitForTimeout(600);
   check(!(await text(page)).includes('1文字見る？'), '2回目からは確かめない');
   await page.waitForTimeout(3500);
   check((await text(page)).includes('CLEARED!'), '見た字で埋まっても自動で答え合わせして終わる');
   await submitName(page);
-  tokens.reveal2 = await tokenOf(page);
   check(sent.length === 1 && sent[0].playToken === tokens.reveal2 && !('timeSeconds' in sent[0]) && !('reveals' in sent[0]), `記録は回の番号だけを送る（タイム・数は送らない）: ${JSON.stringify(sent.map((x) => Object.keys(x)))}`);
   await ctx.close();
 }
@@ -106,11 +106,11 @@ const submitName = async (page) => {
   await page.reload();
   await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
+  tokens.miss1 = await tokenOf(page); // 解けると途中経過が消えるので、解ける前に回の番号を控える
   await page.getByRole('button', { name: `${label(CELL1)}: ${WRONG_CHAR}` }).click();
   await page.getByRole('button', { name: full[CELL1], exact: true }).last().click();
   await page.waitForTimeout(3500);
   await submitName(page);
-  tokens.miss1 = await tokenOf(page);
   check(sent.length === 1 && sent[0].playToken === tokens.miss1, '開き直しても同じ回のまま記録を送る');
   await ctx.close();
 }

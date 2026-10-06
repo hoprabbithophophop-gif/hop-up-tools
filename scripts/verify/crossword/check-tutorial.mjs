@@ -228,6 +228,7 @@ async function run() {
     check((await nextBtn(page).count()) === 0, '(b) 段1 は「次へ」が無く、マスを押して進む');
     check(await page.locator('header').getByRole('button', { name: '本番へ' }).isVisible(), '(b) 練習中も見出しの戻る矢印が出ている');
     check(!(await page.evaluate(() => /\d\d:\d\d/.test(document.querySelector('header')?.innerText || ''))), '(b) 練習問題ではタイマーを出さない');
+    await page.waitForTimeout(400); // 開いた直後の約300msは組み立ての動きの透明なマスが × に重なる
     await shot(page, 'b1-cell');
     await page.locator('#cell-0-0').click();
     await waitBubble(page, '文字盤で字を入れると、次のマスへ進みます', '(b) 段2');
