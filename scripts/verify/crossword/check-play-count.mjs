@@ -20,7 +20,7 @@ async function session(ctx) {
   const page = await ctx.newPage();
   const open = async () => {
     await page.goto(`${BASE}/crossword/${ID}`);
-    await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
+    await page.locator('[id^="cell-"]').first().waitFor({ timeout: 20000 });
     await page.waitForTimeout(2500);
     await page.getByRole('button', { name: /このまま始める|始める！|はじめる|閉じる/ }).first().click({ timeout: 2000 }).catch(() => {});
   };

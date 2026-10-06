@@ -40,7 +40,7 @@ async function open(answers) {
     localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({ userAnswers: answers, elapsedSeconds: 30, savedAt: Date.now() }));
   }, { id: ID, answers });
   await page.goto(`${BASE}/crossword/${ID}`);
-  await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
+  await page.locator('[id^="cell-"]').first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
   await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
   return { ctx, page };

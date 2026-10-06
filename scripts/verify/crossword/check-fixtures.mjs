@@ -42,7 +42,7 @@ if (!HIDDEN) {
   check(leaked.length === 0, `隠れた問題のカギは画面に出ない（写し元のカギ ${clueTexts.length} 本のうち出た数 ${leaked.length}）`);
   const rows = bodies.flat();
   check(rows.every((r) => !r?.body), `隠れた問題の本文はブラウザに届かない（棚からの返事 ${bodies.length} 回・本文つきの行 ${rows.filter((r) => r?.body).length}）`);
-  check((await page.getByRole('button', { name: /1行|2行|3行/ }).count()) === 0, '隠れた問題の盤は出ない');
+  check((await page.locator('[id^="cell-"]').count()) === 0, '隠れた問題の盤は出ない');
   await page.screenshot({ path: `${OUT}/hidden.png` });
   await browser.close();
 }

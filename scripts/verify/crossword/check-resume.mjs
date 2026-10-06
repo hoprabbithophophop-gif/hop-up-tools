@@ -31,7 +31,7 @@ async function open(savedAgoMs, startedAgoMs) {
     }));
   }, { id: ID, savedAt: Date.now() - savedAgoMs, localStart: Date.now() - startedAgoMs });
   await page.goto(`${BASE}/crossword/${ID}`);
-  await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
+  await page.locator('[id^="cell-"]').first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
   return { ctx, page };
 }

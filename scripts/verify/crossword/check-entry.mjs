@@ -114,7 +114,7 @@ const noUnofficial = async (page, where) => check(!(await text(page)).includes('
     localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({ userAnswers: answers, elapsedSeconds: 0, savedAt: Date.now() }));
   }, { id: ID, answers: almost });
   await page.goto(`${BASE}/crossword/${ID}`);
-  await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
+  await page.locator('[id^="cell-"]').first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
   await noUnofficial(page, `/crossword/${ID}`);
   await cellAt(page, lx, ly, '空').click();

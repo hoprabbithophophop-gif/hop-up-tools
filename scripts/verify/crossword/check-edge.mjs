@@ -43,7 +43,7 @@ async function open(path, { answers = null, play = undefined, routes = [], mine 
 }
 const text = (page) => page.evaluate(() => document.body.innerText);
 const waitBoard = async (page) => {
-  await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
+  await page.locator('[id^="cell-"]').first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
 };
 const fillLast = async (page) => {
@@ -56,7 +56,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
 {
   const { ctx, page } = await open(`/crossword/${ID}`, { routes: [noCatalog] });
   await waitBoard(page);
-  await page.getByRole('button', { name: /1行|2行|3行/ }).first().click();
+  await page.locator('[id^="cell-"]').first().click();
   await page.getByRole('button', { name: 'ヒント', exact: true }).first().click();
   await page.waitForTimeout(1500);
   const t = await text(page);
@@ -69,7 +69,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
 {
   const { ctx, page } = await open(`/crossword/${ID}`);
   await waitBoard(page);
-  await page.getByRole('button', { name: /1行|2行|3行/ }).first().click();
+  await page.locator('[id^="cell-"]').first().click();
   await page.getByRole('button', { name: 'ヒント', exact: true }).first().click();
   await page.waitForTimeout(4000);
   check((await page.locator('iframe[src*="youtube"]').count()) >= 1, '1 台帳にある動画は今まで通りプレイヤーが出る');
@@ -162,7 +162,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   }
   await box.fill('https://example.com/page');
   await page.waitForTimeout(600);
-  check((await text(page)).includes('LINK') && !(await text(page)).includes('リンクは https から'), '6 https のサイトは選べる');
+  check((await text(page)).includes('リンク') && !(await text(page)).includes('リンクは https から'), '6 https のサイトは選べる');
   await ctx.close();
 }
 
