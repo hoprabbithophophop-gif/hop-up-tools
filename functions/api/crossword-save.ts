@@ -26,7 +26,8 @@
 import { detectGroups } from "../_shared/crosswordGroups";
 import { CROSSWORD_GROUPS, CROSSWORD_MEMBERS } from "../_shared/crosswordMembers";
 import { decodeOgpPng, uploadOgpPng } from "../_shared/crosswordOgp";
-import { tooLarge } from "../_shared/bodyLimit";
+import { readJsonLimited } from "../_shared/bodyLimit";
+import { logBackground } from "../_shared/background";
 import { toLargeKana } from "../_shared/crosswordKana";
 
 interface Env {
@@ -53,6 +54,10 @@ const MAX_CREATOR = 50;
 const MIN_KEY = 32;
 const MAX_KEY = 128;
 const ANSWER_RE = /^[ァ-ヶー]+$/;
+/** 1語の字数の上限【仮】 */
+const MAX_ANSWER_CHARS = 20;
+/** 語の数の上限【仮】 */
+const MAX_CLUES = 60;
 const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
 type Hint = { kind: "youtube"; videoId: string; startSec: number } | { kind: "link"; url: string };
@@ -116,7 +121,7 @@ function cleanClue(c: unknown): CleanClue | null {
   if (o.direction !== "horizontal" && o.direction !== "vertical") return null;
   if (!isInt(o.clueIndex) || !isInt(o.startX) || !isInt(o.startY)) return null;
   if (!isStr(o.clue)) return null;
-  if (!Array.isArray(o.answer) || o.answer.length === 0) return null;
+  if (!Array.isArray(o.answer) || o.answer.length === 0 || o.answer.length > MAX_ANSWER_CHARS) return null;
   // 答えは1マス1字の並び。各マスが1字で、つなげたものがカタカナ（と「ー」）だけ
   if (!o.answer.every((a) => isStr(a) && charLen(a) === 1)) return null;
   // 小さい字は大きい字にそろえてから棚へ入れる（Hop 決定 2026-10-05）
@@ -133,6 +138,33 @@ function cleanClue(c: unknown): CleanClue | null {
     answer,
     hint,
   };
+}
+
+/**
+ * 盤の形を確かめる。交わるマスで字が食い違っていたら null。
+ * そうでなければ、語の並びから出した盤の大きさ（いちばん左の字からいちばん右の字までのマス数・上下も同じ）を返す。
+ */
+export function boardShape(clues: CleanClue[]): { width: number; height: number } | null {
+  const cells = new Map<string, string>();
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const c of clues) {
+    for (let k = 0; k < c.answer.length; k++) {
+      const x = c.startX + (c.direction === "horizontal" ? k : 0);
+      const y = c.startY + (c.direction === "vertical" ? k : 0);
+      const at = `${x},${y}`;
+      const prev = cells.get(at);
+      if (prev !== undefined && prev !== c.answer[k]) return null;
+      cells.set(at, c.answer[k]);
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  return { width: maxX - minX + 1, height: maxY - minY + 1 };
 }
 
 /**
@@ -172,20 +204,23 @@ export function validateSavePayload(raw: unknown): CleanPuzzle | null {
   const bo = b as Record<string, unknown>;
   if (bo.version !== 1) return null;
   if (!isInt(bo.width, 1) || !isInt(bo.height, 1)) return null;
-  if (!Array.isArray(bo.clues) || bo.clues.length < 2) return null;
+  if (!Array.isArray(bo.clues) || bo.clues.length < 2 || bo.clues.length > MAX_CLUES) return null;
   const clues: CleanClue[] = [];
   for (const c of bo.clues) {
     const cc = cleanClue(c);
     if (!cc) return null;
     clues.push(cc);
   }
+  const board = boardShape(clues);
+  if (!board) return null;
   let creatorName: string | undefined;
   if (bo.creatorName !== undefined) {
     if (!isStr(bo.creatorName) || charLen(bo.creatorName) > MAX_CREATOR) return null;
     if (bo.creatorName.trim() !== "") creatorName = bo.creatorName.trim();
   }
 
-  const body: CleanPuzzle["body"] = { version: 1, width: bo.width, height: bo.height, clues };
+  // 大きさは送られてきた値を信用せず、語の並びから出した値を使う（画面の buildGrid と同じく、左上の語の端から右下の語の端まで）
+  const body: CleanPuzzle["body"] = { version: 1, width: board.width, height: board.height, clues };
   if (creatorName) body.creatorName = creatorName;
 
   // 大きさは保存する形（整えた後）で測る。DB 側の上限 octet_length(body::text) と同じ 51200 バイト
@@ -285,15 +320,10 @@ export async function onRequestPost(context: {
     return json({ ok: false, reason: "server" }, 500);
   }
 
-  const large = tooLarge(request, 450000); // 本文を読む前に、大きさの申告で断る
-  if (large) return large;
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ ok: false, reason: "bad_request" }, 400);
-  }
+  // 大きさの申告で先に断る。申告が無い送り方でも読みながら数えて断る
+  const read = await readJsonLimited(request, 450000);
+  if (read.response) return read.response;
+  const body = read.value as Record<string, unknown>;
   if (!body || typeof body !== "object") return json({ ok: false, reason: "bad_request" }, 400);
 
   // 1. ハニーポット。埋まっていたら bot なので「成功した」と見せずに黙って断る
@@ -432,17 +462,18 @@ export async function onRequestPost(context: {
   else if (body.ogpImage !== undefined) console.warn("crossword-save: ogp image rejected");
 
   context.waitUntil(
-    fetch(`${rest}/rate_limit_log`, {
-      method: "POST",
-      headers: { ...dbHeaders, Prefer: "return=minimal" },
-      body: JSON.stringify({ ip_hash: ipHash, endpoint: ENDPOINT }),
-    }).catch(() => {}),
-  );
-  context.waitUntil(
-    fetch(`${rest}/rate_limit_log?endpoint=eq.${ENDPOINT}&created_at=lt.${encodeURIComponent(since)}`, {
-      method: "DELETE",
-      headers: dbHeaders,
-    }).catch(() => {}),
+    logBackground(
+      ENDPOINT,
+      fetch(`${rest}/rate_limit_log`, {
+        method: "POST",
+        headers: { ...dbHeaders, Prefer: "return=minimal" },
+        body: JSON.stringify({ ip_hash: ipHash, endpoint: ENDPOINT }),
+      }),
+      fetch(`${rest}/rate_limit_log?endpoint=eq.${ENDPOINT}&created_at=lt.${encodeURIComponent(since)}`, {
+        method: "DELETE",
+        headers: dbHeaders,
+      }),
+    ),
   );
 
   return json({ ok: true, id, ogp });

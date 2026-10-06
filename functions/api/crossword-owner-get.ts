@@ -12,7 +12,9 @@
  * 返事は { ok: true, puzzle: { id, title, genre, tags, body, is_beginner, group_tags, play_count }, answers }。
  */
 
-import { tooLarge } from "../_shared/bodyLimit";
+import { readJsonLimited } from "../_shared/bodyLimit";
+import { logBackground } from "../_shared/background";
+import { reporterKey } from "../_shared/reporterKey";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -49,15 +51,10 @@ export async function onRequestPost(context: {
     return json({ ok: false, reason: "server" }, 500);
   }
 
-  const large = tooLarge(request, 8192); // 本文を読む前に、大きさの申告で断る
-  if (large) return large;
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ ok: false, reason: "bad_request" }, 400);
-  }
+  // 大きさの申告で先に断る。申告が無い送り方でも読みながら数えて断る
+  const read = await readJsonLimited(request, 8192);
+  if (read.response) return read.response;
+  const body = read.value as Record<string, unknown>;
   if (!body || typeof body !== "object") return json({ ok: false, reason: "bad_request" }, 400);
   const id = typeof body.id === "string" ? body.id : "";
   const key = typeof body.key === "string" ? body.key : "";
@@ -71,8 +68,9 @@ export async function onRequestPost(context: {
   };
 
   // 接続元ごとの上限。生の IP は残さず、秘密の値を混ぜたハッシュだけを使う。照会に失敗したら通す
+  // IPv6 は同じ回線の中でアドレスを変えられるので、通報と同じく /64 の帯で数える
   const ip = request.headers.get("CF-Connecting-IP") ?? "";
-  const ipHash = await sha256Hex(`${ENDPOINT}:${ip}:${env.TURNSTILE_SECRET}`);
+  const ipHash = await sha256Hex(`${ENDPOINT}:${reporterKey(ip)}:${env.TURNSTILE_SECRET}`);
   const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   try {
     const rl = await fetch(
@@ -85,7 +83,8 @@ export async function onRequestPost(context: {
     /* 照会に失敗したら通す */
   }
   context.waitUntil(
-    Promise.all([
+    logBackground(
+      ENDPOINT,
       fetch(`${rest}/rate_limit_log`, {
         method: "POST",
         headers: { ...headers, Prefer: "return=minimal" },
@@ -95,7 +94,7 @@ export async function onRequestPost(context: {
         method: "DELETE",
         headers,
       }),
-    ]).catch(() => {}),
+    ),
   );
 
   // 2. 合言葉が合えば答えが返る

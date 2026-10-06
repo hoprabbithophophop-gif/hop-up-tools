@@ -19,7 +19,8 @@
  * 作った本人の端末で解いた回は、画面の側で送らない（ここでは分からない）。
  */
 
-import { tooLarge } from "../_shared/bodyLimit";
+import { readJsonLimited } from "../_shared/bodyLimit";
+import { logBackground } from "../_shared/background";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -129,15 +130,10 @@ export async function onRequestPost(context: {
     return json({ ok: false, reason: "server" }, 500);
   }
 
-  const large = tooLarge(request, 8192); // 本文を読む前に、大きさの申告で断る
-  if (large) return large;
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ ok: false, reason: "bad_request" }, 400);
-  }
+  // 大きさの申告で先に断る。申告が無い送り方でも読みながら数えて断る
+  const read = await readJsonLimited(request, 8192);
+  if (read.response) return read.response;
+  const body = read.value as Record<string, unknown>;
   if (!body || typeof body !== "object") return json({ ok: false, reason: "bad_request" }, 400);
 
   // 1. ハニーポット。埋まっていたら bot なので、記録したふりをして捨てる（contact.ts と同じ）。
@@ -206,20 +202,42 @@ export async function onRequestPost(context: {
     misses: play.misses,
   };
 
+  // 記録に失敗したら、回の「記録済み」の印を外してから断る（外さないと、その回はもう二度と記録できない）。
+  // 問題が消されていた場合（23503）は記録する先が無いので外さない
+  const unclaim = async (): Promise<void> => {
+    try {
+      const res = await fetch(`${rest}/crossword_plays?id=eq.${input.playToken}&scored=eq.true`, {
+        method: "PATCH",
+        headers: { ...dbHeaders, Prefer: "return=minimal" },
+        body: JSON.stringify({ scored: false }),
+      });
+      if (!res.ok) console.error("crossword-score: unclaim failed", res.status);
+    } catch (e) {
+      console.error("crossword-score: unclaim threw", String(e));
+    }
+  };
+
   // 4. 記録。まず新しく入れてみて、同じ人の記録が既にあれば（23505）速いときだけ書き換える。
   let updated = false;
-  const insert = await fetch(`${rest}/crossword_scores`, {
-    method: "POST",
-    headers: { ...dbHeaders, Prefer: "return=minimal" },
-    body: JSON.stringify({
-      puzzle_id: score.puzzleId,
-      player_hash: playerHash,
-      display_name: score.name || ANONYMOUS,
-      time_seconds: score.timeSeconds,
-      reveals: score.reveals,
-      misses: score.misses,
-    }),
-  });
+  let insert: Response;
+  try {
+    insert = await fetch(`${rest}/crossword_scores`, {
+      method: "POST",
+      headers: { ...dbHeaders, Prefer: "return=minimal" },
+      body: JSON.stringify({
+        puzzle_id: score.puzzleId,
+        player_hash: playerHash,
+        display_name: score.name || ANONYMOUS,
+        time_seconds: score.timeSeconds,
+        reveals: score.reveals,
+        misses: score.misses,
+      }),
+    });
+  } catch (e) {
+    console.error("crossword-score: insert threw", String(e));
+    await unclaim();
+    return json({ ok: false, reason: "server" }, 503);
+  }
   if (insert.ok) {
     updated = true;
   } else {
@@ -227,6 +245,7 @@ export async function onRequestPost(context: {
     if (code === "23503") return json({ ok: false, reason: "bad_request" }, 400); // 問題が無い（消された）
     if (code !== "23505") {
       console.error("crossword-score: insert failed", insert.status, code);
+      await unclaim();
       if (code === "23514") return json({ ok: false, reason: "bad_request" }, 400); // 棚の決まりに合わない（保険）
       return json({ ok: false, reason: "server" }, 503);
     }
@@ -238,17 +257,25 @@ export async function onRequestPost(context: {
       updated_at: new Date().toISOString(),
     };
     if (score.name) patch.display_name = score.name; // 名前が空なら前の名前のまま
-    const res = await fetch(
-      `${rest}/crossword_scores?puzzle_id=eq.${score.puzzleId}&player_hash=eq.${playerHash}` +
-        `&time_seconds=gt.${score.timeSeconds}`,
-      {
-        method: "PATCH",
-        headers: { ...dbHeaders, Prefer: "return=representation" },
-        body: JSON.stringify(patch),
-      },
-    );
+    let res: Response;
+    try {
+      res = await fetch(
+        `${rest}/crossword_scores?puzzle_id=eq.${score.puzzleId}&player_hash=eq.${playerHash}` +
+          `&time_seconds=gt.${score.timeSeconds}`,
+        {
+          method: "PATCH",
+          headers: { ...dbHeaders, Prefer: "return=representation" },
+          body: JSON.stringify(patch),
+        },
+      );
+    } catch (e) {
+      console.error("crossword-score: update threw", String(e));
+      await unclaim();
+      return json({ ok: false, reason: "server" }, 503);
+    }
     if (!res.ok) {
       console.error("crossword-score: update failed", res.status, await pgCode(res));
+      await unclaim();
       return json({ ok: false, reason: "server" }, 503);
     }
     const rows = (await res.json().catch(() => [])) as unknown[];
@@ -256,17 +283,18 @@ export async function onRequestPost(context: {
   }
 
   context.waitUntil(
-    fetch(`${rest}/rate_limit_log`, {
-      method: "POST",
-      headers: { ...dbHeaders, Prefer: "return=minimal" },
-      body: JSON.stringify({ ip_hash: ipHash, endpoint: ENDPOINT }),
-    }).catch(() => {}),
-  );
-  context.waitUntil(
-    fetch(`${rest}/rate_limit_log?endpoint=eq.${ENDPOINT}&created_at=lt.${encodeURIComponent(since)}`, {
-      method: "DELETE",
-      headers: dbHeaders,
-    }).catch(() => {}),
+    logBackground(
+      ENDPOINT,
+      fetch(`${rest}/rate_limit_log`, {
+        method: "POST",
+        headers: { ...dbHeaders, Prefer: "return=minimal" },
+        body: JSON.stringify({ ip_hash: ipHash, endpoint: ENDPOINT }),
+      }),
+      fetch(`${rest}/rate_limit_log?endpoint=eq.${ENDPOINT}&created_at=lt.${encodeURIComponent(since)}`, {
+        method: "DELETE",
+        headers: dbHeaders,
+      }),
+    ),
   );
 
   return json({ ok: true, updated });

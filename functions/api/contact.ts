@@ -19,7 +19,8 @@
  */
 
 import { deleteOgpPng } from "../_shared/crosswordOgp";
-import { tooLarge } from "../_shared/bodyLimit";
+import { readJsonLimited } from "../_shared/bodyLimit";
+import { logBackground } from "../_shared/background";
 import { reporterKey } from "../_shared/reporterKey";
 
 interface Env {
@@ -107,15 +108,11 @@ export async function onRequestPost(context: {
     return json({ ok: false, reason: "server" }, 500);
   }
 
-  const large = tooLarge(request, 16384); // 本文を読む前に、大きさの申告で断る
-  if (large) return large;
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ ok: false, reason: "bad_request" }, 400);
-  }
+  // 大きさの申告で先に断る。申告が無い送り方でも読みながら数えて断る
+  const read = await readJsonLimited(request, 16384);
+  if (read.response) return read.response;
+  if (!read.value || typeof read.value !== "object") return json({ ok: false, reason: "bad_request" }, 400);
+  const body = read.value as Record<string, unknown>;
 
   // 1. ハニーポット。人間には見えない欄。埋まっていたら bot なので、
   //    「成功した」と嘘をついて捨てる（弾いたと教えると次の手を打たれる）。
@@ -125,7 +122,7 @@ export async function onRequestPost(context: {
 
   // 選択式は必ずサーバー側でも検証する（フロントの選択肢は信用しない）。
   const kind = typeof body.kind === "string" ? body.kind : "";
-  if (!(kind in KIND_LABEL)) return json({ ok: false, reason: "bad_request" }, 400);
+  if (!Object.hasOwn(KIND_LABEL, kind)) return json({ ok: false, reason: "bad_request" }, 400);
 
   const rawTool = typeof body.tool === "string" ? body.tool : "";
   const tool = TOOLS.includes(rawTool) ? rawTool : null;
@@ -186,17 +183,18 @@ export async function onRequestPost(context: {
   }
 
   context.waitUntil(
-    fetch(`${rest}/rate_limit_log`, {
-      method: "POST",
-      headers: { ...dbHeaders, Prefer: "return=minimal" },
-      body: JSON.stringify({ ip_hash: ipHash, endpoint: ENDPOINT }),
-    }).catch(() => {}),
-  );
-  context.waitUntil(
-    fetch(`${rest}/rate_limit_log?endpoint=eq.${ENDPOINT}&created_at=lt.${encodeURIComponent(since)}`, {
-      method: "DELETE",
-      headers: dbHeaders,
-    }).catch(() => {}),
+    logBackground(
+      ENDPOINT,
+      fetch(`${rest}/rate_limit_log`, {
+        method: "POST",
+        headers: { ...dbHeaders, Prefer: "return=minimal" },
+        body: JSON.stringify({ ip_hash: ipHash, endpoint: ENDPOINT }),
+      }),
+      fetch(`${rest}/rate_limit_log?endpoint=eq.${ENDPOINT}&created_at=lt.${encodeURIComponent(since)}`, {
+        method: "DELETE",
+        headers: dbHeaders,
+      }),
+    ),
   );
 
   // クロスワードの通報。別々の3人分そろうと DB のトリガで問題が隠れる。

@@ -8,7 +8,8 @@
  * 同じ接続元からの通報は 1 時間に 20 回まで。
  */
 
-import { tooLarge } from "../_shared/bodyLimit";
+import { readJsonLimited } from "../_shared/bodyLimit";
+import { logBackground } from "../_shared/background";
 import { reporterKey } from "../_shared/reporterKey";
 
 interface Env {
@@ -44,18 +45,13 @@ export async function onRequestPost(context: {
     console.error("crossword-report-name: env missing");
     return json({ ok: false, reason: "server" }, 500);
   }
-  const large = tooLarge(request, 8192); // 本文を読む前に、大きさの申告で断る
-  if (large) return large;
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ ok: false, reason: "bad_request" }, 400);
-  }
+  // 大きさの申告で先に断る。申告が無い送り方でも読みながら数えて断る
+  const read = await readJsonLimited(request, 8192);
+  if (read.response) return read.response;
+  const body = read.value as Record<string, unknown>;
   if (!body || typeof body !== "object") return json({ ok: false, reason: "bad_request" }, 400);
   const scoreId = body.scoreId;
-  if (!Number.isInteger(scoreId) || (scoreId as number) <= 0) return json({ ok: false, reason: "bad_request" }, 400);
+  if (!Number.isSafeInteger(scoreId) || (scoreId as number) <= 0) return json({ ok: false, reason: "bad_request" }, 400);
 
   const rest = `${env.VITE_SUPABASE_URL}/rest/v1`;
   const dbHeaders = {
@@ -109,11 +105,14 @@ export async function onRequestPost(context: {
   }
 
   context.waitUntil(
-    fetch(`${rest}/rate_limit_log`, {
-      method: "POST",
-      headers: { ...dbHeaders, Prefer: "return=minimal" },
-      body: JSON.stringify({ ip_hash: ipHash, endpoint: ENDPOINT }),
-    }).catch(() => {}),
+    logBackground(
+      ENDPOINT,
+      fetch(`${rest}/rate_limit_log`, {
+        method: "POST",
+        headers: { ...dbHeaders, Prefer: "return=minimal" },
+        body: JSON.stringify({ ip_hash: ipHash, endpoint: ENDPOINT }),
+      }),
+    ),
   );
   if (fresh && env.DISCORD_WEBHOOK_URL) {
     const name = Array.from(score.display_name).slice(0, 40).join("");
@@ -126,11 +125,14 @@ export async function onRequestPost(context: {
       "```",
     ].join("\n");
     context.waitUntil(
-      fetch(env.DISCORD_WEBHOOK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
-      }).catch(() => {}),
+      logBackground(
+        `${ENDPOINT} discord`,
+        fetch(env.DISCORD_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+        }),
+      ),
     );
   }
   return json({ ok: true });

@@ -1,9 +1,12 @@
 // 組み直しの受付係（/api/crossword-owner-get・/api/crossword-update）を確かめる（Hop 決定 2026-10-05）。
-//  (a) 形の悪い本文 → 400（owner-get・update とも）
-//  (b) 無い番号＋適当な合言葉 → 404 not_found（owner-get。update は本文が正しい形でも 404）
+//  (a) 形の悪い本文 → 400（owner-get。update は番号・合言葉の形が悪ければ 400）
+//      update は重い検査の前に合言葉を照らすので、合言葉が合わなければ本文の形に関係なく 404 not_found
+//      （本文の形の悪さで 400 になるのを見るのは、本物の合言葉がある (d) で）
+//  (b) 無い番号＋適当な合言葉 → 404 not_found（owner-get・update とも。update は本文の形に関係なく 404）
 //  (c) 大きさ超え → 413（owner-get は 8192 バイト超・update は 450000 バイト超）
 //  (d) 本物の問題での通し。targets.json に ownerPuzzleId と ownerKey があるときだけ流す（無ければ飛ばす）
 //      owner-get で中身が戻る → 同じ中身で update → owner-get で書き換わったのを見る
+//      本物の合言葉で、交わるマスの字が食い違う本文の update → 400（棚は書き換わらない）
 //      ownerPlayedPuzzleId と ownerPlayedKey もあれば、遊ばれた後の問題の update が 409 already_played になるのを見る
 // 本番の棚への影響: (a)〜(c) は何も書き換えない（rate_limit_log に数えが1時間残るだけ）。
 //   (d) は ownerPuzzleId の問題を、同じ中身（題名の末尾だけ入れ替え）で書き換える。シェア画像は送らない
@@ -59,10 +62,10 @@ const samplePuzzle = {
   check(r1.status === 400, `(a) owner-get に JSON でない本文 → ${r1.status}`);
   const r2 = await post('/api/crossword-owner-get', { id: 'short', key: 'x' });
   check(r2.status === 400, `(a) owner-get に番号・合言葉の形が違う本文 → ${r2.status}`);
-  const r3 = await post('/api/crossword-update', { id: randId(), key: randKey(), puzzle: { ...samplePuzzle, title: '' } });
-  check(r3.status === 400, `(a) update に題名が空の本文 → ${r3.status}`);
-  const r4 = await post('/api/crossword-update', { id: randId(), key: randKey(), puzzle: { ...samplePuzzle, body: { ...samplePuzzle.body, clues: samplePuzzle.body.clues.map((c) => ({ ...c, answer: ['猫'] })) } } });
-  check(r4.status === 400, `(a) update に答えがカタカナでない本文 → ${r4.status}`);
+  const r3 = await post('/api/crossword-update', { id: 'short', key: 'x', puzzle: samplePuzzle });
+  check(r3.status === 400, `(a) update に番号・合言葉の形が違う本文 → ${r3.status}`);
+  const r4 = await post('/api/crossword-update', { id: randId(), key: randKey(), puzzle: { ...samplePuzzle, title: '' } });
+  check(r4.status === 404 && r4.j?.reason === 'not_found', `(a) update に合わない合言葉＋題名が空の本文 → 合言葉が先に照らされて ${r4.status} ${r4.j?.reason ?? ''}`);
 }
 
 // (b) 無い番号＋適当な合言葉
@@ -91,6 +94,11 @@ if (!TARGETS.ownerPuzzleId || !TARGETS.ownerKey) {
     check(u.status === 200 && u.j?.ok === true, `(d) update で書き換え → ${u.status} ${u.j?.reason ?? ''}`);
     const g2 = await post('/api/crossword-owner-get', { id, key });
     check(g2.j?.puzzle?.title === title, `(d) 書き換わった題名が戻る → ${g2.j?.puzzle?.title}`);
+    // 交わるマスの字が食い違う本文（1語目と同じ位置・同じ向きに、別の字の語を重ねる）
+    const c0 = clues[0];
+    const clash = { ...c0, clueIndex: c0.clueIndex + 1000, answer: c0.answer.map((ch) => (ch === 'ア' ? 'イ' : 'ア')) };
+    const bad = await post('/api/crossword-update', { id, key, puzzle: { title, genre: p.genre, tags: p.tags, isBeginner: p.is_beginner, body: { ...body, clues: [...clues, clash] } } });
+    check(bad.status === 400 && bad.j?.reason === 'bad_request', `(d) 本物の合言葉＋字が食い違う本文の update → ${bad.status} ${bad.j?.reason ?? ''}`);
   }
   if (TARGETS.ownerPlayedPuzzleId && TARGETS.ownerPlayedKey) {
     const gp = await post('/api/crossword-owner-get', { id: TARGETS.ownerPlayedPuzzleId, key: TARGETS.ownerPlayedKey });

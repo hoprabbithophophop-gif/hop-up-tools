@@ -19,7 +19,9 @@
  * 同じ接続元から回を始められるのは 1 時間に 300 回まで。1 つの回で丸付けできるのは 2000 回まで。
  */
 
-import { tooLarge } from "../_shared/bodyLimit";
+import { readJsonLimited } from "../_shared/bodyLimit";
+import { logBackground } from "../_shared/background";
+import { toLargeKana, toLargeKanaText } from "../_shared/crosswordKana";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -96,15 +98,10 @@ export async function onRequestPost(context: {
     return json({ ok: false, reason: "server" }, 500);
   }
 
-  const large = tooLarge(request, 8192); // 本文を読む前に、大きさの申告で断る
-  if (large) return large;
-
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ ok: false, reason: "bad_request" }, 400);
-  }
+  // 大きさの申告で先に断る。申告が無い送り方でも読みながら数えて断る
+  const read = await readJsonLimited(request, 8192);
+  if (read.response) return read.response;
+  const body = read.value as Record<string, unknown>;
   if (!body || typeof body !== "object") return json({ ok: false, reason: "bad_request" }, 400);
 
   const rest = `${env.VITE_SUPABASE_URL}/rest/v1`;
@@ -183,7 +180,8 @@ export async function onRequestPost(context: {
       const old = new Date(Date.now() - PLAY_KEEP_DAYS * 86400 * 1000).toISOString();
       const idle = new Date(Date.now() - 86400 * 1000).toISOString();
       context.waitUntil(
-        Promise.all([
+        logBackground(
+          ENDPOINT,
           fetch(`${rest}/rate_limit_log`, {
             method: "POST",
             headers: { ...dbHeaders, Prefer: "return=minimal" },
@@ -202,7 +200,7 @@ export async function onRequestPost(context: {
             `${rest}/crossword_plays?started_at=lt.${encodeURIComponent(idle)}&checks=eq.0&counted=eq.false&solved_at=is.null`,
             { method: "DELETE", headers: dbHeaders },
           ),
-        ]).catch(() => {}),
+        ),
       );
       return json({ ok: true, token: row.id, startedAt: Date.parse(row.started_at) });
     }
@@ -225,32 +223,59 @@ export async function onRequestPost(context: {
       if (play.solved_at) {
         return json({ ok: true, correct: true, answers: puzzle.answers, timeSeconds: timeOf(play.solved_at), rankable: !play.too_fast });
       }
-      if (play.checks >= MAX_CHECKS_PER_PLAY) return json({ ok: false, reason: "too_many" }, 429);
+      // 小さい字は大きい字と同じ扱い（Hop 決定 2026-10-05）。答えの側も入力の側も大きい字にそろえて比べる
       let full = true;
       let correct = true;
       for (const [key, ch] of expected) {
         const v = given[key];
         if (typeof v !== "string" || v === "") full = false;
-        if (v !== ch) correct = false;
+        if (typeof v !== "string" || toLargeKanaText(v) !== toLargeKana(ch)) correct = false;
       }
-      if (correct) {
-        const now = new Date().toISOString();
-        const tooFast = timeOf(now) < expected.size * MIN_SEC_PER_CELL;
-        // 解けた時刻は最初の1回だけ書く（同時に来ても後の方で上書きしない）
-        const res = await patchPlay(token, { solved_at: now, checks: play.checks + 1, too_fast: tooFast }, "&solved_at=is.null");
-        const rows = res.ok ? ((await res.json()) as Play[]) : [];
-        const row = rows[0] ?? (await loadPlay(token));
-        const solvedAt = row?.solved_at ?? now;
-        return json({ ok: true, correct: true, answers: puzzle.answers, timeSeconds: timeOf(solvedAt), rankable: !(row?.too_fast ?? tooFast) });
+      // 回数の書き換えは「読んだ時の回数のままなら」の条件つき。同時に来て負けたら読み直して1回だけやり直す
+      let cur = play;
+      for (let attempt = 0; ; attempt++) {
+        if (cur.solved_at) {
+          return json({ ok: true, correct: true, answers: puzzle.answers, timeSeconds: timeOf(cur.solved_at), rankable: !cur.too_fast });
+        }
+        if (cur.checks >= MAX_CHECKS_PER_PLAY) return json({ ok: false, reason: "too_many" }, 429);
+        let res: Response;
+        if (correct) {
+          const now = new Date().toISOString();
+          const tooFast = timeOf(now) < expected.size * MIN_SEC_PER_CELL;
+          // 解けた時刻は最初の1回だけ書く（同時に来ても後の方で上書きしない）
+          res = await patchPlay(token, { solved_at: now, checks: cur.checks + 1, too_fast: tooFast }, `&checks=eq.${cur.checks}&solved_at=is.null`);
+        } else {
+          // 間違ったまま全部埋めた最初の1回だけミスに数える
+          const countMiss = full && !cur.last_wrong;
+          res = await patchPlay(
+            token,
+            {
+              checks: cur.checks + 1,
+              ...(full ? { last_wrong: true } : {}),
+              ...(countMiss ? { misses: cur.misses + 1 } : {}),
+            },
+            `&checks=eq.${cur.checks}`,
+          );
+        }
+        if (!res.ok) {
+          console.error("crossword-play: check patch failed", res.status);
+          return json({ ok: false, reason: "server" }, 503);
+        }
+        const row = ((await res.json()) as Play[])[0];
+        if (row) {
+          if (correct && row.solved_at) {
+            return json({ ok: true, correct: true, answers: puzzle.answers, timeSeconds: timeOf(row.solved_at), rankable: !row.too_fast });
+          }
+          return json({ ok: true, correct: false, full });
+        }
+        if (attempt >= 1) {
+          console.error("crossword-play: check lost to concurrent writes twice");
+          return json({ ok: false, reason: "server" }, 503);
+        }
+        const fresh = await loadPlay(token);
+        if (!fresh) return json({ ok: false, reason: "no_play" }, 404);
+        cur = fresh;
       }
-      // 間違ったまま全部埋めた最初の1回だけミスに数える
-      const countMiss = full && !play.last_wrong;
-      await patchPlay(token, {
-        checks: play.checks + 1,
-        ...(full ? { last_wrong: true } : {}),
-        ...(countMiss ? { misses: play.misses + 1 } : {}),
-      });
-      return json({ ok: true, correct: false, full });
     }
 
     // --- 1文字見る ---
@@ -259,15 +284,28 @@ export async function onRequestPost(context: {
       const y = body.y;
       if (!Number.isInteger(x) || !Number.isInteger(y)) return json({ ok: false, reason: "bad_request" }, 400);
       const key = `${x},${y}`;
-      const ch = expected.get(key);
-      if (!ch) return json({ ok: false, reason: "bad_request" }, 400);
-      let revealed = play.revealed;
-      if (!play.solved_at && !revealed.includes(key)) {
-        revealed = [...revealed, key];
-        const res = await patchPlay(token, { revealed });
-        if (!res.ok) return json({ ok: false, reason: "server" }, 503);
+      const found = expected.get(key);
+      if (!found) return json({ ok: false, reason: "bad_request" }, 400);
+      const ch = toLargeKana(found); // 返す字も大きい字にそろえる
+      // 見たマスの書き換えは「読んだ時の並びのままなら」の条件つき。同時に来て負けたら読み直して1回だけやり直す
+      let cur = play;
+      for (let attempt = 0; ; attempt++) {
+        if (cur.solved_at || cur.revealed.includes(key)) return json({ ok: true, char: ch, reveals: cur.revealed.length });
+        const revealed = [...cur.revealed, key];
+        const res = await patchPlay(token, { revealed }, `&revealed=eq.${encodeURIComponent(JSON.stringify(cur.revealed))}`);
+        if (!res.ok) {
+          console.error("crossword-play: reveal patch failed", res.status);
+          return json({ ok: false, reason: "server" }, 503);
+        }
+        if (((await res.json()) as Play[]).length > 0) return json({ ok: true, char: ch, reveals: revealed.length });
+        if (attempt >= 1) {
+          console.error("crossword-play: reveal lost to concurrent writes twice");
+          return json({ ok: false, reason: "server" }, 503);
+        }
+        const fresh = await loadPlay(token);
+        if (!fresh) return json({ ok: false, reason: "no_play" }, 404);
+        cur = fresh;
       }
-      return json({ ok: true, char: ch, reveals: revealed.length });
     }
 
     // --- 遊ばれた回数（最初の1文字が入った時） ---
