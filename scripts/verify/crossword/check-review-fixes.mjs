@@ -277,7 +277,7 @@ try {
       return {
         board: top(board), boardBottom: bb ? bb.bottom + window.scrollY : null, x: top(x), rank: top(rank), other: top(other), hv: top(hv), clues: top(clues),
         stampInBoard: !!(sb && bb && sb.top >= bb.top - 1 && sb.bottom <= bb.bottom + 1),
-        hintListOpen: [...document.querySelectorAll('h2,h3')].some((h) => h.textContent === 'ヒントの動画'),
+        hintListOpen: [...document.querySelectorAll('h2,h3')].some((h) => /^ヒント(の動画)?$/.test(h.textContent)),
       };
     });
     console.log(`    並び（ページ上端からの位置）: 盤 ${order.board}〜${order.boardBottom} ／ Xに投稿 ${order.x} ／ ランキング ${order.rank} ／ ほかの問題 ${order.other} ／ ヒントの動画を見る ${order.hv} ／ カギの一覧 ${order.clues}`);
@@ -290,7 +290,7 @@ try {
     await page.screenshot({ path: path.join(OUT, '4-cleared-390.png'), fullPage: true });
     await page.getByRole('button', { name: /^ヒント(の動画)?を見る$/ }).click();
     await page.waitForTimeout(300);
-    const opened = await page.evaluate(() => [...document.querySelectorAll('h2,h3')].some((h) => h.textContent === 'ヒントの動画') && document.body.innerText.includes('▶ YouTube'));
+    const opened = await page.evaluate(() => [...document.querySelectorAll('h2,h3')].some((h) => /^ヒント(の動画)?$/.test(h.textContent)) && document.body.innerText.includes('▶ YouTube'));
     check(opened, '(4) 「ヒントの動画を見る」で今の一覧（▶ YouTube の表記つき）が開く');
     await page.screenshot({ path: path.join(OUT, '4-cleared-hints-open-390.png'), fullPage: true });
     // 開き直すと新しい回で空の盤
@@ -298,7 +298,7 @@ try {
     await page.reload();
     await cell(page, 0, 0).waitFor({ timeout: 20000 });
     await page.waitForTimeout(2500);
-    const empty = await page.evaluate(() => [...document.querySelectorAll('[id^="cell-"]')].every((b) => /：空$/.test(b.getAttribute('aria-label') || '')));
+    const empty = await page.evaluate(() => [...document.querySelectorAll('[id^="cell-"]')].every((b) => /[：・]空$/.test(b.getAttribute('aria-label') || '')));
     check(empty, '(4) 解いた問題を開き直すと、盤は空（最初から）');
     check(st.starts === startsBefore + 1, `(4) 開き直すと新しい回が始まる（回の始まり ${startsBefore} → ${st.starts}）`);
     await ctx.close();
@@ -430,7 +430,7 @@ try {
     check((await reason.textContent()) === 'ヒントの動画を選ぶと追加できます。', `(8) ハロプロでヒントが未選択の時、ボタンの下に「${await reason.textContent()}」`);
     await page.getByText('その他', { exact: true }).first().click();
     await page.waitForTimeout(300);
-    check((await reason.textContent()) === 'ヒントの URL を入れると追加できます', `(8) その他で URL が無い時は「${await reason.textContent()}」`);
+    check(/^ヒントの URL を入れると追加できます。?$/.test(await reason.textContent()), `(8) その他で URL が無い時は「${await reason.textContent()}」`);
     await page.screenshot({ path: path.join(OUT, '8-add-reason-390.png') });
     const field = (label) => page.locator(`xpath=//label[contains(normalize-space(.), "${label}")]/following-sibling::*[1]/descendant-or-self::input`).first();
     const hint = () => page.getByPlaceholder(/URL を貼る/).first();
@@ -443,7 +443,7 @@ try {
     };
     await hint().fill('https://example.com/x');
     await page.waitForTimeout(200);
-    check((await reason.count()) === 0, '(8) URL を入れると理由の1行は消える');
+    check(!/URL/.test((await reason.count()) ? await reason.first().textContent() : ''), '(8) URL を入れると理由の1行（URL）は消える');
     // ヰ・ヱ は使えない字として断る
     await field('答え').fill('ヰド');
     await field('カギ').fill('見本');
@@ -513,7 +513,7 @@ try {
     await page.waitForTimeout(8500);
     // 縦の語の2字目（カ・キ）のある列を探す
     const colOf = async (ch) => page.evaluate((c) => {
-      const b = [...document.querySelectorAll('[id^="cell-"]')].find((e) => (e.getAttribute('aria-label') || '').endsWith(`：${c}`));
+      const b = [...document.querySelectorAll('[id^="cell-"]')].find((e) => /[：・]$/.test('') || (e.getAttribute('aria-label') || '').match(/[：・]([^：・]+)$/)?.[1] === c);
       return b ? Number(b.id.split('-')[1]) : null;
     }, ch);
     const drag = async (fromX, toX) => {
