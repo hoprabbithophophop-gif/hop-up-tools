@@ -352,5 +352,48 @@ console.log(`    語ごとの置けなかった回数: ${JSON.stringify(missCoun
 console.log(`    そのうち出来上がった盤にそのまま置けた（組み立てが見落とした）回数: ${JSON.stringify(missButFits)}`);
 check(kbIn + kbMiss === RUNS, `組み立ての試し ${RUNS}回を数えた`);
 
+// 同じ向きの語が端で1字重なる型は出さない（2026-10-06 レビューの直し）
+{
+  // 型の線が、同じ向きの語が通るマスを通るか
+  const overlapsSameDir = (cand, items) => {
+    const mine = new Set(Array.from({ length: cand.length }, (_, i) => (cand.direction === 'horizontal' ? `${cand.startX + i},${cand.startY}` : `${cand.startX},${cand.startY + i}`)));
+    return items.some((it) => it.direction === cand.direction && Array.from({ length: it.length }, (_, i) => (it.direction === 'horizontal' ? `${it.startX + i},${it.startY}` : `${it.startX},${it.startY + i}`)).some((k) => mine.has(k)));
+  };
+  // 見本: アイウ 横(0,0)・ウエオ 縦(2,0)・オカキ 横(2,2)。旧は「アイウ の端の ウ から右へ伸びる横の線」を型に出せた
+  const sample = [item('アイウ', 'horizontal', 0, 0), item('ウエオ', 'vertical', 2, 0), item('オカキ', 'horizontal', 2, 2)];
+  const sc = listCandidates(sample);
+  check(sc.length > 0 && sc.every((c) => !overlapsSameDir(c, sample)), `型の線（${sc.length}本）は、どれも同じ向きの語が通るマスを通らない`);
+  // 少ない字の語で組んだ盤を200枚。型の線・置けなかった語の行の両方で
+  const ALPHA = Array.from('アイウエオカ');
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const word = () => Array.from({ length: 2 + Math.floor(rnd() * 4) }, () => ALPHA[Math.floor(rnd() * ALPHA.length)]).join('');
+  let boards = 0, lines = 0, bad = 0, enterBad = 0;
+  for (let r = 0; r < 200; r++) {
+    const ws = [...new Set(Array.from({ length: 7 }, word))].map(W);
+    const placed = generateMaximizedPuzzle(ws, 10);
+    if (placed.length < 3) continue;
+    boards++;
+    for (const c of listCandidates(placed)) {
+      lines++;
+      if (overlapsSameDir(c, placed)) bad++;
+    }
+    // 置けなかった語の行: 型の語を足した盤に、その語が同じ向きの重なり無しで置ける
+    const unplaced = ws.filter((w) => !placed.some((p) => p.id === w.id));
+    const g = suggestForBoard(placed, unplaced);
+    for (const l of g.lines ?? []) for (const m of l.guide?.members ?? []) {
+      lines++;
+      const t = { ...tentativeItem(m, m.assign), id: 'cand', uuid: 'cand' };
+      if (overlapsSameDir(t, placed)) enterBad++;
+      // 型の語を足した盤に、その行の語を置いた形も重ならない
+      const u = ws.find((w) => w.id === l.word);
+      const put = u && findPlacement(u, [...placed, t]);
+      if (put && overlapsSameDir(put, [...placed, t])) enterBad++;
+    }
+  }
+  check(boards > 50 && bad === 0, `6字だけの語で組んだ盤 ${boards}枚・型の線 ${lines}本で、同じ向きの語が通るマスを通る線 ${bad}本`);
+  check(enterBad === 0, `置けなかった語の行の型でも、同じ向きの語に重なる物 ${enterBad}本`);
+}
+
 console.log(fail ? `NG ${fail}件` : 'すべてOK');
 process.exit(fail ? 1 : 0);

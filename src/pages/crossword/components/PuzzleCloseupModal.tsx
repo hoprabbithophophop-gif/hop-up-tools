@@ -66,10 +66,14 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
   const dragY = useRef(0); // 今の y（px）。ドラッグで動いた後の exit はここから始める
   const snapBack = useRef<MotionHandle | null>(null);
 
+  // 最後に字を打ったマス（゛゜はこのマスに効かせる）。←→で動いた・消した・開いたばかりの時は null
+  const [lastTypedIndex, setLastTypedIndex] = useState<number | null>(null);
+
   // カギが変わったら入力に戻す
   useEffect(() => {
     setShowHint(false);
     setConfirmReveal(false);
+    setLastTypedIndex(null);
   }, [wordItem.uuid]);
 
   // ページ移動の波が出るときは、動画を外して音を止める（見えないプレーヤーから音を鳴らさない）
@@ -84,8 +88,37 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
     const y = wordItem.direction === "vertical" ? wordItem.startY + index : wordItem.startY;
     return userAnswers[`${x},${y}`] || "";
   };
-  // ゛゜は書き順どおり「字のあと」に効く。字を入れると次のマスへ進んでいるので、今のマスが空なら1つ前の字に効かせる（Hop 2026-10-06）
-  const modTargetIndex = !getCellValue(activeIndex) && activeIndex > 0 && getCellValue(activeIndex - 1) ? activeIndex - 1 : activeIndex;
+  // ゛゜は書き順どおり「字のあと」に効く（Hop 2026-10-06）。直前に打った字のマスに効かせる。字を入れると次のマスへ進むので、
+  // 次のマスに交差の字が既にあっても、その字は濁らせない（2026-10-06 レビューの直し）。直前に打った字が無ければ今のマスの字に効かせる
+  const modTargetIndex = lastTypedIndex ?? activeIndex;
+
+  const typeChar = (char: string) => {
+    setLastTypedIndex(activeIndex);
+    onKeyPress(char);
+  };
+  const forgetTyped = () => setLastTypedIndex(null);
+  const prevCell = () => {
+    forgetTyped();
+    onPrevCell();
+  };
+  const nextCell = () => {
+    forgetTyped();
+    onNextCell();
+  };
+  const backspace = () => {
+    forgetTyped();
+    onBackspace();
+  };
+  const modifyChar = (ch: string) => {
+    // 今のマスの字に効かせた時は、打ち直したのと同じ扱い（続けて ゜ を押しても同じマスに効く）
+    setLastTypedIndex(modTargetIndex);
+    onModifyChar?.(ch, modTargetIndex);
+  };
+  // 1文字見るで入った字も、打った字と同じ扱い（次のマスの交差の字に ゛ が付かないように）
+  const reveal = () => {
+    setLastTypedIndex(activeIndex);
+    onReveal?.();
+  };
 
   const handleBackgroundClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) onClose();
@@ -197,7 +230,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
           {onReveal && (
             <button
               data-coach="reveal"
-              onClick={() => (revealUsed ? onReveal() : setConfirmReveal(true))}
+              onClick={() => (revealUsed ? reveal() : setConfirmReveal(true))}
               className="px-2 py-1 text-xs font-bold bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors shrink-0"
             >
               1文字見る
@@ -216,7 +249,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
             <button
               onClick={() => {
                 setConfirmReveal(false);
-                onReveal?.();
+                reveal();
               }}
               className="px-3 py-1.5 text-sm font-bold bg-primary text-white hover:bg-secondary transition-colors"
             >
@@ -238,10 +271,12 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
                 <button
                   key={index}
                   onClick={() => {
+                    // マスを押して選んだら、そのマスの字に効かせる（今のマスを押し直した時も）
+                    forgetTyped();
                     if (index < activeIndex) {
-                      for (let i = 0; i < activeIndex - index; i++) onPrevCell();
+                      for (let i = 0; i < activeIndex - index; i++) prevCell();
                     } else if (index > activeIndex) {
-                      for (let i = 0; i < index - activeIndex; i++) onNextCell();
+                      for (let i = 0; i < index - activeIndex; i++) nextCell();
                     }
                   }}
                   className={`puzzle-cell w-12 h-12 font-semibold text-xl flex items-center justify-center uppercase transition-all ${isActive ? "scale-110 z-10" : ""}`}
@@ -267,14 +302,14 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
           ) : (
             <PuzzleKeypad
               type={keypadType}
-              onKeyPress={onKeyPress}
-              onBackspace={onBackspace}
+              onKeyPress={typeChar}
+              onBackspace={backspace}
               onEnter={onComplete}
-              onArrowLeft={onPrevCell}
-              onArrowRight={onNextCell}
+              onArrowLeft={prevCell}
+              onArrowRight={nextCell}
               disabled={false}
               currentChar={getCellValue(modTargetIndex)}
-              onModifyCurrentChar={(ch) => onModifyChar?.(ch, modTargetIndex)}
+              onModifyCurrentChar={modifyChar}
             />
           )}
         </div>

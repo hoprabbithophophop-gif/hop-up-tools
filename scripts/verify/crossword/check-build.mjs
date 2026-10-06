@@ -144,6 +144,46 @@ const letters = (ws) => new Set(ws.flatMap((w) => Array.from(w)));
   check(SEARCH_TIME_LIMIT_MS === 2000, `(c) 作る画面の上限: ${SEARCH_TIME_LIMIT_MS}ms`);
 }
 
+// ---- (d) 同じ向きの語が端で1字重なる置き方は出ない（2026-10-06 レビューの直し） ----
+// 同じ向きの語が2つ通るマスがあるか
+const sameDirOverlap = (placed) => {
+  const seen = new Set();
+  for (const it of placed) for (let i = 0; i < it.length; i++) {
+    const k = `${it.direction}:${it.direction === 'horizontal' ? it.startX + i : it.startX},${it.direction === 'vertical' ? it.startY + i : it.startY}`;
+    if (seen.has(k)) return true;
+    seen.add(k);
+  }
+  return false;
+};
+{
+  const P = (w, direction, startX, startY) => ({ ...W(w), uuid: `u-${w}`, direction, startX, startY, length: Array.from(w).length });
+  // 盤 アイウ 横(0,0)・ウオ 縦(2,0)。ウキ を横 (2,0) に置くと、ウ のマスで ウオ と交わりつつ アイウ の端に重なり「アイウキ」の1本になる
+  const board = [P('アイウ', 'horizontal', 0, 0), P('ウオ', 'vertical', 2, 0)];
+  check(!e.validatePlacement(P('ウキ', 'horizontal', 2, 0), board), '(d) 横の語の端に、同じ横の語を1字重ねる置き方は断る（ウキ を (2,0) へ）');
+  check(!e.validatePlacement(P('オク', 'vertical', 2, 1), board.concat([P('キオ', 'horizontal', 1, 1)])), '(d) 縦の語の端に、同じ縦の語を1字重ねる置き方は断る（オク を (2,1) へ）');
+  check(e.validatePlacement(P('イカ', 'vertical', 1, 0), board), '(d) 逆の向きで1マス交わる普通の置き方は通る（イカ を縦 (1,0) へ）');
+  check(findPlacement(W('ウキ'), board) === null, '(d) findPlacement も同じ判定を通る: ウキ はこの盤のどこにも置けない（旧は アイウ の端に重ねて置けた）');
+  // 少ない字で作った語の組で、組み立て・本気の探索のどれでも重なりが出ない
+  const ALPHA = Array.from('アイウエオカ');
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const word = () => Array.from({ length: 2 + Math.floor(rnd() * 4) }, () => ALPHA[Math.floor(rnd() * ALPHA.length)]).join('');
+  let runs = 0, bad = 0, searchBad = 0;
+  for (let r = 0; r < 300; r++) {
+    const ws = [...new Set(Array.from({ length: 8 }, word))].map(W);
+    for (let t = 0; t < 10; t++) {
+      runs++;
+      if (sameDirOverlap(tryPlaceAll(shuffleByLength(ws)))) bad++;
+    }
+    if (r % 30 === 0) {
+      const s = createPuzzleSearch(ws, 100);
+      while (!s.finished()) s.step(30);
+      if (sameDirOverlap(s.best())) searchBad++;
+    }
+  }
+  check(bad === 0 && searchBad === 0, `(d) 6字だけで作った語の組を ${runs}回組んで、同じ向きの語が重なるマスのある盤は ${bad}回・本気の探索 ${searchBad}回`);
+}
+
 // 演出の50回はそのまま
 {
   let n = 0;

@@ -326,7 +326,8 @@ export const suggestForBoard = (
   // 空きのマスに、置けなかった語の k 文字目を交わらせて置けるか。新しい語とはそのマス1つでしか交わらないので、
   // そのマスに字を1つ置いた盤で engine の判定をすれば足りる。判定は置く語の通るマスしか見ないので、
   // そのマスに掛かる語だけを渡しても結果は同じ（速さのため）
-  const dot = (x: number, y: number, ch: string): PlacedItem => ({ id: '', question: '', uuid: '', answer: [ch], direction: 'horizontal', startX: x, startY: y, length: 1 });
+  // 字1つの語の向きは、その字を通る新しい語（置く語と逆の向き）にそろえる（同じ向きの語が通るマスに置かない判定が、自分の字で断らないように）
+  const dot = (x: number, y: number, ch: string, d: 'horizontal' | 'vertical'): PlacedItem => ({ id: '', question: '', uuid: '', answer: [ch], direction: d, startX: x, startY: y, length: 1 });
   const itemsAtCell = new Map<string, PlacedItem[]>();
   for (const it of items) for (let i = 0; i < it.length; i++) {
     const key = it.direction === 'horizontal' ? `${it.startX + i},${it.startY}` : `${it.startX},${it.startY + i}`;
@@ -346,7 +347,7 @@ export const suggestForBoard = (
     const ks: number[] = [];
     for (let k = 0; k < u.answer.length; k++) {
       const w = wordAt(u.answer, d, x, y, k);
-      if (validatePlacement(w, [...touching(w), dot(x, y, u.answer[k])])) ks.push(k);
+      if (validatePlacement(w, [...touching(w), dot(x, y, u.answer[k], other(d))])) ks.push(k);
     }
     return ks;
   };

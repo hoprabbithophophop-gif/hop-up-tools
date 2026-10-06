@@ -21,6 +21,7 @@ const files = [
   'functions/_shared/crosswordMembers.ts',
   'functions/_shared/crosswordOgp.ts',
   'functions/_shared/bodyLimit.ts',
+  'functions/_shared/background.ts',
   'functions/api/crossword-save.ts',
 ];
 for (const f of files) {

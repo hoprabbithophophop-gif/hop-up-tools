@@ -104,9 +104,9 @@ r['2 構築中の動きが出た'] = await pb.getByText(T.building).first().wait
   await pb.waitForTimeout(2500);
   // 初回の遊び方を閉じる
   await pb.getByRole('button', { name: /このまま始める|始める！|はじめる|閉じる/ }).first().click().catch(() => {});
-  const t1 = await pb.evaluate(() => (document.body.innerText.match(/\d\d:\d\d/) || [''])[0]);
+  const t1 = await pb.evaluate(() => (document.body.innerText.match(/\d+:\d\d/) || [''])[0]);
   await pb.waitForTimeout(2200);
-  const t2 = await pb.evaluate(() => (document.body.innerText.match(/\d\d:\d\d/) || [''])[0]);
+  const t2 = await pb.evaluate(() => (document.body.innerText.match(/\d+:\d\d/) || [''])[0]);
   r['2 タイマーが進む'] = Boolean(t1 && t2 && t1 !== t2);
   await pb.screenshot({ path: path.join(OUT, '2-play.png'), fullPage: true });
 

@@ -154,6 +154,32 @@ check(mv && mv.startX === found.x && mv.startY === found.y && mv.pinned === true
 check(mv && validatePlacement(mv, moved.filter((i) => i !== mv)), '(c) 動かした後の語は、ほかの語に対して置ける条件を通る');
 check(moveItem(bi, 'm', 2, 0, board.width, board.height) === null, '(c) 置けない所へは動かさない（元のまま）');
 
+// (e) 同じ向きの語が端で1字重なる所へは動かせない（2026-10-06 レビューの直し）
+// 盤 アイウ 横(0,0)・ウオウ 縦(2,0)・ウケ 横(2,2)（ウオウ の下の ウ と交わる）。ウケ を (2,0) へ動かすと、
+// ウオウ の上の ウ と交わりつつ アイウ の端に重なって「アイウケ」の1本になる
+{
+  const sameDirOverlap = (placed) => {
+    const seen = new Set();
+    for (const it of placed) for (let i = 0; i < it.length; i++) {
+      const k = `${it.direction}:${it.direction === 'horizontal' ? it.startX + i : it.startX},${it.direction === 'vertical' ? it.startY + i : it.startY}`;
+      if (seen.has(k)) return true;
+      seen.add(k);
+    }
+    return false;
+  };
+  const b = [
+    { ...W('アイウ'), uuid: 'a', direction: 'horizontal', startX: 0, startY: 0, length: 3 },
+    { ...W('ウオウ'), uuid: 'v', direction: 'vertical', startX: 2, startY: 0, length: 3 },
+    { ...W('ウケ'), uuid: 'k', direction: 'horizontal', startX: 2, startY: 2, length: 2 },
+  ];
+  check(canMoveTo(b, 'k', 2, 2), '(e) ウケ は今の場所なら置ける');
+  check(!canMoveTo(b, 'k', 2, 0) && moveItem(b, 'k', 2, 0) === null, '(e) ウケ を (2,0) へ: 縦の語とは交わるが、横の アイウ の端に重なるので拒否（元のまま）');
+  // 固定した語の周りに組む時も、重なりは出ない
+  let bad = 0;
+  for (let r = 0; r < 200; r++) if (sameDirOverlap(tryPlaceAll(shuffleByLength(items), true, [pin]))) bad++;
+  check(bad === 0, `(e) 固定した語の周りに組んだ盤 200回で、同じ向きの語が重なるマスのある盤 ${bad}回`);
+}
+
 // (d) 固定を外すと普通の組み立てに戻る
 let noPin = 0;
 for (let r = 0; r < 50; r++) {

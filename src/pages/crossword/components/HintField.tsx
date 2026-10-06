@@ -83,6 +83,9 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   const previewRef = useRef<HintPlayerApi>(null);
 
   useEffect(() => {
+    // 空に戻す時は、走っている検索・確かめの返事を捨てる（古い返事で欄が埋まらないように）
+    seq.current++;
+    setBusy(false);
     setText("");
     setSelected(initial ?? null);
     setTimeText(initial?.hint.kind === "youtube" ? formatTime(initial.hint.startSec) : "0:00");
@@ -179,6 +182,8 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
           <button
             type="button"
             onClick={() => {
+              seq.current++;
+              setBusy(false);
               setSelected(null);
               setText("");
             }}

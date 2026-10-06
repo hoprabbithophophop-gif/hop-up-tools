@@ -3,9 +3,11 @@
 // 変えた所: 見た目（DESIGN.md。黒い窓→白い窓、角なし、絵文字🏆を外した）。
 import React, { useState } from "react";
 import { C } from "../style";
+import { formatTime } from "../../../lib/crossword/youtubeUrl";
 import { Motion } from "./Motion";
 
-const mmss = (t: number) => `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+// タイムは m:ss（1時間を超えたら h:mm:ss）
+const mmss = formatTime;
 
 export const NameEntryModal: React.FC<{
   clearTime: number;

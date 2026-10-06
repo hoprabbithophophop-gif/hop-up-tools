@@ -1,6 +1,10 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Motion } from "./Motion";
 import { C } from "../style";
+
+// fadeAfterMs を渡すと、その時間の後にハンコが薄れる（練習問題で「本番へ」を読めるように。2026-10-06）
+const FADED_OPACITY = 0.15; // 【仮】
+const FADE_DURATION_MS = 600; // 【仮】
 
 /**
  * ClearEffect Component (Retro Stamp Ver.) — HarmonyPalette からの移植
@@ -10,9 +14,15 @@ import { C } from "../style";
  * 動き: ばね stiffness 300 / damping 20 / mass 1.5（framer-motion と同じ式で計算）
  */
 
-export const ClearEffect: React.FC = () => {
+export const ClearEffect: React.FC<{ fadeAfterMs?: number }> = ({ fadeAfterMs }) => {
   // スタンプの色（朱色）。DESIGN.md の例外として HarmonyPalette と同じ色
   const stampColor = C.stamp;
+  const [faded, setFaded] = useState(false);
+  useEffect(() => {
+    if (fadeAfterMs === undefined) return;
+    const t = window.setTimeout(() => setFaded(true), fadeAfterMs);
+    return () => window.clearTimeout(t);
+  }, [fadeAfterMs]);
   // 埃の大きさと飛ぶ先（HarmonyPalette は描画のたびに乱数。ここでは出た時に1回だけ決める）
   const dust = useMemo(
     () =>
@@ -26,7 +36,11 @@ export const ClearEffect: React.FC = () => {
   );
 
   return (
-    <div className="absolute inset-0 z-50 flex justify-center items-center pointer-events-none">
+    <div
+      data-stamp={faded ? "faded" : ""}
+      className="absolute inset-0 z-50 flex justify-center items-center pointer-events-none"
+      style={{ opacity: faded ? FADED_OPACITY : 1, transition: `opacity ${FADE_DURATION_MS}ms ease-out` }}
+    >
       <svg className="absolute w-0 h-0">
         <defs>
           <filter id="stamp-roughness">

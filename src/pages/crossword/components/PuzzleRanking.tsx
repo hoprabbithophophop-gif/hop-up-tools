@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from "react";
 import { getPuzzleRankings, reportName, type RankingEntry } from "../../../lib/crossword/scores";
 import { C } from "../style";
+import { formatTime as formatClock } from "../../../lib/crossword/youtubeUrl";
 import { Motion } from "./Motion";
 
 // 文言
@@ -29,12 +30,8 @@ const T = {
 export const scoreMark = (reveals: number, misses: number): string =>
   [misses === 0 ? "ノーミス" : null, reveals === 0 ? "ノーヒント" : `${reveals}文字見た`].filter(Boolean).join("・");
 
-// タイムをフォーマット (秒 → M:SS)
-const formatTime = (seconds: number): string => {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-};
+// タイムは m:ss（1時間を超えたら h:mm:ss）。youtubeUrl.ts の formatTime と同じ
+const formatTime = (seconds: number): string => formatClock(Math.floor(seconds));
 
 export const PuzzleRanking: React.FC<{ puzzleId: string; currentScore?: number; refreshKey?: number }> = ({ puzzleId, currentScore, refreshKey = 0 }) => {
   const [rankings, setRankings] = useState<RankingEntry[]>([]);

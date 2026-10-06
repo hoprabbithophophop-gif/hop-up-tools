@@ -4,8 +4,13 @@
 // 動かした語（pinned）は先頭のマスの右上に小さな黒い四角【仮】を付ける（左上は番号）。
 import React, { useEffect, useRef, useState } from "react";
 import type { PuzzleData, PlacedItem } from "../../../lib/crossword/types";
+import { canMoveTo } from "../../../lib/crossword/engine";
 import { PuzzleGridRetro } from "./PuzzleGridRetro";
 import { C } from "../style";
+
+// 持ち上げた語の影の濃さ。置ける所では今の濃さ、置けない所の上にいる間は薄くする（2026-10-06 任天堂シミュで決定）
+const GHOST_OPACITY = 0.6;
+const GHOST_OPACITY_BLOCKED = 0.2; // 【仮】
 
 const CELL = 48; // PuzzleGridRetro の 1 マス
 export const LONG_PRESS_MS = 300; // 【仮】
@@ -154,6 +159,10 @@ export const MovableBoard: React.FC<Props> = ({ data, enabled, onDrop }) => {
   };
 
   const pins = data.items.filter((i) => i.pinned);
+  // 離したら置かれる座標に置けるか（元の場所は置ける扱い）。判定は置く時と同じ canMoveTo
+  const dropX = drag ? Math.round(drag.left / CELL) : 0;
+  const dropY = drag ? Math.round(drag.top / CELL) : 0;
+  const placeable = !drag || (dropX === drag.item.startX && dropY === drag.item.startY) || canMoveTo(data.items, drag.item.uuid, dropX, dropY);
 
   return (
     <div className="relative" style={{ width: W2, height: H2 }}>
@@ -192,12 +201,13 @@ export const MovableBoard: React.FC<Props> = ({ data, enabled, onDrop }) => {
         {drag && (
           <div
             data-ghost={drag.item.answer.join("")}
+            data-placeable={placeable ? "yes" : "no"}
             className="absolute pointer-events-none z-40 flex"
             style={{
               left: drag.left,
               top: drag.top,
               flexDirection: drag.item.direction === "horizontal" ? "row" : "column",
-              opacity: 0.6,
+              opacity: placeable ? GHOST_OPACITY : GHOST_OPACITY_BLOCKED,
               transform: "scale(1.06)",
               transformOrigin: "top left",
               filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.25))",

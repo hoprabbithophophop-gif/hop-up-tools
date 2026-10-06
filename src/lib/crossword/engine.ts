@@ -101,13 +101,16 @@ export const validatePlacement = (candidate: PlacedItem, placedItems: PlacedItem
     candidateCells.set(`${cx},${cy}`, candidate.answer[i]);
   }
 
-  // Map of existing cells: coordinate -> value
-  const existingCells = new Map<string, string>();
+  // Map of existing cells: coordinate -> value と、そのマスを通る語の向き
+  const existingCells = new Map<string, { value: string; horizontal: boolean; vertical: boolean }>();
   for (const existing of placedItems) {
     for (let i = 0; i < existing.length; i++) {
       const ex = existing.direction === 'horizontal' ? existing.startX + i : existing.startX;
       const ey = existing.direction === 'vertical' ? existing.startY + i : existing.startY;
-      existingCells.set(`${ex},${ey}`, existing.answer[i]);
+      const key = `${ex},${ey}`;
+      const cell = existingCells.get(key) ?? { value: existing.answer[i], horizontal: false, vertical: false };
+      cell[existing.direction] = true;
+      existingCells.set(key, cell);
     }
   }
 
@@ -115,8 +118,11 @@ export const validatePlacement = (candidate: PlacedItem, placedItems: PlacedItem
   const intersectionPoints = new Set<string>();
 
   for (const [coord, candidateValue] of candidateCells) {
-    if (existingCells.has(coord)) {
-      if (candidateValue !== existingCells.get(coord)) return false;
+    const existing = existingCells.get(coord);
+    if (existing) {
+      if (candidateValue !== existing.value) return false;
+      // 同じ向きの語がもう通っているマスには置かない（端で1字重なって2語が1本につながるのを防ぐ。2026-10-06 レビューの直し）
+      if (existing[candidate.direction]) return false;
       intersectionPoints.add(coord);
     }
   }
@@ -158,8 +164,9 @@ export const buildGrid = (placedItems: PlacedItem[]): PuzzleData => {
   placedItems.forEach(item => {
     minX = Math.min(minX, item.startX);
     minY = Math.min(minY, item.startY);
-    maxX = Math.max(maxX, (item.direction === 'horizontal' ? item.startX + item.length : item.startX));
-    maxY = Math.max(maxY, (item.direction === 'vertical' ? item.startY + item.length : item.startY));
+    // 右端・下端はどちらの向きでも「最後のマス+1」（横1語の盤が高さ0にならないように。2026-10-06 レビューの直し）
+    maxX = Math.max(maxX, (item.direction === 'horizontal' ? item.startX + item.length : item.startX + 1));
+    maxY = Math.max(maxY, (item.direction === 'vertical' ? item.startY + item.length : item.startY + 1));
   });
 
   // Normalize

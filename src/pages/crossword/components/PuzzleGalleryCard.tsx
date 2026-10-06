@@ -48,7 +48,7 @@ export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle }> = ({ puzzle 
         {/* 作成者 */}
         <div className="flex items-center gap-2 text-sm">
           <Icon icon="person" size={16} className="flex-shrink-0" />
-          <span className="truncate" style={{ color: C.secondary }}>{puzzle.creatorName || "Anonymous"}</span>
+          <span className="truncate" style={{ color: C.secondary }}>{puzzle.creatorName || "名無し"}</span>
         </div>
 
         {/* 作成日・ワード数 */}

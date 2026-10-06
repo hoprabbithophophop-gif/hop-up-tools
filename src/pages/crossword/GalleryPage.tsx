@@ -30,6 +30,9 @@ const T = {
   tag: "タグ",
   tagPlaceholder: "タグで絞る",
   apply: "絞る",
+  // 絞り込んだ結果が空のときの道（2026-10-06 決定）【仮】
+  showAll: "すべての問題を見る",
+  create: "作る",
 };
 
 export default function GalleryPage() {
@@ -51,6 +54,7 @@ export default function GalleryPage() {
   const [beginnerOnly, setBeginnerOnly] = useState(false);
 
   const [hasMore, setHasMore] = useState(false);
+  const [nextOffset, setNextOffset] = useState(0); // 「もっと見る」で次に読み始める位置
   const reqId = useRef(0);
 
   // ページ移動の波は、最初の一覧が届くまで待ってもらう
@@ -74,12 +78,13 @@ export default function GalleryPage() {
           tag: appliedTag || undefined,
           beginnerOnly,
           limitCount: PAGE_SIZE,
-          offset: isLoadMore ? puzzles.length : 0,
+          offset: isLoadMore ? nextOffset : 0,
         });
         if (id !== reqId.current) return; // 絞り込みを変えた後に届いた古い答えは捨てる
         if (isLoadMore) setPuzzles((prev) => [...prev, ...response.puzzles]);
         else setPuzzles(response.puzzles);
         setHasMore(response.hasMore);
+        setNextOffset(response.nextOffset);
       } catch (err) {
         if (id !== reqId.current) return;
         console.error("Failed to fetch puzzles:", err);
@@ -92,7 +97,7 @@ export default function GalleryPage() {
         }
       }
     },
-    [appliedSearch, sortBy, genre, group, appliedTag, beginnerOnly, puzzles.length]
+    [appliedSearch, sortBy, genre, group, appliedTag, beginnerOnly, nextOffset]
   );
 
   // 初回ロードとフィルタ変更時
@@ -119,6 +124,17 @@ export default function GalleryPage() {
   const clearSearch = () => {
     setSearchQuery("");
     setAppliedSearch("");
+  };
+
+  // 絞り込み・検索をしているか。全部外すと「すべての問題」に戻る
+  const filterActive = genre !== "all" || !!group || !!appliedTag || beginnerOnly || !!appliedSearch;
+  const clearAll = () => {
+    clearSearch();
+    setGenre("all");
+    setGroup("");
+    setTagInput("");
+    setAppliedTag("");
+    setBeginnerOnly(false);
   };
 
   const selectClass = "text-base px-3 py-2 bg-surface-container-low text-on-surface focus:outline-none focus:bg-white focus:shadow-[inset_0_-2px_0_#000] cursor-pointer";
@@ -283,6 +299,25 @@ export default function GalleryPage() {
                 <button type="button" onClick={clearSearch} className="hover:underline" style={{ color: C.ink }}>
                   検索をクリア
                 </button>
+              )}
+              {/* 絞り込んだ結果が空のときの道（2026-10-06 決定） */}
+              {filterActive && (
+                <div data-empty-ways="" className="flex flex-wrap justify-center gap-2 mt-4">
+                  <button
+                    type="button"
+                    onClick={clearAll}
+                    className="px-4 py-2 bg-primary text-white hover:bg-secondary transition-colors"
+                  >
+                    {T.showAll}
+                  </button>
+                  <Link
+                    to="/crossword/create"
+                    className="px-4 py-2 bg-surface-container-high hover:bg-surface-container-highest transition-colors"
+                    style={{ color: C.ink }}
+                  >
+                    {T.create}
+                  </Link>
+                </div>
               )}
             </div>
           ) : (

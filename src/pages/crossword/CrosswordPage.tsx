@@ -8,10 +8,11 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from "reac
 
 import ContactModal from "@/components/ContactModal";
 import { usePageReady } from "../../lib/pageReady";
-import { buildGrid, generateMonteCarloSteps, createPuzzleSearch, isBetterPlacement, moveItem, validatePlacement } from "../../lib/crossword/engine";
+import { buildGrid, generateMonteCarloSteps, createPuzzleSearch, isBetterPlacement, isConnected, moveItem, validatePlacement } from "../../lib/crossword/engine";
 import { suggestForBoard, guideTexts } from "../../lib/crossword/suggest";
 import type { PuzzleData, PuzzleItem, PlacedItem } from "../../lib/crossword/types";
-import { toCells } from "../../lib/crossword/cells";
+import { isUsableCell, toCells, UNUSABLE_KANA } from "../../lib/crossword/cells";
+import { toLargeKana } from "../../../functions/_shared/crosswordKana";
 import { determineNextSelection } from "../../lib/crossword/puzzleSelectionLogic";
 import {
   addMyPuzzle,
@@ -76,17 +77,14 @@ const CREATE_GUIDE_KEY = "crossword_seen_create_guide";
 const TUTORIAL_KEY = "crossword_seen_tutorial";
 // 練習問題の住所（棚に入れずコードの中に持つ）
 const TUTORIAL_PATH = "/crossword/tutorial";
+// 練習問題のハンコが薄れるまで（「本番へ」が読めるように。2026-10-06 任天堂シミュで決定）【仮】
+const TUTORIAL_STAMP_FADE_MS = 2000;
 const PROGRESS_PREFIX = "crossword_progress_";
 const PLAYED_PREFIX = "crossword_played_";
 // 前回の続きを開いた時に「つづきから／はじめから」を聞くのは、前回から30分以上空いた時だけ（Hop 決定 2026-10-04）
 const RESUME_ASK_MS = 30 * 60 * 1000;
-const clock = (sec: number) => {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const ss = String(sec % 60).padStart(2, "0");
-  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${String(m).padStart(2, "0")}:${ss}`;
-}; // 遊ばれた回数を足し済みの印
-const SAVE_COUNT_PREFIX = "crossword_save_count_";
+// タイムは m:ss（1時間を超えたら h:mm:ss）にそろえる（2026-10-06 Hop 決定）
+const clock = formatTime;
 
 const lsGet = (k: string): string | null => {
   try {
@@ -141,6 +139,8 @@ const T = {
   share: "共有する",
   close: "閉じる",
   howToPlay: "遊び方",
+  howToCreate: "パズルの作り方", // 作る画面の「?」の説明（2026-10-06 Hop 決定）
+  anonymous: "名無し", // 作成者名が空の時（2026-10-06 Hop 決定）
   previewTitle: "プレビュー",
   previewSubtitle: "答えとカギを追加すると、ここに盤が組み上がります",
   guidelinesNotice: "※作成されたパズルの著作権および責任は作成者に帰属します。",
@@ -179,7 +179,18 @@ const T = {
   // 動かして固定した語（Hop 決定 2026-10-05・案A）
   pins: {
     release: "固定を外す", // 【仮】
+    // 固定した語どうしが1つにつながらない盤（2026-10-06 レビューの直し）【仮】
+    notConnected: "固定した語がつながっていません。固定を外すか、語を足してください",
   },
+  // 「リストに追加」が押せない理由（2026-10-06 任天堂シミュで決定・Hop「いいと思う」）【仮】
+  addReason: {
+    hello: "ヒントの動画を選ぶと追加できます",
+    other: "ヒントの URL を入れると追加できます",
+  } as Record<Genre, string>,
+  // ヰ・ヱ を断る知らせ（2026-10-06 レビューの直し）【仮】
+  unusableKana: "「ヰ」「ヱ」は使えません。",
+  // 解き終えた画面のヒントの動画の一覧を開くボタン（2026-10-06 任天堂シミュで決定）【仮】
+  showHintVideos: "ヒントの動画を見る",
   edit: {
     pageTitle: "クロスワードパズルの組み直し", // 【仮】
     update: "更新する", // 【仮】
@@ -192,14 +203,15 @@ const T = {
     shareLink: "共有リンク",
     postToX: "Xに投稿",
     publicNotice: "このパズルは公開され、誰でもプレイできるようになります。",
+    updatedNotice: "このパズルを更新しました。URL は変わりません。", // 組み直しの後（2026-10-06 Hop 決定）
     healthyContent: "健全なコンテンツの作成にご協力ください。",
   },
   creatorHelp: {
     title: "パズルの作り方",
     steps: [
-      { title: "答え・カギ・ヒントを入力", description: "「答え」に単語を、「カギ」にその単語を当てるための問題文を書きます。「ヒント」には、答えの根拠になる動画やページのURLを貼ります。" },
+      { title: "答え・カギ・ヒントを入力", description: "「答え」に単語を、「カギ」にその単語を当てるための問題文を書きます。「ヒント」には答えの根拠を添えます。ハロプロは HELLO! VIDEO の動画を検索して選び、その他は URL を貼ります。" },
       { title: "リストに追加", description: "入力したら「リストに追加」ボタンを押します。5〜10個の単語を追加するのがおすすめです。" },
-      { title: "パズルを自動生成", description: "単語を追加すると、クロスワードパズルが自動で組み上がります。うまく組めない場合は「再シャッフル」でやり直せます。" },
+      { title: "パズルを自動生成", description: "単語を追加すると、クロスワードパズルが自動で組み上がります。別の形にしたいときは「再シャッフル」。固定した語は動きません。" },
       { title: "保存・共有", description: "タイトルを入力して「共有する」を押すと共有URLが発行されます。SNSでシェアしてみんなに遊んでもらいましょう！" },
     ],
     tipsTitle: "コツ",
@@ -234,8 +246,9 @@ const T = {
   },
   playerHelp: {
     title: "遊び方",
-    steps: ["空欄のマスに文字を入力", "カギを参考に正解を推測", "全マス正解でクリア！"],
+    steps: ["空欄のマスに文字を入力", "カギを参考に正解を推測", "最後のマスを埋めると自動で答え合わせ"],
     start: "始める！",
+    createdBy: (name: string) => `作った人: ${name}`, // 2026-10-06 Hop 決定
     // 練習問題の入口は「?」から開いた遊び方の窓だけ（Hop 決定 2026-10-05）
     practice: "練習する", // 【仮】
     request: "要望を送る", // 「?」の窓から問い合わせの窓を種類「要望」で開く（Hop 決定 2026-10-06）【仮】
@@ -459,6 +472,15 @@ export default function CrosswordPage() {
   // 前回の続きを開いた時に聞く（値は始めてからの秒数）。答えるまでタイマーは動かさない
   const [resumeAsk, setResumeAsk] = useState<number | null>(null);
   const [checking, setChecking] = useState(false);
+  // 回を始める呼び出しの返事待ち（2度目以降は同じ返事を待つ。回が二重に始まらないように。2026-10-06 レビューの直し）
+  const playPendingRef = useRef<Promise<string | null> | null>(null);
+  // 答え合わせの通信中か（見張りの中で今の値を見るため ref でも持つ）。通信中に盤が変わったら dirty を立て、
+  // 通信の後に今の盤で1度だけ黙って丸付けし直す（2026-10-06 レビューの直し）
+  const checkingRef = useRef(false);
+  const checkDirtyRef = useRef(false);
+  const [recheckTick, setRecheckTick] = useState(0);
+  // 解き終えた画面のヒントの動画の一覧（畳んである）
+  const [showHintVideos, setShowHintVideos] = useState(false);
 
   // UI States
   const [showHelp, setShowHelp] = useState(false);
@@ -737,10 +759,7 @@ export default function CrosswordPage() {
         }
       }
 
-      if (/^[a-zA-Z]$/.test(e.key) && activeCell) {
-        e.preventDefault();
-        handleKeypadInput(e.key.toUpperCase());
-      }
+      // 英字（A〜Z）は盤に入れない。答えはカタカナだけなので、入れても必ず間違いになる（2026-10-06 レビューの直し。HarmonyPalette の名残）
 
       if (e.key === "Backspace" && activeCell) {
         e.preventDefault();
@@ -750,7 +769,8 @@ export default function CrosswordPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlayerMode, playerPuzzle, isCleared, showCloseup, activeCell, currentWordDirection, activeWordItem]);
+    // userAnswers: Backspace が今の盤の字を見るため（古い盤のまま消さない）
+  }, [isPlayerMode, playerPuzzle, isCleared, showCloseup, activeCell, currentWordDirection, activeWordItem, userAnswers]);
 
   // 遊び方を閉じたらタイマー開始（HarmonyPalette の Cookie 同意の後の開始の置き換え）
   const closeHelp = () => {
@@ -800,20 +820,29 @@ export default function CrosswordPage() {
     void ensurePlay();
   };
 
-  const ensurePlay = async (): Promise<string | null> => {
-    if (playRef.current) return playRef.current.token;
-    if (!puzzleId) return null;
-    try {
-      const p = await startPlay(puzzleId);
-      const localStart = Date.now();
-      playRef.current = { token: p.token, localStart };
-      setStartTime(localStart);
-      return p.token;
-    } catch (err) {
-      console.warn("Failed to start play:", err);
-      playErrorRef.current = err instanceof PlayError ? err.reason : "network";
-      return null;
-    }
+  const ensurePlay = (): Promise<string | null> => {
+    if (playRef.current) return Promise.resolve(playRef.current.token);
+    if (!puzzleId) return Promise.resolve(null);
+    // 返事待ちの間に呼ばれたら、新しく始めずに同じ返事を待つ
+    if (playPendingRef.current) return playPendingRef.current;
+    const pending = (async () => {
+      try {
+        const p = await startPlay(puzzleId);
+        const localStart = Date.now();
+        playRef.current = { token: p.token, localStart };
+        setStartTime(localStart);
+        return p.token;
+      } catch (err) {
+        console.warn("Failed to start play:", err);
+        playErrorRef.current = err instanceof PlayError ? err.reason : "network";
+        return null;
+      }
+    })();
+    playPendingRef.current = pending;
+    void pending.then(() => {
+      if (playPendingRef.current === pending) playPendingRef.current = null;
+    });
+    return pending;
   };
 
   // 受付係に断られた理由ごとの知らせ
@@ -958,33 +987,6 @@ export default function CrosswordPage() {
     );
   };
 
-  // スマートナビゲーション: 次の空きセルを探索
-  const findNextEmptyCell = (x: number, y: number, direction: "horizontal" | "vertical", wordItem: PlacedItem | null): { x: number; y: number } | null => {
-    if (!wordItem || !playerPuzzle) return null;
-    for (let i = 0; i < wordItem.length; i++) {
-      const cx = direction === "horizontal" ? wordItem.startX + i : wordItem.startX;
-      const cy = direction === "vertical" ? wordItem.startY + i : wordItem.startY;
-      const isAfterCurrent = direction === "horizontal" ? cx > x : cy > y;
-      if (isAfterCurrent && !userAnswers[`${cx},${cy}`]) return { x: cx, y: cy };
-    }
-    for (let i = 0; i < wordItem.length; i++) {
-      const cx = direction === "horizontal" ? wordItem.startX + i : wordItem.startX;
-      const cy = direction === "vertical" ? wordItem.startY + i : wordItem.startY;
-      if (!userAnswers[`${cx},${cy}`]) return { x: cx, y: cy };
-    }
-    return null;
-  };
-
-  // キーパッド入力ハンドラー（スマートナビゲーション付き）
-  const handleKeypadInput = (char: string) => {
-    if (!activeCell || !playerPuzzle || isCleared) return;
-    const key = `${activeCell.x},${activeCell.y}`;
-    setUserAnswers((prev) => ({ ...prev, [key]: char.toUpperCase() }));
-    const nextCell = findNextEmptyCell(activeCell.x, activeCell.y, currentWordDirection, activeWordItem);
-    if (nextCell) setActiveCell(nextCell);
-    else moveToNextClue();
-  };
-
   // キーパッドBackspaceハンドラー
   const handleKeypadBackspace = () => {
     if (!activeCell || !playerPuzzle || isCleared) return;
@@ -1047,6 +1049,11 @@ export default function CrosswordPage() {
       lsSet(`${PROGRESS_PREFIX}${playerPuzzle.id}`, JSON.stringify({ userAnswers, elapsedSeconds, reveals, play: playRef.current, savedAt: Date.now() }));
     }
   }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase, reveals, isTutorial]);
+
+  // 解けたら端末の途中経過を消す。開き直すと新しい回で最初から（2026-10-06 レビューの直し）
+  useEffect(() => {
+    if (playerPuzzle && !isTutorial && gamePhase === "cleared") lsRemove(`${PROGRESS_PREFIX}${playerPuzzle.id}`);
+  }, [playerPuzzle, gamePhase, isTutorial]);
 
   // --- 組み直し: 端末の控えの合言葉で中身を受け取り、入力欄と盤に戻す（Hop 決定 2026-10-05） ---
   // 控えに無い・受け取れない時は知らせて普通の作る画面にする（住所の ?edit= も外す）
@@ -1124,11 +1131,25 @@ export default function CrosswordPage() {
         if (d.genre === "hello" || d.genre === "other") setGenre(d.genre);
         if (Array.isArray(d.tags)) setTags(d.tags);
         if (typeof d.isBeginner === "boolean") setIsBeginner(d.isBeginner);
-        if (d.hints && typeof d.hints === "object") setHints(d.hints);
         if (d.input && typeof d.input.q === "string" && typeof d.input.a === "string") setCurrentInput(d.input);
-        if (Array.isArray(d.items) && d.items.length > 0) {
-          setEditorItems(d.items);
-          triggerGeneration(d.items);
+        // 語ごとに形を確かめ、答えは今の字そろえ（toCells）を通し直す。だめな語は捨てる（2026-10-06 レビューの直し）
+        const items: PuzzleItem[] = [];
+        const seen = new Set<string>();
+        for (const raw of Array.isArray(d.items) ? (d.items as unknown[]) : []) {
+          const it = raw as Partial<PuzzleItem> | null;
+          if (!it || typeof it.id !== "string" || !it.id || seen.has(it.id) || typeof it.question !== "string") continue;
+          if (!Array.isArray(it.answer) || !it.answer.every((c) => typeof c === "string")) continue;
+          const answer = toCells(it.answer.join(""));
+          if (answer.length === 0 || !answer.every(isUsableCell)) continue;
+          seen.add(it.id);
+          items.push({ id: it.id, question: it.question, answer });
+        }
+        if (d.hints && typeof d.hints === "object") {
+          setHints(Object.fromEntries(Object.entries(d.hints as Record<string, HintRef>).filter(([id]) => seen.has(id))));
+        }
+        if (items.length > 0) {
+          setEditorItems(items);
+          triggerGeneration(items);
         }
       } catch {
         lsRemove(DRAFT_KEY);
@@ -1153,7 +1174,11 @@ export default function CrosswordPage() {
     if (!currentInput.a.trim() || !pendingHint) return;
     const answerParts = toCells(currentInput.a);
     // 答えはカタカナの文字盤で打てる字だけ（ひらがなはカタカナにそろう）
-    if (!answerParts.every((c) => /^[ァ-ヶー]$/.test(c))) {
+    if (answerParts.some((c) => UNUSABLE_KANA.test(c))) {
+      toast.error(T.unusableKana, { duration: 5000 });
+      return;
+    }
+    if (!answerParts.every(isUsableCell)) {
       toast.error("答えは、ひらがな・カタカナ・「ー」で入れてください。\n漢字・数字・英字・記号は使えません。", { duration: 5000 });
       return;
     }
@@ -1331,16 +1356,9 @@ export default function CrosswordPage() {
 
   const handleShare = async () => {
     if (!generatedPuzzle) return;
-
-    // --- Rate Limit Check (Client-side) ---
-    const today = new Date().toISOString().split("T")[0];
-    const limitKey = `${SAVE_COUNT_PREFIX}${today}`;
-    const savedCount = parseInt(lsGet(limitKey) || "0", 10);
-    // 組み直しの更新は新しく作る数に数えない【仮】
-    if (!editTarget && savedCount >= 5) {
-      toast.error("1日に作成・保存できるパズルは5個までです。\nサーバーの負荷軽減にご協力ください。明日また作成をお願いします！", { duration: 5000 });
-      return;
-    }
+    // 保存の数の上限は受付係だけが持つ（画面の「1日5個まで」は外した。2026-10-06）
+    // 固定した語どうしがつながらない盤は保存しない（ボタンも押せないが、念のため）
+    if (!isConnected(generatedPuzzle.items)) return;
 
     // --- Title Check ---（いま欄に入っている題名で確かめる）
     const title = puzzleTitle.trim();
@@ -1445,9 +1463,6 @@ export default function CrosswordPage() {
       setIsSaving(false);
       return;
     }
-    const today = new Date().toISOString().split("T")[0];
-    const limitKey = `${SAVE_COUNT_PREFIX}${today}`;
-    const savedCount = parseInt(lsGet(limitKey) || "0", 10);
     const title = puzzleTitle.trim();
     try {
       const body = toBody(generatedPuzzle.items, generatedPuzzle.width, generatedPuzzle.height, (id) => hints[id]);
@@ -1461,7 +1476,6 @@ export default function CrosswordPage() {
       setShareUrl(url);
       setSharedTitle(title);
       setShowShareModal(true);
-      lsSet(limitKey, String(savedCount + 1));
       // 保存できたので作りかけの控えは消す（このあと入力を変えたら、また新しく残り始める）
       lsRemove(DRAFT_KEY);
     } catch (error) {
@@ -1491,7 +1505,7 @@ export default function CrosswordPage() {
   // リセットはマスを空にするだけで、回は続ける（タイム・見た数・ミスはその回のまま）。
   // 「途中まで埋めたが合わない所が出たので消す」が動機なので、時間は継続加算（Hop 決定 2026-10-06）
   const handleReset = () => {
-    if (confirm("入力をすべて消去しますか？")) {
+    if (confirm("入力をすべて消去しますか？ タイムはそのまま続きます。")) {
       setUserAnswers({});
       setIsCleared(false);
     }
@@ -1500,7 +1514,12 @@ export default function CrosswordPage() {
   // 丸付け。空きマスがあればその場で知らせ、全部埋まっていれば受付係に丸付けしてもらう。
   // silent は、埋まったまま直している途中の丸付け（合っていた時だけ終える。違っていても何も言わない）
   const handleClearCheck = async (silent = false) => {
-    if (!playerPuzzle?.cells || checking || isCleared) return;
+    if (!playerPuzzle?.cells || isCleared) return;
+    if (checking || checkingRef.current) {
+      // 通信中に呼ばれた（盤が変わった）。通信の後に今の盤でもう一度丸付けする
+      checkDirtyRef.current = true;
+      return;
+    }
     const full = playerPuzzle.cells.every((c) => !!userAnswers[`${c.x},${c.y}`]);
     if (!full) {
       if (!silent) toast.error("まだ埋まっていないマスがあります。", { duration: 4000 });
@@ -1510,10 +1529,12 @@ export default function CrosswordPage() {
     let allCorrect = false;
     let serverTime: number | null = null;
     if (isDebugMode || isTutorial) {
-      // 練習問題とデバッグ用の見本は、ブラウザの中で答え合わせする（受付係を通さない）
-      allCorrect = playerPuzzle.cells.every((c) => userAnswers[`${c.x},${c.y}`] === c.value);
+      // 練習問題とデバッグ用の見本は、ブラウザの中で答え合わせする（受付係を通さない）。小さい字は大きい字にそろえて比べる
+      allCorrect = playerPuzzle.cells.every((c) => toLargeKana(userAnswers[`${c.x},${c.y}`] ?? "") === toLargeKana(c.value));
     } else {
       setChecking(true);
+      checkingRef.current = true;
+      checkDirtyRef.current = false;
       try {
         const r = await withPlay((token) => checkPlay(token, userAnswers));
         allCorrect = r.correct;
@@ -1534,6 +1555,12 @@ export default function CrosswordPage() {
         return;
       } finally {
         setChecking(false);
+        checkingRef.current = false;
+        // 通信中に盤が変わっていて、まだ解けていなければ、今の盤で1度だけ黙って丸付けし直す
+        if (checkDirtyRef.current) {
+          checkDirtyRef.current = false;
+          if (!allCorrect) setRecheckTick((t) => t + 1);
+        }
       }
     }
 
@@ -1576,7 +1603,11 @@ export default function CrosswordPage() {
   // 最後の空きマスが埋まったら、答え合わせのボタンを押さなくても答え合わせをする（Hop 依頼 2026-10-04。HarmonyPalette には無い）。
   // 埋まった瞬間は、合っていても間違っていても答え合わせと同じ反応を返す。埋まったまま直している間は黙って見て、全部合った時だけ終える。
   // 保存してあった盤を開き直しただけでは始めない（最初の1回は今の状態を覚えるだけ）
-  const autoCheckRef = useRef<{ ready: boolean; full: boolean }>({ ready: false, full: false });
+  // 埋まった瞬間の丸付けも、黙る方と同じだけ待ってから走らせる。その間に ゛゜ で字が変われば、変わった後の盤で丸付けする
+  // （最後のマスが濁る字の時に、゛ の前に答え合わせが走らないように。2026-10-06 レビューの直し）。待ちの間は入力の窓を閉じない
+  const AUTO_CHECK_WAIT_MS = 400; // 【仮】
+  // loud = 埋まった瞬間の反応（合否を知らせる方）をまだ返していない
+  const autoCheckRef = useRef<{ ready: boolean; full: boolean; loud: boolean }>({ ready: false, full: false, loud: false });
   useEffect(() => {
     if (!playerPuzzle?.cells || isCleared || gamePhase !== "playing") return;
     const full = playerPuzzle.cells.every((c) => !!userAnswers[`${c.x},${c.y}`]);
@@ -1586,16 +1617,31 @@ export default function CrosswordPage() {
       autoCheckRef.current.ready = true;
       return;
     }
-    if (!full) return;
-    if (!wasFull) {
-      setShowCloseup(false); // 結果が盤の上で見えるように、拡大の窓は閉じる
-      void handleClearCheck();
+    // 答え合わせの通信中に盤が変わったら、通信の後に今の盤でもう一度丸付けする
+    if (checkingRef.current) {
+      checkDirtyRef.current = true;
       return;
     }
-    // 埋まったまま直している途中は、打ち終わるのを少し待ってから黙って丸付けする（1字ごとに通信しない）
-    const timer = setTimeout(() => void handleClearCheck(true), 400);
+    if (!full) {
+      autoCheckRef.current.loud = false;
+      return;
+    }
+    if (!wasFull) autoCheckRef.current.loud = true;
+    // 打ち終わるのを少し待ってから丸付けする（1字ごとに通信しない）
+    const timer = setTimeout(() => {
+      const loud = autoCheckRef.current.loud;
+      autoCheckRef.current.loud = false;
+      if (loud) setShowCloseup(false); // 結果が盤の上で見えるように、拡大の窓は閉じる
+      void handleClearCheck(!loud);
+    }, AUTO_CHECK_WAIT_MS);
     return () => clearTimeout(timer);
   }, [userAnswers, playerPuzzle, isCleared, gamePhase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 通信中に盤が変わっていた時の丸付けし直し（黙る方。今の盤で）
+  useEffect(() => {
+    if (recheckTick === 0) return;
+    void handleClearCheck(true);
+  }, [recheckTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Submit Score Logic with Network Protection（HarmonyPalette の handleSubmitScore と同じ動き） ---
   const handleSubmitScore = async (name: string) => {
@@ -1658,7 +1704,7 @@ export default function CrosswordPage() {
     lsSet(CREATE_GUIDE_KEY, "1");
     setCreateGuide(null);
   };
-  const answerOk = !!currentInput.a.trim() && toCells(currentInput.a).every((c) => /^[ァ-ヶー]$/.test(c));
+  const answerOk = !!currentInput.a.trim() && toCells(currentInput.a).every(isUsableCell);
   const boardReady = !!generatedPuzzle && !isLiveGenerating;
   const addedSinceStep = editorItems.length > guideBaseRef.current;
   // done は「利用者の操作で次の段へ進む」段の終わりの印（「次へ」を出さない段）
@@ -1750,21 +1796,22 @@ export default function CrosswordPage() {
               {/* [No.02] Title & Author - 縦積み、truncate */}
               <div className="flex flex-col min-w-0 flex-1">
                 <h1 className="text-base font-bold truncate" style={{ color: C.ink }}>{playerPuzzle.title || "クロスワードパズル"}</h1>
-                {playerPuzzle.creatorName && (
-                  <p className="text-xs truncate" style={{ color: C.secondary }}>{playerPuzzle.creatorName}</p>
-                )}
+                {!isTutorial && <p className="text-xs truncate" style={{ color: C.secondary }}>{playerPuzzle.creatorName || T.anonymous}</p>}
               </div>
             </div>
 
             <div className="flex items-center gap-2">
               {gamePhase === "playing" && !isTutorial && (
                 <span className="text-lg font-mono font-bold tabular-nums" style={{ color: C.ink }}>
-                  {String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:{String(elapsedSeconds % 60).padStart(2, "0")}
+                  {clock(elapsedSeconds)}
                 </span>
               )}
-              <button onClick={handleReset} className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title="リセット">
-                <Icon icon="restart_alt" />
-              </button>
+              {/* 解けた後は ↻ を出さない（2026-10-06 レビューの直し） */}
+              {gamePhase !== "cleared" && !isCleared && (
+                <button onClick={handleReset} className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title="リセット">
+                  <Icon icon="restart_alt" />
+                </button>
+              )}
             </div>
           </div>
         </header>
@@ -1799,7 +1846,7 @@ export default function CrosswordPage() {
 
                   <div className="text-center mb-6">
                     <h2 className="text-2xl font-bold mb-2" style={{ color: C.ink }}>{T.playerHelp.title}</h2>
-                    <p className="text-sm" style={{ color: C.secondary }}>Created by {playerPuzzle.creatorName || "Anonymous"}</p>
+                    <p className="text-sm" style={{ color: C.secondary }}>{T.playerHelp.createdBy(playerPuzzle.creatorName || T.anonymous)}</p>
                   </div>
 
                   <div className="space-y-4 mb-8">
@@ -1813,10 +1860,8 @@ export default function CrosswordPage() {
 
                   <div className="space-y-2">
                     <button
-                      onClick={() => {
-                        closeHelp();
-                        handleStartGame();
-                      }}
+                      // 回を始めるのは closeHelp の中の1回だけ（2026-10-06 レビューの直し。前は2度呼んでいた）
+                      onClick={closeHelp}
                       className="w-full bg-primary hover:bg-secondary text-white font-bold py-4 text-lg flex items-center justify-center gap-2 transition-colors"
                     >
                       <Icon icon="play_arrow" />
@@ -1872,8 +1917,9 @@ export default function CrosswordPage() {
               </Motion>
             ) : (
               <Motion initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8">
-                {/* パズル描画エリア */}
-                <div className="mb-8 w-full">
+                {/* パズル描画エリア（ハンコはこの上に押す。すぐ下に「Xに投稿」が来るように） */}
+                <div data-board-area="" className="mb-8 w-full relative">
+                  {isCleared && <ClearEffect fadeAfterMs={isTutorial ? TUTORIAL_STAMP_FADE_MS : undefined} />}
                   <div className="w-full bg-white p-6 overflow-x-auto">
                     <FitGrid width={playerPuzzle.width} height={playerPuzzle.height} userScale={scale}>
                       <PuzzleGridRetro
@@ -1922,7 +1968,8 @@ export default function CrosswordPage() {
                       <button
                         onClick={() => setScale(1)}
                         className="px-2 py-1 bg-surface-container-high hover:bg-surface-container-highest transition-colors text-xs font-bold"
-                        title="リセット"
+                        title="大きさを戻す"
+                        aria-label="大きさを戻す"
                         style={{ color: C.ink }}
                       >
                         {(scale * 100).toFixed(0)}%
@@ -1930,6 +1977,67 @@ export default function CrosswordPage() {
                     )}
                   </div>
                 </div>
+
+                {/* 解き終えた画面（2026-10-06 任天堂シミュで決定・Hop「いいと思う」）: ハンコの直下に「Xに投稿」→ 名前の窓の後のランキング
+                    → ほかの問題 → 畳んだヒントの動画の一覧 */}
+                {isCleared && (
+                  <div data-cleared-block="">
+                    {/* 解けたことをXに投稿 */}
+                    {puzzleId && (
+                      <div>
+                        <a
+                          href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`解けた！　${playerPuzzle.title}`)}&url=${encodeURIComponent(`${window.location.origin}/crossword/${puzzleId}`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-2 w-full py-3 bg-primary hover:bg-secondary text-white font-black font-mono transition-colors"
+                        >
+                          <Icon size={16} icon="share" /> {T.shareModal.postToX}
+                        </a>
+                      </div>
+                    )}
+                    {/* ランキング（名前の窓はこの上に出る） */}
+                    {puzzleId && (
+                      <div className="mt-6">
+                        <PuzzleRanking
+                          puzzleId={puzzleId}
+                          currentScore={clearTime ?? undefined}
+                          refreshKey={rankingRefresh}
+                        />
+                      </div>
+                    )}
+                    {/* ほかの問題と一覧への入口 */}
+                    {puzzleId && playerGenre && <OtherPuzzles genre={playerGenre} puzzleId={puzzleId} />}
+                    {/* ヒントの動画の一覧（畳んである。押すと開く） */}
+                    {Object.keys(playerHints).length > 0 &&
+                      (showHintVideos ? (
+                        <HintList items={playerPuzzle.items} hints={playerHints} />
+                      ) : (
+                        <div className="text-center mt-6">
+                          <button
+                            type="button"
+                            onClick={() => setShowHintVideos(true)}
+                            className="inline-flex items-center gap-2 px-6 py-3 bg-surface-container-high hover:bg-surface-container-highest transition-colors font-medium"
+                            style={{ color: C.ink }}
+                          >
+                            {T.showHintVideos}
+                          </button>
+                        </div>
+                      ))}
+                    {/* 作成モードへ戻るリンク（練習問題では出さない） */}
+                    {!isTutorial && (
+                      <div className="text-center mt-4">
+                        <Link
+                          to="/crossword/create"
+                          className="inline-flex items-center gap-2 px-6 py-3 bg-surface-container-high hover:bg-surface-container-highest transition-colors font-medium"
+                          style={{ color: C.ink }}
+                        >
+                          <Icon icon="add" />
+                          {T.createNew}
+                        </Link>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Sticky Hint Bar - モーダルが閉じている時のみ表示 */}
                 {!isCleared && !showCloseup && (
@@ -2009,51 +2117,6 @@ export default function CrosswordPage() {
                 </div>
                 )}
 
-                {isCleared && (
-                  <>
-                    <ClearEffect />
-                    {/* 解けたことをXに投稿 */}
-                    {puzzleId && (
-                      <div className="mt-6">
-                        <a
-                          href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`解けた！　${playerPuzzle.title}`)}&url=${encodeURIComponent(`${window.location.origin}/crossword/${puzzleId}`)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center justify-center gap-2 w-full py-3 bg-primary hover:bg-secondary text-white font-black font-mono transition-colors"
-                        >
-                          <Icon size={16} icon="share" /> {T.shareModal.postToX}
-                        </a>
-                      </div>
-                    )}
-                    {/* ランキング */}
-                    {puzzleId && (
-                      <div className="mt-6">
-                        <PuzzleRanking
-                          puzzleId={puzzleId}
-                          currentScore={clearTime ?? undefined}
-                          refreshKey={rankingRefresh}
-                        />
-                      </div>
-                    )}
-                    {/* ヒントの動画の一覧 */}
-                    <HintList items={playerPuzzle.items} hints={playerHints} />
-                    {/* ほかの問題と一覧への入口 */}
-                    {puzzleId && playerGenre && <OtherPuzzles genre={playerGenre} puzzleId={puzzleId} />}
-                    {/* 作成モードへ戻るリンク（練習問題では出さない） */}
-                    {!isTutorial && (
-                    <div className="text-center mt-4">
-                      <Link
-                        to="/crossword/create"
-                        className="inline-flex items-center gap-2 px-6 py-3 bg-surface-container-high hover:bg-surface-container-highest transition-colors font-medium"
-                        style={{ color: C.ink }}
-                      >
-                        <Icon icon="add" />
-                        {T.createNew}
-                      </Link>
-                    </div>
-                    )}
-                  </>
-                )}
               </Motion>
             )}
           </Presence>
@@ -2093,12 +2156,12 @@ export default function CrosswordPage() {
               style={{ background: "rgba(0,0,0,0.7)" }}
             >
               <Motion initial={{ scale: 0 }} animate={{ scale: [0, 1.2, 1] }} transition={{ duration: 0.5 }} className="text-6xl font-black text-white">
-                CLEAR!
+                CLEARED!
               </Motion>
               <Motion initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="text-2xl mt-4" style={{ color: "rgba(255,255,255,0.9)" }}>
                 {clearTime !== null && (
                   <span>
-                    タイム: {String(Math.floor(clearTime / 60)).padStart(2, "0")}:{String(clearTime % 60).padStart(2, "0")}
+                    タイム: {clock(clearTime)}
                   </span>
                 )}
               </Motion>
@@ -2155,6 +2218,8 @@ export default function CrosswordPage() {
 
   // 置けなかった語（完成の定義: どれが置けなかったかを出す）
   const unplaced = generatedPuzzle && !isLiveGenerating ? editorItems.filter((i) => !generatedPuzzle.items.some((p) => p.id === i.id)) : [];
+  // 組み上がった盤が1つにつながっていない（固定した語が2つ以上で島のまま）
+  const boardDisconnected = !!generatedPuzzle && !isLiveGenerating && !isConnected(generatedPuzzle.items);
 
   // Editor View
   return (
@@ -2188,7 +2253,8 @@ export default function CrosswordPage() {
             onClick={() => setShowCreatorHelp(true)}
             className="transition-colors p-1.5 hover:bg-surface-container-high"
             style={{ color: C.secondary }}
-            title={T.howToPlay}
+            title={T.howToCreate}
+            aria-label={T.howToCreate}
           >
             <Icon icon="help" />
           </button>
@@ -2327,6 +2393,12 @@ export default function CrosswordPage() {
                     {T.addToList}
                   </Button>
                 )}
+                {/* 押せない理由（ヒントが未選択の時）を1行 */}
+                {!pendingHint && (
+                  <p data-add-reason="" className="text-xs mt-2" style={{ color: C.secondary }}>
+                    {T.addReason[genre]}
+                  </p>
+                )}
                 </div>
               </div>
 
@@ -2460,11 +2532,18 @@ export default function CrosswordPage() {
                 </div>
               )}
 
+              {/* 固定した語どうしがつながっていない盤は保存できない */}
+              {boardDisconnected && (
+                <div data-not-connected="" className="bg-white px-4 py-3 text-sm" style={{ color: C.error }}>
+                  {T.pins.notConnected}
+                </div>
+              )}
+
               {/* 共有ボタン - パズルエリアの下 */}
               {generatedPuzzle && !isLiveGenerating && (
                 <div className="flex justify-center">
                   <div data-coach="create-share">
-                  <Button onClick={handleShare} disabled={isSaving} className="flex items-center gap-2">
+                  <Button onClick={handleShare} disabled={isSaving || boardDisconnected} className="flex items-center gap-2">
                     {!editTarget && <Icon icon="share" />}
                     {isSaving ? T.saving : editTarget ? T.edit.update : T.share}
                   </Button>
@@ -2514,10 +2593,10 @@ export default function CrosswordPage() {
                 </a>
               </div>
               <div className="text-xs text-center leading-relaxed pt-4 font-mono" style={{ color: C.secondary }}>
-                {T.shareModal.publicNotice}
+                {editTarget ? T.shareModal.updatedNotice : T.shareModal.publicNotice}
               </div>
               {/* 「公開されます」の近くに、作りかけと自分が作った問題の札（初めての1回だけ） */}
-              {!tipsSeen.saved && <Tip name="saved" tone="low" />}
+              {!tipsSeen.saved && !editTarget && <Tip name="saved" tone="low" />}
               <div className="flex justify-center">
                 <Button onClick={() => setShowShareModal(false)} variant="secondary">
                   {T.close}
