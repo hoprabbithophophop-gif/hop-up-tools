@@ -25,8 +25,9 @@ const ATTRS = {
   出身地: { value: (m) => prefectureOf(m.origin), kana: (v) => toAnswerKana(PREFECTURES[v]), single: (name) => `${name}の出身地` },
   血液型: { value: (m) => bloodOf(m.blood), kana: (v) => BLOOD[v], single: (name) => `${name}の血液型` },
   誕生月: { value: (m) => dateOf(m.birthday)?.m, kana: (v) => MONTHS[v - 1], single: (name) => `${name}の誕生月` },
-  星座: { value: (m) => { const d = dateOf(m.birthday); return d && d.d != null ? zodiacOf(d.m, d.d).kana : null; }, kana: (v) => v, single: (name) => `${name}の星座` },
-  干支: { value: (m) => { const d = dateOf(m.birthday); return d && etoOf(d.y).kana; }, kana: (v) => v, single: (name) => `${name}の干支` },
+  // 星座・干支は生年月日から変換しないと出ないので、カギに種類を書く（Hop 決定 2026-10-07 案B）
+  星座: { value: (m) => { const d = dateOf(m.birthday); return d && d.d != null ? zodiacOf(d.m, d.d).kana : null; }, kana: (v) => v, single: (name) => `${name}の星座`, labeled: '星座' },
+  干支: { value: (m) => { const d = dateOf(m.birthday); return d && etoOf(d.y).kana; }, kana: (v) => v, single: (name) => `${name}の干支`, labeled: '干支' },
   メンバーカラー: { value: (m) => (m.color ? toAnswerKana(m.color) : null), kana: (v) => v, single: (name) => `${name}のメンバーカラー` },
   加入年: { value: (m) => dateOf(m.joined)?.y, kana: null, single: null },
 };
@@ -35,7 +36,7 @@ const vals = members.map((m) => Object.fromEntries(KEYS.map((k) => [k, ATTRS[k].
 
 // 共通点の候補（Hop 決定 2026-10-07）: 項目の値ごとに「その値を持つ全員」を挙げる。
 //   1人だけ → 「Aの出身地」型。2〜MAX_NAMES 人 → 「A・B・…の共通点」型。挙げた人以外に同じ値の人はいない。
-//   列挙した全員が別の項目でも同じ値だと答えが割れるので外す。人数が多すぎる値も外す。
+//   列挙した全員が別の項目でも同じ値だと答えが割れるので外す（種類を書く項目は割れないので外さない）。人数が多すぎる値も外す。
 const MAX_NAMES = 8;
 const candidates = new Map(); // 答えのカナ → { idx, key }
 let tooBig = 0, ambiguous = 0;
@@ -47,7 +48,7 @@ for (const k of KEYS) {
     const kana = ATTRS[k].kana(v);
     if (!isAnswerKana(kana) || kana.length < 2 || candidates.has(kana)) continue;
     if (idx.length > MAX_NAMES) { tooBig++; continue; }
-    if (idx.length >= 2) {
+    if (idx.length >= 2 && !ATTRS[k].labeled) {
       const shared = KEYS.filter((kk) => idx.every((i) => vals[i][kk] != null && vals[i][kk] === vals[idx[0]][kk]));
       if (shared.length !== 1) { ambiguous++; continue; }
     }
@@ -69,10 +70,11 @@ for (const kana of allKana.slice(0, MAX_WORDS)) {
   // 名前の並びは公式の掲載順（グループ順→グループ内の順）
   const idx = [...c.idx].sort((a, b) => a - b);
   const names = idx.map((i) => members[i].name);
-  const question = idx.length >= 2 ? `${names.join('・')}の共通点` : ATTRS[c.key].single(names[0]);
+  const label = ATTRS[c.key].labeled;
+  const question = idx.length >= 2 ? `${names.join('・')}${label ? `に共通する${label}` : 'の共通点'}` : ATTRS[c.key].single(names[0]);
   items.push({ id: `w${items.length}`, question, answer: Array.from(kana), hint: { kind: 'link', url: SITE + members[idx[0]].path }, groups: idx.map((i) => members[i].group) });
 }
-console.log(`使う語 ${items.length}（共通点 ${items.filter((i) => i.question.endsWith('の共通点')).length}・1人型 ${items.filter((i) => !i.question.endsWith('の共通点')).length}）`);
+console.log(`使う語 ${items.length}（共通点 ${items.filter((i) => i.question.endsWith('の共通点')).length}・種類つき ${items.filter((i) => /に共通する/.test(i.question)).length}・1人型 ${items.filter((i) => !/共通/.test(i.question)).length}）`);
 console.log(`出番の分布: 0回 ${appear.filter((a) => a === 0).length}人・最多 ${Math.max(...appear)}回`);
 
 // 盤を組む。全部置けるまで試し、置けなかった語は落とす
@@ -97,9 +99,17 @@ const body = { version: 1, width: grid.width, height: grid.height, clues: clues.
 const answers = clues.map((c) => c.answer);
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 const arr = (xs) => `array[${xs.map(q).join(',')}]::text[]`;
+const replaceId = process.env.REPLACE_ID ?? null; // 前の版の番号。あれば消してから入れる（ランキング・遊んだ回数も消える）
 const sql = [
   '-- クロスワード 名物（公式プロフィールの共通点）を棚に入れる。1回だけ実行する',
   'begin;',
+  ...(replaceId ? [
+    `delete from public.crossword_scores where puzzle_id = ${q(replaceId)};`,
+    `delete from public.crossword_plays where puzzle_id = ${q(replaceId)};`,
+    `delete from public.crossword_play_counts where puzzle_id = ${q(replaceId)};`,
+    `delete from public.crossword_answers where puzzle_id = ${q(replaceId)};`,
+    `delete from public.crossword_puzzles where id = ${q(replaceId)};`,
+  ] : []),
   `insert into public.crossword_puzzles (id, title, genre, tags, body, is_beginner, group_tags) values (${q(id)}, ${q(title)}, 'hello', ${arr([])}, ${q(JSON.stringify(body))}::jsonb, false, ${arr(groupTags)});`,
   `insert into public.crossword_answers (puzzle_id, answers) values (${q(id)}, ${q(JSON.stringify(answers))}::jsonb);`,
   'commit;',
