@@ -337,7 +337,7 @@ async function run() {
     const modal = await page.getByText('問題を共有').waitFor({ timeout: 20000 }).then(() => true).catch(() => false);
     check(modal, '(c) 共有の窓が出る（人間確認と保存は台本が受け止めた）');
     const tip3 = page.locator('[data-tip="saved"]');
-    check((await tip3.innerText().catch(() => '')).includes('作りかけはこの端末に自動で残ります。作った問題は「自分が作った問題」から組み直せます'), '(c) 共有の窓の中に札3 が出る');
+    check((await tip3.innerText().catch(() => '')).includes('作りかけはこの端末に自動で残ります。作った問題は「自分が作った問題」にあり、遊ばれる前なら組み直せます'), '(c) 共有の窓の中に札3 が出る');
     const near = await page.evaluate(() => {
       const n = [...document.querySelectorAll('div')].find((d) => d.textContent === 'この問題を公開しました。誰でも遊べます。');
       const t = document.querySelector('[data-tip="saved"]');
