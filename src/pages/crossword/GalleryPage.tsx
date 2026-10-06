@@ -88,7 +88,7 @@ export default function GalleryPage() {
       } catch (err) {
         if (id !== reqId.current) return;
         console.error("Failed to fetch puzzles:", err);
-        setError("パズルの取得に失敗しました");
+        setError("問題を読み込めませんでした");
       } finally {
         if (id === reqId.current) {
           setLoading(false);
@@ -166,7 +166,7 @@ export default function GalleryPage() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="作成者名で検索..."
+                    placeholder="作った人の名前で検索…"
                     className={`${inputClass} pl-10`}
                   />
                 </div>
@@ -189,7 +189,7 @@ export default function GalleryPage() {
                   disabled={loading}
                   className="p-2 hover:bg-surface-container-high transition-colors disabled:opacity-50"
                   style={{ color: C.secondary }}
-                  title="更新"
+                  title="読み込み直す"
                 >
                   <Icon icon="refresh" size={16} />
                 </button>
@@ -247,18 +247,18 @@ export default function GalleryPage() {
             {/* 検索中の表示 */}
             {(appliedSearch || appliedTag) && (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm" style={{ color: C.secondary }}>検索中:</span>
+                <span className="text-sm" style={{ color: C.secondary }}>絞り込み中：</span>
                 {appliedSearch && (
                   <>
                     <span className="px-2 py-0.5 bg-surface-container-high text-sm" style={{ color: C.ink }}>{appliedSearch}</span>
                     <button type="button" onClick={clearSearch} className="text-xs hover:text-black" style={{ color: C.secondary }}>
-                      クリア
+                      外す
                     </button>
                   </>
                 )}
                 {appliedTag && (
                   <>
-                    <span className="px-2 py-0.5 bg-surface-container-high text-sm" style={{ color: C.ink }}>{T.tag}: {appliedTag}</span>
+                    <span className="px-2 py-0.5 bg-surface-container-high text-sm" style={{ color: C.ink }}>{T.tag}：{appliedTag}</span>
                     <button
                       type="button"
                       onClick={() => {
@@ -268,7 +268,7 @@ export default function GalleryPage() {
                       className="text-xs hover:text-black"
                       style={{ color: C.secondary }}
                     >
-                      クリア
+                      外す
                     </button>
                   </>
                 )}
@@ -280,24 +280,24 @@ export default function GalleryPage() {
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <div className="w-6 h-6 border-2 border-black border-t-transparent motion-safe:animate-spin" />
-              <span className="ml-3" style={{ color: C.secondary }}>読み込み中...</span>
+              <span className="ml-3" style={{ color: C.secondary }}>読み込み中…</span>
             </div>
           ) : error ? (
             <div className="text-center py-20">
               <p className="mb-4" style={{ color: C.error }}>{error}</p>
               <button type="button" onClick={handleRefresh} className="px-4 py-2 bg-primary text-white hover:bg-secondary transition-colors">
-                再試行
+                もう一度読み込む
               </button>
             </div>
           ) : puzzles.length === 0 ? (
             <div className="text-center py-20">
               <Icon icon="extension" size={64} className="block mx-auto mb-4" />
               <p className="mb-2" style={{ color: C.secondary }}>
-                {appliedSearch ? `「${appliedSearch}」に一致するパズルが見つかりませんでした` : "パズルがまだ公開されていません"}
+                {filterActive ? "条件に合う問題がありません。" : "問題がまだ公開されていません。"}
               </p>
               {appliedSearch && (
                 <button type="button" onClick={clearSearch} className="hover:underline" style={{ color: C.ink }}>
-                  検索をクリア
+                  検索を外す
                 </button>
               )}
               {/* 絞り込んだ結果が空のときの道（2026-10-06 決定） */}
@@ -341,7 +341,7 @@ export default function GalleryPage() {
                     {loadingMore ? (
                       <>
                         <div className="w-4 h-4 border-2 border-black border-t-transparent motion-safe:animate-spin" />
-                        読み込み中...
+                        読み込み中…
                       </>
                     ) : (
                       "もっと見る"

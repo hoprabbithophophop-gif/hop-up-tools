@@ -211,8 +211,8 @@ try {
     await page.waitForTimeout(300);
     const a = await cellText(page, 0, 0);
     const b = await cellText(page, 1, 0);
-    check(a === '1行1列: バ', `(1) ハ のあと ゛ で、打ったマスが バ になる（${a}）`);
-    check(b === '1行2列: キ', `(1) 次のマスの交差の字 キ はそのまま（${b}）`);
+    check(a === '1行1列：バ', `(1) ハ のあと ゛ で、打ったマスが バ になる（${a}）`);
+    check(b === '1行2列：キ', `(1) 次のマスの交差の字 キ はそのまま（${b}）`);
     await ctx.close();
   }
   {
@@ -222,12 +222,12 @@ try {
     await openAcross(page);
     await key(page, '゛').click();
     await page.waitForTimeout(300);
-    check((await cellText(page, 0, 0)) === '1行1列: バ', `(1) 開いたばかりで ゛ を押すと、今のマスの字に効く（${await cellText(page, 0, 0)}）`);
+    check((await cellText(page, 0, 0)) === '1行1列：バ', `(1) 開いたばかりで ゛ を押すと、今のマスの字に効く（${await cellText(page, 0, 0)}）`);
     // → で動いてから ゛: 今のマス（キ）に効く
     await page.locator('[data-coach="closeup-cells"] button').nth(1).click();
     await key(page, '゛').click();
     await page.waitForTimeout(300);
-    check((await cellText(page, 1, 0)) === '1行2列: ギ', `(1) マスを押して動いた後の ゛ は、今のマスの字に効く（${await cellText(page, 1, 0)}）`);
+    check((await cellText(page, 1, 0)) === '1行2列：ギ', `(1) マスを押して動いた後の ゛ は、今のマスの字に効く（${await cellText(page, 1, 0)}）`);
     await ctx.close();
   }
 
@@ -297,7 +297,7 @@ try {
     await page.reload();
     await cell(page, 0, 0).waitFor({ timeout: 20000 });
     await page.waitForTimeout(2500);
-    const empty = await page.evaluate(() => [...document.querySelectorAll('[id^="cell-"]')].every((b) => /: 空$/.test(b.getAttribute('aria-label') || '')));
+    const empty = await page.evaluate(() => [...document.querySelectorAll('[id^="cell-"]')].every((b) => /：空$/.test(b.getAttribute('aria-label') || '')));
     check(empty, '(4) 解いた問題を開き直すと、盤は空（最初から）');
     check(st.starts === startsBefore + 1, `(4) 開き直すと新しい回が始まる（回の始まり ${startsBefore} → ${st.starts}）`);
     await ctx.close();
@@ -309,7 +309,7 @@ try {
     await openPuzzle(page, false);
     await page.getByRole('button', { name: '始める！' }).waitFor({ timeout: 20000 });
     const help = await page.evaluate(() => document.body.innerText);
-    check(help.includes('作った人: 台本') && !help.includes('Created by') && help.includes('最後のマスを埋めると自動で答え合わせ'), '(文言) 遊び方の窓に「作った人: 台本」「最後のマスを埋めると自動で答え合わせ」');
+    check(help.includes('作った人：台本') && !help.includes('Created by') && help.includes('最後のマスを埋めると自動で答え合わせ'), '(文言) 遊び方の窓に「作った人: 台本」「最後のマスを埋めると自動で答え合わせ」');
     await page.screenshot({ path: path.join(OUT, '3-help-390.png') });
     await page.getByRole('button', { name: '始める！' }).click();
     await page.waitForTimeout(1500);
@@ -395,7 +395,7 @@ try {
     await groupSelect.selectOption('OCHA NORMA');
     await page.waitForTimeout(800);
     const ways = page.locator('[data-empty-ways]');
-    check((await page.getByText('パズルがまだ公開されていません').count()) > 0 && (await ways.count()) === 1, '(7) 絞った結果が空のとき「パズルがまだ公開されていません」の下に道が出る');
+    check((await page.getByText('条件に合う問題がありません').count()) > 0 && (await ways.count()) === 1, '(7) 絞った結果が空のとき「条件に合う問題がありません」の下に道が出る');
     check((await ways.getByRole('button', { name: 'すべての問題を見る' }).count()) === 1 && (await ways.getByRole('link', { name: '作る' }).getAttribute('href')) === '/crossword/create', '(7) 道は「すべての問題を見る」と「作る」（/crossword/create）');
     await page.screenshot({ path: path.join(OUT, '7-gallery-empty-390.png'), fullPage: true });
     await ways.getByRole('button', { name: 'すべての問題を見る' }).click();
@@ -426,7 +426,7 @@ try {
     await page.goto(`${BASE}/crossword/create`);
     await page.getByText('リストに追加').first().waitFor({ timeout: 20000 });
     const reason = page.locator('[data-add-reason]');
-    check((await reason.textContent()) === 'ヒントの動画を選ぶと追加できます', `(8) ハロプロでヒントが未選択の時、ボタンの下に「${await reason.textContent()}」`);
+    check((await reason.textContent()) === 'ヒントの動画を選ぶと追加できます。', `(8) ハロプロでヒントが未選択の時、ボタンの下に「${await reason.textContent()}」`);
     await page.getByText('その他', { exact: true }).first().click();
     await page.waitForTimeout(300);
     check((await reason.textContent()) === 'ヒントの URL を入れると追加できます', `(8) その他で URL が無い時は「${await reason.textContent()}」`);
@@ -456,7 +456,7 @@ try {
     await page.getByRole('button', { name: 'リストに追加' }).click();
     await page.waitForTimeout(300);
     check((await page.getByText('ガ ク', { exact: true }).count()) > 0, '(8) 半角カナ「ｶﾞｸ」は「ガ ク」の2マスにそろう');
-    await page.getByRole('button', { name: '削除' }).first().click();
+    await page.getByRole('button', { name: '消す', exact: true }).first().click();
     await page.waitForTimeout(500);
 
     // F: 置けない所の上では影が薄い
@@ -470,7 +470,7 @@ try {
     await page.waitForTimeout(300);
     const ne = await box(0, 0);
     const label00 = await cellText(page, 0, 0);
-    check(label00 === '1行1列: ネ', `(8) 見本の盤が組めた（${label00}）`);
+    check(label00 === '1行1列：ネ', `(8) 見本の盤が組めた（${label00}）`);
     const cx = ne.x + ne.width / 2, cy = ne.y + ne.height / 2;
     await page.mouse.move(cx, cy);
     await page.mouse.down();
@@ -512,7 +512,7 @@ try {
     await page.waitForTimeout(8500);
     // 縦の語の2字目（カ・キ）のある列を探す
     const colOf = async (ch) => page.evaluate((c) => {
-      const b = [...document.querySelectorAll('[id^="cell-"]')].find((e) => (e.getAttribute('aria-label') || '').endsWith(`: ${c}`));
+      const b = [...document.querySelectorAll('[id^="cell-"]')].find((e) => (e.getAttribute('aria-label') || '').endsWith(`：${c}`));
       return b ? Number(b.id.split('-')[1]) : null;
     }, ch);
     const drag = async (fromX, toX) => {
@@ -547,7 +547,7 @@ try {
     const n = await rows.count();
     for (let i = 0; i < n; i++) {
       if ((await rows.nth(i).textContent()).includes('ア イ ア イ ア')) {
-        await rows.nth(i).getByRole('button', { name: '削除' }).click();
+        await rows.nth(i).getByRole('button', { name: '消す', exact: true }).click();
         break;
       }
     }

@@ -42,7 +42,7 @@ async function solve(own, fast = false) {
     if (own) localStorage.setItem('crossword_my_puzzles', JSON.stringify([{ id, title: 't', key: 'x'.repeat(64), createdAt: 1 }]));
   }, { id: ID, answers, own });
   await page.goto(`${BASE}/crossword/${ID}`);
-  const cell = page.getByRole('button', { name: `${ly + 1}行${lx + 1}列: 空` });
+  const cell = page.getByRole('button', { name: `${ly + 1}行${lx + 1}列：空` });
   await cell.waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
   if (!fast) await page.waitForTimeout(humanWaitMs(Object.keys(answers).length + 1));

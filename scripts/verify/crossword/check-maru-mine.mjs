@@ -19,7 +19,7 @@ const page = await ctx.newPage();
 
 // 1. 作る画面の入口は、作った問題の数に関係なくいつも出る（紙: 作る画面には /crossword/mine の入口がいつも出る）
 await page.goto(`${BASE}/crossword/create`);
-const clue = page.getByPlaceholder('例: 猫の鳴き声').first();
+const clue = page.getByPlaceholder('例：ニャーと鳴く動物').first();
 await clue.waitFor();
 check((await page.getByRole('link', { name: /自分が作った問題/ }).count()) === 1, '作った問題が無くても入口は出る');
 
@@ -51,7 +51,7 @@ await page.evaluate(() =>
   )
 );
 await page.goto(`${BASE}/crossword/create`);
-await page.getByPlaceholder('例: 猫の鳴き声').first().waitFor();
+await page.getByPlaceholder('例：ニャーと鳴く動物').first().waitFor();
 check((await page.getByText('試しの問題1').count()) === 0, '作る画面に一覧は出ない');
 const entry = page.getByRole('link', { name: /自分が作った問題/ });
 check((await entry.count()) === 1, '作る画面に入口が出る');
@@ -67,10 +67,10 @@ await page.screenshot({ path: path.join(OUT, '2-mine.png'), fullPage: true });
 check((await page.getByText('非表示になっています').count()) === 2, '棚に無い問題は「非表示になっています」');
 
 // 5. 消す？→やめる で戻る（実際には消さない）
-await page.getByRole('button', { name: '削除' }).first().click();
+await page.getByRole('button', { name: '消す', exact: true }).first().click();
 check((await page.getByText('「試しの問題2」消す？').count()) === 1, '消す前に確かめる');
 await page.getByRole('button', { name: 'やめる' }).click();
-check((await page.getByRole('button', { name: '削除' }).count()) === 2, 'やめると元に戻る');
+check((await page.getByRole('button', { name: '消す', exact: true }).count()) === 2, 'やめると元に戻る');
 
 // 6. 戻る
 await page.getByRole('link', { name: 'クロスワードパズル作成へ戻る' }).click();

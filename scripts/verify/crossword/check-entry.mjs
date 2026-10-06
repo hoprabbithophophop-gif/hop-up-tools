@@ -54,7 +54,7 @@ const noUnofficial = async (page, where) => check(!(await text(page)).includes('
 {
   const { ctx, page } = await newPage();
   await page.goto(`${BASE}/crossword/create`);
-  await page.getByPlaceholder('例: 猫の鳴き声').first().waitFor({ timeout: 20000 });
+  await page.getByPlaceholder('例：ニャーと鳴く動物').first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2000);
   check(true, '/crossword/create は作る画面（カギの欄がある）');
   await noUnofficial(page, '/crossword/create');
@@ -117,7 +117,7 @@ const noUnofficial = async (page, where) => check(!(await text(page)).includes('
   await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
   await noUnofficial(page, `/crossword/${ID}`);
-  await page.getByRole('button', { name: `${ly + 1}行${lx + 1}列: 空` }).click();
+  await page.getByRole('button', { name: `${ly + 1}行${lx + 1}列：空` }).click();
   await page.getByRole('button', { name: P.lastChar, exact: true }).last().click();
   await page.getByText('CLEARED!').first().waitFor({ timeout: 10000 }).catch(() => {});
   // 名前の窓が出ていれば閉じる（速く解いた回は窓が出ない）

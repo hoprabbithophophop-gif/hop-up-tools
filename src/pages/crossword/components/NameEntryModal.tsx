@@ -18,9 +18,9 @@ export const NameEntryModal: React.FC<{
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: "rgba(0,0,0,0.7)" }}>
       <Motion initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="bg-white p-6 max-w-sm w-full" style={{ boxShadow: C.modalShadow }}>
-        <h2 className="text-xl font-bold mb-2" style={{ color: C.ink }}>クリアおめでとう！</h2>
+        <h2 className="text-xl font-bold mb-2" style={{ color: C.ink }}>解けた！</h2>
         <p className="text-sm mb-4" style={{ color: C.secondary }}>
-          タイム: <span className="font-bold" style={{ color: C.ink }}>{mmss(clearTime)}</span>
+          タイム：<span className="font-bold" style={{ color: C.ink }}>{mmss(clearTime)}</span>
         </p>
         <p className="text-sm mb-2" style={{ color: C.ink }}>ランキングに載せる名前を入力：</p>
         <input

@@ -4,19 +4,19 @@
 // 幅が 320px に足りない画面では、縮めずに横にずらして見る（縮めるのも加工に当たるため）。
 import React, { useState } from "react";
 import type { PlacedItem } from "../../../lib/crossword/types";
-import type { HintRef } from "../../../lib/crossword/puzzleStore";
+import type { HintRef, Genre } from "../../../lib/crossword/puzzleStore";
 import { C } from "../style";
 import { HintView } from "./HintView";
 
 // 文言
 const T = {
-  title: "ヒントの動画",
+  title: (genre: Genre | null) => (genre === "other" ? "ヒント" : "ヒントの動画"),
   play: "再生する",
 };
 
 const dirLabel = (d: "horizontal" | "vertical") => (d === "horizontal" ? "ヨコ" : "タテ");
 
-export const HintList: React.FC<{ items: PlacedItem[]; hints: Record<string, HintRef> }> = ({ items, hints }) => {
+export const HintList: React.FC<{ items: PlacedItem[]; hints: Record<string, HintRef>; genre?: Genre | null }> = ({ items, hints, genre = null }) => {
   const [opened, setOpened] = useState<Set<string>>(new Set());
   const list = [...items]
     .sort((a, b) => (a.clueIndex || 0) - (b.clueIndex || 0) || (a.direction === "horizontal" ? -1 : 1))
@@ -25,7 +25,7 @@ export const HintList: React.FC<{ items: PlacedItem[]; hints: Record<string, Hin
 
   return (
     <div className="bg-white p-4 mt-6">
-      <h3 className="text-[0.6875rem] font-bold tracking-[0.1em] mb-2" style={{ color: C.secondary }}>{T.title}</h3>
+      <h3 className="text-[0.6875rem] font-bold tracking-[0.1em] mb-2" style={{ color: C.secondary }}>{T.title(genre)}</h3>
       <ul>
         {list.map((item) => {
           const hint = hints[item.uuid];
@@ -49,7 +49,7 @@ export const HintList: React.FC<{ items: PlacedItem[]; hints: Record<string, Hin
                       type="button"
                       onClick={() => setOpened((prev) => new Set(prev).add(item.uuid))}
                       className="block w-max mx-auto text-left"
-                      aria-label={`${item.clueIndex}（${dirLabel(item.direction)}）のヒントの動画を${T.play}`}
+                      aria-label={`${item.clueIndex}（${dirLabel(item.direction)}）の${T.title(genre)}を${T.play}`}
                     >
                       <img
                         src={`https://i.ytimg.com/vi/${encodeURIComponent(hint.videoId)}/mqdefault.jpg`}

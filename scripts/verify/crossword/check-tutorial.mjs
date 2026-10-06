@@ -281,7 +281,7 @@ async function run() {
     check(await layerGone(page), '(b) 段1 の「×」で案内が終わる');
     await page.locator('#cell-0-0').click();
     await key(page, 'ネ').click();
-    check((await page.getByRole('button', { name: '1行1列: ネ' }).count()) > 0, '(b) 終えた後に本物のマスと文字盤で字が入る');
+    check((await page.getByRole('button', { name: '1行1列：ネ' }).count()) > 0, '(b) 終えた後に本物のマスと文字盤で字が入る');
     await closeSheet(page);
     await page.locator('header').getByRole('button', { name: '本番へ' }).click();
     check(await page.waitForURL((u) => u.pathname === `/crossword/${ID}`, { timeout: 15000 }).then(() => true).catch(() => false), `(b) 見出しの戻る矢印で元の問題 /crossword/${ID} へ戻る`);
@@ -292,7 +292,7 @@ async function run() {
     check(await tapMask(page), '(b) 幕の1点を押せた');
     check(await layerGone(page), '(b) 「閉じる」を押せない段2 でも幕のタップで案内が終わる');
     await key(page, 'ネ').click();
-    check((await page.getByRole('button', { name: '1行1列: ネ' }).count()) > 0, '(b) 幕で終えた後も文字盤で字が入る');
+    check((await page.getByRole('button', { name: '1行1列：ネ' }).count()) > 0, '(b) 幕で終えた後も文字盤で字が入る');
     await page.goto(`${BASE}/crossword/tutorial`);
     await waitBubble(page, '左上のマスを押してみましょう', '(b) 抜け道 Esc');
     await page.keyboard.press('Escape');
@@ -334,12 +334,12 @@ async function run() {
     check((await page.locator('[data-tip]').count()) === 0, '(c) 札2 の × で消える');
     await page.locator('[data-coach="create-title"] input').fill('札の確かめ');
     await page.getByRole('button', { name: '共有する' }).click();
-    const modal = await page.getByText('パズルを共有').waitFor({ timeout: 20000 }).then(() => true).catch(() => false);
+    const modal = await page.getByText('問題を共有').waitFor({ timeout: 20000 }).then(() => true).catch(() => false);
     check(modal, '(c) 共有の窓が出る（人間確認と保存は台本が受け止めた）');
     const tip3 = page.locator('[data-tip="saved"]');
-    check((await tip3.innerText().catch(() => '')).includes('作りかけはこの端末に自動で残ります。作った問題は「自分が作った問題」にあり、遊ばれる前なら組み直せます'), '(c) 共有の窓の中に札3 が出る');
+    check((await tip3.innerText().catch(() => '')).includes('作りかけはこの端末に自動で残ります。作った問題は「自分が作った問題」から組み直せます'), '(c) 共有の窓の中に札3 が出る');
     const near = await page.evaluate(() => {
-      const n = [...document.querySelectorAll('div')].find((d) => d.textContent === 'このパズルは公開され、誰でもプレイできるようになります。');
+      const n = [...document.querySelectorAll('div')].find((d) => d.textContent === 'この問題を公開しました。誰でも遊べます。');
       const t = document.querySelector('[data-tip="saved"]');
       if (!n || !t) return null;
       return Math.round(t.getBoundingClientRect().top - n.getBoundingClientRect().bottom);
@@ -350,7 +350,7 @@ async function run() {
     check((await page.locator('[data-tip]').count()) === 0, '(c) 札3 の × で消える');
     await page.getByRole('button', { name: '閉じる' }).last().click();
     await page.getByRole('button', { name: '共有する' }).click();
-    await page.getByText('パズルを共有').waitFor({ timeout: 20000 });
+    await page.getByText('問題を共有').waitFor({ timeout: 20000 });
     check((await page.locator('[data-tip="saved"]').count()) === 0, '(c) 二度目の共有の窓には札3 は出ない');
     await page.getByRole('button', { name: '閉じる' }).last().click();
     // 開き直して1語目から作り直しても、札1・札2 はもう出ない
@@ -381,7 +381,7 @@ async function run() {
     };
     // 抜け道: 「次へ」を押せない段1 で ×・幕・Esc
     await openGuide();
-    await waitBubble(page, '答えをカタカナで', '(d) 段1');
+    await waitBubble(page, '答えはひらがなかカタカナで', '(d) 段1');
     check(await nextBtn(page).isDisabled(), '(d) 段1 は答えを打つまで「次へ」を押せない段');
     await page.locator('[data-coach-close]').click();
     check(await layerGone(page), '(d) 段1 の × で案内が終わる');
@@ -389,17 +389,17 @@ async function run() {
     check((await page.getByRole('radio', { name: 'その他' }).getAttribute('aria-checked')) === 'true', '(d) 終えた後は幕の下だった部品（ジャンル）が押せる');
     await page.getByRole('radio', { name: 'ハロプロ' }).click();
     await openGuide();
-    await waitBubble(page, '答えをカタカナで', '(d) 段1 もう一度');
+    await waitBubble(page, '答えはひらがなかカタカナで', '(d) 段1 もう一度');
     check(await tapMask(page), '(d) 幕の1点を押せた');
     check(await layerGone(page), '(d) 段1 の幕のタップで案内が終わる');
     await openGuide();
-    await waitBubble(page, '答えをカタカナで', '(d) 段1 Esc');
+    await waitBubble(page, '答えはひらがなかカタカナで', '(d) 段1 Esc');
     await page.keyboard.press('Escape');
     check(await layerGone(page), '(d) Esc キーで案内が終わる');
 
     // 段5 まで進めて幕のタップで終える（終えたら、その場面の札が出る）
     await openGuide();
-    await waitBubble(page, '答えをカタカナで', '(d) 通し 段1');
+    await waitBubble(page, '答えはひらがなかカタカナで', '(d) 通し 段1');
     await shot(page, 'd01-answer');
     await page.locator('[data-coach="create-answer"] input').fill('ねこ');
     await nextBtn(page).click();
@@ -425,7 +425,7 @@ async function run() {
     await page.locator('[data-tip="cross"]').getByRole('button', { name: '閉じる' }).click();
     // 開き直して残りの段を通す
     await openGuide();
-    await waitBubble(page, '答えをカタカナで', '(d) 開き直し 段1');
+    await waitBubble(page, '答えはひらがなかカタカナで', '(d) 開き直し 段1');
     await page.locator('[data-coach="create-answer"] input').fill('コアラ');
     await nextBtn(page).click();
     await page.locator('[data-coach="create-clue"] input').fill('ユーカリの葉を食べる動物');

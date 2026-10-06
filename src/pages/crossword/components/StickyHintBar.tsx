@@ -26,7 +26,7 @@ export const StickyHintBar: React.FC<StickyHintBarProps> = ({ currentHint, onPre
     return (
       <div className="fixed bottom-0 left-0 right-0 z-40 w-full p-3" style={barStyle}>
         <p className="text-center text-sm font-medium" style={{ color: C.secondary }}>
-          マスをタップしてパズルを開始
+          マスを押すと、ここにカギが出ます
         </p>
       </div>
     );
@@ -44,7 +44,7 @@ export const StickyHintBar: React.FC<StickyHintBarProps> = ({ currentHint, onPre
         <button
           onClick={onToggleDirection}
           className="flex items-center gap-1 px-3 py-1.5 bg-surface-container-low hover:bg-surface-container-high font-semibold transition-colors"
-          title="タップで方向切替"
+          title="押すと向きを切り替えます"
         >
           <span className="text-sm" style={{ color: C.ink }}>{currentHint.number}.</span>
           <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>

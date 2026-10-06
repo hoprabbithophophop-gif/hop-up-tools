@@ -51,7 +51,7 @@ await page.goto(`${BASE}/crossword/${ID}`);
 await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
 await page.waitForTimeout(2500);
   await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
-await page.getByRole('button', { name: `${ly + 1}行${lx + 1}列: 空` }).click();
+await page.getByRole('button', { name: `${ly + 1}行${lx + 1}列：空` }).click();
 await page.getByRole('button', { name: full[LAST], exact: true }).last().click();
 await page.getByRole('button', { name: '載せない' }).click({ timeout: 10000 });
 await page.waitForTimeout(1500);

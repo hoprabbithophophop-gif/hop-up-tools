@@ -6,7 +6,7 @@ import { PAUSE_PLAYERS_EVENT } from "../../../lib/pageWave";
 import { loadYouTubeAPI, UNAVAILABLE_CODES } from "./HintPlayer";
 import { C } from "../style";
 
-const GONE = "このヒントの動画は見られなくなりました";
+const GONE = "このヒントの動画は見られなくなりました。";
 
 // 見た目はこれまでの埋め込みと同じ。再生できない合図を受け取るために IFrame API で置く（自動再生しない）
 const HintVideo: React.FC<{ videoId: string; startSec: number }> = ({ videoId, startSec }) => {

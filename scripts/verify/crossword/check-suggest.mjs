@@ -157,11 +157,11 @@ if (multiS.length === 0) {
 }
 
 // まとめの形
-check(formatGuide({ kind: 'multi', positions: [0, 2], alts: [['ア'], ['ン']], minLength: 3, maxLength: 8 }) === '1文字目がア・3文字目がンの3文字以上の言葉（8文字まで）',
+check(formatGuide({ kind: 'multi', positions: [0, 2], alts: [['ア'], ['ン']], minLength: 3, maxLength: 8 }) === '1文字目がア・3文字目がンの3文字以上の語（8文字まで）',
   `文の形（2つ以上）: ${formatGuide({ kind: 'multi', positions: [0, 2], alts: [['ア'], ['ン']], minLength: 3, maxLength: 8 })}`);
 check(formatGuide({ kind: 'single', positions: [0], alts: [['グ', 'チ', 'ハ']], minLength: 4, maxLength: 4 }) === '4文字・1文字目がグ／チ／ハ',
   `文の形（1つ・字だけ違う物をまとめる）: ${formatGuide({ kind: 'single', positions: [0], alts: [['グ', 'チ', 'ハ']], minLength: 4, maxLength: 4 })}`);
-check(formatGuide({ kind: 'multi', positions: [0, 2], alts: [['ア'], ['ン', 'リ']], minLength: 3, maxLength: 3 }) === '1文字目がア・3文字目がン／リの3文字の言葉',
+check(formatGuide({ kind: 'multi', positions: [0, 2], alts: [['ア'], ['ン', 'リ']], minLength: 3, maxLength: 3 }) === '1文字目がア・3文字目がン／リの3文字の語',
   `文の形（下限と最大が同じ・1か所だけ字が違う）: ${formatGuide({ kind: 'multi', positions: [0, 2], alts: [['ア'], ['ン', 'リ']], minLength: 3, maxLength: 3 })}`);
 // 案内の中で「字の位置・長さの幅が同じで1か所だけ字が違う」物が、別の行に残っていない
 const noSplit = (guides) => guides.every((a, i) => guides.every((b, j) => {
@@ -291,7 +291,7 @@ checkEnter('(段階2・オレンジ)', board3, ['オレンジ'], r1);
 const r2 = suggestForBoard(board3, [W('ホット'), W('オレンジ')]);
 checkEnter('(段階2・ホットとオレンジ)', board3, ['ホット', 'オレンジ'], r2);
 check(formatWordLine({ word: 'エグチサヤ', guide: { kind: 'enter', positions: [2], alts: [['エ']], minLength: 5, maxLength: 8, needs: [{ index: 4, word: 'エグチサヤ', letters: chars('エグチサヤ') }], entered: ['エグチサヤ'] } })
-  === 'エグチサヤ: 3文字目がエ・5文字目にエグチサヤの字の5文字以上の言葉（8文字まで）',
+  === 'エグチサヤ：3文字目がエ・5文字目にエグチサヤの字の5文字以上の語（8文字まで）',
   `(段階2) 文の形の見本: ${formatWordLine({ word: 'エグチサヤ', guide: { kind: 'enter', positions: [2], alts: [['エ']], minLength: 5, maxLength: 8, needs: [{ index: 4, word: 'エグチサヤ', letters: chars('エグチサヤ') }], entered: ['エグチサヤ'] } })}`);
 // 置けなかった語が無い盤では段階1と同じ
 const r0 = suggestForBoard(board3, []);
@@ -301,7 +301,7 @@ check(guideTexts(suggestForBoard(board2, [W('オレンジ')])).length === 0, '(�
 const rn = suggestForBoard(board3, [W('オレンジ'), { answer: [] }]);
 const tn = guideTexts(rn);
 check(tn.length === 2 && tn[0].startsWith('オレンジ: ') && tn[1] === `: ${NO_ENTER_TEXT}`, `(段階2) 入る型が無い語は、その語の行に理由: 「${tn[1]}」`);
-check(formatWordLine({ word: 'エグチサヤ', guide: null }) === 'エグチサヤ: 今の盤に交差できる字が無く、入る型がありません', `(段階2) 理由の行の形: ${formatWordLine({ word: 'エグチサヤ', guide: null })}`);
+check(formatWordLine({ word: 'エグチサヤ', guide: null }) === 'エグチサヤ：今の盤に交差できる字が無く、入る型がありません', `(段階2) 理由の行の形: ${formatWordLine({ word: 'エグチサヤ', guide: null })}`);
 // 今の盤にそのまま置ける語（組み立ての見落とし）は数えて返す
 const rp = suggestForBoard(board3, [W('ウチワ')]);
 check(rp.placeableNow.includes('ウチワ'), `(段階2) 今の盤にそのまま置ける語を見分ける: ${JSON.stringify(rp.placeableNow)}`);

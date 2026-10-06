@@ -12,9 +12,9 @@ import { Motion } from "./Motion";
 // 文言
 const T = {
   title: "ランキング",
-  loading: "読み込み中...",
-  loadFailed: "ランキングの読み込みに失敗しました",
-  noRankings: "まだ記録がありません",
+  loading: "読み込み中…",
+  loadFailed: "ランキングの読み込みに失敗しました。",
+  noRankings: "まだ記録がありません。",
   yourTime: "今回のタイム",
   notRanked: "ランク外",
   // 名前の通報（Hop 決定 2026-10-04）
@@ -22,8 +22,8 @@ const T = {
   reportAsk: (name: string) => `「${name}」を通報する？`,
   reportYes: "通報する",
   reportNo: "やめる",
-  reported: "通報しました",
-  reportFailed: "通報できませんでした",
+  reported: "通報しました。",
+  reportFailed: "通報できませんでした。",
 };
 
 // ランキングの印（Hop 決定 2026-10-04。LinkedIn のゲームの称号のように、できたことを祝う形で出す）

@@ -19,10 +19,10 @@ const T = {
   check: '答え合わせ',
   hint: 'ヒント',
   dakuten: '゛',
-  del: '削除',
+  del: '消す',
   done: '決定',
-  building: 'パズルを構築中',
-  optimizing: '最適化中',
+  building: '読み込み中',
+  optimizing: '組み立て中',
   clear: 'CLEAR',
   notFilled: 'まだ埋まっていないマスがあります',
 };
@@ -55,7 +55,7 @@ if (SKIP_SAVE) {
   console.log('飛ばす 1〜4（保存して出た URL で解く）: 保存が要るため検収役では流せない。Hop の Chrome で確認済み');
 } else {
 await pa.goto(BASE + '/crossword/create', { waitUntil: 'networkidle' });
-await fieldByLabel(pa, 'タイトル').fill(`検収用 ${stamp}`);
+await fieldByLabel(pa, '題名').fill(`検収用 ${stamp}`);
 await pa.getByText('その他', { exact: true }).first().click();
 let sawOptimizing = false;
 for (const w of WORDS) {

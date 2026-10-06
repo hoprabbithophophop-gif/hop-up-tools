@@ -55,7 +55,7 @@ const timer = (page) => page.evaluate(() => (document.querySelector('header')?.i
   await page.getByRole('button', { name: 'つづきから' }).click();
   await page.waitForTimeout(1500);
   check(!(await text(page)).includes('前回の続きがあります'), '1 つづきからで窓が閉じる');
-  check((await page.getByRole('button', { name: '1行5列: ダ' }).count()) === 1, '1 入れた字は残る');
+  check((await page.getByRole('button', { name: '1行5列：ダ' }).count()) === 1, '1 入れた字は残る');
   const run1 = await timer(page);
   check(/^2:0\d:\d{2}$/.test(run1), `1 タイマーは始めた時から（2時間＝120分）: ${run1}`);
   await page.waitForTimeout(3000);
@@ -68,7 +68,7 @@ const timer = (page) => page.evaluate(() => (document.querySelector('header')?.i
   const { ctx, page } = await open(2 * HOUR, 2 * HOUR);
   await page.getByRole('button', { name: 'はじめから' }).click();
   await page.waitForTimeout(2500);
-  check((await page.getByRole('button', { name: '1行5列: ダ' }).count()) === 0, '2 はじめからで入れた字が消える');
+  check((await page.getByRole('button', { name: '1行5列：ダ' }).count()) === 0, '2 はじめからで入れた字が消える');
   check(/^0:0\d$/.test(await timer(page)), `2 タイマーは0から: ${await timer(page)}`);
   await ctx.close();
 }

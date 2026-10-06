@@ -125,31 +125,30 @@ interface Draft {
 const T = {
   pageTitle: "クロスワードパズル作成",
   createNew: "新規作成",
-  puzzleTitle: "パズルタイトル",
-  titlePlaceholder: "例: 音楽なぞなぞチャレンジ！",
-  creatorName: "作成者名",
-  creatorNamePlaceholder: "ペンネーム（例: パズル職人）",
+  puzzleTitle: "題名",
+  titlePlaceholder: "例：音楽なぞなぞチャレンジ！",
+  creatorName: "作った人の名前（任意）",
+  creatorNamePlaceholder: "空欄なら「名無し」",
   answer: "答え",
   clue: "カギ",
-  cluePlaceholder: "例: 猫の鳴き声",
-  answerPlaceholder: "ニャー",
+  cluePlaceholder: "例：ニャーと鳴く動物",
+  answerPlaceholder: "ネコ",
   addToList: "リストに追加",
   reshuffle: "再シャッフル",
-  saving: "保存中...",
+  saving: "保存中…",
   share: "共有する",
   close: "閉じる",
   howToPlay: "遊び方",
   howToCreate: "パズルの作り方", // 作る画面の「?」の説明（2026-10-06 Hop 決定）
   anonymous: "名無し", // 作成者名が空の時（2026-10-06 Hop 決定）
   previewTitle: "プレビュー",
-  previewSubtitle: "答えとカギを追加すると、ここに盤が組み上がります",
-  guidelinesNotice: "※作成されたパズルの著作権および責任は作成者に帰属します。",
+  previewSubtitle: "答えとカギを追加すると、ここに盤が組み上がります。",
   errors: {
-    noTitle: "タイトルを入力してください",
-    loadFailed: "パズルの読み込みに失敗しました",
-    puzzleHidden: "このパズルは非表示になっています",
-    loadError: "パズルデータが不正です",
-    saveFailed: "パズルの保存に失敗しました",
+    noTitle: "題名を入力してください。",
+    loadFailed: "問題の読み込みに失敗しました。",
+    puzzleHidden: "この問題は非表示になっています。",
+    loadError: "この問題を読み込めませんでした。URL をご確認ください。",
+    saveFailed: "問題の保存に失敗しました。",
   },
   // 受付係が断った理由ごとの知らせ。ここに無い理由は errors.saveFailed
   saveReasons: {
@@ -163,13 +162,13 @@ const T = {
   // 前回の続きを開いた時（Hop 決定 2026-10-04）
   resume: {
     title: "前回の続きがあります",
-    body: (t: string) => `タイムは始めた時から数えています（${t}）`,
+    body: (t: string) => `タイムは始めた時から数えています（${t}）。`,
     cont: "つづきから",
     restart: "はじめから",
   },
   tooMany: "答え合わせが多すぎます。時間をおいてもう一度お試しください。",
   // 解いている途中に問題が隠された・消された時／回を始める人が多すぎる時（Hop 決定 2026-10-04）
-  puzzleGone: "この問題は非表示になったか、削除されました。",
+  puzzleGone: "この問題は非表示になったか、消されました。",
   busy: "混み合っています。少し待ってからもう一度お試しください。",
   // 自分が作った問題
   myPuzzles: {
@@ -180,52 +179,53 @@ const T = {
   pins: {
     release: "固定を外す", // 【仮】
     // 固定した語どうしが1つにつながらない盤（2026-10-06 レビューの直し）【仮】
-    notConnected: "固定した語がつながっていません。固定を外すか、語を足してください",
+    notConnected: "固定した語がつながっていません。固定を外すか、語を足してください。",
   },
   // 「リストに追加」が押せない理由（2026-10-06 任天堂シミュで決定・Hop「いいと思う」）【仮】
   addReason: {
-    hello: "ヒントの動画を選ぶと追加できます",
-    other: "ヒントの URL を入れると追加できます",
+    hello: "ヒントの動画を選ぶと追加できます。",
+    other: "ヒントの URL を入れると追加できます。",
   } as Record<Genre, string>,
+  // カギが空のままでは追加できない理由
+  addReasonClue: "カギを入れると追加できます。",
   // ヰ・ヱ を断る知らせ（2026-10-06 レビューの直し）【仮】
   unusableKana: "「ヰ」「ヱ」は使えません。",
   // 解き終えた画面のヒントの動画の一覧を開くボタン（2026-10-06 任天堂シミュで決定）【仮】
-  showHintVideos: "ヒントの動画を見る",
+  showHintVideos: (genre: Genre | null) => (genre === "other" ? "ヒントを見る" : "ヒントの動画を見る"),
   edit: {
     pageTitle: "クロスワードパズルの組み直し", // 【仮】
     update: "更新する", // 【仮】
     heading: "組み直し", // 入力欄の上の小見出し【仮】
-    notEditable: "この問題は組み直せません", // 【仮】
-    alreadyPlayed: "もう遊ばれているので組み直せません", // 【仮】
+    notEditable: "この問題は組み直せません。", // 【仮】
+    alreadyPlayed: "もう遊ばれているので組み直せません。", // 【仮】
   },
   shareModal: {
-    modalTitle: "パズルを共有",
+    modalTitle: "問題を共有",
     shareLink: "共有リンク",
     postToX: "Xに投稿",
-    publicNotice: "このパズルは公開され、誰でもプレイできるようになります。",
-    updatedNotice: "このパズルを更新しました。URL は変わりません。", // 組み直しの後（2026-10-06 Hop 決定）
-    healthyContent: "健全なコンテンツの作成にご協力ください。",
+    publicNotice: "この問題を公開しました。誰でも遊べます。",
+    updatedNotice: "この問題を更新しました。URL は変わりません。", // 組み直しの後（2026-10-06 Hop 決定）
   },
   creatorHelp: {
     title: "パズルの作り方",
     steps: [
-      { title: "答え・カギ・ヒントを入力", description: "「答え」に単語を、「カギ」にその単語を当てるための問題文を書きます。「ヒント」には答えの根拠を添えます。ハロプロは HELLO! VIDEO の動画を検索して選び、その他は URL を貼ります。" },
-      { title: "リストに追加", description: "入力したら「リストに追加」ボタンを押します。5〜10個の単語を追加するのがおすすめです。" },
-      { title: "パズルを自動生成", description: "単語を追加すると、クロスワードパズルが自動で組み上がります。別の形にしたいときは「再シャッフル」。固定した語は動きません。" },
-      { title: "保存・共有", description: "タイトルを入力して「共有する」を押すと共有URLが発行されます。SNSでシェアしてみんなに遊んでもらいましょう！" },
+      { title: "答え・カギ・ヒントを入力", description: "「答え」に語を、「カギ」にその語を当てるための問題文を書きます。「ヒント」には答えの根拠を添えます。ハロプロは HELLO! VIDEO の動画を検索して選びます。その他は URL を貼ります。" },
+      { title: "リストに追加", description: "入力したら「リストに追加」ボタンを押します。5〜10語がおすすめです。" },
+      { title: "問題を自動生成", description: "語を追加すると、クロスワードが自動で組み上がります。別の形にしたいときは「再シャッフル」。固定した語は動きません。" },
+      { title: "保存・共有", description: "題名を入力して「共有する」を押すと、共有 URL が発行されます。SNS で共有して、みんなに遊んでもらいましょう！" },
     ],
     tipsTitle: "コツ",
     tips: [
-      "共通の文字を持つ単語を選ぶとパズルが組みやすくなります",
-      "短い単語と長い単語を混ぜるとバランスの良いパズルになります",
-      "カギは簡単なものから難しいものまで、さまざまな難易度があるとより楽しめます",
+      "共通の文字を持つ語を選ぶと、問題が組みやすくなります。",
+      "短い語と長い語を混ぜると、バランスの良い問題になります。",
+      "カギは簡単なものから難しいものまで、さまざまな難易度があるとより楽しめます。",
     ],
     // 2026-10-05 に足した物の説明（Hop 決定・案B）。文言はすべて【仮】
     moreTitle: "ほかにできること", // 【仮】
     more: [
       "答えはカタカナになります。ひらがなはカタカナに、小さい字（ッ・ャ など）は大きい字になります。漢字・数字・英字・記号は使えません。",
-      "語が3つ以上になると、盤の下に「型の案内」が出ます。次に足すと盤に入る言葉の形がわかります。",
-      "盤の語は長押しで動かせます。動かした語には固定の印が付き、組み直しても動きません。「固定を外す」で、固定した語も含めて組み直します。",
+      "語が3つ以上になると、盤の下に「型の案内」が出ます。次に足すと盤に入る語の形がわかります。",
+      "盤の語は長押しで動かせます。動かした語は固定され、「再シャッフル」しても動きません。「固定を外す」を押すと、すべての語を並べ直します。",
       "作りかけは、この端末に自動で残ります。閉じても続きから作れます。",
       "作った問題は「自分が作った問題」にあります。遊ばれる前なら組み直せます。",
       "「自分が作った問題」の合言葉で、作った問題を別の端末へ引き継げます。",
@@ -239,16 +239,16 @@ const T = {
     toList: "パズルギャラリー",
     beginner: BEGINNER_LABEL,
     // 選ぶと得をすることを先に言う（任天堂のデザイナー視点のシミュレーションで決定・2026-10-03）
-    detected: (groups: string[]) => `ハロプロのメンバー名・グループ名が入っています（${groups.join("、")}）。ハロプロにすると、ハロプロの一覧にも並びます。`,
+    detected: (groups: string[]) => `ハロプロのメンバー名・グループ名が入っています（${groups.join("、")}）。ハロプロにすると、ギャラリーの「ハロプロ」に並びます。`,
     toHello: "ハロプロにする",
-    scoreFailed: "スコアの保存に失敗しました", // HarmonyPalette と同じ文言
-    scoreQueued: "ネットワーク接続がありません。\nスコアはローカルに保存されました。\n接続回復時に自動で送信されます。", // HarmonyPalette と同じ文言
+    scoreFailed: "記録を保存できませんでした。", // HarmonyPalette と同じ文言
+    scoreQueued: "通信できなかったので、記録はこの端末に預かりました。つながったら自動で送ります。", // HarmonyPalette と同じ文言
   },
   playerHelp: {
     title: "遊び方",
     steps: ["空欄のマスに文字を入力", "カギを参考に正解を推測", "最後のマスを埋めると自動で答え合わせ"],
     start: "始める！",
-    createdBy: (name: string) => `作った人: ${name}`, // 2026-10-06 Hop 決定
+    createdBy: (name: string) => `作った人：${name}`, // 2026-10-06 Hop 決定
     // 練習問題の入口は「?」から開いた遊び方の窓だけ（Hop 決定 2026-10-05）
     practice: "練習する", // 【仮】
     request: "要望を送る", // 「?」の窓から問い合わせの窓を種類「要望」で開く（Hop 決定 2026-10-06）【仮】
@@ -267,24 +267,24 @@ const T = {
   },
   // 作る画面の札（場面が初めて来た時に1回だけ・1行・幕なし。Hop 決定 2026-10-05）。文言はすべて【仮】
   tips: {
-    cross: "もう1語足すと、同じ字で交差して組まれます",
-    move: "盤の語は長押しで動かせます",
-    saved: "作りかけはこの端末に自動で残ります。作った問題は「自分が作った問題」にあり、遊ばれる前なら組み直せます",
+    cross: "もう1語足すと、同じ字で交差して組まれます。",
+    move: "盤の語は長押しで動かせます。",
+    saved: "作りかけはこの端末に自動で残ります。作った問題は「自分が作った問題」から組み直せます。",
     close: "閉じる",
   },
   // 作る画面の案内（Hop 決定 2026-10-05・案B）。文言はすべて【仮】
   createGuide: {
-    answer: ["答えをカタカナで。小さい字は大きい字になります。", "例: ネコ"],
-    clue: ["カギは、答えを当てるための問題文です。", "例: ニャーと鳴く動物"],
+    answer: ["答えはひらがなかカタカナで。小さい字は大きい字になります。", "例：ネコ"],
+    clue: ["カギは、答えを当てるための問題文です。", "例：ニャーと鳴く動物"],
     hint: ["ヒントは答えの根拠です。ハロプロは HELLO! VIDEO の動画から検索、その他は URL を貼ります。"],
     add: ["「リストに追加」を押します。"],
     board: ["ここに盤が組み上がります。"],
-    second: ["もう1語足してみましょう。同じ字を持つ語どうしは、交差して組まれます。", "例: コアラ（カギ: ユーカリの葉を食べる動物）"],
-    shape: ["語が3つ以上になると、盤の下に「型の案内」が出ます。次に足すと盤に入る言葉の形がわかります。"],
-    move: ["盤の語は長押しで動かせます。動かした語には固定の印が付き、組み直しても動きません。", "「固定を外す」で、固定した語も含めて組み直します。"],
+    second: ["もう1語足してみましょう。同じ字を持つ語どうしは、交差して組まれます。", "例：コアラ（カギ：ユーカリの葉を食べる動物）"],
+    shape: ["語が3つ以上になると、盤の下に「型の案内」が出ます。次に足すと盤に入る語の形がわかります。"],
+    move: ["盤の語は長押しで動かせます。動かした語は固定され、「再シャッフル」しても動きません。", "「固定を外す」を押すと、すべての語を並べ直します。"],
     title: ["最後に題名を入れます。"],
     share: ["「共有する」で保存すると公開され、誰でも遊べるようになります。"],
-    mine: ["作りかけは、この端末に自動で残ります。", "作った問題は「自分が作った問題」にあり、遊ばれる前なら組み直せます。"],
+    mine: ["作りかけは、この端末に自動で残ります。", "作った問題は「自分が作った問題」から組み直せます。"],
   },
 };
 
@@ -1171,7 +1171,7 @@ export default function CrosswordPage() {
 
   // --- Editor Functions ---
   const handleAddItem = () => {
-    if (!currentInput.a.trim() || !pendingHint) return;
+    if (!currentInput.a.trim() || !currentInput.q.trim() || !pendingHint) return;
     const answerParts = toCells(currentInput.a);
     // 答えはカタカナの文字盤で打てる字だけ（ひらがなはカタカナにそろう）
     if (answerParts.some((c) => UNUSABLE_KANA.test(c))) {
@@ -1200,7 +1200,7 @@ export default function CrosswordPage() {
 
     const newItem: PuzzleItem = {
       id: editingId ?? generateUUID(),
-      question: currentInput.q || "（カギなし）",
+      question: currentInput.q.trim(),
       answer: answerParts,
     };
 
@@ -1369,12 +1369,12 @@ export default function CrosswordPage() {
 
     // --- Quality Guard ---
     if (generatedPuzzle.items.length < 2) {
-      toast.error("パズルを保存するには、最低2つの単語を登録してください。");
+      toast.error("保存するには、語を2つ以上追加してください。");
       return;
     }
     const intersectionCount = generatedPuzzle.cells.filter((c) => c.horizontalItemId && c.verticalItemId).length;
     if (intersectionCount < 1) {
-      toast.error("クロスワードパズルとして保存するには、単語同士が交差している必要があります。\n（コツ：同じ文字を含む単語を追加してみてください）", { duration: 5000 });
+      toast.error("語どうしが交差していないと保存できません。同じ字を含む語を足してみてください。", { duration: 5000 });
       return;
     }
 
@@ -1505,7 +1505,7 @@ export default function CrosswordPage() {
   // リセットはマスを空にするだけで、回は続ける（タイム・見た数・ミスはその回のまま）。
   // 「途中まで埋めたが合わない所が出たので消す」が動機なので、時間は継続加算（Hop 決定 2026-10-06）
   const handleReset = () => {
-    if (confirm("入力をすべて消去しますか？ タイムはそのまま続きます。")) {
+    if (confirm("入力をすべて消す？ タイムはそのまま続きます。")) {
       setUserAnswers({});
       setIsCleared(false);
     }
@@ -1795,7 +1795,7 @@ export default function CrosswordPage() {
               )}
               {/* [No.02] Title & Author - 縦積み、truncate */}
               <div className="flex flex-col min-w-0 flex-1">
-                <h1 className="text-base font-bold truncate" style={{ color: C.ink }}>{playerPuzzle.title || "クロスワードパズル"}</h1>
+                <h1 className="text-base font-bold truncate" style={{ color: C.ink }}>{playerPuzzle.title || "無題の問題"}</h1>
                 {!isTutorial && <p className="text-xs truncate" style={{ color: C.secondary }}>{playerPuzzle.creatorName || T.anonymous}</p>}
               </div>
             </div>
@@ -1913,7 +1913,7 @@ export default function CrosswordPage() {
                     <div key={i} className="h-12 w-12 bg-surface-container-high motion-safe:animate-pulse" style={{ animationDelay: `${i * 30}ms` }} />
                   ))}
                 </div>
-                <p className="text-sm">パズルを構築中...</p>
+                <p className="text-sm">読み込み中…</p>
               </Motion>
             ) : (
               <Motion initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8">
@@ -2010,7 +2010,7 @@ export default function CrosswordPage() {
                     {/* ヒントの動画の一覧（畳んである。押すと開く） */}
                     {Object.keys(playerHints).length > 0 &&
                       (showHintVideos ? (
-                        <HintList items={playerPuzzle.items} hints={playerHints} />
+                        <HintList items={playerPuzzle.items} hints={playerHints} genre={playerGenre} />
                       ) : (
                         <div className="text-center mt-6">
                           <button
@@ -2019,7 +2019,7 @@ export default function CrosswordPage() {
                             className="inline-flex items-center gap-2 px-6 py-3 bg-surface-container-high hover:bg-surface-container-highest transition-colors font-medium"
                             style={{ color: C.ink }}
                           >
-                            {T.showHintVideos}
+                            {T.showHintVideos(playerGenre)}
                           </button>
                         </div>
                       ))}
@@ -2099,11 +2099,11 @@ export default function CrosswordPage() {
                 {/* 練習問題には作成者がいないので、著作権の注意と通報は出さない */}
                 {!isTutorial && (
                 <div className="text-center mt-8 text-xs" style={{ color: C.secondary }}>
-                  ※作成されたパズルの著作権および責任は作成者に帰属します。
+                  ※作成された問題の著作権および責任は作成者に帰属します。
                 </div>
                 )}
 
-                {/* 不適切なパズルを通報するリンク */}
+                {/* 不適切な問題を通報するリンク */}
                 {!isTutorial && (
                 <div className="text-center mt-2">
                   <button
@@ -2112,7 +2112,7 @@ export default function CrosswordPage() {
                     style={{ color: C.secondary }}
                   >
                     <Icon size={12} icon="flag" />
-                    不適切なパズルを通報する
+                    不適切な問題を通報する
                   </button>
                 </div>
                 )}
@@ -2161,7 +2161,7 @@ export default function CrosswordPage() {
               <Motion initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="text-2xl mt-4" style={{ color: "rgba(255,255,255,0.9)" }}>
                 {clearTime !== null && (
                   <span>
-                    タイム: {clock(clearTime)}
+                    タイム：{clock(clearTime)}
                   </span>
                 )}
               </Motion>
@@ -2238,7 +2238,7 @@ export default function CrosswordPage() {
               style={{ color: C.ink, boxShadow: C.modalShadow }}
             >
               <div className="w-4 h-4 border-2 border-black border-t-transparent motion-safe:animate-spin" />
-              <span>最適化中...</span>
+              <span>組み立て中…</span>
             </div>
           </Motion>
         )}
@@ -2319,7 +2319,7 @@ export default function CrosswordPage() {
                     <Input
                       value={tagInput}
                       onChange={setTagInput}
-                      placeholder="入力して Enter"
+                      placeholder="入力して「追加」"
                       maxLength={20}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.nativeEvent.isComposing) {
@@ -2381,7 +2381,7 @@ export default function CrosswordPage() {
                 <div data-coach="create-add">
                 {editingId ? (
                   <div className="flex gap-2">
-                    <Button onClick={handleAddItem} disabled={!currentInput.a || !pendingHint} className="flex-1">
+                    <Button onClick={handleAddItem} disabled={!currentInput.a || !currentInput.q.trim() || !pendingHint} className="flex-1">
                       更新する
                     </Button>
                     <Button onClick={resetItemInput} variant="secondary">
@@ -2389,14 +2389,14 @@ export default function CrosswordPage() {
                     </Button>
                   </div>
                 ) : (
-                  <Button onClick={handleAddItem} disabled={!currentInput.a || !pendingHint} className="w-full">
+                  <Button onClick={handleAddItem} disabled={!currentInput.a || !currentInput.q.trim() || !pendingHint} className="w-full">
                     {T.addToList}
                   </Button>
                 )}
                 {/* 押せない理由（ヒントが未選択の時）を1行 */}
-                {!pendingHint && (
+                {(!pendingHint || !currentInput.q.trim()) && (
                   <p data-add-reason="" className="text-xs mt-2" style={{ color: C.secondary }}>
-                    {T.addReason[genre]}
+                    {!pendingHint ? T.addReason[genre] : T.addReasonClue}
                   </p>
                 )}
                 </div>
@@ -2415,7 +2415,7 @@ export default function CrosswordPage() {
                             {chars && chars.size > 0 && (
                               <span className="flex gap-0.5 ml-1">
                                 {Array.from(chars).map((char) => (
-                                  <span key={char} className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-primary" title={`'${char}' で他の単語と交差可能`}>
+                                  <span key={char} className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-primary" title={`'${char}' で他の語と交差できます`}>
                                     {char}
                                   </span>
                                 ))}
@@ -2428,7 +2428,7 @@ export default function CrosswordPage() {
                         <button onClick={() => handleEditItem(item)} className="p-1 ml-2 flex-shrink-0 hover:bg-primary hover:text-white transition-colors" style={{ color: C.secondary }} aria-label="編集">
                           <Icon size={16} icon="edit" />
                         </button>
-                        <button onClick={() => handleRemoveItem(item.id)} className="p-1 ml-1 flex-shrink-0 hover:bg-primary hover:text-white transition-colors" style={{ color: C.secondary }} aria-label="削除">
+                        <button onClick={() => handleRemoveItem(item.id)} className="p-1 ml-1 flex-shrink-0 hover:bg-primary hover:text-white transition-colors" style={{ color: C.secondary }} aria-label="消す">
                           <Icon size={16} icon="delete" />
                         </button>
                       </div>
@@ -2441,9 +2441,6 @@ export default function CrosswordPage() {
                 {T.reshuffle}
               </Button>
 
-              <div className="text-xs leading-relaxed pt-4 font-mono" style={{ color: C.secondary }}>
-                {T.guidelinesNotice}
-              </div>
             </div>
 
             {/* Preview & Output */}
@@ -2457,15 +2454,14 @@ export default function CrosswordPage() {
                     {monteCarloProgress && (
                       <div className="mt-4 bg-white px-6 py-3 font-mono text-sm font-black flex items-center gap-3" style={{ color: C.ink }}>
                         <div className="w-4 h-4 border-2 border-black border-t-transparent motion-safe:animate-spin" />
-                        <span>最適化中...</span>
+                        <span>組み立て中…</span>
                       </div>
                     )}
                   </div>
                 ) : isLiveGenerating ? (
                   <div className="text-center p-8" style={{ color: C.secondary }}>
                     <div className="w-16 h-16 mx-auto mb-4 bg-white" />
-                    <p className="text-lg font-black font-mono" style={{ color: C.ink }}>構築中...</p>
-                    <p className="text-sm mt-2 font-mono">背景で試行錯誤中</p>
+                    <p className="text-lg font-black font-mono" style={{ color: C.ink }}>組み立て中…</p>
                   </div>
                 ) : generatedPuzzle ? (
                   <div className="w-full p-4 flex flex-col items-center">
@@ -2552,7 +2548,7 @@ export default function CrosswordPage() {
               )}
 
               <div className="text-center text-xs px-4 font-mono" style={{ color: C.secondary }}>
-                ※作成されたパズルの著作権および責任は作成者に帰属します。
+                ※作成された問題の著作権および責任は作成者に帰属します。
                 <br />
                 他者の権利を侵害する内容を含めないようご注意ください。
               </div>

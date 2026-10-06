@@ -74,7 +74,7 @@ export const PuzzleGridMinimal: React.FC<{ data: PuzzleData }> = ({ data }) => {
   if (!data.cells || data.cells.length === 0) {
     return (
       <div className="flex items-center justify-center p-12 bg-surface-container-low text-on-surface">
-        パズルデータがありません
+        問題がありません。
       </div>
     );
   }

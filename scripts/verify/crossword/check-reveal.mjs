@@ -73,7 +73,7 @@ const submitName = async (page) => {
 // 1. 2マス残して、1つ目は確かめてから見る、2つ目は確かめずに見る → 解き終わり、見た数 2・ミス 0 で送られる
 {
   const { ctx, page, sent } = await open(without(CELL1, CELL2));
-  await page.getByRole('button', { name: `${label(CELL1)}: 空` }).click();
+  await page.getByRole('button', { name: `${label(CELL1)}：空` }).click();
   await page.waitForTimeout(800);
   await page.screenshot({ path: `${OUT}/reveal-0-card.png` });
   await page.getByRole('button', { name: '1文字見る' }).click();
@@ -81,11 +81,11 @@ const submitName = async (page) => {
   check(t1.includes('1文字見る？') && t1.includes('ノーヒントの印は付かなくなります。'), '初めての時はその場で確かめる');
   await page.screenshot({ path: `${OUT}/reveal-1-confirm.png` });
   await page.getByRole('button', { name: '見る', exact: true }).click();
-  await page.getByRole('button', { name: `${label(CELL1)}: ${full[CELL1]}` }).waitFor({ timeout: 8000 }).catch(() => {}); // 受付係の返事を待つ
-  check((await page.getByRole('button', { name: `${label(CELL1)}: ${full[CELL1]}` }).count()) === 1, '選んだマスに正しい字が入る');
+  await page.getByRole('button', { name: `${label(CELL1)}：${full[CELL1]}` }).waitFor({ timeout: 8000 }).catch(() => {}); // 受付係の返事を待つ
+  check((await page.getByRole('button', { name: `${label(CELL1)}：${full[CELL1]}` }).count()) === 1, '選んだマスに正しい字が入る');
   await page.getByRole('button', { name: '閉じる' }).first().click().catch(() => {});
   await page.waitForTimeout(500);
-  await page.getByRole('button', { name: `${label(CELL2)}: 空` }).click();
+  await page.getByRole('button', { name: `${label(CELL2)}：空` }).click();
   tokens.reveal2 = await tokenOf(page); // 解けると途中経過が消えるので、解ける前に回の番号を控える
   await page.getByRole('button', { name: '1文字見る' }).click();
   await page.waitForTimeout(600);
@@ -100,14 +100,14 @@ const submitName = async (page) => {
 // 2. 間違えて埋める（ミス1）→ 直して終わる → 見た数 0・ミス 1。開き直してもミスの数は残る
 {
   const { ctx, page, sent } = await open(without(CELL1));
-  await page.getByRole('button', { name: `${label(CELL1)}: 空` }).click();
+  await page.getByRole('button', { name: `${label(CELL1)}：空` }).click();
   await page.getByRole('button', { name: WRONG_CHAR, exact: true }).last().click();
   await page.waitForTimeout(1500);
   await page.reload();
   await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
   tokens.miss1 = await tokenOf(page); // 解けると途中経過が消えるので、解ける前に回の番号を控える
-  await page.getByRole('button', { name: `${label(CELL1)}: ${WRONG_CHAR}` }).click();
+  await page.getByRole('button', { name: `${label(CELL1)}：${WRONG_CHAR}` }).click();
   await page.getByRole('button', { name: full[CELL1], exact: true }).last().click();
   await page.waitForTimeout(3500);
   await submitName(page);
@@ -125,7 +125,7 @@ const submitName = async (page) => {
     { display_name: 'D', time_seconds: 60, updated_at: now, reveals: 1, misses: 1 },
   ];
   const { ctx, page } = await open(without(CELL1), rows);
-  await page.getByRole('button', { name: `${label(CELL1)}: 空` }).click();
+  await page.getByRole('button', { name: `${label(CELL1)}：空` }).click();
   await page.getByRole('button', { name: full[CELL1], exact: true }).last().click();
   await page.waitForTimeout(3500);
   await page.getByRole('button', { name: '載せない' }).click();

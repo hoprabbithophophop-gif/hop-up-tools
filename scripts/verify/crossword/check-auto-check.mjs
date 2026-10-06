@@ -47,7 +47,7 @@ async function open(answers) {
 }
 const stamped = (page) => page.evaluate(() => document.body.innerText.includes('CLEARED!'));
 const closeupOpen = async (page) => (await page.getByRole('button', { name: /決定/ }).count()) > 0;
-const cellOf = (page, state) => page.getByRole('button', { name: `${ly + 1}行${lx + 1}列: ${state}` });
+const cellOf = (page, state) => page.getByRole('button', { name: `${ly + 1}行${lx + 1}列：${state}` });
 const press = (page, ch) => page.getByRole('button', { name: ch, exact: true }).last().click();
 
 // 1. 最後の1文字を正しく入れると、ボタンを押さずに終わる

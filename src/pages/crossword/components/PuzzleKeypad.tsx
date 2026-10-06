@@ -169,12 +169,12 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
         {(onArrowLeft || onArrowRight) && (
           <div className="flex gap-1">
             {onArrowLeft && (
-              <button onClick={onArrowLeft} disabled={disabled} className={`p-2.5 bg-primary hover:bg-secondary disabled:opacity-50 ${keyBase}`} aria-label="前のセル">
+              <button onClick={onArrowLeft} disabled={disabled} className={`p-2.5 bg-primary hover:bg-secondary disabled:opacity-50 ${keyBase}`} aria-label="前のマス">
                 <span className="material-symbols-outlined leading-none text-white" style={{ fontSize: "16px" }}>arrow_back</span>
               </button>
             )}
             {onArrowRight && (
-              <button onClick={onArrowRight} disabled={disabled} className={`p-2.5 bg-primary hover:bg-secondary disabled:opacity-50 ${keyBase}`} aria-label="次のセル">
+              <button onClick={onArrowRight} disabled={disabled} className={`p-2.5 bg-primary hover:bg-secondary disabled:opacity-50 ${keyBase}`} aria-label="次のマス">
                 <span className="material-symbols-outlined leading-none text-white" style={{ fontSize: "16px" }}>arrow_forward</span>
               </button>
             )}
@@ -221,7 +221,7 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
           style={{ background: C.highest, color: C.ink }}
         >
           <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px" }}>backspace</span>
-          <span className="text-sm">削除</span>
+          <span className="text-sm">消す</span>
         </button>
 
         {onEnter && (

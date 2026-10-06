@@ -33,7 +33,7 @@ export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle }> = ({ puzzle 
       <div className="flex items-start gap-2 mb-3">
         <Icon icon="extension" className="flex-shrink-0 mt-0.5" />
         <h3 className="text-base font-bold line-clamp-2" style={{ color: C.ink }}>
-          {puzzle.title || "無題のパズル"}
+          {puzzle.title || "無題の問題"}
         </h3>
       </div>
 
@@ -60,7 +60,7 @@ export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle }> = ({ puzzle 
             </div>
           )}
           <div className="flex items-center gap-1">
-            <span>{puzzle.wordCount}ワード</span>
+            <span>{puzzle.wordCount}語</span>
           </div>
         </div>
       </div>
@@ -69,7 +69,7 @@ export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle }> = ({ puzzle 
       <div className="flex items-center justify-between pt-3" style={{ borderTop: `1px solid ${C.ghost}` }}>
         <div className="flex items-center gap-1 text-xs" style={{ color: C.secondary }}>
           <Icon icon="play_arrow" size={14} />
-          <span>{puzzle.play_count}回プレイ</span>
+          <span>{puzzle.play_count}回遊ばれた</span>
         </div>
         <div className="flex items-center gap-1 text-sm font-bold">
           <span>遊ぶ</span>

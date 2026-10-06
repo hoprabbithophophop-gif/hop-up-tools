@@ -225,14 +225,14 @@ export const suggestGuides = (
   }];
 };
 
-// multi:「1文字目がア・3文字目がンの3文字以上の言葉（8文字まで）」／幅が無い時は「3文字の言葉」
+// multi:「1文字目がア・3文字目がンの3文字以上の語（8文字まで）」／幅が無い時は「3文字の語」
 // single:「4文字・1文字目がグ／チ／ハ」
 export const formatGuide = (g: Pick<ShapeGuide, 'kind' | 'positions' | 'alts' | 'minLength' | 'maxLength'>): string => {
   const parts = g.positions.map((p, i) => `${p + 1}文字目が${g.alts[i].join('／')}`);
   if (g.kind === 'single') return [`${g.minLength}文字`, ...parts].join('・');
   const len = g.minLength === g.maxLength
-    ? `${g.minLength}文字の言葉`
-    : `${g.minLength}文字以上の言葉（${g.maxLength}文字まで）`;
+    ? `${g.minLength}文字の語`
+    : `${g.minLength}文字以上の語（${g.maxLength}文字まで）`;
   return `${parts.join('・')}の${len}`;
 };
 
@@ -427,7 +427,7 @@ export const suggestForBoard = (
   return { mode: 'enter', shapes: [], lines, placeableNow };
 };
 
-// 「3文字目がエ・5文字目にエグチサヤの字の5文字以上の言葉（8文字まで）」
+// 「3文字目がエ・5文字目にエグチサヤの字の5文字以上の語（8文字まで）」
 export const formatEnterGuide = (g: Pick<EnterGuide, 'positions' | 'alts' | 'minLength' | 'maxLength' | 'needs'>): string => {
   const parts: { at: number; text: string }[] = [
     ...g.positions.map((p, i) => ({ at: p, text: `${p + 1}文字目が${g.alts[i].join('／')}` })),
@@ -437,14 +437,14 @@ export const formatEnterGuide = (g: Pick<EnterGuide, 'positions' | 'alts' | 'min
     }),
   ].sort((a, b) => a.at - b.at);
   const len = g.minLength === g.maxLength
-    ? `${g.minLength}文字の言葉`
-    : `${g.minLength}文字以上の言葉（${g.maxLength}文字まで）`;
+    ? `${g.minLength}文字の語`
+    : `${g.minLength}文字以上の語（${g.maxLength}文字まで）`;
   return `${parts.map((p) => p.text).join('・')}の${len}`;
 };
 
-// 「エグチサヤ: 3文字目がエ・…の言葉（8文字まで）」／「エグチサヤ: 今の盤に交差できる字が無く、入る型がありません」
+// 「エグチサヤ：3文字目がエ・…の語（8文字まで）」／「エグチサヤ：今の盤に交差できる字が無く、入る型がありません」
 export const formatWordLine = (l: WordGuideLine): string =>
-  `${l.word}: ${l.guide ? formatEnterGuide(l.guide) : NO_ENTER_TEXT}`;
+  `${l.word}：${l.guide ? formatEnterGuide(l.guide) : NO_ENTER_TEXT}`;
 
 // 画面に出す行（段階1の型か、置けなかった語ごとの行）
 export const guideTexts = (b: BoardGuide): string[] =>

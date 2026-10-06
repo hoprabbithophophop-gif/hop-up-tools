@@ -37,7 +37,7 @@ const noSideScroll = () => page.evaluate(() => document.documentElement.scrollWi
 
 // 1. 作る画面
 await page.goto(`${BASE}/crossword/create`);
-const clue = page.getByPlaceholder('例: 猫の鳴き声');
+const clue = page.getByPlaceholder('例：ニャーと鳴く動物');
 await clue.waitFor({ timeout: 20000 });
 await page.waitForTimeout(2500);
 check(await noSideScroll(), '作る画面: 横にはみ出さない');
@@ -59,7 +59,7 @@ await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ tim
 await page.waitForTimeout(2500);
 check(await noSideScroll(), '解く画面: 横にはみ出さない');
 await page.screenshot({ path: `${OUT}/iphone-2-board.png` });
-await page.getByRole('button', { name: `${label(CELL1)}: 空` }).tap();
+await page.getByRole('button', { name: `${label(CELL1)}：空` }).tap();
 await page.waitForTimeout(800);
 check((await page.getByRole('button', { name: /決定/ }).count()) > 0, '解く画面: マスを押すと入力カードが出る');
 await page.getByRole('button', { name: 'ヒント', exact: true }).first().tap();
@@ -70,11 +70,11 @@ await page.getByRole('button', { name: 'ヒント', exact: true }).first().tap()
 await page.getByRole('button', { name: '1文字見る' }).tap();
 check((await text()).includes('1文字見る？'), '解く画面: 1文字見るの確かめが出る');
 await page.getByRole('button', { name: '見る', exact: true }).tap();
-await page.getByRole('button', { name: `${label(CELL1)}: ${full[CELL1]}` }).waitFor({ timeout: 8000 }).catch(() => {});
-check((await page.getByRole('button', { name: `${label(CELL1)}: ${full[CELL1]}` }).count()) === 1, '解く画面: 1文字見るで字が入る');
+await page.getByRole('button', { name: `${label(CELL1)}：${full[CELL1]}` }).waitFor({ timeout: 8000 }).catch(() => {});
+check((await page.getByRole('button', { name: `${label(CELL1)}：${full[CELL1]}` }).count()) === 1, '解く画面: 1文字見るで字が入る');
 await page.getByRole('button', { name: '閉じる' }).first().tap().catch(() => {});
 await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
-await page.getByRole('button', { name: `${label(CELL2)}: 空` }).tap();
+await page.getByRole('button', { name: `${label(CELL2)}：空` }).tap();
 await page.getByRole('button', { name: full[CELL2], exact: true }).last().tap();
 await page.getByRole('button', { name: '載せる' }).waitFor({ timeout: 10000 }).catch(() => {});
 const t = await text();

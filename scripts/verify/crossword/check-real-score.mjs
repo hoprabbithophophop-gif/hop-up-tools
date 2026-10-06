@@ -37,7 +37,7 @@ await page.evaluate(({ id, answers }) => {
   localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({ userAnswers: answers, elapsedSeconds: 0, savedAt: Date.now() }));
 }, { id: ID, answers: almost });
 await page.goto(`${BASE}/crossword/${ID}`);
-const cell = page.getByRole('button', { name: `${ly + 1}行${lx + 1}列: 空` });
+const cell = page.getByRole('button', { name: `${ly + 1}行${lx + 1}列：空` });
 await cell.waitFor({ timeout: 20000 });
 await page.waitForTimeout(2500);
   await page.waitForTimeout(humanWaitMs(Object.keys(full).length));

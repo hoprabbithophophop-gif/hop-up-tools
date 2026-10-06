@@ -47,7 +47,7 @@ const waitBoard = async (page) => {
   await page.waitForTimeout(2500);
 };
 const fillLast = async (page) => {
-  await page.getByRole('button', { name: `${ly + 1}行${lx + 1}列: 空` }).click();
+  await page.getByRole('button', { name: `${ly + 1}行${lx + 1}列：空` }).click();
   await page.getByRole('button', { name: full[LAST], exact: true }).last().click();
 };
 const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' })];
@@ -86,7 +86,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
 // 2. 作る画面: 再生できない動画（存在しない番号）は選べない
 {
   const { ctx, page } = await open('/crossword/create');
-  await page.getByPlaceholder('例: 猫の鳴き声').waitFor();
+  await page.getByPlaceholder('例：ニャーと鳴く動物').waitFor();
   await page.waitForTimeout(2500);
   await page.getByRole('radio', { name: 'その他' }).click();
   await page.getByPlaceholder(/URL/).first().fill('https://youtu.be/aaaaaaaaaa0');
@@ -107,7 +107,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   await waitBoard(page);
   await fillLast(page);
   await page.waitForTimeout(1500);
-  check((await text(page)).includes('この問題は非表示になったか、削除されました。'), '3 「この問題は非表示になったか、削除されました。」');
+  check((await text(page)).includes('この問題は非表示になったか、消されました。'), '3 「この問題は非表示になったか、消されました。」');
   await ctx.close();
 }
 // 4. 回の記録が無くなっていた（30 日で片付いた）→ 新しい回として始め直して解き終える（本物の受付係）
@@ -151,7 +151,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
 // 6. リンクのヒントの決まり（https だけ・IP アドレスだけの住所は不可。2026-10-04 洗い出しの G）
 {
   const { ctx, page } = await open('/crossword/create');
-  await page.getByPlaceholder('例: 猫の鳴き声').waitFor();
+  await page.getByPlaceholder('例：ニャーと鳴く動物').waitFor();
   await page.waitForTimeout(2500);
   await page.getByRole('radio', { name: 'その他' }).click();
   const box = page.getByPlaceholder(/URL/).first();

@@ -176,7 +176,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
       <div className="space-y-2">
         <div className="flex items-start gap-2 px-3 py-2 bg-surface-container-low">
           <span className="text-[0.6875rem] font-bold uppercase tracking-[0.1em] shrink-0 pt-0.5" style={{ color: C.secondary }}>
-            {isYt ? "YouTube" : "Link"}
+            {isYt ? "YouTube" : "リンク"}
           </span>
           <span className="flex-1 text-sm break-all" style={{ color: C.ink }}>{selected.label}</span>
           <button
@@ -244,7 +244,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
         placeholder={genre === "hello" ? "動画の題名・曲名で検索、または URL を貼る" : "YouTube などの URL を貼る"}
         className={inputClassName}
       />
-      {busy && <p className="text-xs" style={{ color: C.secondary }}>Loading...</p>}
+      {busy && <p className="text-xs" style={{ color: C.secondary }}>読み込み中…</p>}
       {(results.length > 0 || chapterResults.length > 0) && (
         <div className="max-h-96 overflow-y-auto bg-surface-container-low">
           {results.length > 0 && (

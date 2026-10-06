@@ -42,7 +42,7 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
   if (!data.cells || data.cells.length === 0) {
     return (
       <div className="flex items-center justify-center p-12 bg-surface-container-low text-on-surface">
-        パズルデータがありません
+        問題がありません。
       </div>
     );
   }
@@ -106,7 +106,7 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
                 type="button"
                 onClick={() => onCellClick?.(cell.x, cell.y)}
                 onFocus={() => onCellFocus?.(cell.x, cell.y)}
-                aria-label={`${cell.y + 1}行${cell.x + 1}列: ${value || "空"}`}
+                aria-label={`${cell.y + 1}行${cell.x + 1}列：${value || "空"}`}
                 className={`
                   puzzle-cell relative
                   w-full h-full text-center font-black uppercase
