@@ -1,9 +1,5 @@
 {
   "base": "https://feature-crossword.hop-up-tools.pages.dev",
   "puzzleId": "SJ2cjTJe",
-  "hiddenPuzzleId": "kensyuH1",
-  "noImagePuzzleId": "kensyuN1",
-  "ownerPuzzleId": "kensyuE1",
-  "ownerKey": "kensyu0000000000000000000000000000000000000000000000000000000004",
-  "_note": "検収用の問題3つは 2026-10-06 の検収（6回目）のために本番へ置いた物。検収後に消し、この版はコミットしない"
+  "_note": "隠れた問題・画像の無い問題・組み直しを確かめるときは、本番に検収用の問題を用意して hiddenPuzzleId・noImagePuzzleId・ownerPuzzleId・ownerKey を足す（既存の問題を SQL で写し、片方は is_hidden=true、組み直し用には合言葉の sha256 を crossword_owner_keys に入れる。検収後に消す。この値はコミットしない）。無ければ該当の台本は飛ばす"
 }
