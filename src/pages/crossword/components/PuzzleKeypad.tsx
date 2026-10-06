@@ -53,6 +53,22 @@ const HANDAKUTEN_MAP: Record<string, string> = {
   ハ: "パ", ヒ: "ピ", フ: "プ", ヘ: "ペ", ホ: "ポ",
 };
 
+// 濁音・半濁音→清音（逆引き）。ビの状態で ゜ を押してもピになるように（Hop 2026-10-07）
+const BASE_MAP: Record<string, string> = Object.fromEntries([
+  ...Object.entries(DAKUTEN_MAP).map(([base, mod]) => [mod, base]),
+  ...Object.entries(HANDAKUTEN_MAP).map(([base, mod]) => [mod, base]),
+]);
+const baseOf = (ch: string): string => BASE_MAP[ch] ?? ch;
+
+// ゛゜を押した結果。今の字がヒ・ビ・ピのどれでも、゛ならビ、゜ならピ。同じ記号がもう付いていれば清音に戻す。変えられなければ undefined
+export const modifiedChar = (mode: "dakuten" | "handakuten", ch: string): string | undefined => {
+  const base = baseOf(ch);
+  const map = mode === "dakuten" ? DAKUTEN_MAP : HANDAKUTEN_MAP;
+  const mod = map[base];
+  if (!mod) return undefined;
+  return ch === mod ? base : mod;
+};
+
 const KATAKANA_KEYS = [
   ["ワ", "ラ", "ヤ", "マ", "ハ", "ナ", "タ", "サ", "カ", "ア"],
   ["ヲ", "リ", "", "ミ", "ヒ", "ニ", "チ", "シ", "キ", "イ"],
@@ -128,16 +144,15 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
   // 変えられる字が無ければ何もしない（「先に ゛ を押してから字」の順は使わない。Hop 2026-10-06）
   const handleModifierClick = (mode: HiraganaMode) => {
     if (!currentChar || !onModifyCurrentChar) return;
-    let modified: string | undefined;
-    if (mode === "dakuten") modified = DAKUTEN_MAP[currentChar];
-    if (mode === "handakuten") modified = HANDAKUTEN_MAP[currentChar];
+    if (mode === "normal") return;
+    const modified = modifiedChar(mode, currentChar);
     if (modified) onModifyCurrentChar(modified);
   };
 
-  const modifierStyle = (mode: HiraganaMode, map: Record<string, string>): React.CSSProperties =>
+  const modifierStyle = (mode: "dakuten" | "handakuten"): React.CSSProperties =>
     hiraganaMode === mode
       ? { background: C.black, color: C.white }
-      : currentChar && map[currentChar]
+      : currentChar && modifiedChar(mode, currentChar)
         ? { background: C.highest, color: C.black }
         : { background: C.low, color: C.secondary };
 
@@ -186,17 +201,17 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
           <div className="flex gap-1">
             <button
               onClick={() => handleModifierClick("dakuten")}
-              disabled={disabled || (currentChar ? !DAKUTEN_MAP[currentChar] : false)}
+              disabled={disabled || (currentChar ? !modifiedChar("dakuten", currentChar) : false)}
               className={`px-3 py-2 font-bold text-sm ${keyBase}`}
-              style={modifierStyle("dakuten", DAKUTEN_MAP)}
+              style={modifierStyle("dakuten")}
             >
               ゛
             </button>
             <button
               onClick={() => handleModifierClick("handakuten")}
-              disabled={disabled || (currentChar ? !HANDAKUTEN_MAP[currentChar] : false)}
+              disabled={disabled || (currentChar ? !modifiedChar("handakuten", currentChar) : false)}
               className={`px-3 py-2 font-bold text-sm ${keyBase}`}
-              style={modifierStyle("handakuten", HANDAKUTEN_MAP)}
+              style={modifierStyle("handakuten")}
             >
               ゜
             </button>

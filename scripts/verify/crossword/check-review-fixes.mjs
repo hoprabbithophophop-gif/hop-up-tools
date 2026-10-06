@@ -231,6 +231,22 @@ try {
     check((await cellText(page, 1, 0)) === '1行2列：ギ', `(1) マスを押して動いた後の ゛ は、今のマスの字に効く（${await cellText(page, 1, 0)}）`);
     await ctx.close();
   }
+  {
+    // ビ の状態で ゜ を押すと ピ になる（ヒから打ち直さなくてよい。Hop 2026-10-07）。ピ に ゛ で ビ、ピ に ゜ で ヒ に戻る
+    const { ctx, page } = await newPage({ marks: { ...SEEN_SOLVE, [`crossword_progress_${PUZZLE_ID}`]: progress({ '0,0': 'ビ', '1,0': 'キ' }) } });
+    await openPuzzle(page);
+    await openAcross(page);
+    await key(page, '゜').click();
+    await page.waitForTimeout(300);
+    check((await cellText(page, 0, 0)) === '1行1列：ピ', `(1) ビ に ゜ で ピ になる（${await cellText(page, 0, 0)}）`);
+    await key(page, '゛').click();
+    await page.waitForTimeout(300);
+    check((await cellText(page, 0, 0)) === '1行1列：ビ', `(1) ピ に ゛ で ビ になる（${await cellText(page, 0, 0)}）`);
+    await key(page, '゛').click();
+    await page.waitForTimeout(300);
+    check((await cellText(page, 0, 0)) === '1行1列：ヒ', `(1) ビ にもう一度 ゛ で ヒ に戻る（${await cellText(page, 0, 0)}）`);
+    await ctx.close();
+  }
 
   // ---- (2) 最後のマスが濁る字: ゛ の後の盤で丸付け。待ちの間は窓が開いたまま ----
   let clearedPage = null;

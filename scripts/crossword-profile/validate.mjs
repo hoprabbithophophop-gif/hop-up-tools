@@ -44,6 +44,21 @@ while (stack.length) {
 }
 check(seen.size === cells.size, `盤が1つにつながっている（マス ${cells.size}）`);
 
+// カギの無い字の並びが無い（横・縦とも、2マス以上つながる並びはどれかのカギと一致する）
+const runs = new Set(clues.map((c) => `${c.direction}:${c.startX},${c.startY}:${c.length}`));
+let stray = 0;
+for (const dir of ['horizontal', 'vertical']) {
+  const [dx, dy] = dir === 'horizontal' ? [1, 0] : [0, 1];
+  for (const k of cells.keys()) {
+    const [x, y] = k.split(',').map(Number);
+    if (cells.has(`${x - dx},${y - dy}`)) continue; // 並びの先頭だけ見る
+    let len = 1;
+    while (cells.has(`${x + dx * len},${y + dy * len}`)) len++;
+    if (len >= 2 && !runs.has(`${dir}:${x},${y}:${len}`)) stray++;
+  }
+}
+check(stray === 0, `カギの無い字の並びが無い（${stray}）`);
+
 // 番号が重ならない（同じ番号は同じ始点の横・縦だけ）
 const byIndex = new Map();
 for (const c of clues) { const s = `${c.startX},${c.startY}`; if (byIndex.has(c.clueIndex) && byIndex.get(c.clueIndex) !== s) ng++; byIndex.set(c.clueIndex, s); }
