@@ -14,7 +14,12 @@ const rand = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return s
 const pick = (arr) => arr[Math.floor(rand() * arr.length)];
 
 const SITE = 'https://www.helloproject.com';
-const { members } = JSON.parse(await readFile(new URL('./data/members.json', import.meta.url), 'utf8'));
+const table = JSON.parse(await readFile(new URL('./data/members.json', import.meta.url), 'utf8'));
+// 研修生は除く（Hop 決定 2026-10-07）。プロフィールは変わるので、表を集めた日を題名に入れる
+const members = table.members.filter((m) => m.group !== 'ハロプロ研修生');
+const asOf = new Date(new Date(table.fetchedAt).getTime() + 9 * 3600 * 1000);
+const asOfText = `${asOf.getUTCFullYear()}年${asOf.getUTCMonth() + 1}月${asOf.getUTCDate()}日`;
+console.log(`対象 ${members.length}人（研修生を除く）、表の日付 ${asOfText}`);
 
 // 項目ごとに「値 → 答えのカナ」「1人型のカギの文」を決める。答えにできない項目（加入年）は共通点の重なり判定にだけ使う。
 const ATTRS = {
@@ -91,7 +96,7 @@ const ID_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
 const bytes = crypto.getRandomValues(new Uint8Array(8));
 const id = [...bytes].map((b) => ID_CHARS[b & 63]).join('');
 const groupTags = [...new Set(grid.items.flatMap((p) => byId.get(p.id).groups))];
-const title = process.env.PUZZLE_TITLE ?? '【仮】ハロプロ全員プロフィール 特大';
+const title = process.env.PUZZLE_TITLE ?? `ハロメンの共通点 ${asOfText}時点`;
 const body = { version: 1, width: grid.width, height: grid.height, clues: clues.map(({ answer, ...c }) => ({ ...c, length: answer.length })) };
 const answers = clues.map((c) => c.answer);
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
