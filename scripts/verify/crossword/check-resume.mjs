@@ -36,7 +36,7 @@ async function open(savedAgoMs, startedAgoMs) {
   return { ctx, page };
 }
 const text = (page) => page.evaluate(() => document.body.innerText);
-const timer = (page) => page.evaluate(() => (document.querySelector('header')?.innerText.match(/\d+:\d{2}/) || [''])[0]);
+const timer = (page) => page.evaluate(() => (document.querySelector('header')?.innerText.match(/\d+:\d{2}(?::\d{2})?/) || [''])[0]);
 
 // 1. 前回から2時間空いた → 聞かれる。つづきから → 字もタイムもそのまま
 {
@@ -57,7 +57,7 @@ const timer = (page) => page.evaluate(() => (document.querySelector('header')?.i
   check(!(await text(page)).includes('前回の続きがあります'), '1 つづきからで窓が閉じる');
   check((await page.getByRole('button', { name: '1行5列: ダ' }).count()) === 1, '1 入れた字は残る');
   const run1 = await timer(page);
-  check(/^12\d:\d{2}$/.test(run1), `1 タイマーは始めた時から（2時間＝120分）: ${run1}`);
+  check(/^2:0\d:\d{2}$/.test(run1), `1 タイマーは始めた時から（2時間＝120分）: ${run1}`);
   await page.waitForTimeout(3000);
   const run2 = await timer(page);
   check(Boolean(run1) && Boolean(run2) && run1 !== run2, `1 つづきからを押すとタイマーが進み出す: ${run1} → 3秒後 ${run2}`);
@@ -69,7 +69,7 @@ const timer = (page) => page.evaluate(() => (document.querySelector('header')?.i
   await page.getByRole('button', { name: 'はじめから' }).click();
   await page.waitForTimeout(2500);
   check((await page.getByRole('button', { name: '1行5列: ダ' }).count()) === 0, '2 はじめからで入れた字が消える');
-  check(/^00:0\d$/.test(await timer(page)), `2 タイマーは0から: ${await timer(page)}`);
+  check(/^0:0\d$/.test(await timer(page)), `2 タイマーは0から: ${await timer(page)}`);
   await ctx.close();
 }
 // 3. 前回から5分しか空いていない → 聞かない

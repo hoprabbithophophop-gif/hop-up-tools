@@ -128,8 +128,9 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   const ok4 = t.includes('CLEARED!') && !t.includes('通信できませんでした');
   if (!ok4) await page.screenshot({ path: `${OUT}/edge-4-restart.png` });
   check(ok4, `4 古い回の番号でも始め直して解き終えられる${ok4 ? '' : '（受付係とのやり取り: ' + talk.join(' , ') + '）'}`);
-  const token = await page.evaluate((id) => JSON.parse(localStorage.getItem(`crossword_progress_${id}`) || '{}').play?.token ?? null, ID);
-  check(!!token && token !== '00000000-0000-4000-8000-000000000000', `4 新しい回の番号に入れ替わる: ${token}`);
+  // 解けた後は端末の途中経過が消える（2026-10-06 の直し）。新しい回で解き終えられたこと自体は上の CLEARED! で見ている
+  const progress = await page.evaluate((id) => localStorage.getItem(`crossword_progress_${id}`), ID);
+  check(progress === null, `4 解けた後は端末の途中経過が消える: ${progress === null ? '消えている' : '残っている'}`);
   await ctx.close();
 }
 // 5. 回を始める人が多すぎる

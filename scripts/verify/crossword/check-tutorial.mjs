@@ -375,7 +375,7 @@ async function run() {
     await page.goto(`${BASE}/crossword/create`);
     await page.waitForTimeout(3000);
     const openGuide = async () => {
-      await page.getByTitle('遊び方').first().click();
+      await page.getByTitle('パズルの作り方').first().click();
       await page.getByRole('button', { name: '案内を見る' }).click();
     };
     // 抜け道: 「次へ」を押せない段1 で ×・幕・Esc
