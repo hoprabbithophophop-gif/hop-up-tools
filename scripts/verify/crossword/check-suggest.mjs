@@ -223,7 +223,7 @@ function checkEnter(label, items, unplacedWords, res) {
     `${label}: 語ごとに1行・入力順: ${res.lines.map((l) => l.word).join('、')}`);
   const texts = guideTexts(res);
   for (const t of texts) console.log(`    「${t}」`);
-  check(texts.every((t, i) => t.startsWith(`${unplacedWords[i]}: `)), `${label}: 行の頭に入る語の名前`);
+  check(texts.every((t, i) => t.startsWith(`${unplacedWords[i]}：`)), `${label}: 行の頭に入る語の名前`);
   check(texts.every((t) => !t.includes('→') && !t.includes('が入る')), `${label}: 末尾の「→ …が入る」が無い`);
   check(res.lines.every((l) => !l.guide || (l.guide.needs.length === 1 && l.guide.entered.length === 1 && l.guide.entered[0] === l.word && l.guide.needs[0].word === l.word)),
     `${label}: 1つの型に入れる置けなかった語は1つ（その行の語だけ）`);
@@ -300,7 +300,7 @@ check(guideTexts(suggestForBoard(board2, [W('オレンジ')])).length === 0, '(�
 // 入る型が無い語は、その語の行として理由を出す（空の語で道筋だけ確かめる。実際の語ではほぼ起きない）
 const rn = suggestForBoard(board3, [W('オレンジ'), { answer: [] }]);
 const tn = guideTexts(rn);
-check(tn.length === 2 && tn[0].startsWith('オレンジ: ') && tn[1] === `: ${NO_ENTER_TEXT}`, `(段階2) 入る型が無い語は、その語の行に理由: 「${tn[1]}」`);
+check(tn.length === 2 && tn[0].startsWith('オレンジ：') && tn[1] === `：${NO_ENTER_TEXT}`, `(段階2) 入る型が無い語は、その語の行に理由: 「${tn[1]}」`);
 check(formatWordLine({ word: 'エグチサヤ', guide: null }) === 'エグチサヤ：今の盤に交差できる字が無く、入る型がありません', `(段階2) 理由の行の形: ${formatWordLine({ word: 'エグチサヤ', guide: null })}`);
 // 今の盤にそのまま置ける語（組み立ての見落とし）は数えて返す
 const rp = suggestForBoard(board3, [W('ウチワ')]);
