@@ -11,7 +11,7 @@ export const C = {
   secondary: "#585f6c",
   outline: "#777777",
   ghost: "rgba(198,198,198,0.2)", // outline-variant/20
-  placeholder: "#9ca3af",
+  placeholder: "#585f6c", // 空きマスの点。DESIGN.md に無い #9ca3af から secondary へ置き換え（2026-10-06 アクセシビリティの直し）
   error: "#ba1a1a",
   errorTint: "rgba(186,26,26,0.08)",
   // 盤の選択色（HarmonyPalette の黄色の置き換え）

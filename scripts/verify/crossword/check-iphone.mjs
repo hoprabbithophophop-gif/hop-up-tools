@@ -4,7 +4,7 @@
 // 使い方: node scripts/verify/crossword/check-iphone.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス1 x,y] [残すマス2 x,y]
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { webkit, devices } from 'playwright';
-import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt, xy } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -18,7 +18,6 @@ for (const c of P.cluesJson) c.a.forEach((ch, i) => {
 const almost = { ...full };
 delete almost[CELL1];
 delete almost[CELL2];
-const label = (k) => { const [x, y] = k.split(',').map(Number); return `${y + 1}行${x + 1}列`; };
 
 let fail = 0;
 const check = (ok, msg) => {
@@ -55,11 +54,11 @@ await page.evaluate(({ id, answers }) => {
   localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({ userAnswers: answers, elapsedSeconds: 0, savedAt: Date.now() }));
 }, { id: ID, answers: almost });
 await page.goto(`${BASE}/crossword/${ID}`);
-await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
+await page.locator('[id^="cell-"]').first().waitFor({ timeout: 20000 });
 await page.waitForTimeout(2500);
 check(await noSideScroll(), '解く画面: 横にはみ出さない');
 await page.screenshot({ path: `${OUT}/iphone-2-board.png` });
-await page.getByRole('button', { name: `${label(CELL1)}：空` }).tap();
+await cellAt(page, ...xy(CELL1), '空').tap();
 await page.waitForTimeout(800);
 check((await page.getByRole('button', { name: /決定/ }).count()) > 0, '解く画面: マスを押すと入力カードが出る');
 await page.getByRole('button', { name: 'ヒント', exact: true }).first().tap();
@@ -70,11 +69,11 @@ await page.getByRole('button', { name: 'ヒント', exact: true }).first().tap()
 await page.getByRole('button', { name: '1文字見る' }).tap();
 check((await text()).includes('1文字見る？'), '解く画面: 1文字見るの確かめが出る');
 await page.getByRole('button', { name: '見る', exact: true }).tap();
-await page.getByRole('button', { name: `${label(CELL1)}：${full[CELL1]}` }).waitFor({ timeout: 8000 }).catch(() => {});
-check((await page.getByRole('button', { name: `${label(CELL1)}：${full[CELL1]}` }).count()) === 1, '解く画面: 1文字見るで字が入る');
+await cellAt(page, ...xy(CELL1), full[CELL1]).waitFor({ timeout: 8000 }).catch(() => {});
+check((await cellAt(page, ...xy(CELL1), full[CELL1]).count()) === 1, '解く画面: 1文字見るで字が入る');
 await page.getByRole('button', { name: '閉じる' }).first().tap().catch(() => {});
 await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
-await page.getByRole('button', { name: `${label(CELL2)}：空` }).tap();
+await cellAt(page, ...xy(CELL2), '空').tap();
 await page.getByRole('button', { name: full[CELL2], exact: true }).last().tap();
 await page.getByRole('button', { name: '載せる' }).waitFor({ timeout: 10000 }).catch(() => {});
 const t = await text();

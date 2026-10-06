@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+// 窓のキーボードの作法（フォーカスを中へ・Tab を中で回す・Esc で閉じる・閉じたら元へ）。クロスワードの窓と同じ仕組み（2026-10-06）
+import { useDialog } from "../pages/crossword/components/useDialog";
 
 // トップの問い合わせフォーム。送信は /api/contact（Cloudflare Pages Function）が受け、
 // そこで人間確認・連投チェック・無害化・保存・通知をまとめて行う。
@@ -64,6 +66,7 @@ function loadTurnstile(): Promise<void> {
 }
 
 const label: React.CSSProperties = {
+  display: "block",
   fontSize: "0.6875rem",
   fontWeight: 700,
   textTransform: "uppercase",
@@ -119,17 +122,16 @@ export default function ContactModal({ onClose, initialTool, puzzleId, initialKi
     };
   }, []);
 
-  // 開いている間は背面をスクロールさせない。Escで閉じる。
+  const dialogRef = useDialog({ onClose });
+
+  // 開いている間は背面をスクロールさせない。
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, []);
 
   const ready = kind !== "" && content.trim() !== "" && token !== "" && !sending;
 
@@ -168,11 +170,12 @@ export default function ContactModal({ onClose, initialTool, puzzleId, initialKi
   ) : (
     <>
       <div>
-        <p style={label}>種類</p>
-        <div style={{ display: "flex", gap: 2 }}>
+        <p id="contact-kind-label" style={label}>種類</p>
+        <div role="group" aria-labelledby="contact-kind-label" style={{ display: "flex", gap: 2 }}>
           {kinds.map((k) => (
             <button
               key={k.key}
+              aria-pressed={kind === k.key}
               onClick={() => setKind(k.key)}
               style={{
                 flex: 1, padding: "0.7rem", border: "none", borderRadius: 0, cursor: "pointer",
@@ -188,8 +191,8 @@ export default function ContactModal({ onClose, initialTool, puzzleId, initialKi
       </div>
 
       <div>
-        <p style={label}>対象ツール</p>
-        <select value={tool} onChange={(e) => setTool(e.target.value)} style={{ ...field, cursor: "pointer" }}>
+        <label htmlFor="contact-tool" style={label}>対象ツール</label>
+        <select id="contact-tool" value={tool} onChange={(e) => setTool(e.target.value)} style={{ ...field, cursor: "pointer" }}>
           {TOOLS.map((t) => (
             <option key={t.key} value={t.key}>{t.label}</option>
           ))}
@@ -198,14 +201,15 @@ export default function ContactModal({ onClose, initialTool, puzzleId, initialKi
 
       {tool === "crossword" && puzzleId && (
         <div>
-          <p style={label}>問題の番号</p>
-          <input value={puzzleId} readOnly style={{ ...field, color: "#585f6c" }} />
+          <label htmlFor="contact-puzzle" style={label}>問題の番号</label>
+          <input id="contact-puzzle" value={puzzleId} readOnly style={{ ...field, color: "#585f6c" }} />
         </div>
       )}
 
       <div>
-        <p style={label}>内容</p>
+        <label htmlFor="contact-content" style={label}>内容</label>
         <textarea
+          id="contact-content"
           value={content}
           onChange={(e) => setContent(e.target.value)}
           rows={6}
@@ -218,8 +222,9 @@ export default function ContactModal({ onClose, initialTool, puzzleId, initialKi
       </div>
 
       <div>
-        <p style={label}>返信先（任意）</p>
+        <label htmlFor="contact-reply" style={label}>返信先（任意）</label>
         <input
+          id="contact-reply"
           value={replyTo}
           onChange={(e) => setReplyTo(e.target.value)}
           maxLength={MAX_REPLY_TO}
@@ -264,10 +269,11 @@ export default function ContactModal({ onClose, initialTool, puzzleId, initialKi
 
   return (
     <div
+      ref={dialogRef}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="お問い合わせ"
+      aria-labelledby="contact-title"
       style={{
         position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1200,
         display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem",
@@ -283,7 +289,7 @@ export default function ContactModal({ onClose, initialTool, puzzleId, initialKi
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <p style={{ fontSize: "1.125rem", fontWeight: 700, letterSpacing: "-0.02em", margin: 0 }}>お問い合わせ</p>
+          <p id="contact-title" style={{ fontSize: "1.125rem", fontWeight: 700, letterSpacing: "-0.02em", margin: 0 }}>お問い合わせ</p>
           <button onClick={onClose} aria-label="閉じる" style={{ background: "transparent", border: "none", color: "#777", fontSize: "0.75rem", cursor: "pointer", padding: "0.2rem 0.3rem" }}>
             ✕ 閉じる
           </button>

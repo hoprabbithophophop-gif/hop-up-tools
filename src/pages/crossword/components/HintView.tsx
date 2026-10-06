@@ -90,7 +90,7 @@ export const HintView: React.FC<{ hint: HintRef }> = ({ hint }) => {
           <span className="block font-bold">{(() => { try { return new URL(hint.url).hostname; } catch { return ""; } })()}</span>
           <span className="block text-xs" style={{ color: C.secondary }}>{hint.url}</span>
         </span>
-        <span className="material-symbols-outlined leading-none shrink-0" style={{ fontSize: "18px" }}>open_in_new</span>
+        <span aria-hidden="true" className="material-symbols-outlined leading-none shrink-0" style={{ fontSize: "18px" }}>open_in_new</span>
       </a>
     </div>
   );

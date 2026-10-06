@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { loadTurnstile, TURNSTILE_SITE_KEY } from "../../../lib/crossword/turnstile";
+import { useDialog } from "./useDialog";
 
 // 保存の直前に Turnstile を通す小窓。見た目は src/components/ContactModal.tsx に合わせる。
 // 確かめが済んだら onPass を1回だけ呼ぶ（保存はそのまま続けて行う）。
@@ -35,26 +36,25 @@ export function SaveCheckModal({ onPass, onClose }: { onPass: (token: string, we
     };
   }, []);
 
-  // 開いている間は背面をスクロールさせない。Escで閉じる。
+  // Esc で閉じる・フォーカスを中へ・Tab を中で回す・閉じたら元へ（2026-10-06 アクセシビリティの直し）
+  const ref = useDialog({ onClose });
+
+  // 開いている間は背面をスクロールさせない。
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div
+      ref={ref}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="保存の前の確認"
+      aria-labelledby="cw-save-check-title"
       style={{
         position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1200,
         display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem",
@@ -70,7 +70,7 @@ export function SaveCheckModal({ onPass, onClose }: { onPass: (token: string, we
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <p style={{ fontSize: "1.125rem", fontWeight: 700, letterSpacing: "-0.02em", margin: 0 }}>保存の前の確認</p>
+          <p id="cw-save-check-title" style={{ fontSize: "1.125rem", fontWeight: 700, letterSpacing: "-0.02em", margin: 0 }}>保存の前の確認</p>
           <button onClick={onClose} aria-label="閉じる" style={{ background: "transparent", border: "none", color: "#777", fontSize: "0.75rem", cursor: "pointer", padding: "0.2rem 0.3rem" }}>
             ✕ 閉じる
           </button>

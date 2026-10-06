@@ -1,9 +1,9 @@
-// 前回の続きを開いた時の「つづきから／はじめから」を確かめる（2026-10-04 洗い出しの 6）。
-// 回数を足す呼び出しは受け止める。丸付けはしないので受付係の記録は増えない（はじめからの時だけ新しい回が1つ増える）。
+// 前回の続きを開いた時の「続きから／最初から」を確かめる（2026-10-04 洗い出しの 6）。
+// 回数を足す呼び出しは受け止める。丸付けはしないので受付係の記録は増えない（最初からの時だけ新しい回が1つ増える）。
 // 使い方: node scripts/verify/crossword/check-resume.mjs [サイト] [問題の番号]（省略時は targets.json）
 // 入れておく字は 4,0 の「ダ」（targets.json の問題 SJ2cjTJe の盤に合わせてある。別の問題では 4,0 にマスが要る）
 import { chromium } from 'playwright';
-import { interceptCount, arg, outDir, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
+import { interceptCount, arg, outDir, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -38,7 +38,7 @@ async function open(savedAgoMs, startedAgoMs) {
 const text = (page) => page.evaluate(() => document.body.innerText);
 const timer = (page) => page.evaluate(() => (document.querySelector('header')?.innerText.match(/\d+:\d{2}(?::\d{2})?/) || [''])[0]);
 
-// 1. 前回から2時間空いた → 聞かれる。つづきから → 字もタイムもそのまま
+// 1. 前回から2時間空いた → 聞かれる。続きから → 字もタイムもそのまま
 {
   const { ctx, page } = await open(2 * HOUR, 2 * HOUR);
   const t = await text(page);
@@ -52,23 +52,23 @@ const timer = (page) => page.evaluate(() => (document.querySelector('header')?.i
   const ask2 = await askTime();
   const head2 = await timer(page);
   check(Boolean(ask1) && ask1 === ask2 && head1 === '' && head2 === '', `1 答えるまでタイマーは動かない: 窓の時間 ${ask1} → 3秒後 ${ask2} ／ 盤の上のタイマー「${head1}」→「${head2}」`);
-  await page.getByRole('button', { name: 'つづきから' }).click();
+  await page.getByRole('button', { name: '続きから' }).click();
   await page.waitForTimeout(1500);
-  check(!(await text(page)).includes('前回の続きがあります'), '1 つづきからで窓が閉じる');
-  check((await page.getByRole('button', { name: '1行5列：ダ' }).count()) === 1, '1 入れた字は残る');
+  check(!(await text(page)).includes('前回の続きがあります'), '1 続きからで窓が閉じる');
+  check((await cellAt(page, 4, 0, 'ダ').count()) === 1, '1 入れた字は残る');
   const run1 = await timer(page);
   check(/^2:0\d:\d{2}$/.test(run1), `1 タイマーは始めた時から（2時間＝120分）: ${run1}`);
   await page.waitForTimeout(3000);
   const run2 = await timer(page);
-  check(Boolean(run1) && Boolean(run2) && run1 !== run2, `1 つづきからを押すとタイマーが進み出す: ${run1} → 3秒後 ${run2}`);
+  check(Boolean(run1) && Boolean(run2) && run1 !== run2, `1 続きからを押すとタイマーが進み出す: ${run1} → 3秒後 ${run2}`);
   await ctx.close();
 }
-// 2. はじめから → 字が消えて、タイマーは0から
+// 2. 最初から → 字が消えて、タイマーは0から
 {
   const { ctx, page } = await open(2 * HOUR, 2 * HOUR);
-  await page.getByRole('button', { name: 'はじめから' }).click();
+  await page.getByRole('button', { name: '最初から' }).click();
   await page.waitForTimeout(2500);
-  check((await page.getByRole('button', { name: '1行5列：ダ' }).count()) === 0, '2 はじめからで入れた字が消える');
+  check((await cellAt(page, 4, 0, 'ダ').count()) === 0, '2 最初からで入れた字が消える');
   check(/^0:0\d$/.test(await timer(page)), `2 タイマーは0から: ${await timer(page)}`);
   await ctx.close();
 }

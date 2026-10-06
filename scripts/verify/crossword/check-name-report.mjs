@@ -3,7 +3,7 @@
 // 使い方: node scripts/verify/crossword/check-name-report.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス x,y]
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -51,7 +51,7 @@ await page.goto(`${BASE}/crossword/${ID}`);
 await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
 await page.waitForTimeout(2500);
   await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
-await page.getByRole('button', { name: `${ly + 1}行${lx + 1}列：空` }).click();
+await cellAt(page, lx, ly, '空').click();
 await page.getByRole('button', { name: full[LAST], exact: true }).last().click();
 await page.getByRole('button', { name: '載せない' }).click({ timeout: 10000 });
 await page.waitForTimeout(1500);

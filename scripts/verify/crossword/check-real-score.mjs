@@ -4,7 +4,7 @@
 // 使い方: node scripts/verify/crossword/check-real-score.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス x,y] [名前]
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -37,7 +37,7 @@ await page.evaluate(({ id, answers }) => {
   localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({ userAnswers: answers, elapsedSeconds: 0, savedAt: Date.now() }));
 }, { id: ID, answers: almost });
 await page.goto(`${BASE}/crossword/${ID}`);
-const cell = page.getByRole('button', { name: `${ly + 1}行${lx + 1}列：空` });
+const cell = cellAt(page, lx, ly, '空');
 await cell.waitFor({ timeout: 20000 });
 await page.waitForTimeout(2500);
   await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
@@ -57,7 +57,7 @@ console.log('回の番号: ' + token);
 console.log('載せた名前（本番のランキングに残る）: ' + NAME);
 check(i >= 0, `本物のランキングに名前が載る: ${JSON.stringify(row)}`);
 check(Boolean(row) && row.some((l) => /\d+:\d{2}/.test(l)), `タイムが出る: ${JSON.stringify(row)}`);
-check(Boolean(row) && row.includes('ノーミス・ノーヒント'), `ミス0・見た数0の回は「ノーミス・ノーヒント」: ${JSON.stringify(row)}`);
+check(Boolean(row) && row.includes('ノーミス・ノーアシスト'), `ミス0・見た数0の回は「ノーミス・ノーアシスト」: ${JSON.stringify(row)}`);
 check((await page.getByRole('button', { name: '載せる' }).count()) === 0, '名前を入れる窓が閉じた');
 await page.getByText('ランキング').first().scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/real-score.png` });

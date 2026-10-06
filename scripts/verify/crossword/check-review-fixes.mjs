@@ -14,7 +14,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { chromium } from 'playwright';
-import { outDir, ROOT, leaveFirstVisitMarks } from './_lib.mjs';
+import { outDir, ROOT, leaveFirstVisitMarks, cellState } from './_lib.mjs';
 
 // 「初めて」の印は台本の中で場面ごとに立てる
 leaveFirstVisitMarks();
@@ -189,7 +189,8 @@ async function newPage({ marks = {}, tables = { crossword_puzzles: BASE_ROWS, cr
 const SEEN_SOLVE = { crossword_seen_help: 'true', crossword_seen_first_cell: '1' };
 const progress = (answers) => JSON.stringify({ userAnswers: answers, elapsedSeconds: 5, savedAt: Date.now() });
 const cell = (page, x, y) => page.locator(`#cell-${x}-${y}`);
-const cellText = (page, x, y) => cell(page, x, y).getAttribute('aria-label');
+// マスの読み上げ名の最後の字を「1行1列：バ」の形にして返す（読み上げ名は「1ヨコ・2文字の1文字目・バ」の形。2026-10-06）
+const cellText = async (page, x, y) => `${y + 1}行${x + 1}列：${cellState(await cell(page, x, y).getAttribute('aria-label'))}`;
 const key = (page, ch) => page.locator('[data-coach="keypad"]').getByRole('button', { name: ch, exact: true }).first();
 const stamped = (page) => page.evaluate(() => document.body.innerText.includes('CLEARED!'));
 async function openPuzzle(page, waitBoard = true) {
@@ -267,16 +268,16 @@ try {
       const board = document.querySelector('[data-board-area]');
       const stamp = [...document.querySelectorAll('h2')].find((h) => h.textContent === 'CLEARED!');
       const x = [...document.querySelectorAll('a')].find((a) => a.textContent.includes('Xに投稿'));
-      const rank = [...document.querySelectorAll('h3,p,div,span')].find((e) => e.childElementCount === 0 && /^(ランキング|まだ記録がありません)$/.test((e.textContent || '').trim()));
-      const other = [...document.querySelectorAll('h3')].find((h) => h.textContent === 'ほかの問題');
-      const hv = [...document.querySelectorAll('button')].find((b) => b.textContent === 'ヒントの動画を見る');
-      const clues = [...document.querySelectorAll('h3')].find((h) => (h.textContent || '').includes('ヨコのカギ'));
+      const rank = [...document.querySelectorAll('h2,h3,p,div,span')].find((e) => e.childElementCount === 0 && /^(ランキング|まだ記録がありません。?)$/.test((e.textContent || '').trim()));
+      const other = [...document.querySelectorAll('h2,h3')].find((h) => h.textContent === 'ほかの問題');
+      const hv = [...document.querySelectorAll('button')].find((b) => /^ヒント(の動画)?を見る$/.test(b.textContent));
+      const clues = [...document.querySelectorAll('h2,h3')].find((h) => (h.textContent || '').includes('ヨコのカギ'));
       const sb = stamp?.getBoundingClientRect();
       const bb = board?.getBoundingClientRect();
       return {
         board: top(board), boardBottom: bb ? bb.bottom + window.scrollY : null, x: top(x), rank: top(rank), other: top(other), hv: top(hv), clues: top(clues),
         stampInBoard: !!(sb && bb && sb.top >= bb.top - 1 && sb.bottom <= bb.bottom + 1),
-        hintListOpen: [...document.querySelectorAll('h3')].some((h) => h.textContent === 'ヒントの動画'),
+        hintListOpen: [...document.querySelectorAll('h2,h3')].some((h) => h.textContent === 'ヒントの動画'),
       };
     });
     console.log(`    並び（ページ上端からの位置）: 盤 ${order.board}〜${order.boardBottom} ／ Xに投稿 ${order.x} ／ ランキング ${order.rank} ／ ほかの問題 ${order.other} ／ ヒントの動画を見る ${order.hv} ／ カギの一覧 ${order.clues}`);
@@ -287,9 +288,9 @@ try {
     check(order.hv !== null && order.hv > order.other && !order.hintListOpen, '(4) ヒントの動画の一覧は畳んであり、「ヒントの動画を見る」がほかの問題の下にある');
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: path.join(OUT, '4-cleared-390.png'), fullPage: true });
-    await page.getByRole('button', { name: 'ヒントの動画を見る' }).click();
+    await page.getByRole('button', { name: /^ヒント(の動画)?を見る$/ }).click();
     await page.waitForTimeout(300);
-    const opened = await page.evaluate(() => [...document.querySelectorAll('h3')].some((h) => h.textContent === 'ヒントの動画') && document.body.innerText.includes('▶ YouTube'));
+    const opened = await page.evaluate(() => [...document.querySelectorAll('h2,h3')].some((h) => h.textContent === 'ヒントの動画') && document.body.innerText.includes('▶ YouTube'));
     check(opened, '(4) 「ヒントの動画を見る」で今の一覧（▶ YouTube の表記つき）が開く');
     await page.screenshot({ path: path.join(OUT, '4-cleared-hints-open-390.png'), fullPage: true });
     // 開き直すと新しい回で空の盤

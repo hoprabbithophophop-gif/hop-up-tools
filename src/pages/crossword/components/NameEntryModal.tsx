@@ -5,6 +5,7 @@ import React, { useState } from "react";
 import { C } from "../style";
 import { formatTime } from "../../../lib/crossword/youtubeUrl";
 import { Motion } from "./Motion";
+import { useDialog } from "./useDialog";
 
 // タイムは m:ss（1時間を超えたら h:mm:ss）
 const mmss = formatTime;
@@ -15,15 +16,18 @@ export const NameEntryModal: React.FC<{
   onSkip: () => void;
 }> = ({ clearTime, onSubmit, onSkip }) => {
   const [rankingName, setRankingName] = useState("");
+  // 名前を入れるか載せないかを選んでもらう窓なので、Esc では閉じない【仮】（2026-10-06 アクセシビリティの直し）
+  const ref = useDialog({ closeOnEsc: false });
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: "rgba(0,0,0,0.7)" }}>
+    <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="cw-name-title" className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: "rgba(0,0,0,0.7)" }}>
       <Motion initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="bg-white p-6 max-w-sm w-full" style={{ boxShadow: C.modalShadow }}>
-        <h2 className="text-xl font-bold mb-2" style={{ color: C.ink }}>解けた！</h2>
+        <h2 id="cw-name-title" className="text-xl font-bold mb-2" style={{ color: C.ink }}>解けた！</h2>
         <p className="text-sm mb-4" style={{ color: C.secondary }}>
           タイム：<span className="font-bold" style={{ color: C.ink }}>{mmss(clearTime)}</span>
         </p>
-        <p className="text-sm mb-2" style={{ color: C.ink }}>ランキングに載せる名前を入力：</p>
+        <label htmlFor="cw-name-input" className="block text-sm mb-2" style={{ color: C.ink }}>ランキングに載せる名前を入力：</label>
         <input
+          id="cw-name-input"
           type="text"
           value={rankingName}
           onChange={(e) => setRankingName(e.target.value)}

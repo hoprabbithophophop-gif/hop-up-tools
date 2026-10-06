@@ -26,9 +26,9 @@ const T = {
   reportFailed: "通報できませんでした。",
 };
 
-// ランキングの印（Hop 決定 2026-10-04。LinkedIn のゲームの称号のように、できたことを祝う形で出す）
+// ランキングの印（Hop 決定 2026-10-04。LinkedIn のゲームの称号のように、できたことを祝う形で出す）。「ノーアシスト」は Hop 決定 2026-10-06
 export const scoreMark = (reveals: number, misses: number): string =>
-  [misses === 0 ? "ノーミス" : null, reveals === 0 ? "ノーヒント" : `${reveals}文字見た`].filter(Boolean).join("・");
+  [misses === 0 ? "ノーミス" : null, reveals === 0 ? "ノーアシスト" : `${reveals}文字見た`].filter(Boolean).join("・");
 
 // タイムは m:ss（1時間を超えたら h:mm:ss）。youtubeUrl.ts の formatTime と同じ
 const formatTime = (seconds: number): string => formatClock(Math.floor(seconds));
@@ -110,7 +110,7 @@ export const PuzzleRanking: React.FC<{ puzzleId: string; currentScore?: number; 
   return (
     <Motion initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.3 }} className="bg-white p-6">
       {/* タイトル */}
-      <h3 className="text-[0.6875rem] font-bold tracking-[0.1em] mb-4 text-center" style={{ color: C.secondary }}>{T.title}</h3>
+      <h2 className="text-[0.6875rem] font-bold tracking-[0.1em] mb-4 text-center" style={{ color: C.secondary }}>{T.title}</h2>
 
       {/* ランキングリスト */}
       <div className="space-y-1">
@@ -142,7 +142,7 @@ export const PuzzleRanking: React.FC<{ puzzleId: string; currentScore?: number; 
                     aria-label={T.report}
                     title={T.report}
                   >
-                    <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px" }}>flag</span>
+                    <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "16px" }}>flag</span>
                   </button>
                 )}
               </div>

@@ -15,11 +15,12 @@ import {
 import { formatTime, parseTimeInput, parseYouTubeUrl, linkProblem } from "../../../lib/crossword/youtubeUrl";
 import { C } from "../style";
 import { HintPlayer, type HintPlayerApi } from "./HintPlayer";
+import { useDialog } from "./useDialog";
 
 // 再生できない動画（削除・非公開・埋め込み禁止）を選んだ時の知らせ
 const UNUSABLE = "この動画はヒントに使えません。";
 // リンクの決まりに合わない時（Hop 決定 2026-10-04）
-const LINK_RULE = "リンクは https から始まるサイトの住所だけ使えます。";
+const LINK_RULE = "リンクは https から始まる URL だけ使えます。"; // Hop 決定 2026-10-06
 
 export interface Selected {
   hint: HintRef;
@@ -33,6 +34,8 @@ interface HintFieldProps {
   inputClassName: string;
   /** 登録済みのカギを直すとき、resetKey が変わった時点でこのヒントが選ばれた状態にする */
   initial?: Selected | null;
+  /** 上の札（label）と結び付けるための id（検索・URL の欄に付ける） */
+  inputId?: string;
 }
 
 const looksLikeUrl = (t: string) => /^https?:\/\//i.test(t.trim());
@@ -57,7 +60,7 @@ const ThumbButton: React.FC<{ id: string; onClick: () => void; label: string }> 
   <button type="button" onClick={onClick} className="relative shrink-0 block" aria-label={label} style={{ width: 120, height: 90 }}>
     <Thumb id={id} />
     <span className="absolute inset-0 flex items-center justify-center" aria-hidden="true">
-      <span className="material-symbols-outlined leading-none" style={{ fontSize: "32px", color: C.white, background: "rgba(0,0,0,0.55)", padding: 4 }}>play_arrow</span>
+      <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "32px", color: C.white, background: "rgba(0,0,0,0.55)", padding: 4 }}>play_arrow</span>
     </span>
   </button>
 );
@@ -68,7 +71,7 @@ const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   </p>
 );
 
-export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey, inputClassName, initial }) => {
+export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey, inputClassName, initial, inputId }) => {
   const [text, setText] = useState("");
   const [selected, setSelected] = useState<Selected | null>(null);
   const [timeText, setTimeText] = useState("0:00");
@@ -81,6 +84,8 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   // サムネイルを押して拡大して見ている動画（見る）。窓の中の「この位置でヒントにする」で選ぶ（決める）
   const [preview, setPreview] = useState<Selected | null>(null);
   const previewRef = useRef<HintPlayerApi>(null);
+  // 拡大して見る窓のキーボードの作法（2026-10-06 アクセシビリティの直し）
+  const previewDialog = useDialog({ active: !!preview, onClose: () => setPreview(null) });
 
   useEffect(() => {
     // 空に戻す時は、走っている検索・確かめの返事を捨てる（古い返事で欄が埋まらないように）
@@ -190,13 +195,14 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
             className="shrink-0 p-0.5 hover:bg-surface-container-high transition-colors"
             aria-label="ヒントを外す"
           >
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>close</span>
+            <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>close</span>
           </button>
         </div>
         {isYt && (
           <div className="flex items-center gap-2 flex-wrap">
-            <label className="text-xs font-bold shrink-0" style={{ color: C.secondary }}>開始時刻</label>
+            <label htmlFor={inputId ? `${inputId}-time` : undefined} className="text-xs font-bold shrink-0" style={{ color: C.secondary }}>開始時刻</label>
             <input
+              id={inputId ? `${inputId}-time` : undefined}
               value={timeText}
               onChange={(e) => setTimeText(e.target.value)}
               placeholder="1:23"
@@ -213,7 +219,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
               className="shrink-0 flex items-center gap-1 px-3 py-2 text-xs font-bold hover:opacity-80 transition-opacity"
               style={{ background: C.black, color: C.white }}
             >
-              <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px" }}>pin_drop</span>
+              <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "16px" }}>pin_drop</span>
               今の位置にする
             </button>
           </div>
@@ -239,6 +245,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   return (
     <div className="space-y-1">
       <input
+        id={inputId}
         value={text}
         onChange={(e) => handleText(e.target.value)}
         placeholder={genre === "hello" ? "動画の題名・曲名で検索、または URL を貼る" : "YouTube などの URL を貼る"}
@@ -314,6 +321,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
       {/* 拡大して見る窓。動画の上には何も重ねず、操作は動画の下に置く（YouTube の決まり） */}
       {preview && preview.hint.kind === "youtube" && (
         <div
+          ref={previewDialog}
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.6)" }}
           onClick={(e) => e.target === e.currentTarget && setPreview(null)}
@@ -345,7 +353,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
                 className="flex-1 flex items-center justify-center gap-1 px-3 py-3 text-sm font-bold hover:opacity-80 transition-opacity"
                 style={{ background: C.black, color: C.white }}
               >
-                <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px" }}>pin_drop</span>
+                <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "16px" }}>pin_drop</span>
                 この位置でヒントにする
               </button>
               <button

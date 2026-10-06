@@ -52,6 +52,24 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
     cellsMap.set(`${cell.x},${cell.y}`, cell);
   });
 
+  // 読み上げ名の「7ヨコ・4文字の1文字目」の部分（2026-10-06 アクセシビリティの直し）。
+  // 交差するマスはヨコ・タテの両方を「、」でつなぐ【仮】
+  const wordPart = (cell: GridCell) =>
+    data.items
+      .filter((it) =>
+        it.direction === "horizontal"
+          ? cell.y === it.startY && cell.x >= it.startX && cell.x < it.startX + it.length
+          : cell.x === it.startX && cell.y >= it.startY && cell.y < it.startY + it.length
+      )
+      .sort((a, b) => (a.direction === b.direction ? 0 : a.direction === "horizontal" ? -1 : 1))
+      .map((it) => {
+        const pos = it.direction === "horizontal" ? cell.x - it.startX : cell.y - it.startY;
+        return `${it.clueIndex ?? ""}${it.direction === "horizontal" ? "ヨコ" : "タテ"}・${it.length}文字の${pos + 1}文字目`;
+      })
+      .join("、");
+  // Tab で回る順は読む順（上の行から、左から）にそろえる（置き方は位置で決まるので見た目は変わらない）
+  const orderedCells = [...data.cells].sort((a, b) => a.y - b.y || a.x - b.x);
+
   return (
     <div className="relative">
       <style>{`
@@ -73,7 +91,7 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
       `}</style>
 
       <div className="relative" style={{ width: containerWidth, height: containerHeight }}>
-        {data.cells.map((cell) => {
+        {orderedCells.map((cell) => {
           const cellKey = `${cell.x},${cell.y}`;
           const isActive = activeCell?.x === cell.x && activeCell?.y === cell.y;
           const isRowColActive = isHighlighted(cell);
@@ -105,8 +123,9 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
                 id={`cell-${cell.x}-${cell.y}`}
                 type="button"
                 onClick={() => onCellClick?.(cell.x, cell.y)}
+                // Tab で止まっただけでは開かない（Enter・Space・クリックで開く。2026-10-06 アクセシビリティの直し）
                 onFocus={() => onCellFocus?.(cell.x, cell.y)}
-                aria-label={`${cell.y + 1}行${cell.x + 1}列：${value || "空"}`}
+                aria-label={`${wordPart(cell)}・${value || "空"}`}
                 className={`
                   puzzle-cell relative
                   w-full h-full text-center font-black uppercase
@@ -151,7 +170,7 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
               {/* Error Icon */}
               {isWrong && (
                 <div className="absolute top-0 right-0 z-20 pointer-events-none" style={{ color: C.error }}>
-                  <span className="material-symbols-outlined leading-none" style={{ fontSize: "20px", fontVariationSettings: "'FILL' 0, 'wght' 700, 'GRAD' 0, 'opsz' 24" }}>close</span>
+                  <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "20px", fontVariationSettings: "'FILL' 0, 'wght' 700, 'GRAD' 0, 'opsz' 24" }}>close</span>
                 </div>
               )}
 

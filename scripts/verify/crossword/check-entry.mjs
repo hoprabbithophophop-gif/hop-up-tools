@@ -5,7 +5,7 @@
 // 回数を足す呼び出しとランキングへの送信は受け止める（本物の回数とランキングは変わらない）。解き終えるのに本物の回が1つ増える。
 // 使い方: node scripts/verify/crossword/check-entry.mjs [サイト] [問題の番号]（省略時は targets.json）
 import { chromium } from 'playwright';
-import { interceptCount, arg, outDir, puzzleArgs, puzzleLayout, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
+import { interceptCount, arg, outDir, puzzleArgs, puzzleLayout, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -117,7 +117,7 @@ const noUnofficial = async (page, where) => check(!(await text(page)).includes('
   await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
   await noUnofficial(page, `/crossword/${ID}`);
-  await page.getByRole('button', { name: `${ly + 1}行${lx + 1}列：空` }).click();
+  await cellAt(page, lx, ly, '空').click();
   await page.getByRole('button', { name: P.lastChar, exact: true }).last().click();
   await page.getByText('CLEARED!').first().waitFor({ timeout: 10000 }).catch(() => {});
   // 名前の窓が出ていれば閉じる（速く解いた回は窓が出ない）

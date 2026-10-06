@@ -44,6 +44,8 @@ import { HintField, type Selected as HintSelected } from "./components/HintField
 import { FitGrid } from "./components/FitGrid";
 import { MovableBoard, MOVE_MARGIN } from "./components/MovableBoard";
 import { Motion, Presence } from "./components/Motion";
+import { useDialog } from "./components/useDialog";
+import { radioKeyDown, radioTabIndex } from "./components/radioKeys";
 import { Toaster, toast } from "./components/Toast";
 import { SaveCheckModal } from "./components/SaveCheckModal";
 import { Footer, Icon } from "./components/ui";
@@ -81,7 +83,7 @@ const TUTORIAL_PATH = "/crossword/tutorial";
 const TUTORIAL_STAMP_FADE_MS = 2000;
 const PROGRESS_PREFIX = "crossword_progress_";
 const PLAYED_PREFIX = "crossword_played_";
-// 前回の続きを開いた時に「つづきから／はじめから」を聞くのは、前回から30分以上空いた時だけ（Hop 決定 2026-10-04）
+// 前回の続きを開いた時に「続きから／最初から」を聞くのは、前回から30分以上空いた時だけ（Hop 決定 2026-10-04）
 const RESUME_ASK_MS = 30 * 60 * 1000;
 // タイムは m:ss（1時間を超えたら h:mm:ss）にそろえる（2026-10-06 Hop 決定）
 const clock = formatTime;
@@ -163,10 +165,10 @@ const T = {
   resume: {
     title: "前回の続きがあります",
     body: (t: string) => `タイムは始めた時から数えています（${t}）。`,
-    cont: "つづきから",
-    restart: "はじめから",
+    cont: "続きから", // Hop 決定 2026-10-06
+    restart: "最初から", // Hop 決定 2026-10-06
   },
-  tooMany: "答え合わせが多すぎます。時間をおいてもう一度お試しください。",
+  tooMany: "操作が続いています。少し待ってからもう一度お試しください。", // Hop 決定 2026-10-06
   // 解いている途中に問題が隠された・消された時／回を始める人が多すぎる時（Hop 決定 2026-10-04）
   puzzleGone: "この問題は非表示になったか、消されました。",
   busy: "混み合っています。少し待ってからもう一度お試しください。",
@@ -377,7 +379,8 @@ const inputClass =
   // 文字は16px。iPhone は16pxより小さい入力欄を押すと画面を拡大するため（Hop 依頼 2026-10-03）
   "w-full bg-surface-container-low px-3 py-2 text-base text-on-surface placeholder:text-outline focus:outline-none focus:bg-white focus:shadow-[inset_0_-2px_0_#000]";
 
-const Input = ({ value, onChange, placeholder, className, maxLength, onKeyDown }: {
+const Input = ({ id, value, onChange, placeholder, className, maxLength, onKeyDown }: {
+  id?: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
@@ -386,6 +389,7 @@ const Input = ({ value, onChange, placeholder, className, maxLength, onKeyDown }
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 }) => (
   <input
+    id={id}
     value={value}
     onChange={(e) => onChange(e.target.value)}
     placeholder={placeholder}
@@ -526,6 +530,13 @@ export default function CrosswordPage() {
 
   // 自分が作った問題（この端末の localStorage）
   const [myPuzzles, setMyPuzzles] = useState<MyPuzzle[]>(() => (isPlayerMode ? [] : readMyPuzzles()));
+
+  // 窓のキーボードと読み上げの作法（2026-10-06 アクセシビリティの直し）。
+  // 前回の続きは、どちらかを選んでもらう窓なので Esc では閉じない【仮】
+  const helpDialog = useDialog({ active: showHelp, onClose: () => closeHelp() });
+  const resumeDialog = useDialog({ active: resumeAsk !== null, closeOnEsc: false });
+  const shareDialog = useDialog({ active: showShareModal, onClose: () => setShowShareModal(false) });
+  const creatorHelpDialog = useDialog({ active: showCreatorHelp, onClose: () => setShowCreatorHelp(false) });
 
   // ページ移動の波は、問題が届くまで（または届かないと分かるまで）待ってもらう
   usePageReady(loadState === "done");
@@ -703,7 +714,7 @@ export default function CrosswordPage() {
     }
   }, [isPlayerMode, playerPuzzle, gamePhase, resumeAsk]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // はじめから: 入れた字を消して、新しい回として始める
+  // 最初から: 入れた字を消して、新しい回として始める
   const handleResumeRestart = () => {
     setUserAnswers({});
     setReveals(0);
@@ -756,6 +767,8 @@ export default function CrosswordPage() {
           setActiveCell({ x: nextX, y: nextY });
           const word = findWordAtCell(nextX, nextY, currentWordDirection);
           if (word) setActiveWordItem(word);
+          // 盤のマスにフォーカスがある時は、フォーカスも一緒に動かす
+          if (target.id.startsWith("cell-")) document.getElementById(`cell-${nextX}-${nextY}`)?.focus();
         }
       }
 
@@ -1487,6 +1500,13 @@ export default function CrosswordPage() {
     }
   };
 
+  const chooseGenre = (g: Genre) => {
+    if (genre === g) return;
+    setGenre(g);
+    setPendingHint(null);
+    setHintResetKey((k) => k + 1);
+  };
+
   const addTag = () => {
     const t = tagInput.trim();
     if (!t || tags.length >= MAX_TAGS || tags.includes(t)) {
@@ -1578,6 +1598,8 @@ export default function CrosswordPage() {
           setClearTime(timeSeconds);
           clearTimeRef.current = timeSeconds;
         }
+        // 読み上げで知らせる（画面には出さない。練習問題はタイムを測らないので文だけ）
+        toast.announce(timeSeconds !== null && !isTutorial ? `解けました。タイム ${clock(timeSeconds)}` : "解けました。");
       }, 500);
 
       // Stage 3: クリア状態確定（1000ms後）
@@ -1789,7 +1811,7 @@ export default function CrosswordPage() {
                 </button>
               )}
               {gamePhase !== "playing" && !isTutorial && (
-                <Link to="/crossword" className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title="ギャラリーへ戻る">
+                <Link to="/crossword" className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title="ギャラリーへ戻る" aria-label="ギャラリーへ戻る">
                   <Icon icon="chevron_left" />
                 </Link>
               )}
@@ -1808,7 +1830,7 @@ export default function CrosswordPage() {
               )}
               {/* 解けた後は ↻ を出さない（2026-10-06 レビューの直し） */}
               {gamePhase !== "cleared" && !isCleared && (
-                <button onClick={handleReset} className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title="リセット">
+                <button onClick={handleReset} className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title="リセット" aria-label="リセット">
                   <Icon icon="restart_alt" />
                 </button>
               )}
@@ -1825,11 +1847,15 @@ export default function CrosswordPage() {
           </div>
         )}
 
-        <div className="container mx-auto max-w-2xl px-4 py-4">
+        <main className="container mx-auto max-w-2xl px-4 py-4">
           {/* --- Start Overlay / Help Modal --- */}
           <Presence>
             {showHelp && (
               <Motion
+                ref={helpDialog}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="cw-help-title"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -1845,7 +1871,7 @@ export default function CrosswordPage() {
                   <div className="absolute top-0 left-0 w-full h-1 bg-primary" />
 
                   <div className="text-center mb-6">
-                    <h2 className="text-2xl font-bold mb-2" style={{ color: C.ink }}>{T.playerHelp.title}</h2>
+                    <h2 id="cw-help-title" className="text-2xl font-bold mb-2" style={{ color: C.ink }}>{T.playerHelp.title}</h2>
                     <p className="text-sm" style={{ color: C.secondary }}>{T.playerHelp.createdBy(playerPuzzle.creatorName || T.anonymous)}</p>
                   </div>
 
@@ -1899,6 +1925,7 @@ export default function CrosswordPage() {
               className="transition-colors hover:text-black"
               style={{ color: C.outline }}
               title={T.howToPlay}
+              aria-label={T.howToPlay}
             >
               <Icon icon="help" />
             </button>
@@ -1929,7 +1956,6 @@ export default function CrosswordPage() {
                         onCellChange={(cell, val) => handleCellChange(cell, val)}
                         activeCell={activeCell}
                         activeWordId={activeWordItem?.uuid ?? null}
-                        onCellFocus={(x, y) => openCloseupForCell(x, y)}
                         onCellClick={(x, y) => openCloseupForCell(x, y)}
                         pulseCell={showFirstCellHint ? firstCellPos : null}
                       />
@@ -2076,9 +2102,9 @@ export default function CrosswordPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8 bg-surface-container-low p-6">
                   {(["horizontal", "vertical"] as const).map((dir) => (
                     <div key={dir}>
-                      <h3 className="font-bold mb-4 pb-2" style={{ color: C.ink }}>
+                      <h2 className="font-bold mb-4 pb-2" style={{ color: C.ink }}>
                         {dir === "horizontal" ? "→ ヨコのカギ" : "↓ タテのカギ"}
-                      </h3>
+                      </h2>
                       <ul className="space-y-2">
                         {clueList(dir).map((item) => (
                           <li
@@ -2120,7 +2146,7 @@ export default function CrosswordPage() {
               </Motion>
             )}
           </Presence>
-        </div>
+        </main>
 
         {/* Closeup Modal - セルまたはカギをタップした時に表示 */}
         <Presence>
@@ -2171,15 +2197,15 @@ export default function CrosswordPage() {
 
         {/* Name Entry Modal for Ranking */}
         {resumeAsk !== null && (
-          <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: "rgba(0,0,0,0.7)" }}>
+          <div ref={resumeDialog} role="dialog" aria-modal="true" aria-labelledby="cw-resume-title" className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: "rgba(0,0,0,0.7)" }}>
             <Motion initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="bg-white p-6 max-w-sm w-full" style={{ boxShadow: C.modalShadow }}>
-              <h2 className="text-xl font-bold mb-2" style={{ color: C.ink }}>{T.resume.title}</h2>
+              <h2 id="cw-resume-title" className="text-xl font-bold mb-2" style={{ color: C.ink }}>{T.resume.title}</h2>
               <p className="text-sm mb-4" style={{ color: C.secondary }}>{T.resume.body(clock(resumeAsk))}</p>
               <div className="flex gap-2">
                 <button onClick={handleResumeRestart} className="flex-1 py-2 bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.secondary }}>
                   {T.resume.restart}
                 </button>
-                <button onClick={() => setResumeAsk(null)} className="flex-1 py-2 bg-primary hover:bg-secondary text-white font-bold transition-colors">
+                <button data-autofocus="" onClick={() => setResumeAsk(null)} className="flex-1 py-2 bg-primary hover:bg-secondary text-white font-bold transition-colors">
                   {T.resume.cont}
                 </button>
               </div>
@@ -2244,7 +2270,7 @@ export default function CrosswordPage() {
         )}
       </Presence>
 
-      <div className={`min-h-screen pt-20 pb-20 px-4 relative z-10 ${backgroundPuzzle && monteCarloProgress ? "bg-transparent" : "bg-surface"}`}>
+      <main className={`min-h-screen pt-20 pb-20 px-4 relative z-10 ${backgroundPuzzle && monteCarloProgress ? "bg-transparent" : "bg-surface"}`}>
         {/* ページ見出し */}
         <div className="flex items-center justify-center gap-4 mb-6">
           <h1 className="text-3xl font-bold text-center" style={{ color: C.ink }}>{editTarget ? T.edit.pageTitle : T.pageTitle}</h1>
@@ -2277,14 +2303,12 @@ export default function CrosswordPage() {
             {GENRES.map((g) => (
               <button
                 key={g.key}
+                type="button"
                 role="radio"
                 aria-checked={genre === g.key}
-                onClick={() => {
-                  if (genre === g.key) return;
-                  setGenre(g.key);
-                  setPendingHint(null);
-                  setHintResetKey((k) => k + 1);
-                }}
+                tabIndex={radioTabIndex(genre === g.key)}
+                onKeyDown={(e) => radioKeyDown(e, GENRES.map((x) => x.key), genre, chooseGenre)}
+                onClick={() => chooseGenre(g.key)}
                 className={`px-6 py-2.5 font-semibold transition-colors ${genre === g.key ? "bg-primary text-white" : "bg-white text-on-surface hover:bg-surface-container-low"}`}
               >
                 {g.label}
@@ -2303,20 +2327,21 @@ export default function CrosswordPage() {
                 </h2>
 
                 <div className="space-y-1 mb-4" data-coach="create-title">
-                  <label className="text-xs font-mono font-bold" style={{ color: C.secondary }}>{T.puzzleTitle}</label>
-                  <Input value={puzzleTitle} onChange={setPuzzleTitle} placeholder={T.titlePlaceholder} maxLength={50} />
+                  <label htmlFor="cw-title" className="text-xs font-mono font-bold" style={{ color: C.secondary }}>{T.puzzleTitle}</label>
+                  <Input id="cw-title" value={puzzleTitle} onChange={setPuzzleTitle} placeholder={T.titlePlaceholder} maxLength={50} />
                 </div>
 
                 <div className="space-y-1 mb-4">
-                  <label className="text-xs font-mono font-bold" style={{ color: C.secondary }}>{T.creatorName}</label>
-                  <Input value={creatorName} onChange={setCreatorName} placeholder={T.creatorNamePlaceholder} maxLength={50} />
+                  <label htmlFor="cw-creator" className="text-xs font-mono font-bold" style={{ color: C.secondary }}>{T.creatorName}</label>
+                  <Input id="cw-creator" value={creatorName} onChange={setCreatorName} placeholder={T.creatorNamePlaceholder} maxLength={50} />
                 </div>
 
                 {/* タグ（任意・最大10） */}
                 <div className="space-y-1 mb-4">
-                  <label className="text-xs font-mono font-bold" style={{ color: C.secondary }}>タグ（任意・{MAX_TAGS}個まで）</label>
+                  <label htmlFor="cw-tag" className="text-xs font-mono font-bold" style={{ color: C.secondary }}>タグ（任意・{MAX_TAGS}個まで）</label>
                   <div className="flex gap-2">
                     <Input
+                      id="cw-tag"
                       value={tagInput}
                       onChange={setTagInput}
                       placeholder="入力して「追加」"
@@ -2355,13 +2380,14 @@ export default function CrosswordPage() {
 
               <div className="space-y-3" data-coach="create-entry">
                 <div className="space-y-1" data-coach="create-answer">
-                  <label className="text-xs font-mono font-bold" style={{ color: C.secondary }}>{T.answer}</label>
-                  <Input value={currentInput.a} onChange={(v) => setCurrentInput({ ...currentInput, a: v })} placeholder={T.answerPlaceholder} />
+                  <label htmlFor="cw-answer" className="text-xs font-mono font-bold" style={{ color: C.secondary }}>{T.answer}</label>
+                  <Input id="cw-answer" value={currentInput.a} onChange={(v) => setCurrentInput({ ...currentInput, a: v })} placeholder={T.answerPlaceholder} />
                 </div>
                 <div className="space-y-1" data-coach="create-clue">
-                  <label className="text-xs font-mono font-bold" style={{ color: C.secondary }}>{T.clue}</label>
+                  <label htmlFor="cw-clue" className="text-xs font-mono font-bold" style={{ color: C.secondary }}>{T.clue}</label>
                   <div className="flex gap-2">
                     <input
+                      id="cw-clue"
                       ref={clueInputRef}
                       value={currentInput.q}
                       onChange={(e) => setCurrentInput({ ...currentInput, q: e.target.value })}
@@ -2375,8 +2401,8 @@ export default function CrosswordPage() {
                   </div>
                 </div>
                 <div className="space-y-1" data-coach="create-hint">
-                  <label className="text-xs font-mono font-bold" style={{ color: C.secondary }}>ヒント</label>
-                  <HintField genre={genre} onChange={setPendingHint} resetKey={hintResetKey} inputClassName={inputClass} initial={hintInitial} />
+                  <label htmlFor="cw-hint" className="text-xs font-mono font-bold" style={{ color: C.secondary }}>ヒント</label>
+                  <HintField inputId="cw-hint" genre={genre} onChange={setPendingHint} resetKey={hintResetKey} inputClassName={inputClass} initial={hintInitial} />
                 </div>
                 <div data-coach="create-add">
                 {editingId ? (
@@ -2561,14 +2587,14 @@ export default function CrosswordPage() {
 
         {/* Share Modal */}
         {showShareModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.7)" }}>
+          <div ref={shareDialog} role="dialog" aria-modal="true" aria-labelledby="cw-share-title" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.7)" }}>
             <div className="bg-white p-6 max-w-md w-full space-y-6" style={{ boxShadow: C.modalShadow }}>
-              <h3 className="text-2xl font-black text-center pb-3" style={{ color: C.ink }}>{T.shareModal.modalTitle}</h3>
+              <h2 id="cw-share-title" className="text-2xl font-black text-center pb-3" style={{ color: C.ink }}>{T.shareModal.modalTitle}</h2>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <label className="text-xs block font-mono font-bold" style={{ color: C.secondary }}>{T.shareModal.shareLink}</label>
+                  <label htmlFor="cw-share-url" className="text-xs block font-mono font-bold" style={{ color: C.secondary }}>{T.shareModal.shareLink}</label>
                   <div className="flex gap-2">
-                    <input readOnly value={shareUrl} className="flex-1 bg-surface-container-low px-3 text-sm truncate font-mono" style={{ color: C.ink }} />
+                    <input id="cw-share-url" readOnly value={shareUrl} className="flex-1 bg-surface-container-low px-3 text-sm truncate font-mono" style={{ color: C.ink }} />
                     <button
                       onClick={() => navigator.clipboard?.writeText(shareUrl)}
                       className="p-2 bg-surface-container-high hover:bg-primary hover:text-white transition-colors"
@@ -2605,11 +2631,11 @@ export default function CrosswordPage() {
         {/* 作り方ガイドモーダル */}
         {showRequest && <ContactModal onClose={() => setShowRequest(false)} initialTool="crossword" initialKind="request" />}
         {showCreatorHelp && (
-          <div className="fixed inset-0 flex items-center justify-center p-4 z-50" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => setShowCreatorHelp(false)}>
+          <div ref={creatorHelpDialog} role="dialog" aria-modal="true" aria-labelledby="cw-creator-help-title" className="fixed inset-0 flex items-center justify-center p-4 z-50" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => setShowCreatorHelp(false)}>
             <div className="bg-white max-w-lg w-full max-h-[80vh] overflow-y-auto" style={{ boxShadow: C.modalShadow }} onClick={(e) => e.stopPropagation()}>
               <div className="p-6 space-y-6">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xl font-bold" style={{ color: C.ink }}>{T.creatorHelp.title}</h3>
+                  <h2 id="cw-creator-help-title" className="text-xl font-bold" style={{ color: C.ink }}>{T.creatorHelp.title}</h2>
                   <button onClick={() => setShowCreatorHelp(false)} className="transition-colors p-2 hover:bg-surface-container-high" style={{ color: C.secondary }} aria-label={T.creatorHelp.close}>
                     <Icon icon="close" />
                   </button>
@@ -2630,7 +2656,7 @@ export default function CrosswordPage() {
                 </section>
 
                 <section className="space-y-3">
-                  <h4 className="text-sm font-bold uppercase tracking-wider pb-1" style={{ color: C.ink }}>{T.creatorHelp.tipsTitle}</h4>
+                  <h3 className="text-sm font-bold uppercase tracking-wider pb-1" style={{ color: C.ink }}>{T.creatorHelp.tipsTitle}</h3>
                   <ul className="space-y-2 text-sm" style={{ color: C.secondary }}>
                     {T.creatorHelp.tips.map((tip, index) => (
                       <li key={index} className="flex items-start gap-2">
@@ -2644,7 +2670,7 @@ export default function CrosswordPage() {
                 </section>
 
                 <section className="space-y-3">
-                  <h4 className="text-sm font-bold uppercase tracking-wider pb-1" style={{ color: C.ink }}>{T.creatorHelp.moreTitle}</h4>
+                  <h3 className="text-sm font-bold uppercase tracking-wider pb-1" style={{ color: C.ink }}>{T.creatorHelp.moreTitle}</h3>
                   <ul className="space-y-2 text-sm list-disc pl-5" style={{ color: C.secondary }}>
                     {T.creatorHelp.more.map((line, index) => (
                       <li key={index}>{line}</li>
@@ -2681,7 +2707,7 @@ export default function CrosswordPage() {
             </div>
           </div>
         )}
-      </div>
+      </main>
 
       {/* 作る画面の案内 */}
       {createGuide !== null && createSteps[createGuide] && (

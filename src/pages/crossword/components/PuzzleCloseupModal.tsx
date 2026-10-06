@@ -4,7 +4,9 @@
  *
  * デザイン: 画面下部のシート。周りの背景（透過）をタップすると閉じる
  * 足した物: 見出しの「ヒント」ボタン。押すと文字盤の場所にヒント（動画・リンク）が出る
- *           見出しの「1文字見る」ボタン。その回で初めて押す時だけ、その場で確かめる（ノーヒントの印が付かなくなるため）
+ *           見出しの「1文字見る」ボタン。その回で初めて押す時だけ、その場で確かめる（ランキングの「ノーアシスト」が付かなくなるため）
+ * キーボード（2026-10-06 アクセシビリティの直し）: 開いたらフォーカスは選んでいるマスへ。Tab はカードの中だけで回る。
+ *           Esc で閉じて元のマスへ戻る。Backspace で消す、←→ でマスを動く、マスの上の Enter で決定（閉じる）
  */
 
 import React, { useEffect, useRef, useState } from "react";
@@ -13,7 +15,8 @@ import type { HintRef } from "../../../lib/crossword/puzzleStore";
 import { animateElement, currentValue, type MotionHandle } from "../../../lib/crossword/motion";
 import { PAUSE_PLAYERS_EVENT } from "../../../lib/pageWave";
 import { PuzzleKeypad, type KeypadType } from "./PuzzleKeypad";
-import { Motion } from "./Motion";
+import { Motion, useIsExiting } from "./Motion";
+import { useDialog } from "./useDialog";
 import { HintView } from "./HintView";
 import { C } from "../style";
 
@@ -61,7 +64,13 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
 }) => {
   const [showHint, setShowHint] = useState(false);
   const [confirmReveal, setConfirmReveal] = useState(false);
-  const sheetRef = useRef<HTMLDivElement>(null);
+  const exiting = useIsExiting();
+  // 窓の作法（フォーカスを中へ・Tab を中で回す・Esc で閉じる・閉じたら元のマスへ）。消えていく途中は外す
+  const sheetRef = useDialog<HTMLDivElement>({ active: !exiting, onClose });
+  const cellsRef = useRef<HTMLDivElement>(null);
+  // 文字が200%でカードが画面に収まらない時だけ、カードの中を縦にスクロールできるようにする
+  // （収まる時は今まで通り、指で下へ引いて閉じる動きを優先する）
+  const [scrollable, setScrollable] = useState(false);
   const drag = useRef<{ id: number; startY: number; dragging: boolean } | null>(null);
   const dragY = useRef(0); // 今の y（px）。ドラッグで動いた後の exit はここから始める
   const snapBack = useRef<MotionHandle | null>(null);
@@ -82,6 +91,18 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
     window.addEventListener(PAUSE_PLAYERS_EVENT, stop);
     return () => window.removeEventListener(PAUSE_PLAYERS_EVENT, stop);
   }, []);
+
+  // 収まっているかを見る
+  useEffect(() => {
+    const el = sheetRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => setScrollable(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    Array.from(el.children).forEach((c) => ro.observe(c));
+    return () => ro.disconnect();
+  }, [sheetRef]);
 
   const getCellValue = (index: number): string => {
     const x = wordItem.direction === "horizontal" ? wordItem.startX + index : wordItem.startX;
@@ -119,6 +140,43 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
     setLastTypedIndex(activeIndex);
     onReveal?.();
   };
+
+  // PC のキーボード: Backspace・←→・Enter（Esc は useDialog）。文字盤などのボタンの上の Enter はそのボタンを押す
+  const keysRef = useRef({ backspace, prevCell, nextCell, onComplete });
+  keysRef.current = { backspace, prevCell, nextCell, onComplete };
+  useEffect(() => {
+    if (exiting) return;
+    const onKey = (e: KeyboardEvent) => {
+      const sheet = sheetRef.current;
+      const t = e.target as HTMLElement | null;
+      if (!sheet || e.isComposing || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (t && t !== document.body && !sheet.contains(t)) return;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+      const onCell = !!t?.closest("[data-closeup-cell]");
+      if (e.key === "Backspace") {
+        e.preventDefault();
+        keysRef.current.backspace();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        keysRef.current.prevCell();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        keysRef.current.nextCell();
+      } else if (e.key === "Enter" && (onCell || !t || t === document.body || t === sheet)) {
+        e.preventDefault();
+        keysRef.current.onComplete();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [exiting, sheetRef]);
+
+  // マスにフォーカスがある時は、選んでいるマスが動いたらフォーカスも付いていく
+  useEffect(() => {
+    const box = cellsRef.current;
+    if (!box || !box.contains(document.activeElement)) return;
+    box.querySelectorAll<HTMLElement>("[data-closeup-cell]")[activeIndex]?.focus({ preventScroll: true });
+  }, [activeIndex]);
 
   const handleBackgroundClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) onClose();
@@ -189,8 +247,11 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
           const h = sheetRef.current?.offsetHeight ?? 0;
           return typeof v === "string" && v.endsWith("%") ? (parseFloat(v) / 100) * h : v;
         }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="closeup-num closeup-question"
         className="w-full max-w-[480px] max-h-[90vh] overflow-auto"
-        style={{ background: C.white, boxShadow: C.modalShadow, touchAction: "pan-x", userSelect: "none", WebkitUserSelect: "none" }}
+        style={{ background: C.white, boxShadow: C.modalShadow, touchAction: scrollable ? "pan-x pan-y" : "pan-x", userSelect: "none", WebkitUserSelect: "none" }}
         onClick={(e) => e.stopPropagation()}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -198,7 +259,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
         onPointerCancel={onPointerUp}
       >
         {/* [No.05] Grip Handle - ドラッグ可能であることを示す */}
-        <div className="flex justify-center pt-2 pb-1">
+        <div className="flex justify-center pt-2 pb-1" style={{ touchAction: "none" }}>
           <div className="w-12 h-1" style={{ background: C.highest }} />
         </div>
 
@@ -206,15 +267,16 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
         {/* カギの文は切り詰めずに全文を折り返して出す（Hop 2026-10-06「全文出ないのストレス」）。ボタンは下の段 */}
         <div data-coach="closeup-head" className="p-4 flex flex-col gap-2" style={{ background: C.low }}>
           <div className="flex items-start gap-3">
-            <div className="flex items-center gap-2 text-sm font-semibold shrink-0 pt-0.5">
+            <div id="closeup-num" className="flex items-center gap-2 text-sm font-semibold shrink-0 pt-0.5">
               <span className="px-2 py-0.5 text-xs font-bold bg-primary text-white">{wordItem.clueIndex}</span>
-              <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>
+              <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>
                 {wordItem.direction === "horizontal" ? "arrow_forward" : "arrow_downward"}
               </span>
+              <span className="sr-only">{wordItem.direction === "horizontal" ? "ヨコ" : "タテ"}</span>
             </div>
-            <p className="flex-1 min-w-0 text-sm leading-snug whitespace-pre-wrap break-words" style={{ color: C.ink }}>{wordItem.question}</p>
+            <p id="closeup-question" data-closeup-question="" className="flex-1 min-w-0 text-sm leading-snug whitespace-pre-wrap break-words" style={{ color: C.ink }}>{wordItem.question}</p>
             <button onClick={onClose} className="p-1.5 -mt-1 -mr-1 shrink-0 hover:bg-surface-container-high transition-colors" aria-label="閉じる">
-              <span className="material-symbols-outlined leading-none" style={{ fontSize: "20px", color: C.secondary }}>close</span>
+              <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "20px", color: C.secondary }}>close</span>
             </button>
           </div>
           <div className="flex items-center gap-2 pl-[2.25rem]">
@@ -244,7 +306,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
           <div data-coach="reveal-confirm" className="px-4 py-3 flex flex-wrap items-center gap-2" style={{ background: C.low }}>
             <span className="flex-1 min-w-0 text-sm" style={{ color: C.ink }}>
               1文字見る？
-              <span className="block text-xs mt-0.5" style={{ color: C.secondary }}>ノーヒントの印は付かなくなります。</span>
+              <span className="block text-xs mt-0.5" style={{ color: C.secondary }}>ランキングの「ノーアシスト」が付かなくなります。</span>
             </span>
             <button
               onClick={() => {
@@ -262,7 +324,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
         )}
 
         {/* Cells: 拡大セル表示 */}
-        <div data-coach="closeup-cells" className="p-4 flex justify-center overflow-x-auto">
+        <div ref={cellsRef} data-coach="closeup-cells" className="p-4 flex justify-center overflow-x-auto">
           <div className="flex gap-1">
             {Array.from({ length: wordItem.length }, (_, index) => {
               const value = getCellValue(index);
@@ -270,6 +332,9 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
               return (
                 <button
                   key={index}
+                  data-closeup-cell=""
+                  data-autofocus={isActive ? "" : undefined}
+                  aria-label={`${index + 1}文字目・${value || "空"}${isActive ? "・選択中" : ""}`}
                   onClick={() => {
                     // マスを押して選んだら、そのマスの字に効かせる（今のマスを押し直した時も）
                     forgetTyped();
@@ -283,7 +348,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
                   style={{
                     background: isActive ? C.activeCell : C.low,
                     boxShadow: isActive ? `0 0 0 2px ${C.black}` : undefined,
-                    color: value ? "#1a1a1a" : "#9ca3af",
+                    color: value ? "#1a1a1a" : C.placeholder,
                   }}
                 >
                   {value || "·"}

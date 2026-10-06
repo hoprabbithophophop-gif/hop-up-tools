@@ -89,6 +89,22 @@ function visiblePlayers(): Box[] {
   return out;
 }
 
+// 要素を画面の真ん中あたりへ（scrollIntoView の block: "center" と同じ動き）。
+// 中身がスクロールする入れ物（下から出る窓など）の中にあれば、先にその入れ物の中で真ん中へ寄せる
+function scrollToCenter(el: Element) {
+  for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+    const st = getComputedStyle(p);
+    if (/(auto|scroll)/.test(st.overflowY) && p.scrollHeight > p.clientHeight) {
+      const pr = p.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      p.scrollBy({ top: r.top + r.height / 2 - (pr.top + pr.height / 2), behavior: "smooth" });
+      break;
+    }
+  }
+  const r = el.getBoundingClientRect();
+  window.scrollBy({ top: r.top + r.height / 2 - viewport().h / 2, behavior: "smooth" });
+}
+
 const sameBox = (a: Box | null, b: Box | null) =>
   a === b || (!!a && !!b && Math.abs(a.top - b.top) < 0.5 && Math.abs(a.left - b.left) < 0.5 && Math.abs(a.width - b.width) < 0.5 && Math.abs(a.height - b.height) < 0.5);
 
@@ -101,7 +117,9 @@ export const CoachMarks: React.FC<Props> = ({ step, stepKey, onNext, onSkip, ski
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [bubbleH, setBubbleH] = useState(0);
 
-  // 段が変わったら、印の要素を見える所へ
+  // 段が変わったら、印の要素を見える所へ。
+  // scrollIntoView は使わない（Chrome では Tab の出発点がその要素に移り、最初の Tab が印の次の要素に当たるため。
+  // 練習問題で最初の Tab が「左上の次のマス」に当たっていた原因。2026-10-06 アクセシビリティの直し）
   useEffect(() => {
     if (!selectors.length) return;
     let tries = 0;
@@ -109,7 +127,7 @@ export const CoachMarks: React.FC<Props> = ({ step, stepKey, onNext, onSkip, ski
     const go = () => {
       const el = document.querySelector(selectors[0]);
       if (el) {
-        el.scrollIntoView({ block: "center", behavior: "smooth" });
+        scrollToCenter(el);
         return;
       }
       // まだ描かれていなければ少し待つ（窓が開く途中など）
@@ -217,7 +235,9 @@ export const CoachMarks: React.FC<Props> = ({ step, stepKey, onNext, onSkip, ski
         ref={bubbleRef}
         role="dialog"
         aria-modal="false"
+        aria-label="案内"
         data-coach-bubble=""
+        data-dialog-companion=""
         className="p-4 pr-12"
         style={{ position: "fixed", zIndex: Z + 1, top: bubbleTop, left: bubbleLeft, width: bubbleW, background: C.white, boxShadow: C.modalShadow }}
       >
@@ -230,7 +250,7 @@ export const CoachMarks: React.FC<Props> = ({ step, stepKey, onNext, onSkip, ski
           className="absolute top-1 right-1 w-11 h-11 flex items-center justify-center hover:bg-surface-container-high transition-colors"
           style={{ color: C.secondary }}
         >
-          <span className="material-symbols-outlined leading-none" style={{ fontSize: "20px" }}>close</span>
+          <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "20px" }}>close</span>
         </button>
         <div className="space-y-1 text-sm leading-relaxed" style={{ color: C.ink }}>
           {step.lines.map((l, i) => (

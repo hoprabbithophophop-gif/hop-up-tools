@@ -3,7 +3,7 @@
 // 使い方: node scripts/verify/crossword/check-auto-check.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス x,y] [そのマスの字] [間違いの字]
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -47,7 +47,7 @@ async function open(answers) {
 }
 const stamped = (page) => page.evaluate(() => document.body.innerText.includes('CLEARED!'));
 const closeupOpen = async (page) => (await page.getByRole('button', { name: /決定/ }).count()) > 0;
-const cellOf = (page, state) => page.getByRole('button', { name: `${ly + 1}行${lx + 1}列：${state}` });
+const cellOf = (page, state) => cellAt(page, lx, ly, state);
 const press = (page, ch) => page.getByRole('button', { name: ch, exact: true }).last().click();
 
 // 1. 最後の1文字を正しく入れると、ボタンを押さずに終わる

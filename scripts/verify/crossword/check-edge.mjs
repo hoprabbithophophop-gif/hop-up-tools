@@ -4,7 +4,7 @@
 // 使い方: node scripts/verify/crossword/check-edge.mjs [サイト] [ハロプロの問題の番号] ['<答えの配置 JSON>'] [残すマス x,y]
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -47,7 +47,7 @@ const waitBoard = async (page) => {
   await page.waitForTimeout(2500);
 };
 const fillLast = async (page) => {
-  await page.getByRole('button', { name: `${ly + 1}行${lx + 1}列：空` }).click();
+  await cellAt(page, lx, ly, '空').click();
   await page.getByRole('button', { name: full[LAST], exact: true }).last().click();
 };
 const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' })];
@@ -158,7 +158,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   for (const bad of ['http://example.com/', 'https://192.168.0.1/']) {
     await box.fill(bad);
     await page.waitForTimeout(600);
-    check((await text(page)).includes('リンクは https から始まるサイトの住所だけ使えます。'), `6 ${bad} は使えないと出る`);
+    check((await text(page)).includes('リンクは https から始まる URL だけ使えます。'), `6 ${bad} は使えないと出る`);
   }
   await box.fill('https://example.com/page');
   await page.waitForTimeout(600);

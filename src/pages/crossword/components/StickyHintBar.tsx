@@ -37,7 +37,7 @@ export const StickyHintBar: React.FC<StickyHintBarProps> = ({ currentHint, onPre
       <div className="flex items-center gap-2">
         {onPrevHint && (
           <button onClick={onPrevHint} className="p-2 bg-surface-container-low hover:bg-surface-container-high transition-colors" aria-label="前のカギ">
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>chevron_left</span>
+            <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>chevron_left</span>
           </button>
         )}
 
@@ -45,9 +45,10 @@ export const StickyHintBar: React.FC<StickyHintBarProps> = ({ currentHint, onPre
           onClick={onToggleDirection}
           className="flex items-center gap-1 px-3 py-1.5 bg-surface-container-low hover:bg-surface-container-high font-semibold transition-colors"
           title="押すと向きを切り替えます"
+          aria-label={`${currentHint.number}${currentHint.direction === "horizontal" ? "ヨコ" : "タテ"}・押すと向きを切り替えます`}
         >
           <span className="text-sm" style={{ color: C.ink }}>{currentHint.number}.</span>
-          <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>
+          <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>
             {currentHint.direction === "horizontal" ? "arrow_forward" : "arrow_downward"}
           </span>
         </button>
@@ -58,7 +59,7 @@ export const StickyHintBar: React.FC<StickyHintBarProps> = ({ currentHint, onPre
 
         {onNextHint && (
           <button onClick={onNextHint} className="p-2 bg-surface-container-low hover:bg-surface-container-high transition-colors" aria-label="次のカギ">
-            <span className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>chevron_right</span>
+            <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "16px", color: C.secondary }}>chevron_right</span>
           </button>
         )}
       </div>

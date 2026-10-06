@@ -1,7 +1,8 @@
 // クロスワードの画面で共通に使う小物（アイコンとフッター）。
+// アイコンの綴り（help・extension など）は読み上げない（aria-hidden。2026-10-06 アクセシビリティの直し）
 // 中身は段階1の CrosswordPage.tsx にあった物と同じ。一覧の画面でも使うためにここへ移した。
 export const Icon = ({ icon, size = 20, className = "" }: { icon: string; size?: number; className?: string }) => (
-  <span className={`material-symbols-outlined leading-none ${className}`} style={{ fontSize: `${size}px` }}>
+  <span aria-hidden="true" className={`material-symbols-outlined leading-none ${className}`} style={{ fontSize: `${size}px` }}>
     {icon}
   </span>
 );

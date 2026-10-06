@@ -147,6 +147,14 @@ export async function puzzleLayout(base, id) {
   return layout;
 }
 
+// 盤のマス（#cell-x-y）。state を渡すと、読み上げ名の最後（「・空」「・ダ」など）がその字のマスだけを指す。
+// マスの読み上げ名は「1ヨコ・2文字の1文字目・空」の形（2026-10-06 アクセシビリティの直しで「1行1列：空」から変えた）
+export const cellAt = (page, x, y, state) => page.locator(state === undefined ? `#cell-${x}-${y}` : `#cell-${x}-${y}[aria-label$="・${state}"]`);
+// 読み上げ名の最後の字（空のマスは「空」）
+export const cellState = (label) => String(label ?? '').split('・').at(-1);
+// "x,y" → [x, y]
+export const xy = (k) => k.split(',').map(Number);
+
 // 答えの配置 JSON から マス→字 を作る
 export function cellsOf(cluesJson) {
   const full = {};

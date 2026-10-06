@@ -11,6 +11,7 @@ import type { Genre } from "../../lib/crossword/puzzleStore";
 import { GROUP_NAMES } from "../../lib/crossword/groupDetect";
 import { PuzzleGalleryCard, BEGINNER_LABEL } from "./components/PuzzleGalleryCard";
 import { Footer, Icon } from "./components/ui";
+import { radioKeyDown, radioTabIndex } from "./components/radioKeys";
 import { C } from "./style";
 
 const PAGE_SIZE = 12;
@@ -143,7 +144,7 @@ export default function GalleryPage() {
   return (
     <>
       <div className="min-h-screen bg-surface">
-        <div className="max-w-6xl mx-auto px-4 py-8">
+        <main className="max-w-6xl mx-auto px-4 py-8">
           {/* ヘッダー */}
           <div className="flex items-center gap-3 mb-6">
             <Link to="/" className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title={T.backToCreate} aria-label={T.backToCreate}>
@@ -159,14 +160,15 @@ export default function GalleryPage() {
           <div className="bg-white p-4 mb-6 space-y-4">
             <div className="flex flex-col sm:flex-row gap-4">
               {/* 検索フォーム */}
-              <form onSubmit={handleSearch} className="flex-1 flex gap-2">
-                <div className="relative flex-1">
+              <form onSubmit={handleSearch} className="flex-1 flex flex-wrap gap-2">
+                <div className="relative flex-1 basis-40 min-w-0">
                   <Icon icon="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="作った人の名前で検索…"
+                    aria-label="作った人の名前で検索"
                     className={`${inputClass} pl-10`}
                   />
                 </div>
@@ -178,7 +180,7 @@ export default function GalleryPage() {
               {/* ソート選択 */}
               <div className="flex items-center gap-2">
                 <Icon icon="sort" size={16} />
-                <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortOption)} className={selectClass}>
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortOption)} className={selectClass} aria-label="並び替え">
                   <option value="newest">新着順</option>
                   <option value="popular">人気順</option>
                 </select>
@@ -190,6 +192,7 @@ export default function GalleryPage() {
                   className="p-2 hover:bg-surface-container-high transition-colors disabled:opacity-50"
                   style={{ color: C.secondary }}
                   title="読み込み直す"
+                  aria-label="読み込み直す"
                 >
                   <Icon icon="refresh" size={16} />
                 </button>
@@ -198,24 +201,27 @@ export default function GalleryPage() {
 
             {/* 足した絞り込み: ジャンル・グループ・タグ・初めての人向け */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-              <div className="inline-flex" role="radiogroup" aria-label={T.genre}>
+              <div className="inline-flex flex-wrap max-w-full" role="radiogroup" aria-label={T.genre}>
                 {T.genres.map((g) => (
                   <button
                     key={g.key}
                     type="button"
                     role="radio"
                     aria-checked={genre === g.key}
+                    tabIndex={radioTabIndex(genre === g.key)}
+                    onKeyDown={(e) => radioKeyDown(e, T.genres.map((x) => x.key), genre, setGenre)}
                     onClick={() => setGenre(g.key)}
-                    className={`px-4 py-2 text-sm font-semibold transition-colors ${genre === g.key ? "bg-primary text-white" : "bg-surface-container-low text-on-surface hover:bg-surface-container-high"}`}
+                    className={`px-4 py-2 text-sm font-semibold whitespace-nowrap transition-colors ${genre === g.key ? "bg-primary text-white" : "bg-surface-container-low text-on-surface hover:bg-surface-container-high"}`}
                   >
                     {g.label}
                   </button>
                 ))}
               </div>
 
-              <label className="flex items-center gap-2 text-sm" style={{ color: C.secondary }}>
+              {/* 文字を大きくして1行に収まらない時は、札の下へ折り返す（横スクロールを出さない。2026-10-06 アクセシビリティの直し） */}
+              <label className="flex flex-wrap items-center gap-2 text-sm max-w-full min-w-0" style={{ color: C.secondary }}>
                 {T.group}
-                <select value={group} onChange={(e) => setGroup(e.target.value)} className={selectClass}>
+                <select value={group} onChange={(e) => setGroup(e.target.value)} className={`${selectClass} max-w-full min-w-0`}>
                   <option value="">{T.groupAll}</option>
                   {GROUP_NAMES.map((g) => (
                     <option key={g} value={g}>{g}</option>
@@ -223,7 +229,7 @@ export default function GalleryPage() {
                 </select>
               </label>
 
-              <form onSubmit={handleTag} className="flex gap-2">
+              <form onSubmit={handleTag} className="flex gap-2 max-w-full min-w-0">
                 <input
                   type="text"
                   value={tagInput}
@@ -351,7 +357,7 @@ export default function GalleryPage() {
               )}
             </>
           )}
-        </div>
+        </main>
       </div>
       <Footer />
     </>

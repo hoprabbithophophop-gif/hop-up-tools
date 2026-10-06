@@ -36,6 +36,9 @@ interface PresenceCtx {
 }
 const PresenceContext = createContext<PresenceCtx | null>(null);
 
+// Presence の中で消えていく途中か（窓のフォーカスを、消える動きの終わりを待たずに元へ戻すのに使う）
+export const useIsExiting = () => useContext(PresenceContext)?.exiting ?? false;
+
 // AnimatePresence と同じく、外れた子を exit の動きが終わるまで残す（元の並び位置のまま）
 export function Presence({ children }: { children: ReactNode }) {
   const [, force] = useState(0);

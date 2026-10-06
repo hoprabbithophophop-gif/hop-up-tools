@@ -5,7 +5,7 @@
 // 使い方: node scripts/verify/crossword/check-reveal.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス1 x,y] [残すマス2 x,y] [マス1の間違いの字]
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt, xy } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -23,10 +23,6 @@ const without = (...keys) => {
   const a = { ...full };
   for (const k of keys) delete a[k];
   return a;
-};
-const label = (k) => {
-  const [x, y] = k.split(',').map(Number);
-  return `${y + 1}行${x + 1}列`;
 };
 
 let fail = 0;
@@ -55,7 +51,7 @@ async function open(answers, rankingRows = []) {
     localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({ userAnswers: answers, elapsedSeconds: 30, savedAt: Date.now() }));
   }, { id: ID, answers });
   await page.goto(`${BASE}/crossword/${ID}`);
-  await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
+  await page.locator('[id^="cell-"]').first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
   await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
   return { ctx, page, sent };
@@ -73,19 +69,19 @@ const submitName = async (page) => {
 // 1. 2マス残して、1つ目は確かめてから見る、2つ目は確かめずに見る → 解き終わり、見た数 2・ミス 0 で送られる
 {
   const { ctx, page, sent } = await open(without(CELL1, CELL2));
-  await page.getByRole('button', { name: `${label(CELL1)}：空` }).click();
+  await cellAt(page, ...xy(CELL1), '空').click();
   await page.waitForTimeout(800);
   await page.screenshot({ path: `${OUT}/reveal-0-card.png` });
   await page.getByRole('button', { name: '1文字見る' }).click();
   const t1 = await text(page);
-  check(t1.includes('1文字見る？') && t1.includes('ノーヒントの印は付かなくなります。'), '初めての時はその場で確かめる');
+  check(t1.includes('1文字見る？') && t1.includes('ランキングの「ノーアシスト」が付かなくなります。'), '初めての時はその場で確かめる');
   await page.screenshot({ path: `${OUT}/reveal-1-confirm.png` });
   await page.getByRole('button', { name: '見る', exact: true }).click();
-  await page.getByRole('button', { name: `${label(CELL1)}：${full[CELL1]}` }).waitFor({ timeout: 8000 }).catch(() => {}); // 受付係の返事を待つ
-  check((await page.getByRole('button', { name: `${label(CELL1)}：${full[CELL1]}` }).count()) === 1, '選んだマスに正しい字が入る');
+  await cellAt(page, ...xy(CELL1), full[CELL1]).waitFor({ timeout: 8000 }).catch(() => {}); // 受付係の返事を待つ
+  check((await cellAt(page, ...xy(CELL1), full[CELL1]).count()) === 1, '選んだマスに正しい字が入る');
   await page.getByRole('button', { name: '閉じる' }).first().click().catch(() => {});
   await page.waitForTimeout(500);
-  await page.getByRole('button', { name: `${label(CELL2)}：空` }).click();
+  await cellAt(page, ...xy(CELL2), '空').click();
   tokens.reveal2 = await tokenOf(page); // 解けると途中経過が消えるので、解ける前に回の番号を控える
   await page.getByRole('button', { name: '1文字見る' }).click();
   await page.waitForTimeout(600);
@@ -100,14 +96,14 @@ const submitName = async (page) => {
 // 2. 間違えて埋める（ミス1）→ 直して終わる → 見た数 0・ミス 1。開き直してもミスの数は残る
 {
   const { ctx, page, sent } = await open(without(CELL1));
-  await page.getByRole('button', { name: `${label(CELL1)}：空` }).click();
+  await cellAt(page, ...xy(CELL1), '空').click();
   await page.getByRole('button', { name: WRONG_CHAR, exact: true }).last().click();
   await page.waitForTimeout(1500);
   await page.reload();
-  await page.getByRole('button', { name: /1行|2行|3行/ }).first().waitFor({ timeout: 20000 });
+  await page.locator('[id^="cell-"]').first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
   tokens.miss1 = await tokenOf(page); // 解けると途中経過が消えるので、解ける前に回の番号を控える
-  await page.getByRole('button', { name: `${label(CELL1)}：${WRONG_CHAR}` }).click();
+  await cellAt(page, ...xy(CELL1), WRONG_CHAR).click();
   await page.getByRole('button', { name: full[CELL1], exact: true }).last().click();
   await page.waitForTimeout(3500);
   await submitName(page);
@@ -125,15 +121,15 @@ const submitName = async (page) => {
     { display_name: 'D', time_seconds: 60, updated_at: now, reveals: 1, misses: 1 },
   ];
   const { ctx, page } = await open(without(CELL1), rows);
-  await page.getByRole('button', { name: `${label(CELL1)}：空` }).click();
+  await cellAt(page, ...xy(CELL1), '空').click();
   await page.getByRole('button', { name: full[CELL1], exact: true }).last().click();
   await page.waitForTimeout(3500);
   await page.getByRole('button', { name: '載せない' }).click();
   await page.waitForTimeout(1500);
   const t = await text(page);
   const lines = t.split(/\r?\n/).map((l) => l.trim());
-  check(lines.includes('ノーミス・ノーヒント'), '両方 0 は「ノーミス・ノーヒント」');
-  check(lines.includes('ノーヒント'), 'ミスありで見ていないのは「ノーヒント」');
+  check(lines.includes('ノーミス・ノーアシスト'), '両方 0 は「ノーミス・ノーアシスト」');
+  check(lines.includes('ノーアシスト'), 'ミスありで見ていないのは「ノーアシスト」');
   check(lines.includes('ノーミス・2文字見た'), 'ミス 0 で2文字見たのは「ノーミス・2文字見た」');
   check(lines.includes('1文字見た'), 'ミスありで1文字見たのは「1文字見た」');
   await page.getByText('ランキング').first().scrollIntoViewIfNeeded();

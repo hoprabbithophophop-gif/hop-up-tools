@@ -12,7 +12,7 @@
 import { chromium } from 'playwright';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { arg, outDir, ROOT, ID_DEFAULT, leaveFirstVisitMarks } from './_lib.mjs';
+import { arg, outDir, ROOT, ID_DEFAULT, leaveFirstVisitMarks, cellAt } from './_lib.mjs';
 
 // 「初めて」の印を立てずに流す（ほかの台本は _lib.mjs が印を立ててから開く）
 leaveFirstVisitMarks();
@@ -281,7 +281,7 @@ async function run() {
     check(await layerGone(page), '(b) 段1 の「×」で案内が終わる');
     await page.locator('#cell-0-0').click();
     await key(page, 'ネ').click();
-    check((await page.getByRole('button', { name: '1行1列：ネ' }).count()) > 0, '(b) 終えた後に本物のマスと文字盤で字が入る');
+    check((await cellAt(page, 0, 0, 'ネ').count()) > 0, '(b) 終えた後に本物のマスと文字盤で字が入る');
     await closeSheet(page);
     await page.locator('header').getByRole('button', { name: '本番へ' }).click();
     check(await page.waitForURL((u) => u.pathname === `/crossword/${ID}`, { timeout: 15000 }).then(() => true).catch(() => false), `(b) 見出しの戻る矢印で元の問題 /crossword/${ID} へ戻る`);
@@ -292,7 +292,7 @@ async function run() {
     check(await tapMask(page), '(b) 幕の1点を押せた');
     check(await layerGone(page), '(b) 「閉じる」を押せない段2 でも幕のタップで案内が終わる');
     await key(page, 'ネ').click();
-    check((await page.getByRole('button', { name: '1行1列：ネ' }).count()) > 0, '(b) 幕で終えた後も文字盤で字が入る');
+    check((await cellAt(page, 0, 0, 'ネ').count()) > 0, '(b) 幕で終えた後も文字盤で字が入る');
     await page.goto(`${BASE}/crossword/tutorial`);
     await waitBubble(page, '左上のマスを押してみましょう', '(b) 抜け道 Esc');
     await page.keyboard.press('Escape');

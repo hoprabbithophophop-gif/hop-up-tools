@@ -125,7 +125,7 @@ export default function MyPuzzlesPage() {
     <>
       <Toaster />
       <div className="min-h-screen bg-surface">
-        <div className="max-w-2xl mx-auto px-4 py-8">
+        <main className="max-w-2xl mx-auto px-4 py-8">
           <div className="flex items-center gap-3 mb-6">
             <Link to="/crossword/create" className="p-1.5 hover:bg-surface-container-high transition-colors" style={{ color: C.ink }} title={T.backToCreate} aria-label={T.backToCreate}>
               <Icon icon="chevron_left" />
@@ -224,6 +224,7 @@ export default function MyPuzzlesPage() {
               <div className="space-y-2">
                 <textarea
                   id="transfer-code"
+                  aria-label="合言葉"
                   readOnly
                   value={code}
                   rows={3}
@@ -260,7 +261,7 @@ export default function MyPuzzlesPage() {
               </div>
             </div>
           </div>
-        </div>
+        </main>
       </div>
       <Footer />
     </>

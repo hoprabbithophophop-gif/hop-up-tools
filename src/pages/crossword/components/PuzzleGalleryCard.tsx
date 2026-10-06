@@ -18,7 +18,9 @@ function formatDate(iso?: string): string {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle }> = ({ puzzle }) => {
+// headingLevel: 題名の見出しの段（ギャラリーは h2、解き終えた画面の「ほかの問題」の下では h3。2026-10-06 アクセシビリティの直し）
+export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle; headingLevel?: 2 | 3 }> = ({ puzzle, headingLevel = 2 }) => {
+  const Heading = headingLevel === 3 ? "h3" : "h2";
   const navigate = useNavigate();
   const dateStr = formatDate(puzzle.created_at);
 
@@ -32,9 +34,9 @@ export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle }> = ({ puzzle 
       {/* ヘッダー：タイトル */}
       <div className="flex items-start gap-2 mb-3">
         <Icon icon="extension" className="flex-shrink-0 mt-0.5" />
-        <h3 className="text-base font-bold line-clamp-2" style={{ color: C.ink }}>
+        <Heading className="text-base font-bold line-clamp-2" style={{ color: C.ink }}>
           {puzzle.title || "無題の問題"}
-        </h3>
+        </Heading>
       </div>
 
       {puzzle.is_beginner && (

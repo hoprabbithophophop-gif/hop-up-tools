@@ -34,10 +34,10 @@ export const OtherPuzzles: React.FC<{ genre: Genre; puzzleId: string }> = ({ gen
     <div className="mt-6">
       {list.length > 0 && (
         <>
-          <h3 className="text-[0.6875rem] font-bold tracking-[0.1em] mb-2" style={{ color: C.secondary }}>{T.title}</h3>
+          <h2 className="text-[0.6875rem] font-bold tracking-[0.1em] mb-2" style={{ color: C.secondary }}>{T.title}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-[2px]">
             {list.map((p) => (
-              <PuzzleGalleryCard key={p.id} puzzle={p} />
+              <PuzzleGalleryCard key={p.id} puzzle={p} headingLevel={3} />
             ))}
           </div>
         </>
