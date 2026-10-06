@@ -6,7 +6,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { webcrypto as crypto } from 'node:crypto';
 import { validatePlacement, buildGrid, isConnected, shuffleByLength } from '../../src/lib/crossword/engine.ts';
-import { prefectureOf, PREFECTURES, dateOf, bloodOf, BLOOD, zodiacOf, etoOf, MONTHS, toAnswerKana, isAnswerKana } from './tables.mjs';
+import { prefectureOf, PREFECTURES, dateOf, bloodOf, BLOOD, zodiacOf, etoOf, toAnswerKana, isAnswerKana } from './tables.mjs';
 
 const MAX_WORDS = Number(process.argv[2] ?? 70);
 let seed = Number(process.argv[3] ?? 1);
@@ -24,7 +24,8 @@ console.log(`対象 ${members.length}人（研修生を除く）、表の日付 
 const ATTRS = {
   出身地: { value: (m) => prefectureOf(m.origin), kana: (v) => toAnswerKana(PREFECTURES[v]), single: (name) => `${name}の出身地` },
   血液型: { value: (m) => bloodOf(m.blood), kana: (v) => BLOOD[v], single: (name) => `${name}の血液型` },
-  誕生月: { value: (m) => dateOf(m.birthday)?.m, kana: (v) => MONTHS[v - 1], single: (name) => `${name}の誕生月` },
+  // 誕生月は答えにしない（「シガツ」が誕生月か加入月か読めない。Hop 決定 2026-10-07）。重なりの判定にだけ使う
+  誕生月: { value: (m) => dateOf(m.birthday)?.m, kana: null, single: null },
   // 星座・干支は生年月日から変換しないと出ないので、カギに種類を書く（Hop 決定 2026-10-07 案B）
   星座: { value: (m) => { const d = dateOf(m.birthday); return d && d.d != null ? zodiacOf(d.m, d.d).kana : null; }, kana: (v) => v, single: (name) => `${name}の星座`, labeled: '星座' },
   干支: { value: (m) => { const d = dateOf(m.birthday); return d && etoOf(d.y).kana; }, kana: (v) => v, single: (name) => `${name}の干支`, labeled: '干支' },

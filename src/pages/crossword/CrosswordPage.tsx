@@ -483,6 +483,10 @@ export default function CrosswordPage() {
   const checkingRef = useRef(false);
   const checkDirtyRef = useRef(false);
   const [recheckTick, setRecheckTick] = useState(0);
+  // 全部埋まった後の状態を盤の下に出す（Hop 2026-10-07。特大の盤で「黙る方の丸付け」が見えず、直しても何も起きないように見えた）
+  //   wrong = 全部埋まっているがどこかが違う ／ failed = 丸付けの通信に失敗した（少し待ってもう一度試す）
+  const [boardStatus, setBoardStatus] = useState<"wrong" | "failed" | null>(null);
+  const retryRef = useRef(0);
   // 解き終えた画面のヒントの動画の一覧（畳んである）
   const [showHintVideos, setShowHintVideos] = useState(false);
 
@@ -1542,6 +1546,7 @@ export default function CrosswordPage() {
     }
     const full = playerPuzzle.cells.every((c) => !!userAnswers[`${c.x},${c.y}`]);
     if (!full) {
+      setBoardStatus(null);
       if (!silent) toast.error("まだ埋まっていないマスがあります。", { duration: 4000 });
       return;
     }
@@ -1571,7 +1576,13 @@ export default function CrosswordPage() {
         }
       } catch (err) {
         console.warn("Failed to check:", err);
+        // 黙る方でも失敗は隠さない。盤が変わらないと丸付けし直されないので、少し待って自動でもう一度試す（3回まで）
+        setBoardStatus("failed");
         if (!silent) toast.error(playErrorOf(err));
+        if (retryRef.current < 3) {
+          retryRef.current += 1;
+          setTimeout(() => setRecheckTick((t) => t + 1), 3000);
+        }
         return;
       } finally {
         setChecking(false);
@@ -1584,6 +1595,8 @@ export default function CrosswordPage() {
       }
     }
 
+    retryRef.current = 0;
+    setBoardStatus(allCorrect ? null : "wrong");
     if (allCorrect) {
       // Stage 1: クリア演出開始
       setShowClearAnimation(true);
@@ -1646,6 +1659,7 @@ export default function CrosswordPage() {
     }
     if (!full) {
       autoCheckRef.current.loud = false;
+      setBoardStatus(null);
       return;
     }
     if (!wasFull) autoCheckRef.current.loud = true;
@@ -2002,6 +2016,12 @@ export default function CrosswordPage() {
                       </button>
                     )}
                   </div>
+                  {/* 全部埋まった後の状態（解けるまで出しっぱなし。吹き出しは埋まった瞬間の1回だけなので、ここで状態を示す） */}
+                  {!isCleared && (boardStatus || checking) && (
+                    <p role="status" className="mt-3 text-center" style={{ fontSize: "0.875rem", color: C.secondary }}>
+                      {checking ? "答え合わせ中…" : boardStatus === "wrong" ? "全部埋まっていますが、どこかに間違いがあります。" : "答え合わせできませんでした。通信を確かめてください。しばらくして自動でもう一度試します。"}
+                    </p>
+                  )}
                 </div>
 
                 {/* 解き終えた画面（2026-10-06 任天堂シミュで決定・Hop「いいと思う」）: ハンコの直下に「Xに投稿」→ 名前の窓の後のランキング
