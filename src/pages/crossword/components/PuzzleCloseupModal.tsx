@@ -6,7 +6,9 @@
  * 足した物: 見出しの「ヒント」ボタン。押すと文字盤の場所にヒント（動画・リンク）が出る
  *           見出しの「1文字見る」ボタン。その回で初めて押す時だけ、その場で確かめる（ランキングの「ノーアシスト」が付かなくなるため）
  * キーボード（2026-10-06 アクセシビリティの直し）: 開いたらフォーカスは選んでいるマスへ。Tab はカードの中だけで回る。
- *           Esc で閉じて元のマスへ戻る。Backspace で消す、←→ でマスを動く、マスの上の Enter で決定（閉じる）
+ *           Esc で閉じて元のマスへ戻る。Backspace で消す、←→ で縦線を動かす、マスの上の Enter で決定（閉じる）
+ * 縦線（Hop 決定 2026-10-07）: 選んでいる所は、文字入力欄と同じ「マスの間に立つ縦線」で見せる。activeIndex はマスの左端の位置で 0〜語の長さ。
+ *           字は縦線の右のマスに入って縦線が右へ進む。゛゜と消すは縦線の左の字に効く
  */
 
 import React, { useEffect, useRef, useState } from "react";
@@ -23,6 +25,7 @@ import { C } from "../style";
 interface PuzzleCloseupModalProps {
   wordItem: PlacedItem;
   userAnswers: Record<string, string>;
+  /** 縦線の位置。0〜語の長さ（語の長さ＝最後のマスの右） */
   activeIndex: number;
   keypadType: KeypadType;
   hint?: HintRef;
@@ -34,6 +37,7 @@ interface PuzzleCloseupModalProps {
   onComplete: () => void;
   onPrevCell: () => void;
   onNextCell: () => void;
+  /** index は効かせるマス（縦線の左のマス） */
   onModifyChar?: (char: string, index: number) => void;
   onReveal?: () => void;
   /** その回ですでに1文字見るを使ったか（使っていれば確かめずに開ける） */
@@ -75,14 +79,10 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
   const dragY = useRef(0); // 今の y（px）。ドラッグで動いた後の exit はここから始める
   const snapBack = useRef<MotionHandle | null>(null);
 
-  // 最後に字を打ったマス（゛゜はこのマスに効かせる）。←→で動いた・消した・開いたばかりの時は null
-  const [lastTypedIndex, setLastTypedIndex] = useState<number | null>(null);
-
   // カギが変わったら入力に戻す
   useEffect(() => {
     setShowHint(false);
     setConfirmReveal(false);
-    setLastTypedIndex(null);
   }, [wordItem.uuid]);
 
   // ページ移動の波が出るときは、動画を外して音を止める（見えないプレーヤーから音を鳴らさない）
@@ -109,37 +109,22 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
     const y = wordItem.direction === "vertical" ? wordItem.startY + index : wordItem.startY;
     return userAnswers[`${x},${y}`] || "";
   };
-  // ゛゜は書き順どおり「字のあと」に効く（Hop 2026-10-06）。直前に打った字のマスに効かせる。字を入れると次のマスへ進むので、
-  // 次のマスに交差の字が既にあっても、その字は濁らせない（2026-10-06 レビューの直し）。直前に打った字が無ければ今のマスの字に効かせる
-  const modTargetIndex = lastTypedIndex ?? activeIndex;
+  // ゛゜は書き順どおり「字のあと」に効く（Hop 2026-10-06）。縦線の左の字に効かせる。縦線の右に交差の字があっても、その字は濁らせない。
+  // 縦線が先頭にいる時は効く字が無い（文字盤の ゛゜ は薄い表示）
+  const modTargetIndex = activeIndex - 1;
+  const modTargetChar = modTargetIndex >= 0 ? getCellValue(modTargetIndex) : "";
 
-  const typeChar = (char: string) => {
-    setLastTypedIndex(activeIndex);
-    onKeyPress(char);
-  };
-  const forgetTyped = () => setLastTypedIndex(null);
-  const prevCell = () => {
-    forgetTyped();
-    onPrevCell();
-  };
-  const nextCell = () => {
-    forgetTyped();
-    onNextCell();
-  };
-  const backspace = () => {
-    forgetTyped();
-    onBackspace();
-  };
+  const typeChar = (char: string) => onKeyPress(char);
+  const prevCell = () => onPrevCell();
+  const nextCell = () => onNextCell();
+  const backspace = () => onBackspace();
   const modifyChar = (ch: string) => {
-    // 今のマスの字に効かせた時は、打ち直したのと同じ扱い（続けて ゜ を押しても同じマスに効く）
-    setLastTypedIndex(modTargetIndex);
+    if (modTargetIndex < 0) return;
     onModifyChar?.(ch, modTargetIndex);
   };
-  // 1文字見るで入った字も、打った字と同じ扱い（次のマスの交差の字に ゛ が付かないように）
-  const reveal = () => {
-    setLastTypedIndex(activeIndex);
-    onReveal?.();
-  };
+  const reveal = () => onReveal?.();
+  // 縦線の位置の読み上げ名
+  const caretLabel = activeIndex < wordItem.length ? `${activeIndex + 1}文字目の前` : `${wordItem.length}文字目の後`;
 
   // PC のキーボード: Backspace・←→・Enter（Esc は useDialog）。文字盤などのボタンの上の Enter はそのボタンを押す
   const keysRef = useRef({ backspace, prevCell, nextCell, onComplete });
@@ -325,37 +310,46 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
 
         {/* Cells: 拡大セル表示 */}
         <div ref={cellsRef} data-coach="closeup-cells" className="p-4 flex justify-center overflow-x-auto">
-          <div className="flex gap-1">
-            {Array.from({ length: wordItem.length }, (_, index) => {
+          <div className="flex">
+            {Array.from({ length: wordItem.length + 1 }, (_, slot) => {
+              // マスの間（と両端）に幅4pxの場所を置き、縦線のある場所だけ線を見せる（線の有る無しで幅が変わらないように）
+              const caret = (
+                <span key={`caret-${slot}`} aria-hidden="true" className="w-1 h-12 shrink-0 flex justify-center">
+                  {slot === activeIndex && <span data-closeup-caret="" className="h-full" style={{ width: "2px", background: C.black }} />}
+                </span>
+              );
+              if (slot === wordItem.length) return caret;
+              const index = slot;
               const value = getCellValue(index);
               const isActive = index === activeIndex;
               return (
-                <button
-                  key={index}
-                  data-closeup-cell=""
-                  data-autofocus={isActive ? "" : undefined}
-                  aria-label={`${index + 1}文字目・${value || "空"}${isActive ? "・選択中" : ""}`}
-                  onClick={() => {
-                    // マスを押して選んだら、そのマスの字に効かせる（今のマスを押し直した時も）
-                    forgetTyped();
-                    if (index < activeIndex) {
-                      for (let i = 0; i < activeIndex - index; i++) prevCell();
-                    } else if (index > activeIndex) {
-                      for (let i = 0; i < index - activeIndex; i++) nextCell();
-                    }
-                  }}
-                  className={`puzzle-cell w-12 h-12 font-semibold text-xl flex items-center justify-center uppercase transition-all ${isActive ? "scale-110 z-10" : ""}`}
-                  style={{
-                    background: isActive ? C.activeCell : C.low,
-                    boxShadow: isActive ? `0 0 0 2px ${C.black}` : undefined,
-                    color: value ? "#1a1a1a" : C.placeholder,
-                  }}
-                >
-                  {value || "·"}
-                </button>
+                <React.Fragment key={index}>
+                  {caret}
+                  <button
+                    data-closeup-cell=""
+                    data-autofocus={isActive ? "" : undefined}
+                    aria-label={`${index + 1}文字目・${value || "空"}${isActive ? "・選択中" : ""}`}
+                    onClick={() => {
+                      // マスを押したら、そのマスの左に縦線が立つ
+                      if (index < activeIndex) {
+                        for (let i = 0; i < activeIndex - index; i++) prevCell();
+                      } else if (index > activeIndex) {
+                        for (let i = 0; i < index - activeIndex; i++) nextCell();
+                      }
+                    }}
+                    className="puzzle-cell w-12 h-12 shrink-0 font-semibold text-xl flex items-center justify-center uppercase"
+                    style={{
+                      background: C.low,
+                      color: value ? "#1a1a1a" : C.placeholder,
+                    }}
+                  >
+                    {value || "·"}
+                  </button>
+                </React.Fragment>
               );
             })}
           </div>
+          <span className="sr-only" aria-live="polite">{caretLabel}</span>
         </div>
 
         {/* Keypad（ヒントを開いている間はここにヒントを出す） */}
@@ -373,7 +367,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
               onArrowLeft={prevCell}
               onArrowRight={nextCell}
               disabled={false}
-              currentChar={getCellValue(modTargetIndex)}
+              currentChar={modTargetChar}
               onModifyCurrentChar={modifyChar}
             />
           )}

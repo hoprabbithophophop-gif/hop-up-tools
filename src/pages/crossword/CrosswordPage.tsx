@@ -929,67 +929,64 @@ export default function CrosswordPage() {
   };
 
   // クローズアップモーダル内での入力ハンドラー
+  // activeCloseupIndex は縦線（マスの左端に立つ）の位置。0〜語の長さ。語の長さ＝最後のマスの右（Hop 決定 2026-10-07）
+  // 字は縦線の右のマスに入り、縦線が1つ右へ進む。最後のマスの右にいる時は入らない
   const handleCloseupKeyPress = (char: string) => {
     if (!activeWordItem || isCleared) return;
+    if (activeCloseupIndex >= activeWordItem.length) return;
     const key = closeupCellKey(activeCloseupIndex);
     setUserAnswers((prev) => ({ ...prev, [key]: char.toUpperCase() }));
-    if (activeCloseupIndex < activeWordItem.length - 1) setActiveCloseupIndex((prev) => prev + 1);
+    setActiveCloseupIndex(activeCloseupIndex + 1);
   };
 
   // 1文字見る: 入力カードで選んでいるマスに正しい字を入れる（Hop 決定 2026-10-04）。もう正しい字が入っていれば数えない
   // 字は受付係から受け取る（答えはブラウザに無い）。同じマスを2度見ても数は増えない
+  // 見るマスは縦線の右のマス。縦線が最後のマスの右にいる時は最後のマス。見た後は縦線がそのマスの右へ
   const handleReveal = async () => {
     if (!activeWordItem || isCleared) return;
-    const index = activeCloseupIndex;
+    const index = Math.min(activeCloseupIndex, activeWordItem.length - 1);
+    const [x, y] = closeupCellKey(index).split(",").map(Number);
     if (isDebugMode || isTutorial) {
       setReveals((r) => r + 1);
-      handleCloseupKeyPress(activeWordItem.answer[index]);
+      setUserAnswers((prev) => ({ ...prev, [`${x},${y}`]: activeWordItem.answer[index].toUpperCase() }));
+      setActiveCloseupIndex(index + 1);
       return;
     }
-    const [x, y] = closeupCellKey(index).split(",").map(Number);
     try {
       const r = await withPlay((token) => revealCell(token, x, y));
       setReveals(r.reveals);
       setUserAnswers((prev) => ({ ...prev, [`${x},${y}`]: r.char }));
-      if (index < activeWordItem.length - 1) setActiveCloseupIndex(index + 1);
+      setActiveCloseupIndex(index + 1);
     } catch (err) {
       console.warn("Failed to reveal:", err);
       toast.error(playErrorOf(err));
     }
   };
 
+  // 消す: 縦線の左のマスを空にして、縦線を1つ左へ。縦線が先頭にいる時は何もしない
   const handleCloseupBackspace = () => {
     if (!activeWordItem || isCleared) return;
-    const key = closeupCellKey(activeCloseupIndex);
-    if (userAnswers[key]) {
-      setUserAnswers((prev) => {
-        const newAnswers = { ...prev };
-        delete newAnswers[key];
-        return newAnswers;
-      });
-    } else if (activeCloseupIndex > 0) {
-      const prevIndex = activeCloseupIndex - 1;
-      const prevKey = closeupCellKey(prevIndex);
-      setActiveCloseupIndex(prevIndex);
-      setUserAnswers((prev) => {
-        const newAnswers = { ...prev };
-        delete newAnswers[prevKey];
-        return newAnswers;
-      });
-    }
+    if (activeCloseupIndex <= 0) return;
+    const prevIndex = activeCloseupIndex - 1;
+    const prevKey = closeupCellKey(prevIndex);
+    setActiveCloseupIndex(prevIndex);
+    setUserAnswers((prev) => {
+      const newAnswers = { ...prev };
+      delete newAnswers[prevKey];
+      return newAnswers;
+    });
   };
 
   const handleCloseupComplete = () => {
     setShowCloseup(false);
   };
 
-  // クローズアップモーダル内での文字変換（濁音・半濁音・小文字）
-  const handleCloseupModifyChar = (char: string, index: number = activeCloseupIndex) => {
+  // クローズアップモーダル内での文字変換（濁音・半濁音）。index は効かせるマス（縦線の左のマス）。縦線は動かさない
+  const handleCloseupModifyChar = (char: string, index: number) => {
     if (!activeWordItem || isCleared) return;
+    if (index < 0 || index >= activeWordItem.length) return;
     const key = closeupCellKey(index);
     setUserAnswers((prev) => ({ ...prev, [key]: char.toUpperCase() }));
-    // 1つ前の字に効かせた時は、今のマスはそのまま（すでに進んでいる）
-    if (index === activeCloseupIndex && activeCloseupIndex < activeWordItem.length - 1) setActiveCloseupIndex((prev) => prev + 1);
   };
 
   // スマートナビゲーション: 指定セルを含むワードを取得
@@ -2183,7 +2180,7 @@ export default function CrosswordPage() {
               onClose={() => setShowCloseup(false)}
               onComplete={handleCloseupComplete}
               onPrevCell={() => setActiveCloseupIndex((prev) => Math.max(0, prev - 1))}
-              onNextCell={() => setActiveCloseupIndex((prev) => Math.min((activeWordItem?.length || 1) - 1, prev + 1))}
+              onNextCell={() => setActiveCloseupIndex((prev) => Math.min(activeWordItem?.length || 1, prev + 1))}
               onModifyChar={handleCloseupModifyChar}
               onReveal={handleReveal}
               revealUsed={reveals > 0}

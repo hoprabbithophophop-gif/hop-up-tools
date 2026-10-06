@@ -1,7 +1,7 @@
 // 公開前レビュー4本（2026-10-06）の直しを、手元の開発サーバーで確かめる。本番にもプレビューにも通信しない。
 // 手元の vite をこの台本が立ち上げ（Supabase の住所は使わない仮の住所）、棚（/rest/v1）と受付係（/api）への通信は
 // すべてブラウザの中で受け止めて、台本の中の見本の問題で答える。終わったら開発サーバーを止める。
-//   (1) ゛゜は直前に打った字のマスに付く（次のマスに交差の字があっても壊れない）
+//   (1) ゛゜は縦線の左の字に付く（縦線の右に交差の字があっても壊れない。縦線が先頭なら効く字が無い。2026-10-07）
 //   (2) 最後のマスが濁る字: 埋まった瞬間の答え合わせは待ってから走り、゛ の後の盤で丸付けする。待ちの間は入力の窓が開いたまま
 //   (3) 「始める！」で回は1つだけ始まる（回が返る前に字を入れても二重に始まらない）
 //   (4) 解けた後: ↻ が無い・端末の途中経過が消える・開き直すと新しい回で空の盤。終わりの画面の並び（A）と写真
@@ -202,7 +202,7 @@ const openAcross = (page) => page.getByText('ヨコの見本のカギ').last().c
 try {
   await startServer();
 
-  // ---- (1) ゛ は直前に打った字のマスに付く ----
+  // ---- (1) ゛ は縦線の左の字に付く ----
   {
     const { ctx, page } = await newPage({ marks: { ...SEEN_SOLVE, [`crossword_progress_${PUZZLE_ID}`]: progress({ '1,0': 'キ' }) } });
     await openPuzzle(page);
@@ -212,23 +212,30 @@ try {
     await page.waitForTimeout(300);
     const a = await cellText(page, 0, 0);
     const b = await cellText(page, 1, 0);
-    check(a === '1行1列：バ', `(1) ハ のあと ゛ で、打ったマスが バ になる（${a}）`);
+    check(a === '1行1列：バ', `(1) ハ を打つと縦線は次へ進み、゛ で左の ハ が バ になる（${a}）`);
     check(b === '1行2列：キ', `(1) 次のマスの交差の字 キ はそのまま（${b}）`);
     await ctx.close();
   }
   {
-    // 開いたばかり（直前に打った字が無い）の時は、今のマスの字に効く
+    // 開いたばかり（縦線が先頭＝左に字が無い）の時は、効く字が無い
     const { ctx, page } = await newPage({ marks: { ...SEEN_SOLVE, [`crossword_progress_${PUZZLE_ID}`]: progress({ '0,0': 'ハ', '1,0': 'キ' }) } });
     await openPuzzle(page);
     await openAcross(page);
     await key(page, '゛').click();
     await page.waitForTimeout(300);
-    check((await cellText(page, 0, 0)) === '1行1列：バ', `(1) 開いたばかりで ゛ を押すと、今のマスの字に効く（${await cellText(page, 0, 0)}）`);
-    // → で動いてから ゛: 今のマス（キ）に効く
+    check((await cellText(page, 0, 0)) === '1行1列：ハ' && (await cellText(page, 1, 0)) === '1行2列：キ', `(1) 開いたばかり（縦線が先頭）で ゛ を押しても、効く字が無いので何も変わらない（${await cellText(page, 0, 0)}・${await cellText(page, 1, 0)}）`);
+    await page.screenshot({ path: path.join(OUT, '1-caret-start-390.png') });
+    // 2つ目のマスを押す → 縦線はそのマスの左（ハ と キ の間）。゛ は左の ハ に効き、右の キ はそのまま
     await page.locator('[data-coach="closeup-cells"] button').nth(1).click();
     await key(page, '゛').click();
     await page.waitForTimeout(300);
-    check((await cellText(page, 1, 0)) === '1行2列：ギ', `(1) マスを押して動いた後の ゛ は、今のマスの字に効く（${await cellText(page, 1, 0)}）`);
+    check((await cellText(page, 0, 0)) === '1行1列：バ' && (await cellText(page, 1, 0)) === '1行2列：キ', `(1) マスを押した後の ゛ は、縦線の左の字に効く（${await cellText(page, 0, 0)}・${await cellText(page, 1, 0)}）`);
+    // → で縦線を最後のマスの右へ → ゛ は左の キ に効く
+    await page.locator('[data-coach="keypad"]').getByRole('button', { name: '次のマス' }).click();
+    await key(page, '゛').click();
+    await page.waitForTimeout(300);
+    check((await cellText(page, 1, 0)) === '1行2列：ギ', `(1) → で縦線を右へ動かした後の ゛ は、左の字に効く（${await cellText(page, 1, 0)}）`);
+    await page.screenshot({ path: path.join(OUT, '1-caret-end-390.png') });
     await ctx.close();
   }
   {
@@ -236,6 +243,8 @@ try {
     const { ctx, page } = await newPage({ marks: { ...SEEN_SOLVE, [`crossword_progress_${PUZZLE_ID}`]: progress({ '0,0': 'ビ', '1,0': 'キ' }) } });
     await openPuzzle(page);
     await openAcross(page);
+    // 縦線を ビ の右へ
+    await page.locator('[data-coach="keypad"]').getByRole('button', { name: '次のマス' }).click();
     await key(page, '゜').click();
     await page.waitForTimeout(300);
     check((await cellText(page, 0, 0)) === '1行1列：ピ', `(1) ビ に ゜ で ピ になる（${await cellText(page, 0, 0)}）`);
@@ -245,6 +254,21 @@ try {
     await key(page, '゛').click();
     await page.waitForTimeout(300);
     check((await cellText(page, 0, 0)) === '1行1列：ヒ', `(1) ビ にもう一度 ゛ で ヒ に戻る（${await cellText(page, 0, 0)}）`);
+    await ctx.close();
+  }
+
+  {
+    // 縦線が最後のマスの右にいる時の「1文字見る」は、最後のマスを見る。縦線の左にあった字（ハ）はそのまま
+    const { ctx, page } = await newPage({ marks: { ...SEEN_SOLVE, [`crossword_progress_${PUZZLE_ID}`]: progress({ '0,0': 'ハ' }) } });
+    await openPuzzle(page);
+    await openAcross(page);
+    const next = page.locator('[data-coach="keypad"]').getByRole('button', { name: '次のマス' });
+    await next.click();
+    await next.click();
+    await page.locator('[data-coach="closeup-head"]').getByRole('button', { name: '1文字見る' }).click();
+    await page.locator('[data-coach="reveal-confirm"]').getByRole('button', { name: '見る', exact: true }).click();
+    await page.waitForTimeout(800);
+    check((await cellText(page, 1, 0)) === '1行2列：キ' && (await cellText(page, 0, 0)) === '1行1列：ハ', `(1) 縦線が最後のマスの右の時の「1文字見る」は最後のマスに入る（${await cellText(page, 0, 0)}・${await cellText(page, 1, 0)}）`);
     await ctx.close();
   }
 

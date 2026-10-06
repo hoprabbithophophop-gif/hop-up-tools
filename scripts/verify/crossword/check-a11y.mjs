@@ -305,10 +305,17 @@ async function run() {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(200);
     check((await page.locator('#cell-0-0').getAttribute('aria-label'))?.endsWith('・の'), `(2) 文字盤のキーに Enter で字が入る（${await page.locator('#cell-0-0').getAttribute('aria-label')}）`);
+    // 縦線（2026-10-07）: 字を入れると縦線は次へ。読み上げは「2文字目の前」。← で戻ると「1文字目の前」、→ でまた「2文字目の前」
+    const caretText = () => page.locator('[data-coach="closeup-cells"] [aria-live="polite"]').textContent();
+    check((await caretText()) === '2文字目の前', `(2) 字を入れると縦線が次へ進み、位置を読み上げる（${await caretText()}）`);
     await page.keyboard.press('ArrowLeft');
+    await page.waitForTimeout(100);
+    check((await caretText()) === '1文字目の前', `(2) ← で縦線が1つ左へ（${await caretText()}）`);
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(100);
     await page.keyboard.press('Backspace');
     await page.waitForTimeout(200);
-    check((await page.locator('#cell-0-0').getAttribute('aria-label'))?.endsWith('・空'), `(2) ← と Backspace で消せる（${await page.locator('#cell-0-0').getAttribute('aria-label')}）`);
+    check((await page.locator('#cell-0-0').getAttribute('aria-label'))?.endsWith('・空') && (await caretText()) === '1文字目の前', `(2) Backspace で縦線の左の字が消え、縦線が1つ左へ（${await page.locator('#cell-0-0').getAttribute('aria-label')}・${await caretText()}）`);
     await page.keyboard.press('Escape');
     await page.waitForTimeout(400);
 
