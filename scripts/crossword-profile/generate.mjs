@@ -11,7 +11,6 @@ import { prefectureOf, PREFECTURES, dateOf, bloodOf, BLOOD, zodiacOf, etoOf, MON
 const MAX_WORDS = Number(process.argv[2] ?? 70);
 let seed = Number(process.argv[3] ?? 1);
 const rand = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
-const pick = (arr) => arr[Math.floor(rand() * arr.length)];
 
 const SITE = 'https://www.helloproject.com';
 const table = JSON.parse(await readFile(new URL('./data/members.json', import.meta.url), 'utf8'));
@@ -34,49 +33,46 @@ const ATTRS = {
 const KEYS = Object.keys(ATTRS);
 const vals = members.map((m) => Object.fromEntries(KEYS.map((k) => [k, ATTRS[k].value(m) ?? null])));
 
-// 共通点の候補: 3人組で、7項目のうち「ちょうど1つだけ」同じ値を持ち、その項目が答えにできる物
-const trios = new Map(); // 答えのカナ → [{ idx: [a,b,c], key }]
-const n = members.length;
-for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) {
-  const shared = KEYS.filter((k) => vals[a][k] != null && vals[a][k] === vals[b][k] && vals[b][k] === vals[c][k]);
-  if (shared.length !== 1 || !ATTRS[shared[0]].kana) continue;
-  const k = shared[0];
-  const kana = ATTRS[k].kana(vals[a][k]);
-  if (!isAnswerKana(kana) || kana.length < 2) continue;
-  if (!trios.has(kana)) trios.set(kana, []);
-  trios.get(kana).push({ idx: [a, b, c], key: k });
+// 共通点の候補（Hop 決定 2026-10-07）: 項目の値ごとに「その値を持つ全員」を挙げる。
+//   1人だけ → 「Aの出身地」型。2〜MAX_NAMES 人 → 「A・B・…の共通点」型。挙げた人以外に同じ値の人はいない。
+//   列挙した全員が別の項目でも同じ値だと答えが割れるので外す。人数が多すぎる値も外す。
+const MAX_NAMES = 8;
+const candidates = new Map(); // 答えのカナ → { idx, key }
+let tooBig = 0, ambiguous = 0;
+for (const k of KEYS) {
+  if (!ATTRS[k].kana) continue;
+  const holders = new Map();
+  vals.forEach((v, i) => { if (v[k] != null) { if (!holders.has(v[k])) holders.set(v[k], []); holders.get(v[k]).push(i); } });
+  for (const [v, idx] of holders) {
+    const kana = ATTRS[k].kana(v);
+    if (!isAnswerKana(kana) || kana.length < 2 || candidates.has(kana)) continue;
+    if (idx.length > MAX_NAMES) { tooBig++; continue; }
+    if (idx.length >= 2) {
+      const shared = KEYS.filter((kk) => idx.every((i) => vals[i][kk] != null && vals[i][kk] === vals[idx[0]][kk]));
+      if (shared.length !== 1) { ambiguous++; continue; }
+    }
+    candidates.set(kana, { idx, key: k });
+  }
 }
-// 1人型の候補: 答えが共通点の候補に無い値だけ（答えは問題の中で1回ずつ）
-const singles = new Map();
-for (let i = 0; i < n; i++) for (const k of KEYS) {
-  if (!ATTRS[k].kana || vals[i][k] == null) continue;
-  const kana = ATTRS[k].kana(vals[i][k]);
-  if (!isAnswerKana(kana) || kana.length < 2 || trios.has(kana)) continue;
-  if (!singles.has(kana)) singles.set(kana, []);
-  singles.get(kana).push({ idx: [i], key: k });
-}
-console.log(`共通点の答え ${trios.size}種 ／ 1人型だけの答え ${singles.size}種`);
+const sizes = {};
+for (const { idx } of candidates.values()) sizes[idx.length] = (sizes[idx.length] ?? 0) + 1;
+console.log(`カギの候補 ${candidates.size}語（人数別 ${JSON.stringify(sizes)}）／人数が多すぎて外した値 ${tooBig}・別の項目も全員同じで外した値 ${ambiguous}`);
 
-// 同じ人が何度も出ないように、出番の少ない人の組から選ぶ
+const n = members.length;
 const appear = new Array(n).fill(0);
-const chooseFor = (cands) => {
-  const scored = cands.map((c) => ({ c, s: c.idx.reduce((t, i) => t + appear[i], 0) + rand() * 0.5 }));
-  scored.sort((x, y) => x.s - y.s);
-  return scored[0].c;
-};
 const items = [];
-// 共通点型を先に全部、足りない分だけ1人型。それぞれ長い答えから（盤の骨になる）、同じ長さは乱数
-const byLen = (keys) => [...keys].sort((x, y) => y.length - x.length || rand() - 0.5);
-const allKana = [...byLen(trios.keys()), ...byLen(singles.keys())];
+// 長い答えから優先（盤の骨になる）、同じ長さは乱数
+const allKana = [...candidates.keys()].sort((x, y) => y.length - x.length || rand() - 0.5);
 for (const kana of allKana.slice(0, MAX_WORDS)) {
-  const cands = trios.get(kana) ?? singles.get(kana);
-  const c = chooseFor(cands);
+  const c = candidates.get(kana);
   for (const i of c.idx) appear[i]++;
-  const names = c.idx.map((i) => members[i].name);
-  const question = c.idx.length === 3 ? `${names.join('・')}の共通点` : ATTRS[c.key].single(names[0]);
-  items.push({ id: `w${items.length}`, question, answer: Array.from(kana), hint: { kind: 'link', url: SITE + members[c.idx[0]].path }, groups: c.idx.map((i) => members[i].group) });
+  // 名前の並びは公式の掲載順（グループ順→グループ内の順）
+  const idx = [...c.idx].sort((a, b) => a - b);
+  const names = idx.map((i) => members[i].name);
+  const question = idx.length >= 2 ? `${names.join('・')}の共通点` : ATTRS[c.key].single(names[0]);
+  items.push({ id: `w${items.length}`, question, answer: Array.from(kana), hint: { kind: 'link', url: SITE + members[idx[0]].path }, groups: idx.map((i) => members[i].group) });
 }
-console.log(`カギの候補 ${items.length}語（共通点 ${items.filter((i) => i.question.endsWith('の共通点')).length}・1人型 ${items.filter((i) => !i.question.endsWith('の共通点')).length}）`);
+console.log(`使う語 ${items.length}（共通点 ${items.filter((i) => i.question.endsWith('の共通点')).length}・1人型 ${items.filter((i) => !i.question.endsWith('の共通点')).length}）`);
 console.log(`出番の分布: 0回 ${appear.filter((a) => a === 0).length}人・最多 ${Math.max(...appear)}回`);
 
 // 盤を組む。全部置けるまで試し、置けなかった語は落とす
