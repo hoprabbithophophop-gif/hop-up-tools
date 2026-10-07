@@ -60,3 +60,5 @@ gas/.clasp.json
 scripts/song-structure/**/__pycache__/
 
 scripts/crossword-profile/data/
+scripts/crossword-rules/*.puzzle.json
+scripts/crossword-rules/*.insert.sql
