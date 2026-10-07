@@ -33,6 +33,8 @@ const comboItems = (d) => {
 };
 
 const buildOne = async (list, title, outBase, label) => {
+  // 棚の決まり: 題名は60字まで（crossword_puzzles の check）
+  if ([...title].length > 60) throw new Error(`題名が60字を超えている（${[...title].length}字）: ${title}`);
   const items = toItems(list);
   const dup = new Set();
   for (const it of items) { const k = it.answer.join(''); if (dup.has(k)) throw new Error(`同じ答えが2つ: ${k}`); dup.add(k); }
