@@ -77,13 +77,13 @@ export function placeAll(items, { attempts = 400, rand = Math.random } = {}) {
 }
 
 /** 置いた語から、棚の本文（答えは文字数だけ）・答え・グループの札を作る */
-export function toPuzzle(placed, byId) {
+export function toPuzzle(placed, byId, { creatorName = null } = {}) {
   const grid = buildGrid(placed);
   const clues = grid.items.map((p) => ({
     clueIndex: p.clueIndex, direction: p.direction, startX: p.startX, startY: p.startY,
     clue: p.question, answer: p.answer, hint: byId.get(p.id).hint,
   }));
-  const body = { version: 1, width: grid.width, height: grid.height, clues: clues.map(({ answer, ...c }) => ({ ...c, length: answer.length })) };
+  const body = { version: 1, width: grid.width, height: grid.height, clues: clues.map(({ answer, ...c }) => ({ ...c, length: answer.length })), ...(creatorName ? { creatorName } : {}) };
   return { grid, clues, body, answers: clues.map((c) => c.answer) };
 }
 

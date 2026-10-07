@@ -40,7 +40,7 @@ const buildOne = async (list, title, outBase, label) => {
   for (const it of items) { const k = it.answer.join(''); if (dup.has(k)) throw new Error(`同じ答えが2つ: ${k}`); dup.add(k); }
   const placed = placeAll(items.map(({ id, question, answer }) => ({ id, question, answer })), { attempts: Number(process.env.ATTEMPTS ?? 800) });
   const byId = new Map(items.map((i) => [i.id, i]));
-  const { grid, body, answers } = toPuzzle(placed, byId);
+  const { grid, body, answers } = toPuzzle(placed, byId, { creatorName: process.env.CREATOR_NAME ?? spec.creatorName ?? null });
   const dropped = items.filter((i) => !placed.some((p) => p.id === i.id)).map((i) => i.answer.join(''));
   console.log(`${label}: 語 ${items.length}、置けた ${placed.length}、盤 ${grid.width}×${grid.height}${dropped.length ? `、置けなかった: ${dropped.join('・')}` : ''}`);
   const id = makeId();

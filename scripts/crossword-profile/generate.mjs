@@ -82,7 +82,7 @@ const pure = items.map(({ id, question, answer }) => ({ id, question, answer }))
 const placed = placeAll(pure, { attempts: Number(process.env.ATTEMPTS ?? 800), rand });
 console.log(`盤に置けた語 ${placed.length} / ${items.length}`);
 const byId = new Map(items.map((i) => [i.id, i]));
-const { grid, body, answers } = toPuzzle(placed, byId);
+const { grid, body, answers } = toPuzzle(placed, byId, { creatorName: process.env.CREATOR_NAME ?? null });
 console.log(`盤 ${grid.width}×${grid.height}、カギ ${body.clues.length}`);
 const id = makeId();
 const groupTags = [...new Set(grid.items.flatMap((p) => byId.get(p.id).groups))];
