@@ -190,9 +190,11 @@ export async function onRequestPost(context: {
     solved_at: string;
     revealed: string[];
     misses: number;
+    active_ms: number;
   }[])[0];
   if (!play) return json({ ok: false, reason: "bad_request" }, 400);
-  const timeSeconds = Math.floor((Date.parse(play.solved_at) - Date.parse(play.started_at)) / 1000);
+  // タイムは「盤を開いていた時間」（Hop 決定 2026-10-07）。active_ms が 0 の古い回だけ壁時計で出す
+  const timeSeconds = Math.max(1, Math.floor((play.active_ms > 0 ? play.active_ms : Date.parse(play.solved_at) - Date.parse(play.started_at)) / 1000));
   const score: CleanScore = {
     puzzleId: play.puzzle_id,
     playerKey: input.playerKey,

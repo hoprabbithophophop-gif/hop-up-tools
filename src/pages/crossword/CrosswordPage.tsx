@@ -57,7 +57,7 @@ import { BEGINNER_LABEL } from "./components/PuzzleGalleryCard";
 import { detectGroups } from "../../lib/crossword/groupDetect";
 import { drawShareImage } from "../../lib/crossword/shareImage";
 import { queueScore, retryQueuedScores, saveScore, ScoreError } from "../../lib/crossword/scores";
-import { checkPlay, revealCell, startPlay, touchPlay, PlayError } from "../../lib/crossword/play";
+import { checkPlay, pausePlay, pausePlayBeacon, pingPlay, resumePlay, revealCell, startPlay, touchPlay, PlayError } from "../../lib/crossword/play";
 import { CoachMarks, type CoachStep } from "./components/CoachMarks";
 import { tutorialPuzzle, TUTORIAL_HINTS } from "../../lib/crossword/tutorial";
 import { C } from "./style";
@@ -85,6 +85,10 @@ const PROGRESS_PREFIX = "crossword_progress_";
 const PLAYED_PREFIX = "crossword_played_";
 // 前回の続きを開いた時に「続きから／最初から」を聞くのは、前回から30分以上空いた時だけ（Hop 決定 2026-10-04）
 const RESUME_ASK_MS = 30 * 60 * 1000;
+// 盤を開いている間の生存の合図の間隔（受付係はこれ＋猶予で、閉じたの合図が届かなかった回を打ち切る）
+const PING_MS = 60 * 1000;
+// タイマーの時計がこれ以上飛んだら、開いたまま端末が眠っていたと見なして一時停止する【仮】
+const SLEEP_GAP_MS = 30 * 1000;
 // タイムは m:ss（1時間を超えたら h:mm:ss）にそろえる（2026-10-06 Hop 決定）
 const clock = formatTime;
 
@@ -164,7 +168,8 @@ const T = {
   // 前回の続きを開いた時（Hop 決定 2026-10-04）
   resume: {
     title: "前回の続きがあります",
-    body: (t: string) => `タイムは始めた時から数えています（${t}）。`,
+    // タイムは盤を開いていた時間なので、止まっている今の値を見せる（2026-10-07）
+    body: (t: string) => `ここまでのタイムは ${t} です。`,
     cont: "続きから", // Hop 決定 2026-10-06
     restart: "最初から", // Hop 決定 2026-10-06
   },
@@ -248,7 +253,7 @@ const T = {
   },
   playerHelp: {
     title: "遊び方",
-    steps: ["空欄のマスに文字を入力", "カギを参考に正解を推測", "最後のマスを埋めると自動で答え合わせ"],
+    steps: ["空欄のマスに文字を入力", "カギを参考に正解を推測", "最後のマスを埋めると自動で答え合わせ", "タイムは盤を開いている間だけ進みます。"], // 4つ目は Hop 決定 2026-10-07
     start: "始める！",
     createdBy: (name: string) => `作った人：${name}`, // 2026-10-06 Hop 決定
     // 練習問題の入口は「?」から開いた遊び方の窓だけ（Hop 決定 2026-10-05）
@@ -412,6 +417,8 @@ export default function CrosswordPage() {
   const fromParam = searchParams.get("from");
   const tutorialFrom = isTutorial && fromParam && /^[A-Za-z0-9_-]{1,64}$/.test(fromParam) ? fromParam : null;
   const isPlayerMode = !!puzzleId || isDebugMode || isTutorial;
+  // 練習問題と見本は受付係を通らない（タイムはこの端末の時計だけで測る）
+  const isLocalTiming = isTutorial || isDebugMode;
   // 組み直し（/crossword/create?edit=<番号>。Hop 決定 2026-10-05）。
   // checking = 中身を受け取り中、editing = 組み直し中（下書きに書かない・読まない【仮】）、none = 普通の作る画面
   const editParam = isPlayerMode ? null : searchParams.get("edit");
@@ -464,13 +471,35 @@ export default function CrosswordPage() {
   const [activeCloseupIndex, setActiveCloseupIndex] = useState(0);
 
   // タイマー関連
-  const [startTime, setStartTime] = useState<number | null>(null);
   const [clearTime, setClearTime] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [gamePhase, setGamePhase] = useState<"ready" | "playing" | "cleared">("ready");
-  const restoredElapsedRef = useRef(0); // デバッグ用の見本の問題だけで使う
-  // 解いている回（/api/crossword-play）。localStart はこの端末の時計で回を始めた時刻。タイマーはここから壁時計で進む
-  // （タイムは受付係の時計で「始めてから解けるまで」。画面を隠している間も進む。Hop 決定 2026-10-04）
+  // 端末に残した途中経過のタイム（秒）。表示の初期値にだけ使い、受付係の返事で上書きする
+  const restoredElapsedRef = useRef(0);
+  // タイムは「盤を開いていた時間」（Hop 決定 2026-10-07）。activeMs = 受付係が返した開いていた時間の合計、
+  // openedAt = この端末で盤を開いた時刻（閉じている・一時停止の間は null）。表示は activeMs ＋（開いていれば 今 − openedAt）
+  // 練習問題と見本は受付係を通らないので、この端末の時計だけで同じ動きにする
+  const [timing, setTimingState] = useState<{ activeMs: number; openedAt: number | null } | null>(null);
+  const timingRef = useRef(timing);
+  const setTiming = (t: { activeMs: number; openedAt: number | null } | null) => {
+    timingRef.current = t;
+    setTimingState(t);
+  };
+  const activeMsNow = (t = timingRef.current, now = Date.now()) => (t ? t.activeMs + (t.openedAt !== null ? Math.max(0, now - t.openedAt) : 0) : 0);
+  // 一時停止の幕。画面を隠した時・閉じた時も自動でかかる。戻った時は自動では外さない
+  const [paused, setPausedState] = useState(false);
+  const pausedRef = useRef(false);
+  const setPaused = (p: boolean) => {
+    pausedRef.current = p;
+    setPausedState(p);
+  };
+  const [resuming, setResuming] = useState(false); // 「再開」の返事待ち
+  // 開く・閉じるの順番。後から届いた古い返事で表示を戻さない
+  const timingSeqRef = useRef(0);
+  // 最後にタイマーが進んだ時刻（端末の眠りで時計が飛んだのを見分ける）
+  const lastTickRef = useRef(0);
+  const resumeButtonRef = useRef<HTMLButtonElement | null>(null);
+  // 解いている回（/api/crossword-play）。localStart はこの端末の時計で回を始めた時刻（「前回の続き」の窓の数字に使う）
   const playRef = useRef<{ token: string; localStart: number } | null>(null);
   const playErrorRef = useRef(""); // 回を始められなかった理由（知らせの出し分けに使う）
   // 前回の続きを開いた時に聞く（値は始めてからの秒数）。答えるまでタイマーは動かさない
@@ -650,7 +679,8 @@ export default function CrosswordPage() {
                 playRef.current = { token: pl.token, localStart: pl.localStart };
                 const savedAt = typeof parsed.savedAt === "number" ? parsed.savedAt : 0;
                 if (Date.now() - savedAt >= RESUME_ASK_MS && Object.keys(parsed.userAnswers).length > 0) {
-                  setResumeAsk(Math.max(0, Math.floor((Date.now() - pl.localStart) / 1000)));
+                  // 閉じていた間は進まないので、保存してあった「開いていた時間」をそのまま見せる
+                  setResumeAsk(Math.max(0, Math.floor(restoredElapsedRef.current)));
                 }
               }
             }
@@ -703,9 +733,9 @@ export default function CrosswordPage() {
   // 初回ヘルプ表示判定 + タイマー自動開始（遊び方を読んだことがあれば、問題が出たらすぐ始める）
   useEffect(() => {
     if (isPlayerMode && playerPuzzle) {
-      // 練習問題は遊び方の窓を出さず、タイマーも動かさずに始める
+      // 練習問題は遊び方の窓を出さずに始める（タイムは出さないが、一時停止の動きは同じ。端末の時計だけで測る）
       if (isTutorial) {
-        if (gamePhase === "ready") setGamePhase("playing");
+        if (gamePhase === "ready") beginTiming();
         return;
       }
       const hasSeenHelp = lsGet(HELP_KEY);
@@ -723,6 +753,7 @@ export default function CrosswordPage() {
     setUserAnswers({});
     setReveals(0);
     playRef.current = null;
+    restoredElapsedRef.current = 0;
     setResumeAsk(null);
   };
 
@@ -750,7 +781,8 @@ export default function CrosswordPage() {
 
   // [PC/Desktop] キーボード操作 - 物理キーボードでの直接入力
   useEffect(() => {
-    if (!isPlayerMode || !playerPuzzle || isCleared || showCloseup) return;
+    // 一時停止の幕の間はキーを受けない
+    if (!isPlayerMode || !playerPuzzle || isCleared || showCloseup || paused) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -787,7 +819,7 @@ export default function CrosswordPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
     // userAnswers: Backspace が今の盤の字を見るため（古い盤のまま消さない）
-  }, [isPlayerMode, playerPuzzle, isCleared, showCloseup, activeCell, currentWordDirection, activeWordItem, userAnswers]);
+  }, [isPlayerMode, playerPuzzle, isCleared, showCloseup, paused, activeCell, currentWordDirection, activeWordItem, userAnswers]);
 
   // 遊び方を閉じたらタイマー開始（HarmonyPalette の Cookie 同意の後の開始の置き換え）
   const closeHelp = () => {
@@ -821,20 +853,84 @@ export default function CrosswordPage() {
     beginTiming();
   };
 
-  // 回を始める。続きの回（端末に番号が残っている）ならその時刻から、無ければ受付係に新しく始めてもらう
+  // 回を始める。続きの回（端末に番号が残っている）なら受付係に「開いた」を送り、返事の開いていた時間から進める。
+  // 無ければ受付係に新しく始めてもらう（始めた瞬間から盤は開いている扱い）
   const beginTiming = () => {
     setGamePhase("playing");
-    if (isTutorial) return; // 練習問題は時間を測らない
-    if (isDebugMode) {
-      setStartTime(Date.now() - restoredElapsedRef.current * 1000);
+    setPaused(false);
+    const now = Date.now();
+    if (isLocalTiming) {
+      setTiming({ activeMs: restoredElapsedRef.current * 1000, openedAt: now });
       return;
     }
     if (playRef.current) {
-      setStartTime(playRef.current.localStart);
+      // 表示の初期値は端末に残した途中経過。受付係の返事が来たら上書きする
+      setTiming({ activeMs: restoredElapsedRef.current * 1000, openedAt: now });
+      const token = playRef.current.token;
+      const seq = ++timingSeqRef.current;
+      resumePlay(token)
+        .then((r) => {
+          if (seq === timingSeqRef.current && !pausedRef.current && playRef.current?.token === token) setTiming({ activeMs: r.activeMs, openedAt: Date.now() });
+        })
+        .catch((err) => console.warn("Failed to resume play:", err));
       return;
     }
-    setStartTime(Date.now());
+    setTiming({ activeMs: 0, openedAt: now });
     void ensurePlay();
+  };
+
+  // 一時停止（ボタン・画面を隠した時・閉じた時・端末が眠っていた時）。幕をかけ、入力カードは閉じる。
+  // beacon = 返事を待てない時（画面を隠す・閉じる）。at = 時計を止める時刻（眠っていた分を数えないように、眠る前の時刻で止める）
+  const pauseBoard = (opts: { beacon?: boolean; at?: number } = {}) => {
+    if (pausedRef.current) return;
+    const seq = ++timingSeqRef.current;
+    setTiming({ activeMs: activeMsNow(timingRef.current, opts.at ?? Date.now()), openedAt: null });
+    setPaused(true);
+    setShowCloseup(false);
+    if (isLocalTiming) return;
+    // 回を始める返事待ちの間は送れない（返事が来た時に ensurePlay の中で送る）
+    const token = playRef.current?.token;
+    if (!token) return;
+    if (opts.beacon) {
+      pausePlayBeacon(token);
+      return;
+    }
+    pausePlay(token)
+      .then((r) => {
+        if (seq === timingSeqRef.current && pausedRef.current) setTiming({ activeMs: r.activeMs, openedAt: null });
+      })
+      .catch((err) => console.warn("Failed to pause play:", err));
+  };
+
+  // 幕の「再開」。受付係に「開いた」を送り、返事の開いていた時間に合わせてから幕を外す。
+  // 送れなかった時は幕をかけたまま知らせる（受付係では閉じたままなのに、画面の時計だけ進まないように）
+  const resumeBoard = async () => {
+    if (!pausedRef.current || resuming) return;
+    const seq = ++timingSeqRef.current;
+    const token = isLocalTiming ? null : playRef.current?.token;
+    if (!token) {
+      setTiming({ activeMs: activeMsNow(), openedAt: Date.now() });
+      setPaused(false);
+      return;
+    }
+    setResuming(true);
+    try {
+      const r = await resumePlay(token);
+      if (seq !== timingSeqRef.current) return;
+      setTiming({ activeMs: r.activeMs, openedAt: Date.now() });
+      setPaused(false);
+    } catch (err) {
+      console.warn("Failed to resume play:", err);
+      if (err instanceof PlayError && err.reason === "no_play") {
+        // 回の記録が片付いていた。幕は外し、次に受付係を使う時に新しい回として始め直す（withPlay）
+        setTiming({ activeMs: activeMsNow(), openedAt: Date.now() });
+        setPaused(false);
+      } else {
+        toast.error(playErrorOf(err));
+      }
+    } finally {
+      setResuming(false);
+    }
   };
 
   const ensurePlay = (): Promise<string | null> => {
@@ -847,7 +943,14 @@ export default function CrosswordPage() {
         const p = await startPlay(puzzleId);
         const localStart = Date.now();
         playRef.current = { token: p.token, localStart };
-        setStartTime(localStart);
+        // 受付係では始めた瞬間から開いている。返事待ちの間に一時停止していたら、ここで閉じる
+        ++timingSeqRef.current;
+        if (pausedRef.current) {
+          setTiming({ activeMs: 0, openedAt: null });
+          pausePlay(p.token).catch((err) => console.warn("Failed to pause play:", err));
+        } else {
+          setTiming({ activeMs: 0, openedAt: localStart });
+        }
         return p.token;
       } catch (err) {
         console.warn("Failed to start play:", err);
@@ -888,6 +991,7 @@ export default function CrosswordPage() {
 
   // カギクリック → クローズアップモーダルを開く
   const focusCellByItem = (item: PlacedItem) => {
+    if (pausedRef.current) return; // 一時停止の幕の間は開かない
     setActiveWordItem(item);
     setCurrentWordDirection(item.direction);
     setActiveCell({ x: item.startX, y: item.startY });
@@ -897,7 +1001,7 @@ export default function CrosswordPage() {
 
   // セルをタップ → そのセルを含むワードでクローズアップモーダルを開く
   const openCloseupForCell = (x: number, y: number) => {
-    if (!playerPuzzle || isCleared) return;
+    if (!playerPuzzle || isCleared || pausedRef.current) return;
     // 最初のマスの脈打ちと1行は、どこかのマスを押した瞬間に消して二度と出さない
     if (firstCellHint) {
       lsSet(FIRST_CELL_KEY, "1");
@@ -1035,15 +1139,77 @@ export default function CrosswordPage() {
     if (currentIdx < allItems.length - 1) focusCellByItem(allItems[currentIdx + 1]);
   };
 
-  // タイマーUI更新（ページ離脱対応）
+  // タイマーの表示。盤を開いている間だけ進む（Hop 決定 2026-10-07。前は画面を隠している間も進めていた）
+  // 開いたまま端末が眠った時（画面を隠した合図が来ないまま時計が飛んだ時）は、眠る前の時刻で一時停止する
   useEffect(() => {
-    // 画面を隠している間も止めない。ランキングのタイムは受付係の時計で同じように測るため（Hop 決定 2026-10-04。HarmonyPalette は隠している間止めていた）
-    if (gamePhase !== "playing" || !startTime) return;
-    const tick = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startTime) / 1000)));
+    if (gamePhase !== "playing" || !timing) return;
+    lastTickRef.current = Date.now();
+    const tick = () => {
+      const now = Date.now();
+      if (timing.openedAt !== null && now - lastTickRef.current > SLEEP_GAP_MS) {
+        pauseBoard({ at: lastTickRef.current });
+        return;
+      }
+      lastTickRef.current = now;
+      setElapsedSeconds(Math.max(0, Math.floor(activeMsNow(timing, now) / 1000)));
+    };
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [gamePhase, startTime]);
+  }, [gamePhase, timing]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 画面を隠した時・閉じた時は自動で一時停止する（返事は待てないので sendBeacon）。戻っても自動では再開しない
+  useEffect(() => {
+    if (gamePhase !== "playing" || isCleared) return;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") pauseBoard({ beacon: true });
+    };
+    const onPageHide = () => pauseBoard({ beacon: true });
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, [gamePhase, isCleared]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 開いている間は60秒ごとに生存の合図を送る（幕の間・解けた後は送らない）
+  useEffect(() => {
+    if (gamePhase !== "playing" || isCleared || paused || isLocalTiming) return;
+    const interval = setInterval(() => {
+      const token = playRef.current?.token;
+      if (!token || pausedRef.current) return;
+      // 眠りから覚めた直後は合図を送らず、一時停止にする（眠っていた分を受付係に数えさせない）
+      if (Date.now() - lastTickRef.current > SLEEP_GAP_MS) {
+        pauseBoard({ at: lastTickRef.current });
+        return;
+      }
+      const seq = timingSeqRef.current;
+      pingPlay(token)
+        .then((r) => {
+          if (r.open && seq === timingSeqRef.current && !pausedRef.current) setTiming({ activeMs: r.activeMs, openedAt: Date.now() });
+        })
+        .catch((err) => console.warn("Failed to ping play:", err));
+    }, PING_MS);
+    return () => clearInterval(interval);
+  }, [gamePhase, isCleared, paused, isLocalTiming]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 解く画面から別の画面へ移る時（この画面が消える時）も、開いていれば閉じる
+  const liveRef = useRef({ phase: gamePhase, cleared: isCleared });
+  liveRef.current = { phase: gamePhase, cleared: isCleared };
+  useEffect(
+    () => () => {
+      const token = playRef.current?.token;
+      if (isLocalTiming || !token || pausedRef.current) return;
+      if (liveRef.current.phase === "playing" && !liveRef.current.cleared) pausePlayBeacon(token);
+    },
+    [] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // 幕がかかったら「再開」にフォーカスを移す
+  useEffect(() => {
+    if (paused) resumeButtonRef.current?.focus();
+  }, [paused]);
 
   // 遊ばれた回数は、盤に最初の1文字が入ったときに1足す（Hop 決定 2026-10-04。開いただけでは数えない）。
   // 同じ端末では1つの問題につき1回だけ。作った本人の端末では数えない。失敗しても遊ぶのは止めない。
@@ -1595,6 +1761,8 @@ export default function CrosswordPage() {
     retryRef.current = 0;
     setBoardStatus(allCorrect ? null : "wrong");
     if (allCorrect) {
+      // 解けたら幕は出さない（通信の間に幕がかかっていた時のため）
+      setPaused(false);
       // Stage 1: クリア演出開始
       setShowClearAnimation(true);
       setGamePhase("cleared");
@@ -1603,7 +1771,7 @@ export default function CrosswordPage() {
       clearTimeRef.current = null;
       setTimeout(() => {
         // タイムは受付係の時計で測った物（デバッグ用の見本だけこの端末の時計）
-        const timeSeconds = serverTime ?? (startTime ? Math.floor((Date.now() - startTime) / 1000) : null);
+        const timeSeconds = serverTime ?? (timingRef.current ? Math.floor(activeMsNow() / 1000) : null);
         if (timeSeconds !== null && puzzleId) {
           setClearTime(timeSeconds);
           clearTimeRef.current = timeSeconds;
@@ -1777,7 +1945,7 @@ export default function CrosswordPage() {
     const first = playerPuzzle?.items.reduce<PlacedItem | null>((a, b) => (!a || (b.clueIndex ?? 1e9) < (a.clueIndex ?? 1e9) ? b : a), null);
     return first ? { x: first.startX, y: first.startY } : null;
   })();
-  const showFirstCellHint = firstCellHint && !isTutorial && gamePhase === "playing" && !isCleared && !showHelp && resumeAsk === null && !!firstCellPos;
+  const showFirstCellHint = firstCellHint && !isTutorial && gamePhase === "playing" && !isCleared && !paused && !showHelp && resumeAsk === null && !!firstCellPos;
 
   // 作る画面の札（一度に1つまで）。2語目が交差して組まれたら「交差」の札は役目を終える
   const crossedBoard = !!generatedPuzzle && !isLiveGenerating && generatedPuzzle.items.length >= 2 && generatedPuzzle.cells.some((c) => c.horizontalItemId && c.verticalItemId);
@@ -1835,9 +2003,23 @@ export default function CrosswordPage() {
 
             <div className="flex items-center gap-2">
               {gamePhase === "playing" && !isTutorial && (
-                <span className="text-lg font-mono font-bold tabular-nums" style={{ color: C.ink }}>
+                <span data-timer="" className="text-lg font-mono font-bold tabular-nums" style={{ color: C.ink }}>
                   {clock(elapsedSeconds)}
                 </span>
+              )}
+              {/* 一時停止（Hop 決定 2026-10-07）。解けた後は出さない。幕の間は押せない（幕の「再開」で戻る） */}
+              {gamePhase === "playing" && !isCleared && (
+                <button
+                  type="button"
+                  onClick={() => pauseBoard()}
+                  disabled={paused}
+                  className="p-1.5 hover:bg-surface-container-high disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  style={{ color: C.ink }}
+                  title="一時停止"
+                  aria-label="一時停止"
+                >
+                  <Icon icon="pause" />
+                </button>
               )}
               {/* 解けた後は ↻ を出さない（2026-10-06 レビューの直し） */}
               {gamePhase !== "cleared" && !isCleared && (
@@ -1958,6 +2140,23 @@ export default function CrosswordPage() {
                 {/* パズル描画エリア（ハンコはこの上に押す。すぐ下に「Xに投稿」が来るように） */}
                 <div data-board-area="" className="mb-8 w-full relative">
                   {isCleared && <ClearEffect fadeAfterMs={isTutorial ? TUTORIAL_STAMP_FADE_MS : undefined} />}
+                  {/* 一時停止の幕。盤の領域を全部覆い、中身は「再開」だけ（Hop 決定 2026-10-07） */}
+                  {paused && !isCleared && (
+                    <div data-pause-curtain="" className="absolute inset-0 z-10 flex items-center justify-center bg-surface-container-high">
+                      <button
+                        ref={resumeButtonRef}
+                        type="button"
+                        onClick={() => void resumeBoard()}
+                        disabled={resuming}
+                        aria-label="再開"
+                        className="px-8 py-3 bg-primary hover:bg-secondary text-white font-bold disabled:opacity-50 transition-colors"
+                      >
+                        再開
+                      </button>
+                    </div>
+                  )}
+                  {/* 幕の間は盤を見えなくし、押せなくする */}
+                  <div inert={paused} style={paused ? { visibility: "hidden" } : undefined}>
                   <div className="w-full bg-white p-6 overflow-x-auto">
                     <FitGrid width={playerPuzzle.width} height={playerPuzzle.height} userScale={scale}>
                       <PuzzleGridRetro
@@ -2019,6 +2218,7 @@ export default function CrosswordPage() {
                       {checking ? "答え合わせ中…" : boardStatus === "wrong" ? "全部埋まっていますが、どこかに間違いがあります。" : "答え合わせできませんでした。通信を確かめてください。しばらくして自動でもう一度試します。"}
                     </p>
                   )}
+                  </div>
                 </div>
 
                 {/* 解き終えた画面（2026-10-06 任天堂シミュで決定・Hop「いいと思う」）: ハンコの直下に「Xに投稿」→ 名前の窓の後のランキング
@@ -2083,7 +2283,7 @@ export default function CrosswordPage() {
                 )}
 
                 {/* Sticky Hint Bar - モーダルが閉じている時のみ表示 */}
-                {!isCleared && !showCloseup && (
+                {!isCleared && !showCloseup && !paused && (
                   <StickyHintBar
                     currentHint={activeWordItem ? { number: activeWordItem.clueIndex || 0, direction: activeWordItem.direction, hint: activeWordItem.question } : null}
                     onPrevHint={() => {
@@ -2116,7 +2316,8 @@ export default function CrosswordPage() {
                 </div>
 
                 {/* Clue List */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8 bg-surface-container-low p-6">
+                {/* 幕の間はカギの一覧も見えなくする（考えられないように） */}
+                <div inert={paused} className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8 bg-surface-container-low p-6" style={paused ? { visibility: "hidden" } : undefined}>
                   {(["horizontal", "vertical"] as const).map((dir) => (
                     <div key={dir}>
                       <h2 className="font-bold mb-4 pb-2" style={{ color: C.ink }}>

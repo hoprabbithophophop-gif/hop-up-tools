@@ -42,3 +42,36 @@ export const touchPlay = (token: string) => call<{ counted: boolean }>({ action:
 
 // そのマスの字を1つ教えてもらう。reveals はこの回で見たマスの数
 export const revealCell = (token: string, x: number, y: number) => call<{ char: string; reveals: number }>({ action: "reveal", token, x, y });
+
+// 盤を開いていた時間（Hop 決定 2026-10-07）。タイムは受付係が測る「盤を開いていた時間の合計」。
+// activeMs はその合計（ミリ秒）。open は受付係から見て今盤が開いているか
+export interface ActiveTime {
+  activeMs: number;
+  open: boolean;
+}
+
+// 盤を開いた（再開）。受付係が開き始めの時刻を書く
+export const resumePlay = (token: string) => call<ActiveTime>({ action: "resume", token });
+
+// 盤を閉じた・一時停止
+export const pausePlay = (token: string) => call<ActiveTime>({ action: "pause", token });
+
+// 開いている間の生存の合図（60秒ごと）
+export const pingPlay = (token: string) => call<ActiveTime>({ action: "ping", token });
+
+// 画面を閉じる・隠す時の一時停止。返事は待てないので sendBeacon で送る（送れなければ fetch の keepalive で送る）
+export function pausePlayBeacon(token: string): void {
+  const body = JSON.stringify({ action: "pause", token });
+  try {
+    if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+      if (navigator.sendBeacon("/api/crossword-play", new Blob([body], { type: "application/json" }))) return;
+    }
+  } catch {
+    /* 下の fetch で送る */
+  }
+  try {
+    void fetch("/api/crossword-play", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => {});
+  } catch {
+    /* 送れなくても受付係が最後の生存の合図で打ち切る */
+  }
+}

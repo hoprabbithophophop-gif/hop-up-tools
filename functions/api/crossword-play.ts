@@ -12,6 +12,12 @@
  *                                    合っていなければ、どこが違うかは返さない（Hop 2026-10-04）
  *   reveal { token, x, y }         → そのマスの字を1つ返す。{ char, reveals }
  *   touch  { token }               → 最初の1文字が入った。遊ばれた回数をこの回で1度だけ足す（同じ接続元・同じ問題は24時間に1度まで）
+ *   resume { token }               → 盤を開いた（再開）。{ activeMs, open: true }
+ *   pause  { token }               → 盤を閉じた・一時停止。{ activeMs, open: false }
+ *   ping   { token }               → 開いている間の生存の合図（60秒ごと）。{ activeMs, open }
+ *
+ * タイムは「盤を開いていた時間」の合計（Hop 決定 2026-10-07。壁時計ではない）。開いた・閉じたの時刻は受付係の時計で測るので、
+ * 端末が時間を偽って申告する余地は無い。閉じたの合図が届かなかった回（落ちた・通信が切れた）は、最後の生存の合図＋PING_GRACE_MS までで打ち切る。
  *
  * 字の数×MIN_SEC_PER_CELL 秒より速く解けた回は too_fast を付け、ランキングに載せない（答えを覚えた人・機械の一気入れ対策）。
  *
@@ -34,6 +40,7 @@ const ENDPOINT = "crossword-play";
 const STARTS_PER_IP_PER_HOUR = 300; // 学校・会社など同じ回線で大勢が遊んでも詰まらないように（Hop 決定 2026-10-04。最初は 60）
 const MAX_CHECKS_PER_PLAY = 2000;
 const PLAY_KEEP_DAYS = 30;
+const PING_GRACE_MS = 90 * 1000; // 生存の合図は60秒ごと。届かなくなってからこの分だけ「開いていた」と見なす
 const MIN_SEC_PER_CELL = 1; // 人間が答えを知っていても1マスにかかる下限（Hop 決定 2026-10-04）
 const COUNT_ENDPOINT = "crossword-count";
 const ID_RE = /^[A-Za-z0-9_-]{8}$/;
@@ -57,7 +64,21 @@ interface Play {
   solved_at: string | null;
   counted: boolean;
   too_fast: boolean;
+  active_ms: number;
+  resumed_at: string | null;
+  seen_at: string | null;
 }
+
+/** 開いていた時間の合計（ミリ秒）。いま開いている分は、最後の生存の合図＋猶予までで打ち切る */
+const activeMsOf = (p: Play, nowMs: number): number => {
+  let open = 0;
+  if (p.resumed_at) {
+    const from = Date.parse(p.resumed_at);
+    const seen = p.seen_at ? Date.parse(p.seen_at) : from;
+    open = Math.max(0, Math.min(nowMs - from, seen - from + PING_GRACE_MS));
+  }
+  return p.active_ms + open;
+};
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -128,7 +149,7 @@ export async function onRequestPost(context: {
 
   const loadPlay = async (token: string): Promise<Play | null> => {
     const res = await fetch(
-      `${rest}/crossword_plays?select=id,puzzle_id,started_at,revealed,misses,last_wrong,checks,solved_at,counted,too_fast&id=eq.${token}`,
+      `${rest}/crossword_plays?select=id,puzzle_id,started_at,revealed,misses,last_wrong,checks,solved_at,counted,too_fast,active_ms,resumed_at,seen_at&id=eq.${token}`,
       { headers: dbHeaders },
     );
     if (!res.ok) throw new Error(`play load failed ${res.status}`);
@@ -167,7 +188,8 @@ export async function onRequestPost(context: {
       const ins = await fetch(`${rest}/crossword_plays`, {
         method: "POST",
         headers: { ...dbHeaders, Prefer: "return=representation" },
-        body: JSON.stringify({ puzzle_id: puzzleId }),
+        // 始めた瞬間から盤は開いている
+        body: JSON.stringify({ puzzle_id: puzzleId, resumed_at: new Date().toISOString(), seen_at: new Date().toISOString() }),
       });
       if (!ins.ok) {
         // 全体ブレーキ（crossword_plays_rate_guard・errcode 53400）に当たった場合は「混み合っています」にする
@@ -213,7 +235,35 @@ export async function onRequestPost(context: {
     const puzzle = await loadPuzzle(play.puzzle_id);
     if (!puzzle) return json({ ok: false, reason: "not_found" }, 404);
     const expected = expectedCells(puzzle.clues, puzzle.answers);
-    const timeOf = (solvedAt: string) => Math.max(1, Math.floor((Date.parse(solvedAt) - Date.parse(play.started_at)) / 1000));
+    // 解けた回のタイム。active_ms が 0 の古い回（開いていた時間を数える前の回）だけ、始めた時刻→解けた時刻の壁時計で出す
+    const timeOf = (p: Play) =>
+      Math.max(1, Math.floor((p.active_ms > 0 ? p.active_ms : Date.parse(p.solved_at ?? p.started_at) - Date.parse(p.started_at)) / 1000));
+
+    // --- 開いた・閉じた・生存の合図（タイムは開いていた時間の合計） ---
+    if (action === "resume" || action === "pause" || action === "ping") {
+      if (play.solved_at) return json({ ok: true, activeMs: play.active_ms, open: false });
+      const nowIso = new Date().toISOString();
+      const nowMs = Date.parse(nowIso);
+      if (action === "ping") {
+        if (!play.resumed_at) return json({ ok: true, activeMs: play.active_ms, open: false });
+        // 前の合図から猶予を超えて空いていたら（開き直しの resume が落ちた等）、空白を数えないように一度締めて開き直す
+        const seen = play.seen_at ? Date.parse(play.seen_at) : Date.parse(play.resumed_at);
+        if (nowMs - seen <= PING_GRACE_MS) {
+          await patchPlay(token, { seen_at: nowIso });
+          return json({ ok: true, activeMs: activeMsOf(play, nowMs), open: true });
+        }
+      }
+      // 開いていた分を合計に足して閉じる（resume は閉じてから開き直す。閉じたの合図が落ちていても二重に数えない）
+      const total = activeMsOf(play, nowMs);
+      const reopen = action !== "pause";
+      const patch = reopen ? { active_ms: total, resumed_at: nowIso, seen_at: nowIso } : { active_ms: total, resumed_at: null, seen_at: null };
+      const res = await patchPlay(token, patch, `&active_ms=eq.${play.active_ms}`);
+      if (!res.ok) {
+        console.error("crossword-play: " + action + " patch failed", res.status);
+        return json({ ok: false, reason: "server" }, 503);
+      }
+      return json({ ok: true, activeMs: total, open: reopen });
+    }
 
     // --- 丸付け ---
     if (action === "check") {
@@ -221,7 +271,7 @@ export async function onRequestPost(context: {
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) return json({ ok: false, reason: "bad_request" }, 400);
       const given = raw as Record<string, unknown>;
       if (play.solved_at) {
-        return json({ ok: true, correct: true, answers: puzzle.answers, timeSeconds: timeOf(play.solved_at), rankable: !play.too_fast });
+        return json({ ok: true, correct: true, answers: puzzle.answers, timeSeconds: timeOf(play), rankable: !play.too_fast });
       }
       // 小さい字は大きい字と同じ扱い（Hop 決定 2026-10-05）。答えの側も入力の側も大きい字にそろえて比べる
       let full = true;
@@ -235,15 +285,21 @@ export async function onRequestPost(context: {
       let cur = play;
       for (let attempt = 0; ; attempt++) {
         if (cur.solved_at) {
-          return json({ ok: true, correct: true, answers: puzzle.answers, timeSeconds: timeOf(cur.solved_at), rankable: !cur.too_fast });
+          return json({ ok: true, correct: true, answers: puzzle.answers, timeSeconds: timeOf(cur), rankable: !cur.too_fast });
         }
         if (cur.checks >= MAX_CHECKS_PER_PLAY) return json({ ok: false, reason: "too_many" }, 429);
         let res: Response;
         if (correct) {
           const now = new Date().toISOString();
-          const tooFast = timeOf(now) < expected.size * MIN_SEC_PER_CELL;
+          // 開いていた時間を締めてタイムにする（閉じたまま解けることは無いが、合図が落ちていても今の分まで数える）
+          const total = Math.max(1000, activeMsOf(cur, Date.parse(now)));
+          const tooFast = Math.floor(total / 1000) < expected.size * MIN_SEC_PER_CELL;
           // 解けた時刻は最初の1回だけ書く（同時に来ても後の方で上書きしない）
-          res = await patchPlay(token, { solved_at: now, checks: cur.checks + 1, too_fast: tooFast }, `&checks=eq.${cur.checks}&solved_at=is.null`);
+          res = await patchPlay(
+            token,
+            { solved_at: now, checks: cur.checks + 1, too_fast: tooFast, active_ms: total, resumed_at: null, seen_at: null },
+            `&checks=eq.${cur.checks}&solved_at=is.null`,
+          );
         } else {
           // 間違ったまま全部埋めた最初の1回だけミスに数える
           const countMiss = full && !cur.last_wrong;
@@ -264,7 +320,7 @@ export async function onRequestPost(context: {
         const row = ((await res.json()) as Play[])[0];
         if (row) {
           if (correct && row.solved_at) {
-            return json({ ok: true, correct: true, answers: puzzle.answers, timeSeconds: timeOf(row.solved_at), rankable: !row.too_fast });
+            return json({ ok: true, correct: true, answers: puzzle.answers, timeSeconds: timeOf(row), rankable: !row.too_fast });
           }
           return json({ ok: true, correct: false, full });
         }

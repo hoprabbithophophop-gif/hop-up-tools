@@ -25,7 +25,7 @@ async function open(savedAgoMs, startedAgoMs) {
     localStorage.setItem('crossword_seen_help', 'true');
     localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({
       userAnswers: { '4,0': 'ダ' },
-      elapsedSeconds: 0,
+      elapsedSeconds: Math.floor(startedAgoMs / 1000), // 保存してあった「開いていた時間」。窓はこれを見せる（2026-10-07）
       play: { token: '00000000-0000-4000-8000-000000000000', localStart },
       savedAt,
     }));
@@ -42,10 +42,10 @@ const timer = (page) => page.evaluate(() => (document.querySelector('header')?.i
 {
   const { ctx, page } = await open(2 * HOUR, 2 * HOUR);
   const t = await text(page);
-  check(t.includes('前回の続きがあります') && /タイムは始めた時から数えています（2:00:\d\d）/.test(t), '1 2時間空くと聞かれ、始めてからの時間が出る');
+  check(t.includes('前回の続きがあります') && /ここまでのタイムは 2:00:\d\d です/.test(t), '1 2時間空くと聞かれ、保存してあったタイムが出る');
   await page.screenshot({ path: `${OUT}/resume-ask.png` });
   // 窓が出ている間は、窓の中の時間が止まったままで、盤の上のタイマーは出ない（数え始めない）
-  const askTime = async () => ((await text(page)).match(/（(\d+:\d{2}:\d{2})）/) || [])[1] || null;
+  const askTime = async () => ((await text(page)).match(/ここまでのタイムは (\d+:\d{2}:\d{2}) です/) || [])[1] || null;
   const ask1 = await askTime();
   const head1 = await timer(page);
   await page.waitForTimeout(3000);
