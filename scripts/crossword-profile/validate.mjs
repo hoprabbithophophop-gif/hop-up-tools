@@ -1,8 +1,8 @@
 // 作った盤（data/puzzle.json）が壊れていないかを機械で確かめる。出すのは OK/NG と件数だけ。
-// 使い方: node scripts/crossword-profile/validate.mjs
+// 使い方: node scripts/crossword-profile/validate.mjs [盤の JSON の場所（既定 data/puzzle.json）]
 import { readFile } from 'node:fs/promises';
 
-const { body, answers, title, groupTags } = JSON.parse(await readFile(new URL('./data/puzzle.json', import.meta.url), 'utf8'));
+const { body, answers, title, groupTags } = JSON.parse(await readFile(process.argv[2] ?? new URL('./data/puzzle.json', import.meta.url), 'utf8'));
 let ng = 0;
 const check = (ok, label) => { console.log(`${ok ? 'OK ' : 'NG '} ${label}`); if (!ok) ng++; };
 
@@ -12,7 +12,7 @@ check(clues.every((c, i) => c.length === answers[i].length), '各カギの文字
 check(answers.every((a) => a.length >= 2 && a.length <= 20), '答えは2〜20字');
 check(answers.every((a) => /^[ア-ンヴー]+$/.test(a.join(''))), '答えは大きなカナと「ー」だけ');
 check(new Set(answers.map((a) => a.join(''))).size === answers.length, '同じ答えが2回出ない');
-check(clues.every((c) => c.hint && c.hint.kind === 'link' && /^https:\/\/www\.helloproject\.com\//.test(c.hint.url)), 'ヒントは全部、公式サイトへのリンク');
+check(clues.every((c) => c.hint && c.hint.kind === 'link' && /^https:\/\/(www\.helloproject\.com|fortunemusic\.jp)\//.test(c.hint.url)), 'ヒントは全部、公式サイトへのリンク');
 check(clues.every((c) => typeof c.clue === 'string' && c.clue.length > 0 && c.clue.length <= 200), 'カギの文が空でなく200字以内');
 check(new Set(clues.map((c) => c.clue)).size === clues.length, '同じ文のカギが2つ無い');
 
