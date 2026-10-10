@@ -30,11 +30,18 @@ const bounds = (ps) => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = 
  * 語の一覧 [{ id, question, answer: string[] }] を、隣に並べずに置く。
  * 置ける場所を全部集め、「盤の面積が増えにくく、盤の中心に近い所」に置く（隣接なしでも盤が疎になりにくい）。
  * attempts 回試し、置けた語が多く、面積が小さい盤を返す。
+ * eager: 交差できる相手が少ない語（同じ字を持つ語が2つ以下）を、相手が置かれた直後に試す。
+ *   語数が少ない問題では、相手の周りが先に埋まって入らなくなるのを防ぐ（決まりのクイズ用。特大の台本は使わない）。
  */
-export function placeAll(items, { attempts = 400, rand = Math.random } = {}) {
+export function placeAll(items, { attempts = 400, rand = Math.random, eager = false } = {}) {
+  const partnersOf = (it) => items.filter((o) => o !== it && o.answer.some((c) => it.answer.includes(c))).length;
+  const hard = new Set(eager ? items.filter((it) => partnersOf(it) <= 2) : []);
   let uuidN = 0;
-  const findStrict = (item, placed) => {
+  // eager のとき: 相手の少ない語（hard）の相手を置く場面では、置いた直後に hard の語が入る場所を優先する
+  const dependentsOf = (item, placed) => eager ? [...hard].filter((h) => h !== item && !placed.some((p) => p.id === h.id) && h.answer.some((c) => item.answer.includes(c))) : [];
+  const findStrict = (item, placed, depth = 0) => {
     if (placed.length === 0) return { ...item, uuid: `u${uuidN++}`, direction: 'horizontal', startX: 0, startY: 0, length: item.answer.length };
+    const deps = depth === 0 ? dependentsOf(item, placed) : [];
     let best = null, bestScore = Infinity;
     const pc = placed.flatMap(cellsOf);
     const center = { x: pc.reduce((t, c) => t + c[0], 0) / pc.length, y: pc.reduce((t, c) => t + c[1], 0) / pc.length };
@@ -50,7 +57,8 @@ export function placeAll(items, { attempts = 400, rand = Math.random } = {}) {
           const all = [...placed, cand];
           const cs = cellsOf(cand);
           const cx = (cs[0][0] + cs[cs.length - 1][0]) / 2, cy = (cs[0][1] + cs[cs.length - 1][1]) / 2;
-          const score = bounds(all) * 0.2 + Math.abs(cx - center.x) + Math.abs(cy - center.y) + rand() * 0.9;
+          let score = bounds(all) * 0.2 + Math.abs(cx - center.x) + Math.abs(cy - center.y) + rand() * 0.9;
+          if (deps.length && deps.every((h) => findStrict(h, all, 1))) score -= 100; // 相手の少ない語がこの後すぐ入る置き方を優先
           if (score < bestScore) { best = cand; bestScore = score; }
         }
       }
@@ -60,7 +68,11 @@ export function placeAll(items, { attempts = 400, rand = Math.random } = {}) {
   const placeOnce = (queue) => {
     const placed = [];
     let rest = [];
-    for (const it of queue) { const p = findStrict(it, placed); if (p) placed.push(p); else rest.push(it); }
+    for (const it of queue) {
+      if (hard.has(it)) { rest.push(it); continue; } // 相手の少ない語は、相手が置かれた直後の再試行で入れる
+      const p = findStrict(it, placed); if (p) placed.push(p); else rest.push(it);
+      if (eager && p && rest.length) { const next = []; for (const r of rest) { const q = findStrict(r, placed); if (q) placed.push(q); else next.push(r); } rest = next; }
+    }
     while (rest.length) { const next = []; for (const it of rest) { const p = findStrict(it, placed); if (p) placed.push(p); else next.push(it); } if (next.length === rest.length) break; rest = next; }
     return placed;
   };
@@ -74,6 +86,74 @@ export function placeAll(items, { attempts = 400, rand = Math.random } = {}) {
   }
   if (!isConnected(placed)) throw new Error('盤がつながっていない');
   return placed;
+}
+
+/**
+ * 全部の語を必ず置く並びを、順に探す（placeAll で置けない語が残ったときの予備。決まりのクイズ用）。
+ * 置ける場所が少ない語から先に決め、行き止まりなら戻ってやり直す。nodeLimit 回まで探して見つからなければ null。
+ * runs 回見つけた中で面積が最小の盤を返す。
+ */
+export function placeExact(items, { nodeLimit = 200000, runs = 3, rand = Math.random } = {}) {
+  let uuidN = 0;
+  const candidatesOf = (item, placed) => {
+    const out = [];
+    for (const ex of placed) {
+      const dir = ex.direction === 'horizontal' ? 'vertical' : 'horizontal';
+      for (let i = 0; i < ex.answer.length; i++) {
+        const ix = ex.direction === 'horizontal' ? ex.startX + i : ex.startX;
+        const iy = ex.direction === 'horizontal' ? ex.startY : ex.startY + i;
+        for (let j = 0; j < item.answer.length; j++) {
+          if (ex.answer[i] !== item.answer[j]) continue;
+          const cand = { ...item, uuid: `u${uuidN++}`, direction: dir, startX: dir === 'horizontal' ? ix - j : ix, startY: dir === 'vertical' ? iy - j : iy, length: item.answer.length };
+          if (validatePlacement(cand, placed) && noAdjacency(cand, placed)) out.push(cand);
+        }
+      }
+    }
+    return out;
+  };
+  const search = () => {
+    let nodes = 0;
+    const first = [...items].sort((a, b) => b.answer.length - a.answer.length)[0];
+    // deferred: この段で「今は置かない」と決めた語。語を1つ置いたら空に戻す
+    const dfs = (placed, rest, deferred) => {
+      if (!rest.length) return placed;
+      if (++nodes > nodeLimit) return null;
+      // 今置ける語のうち、置ける場所がいちばん少ない語を選ぶ。今置けない語は、まだ置いていない相手がいれば後回し。相手も尽きていれば行き止まり
+      let pick = null, pickCands = null;
+      for (const it of rest) {
+        const cs = candidatesOf(it, placed);
+        if (cs.length === 0) {
+          if (rest.some((o) => o !== it && o.answer.some((c) => it.answer.includes(c)))) continue;
+          return null;
+        }
+        if (deferred.has(it)) continue;
+        if (!pickCands || cs.length < pickCands.length) { pick = it; pickCands = cs; }
+      }
+      if (!pick) return null;
+      pickCands.sort(() => rand() - 0.5);
+      // 面積が増えにくい順に試す（同じ面積なら乱数）
+      pickCands.sort((a, b) => bounds([...placed, a]) - bounds([...placed, b]));
+      for (const c of pickCands) {
+        const got = dfs([...placed, c], rest.filter((r) => r !== pick), new Set());
+        if (got) return got;
+        if (nodes > nodeLimit) return null;
+      }
+      // どの場所でも先へ進めなかったら、この語は後回しにして別の語から試す（相手が増えれば置ける場所も増える）
+      if (rest.some((o) => o !== pick && o.answer.some((c) => pick.answer.includes(c)))) {
+        return dfs(placed, rest, new Set([...deferred, pick]));
+      }
+      return null;
+    };
+    const start = { ...first, uuid: `u${uuidN++}`, direction: 'horizontal', startX: 0, startY: 0, length: first.answer.length };
+    return dfs([start], items.filter((i) => i !== first), new Set());
+  };
+  let best = null;
+  for (let r = 0; r < runs; r++) {
+    const got = search();
+    if (got && (!best || bounds(got) < bounds(best))) best = got;
+  }
+  if (best && !isConnected(best)) throw new Error('盤がつながっていない');
+  return best;
 }
 
 /** 置いた語から、棚の本文（答えは文字数だけ）・答え・グループの札を作る */
