@@ -79,7 +79,7 @@ export interface CleanPuzzle {
   requestedGenre: "hello" | "other";
   title: string;
   tags: string[];
-  body: { version: 1; width: number; height: number; clues: CleanClue[]; creatorName?: string };
+  body: { version: 1; width: number; height: number; clues: CleanClue[]; creatorName?: string; rulesNote?: true };
   key: string;
   isBeginner: boolean;
   /** メンバー名・グループ名から判定したグループ（公式表記） */
@@ -218,10 +218,13 @@ export function validateSavePayload(raw: unknown): CleanPuzzle | null {
     if (!isStr(bo.creatorName) || charLen(bo.creatorName) > MAX_CREATOR) return null;
     if (bo.creatorName.trim() !== "") creatorName = bo.creatorName.trim();
   }
+  // 公式の決まりを題材にした問題の印（解く前の扉に免責の文を出す。Hop 決定 2026-10-16）。入れた時だけ残す
+  if (bo.rulesNote !== undefined && typeof bo.rulesNote !== "boolean") return null;
 
   // 大きさは送られてきた値を信用せず、語の並びから出した値を使う（画面の buildGrid と同じく、左上の語の端から右下の語の端まで）
   const body: CleanPuzzle["body"] = { version: 1, width: board.width, height: board.height, clues };
   if (creatorName) body.creatorName = creatorName;
+  if (bo.rulesNote === true) body.rulesNote = true;
 
   // 大きさは保存する形（整えた後）で測る。DB 側の上限 octet_length(body::text) と同じ 51200 バイト
   if (new TextEncoder().encode(JSON.stringify(body)).length > MAX_BODY_BYTES) return null;

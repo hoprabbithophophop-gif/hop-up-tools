@@ -27,6 +27,7 @@ export interface PuzzleBody {
   height: number;
   clues: StoredClue[];
   creatorName?: string; // 作る画面の「作成者名」。空なら入れない
+  rulesNote?: boolean; // 公式の決まりを題材にした問題の印。入れた時だけ true
 }
 
 export interface PuzzleRecord {
