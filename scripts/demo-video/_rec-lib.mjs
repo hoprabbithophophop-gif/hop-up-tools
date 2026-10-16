@@ -52,6 +52,16 @@ export async function openRecorder(dir, { headless = true } = {}) {
     if (document.head) put();
     else document.addEventListener('DOMContentLoaded', put);
   });
+  // 録画の間は YouTube を読み込まない（自動操作のブラウザで YouTube に触れない。2026-10-17 前提の監査の推奨）。
+  // 見本画像は灰色の1画素、埋め込みのプレイヤーは灰色の空の頁を返す。プレイヤーの台本（iframe_api）は空で返す
+  const GRAY_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN4+O7dfwAJ2AP0Cy0pOgAAAABJRU5ErkJggg==', 'base64');
+  await ctx.route(/^https:\/\/([a-z0-9-]+\.)?(ytimg\.com|youtube\.com|youtube-nocookie\.com|googlevideo\.com)\//, (r) => {
+    const t = r.request().resourceType();
+    if (t === 'image') return r.fulfill({ status: 200, contentType: 'image/png', body: GRAY_PNG });
+    if (t === 'document') return r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><body style="margin:0;background:#e0e0e0"></body>' });
+    if (t === 'script') return r.fulfill({ status: 200, contentType: 'text/javascript', body: '' });
+    return r.abort();
+  });
   const page = await ctx.newPage();
   // 場面の区切りの時刻（録画の始まりからの秒）。テロップを出す時刻に使う
   const t0 = Date.now();

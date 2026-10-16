@@ -32,7 +32,6 @@ const PLAN = {
     { from: 'type', text: 'カギを押して、文字盤で入れる' },
     { from: 'hint', text: 'ヒントの動画も見られる' },
     { from: 'type2', text: 'カギを押して、文字盤で入れる' },
-    { from: 'rest', text: '交わる字は、もう入っている' },
     { from: 'dakuten', text: '゛゜は字のあとに押す' },
     { from: 'back', text: '交わった字を手がかりに、戻って解く' },
     { from: 'clear', text: '最後のマスで自動の丸付け' },

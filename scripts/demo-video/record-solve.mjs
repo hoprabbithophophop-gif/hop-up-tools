@@ -15,7 +15,7 @@ const WORDS = [
   { clue: '手のひらで打ち鳴らす楽器', skip: true, mark: 'skip' },
   { clue: '首に掛けられる、細長いタオル', keys: ['マ', 'フ', 'ラ', 'ー', 'タ', 'オ', 'ル'], showHint: true, mark: 'type' },
   { clue: 'これが無いと会場に入れない', keys: ['チ', 'ケ', 'ツ', 'ト'] },
-  { clue: '曲に合わせて色を変えられる', keys: ['ヘ', '゜', 'ン', 'ラ', 'イ', 'ト'], mark: 'rest', dakuten: true },
+  { clue: '曲に合わせて色を変えられる', keys: ['ヘ', '゜', 'ン', 'ラ', 'イ', 'ト'], mark: 'dakuten' },
   { clue: '手のひらで打ち鳴らす楽器', keys: ['カ', 'ス', 'タ', 'ネ', 'ツ', 'ト'], mark: 'back' },
 ];
 
@@ -58,11 +58,6 @@ for (const w of WORDS) {
     continue;
   }
   if (w.mark === 'back') await wait(page, 1500); // 交わった字が入っているのを見せる
-  // ペンライトは、マフラータオルの「ラ」が先に入っているのを見せてから、゛゜の入れ方へ
-  if (w.dakuten) {
-    await wait(page, 2200);
-    mark('dakuten');
-  }
   if (w.showHint) {
     const hint = page.getByRole('button', { name: /ヒント/ }).last();
     if (await hint.count()) {
