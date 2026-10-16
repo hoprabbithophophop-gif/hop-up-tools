@@ -21,15 +21,16 @@ async function open(savedAgoMs, startedAgoMs) {
   await interceptCount(ctx);
   const page = await ctx.newPage();
   await page.goto(`${BASE}/crossword/mine`);
-  await page.evaluate(({ id, savedAt, localStart }) => {
+  // ブラウザの中では外の変数が読めないので、開いていた時間も引数で渡す（2026-10-16 の直し。前は startedAgoMs を中で読んで止まっていた）
+  await page.evaluate(({ id, savedAt, localStart, elapsedSeconds }) => {
     localStorage.setItem('crossword_seen_help', 'true');
     localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({
       userAnswers: { '4,0': 'ダ' },
-      elapsedSeconds: Math.floor(startedAgoMs / 1000), // 保存してあった「開いていた時間」。窓はこれを見せる（2026-10-07）
+      elapsedSeconds, // 保存してあった「開いていた時間」。窓はこれを見せる（2026-10-07）
       play: { token: '00000000-0000-4000-8000-000000000000', localStart },
       savedAt,
     }));
-  }, { id: ID, savedAt: Date.now() - savedAgoMs, localStart: Date.now() - startedAgoMs });
+  }, { id: ID, savedAt: Date.now() - savedAgoMs, localStart: Date.now() - startedAgoMs, elapsedSeconds: Math.floor(startedAgoMs / 1000) });
   await page.goto(`${BASE}/crossword/${ID}`);
   await page.locator('[id^="cell-"]').first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
