@@ -9,15 +9,16 @@ const ID = 'AE86-npN';
 const TITLE = '現場の持ち物';
 
 // 解く順番。カギの一覧の文で語を開き、文字盤で押す字（゜゛は字のあとに押す）
+// mark はテロップを出す場面の区切り（compose.mjs が使う）
 const WORDS = [
-  { clue: '曲に合わせて色を変えて振る', keys: ['ヘ', '゜', 'ン', 'ラ', 'イ', 'ト'] },
+  { clue: '手のひらで打ち鳴らす楽器', keys: ['カ', 'ス', 'タ', 'ネ', 'ツ', 'ト'], mark: 'type' },
   { clue: '首に掛けたり掲げたり', keys: ['マ', 'フ', 'ラ', 'ー', 'タ', 'オ', 'ル'], showHint: true },
-  { clue: '名前を大きく書いて', keys: ['ウ', 'チ', 'ワ'] },
-  { clue: 'これが無いと会場に入れない', keys: ['チ', 'ケ', 'ツ', 'ト'] },
+  { clue: 'これが無いと会場に入れない', keys: ['チ', 'ケ', 'ツ', 'ト'], mark: 'rest' },
+  { clue: '曲に合わせて色を変えて振る', keys: ['ヘ', '゜', 'ン', 'ラ', 'イ', 'ト'], mark: 'dakuten' },
 ];
 
 const rec = await openRecorder(OUT);
-const { page, ctx } = rec;
+const { page, ctx, mark } = rec;
 // 送った名前とタイムは本物のランキングに載せず、送った後の読み直しでその1件だけを返す（載せた時の見え方を映す）
 let mine = null;
 await ctx.route('**/api/crossword-score', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
@@ -30,6 +31,7 @@ await ctx.route('**/api/crossword-play', (r) => {
 
 // 1. ギャラリーで「初めての人向け」に絞って選ぶ
 await page.goto(`${BASE}/crossword`, { waitUntil: 'networkidle' });
+mark('gallery');
 await wait(page, 2000);
 const beginner = page.getByText('初めての人向け', { exact: true }).first();
 if (await beginner.count()) await tap(page, beginner, 2000);
@@ -38,23 +40,30 @@ await card.waitFor({ timeout: 20000 });
 await tap(page, card, 3500);
 
 // 2. 遊び方 → 始める！
+mark('help');
+await wait(page, 1500);
 await tap(page, page.getByRole('button', { name: /始める！/ }), 2000);
 
 // 3. 語ごとに開いて文字盤で入れる
 const key = (k) => page.getByRole('button', { name: k, exact: true }).last();
 for (const w of WORDS) {
+  if (w.mark) mark(w.mark);
   await tap(page, page.getByText(new RegExp(w.clue)).first(), 1200);
   if (w.showHint) {
     const hint = page.getByRole('button', { name: /ヒント/ }).last();
     if (await hint.count()) {
+      mark('hint');
       await hint.click();
       await wait(page, 3500);
       await hint.click().catch(() => {});
       await wait(page, 800);
+      mark('type2');
     }
   }
   for (const k of w.keys) {
-    await key(k).click();
+    // 交わる字が先に埋まっていると、語の途中で盤が全部埋まって丸付けが始まる。その後の字は押さない
+    if (await page.getByText('CLEARED!').first().isVisible().catch(() => false)) break;
+    if (!(await key(k).click({ timeout: 4000 }).then(() => true, () => false))) break;
     await wait(page, 380);
   }
   await wait(page, 700);
@@ -64,12 +73,14 @@ for (const w of WORDS) {
 }
 
 // 4. 自動で丸付け → CLEARED! → 名前を入れてランキングへ
+mark('clear');
 await page.getByText('CLEARED!').first().waitFor({ timeout: 20000 }).catch(() => {});
 await wait(page, 3500);
 const name = page.getByPlaceholder('ニックネーム');
 if (await name.isVisible().catch(() => false)) {
   const t = await page.evaluate(() => (document.body.innerText.match(/タイム[：:]\s*(\d+):(\d\d)/) || []).slice(1).map(Number));
   mine = { id: 1, display_name: 'hop', time_seconds: t.length ? t[0] * 60 + t[1] : 30, updated_at: new Date().toISOString(), reveals: 0, misses: 0 };
+  mark('rank');
   await name.pressSequentially('hop', { delay: 150 });
   await wait(page, 500);
   await tap(page, page.getByRole('button', { name: '載せる', exact: true }), 2500);

@@ -1,7 +1,7 @@
 // クロスワードの使い方の動画を撮る台本で共通に使う物。
 // 390×844 の画面を Playwright の録画で撮り、押した所に丸を出す（指の代わり）。字幕や声は入れない。
 import { chromium } from 'playwright';
-import { mkdirSync, readdirSync, renameSync } from 'node:fs';
+import { mkdirSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 export const VIEW = { width: 390, height: 844 };
@@ -53,11 +53,17 @@ export async function openRecorder(dir, { headless = true } = {}) {
     else document.addEventListener('DOMContentLoaded', put);
   });
   const page = await ctx.newPage();
-  return { browser, ctx, page };
+  // 場面の区切りの時刻（録画の始まりからの秒）。テロップを出す時刻に使う
+  const t0 = Date.now();
+  const steps = [];
+  const mark = (key) => steps.push({ key, t: (Date.now() - t0) / 1000 });
+  return { browser, ctx, page, steps, mark };
 }
 
 // 録画を閉じて webm を名前つきで置く
-export async function closeRecorder({ browser, ctx, page }, dir, name) {
+export async function closeRecorder({ browser, ctx, page, steps, mark }, dir, name) {
+  mark('end');
+  writeFileSync(path.join(dir, `${name}.steps.json`), JSON.stringify(steps, null, 1));
   const v = page.video();
   await ctx.close();
   await browser.close();
