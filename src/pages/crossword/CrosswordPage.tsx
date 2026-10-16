@@ -259,6 +259,8 @@ const T = {
   playerHelp: {
     title: "遊び方",
     steps: ["空欄のマスに文字を入力", "カギを参考に正解を推測", "最後のマスを埋めると自動で答え合わせ", "タイムは盤を開いている間だけ進みます。"], // 4つ目は Hop 決定 2026-10-07
+    // 項目に添える入力の決まり。390px で語の途中で折れないよう、きりのいい所で改行する（番号は steps の並び。Hop 2026-10-16「入力時のルールを併記」。文字盤に「小」が無いため）
+    stepNotes: { 0: ["小さい字（ッ・ャ など）は\n大きい字で入れます", "゛゜は字のあとに押します"] } as Record<number, string[]>,
     start: "始める！",
     rulesNote: "公式のものではありません。内容が正しいとは限らないので、行く前に必ず公式の案内で確かめてください。",
     createdBy: (name: string) => `作った人：${name}`, // 2026-10-06 Hop 決定
@@ -2086,7 +2088,10 @@ export default function CrosswordPage() {
                     {T.playerHelp.steps.map((s, i) => (
                       <div key={i} className="flex gap-4 items-start bg-surface-container-low p-3">
                         <span className="bg-primary text-white font-bold w-6 h-6 flex items-center justify-center text-sm flex-shrink-0">{i + 1}</span>
-                        <p className="text-sm" style={{ color: C.ink }}>{s}</p>
+                        <p className="text-sm" style={{ color: C.ink }}>
+                          {s}
+                          {T.playerHelp.stepNotes[i]?.map((n) => <span key={n} className="block text-xs mt-1 whitespace-pre-line" style={{ color: C.secondary }}>{n}</span>)}
+                        </p>
                       </div>
                     ))}
                   </div>
