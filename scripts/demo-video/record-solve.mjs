@@ -10,11 +10,13 @@ const TITLE = '現場の持ち物';
 
 // 解く順番。カギの一覧の文で語を開き、文字盤で押す字（゜゛は字のあとに押す）
 // mark はテロップを出す場面の区切り（compose.mjs が使う）
+// カスタネットは「わからないので飛ばす」→ ほかの語を解いて、交わった字を手がかりに最後に戻る（Hop 2026-10-16）
 const WORDS = [
-  { clue: '手のひらで打ち鳴らす楽器', keys: ['カ', 'ス', 'タ', 'ネ', 'ツ', 'ト'], mark: 'type' },
-  { clue: '首に掛けたり掲げたり', keys: ['マ', 'フ', 'ラ', 'ー', 'タ', 'オ', 'ル'], showHint: true },
-  { clue: 'これが無いと会場に入れない', keys: ['チ', 'ケ', 'ツ', 'ト'], mark: 'rest' },
-  { clue: '曲に合わせて色を変えて振る', keys: ['ヘ', '゜', 'ン', 'ラ', 'イ', 'ト'], mark: 'dakuten' },
+  { clue: '手のひらで打ち鳴らす楽器', skip: true, mark: 'skip' },
+  { clue: '首に掛けられる、細長いタオル', keys: ['マ', 'フ', 'ラ', 'ー', 'タ', 'オ', 'ル'], showHint: true, mark: 'type' },
+  { clue: 'これが無いと会場に入れない', keys: ['チ', 'ケ', 'ツ', 'ト'] },
+  { clue: '曲に合わせて色を変えられる', keys: ['ヘ', '゜', 'ン', 'ラ', 'イ', 'ト'], mark: 'rest', dakuten: true },
+  { clue: '手のひらで打ち鳴らす楽器', keys: ['カ', 'ス', 'タ', 'ネ', 'ツ', 'ト'], mark: 'back' },
 ];
 
 const rec = await openRecorder(OUT);
@@ -49,6 +51,18 @@ const key = (k) => page.getByRole('button', { name: k, exact: true }).last();
 for (const w of WORDS) {
   if (w.mark) mark(w.mark);
   await tap(page, page.getByText(new RegExp(w.clue)).first(), 1200);
+  if (w.skip) {
+    // カギを読んで考えるふりをしてから、何も入れずに閉じる
+    await wait(page, 2800);
+    await tap(page, page.getByRole('button', { name: '閉じる', exact: true }).last(), 1200);
+    continue;
+  }
+  if (w.mark === 'back') await wait(page, 1500); // 交わった字が入っているのを見せる
+  // ペンライトは、マフラータオルの「ラ」が先に入っているのを見せてから、゛゜の入れ方へ
+  if (w.dakuten) {
+    await wait(page, 2200);
+    mark('dakuten');
+  }
   if (w.showHint) {
     const hint = page.getByRole('button', { name: /ヒント/ }).last();
     if (await hint.count()) {

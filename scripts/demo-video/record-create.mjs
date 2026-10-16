@@ -15,8 +15,8 @@ const CREATOR = 'hop';
 // ヒントは HELLO! VIDEO の台帳にある BEYOOOOONDS の動画を検索して選ぶ（q は検索の言葉、pick は結果の題名の一部。Hop 2026-10-16）
 // ウチワは現場で持つ文化が無く、広げるのは禁止なので外し、BEYOOOOONDS 独自のグッズのカスタネットにした（Hop 2026-10-16）
 const WORDS = [
-  { a: 'ペンライト', clue: '曲に合わせて色を変えて振る、光る棒', q: 'BEYOSCOOOOOPE', pick: '6月16日' },
-  { a: 'マフラータオル', clue: '首に掛けたり掲げたりする、細長いタオル', q: 'BALLROOOOOM', pick: 'グッズ紹介' },
+  { a: 'ペンライト', clue: '曲に合わせて色を変えられる、光る棒', q: 'BEYOSCOOOOOPE', pick: '6月16日' },
+  { a: 'マフラータオル', clue: '首に掛けられる、細長いタオル', q: 'BALLROOOOOM', pick: 'グッズ紹介' },
   { a: 'チケット', clue: 'これが無いと会場に入れない', q: 'BUDOOOOOKAN', pick: 'のお知らせ' },
   { a: 'カスタネット', clue: 'BEYOOOOONDS 独自のグッズ。手のひらで打ち鳴らす楽器', q: 'カスタネット', pick: '全国ツアー版' },
 ];
