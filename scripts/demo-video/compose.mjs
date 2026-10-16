@@ -1,5 +1,7 @@
-// 撮った録画（390×844）を 4:5（1080×1350）の動画に仕上げる。上の帯にテロップ、その下にスマホの画面（Hop 決定 2026-10-16）。
-// テロップの形は src/components/TeloppOverlay.tsx（いつものテロップ）と同じ指定で、ブラウザに描かせた画像を重ねる。
+// 撮った録画（390×844）を 4:5（1080×1350）の動画に仕上げる。まん中にスマホの画面を高さいっぱいに置く（Hop 決定 2026-10-16）。
+// テロップは src/components/TeloppOverlay.tsx（いつものテロップ）と同じ指定で、動画全体を1つの画面とみなして置く。
+// 下から80px・幅は文に合わせて伸び縮みし最大で動画の幅の90%。スマホの画面の幅には縛らない（Hop 2026-10-16「いつもは画面上の下側」「スマホの画面幅に合わせないで」）。
+// 字の大きさなどはスマホの画面を拡大するのと同じ倍率で描く。
 // 使い方: node scripts/demo-video/compose.mjs <create|solve> <出力先>
 //   <出力先>/<create|solve>-raw.webm と .steps.json（record-*.mjs が書く）を読み、<出力先>/<create|solve>.mp4 を書く
 import { chromium } from 'playwright';
@@ -20,7 +22,7 @@ const PLAN = {
     { from: 'hint', text: 'ヒントの動画を検索して選ぶ' },
     { from: 'add', text: '「リストに追加」で語を足す' },
     { from: 'word2', text: '残りの3語も同じように', speed: 2.5 },
-    { from: 'board', text: '同じ字で交わって盤ができる' },
+    { from: 'board', text: '同じ字で交わって、盤が組み上がる' },
     { from: 'share', text: '「共有する」で公開できる' },
   ],
   solve: [
@@ -38,10 +40,10 @@ const PLAN = {
 
 const W = 1080;
 const H = 1350;
-const BAND = 250; // 上の帯の高さ
-const SCREEN_H = H - BAND - 30; // スマホの画面の高さ（下に少し余白）
+const SCREEN_H = H; // スマホの画面の高さ（4:5 の高さいっぱい）
 const SCREEN_W = Math.round((390 / 844) * SCREEN_H / 2) * 2;
 const BG = '0xEEEEEE';
+const SCALE = SCREEN_H / 844; // スマホの画面を拡大する倍率
 
 const raw = path.join(DIR, `${KIND}-raw.webm`);
 const steps = JSON.parse(readFileSync(path.join(DIR, `${KIND}-raw.steps.json`), 'utf8'));
@@ -58,22 +60,22 @@ for (const s of segs) {
   s.ob = acc;
 }
 
-// テロップの画像をいつもの形で描く（2倍の細かさ）
+// テロップの画像をいつもの形で描く（動画と同じ大きさの透明な画面に描いて、そのまま重ねる）
 const tdir = path.join(DIR, `${KIND}-telops`);
 mkdirSync(tdir, { recursive: true });
 const browser = await chromium.launch({ channel: 'chrome' });
-const page = await browser.newPage({ viewport: { width: 600, height: 200 }, deviceScaleFactor: 2 });
+const page = await browser.newPage({ viewport: { width: Math.round(W / SCALE), height: Math.round(H / SCALE) }, deviceScaleFactor: SCALE });
 await page.setContent(`<!doctype html><html><head>
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kurenaido&display=swap" rel="stylesheet">
 <style>html,body{margin:0;background:transparent}
-#t{display:inline-block;font-family:"Zen Kurenaido",cursive;font-weight:400;background-color:rgba(255,255,255,0.95);color:#1a1a1a;border:3px solid rgba(0,0,0,0.15);box-shadow:0 6px 25px rgba(0,0,0,0.3);max-width:520px;text-align:center;padding:1rem 2.5rem;border-radius:0.75rem;font-size:1.875rem;box-sizing:border-box}
-#w{padding:36px 40px;display:inline-block}</style></head><body><div id="w"><div id="t"></div></div></body></html>`);
+#w{position:fixed;bottom:80px;left:0;right:0;display:flex;justify-content:center}
+#t{font-family:"Zen Kurenaido",cursive;font-weight:400;background-color:rgba(255,255,255,0.95);color:#1a1a1a;border:3px solid rgba(0,0,0,0.15);box-shadow:0 6px 25px rgba(0,0,0,0.3);max-width:90vw;text-align:center;padding:1rem 2.5rem;border-radius:0.75rem;font-size:1.875rem}</style></head><body><div id="w"><div id="t"></div></div></body></html>`);
 await page.evaluate(() => document.fonts.ready);
 for (const [i, s] of segs.entries()) {
   await page.evaluate((t) => { document.getElementById('t').textContent = t; }, s.text);
   await page.evaluate(() => document.fonts.ready);
   s.png = path.join(tdir, `${i}.png`);
-  await page.locator('#w').screenshot({ path: s.png, omitBackground: true });
+  await page.screenshot({ path: s.png, omitBackground: true });
 }
 await browser.close();
 
@@ -82,9 +84,9 @@ const parts = segs.map((s, i) => `[0:v]trim=start=${s.a}:end=${s.b},setpts=(PTS-
 const concat = segs.map((_, i) => `[v${i}]`).join('') + `concat=n=${segs.length}:v=1:a=0[cat]`;
 const screen = `[cat]fps=30,scale=${SCREEN_W}:${SCREEN_H}:flags=lanczos[scr]`;
 const bg = `color=${BG}:s=${W}x${H}:r=30:d=${acc.toFixed(3)}[bg]`;
-let chain = `[bg][scr]overlay=(W-w)/2:${BAND}:shortest=1[b0]`;
+let chain = `[bg][scr]overlay=(W-w)/2:0:shortest=1[b0]`;
 segs.forEach((s, i) => {
-  chain += `;[b${i}][${i + 1}:v]overlay=(W-w)/2:(${BAND}-h)/2:enable='between(t,${s.oa.toFixed(3)},${s.ob.toFixed(3)})'[b${i + 1}]`;
+  chain += `;[b${i}][${i + 1}:v]overlay=(W-w)/2:0:enable='between(t,${s.oa.toFixed(3)},${s.ob.toFixed(3)})'[b${i + 1}]`;
 });
 const filter = [parts, concat, screen, bg, chain].join(';');
 const out = path.join(DIR, `${KIND}.mp4`);
