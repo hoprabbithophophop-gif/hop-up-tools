@@ -1,14 +1,17 @@
 // HarmonyPalette の src/components/puzzle/PuzzleGalleryCard.tsx の移植。並び・文言は同じ。
 // 変えた所: 見た目（DESIGN.md。枠線なしの白い面、角なし、影なし、hover は面の濃淡）、アイコン（Material Symbols）、
-// 足した物（「初めての人向け」の印）。
+// 足した物（「初めての人向け」の印）、下段の「ランキング」の入口（Hop 指示 2026-10-17。解かなくてもランキングを見られるように。
+// これに伴い、カード全体が1つのボタンだった作りを、面の押下＋下段の2つのリンクに変えた。ボタンの中にリンクは置けないため）。
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import type { GalleryPuzzle } from "../../../lib/crossword/gallery";
 import { C } from "../style";
 import { Icon } from "./ui";
 
 // 「初めての人向け」の印の文言
 export const BEGINNER_LABEL = "初めての人向け";
+// 下段の入口の文言
+const T = { ranking: "ランキング", play: "遊ぶ", untitled: "無題の問題" };
 
 // 日付をフォーマット（例: 1/25）
 function formatDate(iso?: string): string {
@@ -25,10 +28,9 @@ export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle; headingLevel?:
   const dateStr = formatDate(puzzle.created_at);
 
   return (
-    <button
-      type="button"
+    <article
       onClick={() => navigate(`/crossword/${puzzle.id}`)}
-      className="bg-white hover:bg-surface-container-low p-4 text-left w-full transition-colors"
+      className="bg-white hover:bg-surface-container-low p-4 text-left w-full transition-colors cursor-pointer"
       style={{ color: C.ink }}
     >
       {/* ヘッダー：タイトル */}
@@ -68,16 +70,36 @@ export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle; headingLevel?:
       </div>
 
       {/* フッター：プレイ回数とアクション */}
-      <div className="flex items-center justify-between pt-3" style={{ borderTop: `1px solid ${C.ghost}` }}>
-        <div className="flex items-center gap-1 text-xs" style={{ color: C.secondary }}>
+      {/* 下段: 幅が狭い時（解き終えた画面の3列）は入口が次の行に回る。入口の文字は途中で折らない */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 pt-1" style={{ borderTop: `1px solid ${C.ghost}` }}>
+        <div className="flex items-center gap-1 text-xs whitespace-nowrap py-2.5" style={{ color: C.secondary }}>
           <Icon icon="play_arrow" size={14} />
           <span>{puzzle.play_count}回遊ばれた</span>
         </div>
-        <div className="flex items-center gap-1 text-sm font-bold">
-          <span>遊ぶ</span>
-          <span aria-hidden="true">→</span>
+        <div className="flex items-center gap-4 text-sm ml-auto">
+          {/* ランキングだけを見る（回は始めない）。面の押下（遊ぶ）には伝えない */}
+          <Link
+            to={`/crossword/${puzzle.id}/ranking`}
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1 whitespace-nowrap py-2.5 hover:text-black transition-colors"
+            style={{ color: C.secondary }}
+            aria-label={`${puzzle.title || T.untitled}のランキング`}
+          >
+            <span>{T.ranking}</span>
+            <span aria-hidden="true">→</span>
+          </Link>
+          <Link
+            to={`/crossword/${puzzle.id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1 font-bold whitespace-nowrap py-2.5"
+            style={{ color: C.ink }}
+            aria-label={`${puzzle.title || T.untitled}を遊ぶ`}
+          >
+            <span>{T.play}</span>
+            <span aria-hidden="true">→</span>
+          </Link>
         </div>
       </div>
-    </button>
+    </article>
   );
 };

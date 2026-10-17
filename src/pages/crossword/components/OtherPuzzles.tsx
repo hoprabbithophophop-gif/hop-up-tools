@@ -42,10 +42,11 @@ export const OtherPuzzles: React.FC<{ genre: Genre; puzzleId: string }> = ({ gen
           </div>
         </>
       )}
-      <div className="text-center mt-4">
+      {/* 解き終えた画面の下に縦に並ぶ入口（ヒントの動画・もう一度解く・新規作成）と同じ幅・同じ間隔にそろえる */}
+      <div className="mt-4">
         <Link
           to="/crossword"
-          className="inline-flex items-center gap-2 px-6 py-3 bg-surface-container-high hover:bg-surface-container-highest transition-colors font-medium"
+          className="w-full sm:max-w-xs mx-auto flex items-center justify-center gap-2 px-6 py-3 bg-surface-container-high hover:bg-surface-container-highest transition-colors font-medium"
           style={{ color: C.ink }}
         >
           {T.toList} <span aria-hidden="true">→</span>

@@ -85,6 +85,9 @@ const TUTORIAL_PATH = "/crossword/tutorial";
 const TUTORIAL_STAMP_FADE_MS = 2000;
 const PROGRESS_PREFIX = "crossword_progress_";
 const PLAYED_PREFIX = "crossword_played_";
+// 解き終えた印（タイム込み）。開き直すと解けた画面をそのまま出し、新しい回は始めない（Hop 指示 2026-10-17。
+// 2026-10-06 の「開き直すと新しい回で最初から」を取り消し）。期限は設けない【仮】。「もう一度解く」で外れる
+const CLEARED_PREFIX = "crossword_cleared_";
 // 前回の続きを開いた時に「続きから／最初から」を聞くのは、前回から30分以上空いた時だけ（Hop 決定 2026-10-04）
 const RESUME_ASK_MS = 30 * 60 * 1000;
 // 盤を開いている間の生存の合図の間隔（受付係はこれ＋猶予で、閉じたの合図が届かなかった回を打ち切る）
@@ -134,6 +137,7 @@ interface Draft {
 const T = {
   pageTitle: "クロスワードパズル作成",
   createNew: "新規作成",
+  playAgain: "もう一度解く", // 解き終えた問題を開き直した時（Hop 指示 2026-10-17）【仮】
   puzzleTitle: "題名",
   titlePlaceholder: "例：音楽なぞなぞチャレンジ！",
   creatorName: "作った人の名前（任意）",
@@ -551,6 +555,7 @@ export default function CrosswordPage() {
   const [createGuide, setCreateGuide] = useState<number | null>(null);
   const guideBaseRef = useRef(0);
   const [showClearAnimation, setShowClearAnimation] = useState(false);
+  const [restoredCleared, setRestoredCleared] = useState(false); // 開き直しで解けた画面を出している（「もう一度解く」を出す）
   const [showCreatorHelp, setShowCreatorHelp] = useState(false);
   const [scale, setScale] = useState(1);
   const [showContact, setShowContact] = useState(false);
@@ -677,11 +682,13 @@ export default function CrosswordPage() {
         setTimeout(() => setIsAssemblyAnimating(false), 2000);
 
         // Load progress from localStorage
+        let hasProgress = false;
         try {
           const saved = lsGet(`${PROGRESS_PREFIX}${puzzleToLoad.id}`);
           if (saved) {
             const parsed = JSON.parse(saved);
             if (parsed.userAnswers && typeof parsed.userAnswers === "object") {
+              hasProgress = true;
               setUserAnswers(parsed.userAnswers);
               if (typeof parsed.elapsedSeconds === "number") restoredElapsedRef.current = parsed.elapsedSeconds;
               if (Number.isInteger(parsed.reveals) && parsed.reveals >= 0) setReveals(parsed.reveals);
@@ -698,6 +705,29 @@ export default function CrosswordPage() {
           }
         } catch (e) {
           console.error("Failed to load progress:", e);
+        }
+        // 解き終えた印があれば（解き直しの途中が残っていない時）、解けた画面をそのまま出す。回は始めない（Hop 指示 2026-10-17）
+        if (!hasProgress && !isTutorial && !isDebugMode) {
+          const key = `${CLEARED_PREFIX}${puzzleToLoad.id}`;
+          try {
+            const mark = lsGet(key);
+            if (mark) {
+              const parsed = JSON.parse(mark);
+              const answers = parsed.userAnswers && typeof parsed.userAnswers === "object" ? (parsed.userAnswers as Record<string, string>) : null;
+              // 作った本人が解いた後に組み直した問題は盤が変わっている。今の盤のマスが全部埋まる印だけ使い、合わなければ捨てる
+              if (!answers || !puzzleToLoad.cells.every((c) => !!answers[`${c.x},${c.y}`])) {
+                lsRemove(key);
+              } else {
+                setClearTime(typeof parsed.clearTime === "number" ? parsed.clearTime : null);
+                setUserAnswers(answers);
+                setGamePhase("cleared");
+                setIsCleared(true);
+                setRestoredCleared(true);
+              }
+            }
+          } catch {
+            lsRemove(key);
+          }
         }
       }
       setLoadState("done");
@@ -744,6 +774,8 @@ export default function CrosswordPage() {
   // 初回ヘルプ表示判定 + タイマー自動開始（遊び方を読んだことがあれば、問題が出たらすぐ始める）
   useEffect(() => {
     if (isPlayerMode && playerPuzzle) {
+      // 解き終えた問題を開き直した時は、窓も出さず回も始めない（解けた画面がそのまま出ている）
+      if (gamePhase === "cleared") return;
       // 練習問題は遊び方の窓を出さずに始める（タイムは出さないが、一時停止の動きは同じ。端末の時計だけで測る）
       if (isTutorial) {
         if (gamePhase === "ready") beginTiming();
@@ -1226,14 +1258,15 @@ export default function CrosswordPage() {
   // 遊ばれた回数は、盤に最初の1文字が入ったときに1足す（Hop 決定 2026-10-04。開いただけでは数えない）。
   // 同じ端末では1つの問題につき1回だけ。作った本人の端末では数えない。失敗しても遊ぶのは止めない。
   // 数えるのは受付係（回ごとに1度・同じ接続元と問題は24時間に1度。外から回数を足す呼び出しは使えない）
+  // 解き終えた画面を開き直した時（入れた字を戻しただけ）は数えない・回も始めない
   useEffect(() => {
-    if (!playerPuzzle || isDebugMode || isTutorial || Object.keys(userAnswers).length === 0) return;
+    if (!playerPuzzle || isDebugMode || isTutorial || gamePhase !== "playing" || Object.keys(userAnswers).length === 0) return;
     const id = playerPuzzle.id;
     if (lsGet(`${PLAYED_PREFIX}${id}`)) return;
     if (readMyPuzzles().some((m) => m.id === id)) return;
     lsSet(`${PLAYED_PREFIX}${id}`, "1");
     withPlay((token) => touchPlay(token)).catch((err) => console.warn("Play count increment failed:", err));
-  }, [userAnswers, playerPuzzle, isDebugMode, isTutorial]);
+  }, [userAnswers, playerPuzzle, isDebugMode, isTutorial, gamePhase]);
 
   // Persist Progress (including elapsed time)
   useEffect(() => {
@@ -1242,7 +1275,7 @@ export default function CrosswordPage() {
     }
   }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase, reveals, isTutorial]);
 
-  // 解けたら端末の途中経過を消す。開き直すと新しい回で最初から（2026-10-06 レビューの直し）
+  // 解けたら端末の途中経過を消す（2026-10-06 レビューの直し）。開き直した時の見え方は解き終えた印（CLEARED_PREFIX）が決める（Hop 指示 2026-10-17）
   useEffect(() => {
     if (playerPuzzle && !isTutorial && gamePhase === "cleared") lsRemove(`${PROGRESS_PREFIX}${playerPuzzle.id}`);
   }, [playerPuzzle, gamePhase, isTutorial]);
@@ -1792,6 +1825,9 @@ export default function CrosswordPage() {
           setClearTime(timeSeconds);
           clearTimeRef.current = timeSeconds;
         }
+        // 解き終えた印を端末に残す。開き直した時はこの画面をそのまま出す（Hop 指示 2026-10-17）
+        // 答えは受付係だけが持っていてブラウザには届かないので、盤に出す字は解いた本人が入れた字（全部合っている）を残す
+        if (playerPuzzle && !isTutorial && !isDebugMode) lsSet(`${CLEARED_PREFIX}${playerPuzzle.id}`, JSON.stringify({ clearTime: timeSeconds, userAnswers, clearedAt: Date.now() }));
         // 読み上げで知らせる（画面には出さない。練習問題はタイムを測らないので文だけ）
         toast.announce(timeSeconds !== null && !isTutorial ? `解けました。タイム ${clock(timeSeconds)}` : "解けました。");
       }, 500);
@@ -1853,6 +1889,26 @@ export default function CrosswordPage() {
     }, AUTO_CHECK_WAIT_MS);
     return () => clearTimeout(timer);
   }, [userAnswers, playerPuzzle, isCleared, gamePhase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // もう一度解く: 解き終えた印を外し、新しい回として最初から。開いた時と同じ流れ（遊び方の窓・決まりのクイズの扉）を通る
+  const handlePlayAgain = () => {
+    if (playerPuzzle) lsRemove(`${CLEARED_PREFIX}${playerPuzzle.id}`);
+    setRestoredCleared(false);
+    setIsCleared(false);
+    setClearTime(null);
+    clearTimeRef.current = null;
+    rankableRef.current = true;
+    setBoardStatus(null);
+    setShowHintVideos(false);
+    setActiveCell(null);
+    setActiveWordItem(null);
+    setUserAnswers({});
+    setReveals(0);
+    playRef.current = null;
+    restoredElapsedRef.current = 0;
+    autoCheckRef.current = { ready: false, full: false, loud: false };
+    setGamePhase("ready");
+  };
 
   // 通信中に盤が変わっていた時の丸付けし直し（黙る方。今の盤で）
   useEffect(() => {
@@ -2268,6 +2324,7 @@ export default function CrosswordPage() {
                           puzzleId={puzzleId}
                           currentScore={clearTime ?? undefined}
                           refreshKey={rankingRefresh}
+                          href={`/crossword/${puzzleId}/ranking`}
                         />
                       </div>
                     )}
@@ -2278,27 +2335,39 @@ export default function CrosswordPage() {
                       (showHintVideos ? (
                         <HintList items={playerPuzzle.items} hints={playerHints} genre={playerGenre} />
                       ) : (
-                        <div className="text-center mt-6">
+                        <div className="mt-4">
                           <button
                             type="button"
                             onClick={() => setShowHintVideos(true)}
-                            className="inline-flex items-center gap-2 px-6 py-3 bg-surface-container-high hover:bg-surface-container-highest transition-colors font-medium"
+                            className="w-full sm:max-w-xs mx-auto flex items-center justify-center gap-2 px-6 py-3 bg-surface-container-high hover:bg-surface-container-highest transition-colors font-medium"
                             style={{ color: C.ink }}
                           >
                             {T.showHintVideos(playerGenre)}
                           </button>
                         </div>
                       ))}
-                    {/* 作成モードへ戻るリンク（練習問題では出さない） */}
-                    {!isTutorial && (
-                      <div className="text-center mt-4">
-                        <Link
-                          to="/crossword/create"
-                          className="inline-flex items-center gap-2 px-6 py-3 bg-surface-container-high hover:bg-surface-container-highest transition-colors font-medium"
+                    {/* もう一度解く（解き終えた問題を開き直した時だけ。Hop 指示 2026-10-17） */}
+                    {restoredCleared && (
+                      <div className="mt-4">
+                        <button
+                          type="button"
+                          onClick={handlePlayAgain}
+                          className="w-full sm:max-w-xs mx-auto flex items-center justify-center gap-2 px-6 py-3 bg-surface-container-high hover:bg-surface-container-highest transition-colors font-medium"
                           style={{ color: C.ink }}
                         >
-                          <Icon icon="add" />
-                          {T.createNew}
+                          {T.playAgain}
+                        </button>
+                      </div>
+                    )}
+                    {/* 作成モードへ戻るリンク（練習問題では出さない） */}
+                    {!isTutorial && (
+                      <div className="mt-4">
+                        <Link
+                          to="/crossword/create"
+                          className="w-full sm:max-w-xs mx-auto flex items-center justify-center gap-2 px-6 py-3 bg-surface-container-high hover:bg-surface-container-highest transition-colors font-medium"
+                          style={{ color: C.ink }}
+                        >
+                          {T.createNew} <span aria-hidden="true">→</span>
                         </Link>
                       </div>
                     )}

@@ -28,6 +28,8 @@
 //   「回の記録が無ければ始め直す」「混み合っています」／作る「https のリンクだけ」
 // - check-reveal: 解く「1文字見る・初回だけの確かめ」／ランキング「印（ノーミス・ノーアシスト・N文字見た）・回の番号だけを送る」
 // - check-own-ranking: ランキング「作った本人の端末では窓を出さない・字の数×1秒より速い回は載せない」
+// - check-ranking: 一覧「カードの『ランキング』→ /crossword/問題の番号/ranking（回は始めない）」／解く「解き終えた画面のランキングの見出しが同じ画面へのリンク・縦に並ぶボタンの幅が同じ」
+// - check-replay: 解く「解き終えた問題を開き直すと解けた画面のまま・回は始まらない・『もう一度解く』で最初から」（本物の回を1つ解く。名前は載せない）
 // - check-name-report: ランキング「旗から名前を通報」
 // - check-real-score: ランキング「本物のランキングに載り、タイムと印は回の記録から出る」
 // - check-a11y: アクセシビリティ（手元の開発サーバーを立てる）。axe の致命的・重大が0件・キーボードだけで見本の問題を解ける
@@ -104,6 +106,8 @@ run('check-auto-check');
 run('check-edge');
 run('check-reveal');
 run('check-own-ranking');
+run('check-replay');
+run('check-ranking');
 run('check-name-report');
 run('check-real-score');
 run('check-iphone');

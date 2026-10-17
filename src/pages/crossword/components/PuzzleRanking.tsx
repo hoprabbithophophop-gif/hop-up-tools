@@ -4,6 +4,7 @@
 // 文言（HarmonyPalette の ja.json に該当の文言が無かったので新しく書いた。すべて）、
 // 記録を送った後に読み直す（refreshKey。HarmonyPalette は送る前に読んだ一覧のままだった）。
 import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { getPuzzleRankings, reportName, type RankingEntry } from "../../../lib/crossword/scores";
 import { C } from "../style";
 import { formatTime as formatClock } from "../../../lib/crossword/youtubeUrl";
@@ -33,7 +34,9 @@ export const scoreMark = (reveals: number, misses: number): string =>
 // タイムは m:ss（1時間を超えたら h:mm:ss）。youtubeUrl.ts の formatTime と同じ
 const formatTime = (seconds: number): string => formatClock(Math.floor(seconds));
 
-export const PuzzleRanking: React.FC<{ puzzleId: string; currentScore?: number; refreshKey?: number }> = ({ puzzleId, currentScore, refreshKey = 0 }) => {
+// href: 見出しをランキングだけの画面へのリンクにする（解き終えた画面から。Hop 指示 2026-10-17）
+// hideTitle: 見出しを出さない（ランキングの画面は h1 が「ランキング」なので二重にしない）
+export const PuzzleRanking: React.FC<{ puzzleId: string; currentScore?: number; refreshKey?: number; href?: string; hideTitle?: boolean }> = ({ puzzleId, currentScore, refreshKey = 0, href, hideTitle = false }) => {
   const [rankings, setRankings] = useState<RankingEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +113,18 @@ export const PuzzleRanking: React.FC<{ puzzleId: string; currentScore?: number; 
   return (
     <Motion initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.3 }} className="bg-white p-6">
       {/* タイトル */}
-      <h2 className="text-[0.6875rem] font-bold tracking-[0.1em] mb-4 text-center" style={{ color: C.secondary }}>{T.title}</h2>
+      {!hideTitle && (
+      <h2 className="text-[0.6875rem] font-bold tracking-[0.1em] mb-4 text-center" style={{ color: C.secondary }}>
+        {href ? (
+          <Link to={href} className="inline-flex items-center gap-1 py-2 -my-2 underline underline-offset-4 hover:text-black transition-colors">
+            {T.title}
+            <span aria-hidden="true">→</span>
+          </Link>
+        ) : (
+          T.title
+        )}
+      </h2>
+      )}
 
       {/* ランキングリスト */}
       <div className="space-y-1">

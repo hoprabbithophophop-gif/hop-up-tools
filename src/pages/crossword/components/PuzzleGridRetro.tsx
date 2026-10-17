@@ -96,7 +96,8 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
           const isActive = activeCell?.x === cell.x && activeCell?.y === cell.y;
           const isRowColActive = isHighlighted(cell);
           const isWrong = wrongCells.has(cellKey);
-          const value = showSolution ? cell.value : userAnswers[cellKey] || "";
+          // 解く画面の問題には答えが入っていない（受付係だけが持つ）ので、解けた後は入れた字をそのまま出す
+          const value = (showSolution ? cell.value : "") || userAnswers[cellKey] || "";
 
           const borderStyles = calculateBorderStyles(cell, cellsMap);
           const dashedBg = generateDashedBorderBackground(cell, borderStyles, cellSize);

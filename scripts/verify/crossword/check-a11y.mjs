@@ -234,9 +234,9 @@ async function run() {
     await page.goto(`${BASE}/crossword`);
     await page.getByRole('heading', { level: 1 }).waitFor({ timeout: 20000 });
     await page.waitForTimeout(3000); // 一覧が届くまで
-    const cards = await page.locator('main button h2').count();
+    const cards = await page.locator('main article h2').count(); // カードは article（面の押下＋下段の「ランキング」「遊ぶ」のリンク。2026-10-17）
     check(cards > 0, `(1) ギャラリーにカードが並んだ状態で見る（${cards}枚）`);
-    const spoken = await page.locator('main button').filter({ has: page.locator('h2') }).first().evaluate((b) => { const c = b.cloneNode(true); c.querySelectorAll('[aria-hidden="true"]').forEach((e) => e.remove()); return c.textContent.replace(/\s+/g, ' ').trim(); });
+    const spoken = await page.locator('main article a').evaluateAll((as) => as.map((a) => a.getAttribute('aria-label') || a.textContent.replace(/\s+/g, ' ').trim()).join(' / '));
     check(!/extension|person|calendar_today|play_arrow/.test(spoken), `(1) カードの読み上げ名にアイコンの綴りが混ざらない（${spoken.slice(0, 40)}）`);
     await axeScan(page, 'ギャラリー');
     await ctx.close();
@@ -249,7 +249,7 @@ async function run() {
     await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
     await page.waitForTimeout(800);
     const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-    const n = await page.locator('main button h2').count();
+    const n = await page.locator('main article h2').count();
     check(over <= 0 && n > 0, `(1) 文字200%・390px のギャラリー（カード ${n}枚）に横スクロールが無い（はみ出し ${over}px）`);
     await ctx.close();
   }
