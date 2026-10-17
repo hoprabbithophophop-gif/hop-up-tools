@@ -348,9 +348,10 @@ async function run() {
         await page.waitForTimeout(400);
       }
     }
-    await page.waitForTimeout(2500);
+    await page.waitForFunction(() => document.body.innerText.includes('CLEARED!') || !!document.querySelector('#cell-0-0[disabled]'), null, { timeout: 15000 }).catch(() => {});
     const cleared = await page.evaluate(() => document.body.innerText.includes('CLEARED!') || !!document.querySelector('#cell-0-0[disabled]'));
     check(cleared, '(2) キーボードだけで見本の問題が解けた');
+    await page.waitForFunction(() => /解けました/.test([...document.querySelectorAll('[aria-live]')].map((e) => e.textContent).join(' ')), null, { timeout: 5000 }).catch(() => {}); // 知らせはハンコの直後に入る
     const live = await liveText(page);
     check(/解けました/.test(live), `(2) 解けたことを知らせの入れ物で知らせる（${live.trim().slice(0, 40)}）`);
     check(!/\berror\b/.test(live), '(2) 知らせの入れ物にアイコンの綴り（error）が混ざらない');

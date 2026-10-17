@@ -62,7 +62,7 @@ await page.waitForURL(/\/crossword\/mine$/);
 await page.getByRole('heading', { name: '自分が作った問題' }).waitFor();
 const titles = await page.locator('li .font-bold.truncate').allInnerTexts();
 check(titles.join(',') === '試しの問題2,試しの問題1', `新しい順に並ぶ: ${titles.join(',')}`);
-await page.waitForTimeout(1500);
+await page.getByText('非表示になっています').nth(1).waitFor({ timeout: 15000 }).catch(() => {}); // 棚に1件ずつ聞いてから出る。続けて流すと遅れることがある
 await page.screenshot({ path: path.join(OUT, '2-mine.png'), fullPage: true });
 check((await page.getByText('非表示になっています').count()) === 2, '棚に無い問題は「非表示になっています」');
 

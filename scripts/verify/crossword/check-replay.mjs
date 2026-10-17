@@ -82,7 +82,11 @@ async function openWith(setup, extra) {
     localStorage.setItem('crossword_seen_help', 'true');
     localStorage.removeItem(`crossword_cleared_${id}`);
   });
-  // 既にある回に字を入れる（開いた時点で回は始まっている）
+  // 既にある回に字を入れる（開いた時点で回は始まっている）。受付係の返事が遅いと途中経過にまだ回の番号が無く、
+  // その場合は開き直した後の最初の丸付けで新しい回が始まって「速すぎる回」扱いになる（名前の窓が出ない）。回の番号が入るまで待つ
+  await page.waitForFunction((id) => {
+    try { return !!JSON.parse(localStorage.getItem(`crossword_progress_${id}`) || '{}').play; } catch { return false; }
+  }, ID, { timeout: 20000 }).catch(() => {});
   await page.evaluate(({ id, answers }) => {
     const p = JSON.parse(localStorage.getItem(`crossword_progress_${id}`) || '{}');
     localStorage.setItem(`crossword_progress_${id}`, JSON.stringify({ ...p, userAnswers: answers, savedAt: Date.now() }));
@@ -94,7 +98,7 @@ async function openWith(setup, extra) {
   await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
   await cell.click();
   await page.getByRole('button', { name: full[P.last], exact: true }).last().click();
-  await page.getByRole('button', { name: '載せる' }).waitFor({ timeout: 15000 });
+  await page.getByRole('button', { name: '載せる' }).waitFor({ timeout: 20000 });
   check((await cellAt(page, lx, ly, full[P.last]).count()) === 1, '3 解けた直後の盤に入れた字が残っている');
   const m1 = JSON.parse((await mark(page)) || 'null');
   check(m1 && typeof m1.clearTime === 'number' && m1.clearTime >= 1, `3 解けると印が残る（タイム ${m1?.clearTime} 秒）`);

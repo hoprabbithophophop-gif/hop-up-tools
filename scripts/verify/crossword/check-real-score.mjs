@@ -4,7 +4,7 @@
 // 使い方: node scripts/verify/crossword/check-real-score.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス x,y] [名前]
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt, waitForPlayToken } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -40,10 +40,11 @@ await page.goto(`${BASE}/crossword/${ID}`);
 const cell = cellAt(page, lx, ly, '空');
 await cell.waitFor({ timeout: 20000 });
 await page.waitForTimeout(2500);
+  await waitForPlayToken(page, ID);
   await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
 await cell.click();
 await page.getByRole('button', { name: full[LAST], exact: true }).last().click();
-await page.getByRole('button', { name: '載せる' }).waitFor({ timeout: 10000 });
+await page.getByRole('button', { name: '載せる' }).waitFor({ timeout: 20000 });
 const token = await page.evaluate((id) => JSON.parse(localStorage.getItem(`crossword_progress_${id}`) || '{}').play?.token ?? null, ID);
 await page.getByPlaceholder('ニックネーム').fill(NAME);
 await page.getByRole('button', { name: '載せる' }).click();

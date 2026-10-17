@@ -4,7 +4,7 @@
 // 使い方: node scripts/verify/crossword/check-own-ranking.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス x,y] [そのマスの字]
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt, waitForPlayToken } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -45,10 +45,12 @@ async function solve(own, fast = false) {
   const cell = cellAt(page, lx, ly, '空');
   await cell.waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
+  await waitForPlayToken(page, ID);
   if (!fast) await page.waitForTimeout(humanWaitMs(Object.keys(answers).length + 1));
   await cell.click();
   await page.getByRole('button', { name: LAST_CHAR, exact: true }).last().click();
-  await page.waitForTimeout(4500);
+  await page.getByText('CLEARED!').first().waitFor({ timeout: 20000 }).catch(() => {}); // 受付係の返事の後に出る。並べて流すと遅れる
+  await page.getByRole('button', { name: '載せない' }).first().waitFor({ timeout: 10000 }).catch(() => {}); // 名前の窓はハンコの後（本人の端末では出ないので待ちは空振りでよい）
   const nameEntry = (await page.getByRole('button', { name: '載せない' }).count()) > 0;
   const cleared = await page.evaluate(() => document.body.innerText.includes('CLEAR') || document.body.innerText.includes('クリア'));
   await page.screenshot({ path: `${OUT}/own-${own}.png` });

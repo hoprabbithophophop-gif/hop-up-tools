@@ -81,6 +81,14 @@ export async function interceptCount(ctx, onCount = () => {}) {
 // 名前を入れる窓まで確かめる台本は、解き終える前にこれだけ待つ
 export const humanWaitMs = (cells) => (cells + 3) * 1000;
 
+// 受付係が回を始めて、その番号が端末の途中経過に入るまで待つ（最大 timeout ms）。
+// 並べて流すと受付係の返事が遅れ、番号が入る前に「人の速さの待ち」を始めると、待ちが回の前に終わって
+// 最初の丸付けで新しい回が始まり「速すぎる回」扱いになる（名前の窓が出ない）。人の速さの待ちの前に必ず挟む
+export const waitForPlayToken = (page, id, timeout = 20000) =>
+  page.waitForFunction((pid) => {
+    try { return !!JSON.parse(localStorage.getItem(`crossword_progress_${pid}`) || '{}').play; } catch { return false; }
+  }, id, { timeout }).then(() => true, () => false);
+
 // 文字盤でそのまま押せる字（゛゜小を使わない字）
 const PLAIN = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
 export const isPlain = (ch) => PLAIN.includes(ch);

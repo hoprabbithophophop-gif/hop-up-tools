@@ -333,14 +333,15 @@ try {
     const opened = await page.evaluate(() => [...document.querySelectorAll('h2,h3')].some((h) => /^ヒント(の動画)?$/.test(h.textContent)) && document.body.innerText.includes('▶ YouTube'));
     check(opened, '(4) 「ヒントの動画を見る」で今の一覧（▶ YouTube の表記つき）が開く');
     await page.screenshot({ path: path.join(OUT, '4-cleared-hints-open-390.png'), fullPage: true });
-    // 開き直すと新しい回で空の盤
+    // 開き直すと解けた画面のままで、回は始まらない（Hop 指示 2026-10-17。10-06 の「開き直すと新しい回で最初から」を取り消し。詳しくは check-replay）
     const startsBefore = st.starts;
     await page.reload();
     await cell(page, 0, 0).waitFor({ timeout: 20000 });
     await page.waitForTimeout(2500);
-    const empty = await page.evaluate(() => [...document.querySelectorAll('[id^="cell-"]')].every((b) => /[：・]空$/.test(b.getAttribute('aria-label') || '')));
-    check(empty, '(4) 解いた問題を開き直すと、盤は空（最初から）');
-    check(st.starts === startsBefore + 1, `(4) 開き直すと新しい回が始まる（回の始まり ${startsBefore} → ${st.starts}）`);
+    const filled = await page.evaluate(() => [...document.querySelectorAll('[id^="cell-"]')].every((b) => !/[：・]空$/.test(b.getAttribute('aria-label') || '')));
+    check(filled, '(4) 解いた問題を開き直すと、盤に答えが入ったまま（解けた画面のまま）');
+    check(st.starts === startsBefore, `(4) 開き直しても新しい回は始まらない（回の始まり ${startsBefore} → ${st.starts}）`);
+    check((await page.getByRole('button', { name: 'もう一度解く' }).count()) === 1, '(4) 開き直した解けた画面に「もう一度解く」がある');
     await ctx.close();
   }
 

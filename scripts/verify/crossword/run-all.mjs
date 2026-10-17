@@ -7,6 +7,10 @@
 // - 1本ずつ流すときも引数は要らない（node scripts/verify/crossword/check-edge.mjs など）。引数を渡せば引数が勝つ
 // - 答えはブラウザに渡らない作りなので、最初に受付係に回を1つ始めてもらい、全部のマスを「1文字見る」で聞いて
 //   一時置き場の _cache/ に控える。次からは控えを使う
+// - 2026-10-18 から3列で並べて流す（Hop 指示「並列にして」）。列A・列B はプレビューに対する台本、列C は手元にサーバーを立てる3本
+//   （口の番号は 5193・5191・5195 で重ならない）。3列が終わってから、本番に書く check-replay・check-real-score と、
+//   上限を使い切る check-limits を1本ずつ流す。上限の台本を他と並べると、同じ接続元の他の台本が巻き添えで 429 になるため。
+//   台本の出力は1本が終わった時にまとめて出す（列が混ざらないように）。総括の並びは列に関係なく決まった順
 // - 1本が落ちても次へ進む。台本ごとに OK/NG の数と最後の行を集め、最後に総括を出す。
 //   全部 OK なら ALL OK、1つでも NG なら「NG あり」と NG の一覧。NG があれば終了コード 1
 // - check-limits は最後に流す（削除の上限を1時間使い切るため）。回を始める上限（300/時）の連投は既定では流さない。
@@ -53,7 +57,7 @@
 // - crossword_puzzles（問題）: check-stage1 の 1〜4 を Hop の Chrome で流した時だけ。題名が「検収用」で始まる
 // - 遊ばれた回数（touch）・ランキングへの送信（check-real-score 以外）・名前の通報は台本が途中で受け止めて本物には届けない。
 //   check-limits の削除の連投は、でたらめな合言葉なので何も消さない
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { SCRIPT_DIR, ROOT, TMP_ROOT, TARGETS, puzzleLayout } from './_lib.mjs';
 
@@ -62,7 +66,7 @@ const t00 = Date.now();
 console.log(`== クロスワードの確かめ一式 ／ 行き先 ${TARGETS.base} ／ 問題 ${TARGETS.puzzleId}`);
 console.log(`== 写真の置き場: ${TMP_ROOT}\n`);
 
-// 答えの配置を先に1回だけ聞いて控える（各台本はこの控えを使う）
+// 答えの配置を先に1回だけ聞いて控える（各台本はこの控えを使う。列に分かれる前に済ませる）
 try {
   const l = await puzzleLayout(TARGETS.base, TARGETS.puzzleId);
   console.log(`答えの配置: ${Object.keys(l.cells).length}マス（控え ${l.fetchedAt}）\n`);
@@ -70,54 +74,75 @@ try {
   console.log(`答えの配置を聞けなかった: ${e.message}（解く台本は落ちる見込み）\n`);
 }
 
-function run(name, args = [], paper = '') {
-  const t0 = Date.now();
-  const r = spawnSync(process.execPath, [path.join(SCRIPT_DIR, `${name}.mjs`), ...args], { encoding: 'utf8', cwd: ROOT, timeout: 900000 });
-  const out = ((r.stdout || '') + (r.stderr || '')).split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l && !/ExperimentalWarning|--trace-warnings/.test(l));
-  const okN = out.filter((l) => l.startsWith('OK ')).length;
-  const ngLines = out.filter((l) => l.startsWith('NG ') && !/^NG \d+件/.test(l));
-  const timedOut = r.error?.code === 'ETIMEDOUT';
-  const good = r.status === 0 && ngLines.length === 0 && okN > 0;
-  const last = timedOut ? '時間切れ（900秒）' : out.at(-1) || '(出力なし)';
-  results.push({ name, paper, good, okN, ngN: ngLines.length, ngLines, last, code: r.status, sec: ((Date.now() - t0) / 1000).toFixed(0) });
-  console.log(`${good ? 'OK' : 'NG'} ${name}（OK ${okN} ／ NG ${ngLines.length} ／ 終了コード ${r.status} ／ ${results.at(-1).sec}秒）`);
-  for (const l of out) console.log('   ' + l);
-  console.log('');
+// 1本を流す。終わった時に出力をまとめて出す（列が混ざらないように）
+function run(name, args = []) {
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    let buf = '';
+    let timedOut = false;
+    const child = spawn(process.execPath, [path.join(SCRIPT_DIR, `${name}.mjs`), ...args], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (d) => { buf += d; });
+    child.stderr.on('data', (d) => { buf += d; });
+    const timer = setTimeout(() => { timedOut = true; child.kill(); }, 900000);
+    child.on('close', (status) => {
+      clearTimeout(timer);
+      const out = buf.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l && !/ExperimentalWarning|--trace-warnings/.test(l));
+      const okN = out.filter((l) => l.startsWith('OK ')).length;
+      const ngLines = out.filter((l) => l.startsWith('NG ') && !/^NG \d+件/.test(l));
+      const good = !timedOut && status === 0 && ngLines.length === 0 && okN > 0;
+      const last = timedOut ? '時間切れ（900秒）' : out.at(-1) || '(出力なし)';
+      const sec = ((Date.now() - t0) / 1000).toFixed(0);
+      results.push({ name, good, okN, ngN: ngLines.length, ngLines, last, code: status, sec });
+      const lines = [`${good ? 'OK' : 'NG'} ${name}（OK ${okN} ／ NG ${ngLines.length} ／ 終了コード ${status} ／ ${sec}秒）`, ...out.map((l) => '   ' + l), ''];
+      console.log(lines.join('\n'));
+      resolve();
+    });
+  });
 }
 function skip(name, why) {
   results.push({ name, skipped: true, last: why });
   console.log(`飛ばす ${name}: ${why}\n`);
 }
+// 1列を順に流す
+async function lane(items) {
+  for (const [name, args] of items) await run(name, args);
+}
 
-run('check-reporter-key');
-run('check-cells');
-run('check-suggest');
-run('check-build');
-run('check-pin');
-run('check-entry');
-run('check-fixtures');
-run('check-maru-mine');
-run('check-create-width');
+// 総括の並び（列に関係なく、この順で出す）
+const ORDER = [
+  'check-reporter-key', 'check-cells', 'check-suggest', 'check-build', 'check-pin', 'check-entry', 'check-fixtures', 'check-maru-mine', 'check-create-width',
+  'check-stage1 の 1〜4（作って保存し、その URL で解く）', 'check-stage1', 'check-play-count', 'check-resume', 'check-auto-check', 'check-edge', 'check-reveal',
+  'check-own-ranking', 'check-replay', 'check-ranking', 'check-name-report', 'check-real-score', 'check-iphone', 'check-owner-edit', 'check-review-fixes',
+  'check-tutorial', 'check-a11y', 'check-limits', 'check-limits の (b) 回を始める連投',
+];
+
 skip('check-stage1 の 1〜4（作って保存し、その URL で解く）', '保存が要るため検収役では流せない。Hop の Chrome で確認済み');
-run('check-stage1', ['--skip-save']);
-run('check-play-count');
-run('check-resume');
-run('check-auto-check');
-run('check-edge');
-run('check-reveal');
-run('check-own-ranking');
-run('check-replay');
-run('check-ranking');
-run('check-name-report');
-run('check-real-score');
-run('check-iphone');
-run('check-owner-edit');
-run('check-review-fixes'); // 手元の開発サーバーを立てて、2026-10-06 の公開前レビューの直し（濁点・丸付けの待ち・↻・終わりの画面・絞り込み・札など）を通しで
-run('check-tutorial'); // 手元の開発サーバーを立てて、作る側と解く側のチュートリアルを通しで（本番の棚には書かない）
-run('check-a11y'); // 手元の開発サーバーを立てて、アクセシビリティ（axe・キーボードだけで解く・窓の作法）。本番の棚には書かない
-run('check-limits'); // 最後（削除の上限を使い切る）。回を始める上限の連投 (b) は既定では飛ばす（台本が理由を1行出す）
+
+// 列A・列B: プレビューに対する台本（本番には書かない）。列C: 手元にサーバーを立てる3本（口は 5193・5191・5195）
+await Promise.all([
+  lane([
+    ['check-reporter-key'], ['check-cells'], ['check-suggest'], ['check-build'], ['check-pin'],
+    ['check-entry'], ['check-fixtures'], ['check-maru-mine'], ['check-create-width'], ['check-stage1', ['--skip-save']],
+    ['check-play-count'], ['check-resume'],
+  ]),
+  lane([
+    ['check-auto-check'], ['check-edge'], ['check-reveal'], ['check-own-ranking'], ['check-ranking'],
+    ['check-name-report'], ['check-iphone'], ['check-owner-edit'],
+  ]),
+  lane([
+    ['check-review-fixes'], // 2026-10-06 の公開前レビューの直し（濁点・丸付けの待ち・↻・終わりの画面・絞り込み・札など）を通しで
+    ['check-tutorial'], // 作る側と解く側のチュートリアルを通しで（本番の棚には書かない）
+    ['check-a11y'], // アクセシビリティ（axe・キーボードだけで解く・窓の作法）。本番の棚には書かない
+  ]),
+]);
+
+// 本番に書く2本は1本ずつ。上限を使い切る check-limits は最後に1本だけ
+await run('check-replay');
+await run('check-real-score');
+await run('check-limits'); // 回を始める上限の連投 (b) は既定では飛ばす（台本が理由を1行出す）
 results.push({ name: 'check-limits の (b) 回を始める連投', skipped: true, last: '回を始める上限（300/時）は同じ数え方の削除の上限（21回目で429）で確かめている。流すと1時間この回線から遊べなくなるため既定では飛ばす。流すなら node scripts/verify/crossword/check-limits.mjs --start-limit' });
 
+results.sort((a, b) => ORDER.indexOf(a.name) - ORDER.indexOf(b.name));
 const ng = results.filter((r) => !r.skipped && !r.good);
 console.log('==== 総括 ====');
 for (const r of results) {

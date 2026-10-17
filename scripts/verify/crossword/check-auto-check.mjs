@@ -3,7 +3,7 @@
 // 使い方: node scripts/verify/crossword/check-auto-check.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス x,y] [そのマスの字] [間違いの字]
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt, waitForPlayToken } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -42,6 +42,7 @@ async function open(answers) {
   await page.goto(`${BASE}/crossword/${ID}`);
   await page.locator('[id^="cell-"]').first().waitFor({ timeout: 20000 });
   await page.waitForTimeout(2500);
+  await waitForPlayToken(page, ID);
   await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
   return { ctx, page };
 }
@@ -55,9 +56,12 @@ const press = (page, ch) => page.getByRole('button', { name: ch, exact: true }).
   const { ctx, page } = await open(almost);
   await cellOf(page, '空').click();
   await press(page, LAST_CHAR);
-  await page.waitForTimeout(4500);
+  // ハンコは受付係の丸付けの返事の後に出る。他の台本と並べて流すと返事が4〜5秒を超えることがあるので、出るまで待つ（最大20秒）
+  await page.getByText('CLEARED!').first().waitFor({ timeout: 20000 }).catch(() => {});
   check(await stamped(page), '正しく埋めると、ボタンを押さずにハンコが出る');
+  await page.getByRole('button', { name: /決定/ }).first().waitFor({ state: 'detached', timeout: 5000 }).catch(() => {}); // 窓はハンコの直後に閉じる
   check(!(await closeupOpen(page)), '拡大の窓は閉じている');
+  await page.getByRole('button', { name: '載せない' }).first().waitFor({ timeout: 10000 }).catch(() => {});
   check((await page.getByRole('button', { name: '載せない' }).count()) > 0, '名前を入れる窓が出る');
   await page.screenshot({ path: `${OUT}/auto-1-correct.png` });
   await ctx.close();
@@ -74,12 +78,13 @@ const press = (page, ch) => page.getByRole('button', { name: ch, exact: true }).
   check(!text.includes('赤枠') && !text.includes('合っていないカギ') && !text.includes('降参'), 'どこが違うかは示さない（赤枠の案内・合っていないカギの一覧・降参が無い）');
   const wrongColor = await cellOf(page, WRONG_CHAR).evaluate((el) => getComputedStyle(el).color);
   check(wrongColor !== 'rgb(186, 26, 26)', `間違えたマスの字は赤くならない: ${wrongColor}`);
+  await page.getByRole('button', { name: /決定/ }).first().waitFor({ state: 'detached', timeout: 5000 }).catch(() => {}); // 窓が閉じるのは受付係の返事の後。続けて流すと遅れることがある
   check(!(await closeupOpen(page)), '拡大の窓は閉じて盤が見える');
   check(!(await stamped(page)), 'ハンコは出ない');
   await page.screenshot({ path: `${OUT}/auto-2-wrong.png` });
   await cellOf(page, WRONG_CHAR).click();
   await press(page, LAST_CHAR);
-  await page.waitForTimeout(4500);
+  await page.getByText('CLEARED!').first().waitFor({ timeout: 20000 }).catch(() => {}); // 受付係の返事の後に出る。並べて流すと遅れる
   check(await stamped(page), '直して全部合うと、ボタンを押さずにハンコが出る');
   await ctx.close();
 }

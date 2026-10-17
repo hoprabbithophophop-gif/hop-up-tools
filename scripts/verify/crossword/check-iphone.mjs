@@ -4,7 +4,7 @@
 // 使い方: node scripts/verify/crossword/check-iphone.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス1 x,y] [残すマス2 x,y]
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { webkit, devices } from 'playwright';
-import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt, xy } from './_lib.mjs';
+import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt, xy, waitForPlayToken } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -72,10 +72,12 @@ await page.getByRole('button', { name: '見る', exact: true }).tap();
 await cellAt(page, ...xy(CELL1), full[CELL1]).waitFor({ timeout: 8000 }).catch(() => {});
 check((await cellAt(page, ...xy(CELL1), full[CELL1]).count()) === 1, '解く画面: 1文字見るで字が入る');
 await page.getByRole('button', { name: '閉じる' }).first().tap().catch(() => {});
+await waitForPlayToken(page, ID);
 await page.waitForTimeout(humanWaitMs(Object.keys(full).length));
 await cellAt(page, ...xy(CELL2), '空').tap();
 await page.getByRole('button', { name: full[CELL2], exact: true }).last().tap();
-await page.getByRole('button', { name: '載せる' }).waitFor({ timeout: 10000 }).catch(() => {});
+await page.getByText('CLEARED!').first().waitFor({ timeout: 20000 }).catch(() => {});
+await page.getByRole('button', { name: '載せる' }).waitFor({ timeout: 20000 }).catch(() => {});
 const t = await text();
 check(t.includes('CLEARED!'), '解く画面: 最後の1字で自動の答え合わせが走り、ハンコが出る');
 check((await page.getByRole('button', { name: '載せる' }).count()) === 1, '解く画面: 名前を入れる窓が出る');
