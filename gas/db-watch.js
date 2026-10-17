@@ -18,8 +18,11 @@
  *                            project_admin_read と project_admin_write）。無ければ段2は動かず、知らせだけ
  *   DBWATCH_STATE          : この台本が自分で書く（止まっていると判断した時刻・最後に再起動を頼んだ時刻）。手で触らない
  *
- * トリガー: DBWATCHsetupTrigger を Apps Script エディタで1回実行すると、10分ごとのトリガーができる。
- *   作った後は、venue-setup-trigger.js と同じく DBWATCHsetupTrigger を gas/archive/ へ移す。
+ * トリガー: DBWATCHmain の10分ごとのトリガーは 2026-10-18 に Hop が設定済み。作り直すときは
+ *   Apps Script の「トリガー」画面から手で作るか、gas/archive/dbwatch-setup-trigger.js を使う。
+ *
+ * 【保管庫へ移した関数（gas/archive/dbwatch-setup-trigger.js にそのまま残してある）】
+ * DBWATCHsetupTrigger（2026-10-18。トリガー作成が済み、二度目は要らないため）
  */
 
 var DBWATCH_STATE_PROP = 'DBWATCH_STATE';
@@ -175,14 +178,4 @@ function dbwatchNotify_(subject, body) {
   var to = PropertiesService.getScriptProperties().getProperty('NOTIFY_EMAIL') || Session.getEffectiveUser().getEmail();
   MailApp.sendEmail({ to: to, subject: subject, body: body });
   Logger.log('[DBWATCH] mail → ' + to + ': ' + subject);
-}
-
-/** 10分ごとのトリガーを作る（GAS エディタから一度だけ実行。作ったら gas/archive/ へ移す） */
-function DBWATCHsetupTrigger() {
-  var triggers = ScriptApp.getProjectTriggers();
-  for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === 'DBWATCHmain') ScriptApp.deleteTrigger(triggers[i]);
-  }
-  ScriptApp.newTrigger('DBWATCHmain').timeBased().everyMinutes(10).create();
-  Logger.log('DBWATCHmain の10分ごとのトリガーを設定しました');
 }
