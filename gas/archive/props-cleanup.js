@@ -5,7 +5,8 @@
  *       YouTube のチャンネル番号 CH_<key> は youtube-scraper.js のコードへ写したので、ここで消して数を減らす。
  * 依存: 無し（PropertiesService だけ）。
  * 使い方: PROPSlist で名前と値の長さを見る（値そのものは出さない）→ PROPSdeleteChannelIds で CH_ で始まる物を消す → PROPSlist で確かめる。
- * 役目が済んだら gas/archive/ へ移す。
+ * 2026-10-18 に CH_ 31個を消して役目が済んだので archive へ。
+ * 再利用: gas/ 直下へコピー → npm run gas:push -- --check → --confirm → 実行 → 使用後に消して --force-delete 付きで再push。
  */
 
 function PROPSlist() {
