@@ -85,7 +85,14 @@ await pa.getByText('ハロプロ', { exact: true }).first().click();
 await fieldByLabel(pa, 'ヒント').fill('https://youtu.be/dQw4w9WgXcQ?t=83');
 await pa.waitForTimeout(1500);
 const helloText = await pa.evaluate(() => document.body.innerText);
-r['5 ハロプロで台帳に無い YouTube を断る'] = /HELLO! VIDEO に載っている動画だけ/.test(helloText);
+// 2026-10-19 案1: 台帳に無い動画は断らず、チャンネル名と「公式の発信か確かめてください」を添える（youtube.com に聞くので通信が要る）
+r['5 ハロプロで台帳に無い YouTube はチャンネル名付きで通る'] = /チャンネル: .+ 公式の発信か確かめてください/.test(helloText);
+r['5 ハロプロのヒント欄に公式の発信の案内'] = /ヒントは公式の発信/.test(helloText);
+await pa.getByLabel('ヒントを外す').click(); // 選ばれた札を外して欄に戻す
+await pa.waitForTimeout(300);
+await fieldByLabel(pa, 'ヒント').fill('https://youtu.be/6Y2X6RxYnY');
+await pa.waitForTimeout(500);
+r['5 形の崩れた YouTube はリンクとして通さない'] = /YouTube の URL の形が違います/.test(await pa.evaluate(() => document.body.innerText));
 await pa.getByText('その他', { exact: true }).first().click();
 await pa.waitForTimeout(500); // 切り替えで欄が空に戻るのを待ってから貼る
 await fieldByLabel(pa, 'ヒント').fill('https://youtu.be/dQw4w9WgXcQ?t=83');

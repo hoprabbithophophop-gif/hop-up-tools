@@ -1,5 +1,5 @@
 // 作る画面の「ヒント」欄（HarmonyPalette に無い、足した物）。
-// ハロプロ: YouTube は HELLO! VIDEO の台帳から題名・曲名で検索する。結果のサムネイルを押すと拡大の窓で再生して見られ（見る）、窓の「この位置でヒントにする」か題名側を押すと選ぶ（決める）。URL を貼った時は台帳にあるか確かめ、無ければ受け付けない
+// ハロプロ: YouTube は HELLO! VIDEO の台帳から題名・曲名で検索する。結果のサムネイルを押すと拡大の窓で再生して見られ（見る）、窓の「この位置でヒントにする」か題名側を押すと選ぶ（決める）。URL を貼った時は台帳にあるか確かめ、無ければ YouTube にチャンネル名を聞いて添える（聞けなければ使えない。Hop 決定 2026-10-19 案1）。形の崩れた YouTube の住所はリンクとしても通さない
 // その他: YouTube の URL を貼ると時刻が欄に入る（直せる）
 // 選んだ YouTube はその場で埋め込み、開始時刻の位置で止めて出す。「今の位置にする」で時刻を入れられる
 // どちらのジャンルも YouTube 以外のリンクは「リンク」として貼れる（再生しない）
@@ -7,12 +7,13 @@ import React, { useEffect, useRef, useState } from "react";
 import type { Genre, HintRef } from "../../../lib/crossword/puzzleStore";
 import {
   isCatalogVideo,
+  lookupVideoChannel,
   searchCatalogChapters,
   searchCatalogVideos,
   type CatalogChapter,
   type CatalogVideo,
 } from "../../../lib/crossword/puzzleStore";
-import { formatTime, parseTimeInput, parseYouTubeUrl, linkProblem } from "../../../lib/crossword/youtubeUrl";
+import { formatTime, parseTimeInput, parseYouTubeUrl, linkProblem, isYouTubeHost } from "../../../lib/crossword/youtubeUrl";
 import { C } from "../style";
 import { HintPlayer, type HintPlayerApi } from "./HintPlayer";
 import { useDialog } from "./useDialog";
@@ -21,6 +22,12 @@ import { useDialog } from "./useDialog";
 const UNUSABLE = "この動画はヒントに使えません。";
 // リンクの決まりに合わない時（Hop 決定 2026-10-04）
 const LINK_RULE = "リンクは https から始まる URL だけ使えます。"; // Hop 決定 2026-10-06
+// 動画番号が読めない形の YouTube の住所（? 抜け・番号の字足らず）。一般のリンクとしては通さない（2026-10-19 抜け穴ふさぎ）【仮】
+const YT_FORM = "YouTube の URL の形が違います。動画のページの URL をそのまま貼ってください。";
+// チャンネル名を聞けなかった（削除・非公開・埋め込み禁止・通信）【仮】
+const YT_UNKNOWN = "この動画を確かめられませんでした。削除・非公開・埋め込み禁止になっていないかご確認ください。";
+// 台帳に無い動画に添える一言（ハロプロだけ。Hop 2026-10-19「公式情報をヒントにしてもらえると」）【仮】
+const CHECK_OFFICIAL = "公式の発信か確かめてください。";
 
 export interface Selected {
   hint: HintRef;
@@ -131,19 +138,26 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
       setChapterResults([]);
       const yt = parseYouTubeUrl(t);
       if (yt) {
-        if (genre === "hello") {
-          setBusy(true);
-          isCatalogVideo(yt.videoId)
-            .then((ok) => {
-              if (my !== seq.current) return;
-              if (ok) choose({ hint: { kind: "youtube", videoId: yt.videoId, startSec: yt.startSec }, label: t });
-              else setMessage("ハロプロのヒントに使える YouTube は、HELLO! VIDEO に載っている動画だけです。題名や曲名で検索して選んでください。");
-            })
-            .catch(() => my === seq.current && setMessage("動画を確かめられませんでした。時間をおいてもう一度お試しください。"))
-            .finally(() => my === seq.current && setBusy(false));
-        } else {
-          choose({ hint: { kind: "youtube", videoId: yt.videoId, startSec: yt.startSec }, label: t });
-        }
+        // 台帳にある動画はそのまま。無い動画（外のチャンネル）はチャンネル名を聞いて添える。聞けない動画は使えない（Hop 決定 2026-10-19 案1）
+        setBusy(true);
+        (genre === "hello" ? isCatalogVideo(yt.videoId) : Promise.resolve(false))
+          .catch(() => false)
+          .then(async (inCatalog) => {
+            if (inCatalog) return { hint: { kind: "youtube" as const, videoId: yt.videoId, startSec: yt.startSec }, label: t };
+            const channel = await lookupVideoChannel(yt.videoId);
+            if (!channel) return null;
+            return { hint: { kind: "youtube" as const, videoId: yt.videoId, startSec: yt.startSec, channel }, label: t };
+          })
+          .then((picked) => {
+            if (my !== seq.current) return;
+            if (picked) choose(picked);
+            else setMessage(YT_UNKNOWN);
+          })
+          .finally(() => my === seq.current && setBusy(false));
+        return;
+      }
+      if (isYouTubeHost(t)) {
+        setMessage(YT_FORM);
         return;
       }
       if (linkProblem(t)) {
@@ -183,7 +197,15 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
           <span className="text-[0.6875rem] font-bold uppercase tracking-[0.1em] shrink-0 pt-0.5" style={{ color: C.secondary }}>
             {isYt ? "YouTube" : "リンク"}
           </span>
-          <span className="flex-1 text-sm break-all" style={{ color: C.ink }}>{selected.label}</span>
+          <span className="flex-1 min-w-0 text-sm break-all" style={{ color: C.ink }}>
+            {selected.label}
+            {selected.hint.kind === "youtube" && selected.hint.channel && (
+              <span data-hint-channel="" className="block text-xs pt-1" style={{ color: C.secondary }}>
+                {`チャンネル: ${selected.hint.channel}`}
+                {genre === "hello" && ` ${CHECK_OFFICIAL}`}
+              </span>
+            )}
+          </span>
           <button
             type="button"
             onClick={() => {

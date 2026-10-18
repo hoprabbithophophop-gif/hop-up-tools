@@ -66,7 +66,17 @@ export const HintView: React.FC<{ hint: HintRef }> = ({ hint }) => {
   if (hint.kind === "youtube") {
     // gone は問題を開いた時に台帳で確かめた印（ハロプロのジャンル）
     if (hint.gone) return <GoneNote />;
-    return <HintVideo videoId={hint.videoId} startSec={hint.startSec} />;
+    return (
+      <>
+        <HintVideo videoId={hint.videoId} startSec={hint.startSec} />
+        {/* 台帳に無い動画はチャンネル名を添える（Hop 決定 2026-10-19 案1。公式かどうかは解く人も見て分かるように） */}
+        {hint.channel && (
+          <p data-hint-channel="" className="px-4 pt-2 text-xs break-all" style={{ color: C.secondary }}>
+            {`チャンネル: ${hint.channel}`}
+          </p>
+        )}
+      </>
+    );
   }
   // 保存された中身はだれでも入れられるので、http(s) 以外のリンクは開けないようにする
   if (!/^https?:\/\//i.test(hint.url)) {
