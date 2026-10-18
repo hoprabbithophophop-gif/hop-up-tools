@@ -6,7 +6,8 @@
  * 依存: スクリプトプロパティ SUPABASE_URL（棚の番号を読む）と SUPABASE_ACCESS_TOKEN（Data API Config の Read-write 権限つき）。
  * 使い方: DBWATCHshowPool で今の値を見る → DBWATCHsetPool3 で 3 にする → もう一度 DBWATCHshowPool で確かめる。
  *         きつければ DBWATCHsetPool5 で 5 に戻せる。
- * 役目が済んだら gas/archive/ へ移す（本編の見張り db-watch.js とは別のファイル）。
+ * 2026-10-18 に 3 へ変えて役目が済んだので archive へ。dbwatchProjectRef_ は本編の db-watch.js にある。
+ * 再利用: gas/ 直下へコピー → npm run gas:push -- --check → --confirm → 実行 → 使用後に消して --force-delete 付きで再push。
  */
 
 function DBWATCHshowPool() {
