@@ -52,6 +52,7 @@ import { Footer, Icon } from "./components/ui";
 import { PuzzleRanking } from "./components/PuzzleRanking";
 import { NameEntryModal } from "./components/NameEntryModal";
 import { HintList } from "./components/HintList";
+import { BulkEntry, surfaceByAnswer } from "./components/BulkEntry";
 import { OtherPuzzles } from "./components/OtherPuzzles";
 import { BEGINNER_LABEL } from "./components/PuzzleGalleryCard";
 import { detectGroups } from "../../lib/crossword/groupDetect";
@@ -131,6 +132,7 @@ interface Draft {
   items: PuzzleItem[];
   hints: Record<string, HintRef>;
   input: { q: string; a: string };
+  bulkText?: string; // 「まとめて入れる」の文字列（候補はここから計算し直すので文字列だけ残す）
 }
 
 // 文言（HarmonyPalette の ja.json の puzzle.builder から。問題文の呼び名は「ヒント」→「カギ」）
@@ -291,6 +293,35 @@ const T = {
     saved: "作りかけはこの端末に自動で残ります。作った問題は「自分が作った問題」にあり、遊ばれる前なら組み直せます。",
     close: "閉じる",
   },
+  // 「まとめて入れる」（Hop 決定 2026-10-18）
+  bulk: {
+    heading: "まとめて入れる",
+    guide: "出す語を【 】で囲む。読みは｜の後に（例: 【本気｜マジ】）。カタカナだけの語は読み不要。",
+    textLabel: "まとめて入れる文", // 欄の読み上げ名【仮】
+    markHere: "ここを出す",
+    reading: "読み",
+    readingOf: (w: string) => `${w} の読み`, // 読みの欄の読み上げ名【仮】
+    unmark: (w: string) => `${w} の囲みを外す`, // 囲んだ語のボタンの読み上げ名【仮】
+    candidates: "候補",
+    search: (n: number) => `組み合わせを探す（${n}語）`,
+    searching: (n: number) => `探しています… 試行 ${n} 回`,
+    stats: (n: number, m: number, k: number) => `${n}語・${m}マス・交差${k}`,
+    leftOut: (words: string[]) => `入らない: ${words.join("、")}`,
+    proposal: (n: number) => `案${n}`, // 【仮】
+    noProposal: "組み合わせが見つかりませんでした。", // 【仮】
+    adopt: "この盤で進む",
+    reasons: {
+      noReading: "読みが未入力",
+      badReading: "読みはひらがな・カタカナで", // 【仮】
+      unusable: "使えない字（ヰ・ヱ）",
+      tooLong: "20字まで",
+      inList: "一覧に入っています", // 【仮】
+      duplicate: "同じ答えがあります",
+      tooMany: "60語まで",
+    },
+    pickHint: "未選択 → ヒントを選ぶ",
+    missingHints: (n: number) => `ヒントが未選択の語が ${n} 語あります`,
+  },
   // 作る画面の案内（Hop 決定 2026-10-05・案B）。文言はすべて【仮】
   createGuide: {
     answer: ["答えはひらがなかカタカナで。小さい字は大きい字になります。", "例：ネコ"],
@@ -450,6 +481,8 @@ export default function CrosswordPage() {
   const [editorItems, setEditorItems] = useState<PuzzleItem[]>([]);
   const [hints, setHints] = useState<Record<string, HintRef>>({});
   const [currentInput, setCurrentInput] = useState({ q: "", a: "" });
+  // 「まとめて入れる」の文字列（正本はこの1本）
+  const [bulkText, setBulkText] = useState("");
   const [pendingHint, setPendingHint] = useState<HintRef | null>(null);
   const [hintResetKey, setHintResetKey] = useState(0);
   // 登録済みのカギを直している間はその id（Hop 依頼 2026-10-03。HarmonyPalette は削除だけ）
@@ -1359,6 +1392,7 @@ export default function CrosswordPage() {
         if (typeof d.isBeginner === "boolean") setIsBeginner(d.isBeginner);
         if (typeof d.rulesNote === "boolean") setRulesNote(d.rulesNote);
         if (d.input && typeof d.input.q === "string" && typeof d.input.a === "string") setCurrentInput(d.input);
+        if (typeof d.bulkText === "string") setBulkText(d.bulkText);
         // 語ごとに形を確かめ、答えは今の字そろえ（toCells）を通し直す。だめな語は捨てる（2026-10-06 レビューの直し）
         const items: PuzzleItem[] = [];
         const seen = new Set<string>();
@@ -1387,14 +1421,14 @@ export default function CrosswordPage() {
 
   useEffect(() => {
     if (isPlayerMode || !draftReady || editStatus !== "none") return;
-    const empty = !puzzleTitle && !creatorName && tags.length === 0 && editorItems.length === 0 && !currentInput.q && !currentInput.a;
+    const empty = !puzzleTitle && !creatorName && tags.length === 0 && editorItems.length === 0 && !currentInput.q && !currentInput.a && !bulkText;
     if (empty) {
       lsRemove(DRAFT_KEY);
       return;
     }
-    const d: Draft = { title: puzzleTitle, creatorName, genre, tags, isBeginner, rulesNote, items: editorItems, hints, input: currentInput };
+    const d: Draft = { title: puzzleTitle, creatorName, genre, tags, isBeginner, rulesNote, items: editorItems, hints, input: currentInput, bulkText };
     lsSet(DRAFT_KEY, JSON.stringify(d));
-  }, [isPlayerMode, draftReady, editStatus, puzzleTitle, creatorName, genre, tags, isBeginner, rulesNote, editorItems, hints, currentInput]);
+  }, [isPlayerMode, draftReady, editStatus, puzzleTitle, creatorName, genre, tags, isBeginner, rulesNote, editorItems, hints, currentInput, bulkText]);
 
   // --- Editor Functions ---
   const handleAddItem = () => {
@@ -1471,6 +1505,17 @@ export default function CrosswordPage() {
     setCurrentInput({ ...currentInput, q: next });
     if (!active) return;
     requestAnimationFrame(() => el.setSelectionRange(start + 1, start + 1));
+  };
+
+  // 「まとめて入れる」で選んだ盤で進む。盤は選んだ並びのまま出すため、全語を固定として渡す（組み直しが走っても崩れない）
+  const handleBulkAdopt = (items: PuzzleItem[], pins: PlacedItem[]) => {
+    // 提案に入らなかった既存の語は一覧から消さない（打ったカギとヒントが消えると痛いため）。
+    // 盤には今までどおり「置けなかった語」として出る
+    const kept = editorItems.filter((e) => !items.some((i) => i.id === e.id));
+    const next = [...items, ...kept];
+    setEditorItems(next);
+    if (editingId && !next.some((i) => i.id === editingId)) resetItemInput();
+    triggerGeneration(next, false, pins);
   };
 
   const handleRemoveItem = (itemId: string) => {
@@ -1586,6 +1631,8 @@ export default function CrosswordPage() {
     // 保存の数の上限は受付係だけが持つ（画面の「1日5個まで」は外した。2026-10-06）
     // 固定した語どうしがつながらない盤は保存しない（ボタンも押せないが、念のため）
     if (!isConnected(generatedPuzzle.items)) return;
+    // ヒントの無い語（まとめて入れた語）が残っていれば保存しない（ボタンも押せないが、念のため）
+    if (generatedPuzzle.items.some((i) => !hints[i.id])) return;
 
     // --- Title Check ---（いま欄に入っている題名で確かめる）
     const title = puzzleTitle.trim();
@@ -1637,7 +1684,7 @@ export default function CrosswordPage() {
 
   // 組み直した問題で書き換える。成功したら共有の窓（URL は同じ）を出す
   const updateEdited = async () => {
-    if (!generatedPuzzle || !editTarget) {
+    if (!generatedPuzzle || !editTarget || generatedPuzzle.items.some((i) => !hints[i.id])) {
       setIsSaving(false);
       return;
     }
@@ -1687,7 +1734,7 @@ export default function CrosswordPage() {
 
   const saveWithToken = async (token: string, website: string) => {
     setShowSaveCheck(false);
-    if (!generatedPuzzle) {
+    if (!generatedPuzzle || generatedPuzzle.items.some((i) => !hints[i.id])) {
       setIsSaving(false);
       return;
     }
@@ -2556,6 +2603,10 @@ export default function CrosswordPage() {
   const unplaced = generatedPuzzle && !isLiveGenerating ? editorItems.filter((i) => !generatedPuzzle.items.some((p) => p.id === i.id)) : [];
   // 組み上がった盤が1つにつながっていない（固定した語が2つ以上で島のまま）
   const boardDisconnected = !!generatedPuzzle && !isLiveGenerating && !isConnected(generatedPuzzle.items);
+  // 盤に入っている語のうちヒントが未選択の数（保存の本文にはヒントが要るため。盤に入らない語は保存されないので数えない）
+  const missingHints = generatedPuzzle && !isLiveGenerating ? generatedPuzzle.items.filter((i) => !hints[i.id]).length : 0;
+  // 読みを付けて囲んだ語の表記（一覧の行に添える）
+  const bulkSurfaces = surfaceByAnswer(bulkText);
 
   // Editor View
   return (
@@ -2697,6 +2748,8 @@ export default function CrosswordPage() {
                 </label>
               </div>
 
+              <BulkEntry text={bulkText} onText={setBulkText} editorItems={editorItems} t={T.bulk} textareaClassName={inputClass} onAdopt={handleBulkAdopt} />
+
               <div className="space-y-3" data-coach="create-entry">
                 <div className="space-y-1" data-coach="create-answer">
                   <label htmlFor="cw-answer" className="text-xs font-mono font-bold" style={{ color: C.secondary }}>{T.answer}</label>
@@ -2756,6 +2809,9 @@ export default function CrosswordPage() {
                         <div className="overflow-hidden flex-1">
                           <div className="font-mono text-sm font-bold truncate flex items-center gap-1" style={{ color: C.ink }}>
                             <span>{item.answer.join(" ")}</span>
+                            {bulkSurfaces.has(item.answer.join("")) && (
+                              <span className="text-xs font-normal" style={{ color: C.secondary }}>（{bulkSurfaces.get(item.answer.join(""))}）</span>
+                            )}
                             {/* 交差候補マーク: 共通文字をバッジで表示 */}
                             {chars && chars.size > 0 && (
                               <span className="flex gap-0.5 ml-1">
@@ -2768,7 +2824,13 @@ export default function CrosswordPage() {
                             )}
                           </div>
                           <div className="text-xs truncate" style={{ color: C.secondary }}>{item.question}</div>
-                          <div className="text-xs truncate" style={{ color: C.outline }}>{hintSummary(hints[item.id])}</div>
+                          {hints[item.id] ? (
+                            <div className="text-xs truncate" style={{ color: C.outline }}>{hintSummary(hints[item.id])}</div>
+                          ) : (
+                            <button type="button" data-pick-hint="" onClick={() => handleEditItem(item)} className="text-xs font-bold underline-offset-2 hover:underline" style={{ color: C.error }}>
+                              {T.bulk.pickHint}
+                            </button>
+                          )}
                         </div>
                         <button onClick={() => handleEditItem(item)} className="p-1 ml-2 flex-shrink-0 hover:bg-primary hover:text-white transition-colors" style={{ color: C.secondary }} aria-label="編集">
                           <Icon size={16} icon="edit" />
@@ -2884,12 +2946,18 @@ export default function CrosswordPage() {
               {generatedPuzzle && !isLiveGenerating && (
                 <div className="flex justify-center">
                   <div data-coach="create-share">
-                  <Button onClick={handleShare} disabled={isSaving || boardDisconnected} className="flex items-center gap-2">
+                  <Button onClick={handleShare} disabled={isSaving || boardDisconnected || missingHints > 0} className="flex items-center gap-2">
                     {!editTarget && <Icon icon="share" />}
                     {isSaving ? T.saving : editTarget ? T.edit.update : T.share}
                   </Button>
                   </div>
                 </div>
+              )}
+              {/* 押せない理由（ヒントが未選択の語が残っている時）を1行 */}
+              {missingHints > 0 && (
+                <p data-missing-hints="" className="text-xs text-center" style={{ color: C.secondary }}>
+                  {T.bulk.missingHints(missingHints)}
+                </p>
               )}
 
               <div className="text-center text-xs px-4 font-mono" style={{ color: C.secondary }}>

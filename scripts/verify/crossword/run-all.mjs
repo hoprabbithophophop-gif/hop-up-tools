@@ -113,7 +113,7 @@ const ORDER = [
   'check-reporter-key', 'check-cells', 'check-suggest', 'check-build', 'check-pin', 'check-entry', 'check-fixtures', 'check-maru-mine', 'check-create-width',
   'check-stage1 の 1〜4（作って保存し、その URL で解く）', 'check-stage1', 'check-play-count', 'check-resume', 'check-auto-check', 'check-edge', 'check-reveal',
   'check-own-ranking', 'check-replay', 'check-ranking', 'check-name-report', 'check-real-score', 'check-iphone', 'check-owner-edit', 'check-review-fixes',
-  'check-tutorial', 'check-a11y', 'check-limits', 'check-limits の (b) 回を始める連投',
+  'check-tutorial', 'check-a11y', 'check-bulk-entry', 'check-limits', 'check-limits の (b) 回を始める連投',
 ];
 
 skip('check-stage1 の 1〜4（作って保存し、その URL で解く）', '保存が要るため検収役では流せない。Hop の Chrome で確認済み');
@@ -133,6 +133,7 @@ await Promise.all([
     ['check-review-fixes'], // 2026-10-06 の公開前レビューの直し（濁点・丸付けの待ち・↻・終わりの画面・絞り込み・札など）を通しで
     ['check-tutorial'], // 作る側と解く側のチュートリアルを通しで（本番の棚には書かない）
     ['check-a11y'], // アクセシビリティ（axe・キーボードだけで解く・窓の作法）。本番の棚には書かない
+    ['check-bulk-entry'], // 「まとめて入れる」の探す仕組み（node だけ）と作る画面の通し（口 5197）。本番の棚には書かない
   ]),
 ]);
 
