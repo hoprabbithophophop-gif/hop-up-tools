@@ -6,7 +6,8 @@ export type Genre = "hello" | "other";
 // カギごとのヒント。YouTube はアプリ内で再生、それ以外はリンクで開く
 export type HintRef =
   // gone は画面の中だけで使う印（台帳から消えた・再生できない動画）。保存はしない
-  | { kind: "youtube"; videoId: string; startSec: number; gone?: boolean }
+  // channel は台帳に無い動画（外のチャンネル）だけに付く。受付係が YouTube に聞いて入れる名前で、作る人も解く人も見る（Hop 決定 2026-10-19 案1）
+  | { kind: "youtube"; videoId: string; startSec: number; channel?: string; gone?: boolean }
   | { kind: "link"; url: string };
 
 export interface StoredClue {
@@ -168,6 +169,18 @@ export async function loadPuzzle(id: string): Promise<PuzzleRecord | null> {
 }
 
 // ハロプロのジャンルでは、台帳に載っていて表示してよい動画だけを使える
+// 動画のチャンネル名を YouTube に聞く（鍵なしの oEmbed。削除・非公開・埋め込み禁止の動画は null）。作る画面でその場に出すためだけに使い、保存する名前は受付係が自分で聞き直す
+export async function lookupVideoChannel(videoId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { author_name?: unknown };
+    return typeof data.author_name === "string" && data.author_name.trim() ? data.author_name.trim().slice(0, 100) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function isCatalogVideo(videoId: string): Promise<boolean> {
   const { count, error } = await getSupabase()
     .from("youtube_videos")
@@ -359,7 +372,7 @@ export async function loadPuzzlesWithGoneHints(ids: string[]): Promise<Set<strin
   if (error) throw error;
   const rows = (data as { id: string; body: PuzzleBody | null }[] | null) ?? [];
   const videosOf = (b: PuzzleBody | null) =>
-    (b?.clues ?? []).flatMap((c) => (c.hint?.kind === "youtube" ? [c.hint.videoId] : []));
+    (b?.clues ?? []).flatMap((c) => (c.hint?.kind === "youtube" && !c.hint.channel ? [c.hint.videoId] : [])); // 外のチャンネルの動画は台帳に無くて当たり前
   const present = await catalogVideoIdsPresent(Array.from(new Set(rows.flatMap((r) => videosOf(r.body)))));
   return new Set(rows.filter((r) => videosOf(r.body).some((v) => !present.has(v))).map((r) => r.id));
 }

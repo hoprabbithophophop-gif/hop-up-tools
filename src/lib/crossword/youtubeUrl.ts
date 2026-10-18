@@ -15,6 +15,16 @@ const parseTime = (raw: string | null): number => {
   return (Number(m[1] ?? 0) * 3600) + (Number(m[2] ?? 0) * 60) + Number(m[3] ?? 0);
 };
 
+// YouTube の住所か（形が崩れていて動画番号が読めない物も含む）。ハロプロ・その他とも、YouTube を「リンク」として通さないために使う
+export function isYouTubeHost(input: string): boolean {
+  try {
+    const host = new URL(input.trim()).hostname.replace(/^(www\.|m\.|music\.)/, "");
+    return host === "youtu.be" || host === "youtube.com" || host === "youtube-nocookie.com";
+  } catch {
+    return false;
+  }
+}
+
 export function parseYouTubeUrl(input: string): ParsedYouTube | null {
   let url: URL;
   try {

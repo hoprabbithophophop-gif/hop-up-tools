@@ -169,7 +169,7 @@ const T = {
   saveReasons: {
     too_many: "保存が集中しています。時間をおいてもう一度お試しください。",
     verification: "確認に失敗しました。ページを再読み込みしてお試しください。",
-    video: "ハロプロのヒントに使える YouTube は、HELLO! VIDEO に載っている動画だけです。",
+    video: "ヒントの動画を確かめられませんでした。削除・非公開・埋め込み禁止になっていないかご確認ください。", // 2026-10-19 案1で台帳だけの決まりをやめた【仮】
     bad_request: "内容をご確認のうえ、もう一度お試しください。",
   } as Record<string, string>,
   // 答え合わせ・1文字見るを受付係に頼めなかった時（2026-10-04。答えを渡さない作りで足した）
@@ -710,11 +710,12 @@ export default function CrosswordPage() {
         // ハロプロのジャンルは、台帳から消えた動画のヒントに印を付ける（見られなくなりましたと出す。Hop 決定 2026-10-04）
         if (loadedGenre === "hello") {
           const hints = loaded.hints;
-          const ids = Array.from(new Set(Object.values(hints).flatMap((h) => (h.kind === "youtube" ? [h.videoId] : []))));
+          // チャンネル名付き（外のチャンネルの動画）は台帳に無くて当たり前なので外す。見られないかは再生側が知らせる
+          const ids = Array.from(new Set(Object.values(hints).flatMap((h) => (h.kind === "youtube" && !h.channel ? [h.videoId] : []))));
           catalogVideoIdsPresent(ids)
             .then((present) => {
               if (!alive || ids.every((id) => present.has(id))) return;
-              setPlayerHints(Object.fromEntries(Object.entries(hints).map(([k, h]) => [k, h.kind === "youtube" && !present.has(h.videoId) ? { ...h, gone: true } : h])));
+              setPlayerHints(Object.fromEntries(Object.entries(hints).map(([k, h]) => [k, h.kind === "youtube" && !h.channel && !present.has(h.videoId) ? { ...h, gone: true } : h])));
             })
             .catch((err) => console.warn("Failed to check hint videos:", err));
         }
@@ -1661,12 +1662,12 @@ export default function CrosswordPage() {
 
     setIsSaving(true);
     try {
-      // ハロプロのジャンルでは、YouTube のヒントが台帳にある動画か確かめる（その他で選んだ後にジャンルを変えた場合など）
+      // ハロプロのジャンルでは、チャンネル名の無い YouTube のヒントが台帳にある動画か確かめる（その他で選んだ後にジャンルを変えた場合など）。チャンネル名付きは外のチャンネルの動画なので台帳に無くてよい（2026-10-19 案1）
       if (genre === "hello") {
         const ng: string[] = [];
         for (const item of generatedPuzzle.items) {
           const h = hints[item.id];
-          if (h?.kind === "youtube" && !(await isCatalogVideo(h.videoId))) ng.push(item.answer.join(""));
+          if (h?.kind === "youtube" && !h.channel && !(await isCatalogVideo(h.videoId))) ng.push(item.answer.join(""));
         }
         if (ng.length > 0) {
           toast.error(`${T.saveReasons.video}\n（${ng.join("、")}）`, { duration: 5000 });
@@ -2781,6 +2782,12 @@ export default function CrosswordPage() {
                 </div>
                 <div className="space-y-1" data-coach="create-hint">
                   <label htmlFor="cw-hint" className="text-xs font-mono font-bold" style={{ color: C.secondary }}>ヒント</label>
+                  {/* 公式の発信から選んでもらう案内（ハロプロだけ。Hop 2026-10-19）【仮】 */}
+                  {genre === "hello" && (
+                    <p id="cw-hint-guide" data-hint-guide="" className="text-xs" style={{ color: C.secondary }}>
+                      ヒントは公式の発信（YouTube・Instagram・X・アメーバブログ・公式サイト）から選んでください。解く人が正しい情報と分かるためです。
+                    </p>
+                  )}
                   <HintField inputId="cw-hint" genre={genre} onChange={setPendingHint} resetKey={hintResetKey} inputClassName={inputClass} initial={hintInitial} />
                 </div>
                 <div data-coach="create-add">

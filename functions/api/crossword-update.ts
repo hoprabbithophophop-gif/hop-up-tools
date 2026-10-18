@@ -20,7 +20,7 @@ import { decodeOgpPng, uploadOgpPng } from "../_shared/crosswordOgp";
 import { readJsonLimited } from "../_shared/bodyLimit";
 import { logBackground } from "../_shared/background";
 import { reporterKey } from "../_shared/reporterKey";
-import { checkHelloVideos, json, pgCode, sha256Hex, toStoredBody, validateSavePayload } from "./crossword-save";
+import { json, pgCode, resolveVideoChannels, sha256Hex, toStoredBody, validateSavePayload, withChannels } from "./crossword-save";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -120,9 +120,11 @@ export async function onRequestPost(context: {
   const puzzle = validateSavePayload({ ...(raw as Record<string, unknown>), key });
   if (!puzzle) return json({ ok: false, reason: "bad_request" }, 400);
 
-  const catalog = await checkHelloVideos(rest, dbHeaders, puzzle.helloVideoIds, "crossword-update");
-  if (catalog === "server") return json({ ok: false, reason: "server" }, 503);
-  if (catalog === "video") return json({ ok: false, reason: "video" }, 400);
+  const resolved = await resolveVideoChannels(rest, dbHeaders, puzzle.videoIds, "crossword-update");
+  if (resolved.status !== "ok") return json({ ok: false, reason: resolved.status }, resolved.status === "server" ? 503 : 400);
+  const bodyWithChannels = withChannels(puzzle.body, resolved.channels);
+  if (!bodyWithChannels) return json({ ok: false, reason: "bad_request" }, 400);
+  puzzle.body = bodyWithChannels;
 
   // 4. 書き換え
   let updated = false;
