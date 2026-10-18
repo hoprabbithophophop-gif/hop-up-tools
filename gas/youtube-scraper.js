@@ -39,39 +39,39 @@ var CHANNELS = [
   { key: 'tsubaki',          channelId: 'UCXTsCXNGHmePgo3a47hnsAA', name: 'つばきファクトリー',      handle: '@tsubakifactory' },
   { key: 'rosy',             channelId: 'UCaAqTsMF-VcHxaLpjDGOtcg', name: 'ロージークロニクル',     handle: '@rosychronicle' },
 
-  // スクリプトプロパティから取得
-  { key: 'angerme',          channelId: '', name: 'アンジュルム',       handle: '@angerme' },
-  { key: 'juicejuice',       channelId: '', name: 'Juice=Juice',         handle: '@juicejuice' },
-  { key: 'beyooooonds',      channelId: '', name: 'BEYOOOOONDS',         handle: '@beyooooonds' },
-  { key: 'ochanorma',        channelId: '', name: 'OCHA NORMA',          handle: '@ochanorma' },
+  // 2026-10-18 に番号をコードへ写した（それまではスクリプトプロパティ CH_<key> から読んでいた。プロパティは50個を超えると画面から足せなくなるため）
+  { key: 'angerme',          channelId: 'UCDwcZ85zjLKD-3-jqlv1wQQ', name: 'アンジュルム',       handle: '@angerme' },
+  { key: 'juicejuice',       channelId: 'UC6FadPgGviUcq6VQ0CEJqdQ', name: 'Juice=Juice',         handle: '@juicejuice' },
+  { key: 'beyooooonds',      channelId: 'UCE5GP4BHm2EJx4xyxBVSLlg', name: 'BEYOOOOONDS',         handle: '@beyooooonds' },
+  { key: 'ochanorma',        channelId: 'UCEbxO0RPlOQIVWrDaeepvuA', name: 'OCHA NORMA',          handle: '@ochanorma' },
   { key: 'kenshusei',        channelId: 'UCrFu9o-a6yWxsWP0AtDVycw', name: 'ハロプロ研修生',      handle: '@HelloProKenshusei' },
-  { key: 'omake',            channelId: '', name: 'OMAKE CHANNEL',       handle: '@omake' },
-  { key: 'uf_fanclub',       channelId: '', name: 'UFfanclub',           handle: '@uffanclub' },
-  { key: 'uf_goods',         channelId: '', name: 'UF Goods Land',       handle: '@ufgoodsland' },
-  { key: 'mline_music',      channelId: '', name: 'M-line Music',        handle: '@mlinemusic' },
+  { key: 'omake',            channelId: 'UCFBY6EJFIwCQCl-DiYYNKlg', name: 'OMAKE CHANNEL',       handle: '@omake' },
+  { key: 'uf_fanclub',       channelId: 'UC3oHasOAxRUwX0HpEhnWsQg', name: 'UFfanclub',           handle: '@uffanclub' },
+  { key: 'uf_goods',         channelId: 'UCNnIuuP67kGgWngvaPzSdOQ', name: 'UF Goods Land',       handle: '@ufgoodsland' },
+  { key: 'mline_music',      channelId: 'UC3mqDg-KHFdByufd-Vg0ogg', name: 'M-line Music',        handle: '@mlinemusic' },
   { key: 'upcomi',           channelId: 'UCm7S9NqpjZcB3OQ1-2zAghA', name: 'アプカミ',           handle: '@upcomi' },
 
   // 外部公式チャンネル（ハロプロ出演動画のみ取り込み）
-  { key: 'famitsu_game',     channelId: '', name: 'ファミ通ゲーム実況',  handle: '@famitsugamelive' },
-  { key: 'first_take',       channelId: '', name: 'THE FIRST TAKE',      handle: '@The_FirstTake' },
-  { key: 'yanmaga',          channelId: '', name: 'ヤンマガch',           handle: '@ヤンマガch' },
-  { key: 'douhaji',          channelId: '', name: '動画はじめてみました', handle: '@douhaji' },
-  { key: 'mementomori',      channelId: '', name: 'メメントモリ公式',     handle: '@mementomori_boi' },
+  { key: 'famitsu_game',     channelId: 'UCHWbhVkBo-kvNwVOL_JFFUg', name: 'ファミ通ゲーム実況',  handle: '@famitsugamelive' },
+  { key: 'first_take',       channelId: 'UC9zY_E8mcAo_Oq772LEZq8Q', name: 'THE FIRST TAKE',      handle: '@The_FirstTake' },
+  { key: 'yanmaga',          channelId: 'UC8dwPSQ5DOJGtwhmcNhNjSw', name: 'ヤンマガch',           handle: '@ヤンマガch' },
+  { key: 'douhaji',          channelId: 'UCkGCQ4TN-8gvb8QCYIqygHw', name: '動画はじめてみました', handle: '@douhaji' },
+  { key: 'mementomori',      channelId: 'UCQ_LN6ELte7ug9IeS1VP1bw', name: 'メメントモリ公式',     handle: '@mementomori_boi' },
 
   // ハロプロ関連公式チャンネル（グループ専用・ユニット・ムーブメント）
-  { key: 'hapisugo',         channelId: '', name: 'happyに過ごそうよ',   handle: '@hapisugo' },
-  { key: 'beyonobi',         channelId: '', name: 'ビヨーンズの伸びしろ', handle: '@beyonobi' },
-  { key: 'satoyama',         channelId: '', name: 'SATOYAMA&SATOUMI',    handle: '@satoyamachannel' },
-  { key: 'anison',           channelId: '', name: 'ハロー!アニソン部',    handle: '@ハローアニソン部' },
-  { key: 'tinytiny',         channelId: '', name: 'tiny tiny',           handle: '@tinytinytiny' },
+  { key: 'hapisugo',         channelId: 'UCfbSi3j0UCiS3YX-jrEg7_Q', name: 'happyに過ごそうよ',   handle: '@hapisugo' },
+  { key: 'beyonobi',         channelId: 'UCBWz3v7TuibgAIZXWf8pPhQ', name: 'ビヨーンズの伸びしろ', handle: '@beyonobi' },
+  { key: 'satoyama',         channelId: 'UCUTRGHLVk2pf76N6bB8RwLw', name: 'SATOYAMA&SATOUMI',    handle: '@satoyamachannel' },
+  { key: 'anison',           channelId: 'UClWwpGtkZmZ6I82o134FmuA', name: 'ハロー!アニソン部',    handle: '@ハローアニソン部' },
+  { key: 'tinytiny',         channelId: 'UCyoK1-NYjHoWWylFy-5nHgw', name: 'tiny tiny',           handle: '@tinytinytiny' },
 
   // 活動終了グループの公式チャンネル
-  { key: 'kobushi',          channelId: '', name: 'こぶしファクトリー',   handle: '@kobushifactory' },
-  { key: 'berryz',           channelId: '', name: 'Berryz工房',          handle: '@berryzkobo' },
-  { key: 'cute',             channelId: '', name: '℃-ute',               handle: '@cute' },
-  { key: 'countrygirls',     channelId: '', name: 'カントリー・ガールズ', handle: '@countrygirlschannel' },
-  { key: 'buono',            channelId: '', name: 'Buono!',              handle: '@buonochannel' },
-  { key: 'kimitsuta',        channelId: '', name: 'ハロプロちょっと面白い話', handle: '@kimitsuta' },
+  { key: 'kobushi',          channelId: 'UCt3f_Tu1lNua1xLQZu2Td-w', name: 'こぶしファクトリー',   handle: '@kobushifactory' },
+  { key: 'berryz',           channelId: 'UCWBTV02MVmyLqNPWRGDrl6A', name: 'Berryz工房',          handle: '@berryzkobo' },
+  { key: 'cute',             channelId: 'UCcS2E_TVMSwbN4Q5eH7F_oA', name: '℃-ute',               handle: '@cute' },
+  { key: 'countrygirls',     channelId: 'UCoxHJjctNXq1UgGk1vx3LUw', name: 'カントリー・ガールズ', handle: '@countrygirlschannel' },
+  { key: 'buono',            channelId: 'UCQuNrURlzPsbJZD17icx7Gw', name: 'Buono!',              handle: '@buonochannel' },
+  { key: 'kimitsuta',        channelId: 'UCJSMg_RL65nw-oYKAIQmVlg', name: 'ハロプロちょっと面白い話', handle: '@kimitsuta' },
 ];
 
 // GROUP_PAGES / ACTIVE_GROUPS / CHANNEL_GROUP_MAP / GROUP_KEYWORDS は
@@ -104,7 +104,7 @@ function YTmain() {
   }
 
   CHANNELS.forEach(function(channel) {
-    var channelId = channel.channelId || props.getProperty('CH_' + channel.key);
+    var channelId = channel.channelId || props.getProperty('CH_' + channel.key); // CH_ のプロパティは昔の名残。番号は全部コードにある
     if (!channelId) {
       Logger.log('[SKIP] ' + channel.name + ': チャンネルIDが未設定');
       return;
