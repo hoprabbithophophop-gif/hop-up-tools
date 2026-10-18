@@ -18,6 +18,7 @@ const T = {
   unavailable: "非表示になっています。",
   open: "開く",
   rebuild: "組み直す", // 【仮】まだ遊ばれていない問題だけ（Hop 決定 2026-10-05）
+  fixHints: "ヒントを直す", // 【仮】遊ばれた後の問題。ヒントだけ差し替えられる（Hop 決定 2026-10-19）
   delete: "消す",
   confirm: "消す？",
   confirmYes: "消す",
@@ -189,6 +190,15 @@ export default function MyPuzzlesPage() {
                               style={{ color: C.ink }}
                             >
                               {T.rebuild}
+                            </Link>
+                          )}
+                          {known && typeof count === "number" && count > 0 && (
+                            <Link
+                              to={`/crossword/hints/${m.id}`}
+                              className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors shrink-0"
+                              style={{ color: C.ink }}
+                            >
+                              {T.fixHints}
                             </Link>
                           )}
                           <button

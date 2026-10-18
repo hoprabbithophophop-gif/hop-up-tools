@@ -154,6 +154,24 @@ export async function updatePuzzle(id: string, key: string, p: NewPuzzle, opts: 
   throw new SaveError(typeof data.reason === "string" ? data.reason : "server");
 }
 
+// 遊ばれた後でもヒントだけ差し替える（Hop 決定 2026-10-19）。hints は「向き:番号」→ 新しいヒント。
+// 本文は送らない。受付係が棚の本文のヒント部分だけを入れ替える。合言葉が合わなければ SaveError("not_found")
+export async function updatePuzzleHints(id: string, key: string, hints: Record<string, HintRef>): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch("/api/crossword-update-hints", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, key, hints }),
+    });
+  } catch {
+    throw new SaveError("network");
+  }
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: unknown };
+  if (res.ok && data.ok) return;
+  throw new SaveError(typeof data.reason === "string" ? data.reason : "server");
+}
+
 // 削除用の合言葉。32 バイトの乱数を16進64字にする（受付係には sha256 だけが残る）
 export const makeOwnerKey = (): string =>
   Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("");
