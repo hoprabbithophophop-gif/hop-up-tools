@@ -15,7 +15,10 @@
  *   SUPABASE_SERVICE_KEY   : 既存。問い合わせに使う
  *   NOTIFY_EMAIL           : 既存。省略時はスクリプトオーナーの Gmail
  *   SUPABASE_ACCESS_TOKEN  : 任意。Supabase の管理用の合言葉（この棚だけに絞った fine-grained token。
- *                            project_admin_read と project_admin_write）。無ければ段2は動かず、知らせだけ
+ *                            画面の権限名は「Project Settings」の Read-write。つなぎ本数を変える時は「Data API Config」の Read-write も）。
+ *                            無ければ段2は動かず、知らせだけ。期限つきで、切れても知らせだけに黙って戻る（エラーにならない）。
+ *                            罠: スクリプトプロパティが50個を超えると、設定の画面からの保存は成功したように見えて黙って捨てられる。
+ *                            その時は関数の中で setProperty して入れる（gas/archive/props-cleanup.js 参照）
  *   DBWATCH_STATE          : この台本が自分で書く（止まっていると判断した時刻・最後に再起動を頼んだ時刻）。手で触らない
  *
  * トリガー: DBWATCHmain の10分ごとのトリガーは 2026-10-18 に Hop が設定済み。作り直すときは
