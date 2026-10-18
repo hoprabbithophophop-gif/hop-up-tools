@@ -255,8 +255,6 @@ const T = {
   stage2b: {
     toList: "パズルギャラリー",
     beginner: BEGINNER_LABEL,
-    rulesNote: "公式の決まりを題材にしている",
-    rulesNoteHelp: "入れると、解く前に「公式のものではありません」の文が出ます",
     // 選ぶと得をすることを先に言う（任天堂のデザイナー視点のシミュレーションで決定・2026-10-03）
     detected: (groups: string[]) => `ハロプロのメンバー名・グループ名が入っています（${groups.join("、")}）。ハロプロにすると、ギャラリーの「ハロプロ」に並びます。`,
     toHello: "ハロプロにする",
@@ -484,7 +482,6 @@ export default function CrosswordPage() {
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [isBeginner, setIsBeginner] = useState(false); // 初めての人向けの印
-  const [rulesNote, setRulesNote] = useState(false); // 公式の決まりを題材にした問題の印
 
   const [editorItems, setEditorItems] = useState<PuzzleItem[]>([]);
   const [hints, setHints] = useState<Record<string, HintRef>>({});
@@ -702,7 +699,7 @@ export default function CrosswordPage() {
         } else {
           loaded = recordToPuzzle(rec);
           setPlayerGenre(rec.genre);
-          setIsRulesQuiz((Array.isArray(rec.tags) && rec.tags.includes(RULES_TAG)) || rec.body?.rulesNote === true);
+          setIsRulesQuiz(Array.isArray(rec.tags) && rec.tags.includes(RULES_TAG)); // 棚に残る rulesNote の印は見ない（2026-10-19）
           loadedGenre = rec.genre;
         }
       } catch (error) {
@@ -1382,7 +1379,6 @@ export default function CrosswordPage() {
         setCreatorName(rec.body.creatorName ?? "");
         setTags(Array.isArray(rec.tags) ? rec.tags : []);
         setIsBeginner(rec.is_beginner === true);
-        setRulesNote(rec.body.rulesNote === true);
         setHints(restoredHints);
         setEditorItems(placed.map(({ id, question, answer }) => ({ id, question, answer })));
         // 盤は保存した時の形のまま組む（番号も同じ）。組み替えたい時は「再シャッフル」
@@ -1410,7 +1406,6 @@ export default function CrosswordPage() {
         if (d.genre === "hello" || d.genre === "other") setGenre(d.genre);
         if (Array.isArray(d.tags)) setTags(d.tags);
         if (typeof d.isBeginner === "boolean") setIsBeginner(d.isBeginner);
-        if (typeof d.rulesNote === "boolean") setRulesNote(d.rulesNote);
         if (d.input && typeof d.input.q === "string" && typeof d.input.a === "string") setCurrentInput(d.input);
         if (typeof d.bulkText === "string") setBulkText(d.bulkText);
         // 語ごとに形を確かめ、答えは今の字そろえ（toCells）を通し直す。だめな語は捨てる（2026-10-06 レビューの直し）
@@ -1446,9 +1441,9 @@ export default function CrosswordPage() {
       lsRemove(DRAFT_KEY);
       return;
     }
-    const d: Draft = { title: puzzleTitle, creatorName, genre, tags, isBeginner, rulesNote, items: editorItems, hints, input: currentInput, bulkText };
+    const d: Draft = { title: puzzleTitle, creatorName, genre, tags, isBeginner, items: editorItems, hints, input: currentInput, bulkText };
     lsSet(DRAFT_KEY, JSON.stringify(d));
-  }, [isPlayerMode, draftReady, editStatus, puzzleTitle, creatorName, genre, tags, isBeginner, rulesNote, editorItems, hints, currentInput, bulkText]);
+  }, [isPlayerMode, draftReady, editStatus, puzzleTitle, creatorName, genre, tags, isBeginner, editorItems, hints, currentInput, bulkText]);
 
   // --- Editor Functions ---
   const handleAddItem = () => {
@@ -1712,7 +1707,6 @@ export default function CrosswordPage() {
     try {
       const body = toBody(generatedPuzzle.items, generatedPuzzle.width, generatedPuzzle.height, (id) => hints[id]);
       if (creatorName.trim()) body.creatorName = creatorName.trim();
-      if (rulesNote) body.rulesNote = true;
       const ogpImage = await drawShareImage(generatedPuzzle, title);
       await updatePuzzle(editTarget.id, editTarget.key, { title, genre, tags, body, isBeginner }, { ogpImage });
       const updated = { ...editTarget, title };
@@ -1762,7 +1756,6 @@ export default function CrosswordPage() {
     try {
       const body = toBody(generatedPuzzle.items, generatedPuzzle.width, generatedPuzzle.height, (id) => hints[id]);
       if (creatorName.trim()) body.creatorName = creatorName.trim();
-      if (rulesNote) body.rulesNote = true;
       const key = makeOwnerKey();
       // シェア画像。描けなければ画像なしで保存する
       const ogpImage = await drawShareImage(generatedPuzzle, title);
@@ -2758,14 +2751,7 @@ export default function CrosswordPage() {
                   {T.stage2b.beginner}
                 </label>
 
-                {/* 公式の決まりを題材にした問題の印（Hop 決定 2026-10-16） */}
-                <label className="flex items-start gap-2 text-sm cursor-pointer" style={{ color: C.ink }}>
-                  <input type="checkbox" checked={rulesNote} onChange={(e) => setRulesNote(e.target.checked)} className="w-4 h-4 mt-0.5 accent-black shrink-0" />
-                  <span>
-                    {T.stage2b.rulesNote}
-                    <span className="block text-xs mt-0.5" style={{ color: C.secondary }}>{T.stage2b.rulesNoteHelp}</span>
-                  </span>
-                </label>
+                {/* 「公式の決まりを題材にしている」のチェックは 2026-10-19 に外した（Hop「出すの早すぎた。非公式の動画でも可と勘違いされた」）。棚に残る印は使わない */}
               </div>
 
               <BulkEntry text={bulkText} onText={setBulkText} editorItems={editorItems} t={T.bulk} textareaClassName={inputClass} onAdopt={handleBulkAdopt} />
