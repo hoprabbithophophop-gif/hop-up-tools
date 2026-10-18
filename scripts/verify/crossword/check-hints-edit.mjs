@@ -145,7 +145,7 @@ try {
   await page.waitForTimeout(100);
   const href = await link.getAttribute('href');
   const q = href ? decodeURIComponent(new URL(href).searchParams.get('q')) : '';
-  check(href?.startsWith('https://www.google.com/search?q=') && q.includes('武道館') && q.includes('site:ameblo.jp/beyooooonds') && q.includes('site:ameblo.jp/beyooooonds-rfro') && q.includes('inurl:entry-') && (await link.getAttribute('target')) === '_blank', `(5) Google の site: 検索の住所になる（${q}）`);
+  check(href?.startsWith('https://www.google.com/search?q=') && q.includes('武道館') && q.includes('site:ameblo.jp/beyooooonds') && q.includes('site:ameblo.jp/beyooooonds-rfro') && !q.includes('inurl:') && (await link.getAttribute('target')) === '_blank', `(5) Google の site: 検索の住所になる（${q}）`);
   await page.getByText('その他', { exact: true }).first().click();
   await page.waitForTimeout(300);
   check((await page.locator('[data-blog-search]').count()) === 0, '(5) その他では出ない');
