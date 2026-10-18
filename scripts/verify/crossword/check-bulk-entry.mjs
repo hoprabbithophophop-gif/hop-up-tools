@@ -245,6 +245,30 @@ try {
   check((await page.locator('[data-bulk-candidates]').getByText('（本気）').count()) === 1, '(b) 読み付きの候補に「（本気）」が添えてある');
   await page.screenshot({ path: path.join(OUT, 'b1-candidates-390.png'), fullPage: true });
 
+  // なぞる前の帯のボタンは「ここを出す」で押せない
+  const markBtn0 = page.locator('[data-bulk-markbar] button');
+  check((await markBtn0.textContent()) === 'ここを出す' && (await markBtn0.isDisabled()), '(b) なぞる前の帯のボタンは「ここを出す」で押せない');
+
+  // 印を入れるボタン: 欄の末尾にカーソル→「｜」でその位置に入る→「【 】」で【】が入りカーソルは間
+  await area.evaluate((el) => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); });
+  await page.locator('[data-bulk-insert="bar"]').click();
+  await page.waitForTimeout(100);
+  const afterBar = await area.inputValue();
+  check(afterBar.endsWith('｜'), '(b) 「｜」ボタンでカーソルの位置に ｜ が入る');
+  await page.locator('[data-bulk-insert="brackets"]').click();
+  await page.waitForTimeout(100);
+  const afterBr = await area.evaluate((el) => ({ v: el.value, s: el.selectionStart, e: el.selectionEnd, focused: document.activeElement === el }));
+  check(afterBr.v.endsWith('｜【】') && afterBr.s === afterBr.v.length - 1 && afterBr.s === afterBr.e && afterBr.focused, `(b) 「【 】」ボタンで【】が入りカーソルは間・欄は選ばれたまま（位置 ${afterBr.s} / ${afterBr.v.length}）`);
+  // 欄で文字を選んで「【 】」→その文字を囲む
+  await area.evaluate((el) => { const i = el.value.indexOf('会った'); el.focus(); el.setSelectionRange(i, i + 3); });
+  await page.locator('[data-bulk-insert="brackets"]').click();
+  await page.waitForTimeout(100);
+  check((await area.inputValue()).includes('【会った】'), '(b) 欄で選んだ文字を「【 】」ボタンで囲める');
+  // 元の文字列に戻してから続ける
+  await area.fill(TEXT);
+  await page.waitForTimeout(200);
+  await area.evaluate((el) => el.blur());
+
   // 並べた行で「クマ」をなぞって「ここを出す」
   const selected = await page.evaluate(() => {
     const seg = [...document.querySelectorAll('[data-bulk-lines] [data-seg-start]')].find((e) => e.textContent.includes('クマ'));
@@ -260,7 +284,13 @@ try {
     return sel.toString();
   });
   check(selected === 'クマ', `(b) 並べた行で「クマ」をなぞれた（${selected}）`);
-  await page.getByRole('button', { name: 'ここを出す', exact: true }).click();
+  // 画面の下の帯のボタンは、なぞった文字入りの「「クマ」を出す」になり、なぞる前は「ここを出す」で押せない
+  const markBtn = page.locator('[data-bulk-markbar] button');
+  await page.waitForTimeout(100);
+  check((await markBtn.textContent()) === '「クマ」を出す' && (await markBtn.isEnabled()), `(b) 帯のボタンが「「クマ」を出す」になり押せる（${await markBtn.textContent()}）`);
+  const barPos = await markBtn.evaluate((el) => ({ sticky: getComputedStyle(el.parentElement).position, bottom: Math.round(el.parentElement.getBoundingClientRect().bottom), vh: window.innerHeight }));
+  check(barPos.sticky === 'sticky' && barPos.bottom <= barPos.vh, `(b) 帯は画面の下に貼り付く（${barPos.sticky} / 下端 ${barPos.bottom} ≤ ${barPos.vh}）`);
+  await markBtn.click();
   await page.waitForTimeout(300);
   const ok2 = await okCount();
   const text2 = await area.inputValue();

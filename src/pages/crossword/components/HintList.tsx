@@ -40,6 +40,17 @@ export const HintList: React.FC<{ items: PlacedItem[]; hints: Record<string, Hin
               {hint.kind === "youtube" ? (
                 opened.has(item.uuid) ? (
                   <div className="-mx-3">
+                    {/* 動画を閉じる印。動画の上には重ねず、枠のすぐ上の行に置く（Hop 2026-10-18 案b） */}
+                    <div className="flex justify-end px-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setOpened((prev) => { const next = new Set(prev); next.delete(item.uuid); return next; })}
+                        className="p-1.5 hover:bg-surface-container-high transition-colors"
+                        aria-label={`${item.clueIndex}（${dirLabel(item.direction)}）の動画を閉じる`}
+                      >
+                        <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "20px", color: C.secondary }}>close</span>
+                      </button>
+                    </div>
                     <HintView hint={hint} />
                   </div>
                 ) : (

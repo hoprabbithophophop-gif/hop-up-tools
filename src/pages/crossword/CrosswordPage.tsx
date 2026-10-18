@@ -299,6 +299,11 @@ const T = {
     guide: "出す語を【 】で囲む。読みは｜の後に（例: 【本気｜マジ】）。カタカナだけの語は読み不要。",
     textLabel: "まとめて入れる文", // 欄の読み上げ名【仮】
     markHere: "ここを出す",
+    markSelected: (w: string) => `「${w}」を出す`, // なぞっている間のボタンの文字
+    insertBrackets: "【 】",
+    insertBracketsLabel: "【 】で囲む", // 読み上げ名【仮】
+    insertBar: "｜",
+    insertBarLabel: "｜を入れる", // 読み上げ名【仮】
     reading: "読み",
     readingOf: (w: string) => `${w} の読み`, // 読みの欄の読み上げ名【仮】
     unmark: (w: string) => `${w} の囲みを外す`, // 囲んだ語のボタンの読み上げ名【仮】

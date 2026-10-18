@@ -236,6 +236,20 @@ try {
     await page.waitForTimeout(300);
     check((await cellText(page, 1, 0)) === '1行2列：ギ', `(1) → で縦線を右へ動かした後の ゛ は、左の字に効く（${await cellText(page, 1, 0)}）`);
     await page.screenshot({ path: path.join(OUT, '1-caret-end-390.png') });
+    // (10) 拡大の窓の「ヒント」で動画を開くと、動画の枠のすぐ上に「動画を閉じる」✕ があり、押すと鍵盤に戻る（Hop 2026-10-18 案b。動画の上には重ねない）
+    await page.locator('[data-coach="closeup-head"]').getByRole('button', { name: 'ヒント', exact: true }).click();
+    await page.waitForTimeout(500);
+    const xBtn = page.getByRole('dialog').getByRole('button', { name: '動画を閉じる' });
+    const xPos = await xBtn.evaluate((el) => {
+      const b = el.getBoundingClientRect();
+      const v = el.closest('[data-coach="keypad"]').querySelector('[style*="aspect-ratio"]').getBoundingClientRect();
+      return { xBottom: Math.round(b.bottom), videoTop: Math.round(v.top), w: Math.round(b.width), h: Math.round(b.height) };
+    });
+    check(xPos.xBottom <= xPos.videoTop, `(10) 「動画を閉じる」✕ は動画の枠の上にあり重ならない（✕の下端 ${xPos.xBottom} ≤ 枠の上端 ${xPos.videoTop}・${xPos.w}×${xPos.h}）`);
+    await page.screenshot({ path: path.join(OUT, '10-closeup-video-x-390.png') });
+    await xBtn.click();
+    await page.waitForTimeout(300);
+    check((await page.getByRole('dialog').getByRole('button', { name: '動画を閉じる' }).count()) === 0 && (await key(page, '゛').count()) === 1, '(10) ✕ で動画が閉じて鍵盤に戻る');
     await ctx.close();
   }
   {
@@ -333,6 +347,20 @@ try {
     const opened = await page.evaluate(() => [...document.querySelectorAll('h2,h3')].some((h) => /^ヒント(の動画)?$/.test(h.textContent)) && document.body.innerText.includes('▶ YouTube'));
     check(opened, '(4) 「ヒントの動画を見る」で今の一覧（▶ YouTube の表記つき）が開く');
     await page.screenshot({ path: path.join(OUT, '4-cleared-hints-open-390.png'), fullPage: true });
+    // (10) 一覧のサムネイルを押して開いた動画にも、枠のすぐ上に「…の動画を閉じる」✕ があり、押すとサムネイルに戻る
+    await page.getByRole('button', { name: /の(ヒント|ヒントの動画)を再生する$/ }).first().click();
+    await page.waitForTimeout(500);
+    const xList = page.getByRole('button', { name: /の動画を閉じる$/ }).first();
+    const xListPos = await xList.evaluate((el) => {
+      const b = el.getBoundingClientRect();
+      const v = el.parentElement.parentElement.querySelector('[style*="aspect-ratio"]').getBoundingClientRect();
+      return { xBottom: Math.round(b.bottom), videoTop: Math.round(v.top) };
+    });
+    check(xListPos.xBottom <= xListPos.videoTop, `(10) 一覧の ✕ も動画の枠の上にある（${xListPos.xBottom} ≤ ${xListPos.videoTop}）`);
+    await page.screenshot({ path: path.join(OUT, '10-list-video-x-390.png'), fullPage: true });
+    await xList.click();
+    await page.waitForTimeout(300);
+    check((await page.getByRole('button', { name: /の動画を閉じる$/ }).count()) === 0 && (await page.getByRole('button', { name: /の(ヒント|ヒントの動画)を再生する$/ }).count()) >= 1, '(10) 一覧の ✕ でサムネイルに戻る');
     // 開き直すと解けた画面のままで、回は始まらない（Hop 指示 2026-10-17。10-06 の「開き直すと新しい回で最初から」を取り消し。詳しくは check-replay）
     const startsBefore = st.starts;
     await page.reload();

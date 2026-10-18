@@ -23,6 +23,11 @@ export interface BulkTexts {
   guide: string;
   textLabel: string;
   markHere: string;
+  markSelected: (word: string) => string;
+  insertBrackets: string;
+  insertBracketsLabel: string;
+  insertBar: string;
+  insertBarLabel: string;
   reading: string;
   readingOf: (word: string) => string;
   unmark: (word: string) => string;
@@ -175,8 +180,9 @@ export const BulkEntry: React.FC<{
 }> = ({ text, onText, editorItems, t, textareaClassName, onAdopt }) => {
   const linesRef = useRef<HTMLDivElement>(null);
   const proposalsRef = useRef<HTMLDivElement>(null);
-  // 押した時に選択が消える端末のために、最後になぞった範囲を控える（文字列が変わったら捨てる）
-  const lastSel = useRef<{ start: number; end: number; text: string } | null>(null);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
+  // なぞっている範囲。ボタンの文字に出す・押した時に選択が消える端末の控えにする（文字列が変わったら捨てる）
+  const [sel, setSel] = useState<{ start: number; end: number; text: string } | null>(null);
   // 候補の id は答えごとに固定する（描き直すたびに変わると、探した結果と結びつかなくなるため）
   const idByKey = useRef(new Map<string, string>());
 
@@ -208,7 +214,8 @@ export const BulkEntry: React.FC<{
   useEffect(() => {
     const onSel = () => {
       const r = selectionRange(linesRef.current);
-      if (r) lastSel.current = { ...r, text };
+      // 行の外を押しただけでは消さない（ボタンを押す時に選択が消える端末のため）。選択が無くなったのは次の書き換えで捨てる
+      if (r) setSel({ ...r, text });
     };
     document.addEventListener("selectionchange", onSel);
     return () => document.removeEventListener("selectionchange", onSel);
@@ -221,23 +228,59 @@ export const BulkEntry: React.FC<{
 
   // 画面の操作で文字列を書き換える時は、印の中の半角 | も全角にそろえる
   const write = (next: string) => {
-    lastSel.current = null;
+    setSel(null);
     onText(fullWidthBars(next));
   };
 
-  const markHere = () => {
-    const r = selectionRange(linesRef.current) ?? (lastSel.current && lastSel.current.text === text ? lastSel.current : null);
-    lastSel.current = null;
-    if (!r) return;
+  // 範囲を囲める形に整える（前後の空白を落とす・印や改行を含む範囲・すでに囲んだ所と重なる範囲は囲めない）
+  const pickable = (r: { start: number; end: number } | null) => {
+    if (!r) return null;
     let { start, end } = r;
     while (start < end && /\s/.test(text[start])) start++;
     while (end > start && /\s/.test(text[end - 1])) end--;
     const picked = text.slice(start, end);
-    if (!picked || /[【】｜|\n]/.test(picked)) return;
-    if (marks.some((m) => start < m.end && end > m.start)) return;
-    write(text.slice(0, start) + `【${picked}】` + text.slice(end));
+    if (!picked || /[【】｜|\n]/.test(picked)) return null;
+    if (marks.some((m) => start < m.end && end > m.start)) return null;
+    return { start, end, picked };
+  };
+  // 今なぞっている範囲（控えは同じ文字列の時だけ使う）
+  const current = pickable(sel && sel.text === text ? sel : null);
+
+  const markHere = () => {
+    const live = pickable(selectionRange(linesRef.current)) ?? current;
+    if (!live) return;
+    write(text.slice(0, live.start) + `【${live.picked}】` + text.slice(live.end));
     window.getSelection()?.removeAllRanges();
   };
+
+  // 入力欄に印を入れる。欄で文字を選んでいれば【 】で囲み、選んでいなければ【】を入れてその間にカーソルを置く。｜はカーソルの位置に入れる
+  const insert = (kind: "brackets" | "bar") => {
+    const area = areaRef.current;
+    if (!area) return;
+    const s = area.selectionStart ?? text.length;
+    const e = area.selectionEnd ?? s;
+    let next: string;
+    let caret: number;
+    if (kind === "bar") {
+      next = text.slice(0, s) + "｜" + text.slice(e);
+      caret = s + 1;
+    } else {
+      const p = s < e ? pickable({ start: s, end: e }) : null;
+      if (p) {
+        next = text.slice(0, p.start) + `【${p.picked}】` + text.slice(p.end);
+        caret = p.end + 2;
+      } else {
+        next = text.slice(0, s) + "【】" + text.slice(e);
+        caret = s + 1;
+      }
+    }
+    write(next);
+    requestAnimationFrame(() => {
+      area.focus();
+      area.setSelectionRange(caret, caret);
+    });
+  };
+  const keepFocus = { onPointerDown: (e: React.PointerEvent) => e.preventDefault(), onMouseDown: (e: React.MouseEvent) => e.preventDefault() };
 
   const unmark = (m: Mark) => write(text.slice(0, m.start) + m.surface + text.slice(m.end));
   const setReading = (m: Mark, reading: string) => write(text.slice(0, m.start) + markText(m.surface, reading || null) + text.slice(m.end));
@@ -323,14 +366,40 @@ export const BulkEntry: React.FC<{
       <p id="cw-bulk-guide" className="text-xs" style={{ color: C.secondary }}>
         {t.guide}
       </p>
+      {/* 印を入れるボタン（Hop 2026-10-18「【】と|を入れる用のボタンが欲しい」。欄の真上・右寄せ） */}
+      <div className="flex justify-end gap-2 -mb-1">
+        <button
+          type="button"
+          data-bulk-insert="brackets"
+          {...keepFocus}
+          onClick={() => insert("brackets")}
+          aria-label={t.insertBracketsLabel}
+          className="px-3 min-h-10 font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors"
+          style={{ color: C.ink }}
+        >
+          {t.insertBrackets}
+        </button>
+        <button
+          type="button"
+          data-bulk-insert="bar"
+          {...keepFocus}
+          onClick={() => insert("bar")}
+          aria-label={t.insertBarLabel}
+          className="px-3 min-h-10 font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors"
+          style={{ color: C.ink }}
+        >
+          {t.insertBar}
+        </button>
+      </div>
       <textarea
+        ref={areaRef}
         id="cw-bulk-text"
         data-bulk-text=""
         aria-label={t.textLabel}
         aria-describedby="cw-bulk-guide"
         value={text}
         onChange={(e) => {
-          lastSel.current = null;
+          setSel(null);
           onText(e.target.value);
         }}
         // 半角の | は欄を離れた時に全角へそろえる（打っている途中に書き換えると変換中の字が崩れるため）
@@ -378,15 +447,25 @@ export const BulkEntry: React.FC<{
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* 画面の下に貼り付く帯（Hop 2026-10-18 案a）。長押しのメニューから離し、なぞった文字をボタンに出す。なぞっていない時は押せない */}
+      {lines.length > 0 && (
+        <div
+          data-bulk-markbar=""
+          className="sticky bottom-0 z-10 bg-white py-2"
+          style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom, 0px))" }}
+        >
           <button
             type="button"
-            onPointerDown={(e) => e.preventDefault()}
-            onMouseDown={(e) => e.preventDefault()}
+            {...keepFocus}
             onClick={markHere}
-            className="px-4 min-h-10 font-semibold bg-surface-container-high hover:bg-surface-container-highest transition-colors"
-            style={{ color: C.ink }}
+            disabled={!current}
+            className="w-full px-4 min-h-10 font-semibold bg-surface-container-high hover:bg-surface-container-highest transition-colors disabled:hover:bg-surface-container-high truncate"
+            style={{ color: current ? C.ink : C.secondary }}
           >
-            {t.markHere}
+            {current ? t.markSelected(current.picked.length > 12 ? `${current.picked.slice(0, 12)}…` : current.picked) : t.markHere}
           </button>
         </div>
       )}
