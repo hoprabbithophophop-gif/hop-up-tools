@@ -33,6 +33,7 @@ import {
   type PuzzleRecord,
 } from "../../lib/crossword/puzzleStore";
 import { formatTime } from "../../lib/crossword/youtubeUrl";
+import { OFFICIAL_BLOGS, officialBlogSearchUrl } from "../../data/officialBlogs";
 
 import { PuzzleGridMinimal } from "./components/PuzzleGridMinimal";
 import { PuzzleGridRetro } from "./components/PuzzleGridRetro";
@@ -495,6 +496,13 @@ export default function CrosswordPage() {
   // 登録済みのカギを直している間はその id（Hop 依頼 2026-10-03。HarmonyPalette は削除だけ）
   const [editingId, setEditingId] = useState<string | null>(null);
   const [hintInitial, setHintInitial] = useState<HintSelected | null>(null);
+  // 公式ブログを探す（Google の site: 検索へのリンク。Hop 依頼 2026-10-19）
+  const [blogGroupKey, setBlogGroupKey] = useState(OFFICIAL_BLOGS[0].key);
+  const [blogKeyword, setBlogKeyword] = useState("");
+  const blogSearchHref = useMemo(() => {
+    const g = OFFICIAL_BLOGS.find((x) => x.key === blogGroupKey) ?? OFFICIAL_BLOGS[0];
+    return blogKeyword.trim() ? officialBlogSearchUrl(g, blogKeyword) : null;
+  }, [blogGroupKey, blogKeyword]);
   const clueInputRef = useRef<HTMLInputElement>(null);
   // 作りかけを戻し終わるまで残す処理を止めておく（戻す前の空の状態で上書きしないため）
   const [draftReady, setDraftReady] = useState(false);
@@ -1346,7 +1354,11 @@ export default function CrosswordPage() {
     fetchOwnedPuzzle(mine.id, mine.key)
       .then((owned) => {
         if (!owned) return fail(T.edit.notEditable);
-        if ((owned.puzzle.play_count ?? 0) > 0) return fail(T.edit.alreadyPlayed);
+        // 遊ばれた後は組み直せないが、ヒントだけは差し替えられる画面へ回す（Hop 決定 2026-10-19）
+        if ((owned.puzzle.play_count ?? 0) > 0) {
+          navigate(`/crossword/hints/${mine.id}`, { replace: true });
+          return;
+        }
         const rec = owned.puzzle;
         const clues = rec.body?.clues;
         if (!Array.isArray(clues) || clues.length !== owned.answers.length) return fail(T.edit.notEditable);
@@ -2787,6 +2799,41 @@ export default function CrosswordPage() {
                     <p id="cw-hint-guide" data-hint-guide="" className="text-xs" style={{ color: C.secondary }}>
                       ヒントは公式の発信（YouTube・Instagram・X・アメーバブログ・公式サイト）から選んでください。解く人が正しい情報と分かるためです。
                     </p>
+                  )}
+                  {/* 公式ブログを Google の site: 検索で探す（Hop 依頼 2026-10-19）。棚は触らず、新しいタブで Google を開くだけ。ハロプロだけ【仮】 */}
+                  {genre === "hello" && (
+                    <div data-blog-search="" className="flex flex-wrap items-stretch gap-2 pt-1">
+                      {/* 390px では3つ横に並ばないので、言葉の欄を1行目いっぱいに、グループと探すボタンを2行目に */}
+                      <input
+                        aria-label="公式ブログを探す言葉"
+                        value={blogKeyword}
+                        onChange={(e) => setBlogKeyword(e.target.value)}
+                        placeholder="公式ブログを探す言葉（例: 武道館）"
+                        className={`${inputClass} basis-full min-w-0`}
+                      />
+                      <select
+                        aria-label="公式ブログのグループ"
+                        value={blogGroupKey}
+                        onChange={(e) => setBlogGroupKey(e.target.value)}
+                        className="flex-1 min-w-0 h-10 bg-surface-container-low px-2 text-base focus:outline-none focus:shadow-[inset_0_-2px_0_#000]"
+                        style={{ color: C.ink }}
+                      >
+                        {OFFICIAL_BLOGS.map((g) => (
+                          <option key={g.key} value={g.key}>{g.label}</option>
+                        ))}
+                      </select>
+                      <a
+                        href={blogSearchHref ?? undefined}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-disabled={!blogSearchHref}
+                        onClick={(e) => { if (!blogSearchHref) e.preventDefault(); }}
+                        className={`shrink-0 inline-flex items-center h-10 px-3 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors whitespace-nowrap ${blogSearchHref ? "" : "opacity-40 cursor-default"}`}
+                        style={{ color: C.ink }}
+                      >
+                        公式ブログを探す
+                      </a>
+                    </div>
                   )}
                   <HintField inputId="cw-hint" genre={genre} onChange={setPendingHint} resetKey={hintResetKey} inputClassName={inputClass} initial={hintInitial} />
                 </div>
