@@ -269,6 +269,38 @@ try {
   await page.waitForTimeout(200);
   await area.evaluate((el) => el.blur());
 
+  // 下線の語を押すと、下の帯が「語・読みの欄・外す」になる（Hop 2026-10-19 案A）
+  await page.locator('[data-bulk-mark="武道館"]').click();
+  await page.waitForTimeout(150);
+  const rbar = page.locator('[data-bulk-readingbar]');
+  const rb = await rbar.evaluate((el) => {
+    const inp = el.querySelector('input');
+    return { word: el.querySelector('span')?.textContent, inputPx: parseFloat(getComputedStyle(inp).fontSize), focused: document.activeElement === inp, btn: el.querySelector('button')?.textContent, sticky: getComputedStyle(el.parentElement).position };
+  }).catch(() => null);
+  check(rb && rb.word === '武道館' && rb.btn === '外す', `(b) 「武道館」を押すと帯に 語・読みの欄・外す（${rb && rb.word} / ${rb && rb.btn}）`);
+  check(rb && rb.inputPx === 16 && rb.focused, `(b) 帯の読みの欄は 16px で、押した直後に入れる状態（${rb && rb.inputPx}px / 入力中=${rb && rb.focused}）`);
+  check(rb && rb.sticky === 'sticky', `(b) 読みの欄も画面の下に貼り付く帯の中（${rb && rb.sticky}）`);
+  await rbar.locator('input').fill('ブドウカン');
+  await page.waitForTimeout(150);
+  const afterReading = await area.inputValue();
+  check(afterReading.includes('【武道館｜ブドウカン】'), '(b) 帯で打った読みが文字列【武道館｜ブドウカン】に入る');
+  const ruby = await page.locator('[data-bulk-mark="武道館"] rt').textContent().catch(() => null);
+  check(ruby === 'ブドウカン', `(b) 触っている行の語に読みがルビで出る（${ruby}）`);
+  const dashedAfter = await page.locator('[data-bulk-mark="武道館"]').evaluate((e) => getComputedStyle(e).borderBottomStyle);
+  check(dashedAfter === 'solid', `(b) 読みが入ると点線が実線になる（${dashedAfter}）`);
+  // 「外す」で囲みが外れ、帯は「出す」に戻る
+  await page.locator('[data-bulk-mark="ネコ"]').click();
+  await page.waitForTimeout(150);
+  await page.locator('[data-bulk-readingbar] button').click();
+  await page.waitForTimeout(200);
+  const afterUnmark = await area.inputValue();
+  check(afterUnmark.includes('【コアラ】と【ラッコ】とネコ') && (await page.locator('[data-bulk-mark="ネコ"]').count()) === 0, '(b) 「外す」で【ネコ】の囲みが外れる');
+  check((await page.locator('[data-bulk-readingbar]').count()) === 0 && (await page.locator('[data-bulk-markbar] button').textContent()) === 'ここを出す', '(b) 外した後の帯は「ここを出す」に戻る');
+  // 囲み直して元の形に戻す（以降の確認は7語の前提）
+  await area.fill(TEXT);
+  await page.waitForTimeout(200);
+  await area.evaluate((el) => el.blur());
+
   // 並べた行で「クマ」をなぞって「ここを出す」
   const selected = await page.evaluate(() => {
     const seg = [...document.querySelectorAll('[data-bulk-lines] [data-seg-start]')].find((e) => e.textContent.includes('クマ'));
@@ -284,6 +316,28 @@ try {
     return sel.toString();
   });
   check(selected === 'クマ', `(b) 並べた行で「クマ」をなぞれた（${selected}）`);
+  // なぞった行だけ 16px のまま、他の行は 14px で薄い色（Hop 2026-10-19）
+  await page.waitForTimeout(100);
+  const sizes = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('[data-bulk-line]')];
+    const on = rows.filter((e) => e.hasAttribute('data-bulk-active'));
+    const off = rows.filter((e) => !e.hasAttribute('data-bulk-active'));
+    const px = (e) => parseFloat(getComputedStyle(e).fontSize);
+    const inputPx = off.flatMap((e) => [...e.querySelectorAll('input')]).map(px);
+    const offRt = off.flatMap((e) => [...e.querySelectorAll('rt')]).length;
+    const marks = [...document.querySelectorAll('[data-bulk-mark]')];
+    const marksBoxed = marks.filter((e) => !e.hasAttribute('data-bulk-mark-selected') && getComputedStyle(e).backgroundColor !== 'rgba(0, 0, 0, 0)').length;
+    const dashed = marks.filter((e) => getComputedStyle(e).borderBottomStyle === 'dashed').map((e) => e.dataset.bulkMark);
+    return { on: on.map(px), off: off.map(px), onHasKuma: on.some((e) => e.textContent.includes('クマ')), offColor: off.map((e) => getComputedStyle(e).color), onColor: on.map((e) => getComputedStyle(e).color), inputPx, offRt, marksBoxed, dashed };
+  });
+  check(sizes.on.length === 1 && sizes.onHasKuma && sizes.on[0] === 16, `(b) なぞった行だけが 16px（${sizes.on.join(',')} / クマ=${sizes.onHasKuma}）`);
+  check(sizes.off.length >= 1 && sizes.off.every((v) => v === 10), `(b) 他の行は 10px（${sizes.off.join(',')}）`);
+  check(sizes.off.length >= 1 && sizes.offColor.every((c) => c !== sizes.onColor[0]), `(b) 他の行は薄い色（${sizes.offColor[0]} ≠ ${sizes.onColor[0]}）`);
+  check(sizes.inputPx.length === 0 && sizes.offRt === 0, `(b) 小さい行には読みの欄もルビも無い（欄 ${sizes.inputPx.length}・ルビ ${sizes.offRt}）`);
+  check(sizes.marksBoxed === 0, `(b) 囲んだ語は箱でなく下線（背景付き ${sizes.marksBoxed} 個）`);
+  check(sizes.dashed.length === 1 && sizes.dashed[0] === '武道館', `(b) 読みが無い漢字の語だけ点線（${sizes.dashed.join(',')}）`);
+  check(await page.locator('[data-bulk-readingbar]').count() === 0, '(b) なぞると帯は「出す」に戻る（読みの欄は消える）');
+  await page.screenshot({ path: path.join(OUT, 'b1b-active-line-390.png'), fullPage: true });
   // 画面の下の帯のボタンは、なぞった文字入りの「「クマ」を出す」になり、なぞる前は「ここを出す」で押せない
   const markBtn = page.locator('[data-bulk-markbar] button');
   await page.waitForTimeout(100);

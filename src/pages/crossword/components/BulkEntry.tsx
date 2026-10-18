@@ -31,6 +31,8 @@ export interface BulkTexts {
   reading: string;
   readingOf: (word: string) => string;
   unmark: (word: string) => string;
+  selectMark: (word: string) => string;
+  unmarkShort: string;
   candidates: string;
   search: (n: number) => string;
   searching: (n: number) => string;
@@ -183,6 +185,12 @@ export const BulkEntry: React.FC<{
   const areaRef = useRef<HTMLTextAreaElement>(null);
   // なぞっている範囲。ボタンの文字に出す・押した時に選択が消える端末の控えにする（文字列が変わったら捨てる）
   const [sel, setSel] = useState<{ start: number; end: number; text: string } | null>(null);
+  // 最後に触った行（なぞった・読みの欄を押した・行をタップした）。この行だけ元の大きさで、他は小さく薄くする（Hop 2026-10-19「フォーカス当たってる行以外小さく」）
+  const [active, setActive] = useState<number | null>(null);
+  // 押した囲みの語（位置で覚える）。下の帯に「語・読みの欄・外す」を出す（Hop 2026-10-19 案A）
+  const [selMark, setSelMark] = useState<number | null>(null);
+  const readingBoxRef = useRef<HTMLInputElement>(null);
+  const lineOf = (pos: number) => text.slice(0, pos).split("\n").length - 1;
   // 候補の id は答えごとに固定する（描き直すたびに変わると、探した結果と結びつかなくなるため）
   const idByKey = useRef(new Map<string, string>());
 
@@ -215,7 +223,11 @@ export const BulkEntry: React.FC<{
     const onSel = () => {
       const r = selectionRange(linesRef.current);
       // 行の外を押しただけでは消さない（ボタンを押す時に選択が消える端末のため）。選択が無くなったのは次の書き換えで捨てる
-      if (r) setSel({ ...r, text });
+      if (r) {
+        setSel({ ...r, text });
+        setActive(lineOf(r.start));
+        setSelMark(null);
+      }
     };
     document.addEventListener("selectionchange", onSel);
     return () => document.removeEventListener("selectionchange", onSel);
@@ -243,6 +255,16 @@ export const BulkEntry: React.FC<{
     if (marks.some((m) => start < m.end && end > m.start)) return null;
     return { start, end, picked };
   };
+  // 読みが要るのに無い（または読みがカナでない）語の位置
+  const needsReading = useMemo(
+    () => new Set(candidates.filter((c) => c.reason === "noReading" || c.reason === "badReading").map((c) => c.mark.start)),
+    [candidates]
+  );
+  const selected = selMark === null ? null : (marks.find((m) => m.start === selMark) ?? null);
+  // 押した語の読みの欄に入る（帯に出た直後）
+  useEffect(() => {
+    if (selected) readingBoxRef.current?.focus();
+  }, [selMark]); // eslint-disable-line react-hooks/exhaustive-deps
   // 今なぞっている範囲（控えは同じ文字列の時だけ使う）
   const current = pickable(sel && sel.text === text ? sel : null);
 
@@ -400,6 +422,7 @@ export const BulkEntry: React.FC<{
         value={text}
         onChange={(e) => {
           setSel(null);
+          setSelMark(null);
           onText(e.target.value);
         }}
         // 半角の | は欄を離れた時に全角へそろえる（打っている途中に書き換えると変換中の字が崩れるため）
@@ -413,39 +436,58 @@ export const BulkEntry: React.FC<{
 
       {lines.length > 0 && (
         <div className="space-y-2">
-          <div ref={linesRef} data-bulk-lines="" className="bg-surface-container-low p-3 space-y-3 text-base leading-loose break-words" style={{ color: C.ink }}>
-            {lines.map(({ line, parts }) => (
-              <div key={line} data-bulk-line={line}>
-                {parts.map((p) =>
-                  p.kind === "text" ? (
-                    <span key={`t${p.start}`} data-seg-start={p.start}>
-                      {p.value}
-                    </span>
-                  ) : (
-                    <span key={`m${p.index}`} className="inline-flex flex-col align-top mx-0.5 max-w-full" data-bulk-mark={p.mark.surface}>
+          <div ref={linesRef} data-bulk-lines="" className="bg-surface-container-low p-3 space-y-3 leading-loose break-words">
+            {lines.map(({ line, parts }) => {
+              const on = active === null || active === line;
+              return (
+                <div
+                  key={line}
+                  data-bulk-line={line}
+                  data-bulk-active={on ? "" : undefined}
+                  onPointerDown={(e) => {
+                    if ((e.target as HTMLElement).closest("[data-bulk-mark]")) return;
+                    setActive(line);
+                    setSelMark(null);
+                  }}
+                  className={on ? "text-base leading-loose" : "text-[10px] leading-normal"}
+                  style={{ color: on ? C.ink : C.secondary }}
+                >
+                  {parts.map((p) =>
+                    p.kind === "text" ? (
+                      <span key={`t${p.start}`} data-seg-start={p.start}>
+                        {p.value}
+                      </span>
+                    ) : (
+                      // 囲んだ語は下線だけ（箱にしない）。読みはルビで上に。読みが要るのに無い語は点線。押すと下の帯に読みの欄と「外す」が出る
                       <button
+                        key={`m${p.index}`}
                         type="button"
-                        onClick={() => unmark(p.mark)}
-                        aria-label={t.unmark(p.mark.surface)}
-                        className="px-2 min-h-10 font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors text-left break-all"
-                        style={{ color: C.ink }}
+                        data-bulk-mark={p.mark.surface}
+                        data-bulk-mark-selected={selMark === p.mark.start ? "" : undefined}
+                        onClick={() => {
+                          setActive(line);
+                          setSelMark(p.mark.start);
+                        }}
+                        aria-label={t.selectMark(p.mark.surface)}
+                        className={`inline font-bold p-0 mx-0.5 border-b-2 ${needsReading.has(p.mark.start) ? "border-dashed" : "border-solid"} border-current ${selMark === p.mark.start ? "bg-surface-container-high" : "bg-transparent"}`}
+                        style={{ color: "inherit", lineHeight: "inherit" }}
                       >
-                        {p.mark.surface}
+                        {p.mark.reading && on ? (
+                          <ruby>
+                            {p.mark.surface}
+                            <rt className="text-[10px] font-normal" style={{ color: C.secondary }}>
+                              {p.mark.reading}
+                            </rt>
+                          </ruby>
+                        ) : (
+                          p.mark.surface
+                        )}
                       </button>
-                      {/* 文字は16px（iPhone は16pxより小さい入力欄を押すと画面を拡大するため） */}
-                      <input
-                        value={p.mark.reading ?? ""}
-                        onChange={(e) => setReading(p.mark, e.target.value)}
-                        placeholder={t.reading}
-                        aria-label={t.readingOf(p.mark.surface)}
-                        className="w-24 h-10 bg-white px-2 text-base leading-normal placeholder:text-outline focus:outline-none focus:shadow-[inset_0_-2px_0_#000]"
-                        style={{ color: C.ink }}
-                      />
-                    </span>
-                  )
-                )}
-              </div>
-            ))}
+                    )
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -457,16 +499,46 @@ export const BulkEntry: React.FC<{
           className="sticky bottom-0 z-10 bg-white py-2"
           style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom, 0px))" }}
         >
-          <button
-            type="button"
-            {...keepFocus}
-            onClick={markHere}
-            disabled={!current}
-            className="w-full px-4 min-h-10 font-semibold bg-surface-container-high hover:bg-surface-container-highest transition-colors disabled:hover:bg-surface-container-high truncate"
-            style={{ color: current ? C.ink : C.secondary }}
-          >
-            {current ? t.markSelected(current.picked.length > 12 ? `${current.picked.slice(0, 12)}…` : current.picked) : t.markHere}
-          </button>
+          {selected && !current ? (
+            <div data-bulk-readingbar="" className="flex items-stretch gap-2">
+              <span className="self-center font-bold whitespace-nowrap max-w-[8em] truncate" style={{ color: C.ink }}>
+                {selected.surface}
+              </span>
+              {/* 文字は16px（iPhone は16pxより小さい入力欄を押すと画面を拡大するため） */}
+              <input
+                ref={readingBoxRef}
+                value={selected.reading ?? ""}
+                onChange={(e) => setReading(selected, e.target.value)}
+                placeholder={t.reading}
+                aria-label={t.readingOf(selected.surface)}
+                className="flex-1 min-w-0 h-10 bg-surface-container-low px-2 text-base leading-normal placeholder:text-outline focus:outline-none focus:shadow-[inset_0_-2px_0_#000]"
+                style={{ color: C.ink }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  unmark(selected);
+                  setSelMark(null);
+                }}
+                aria-label={t.unmark(selected.surface)}
+                className="px-4 min-h-10 font-semibold bg-surface-container-high hover:bg-surface-container-highest transition-colors"
+                style={{ color: C.ink }}
+              >
+                {t.unmarkShort}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              {...keepFocus}
+              onClick={markHere}
+              disabled={!current}
+              className="w-full px-4 min-h-10 font-semibold bg-surface-container-high hover:bg-surface-container-highest transition-colors disabled:hover:bg-surface-container-high truncate"
+              style={{ color: current ? C.ink : C.secondary }}
+            >
+              {current ? t.markSelected(current.picked.length > 12 ? `${current.picked.slice(0, 12)}…` : current.picked) : t.markHere}
+            </button>
+          )}
         </div>
       )}
 

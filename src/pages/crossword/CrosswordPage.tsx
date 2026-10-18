@@ -307,6 +307,8 @@ const T = {
     reading: "読み",
     readingOf: (w: string) => `${w} の読み`, // 読みの欄の読み上げ名【仮】
     unmark: (w: string) => `${w} の囲みを外す`, // 囲んだ語のボタンの読み上げ名【仮】
+    selectMark: (w: string) => `${w} を選ぶ`, // 下線の語の読み上げ名【仮】
+    unmarkShort: "外す", // 帯の中のボタン【仮】
     candidates: "候補",
     search: (n: number) => `組み合わせを探す（${n}語）`,
     searching: (n: number) => `探しています… 試行 ${n} 回`,
