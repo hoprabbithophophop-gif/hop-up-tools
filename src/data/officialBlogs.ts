@@ -19,9 +19,10 @@ export const OFFICIAL_BLOGS: OfficialBlogGroup[] = [
   { key: "rosy", label: "ロージークロニクル", ids: ["rosychronicle"] },
 ];
 
-// Google の site: 検索の住所。複数のブログは OR でつなぐ。記事ページ（/entry-）に絞り、コメント一覧のページは対象から外す
+// Google の site: 検索の住所。複数のブログは OR でつなぐ。
+// inurl:entry で記事ページに絞ろうとすると Google が 0 件を返す（2026-10-19 に Hop の Chrome で確認。site: と組むと効かない）ので付けない
 export function officialBlogSearchUrl(group: OfficialBlogGroup, keyword: string): string {
   const sites = group.ids.map((id) => `site:ameblo.jp/${id}`).join(" OR ");
-  const q = `${keyword.trim()} (${sites}) inurl:entry-`;
+  const q = `${keyword.trim()} (${sites})`;
   return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
 }
