@@ -35,6 +35,7 @@ import {
 import { formatTime } from "../../lib/crossword/youtubeUrl";
 import { OFFICIAL_BLOGS, officialBlogSearchUrl } from "../../data/officialBlogs";
 
+import { PuzzleGridMinimal } from "./components/PuzzleGridMinimal";
 import { PuzzleGridRetro } from "./components/PuzzleGridRetro";
 import { ClearEffect } from "./components/ClearEffect";
 import { detectKeypadType } from "./components/PuzzleKeypad";
@@ -2631,7 +2632,24 @@ export default function CrosswordPage() {
   return (
     <>
       <Toaster />
-      {/* 画面一面に盤をちらつかせる演出は外した（Hop 2026-10-19「邪魔くさく感じてきた」）。組んでいる間の合図は盤の枠の中の「組み立て中…」だけ */}
+      {/* 盤を組んでいる間、画面の後ろに盤の候補をうっすら流す。濃さは 20%（Hop 2026-10-19「全部消すと寂しい、透過度20%とか」。元は 50%）【仮】 */}
+      <Presence>
+        {backgroundPuzzle && monteCarloProgress && (
+          <Motion initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-20 pointer-events-none overflow-hidden">
+            <div className="absolute inset-0 flex items-center justify-center opacity-20 scale-125">
+              <PuzzleGridMinimal data={backgroundPuzzle} />
+            </div>
+            {/* 進捗表示オーバーレイ（アニメーションのみ、試行回数非表示） */}
+            <div
+              className="absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-white px-6 py-3 text-sm font-semibold z-30 flex items-center gap-3"
+              style={{ color: C.ink, boxShadow: C.modalShadow }}
+            >
+              <div className="w-4 h-4 border-2 border-black border-t-transparent motion-safe:animate-spin" />
+              <span>組み立て中…</span>
+            </div>
+          </Motion>
+        )}
+      </Presence>
 
       <main className="min-h-screen pt-20 pb-20 px-4 relative z-10 bg-surface">
         {/* ページ見出し */}
