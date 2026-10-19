@@ -34,7 +34,21 @@ export function fakeShelf() {
   const keys = new Map(); // id → 合言葉の sha256
   const answers = new Map(); // id → 答え（語ごとの字の配列）
   const images = new Set(); // シェア画像が置かれている問題の番号
+  const plays = new Map(); // 回の番号 → 遊んでいる回の行（crossword_plays）
+  const scores = []; // ランキングの行（crossword_scores）
   const outside = []; // 止めた外への通信
+
+  // PostgREST の絞り込み（eq.・gt.・not.is.null・is.null）を行に当てる。select・order・limit は絞り込みではない
+  const matches = (row, params) => [...params].every(([col, cond]) => {
+    if (['select', 'order', 'limit'].includes(col)) return true;
+    const v = row[col];
+    if (cond === 'not.is.null') return v !== null && v !== undefined;
+    if (cond === 'is.null') return v === null || v === undefined;
+    if (cond.startsWith('eq.')) return String(v) === cond.slice(3);
+    if (cond.startsWith('gt.')) return Number(v) > Number(cond.slice(3));
+    throw new Error(`作り物の棚は絞り込み ${col}=${cond} を真似ていない`);
+  });
+  const prefer = (init) => (init.headers?.Prefer ?? '');
 
   const ownerOk = (id, key) => typeof key === 'string' && key.length >= 32 && key.length <= 128 && keys.get(id) === sha256(key);
   const pick = (row, select) => (select ? Object.fromEntries(select.split(',').map((c) => [c, row[c]])) : { ...row });
@@ -78,6 +92,28 @@ export function fakeShelf() {
         const rows = [...puzzles.values()].filter((r) => !eqId || r.id === eqId).filter((r) => !(init.headers?.apikey === FAKE_ENV.VITE_SUPABASE_ANON_KEY && r.is_hidden));
         return json(rows.map((r) => pick(r, url.searchParams.get('select'))));
       }
+      case 'crossword_plays': {
+        if (method !== 'PATCH') return json({ message: `作り物の棚は crossword_plays の ${method} を真似ていない` }, 500);
+        const hit = [...plays.values()].filter((r) => matches(r, url.searchParams));
+        for (const r of hit) Object.assign(r, body);
+        return prefer(init).includes('return=representation') ? json(hit.map((r) => ({ ...r }))) : new Response(null, { status: 204 });
+      }
+      case 'crossword_scores': {
+        if (method === 'POST') {
+          // 問題が無ければ 23503、同じ人の行が既にあれば 23505（棚の決まりと同じ）
+          if (!puzzles.has(body.puzzle_id)) return json({ code: '23503' }, 409);
+          if (scores.some((r) => r.puzzle_id === body.puzzle_id && r.player_hash === body.player_hash)) return json({ code: '23505' }, 409);
+          const now = new Date().toISOString();
+          scores.push({ id: scores.length + 1, is_hidden: false, created_at: now, updated_at: now, ...body });
+          return new Response(null, { status: 201 });
+        }
+        if (method === 'PATCH') {
+          const hit = scores.filter((r) => matches(r, url.searchParams));
+          for (const r of hit) Object.assign(r, body);
+          return prefer(init).includes('return=representation') ? json(hit.map((r) => ({ ...r }))) : new Response(null, { status: 204 });
+        }
+        return json({ message: `作り物の棚は crossword_scores の ${method} を真似ていない` }, 500);
+      }
       default:
         return json({ message: `作り物の棚は ${name} を真似ていない` }, 500);
     }
@@ -88,6 +124,13 @@ export function fakeShelf() {
     outside,
     puzzles,
     images,
+    plays,
+    scores,
+    // 遊んでいる回を置く（/api/crossword-play が書く行の、ランキングの受付係が読む列だけ）
+    addPlay({ id, puzzle_id, active_ms, revealed = [], misses = 0, solved = true, scored = false, too_fast = false }) {
+      const started = new Date(Date.now() - active_ms - 5000).toISOString();
+      plays.set(id, { id, puzzle_id, started_at: started, solved_at: solved ? new Date().toISOString() : null, revealed, misses, active_ms, scored, too_fast });
+    },
     // 問題を置く。clues は答えつき（answer）で渡す。棚には length に直して置く
     addPuzzle({ id, key, title = '確かめ用', genre = 'other', tags = [], is_beginner = false, group_tags = [], play_count = 0, is_hidden = false, width, height, clues, creatorName }) {
       puzzles.set(id, {
