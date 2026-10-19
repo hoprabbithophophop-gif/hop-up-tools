@@ -2,16 +2,14 @@
 // HarmonyPalette の src/pages/GalleryPage.tsx の移植。並び・動き・文言は同じ
 // （新着順・人気順、作成者名で検索、12件ずつ「もっと見る」、更新、検索中の表示とクリア、読み込み中・失敗・0件の表示）。
 // 変えた所: 見た目（DESIGN.md）、アイコン（Material Symbols）、読み込み先（Supabase。続きは何件目からで読む）、
-// 足した物（ジャンル・グループ・タグ・「初めての人向け」で絞る、作る画面へ戻る入口、ページ移動の波を待たせる、フッターの非公式の一文）。
+// 足した物（グループ・タグ・「初めての人向け」で絞る、作る画面へ戻る入口、ページ移動の波を待たせる、フッターの非公式の一文）。
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { usePageReady } from "../../lib/pageReady";
 import { getPublicPuzzles, type GalleryPuzzle, type SortOption } from "../../lib/crossword/gallery";
-import type { Genre } from "../../lib/crossword/puzzleStore";
 import { GROUP_NAMES } from "../../lib/crossword/groupDetect";
 import { PuzzleGalleryCard, BEGINNER_LABEL } from "./components/PuzzleGalleryCard";
 import { Footer, Icon } from "./components/ui";
-import { radioKeyDown, radioTabIndex } from "./components/radioKeys";
 import { C } from "./style";
 
 const PAGE_SIZE = 12;
@@ -20,12 +18,6 @@ const PAGE_SIZE = 12;
 const T = {
   pageTitle: "パズルギャラリー",
   backToCreate: "トップへ戻る",
-  genre: "ジャンル",
-  genres: [
-    { key: "all", label: "すべて" },
-    { key: "hello", label: "ハロプロ" },
-    { key: "other", label: "その他" },
-  ] as { key: Genre | "all"; label: string }[],
   group: "グループ",
   groupAll: "すべて",
   tag: "タグ",
@@ -48,7 +40,6 @@ export default function GalleryPage() {
   const [sortBy, setSortBy] = useState<SortOption>("newest");
 
   // 足した絞り込み
-  const [genre, setGenre] = useState<Genre | "all">("all");
   const [group, setGroup] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [appliedTag, setAppliedTag] = useState("");
@@ -74,7 +65,6 @@ export default function GalleryPage() {
         const response = await getPublicPuzzles({
           creatorName: appliedSearch || undefined,
           sortBy,
-          genre,
           group: group || undefined,
           tag: appliedTag || undefined,
           beginnerOnly,
@@ -98,13 +88,13 @@ export default function GalleryPage() {
         }
       }
     },
-    [appliedSearch, sortBy, genre, group, appliedTag, beginnerOnly, nextOffset]
+    [appliedSearch, sortBy, group, appliedTag, beginnerOnly, nextOffset]
   );
 
   // 初回ロードとフィルタ変更時
   useEffect(() => {
     fetchPuzzles(false);
-  }, [appliedSearch, sortBy, genre, group, appliedTag, beginnerOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [appliedSearch, sortBy, group, appliedTag, beginnerOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,10 +118,9 @@ export default function GalleryPage() {
   };
 
   // 絞り込み・検索をしているか。全部外すと「すべての問題」に戻る
-  const filterActive = genre !== "all" || !!group || !!appliedTag || beginnerOnly || !!appliedSearch;
+  const filterActive = !!group || !!appliedTag || beginnerOnly || !!appliedSearch;
   const clearAll = () => {
     clearSearch();
-    setGenre("all");
     setGroup("");
     setTagInput("");
     setAppliedTag("");
@@ -199,25 +188,8 @@ export default function GalleryPage() {
               </div>
             </div>
 
-            {/* 足した絞り込み: ジャンル・グループ・タグ・初めての人向け */}
+            {/* 足した絞り込み: グループ・タグ・初めての人向け */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-              <div className="inline-flex flex-wrap max-w-full" role="radiogroup" aria-label={T.genre}>
-                {T.genres.map((g) => (
-                  <button
-                    key={g.key}
-                    type="button"
-                    role="radio"
-                    aria-checked={genre === g.key}
-                    tabIndex={radioTabIndex(genre === g.key)}
-                    onKeyDown={(e) => radioKeyDown(e, T.genres.map((x) => x.key), genre, setGenre)}
-                    onClick={() => setGenre(g.key)}
-                    className={`px-4 py-2 text-sm font-semibold whitespace-nowrap transition-colors ${genre === g.key ? "bg-primary text-white" : "bg-surface-container-low text-on-surface hover:bg-surface-container-high"}`}
-                  >
-                    {g.label}
-                  </button>
-                ))}
-              </div>
-
               {/* 文字を大きくして1行に収まらない時は、札の下へ折り返す（横スクロールを出さない。2026-10-06 アクセシビリティの直し） */}
               <label className="flex flex-wrap items-center gap-2 text-sm max-w-full min-w-0" style={{ color: C.secondary }}>
                 {T.group}

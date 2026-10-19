@@ -18,8 +18,7 @@
  * 段階2b で足したもの
  *   ・初めての人向けの印（is_beginner）
  *   ・題名とカギの文・答えから、メンバー名・グループ名でグループを判定して group_tags に入れる。
- *     入れるのは、作る人が「ハロプロ」を選んだ問題だけ。ジャンルは作る人の選んだまま書き換えない
- *     （Hop 決定 2026-10-03。たまたま名前が出るだけの「その他」の問題をハロプロに分けない）
+ *     ジャンルはハロプロ専門のため常に hello（Hop 決定 2026-10-20。送られた genre は見ない）
  *   ・シェア画像（1200×630 の PNG）を確かめてから置き場 crossword-ogp に置く。置けなくても保存は成功にする
  */
 
@@ -78,10 +77,8 @@ interface CleanClue {
 }
 
 export interface CleanPuzzle {
-  /** 保存するジャンル。グループが見つかったら、送られてきたのが other でも hello */
-  genre: "hello" | "other";
-  /** 送られてきたジャンル（断る理由の出し分けに使う） */
-  requestedGenre: "hello" | "other";
+  /** 保存するジャンル。ハロプロ専門なので、送られてきた値に関わらず常に hello（Hop 決定 2026-10-20） */
+  genre: "hello";
   title: string;
   tags: string[];
   body: { version: 1; width: number; height: number; clues: CleanClue[]; creatorName?: string; rulesNote?: true };
@@ -184,8 +181,7 @@ export function validateSavePayload(raw: unknown): CleanPuzzle | null {
   const title = p.title.trim();
   if (charLen(title) < 1 || charLen(title) > MAX_TITLE) return null;
 
-  if (p.genre !== "hello" && p.genre !== "other") return null;
-  const requestedGenre = p.genre;
+  // 送られてきた genre は見ない（常に hello で保存する）
 
   // 初めての人向けの印。無ければ false、あれば true/false だけ
   if (p.isBeginner !== undefined && typeof p.isBeginner !== "boolean") return null;
@@ -234,16 +230,13 @@ export function validateSavePayload(raw: unknown): CleanPuzzle | null {
   // 大きさは保存する形（整えた後）で測る。DB 側の上限 octet_length(body::text) と同じ 51200 バイト
   if (new TextEncoder().encode(JSON.stringify(body)).length > MAX_BODY_BYTES) return null;
 
-  const genre = requestedGenre;
-  const groupTags =
-    genre === "hello"
-      ? detectGroups(
-          { title, clues: clues.map((c) => c.clue), answers: clues.map((c) => c.answer.join("")) },
-          { members: CROSSWORD_MEMBERS, groups: CROSSWORD_GROUPS },
-        )
-      : [];
+  const genre = "hello" as const;
+  const groupTags = detectGroups(
+    { title, clues: clues.map((c) => c.clue), answers: clues.map((c) => c.answer.join("")) },
+    { members: CROSSWORD_MEMBERS, groups: CROSSWORD_GROUPS },
+  );
 
-  return { title, genre, requestedGenre, tags, body, key, isBeginner, groupTags };
+  return { title, genre, tags, body, key, isBeginner, groupTags };
 }
 
 /** 誰でも読める棚に置く本文。答えの代わりに文字数だけ残す（Hop 決定 2026-10-04「答えを渡さない作り」） */
