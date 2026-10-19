@@ -2,9 +2,9 @@
 // 本番にもプレビューにも通信しない。手元の vite をこの台本が立ち上げ、棚（/rest/v1）・受付係（/api）・YouTube の oEmbed はブラウザの中で受け止める。
 //   (1) ハロプロ: 台帳に無い動画は、開いた時に YouTube に聞いた名前が「チャンネル: …」で出る
 //   (2) ハロプロ: 台帳にある動画は聞かず、チャンネル名も出ない
-//   (3) ハロプロ: 台帳に無く YouTube にも聞けない動画は「見られなくなりました」
+//   (3) ハロプロ: 台帳に無く YouTube が見られないと答えた動画は「見られなくなりました」。混み合い（429）の時は印を付けない
 //   (4) その他: 台帳を見ずに聞き、チャンネル名が出る。聞けなくても「見られなくなりました」にはしない
-//   (5) 作った問題の一覧: 台帳に無くても聞ける動画なら「見られなくなったヒント」は出ず、聞けなければ出る
+//   (5) 作った問題の一覧: 台帳に無くても聞ける動画なら「見られなくなったヒント」は出ず、見られないと答えたら出る。混み合いの時は出ない
 // 使い方: node scripts/verify/crossword/check-channel-display.mjs（引数なし）
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -68,7 +68,7 @@ const SEEN = { crossword_seen_help: 'true', crossword_seen_first_cell: '1', cros
 const browser = await chromium.launch();
 const pageErrors = [];
 
-// oembed: 'ok' なら名前を返し、'gone' なら 401（削除・非公開・埋め込み禁止と同じ返事）
+// oembed: 'ok' なら名前を返し、'gone' なら 401（削除・非公開・埋め込み禁止と同じ返事）、'busy' なら 429（混み合い）
 async function newPage({ oembed, marks = SEEN }) {
   const st = { oembedIds: [] };
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
@@ -102,6 +102,7 @@ async function newPage({ oembed, marks = SEEN }) {
     const id = new URL(new URL(r.request().url()).searchParams.get('url')).searchParams.get('v');
     st.oembedIds.push(id);
     if (oembed === 'gone') return r.fulfill({ status: 401, body: 'Unauthorized' });
+    if (oembed === 'busy') return r.fulfill({ status: 429, body: 'Too Many Requests' });
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: 'テストチャンネル', title: 'テストの動画' }) });
   });
   const page = await ctx.newPage();
@@ -153,6 +154,13 @@ try {
     await page.screenshot({ path: path.join(OUT, '3-hello-gone-390.png') });
     await ctx.close();
   }
+  {
+    const { ctx, page } = await newPage({ oembed: 'busy' });
+    await openPuzzle(page, 'MOCKCHH1');
+    const a = await hintText(page, 0, 0);
+    check(!a.gone && a.ch === null, `(3) ハロプロ・YouTube が混み合い（429）の時は「見られなくなりました」にしない（gone=${a.gone} ch=${a.ch}）`);
+    await ctx.close();
+  }
 
   // ---- (4) その他 ----
   {
@@ -174,13 +182,13 @@ try {
 
   // ---- (5) 作った問題の一覧 ----
   const mine = JSON.stringify([{ id: 'MOCKCHH1', key: KEY, title: 'チャンネル名の見本', createdAt: Date.now() }]);
-  for (const [mode, expectGone] of [['ok', false], ['gone', true]]) {
+  for (const [mode, expectGone] of [['ok', false], ['gone', true], ['busy', false]]) {
     const { ctx, page } = await newPage({ oembed: mode, marks: { ...SEEN, crossword_my_puzzles: mine } });
     await page.goto(`${BASE}/crossword/mine`);
     await page.getByText('チャンネル名の見本').first().waitFor({ timeout: 20000 });
     await page.waitForTimeout(1500);
     const shown = (await page.getByText('見られなくなったヒントがあります。').count()) > 0;
-    check(shown === expectGone, `(5) 一覧: YouTube に${mode === 'ok' ? '聞ける' : '聞けない'}時は「見られなくなったヒント」が${expectGone ? '出る' : '出ない'}（出た=${shown}）`);
+    check(shown === expectGone, `(5) 一覧: YouTube が ${mode} の時は「見られなくなったヒント」が${expectGone ? '出る' : '出ない'}（出た=${shown}）`);
     await page.screenshot({ path: path.join(OUT, `5-mine-${mode}-390.png`) });
     await ctx.close();
   }
