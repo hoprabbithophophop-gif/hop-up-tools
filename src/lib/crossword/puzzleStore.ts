@@ -391,9 +391,18 @@ export async function catalogVideoIdsPresent(ids: string[]): Promise<Set<string>
   return new Set(((data as { video_id: string }[] | null) ?? []).map((r) => r.video_id));
 }
 
-// 台帳に無い動画ごとの YouTube の答え
+// 台帳に無い動画ごとの YouTube の答え。一度に聞くのは 6 件まで【仮】（作った問題の一覧は問題の数だけ増えるため）
 async function askOutsideChannels(ids: string[]): Promise<Map<string, string>> {
-  return new Map(await Promise.all(ids.map(async (id) => [id, await askVideoChannel(id)] as const)));
+  const answers = new Map<string, string>();
+  let next = 0;
+  const worker = async () => {
+    while (next < ids.length) {
+      const id = ids[next++];
+      answers.set(id, await askVideoChannel(id));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, ids.length) }, worker));
+  return answers;
 }
 
 // 開いた問題の YouTube のヒントに、台帳に無い動画だけチャンネル名か見られない印を付ける（どちらも画面の中だけ）

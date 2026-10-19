@@ -189,7 +189,7 @@ try {
     await page.waitForTimeout(1500);
     const shown = (await page.getByText('見られなくなったヒントがあります。').count()) > 0;
     check(shown === expectGone, `(5) 一覧: YouTube が ${mode} の時は「見られなくなったヒント」が${expectGone ? '出る' : '出ない'}（出た=${shown}）`);
-    await page.screenshot({ path: path.join(OUT, `5-mine-${mode}-390.png`) });
+    await page.screenshot({ path: path.join(OUT, `5-mine-${mode}-390.png`), timeout: 10000 }).catch(() => console.log(`   写真を撮れなかった: 5-mine-${mode}`)); // 写真は確かめの項目ではないので、撮れなくても続ける
     await ctx.close();
   }
 

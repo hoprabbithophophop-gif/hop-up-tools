@@ -135,6 +135,21 @@ interface Draft {
   input: { q: string; a: string };
 }
 
+// 下書きにはチャンネル名と見られない印を書かない（画面の中だけの物。Hop 決定 2026-10-19「書き残さない形」）
+const withoutScreenOnly = (hints: Record<string, HintRef>): Record<string, HintRef> =>
+  Object.fromEntries(
+    Object.entries(hints).map(([k, h]) => [k, h.kind === "youtube" ? { kind: "youtube", videoId: h.videoId, startSec: h.startSec } : h]),
+  );
+
+// 戻したヒントに、聞き直したチャンネル名だけを足す（聞いている間に替えたヒントには足さない）
+const mergeChannels = (prev: Record<string, HintRef>, next: Record<string, HintRef>): Record<string, HintRef> =>
+  Object.fromEntries(
+    Object.entries(prev).map(([k, h]) => {
+      const n = next[k];
+      return h.kind === "youtube" && n?.kind === "youtube" && n.channel && n.videoId === h.videoId && n.startSec === h.startSec ? [k, { ...h, channel: n.channel }] : [k, h];
+    }),
+  );
+
 // 文言（HarmonyPalette の ja.json の puzzle.builder から。問題文の呼び名は「ヒント」→「カギ」）
 const T = {
   pageTitle: "クロスワードパズル作成",
@@ -1339,6 +1354,9 @@ export default function CrosswordPage() {
         setIsBeginner(rec.is_beginner === true);
         setRulesNote(rec.body.rulesNote === true);
         setHints(restoredHints);
+        withVideoChannels(restoredHints, rec.genre)
+          .then((next) => setHints((prev) => mergeChannels(prev, next)))
+          .catch(() => {});
         setEditorItems(placed.map(({ id, question, answer }) => ({ id, question, answer })));
         // 盤は保存した時の形のまま組む（番号も同じ）。組み替えたい時は「再シャッフル」
         const grid = buildGrid(placed);
@@ -1380,7 +1398,11 @@ export default function CrosswordPage() {
           items.push({ id: it.id, question: it.question, answer });
         }
         if (d.hints && typeof d.hints === "object") {
-          setHints(Object.fromEntries(Object.entries(d.hints as Record<string, HintRef>).filter(([id]) => seen.has(id))));
+          const restored = withoutScreenOnly(Object.fromEntries(Object.entries(d.hints as Record<string, HintRef>).filter(([id]) => seen.has(id))));
+          setHints(restored);
+          withVideoChannels(restored, d.genre === "hello" ? "hello" : "other")
+            .then((next) => setHints((prev) => mergeChannels(prev, next)))
+            .catch(() => {});
         }
         if (items.length > 0) {
           setEditorItems(items);
@@ -1400,7 +1422,7 @@ export default function CrosswordPage() {
       lsRemove(DRAFT_KEY);
       return;
     }
-    const d: Draft = { title: puzzleTitle, creatorName, genre, tags, isBeginner, rulesNote, items: editorItems, hints, input: currentInput };
+    const d: Draft = { title: puzzleTitle, creatorName, genre, tags, isBeginner, rulesNote, items: editorItems, hints: withoutScreenOnly(hints), input: currentInput };
     lsSet(DRAFT_KEY, JSON.stringify(d));
   }, [isPlayerMode, draftReady, editStatus, puzzleTitle, creatorName, genre, tags, isBeginner, rulesNote, editorItems, hints, currentInput]);
 
