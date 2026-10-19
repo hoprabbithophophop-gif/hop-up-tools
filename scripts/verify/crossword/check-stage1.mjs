@@ -105,6 +105,13 @@ async function mockAll(ctx) {
     r.fulfill({ contentType: 'application/javascript', body: 'window.turnstile={render:function(el,o){setTimeout(function(){o.callback("check-stage1")},50);return "w"},remove:function(){},reset:function(){}};' }),
   );
   await ctx.route(/^https:\/\/www\.youtube\.com\/oembed/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: 'テストチャンネル', title: 'テストの動画' }) }));
+  // YouTube の再生部品（iframe_api）の作り物。画面が渡した videoId と playerVars（start・autoplay）を、本物と同じく埋め込みの住所の引数にして枠を作る
+  await ctx.route('https://www.youtube.com/iframe_api', (r) =>
+    r.fulfill({
+      contentType: 'application/javascript',
+      body: `window.YT={Player:function(el,o){var v=o.playerVars||{};var f=document.createElement('iframe');f.src='https://www.youtube.com/embed/'+o.videoId+'?start='+(v.start||0)+'&autoplay='+(v.autoplay||0)+'&enablejsapi=1';el.replaceWith(f);this.destroy=function(){f.remove()};this.pauseVideo=function(){};this.playVideo=function(){};this.seekTo=function(){};this.getCurrentTime=function(){return 0}}};window.onYouTubeIframeAPIReady&&window.onYouTubeIframeAPIReady();`,
+    }),
+  );
 }
 
 // 画面の言葉。実装に合わせてここだけ直す
