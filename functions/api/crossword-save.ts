@@ -60,9 +60,8 @@ const MAX_ANSWER_CHARS = 20;
 const MAX_CLUES = 60;
 const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
-// channel は台帳に無い動画に受付係が自分で YouTube に聞いて入れる名前（ブラウザから来た名前は信じない）
-type Hint = { kind: "youtube"; videoId: string; startSec: number; channel?: string } | { kind: "link"; url: string };
-const MAX_CHANNEL_CHARS = 100;
+// チャンネル名は保存しない。台帳に無い動画のチャンネル名は、見る人のブラウザがその都度 YouTube に聞く（Hop 決定 2026-10-19「書き残さない形」）
+type Hint = { kind: "youtube"; videoId: string; startSec: number } | { kind: "link"; url: string };
 const isYouTubeHost = (host: string) => {
   const h = host.replace(/^(www\.|m\.|music\.)/, "");
   return h === "youtu.be" || h === "youtube.com" || h === "youtube-nocookie.com";
@@ -90,8 +89,6 @@ export interface CleanPuzzle {
   isBeginner: boolean;
   /** メンバー名・グループ名から判定したグループ（公式表記） */
   groupTags: string[];
-  /** genre=hello のとき台帳に載っているか確かめる動画番号（重なりなし） */
-  videoIds: string[]; // YouTube のヒントの動画番号（ジャンルを問わず）
 }
 
 const isInt = (v: unknown, min = 0): v is number => typeof v === "number" && Number.isInteger(v) && v >= min;
@@ -246,77 +243,7 @@ export function validateSavePayload(raw: unknown): CleanPuzzle | null {
         )
       : [];
 
-  // YouTube のヒントの動画番号（ジャンルを問わず）。台帳に無い物は受付係がチャンネル名を聞いて添える
-  const videoIds = [...new Set(clues.flatMap((c) => (c.hint.kind === "youtube" ? [c.hint.videoId] : [])))];
-
-  return { title, genre, requestedGenre, tags, body, key, isBeginner, groupTags, videoIds };
-}
-
-/**
- * YouTube のヒントの動画を確かめ、台帳に無い動画にはチャンネル名を付ける（Hop 決定 2026-10-19 案1）。
- *   台帳（youtube_videos・表示してよい物）にある動画 → そのまま
- *   台帳に無い動画 → YouTube の鍵なしの窓口（oEmbed）にチャンネル名を聞く。削除・非公開・埋め込み禁止なら答えが返らないので "video"
- *   台帳にも YouTube にも聞けなければ "server"
- * 2026-10-19 までは「ハロプロは台帳の動画だけ」で、無ければ "video" で断っていた。
- * 保存（crossword-save）と組み直し（crossword-update）の両方から使う。
- */
-export async function resolveVideoChannels(
-  rest: string,
-  headers: Record<string, string>,
-  ids: string[],
-  label: string,
-): Promise<{ status: "ok"; channels: Map<string, string> } | { status: "video" | "server" }> {
-  const channels = new Map<string, string>();
-  if (ids.length === 0) return { status: "ok", channels };
-  let found: Set<string>;
-  try {
-    const res = await fetch(
-      `${rest}/youtube_videos?select=video_id&is_active_content=eq.true` + `&video_id=in.(${ids.join(",")})`,
-      { headers },
-    );
-    if (!res.ok) {
-      console.error(`${label}: catalog check failed`, res.status);
-      return { status: "server" };
-    }
-    const rows = (await res.json()) as { video_id: string }[];
-    found = new Set(rows.map((r) => r.video_id));
-  } catch {
-    return { status: "server" };
-  }
-  for (const id of ids) {
-    if (found.has(id)) continue;
-    try {
-      const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}&format=json`);
-      if (res.status === 429) return { status: "server" }; // YouTube 側の混み合い。動画が無いとは言わない
-      if (res.status >= 400 && res.status < 500) return { status: "video" };
-      if (!res.ok) {
-        console.error(`${label}: oembed failed`, res.status);
-        return { status: "server" };
-      }
-      const data = (await res.json()) as { author_name?: unknown };
-      const name = typeof data.author_name === "string" ? Array.from(data.author_name.trim()).slice(0, MAX_CHANNEL_CHARS).join("") : "";
-      if (!name) return { status: "video" };
-      channels.set(id, name);
-    } catch {
-      return { status: "server" };
-    }
-  }
-  return { status: "ok", channels };
-}
-
-/** 受付係が聞いたチャンネル名を本文のヒントに書き込む（台帳にある動画には付かない）。大きさの上限を超えたら null */
-export function withChannels(body: CleanPuzzle["body"], channels: Map<string, string>): CleanPuzzle["body"] | null {
-  const next = {
-    ...body,
-    clues: body.clues.map((c) => {
-      if (c.hint.kind !== "youtube") return c;
-      const channel = channels.get(c.hint.videoId);
-      const hint = { kind: "youtube" as const, videoId: c.hint.videoId, startSec: c.hint.startSec };
-      return { ...c, hint: channel ? { ...hint, channel } : hint };
-    }),
-  };
-  if (new TextEncoder().encode(JSON.stringify(next)).length > MAX_BODY_BYTES) return null;
-  return next;
+  return { title, genre, requestedGenre, tags, body, key, isBeginner, groupTags };
 }
 
 /** 誰でも読める棚に置く本文。答えの代わりに文字数だけ残す（Hop 決定 2026-10-04「答えを渡さない作り」） */
@@ -414,13 +341,6 @@ export async function onRequestPost(context: {
   // 4. 中身の確かめ。
   const puzzle = validateSavePayload(body.puzzle);
   if (!puzzle) return json({ ok: false, reason: "bad_request" }, 400);
-
-  // ハロプロのジャンルの YouTube ヒントは、台帳に表示してよい動画として載っているものだけ。
-  const resolved = await resolveVideoChannels(rest, dbHeaders, puzzle.videoIds, "crossword-save");
-  if (resolved.status !== "ok") return json({ ok: false, reason: resolved.status }, resolved.status === "server" ? 503 : 400);
-  const bodyWithChannels = withChannels(puzzle.body, resolved.channels);
-  if (!bodyWithChannels) return json({ ok: false, reason: "bad_request" }, 400);
-  puzzle.body = bodyWithChannels;
 
   // 5. 保存。番号が重なったら作り直す。
   let id = "";

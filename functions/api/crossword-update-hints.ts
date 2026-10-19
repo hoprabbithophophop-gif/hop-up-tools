@@ -9,7 +9,7 @@
  *   3. 棚にある本文を読む（隠された問題は 404）。送られてきたのは「どのカギのヒントを何に替えるか」だけで、
  *      本文はブラウザから受け取らず、棚の本文のヒント部分だけを入れ替えて組み立てる（題名・答え・カギの文はここからは変えられない）
  *   4. 替えるヒントは保存と同じ検査（cleanHint。YouTube を「リンク」として通さない決まりも同じ）。
- *      台帳に無い YouTube は受付係が YouTube にチャンネル名を聞いて添える（crossword-save と同じ）
+ *      チャンネル名は保存しない（台帳に無い動画のチャンネル名は見る人のブラウザが聞く。Hop 決定 2026-10-19）
  *   5. rpc crossword_update_hints（合言葉が合い・隠されていない時だけ本文を書き換える）
  *
  * 送る形: { id, key, hints: { "<direction>:<clueIndex>": ヒント, ... } }
@@ -19,7 +19,7 @@
 import { readJsonLimited } from "../_shared/bodyLimit";
 import { logBackground } from "../_shared/background";
 import { reporterKey } from "../_shared/reporterKey";
-import { cleanHint, json, resolveVideoChannels, sha256Hex } from "./crossword-save";
+import { cleanHint, json, sha256Hex } from "./crossword-save";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -146,18 +146,10 @@ export async function onRequestPost(context: {
   const keysInBody = new Set(clues.map((c) => `${c.direction}:${c.clueIndex}`));
   for (const k of replaced.keys()) if (!keysInBody.has(k)) return json({ ok: false, reason: "bad_request" }, 400);
 
-  const newYoutubeIds = [...new Set([...replaced.values()].flatMap((h) => (h && h.kind === "youtube" ? [h.videoId] : [])))];
-  const resolved = await resolveVideoChannels(rest, dbHeaders, newYoutubeIds, ENDPOINT);
-  if (resolved.status !== "ok") return json({ ok: false, reason: resolved.status }, resolved.status === "server" ? 503 : 400);
-
   const nextClues = clues.map((c) => {
     const k = `${c.direction}:${c.clueIndex}`;
     const h = replaced.get(k);
-    if (!h) return c; // 触らないカギは棚の中身そのまま（チャンネル名も残る）
-    if (h.kind === "youtube") {
-      const channel = resolved.channels.get(h.videoId);
-      return { ...c, hint: channel ? { ...h, channel } : { kind: h.kind, videoId: h.videoId, startSec: h.startSec } };
-    }
+    if (!h) return c; // 触らないカギは棚の中身そのまま
     return { ...c, hint: h };
   });
   if (nextClues.some((c) => !c.hint)) return json({ ok: false, reason: "bad_request" }, 400);

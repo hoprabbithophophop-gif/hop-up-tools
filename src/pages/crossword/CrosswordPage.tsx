@@ -16,17 +16,18 @@ import { toLargeKana } from "../../../functions/_shared/crosswordKana";
 import { determineNextSelection } from "../../lib/crossword/puzzleSelectionLogic";
 import {
   addMyPuzzle,
-  catalogVideoIdsPresent,
   fetchOwnedPuzzle,
   isCatalogVideo,
   isHiddenPuzzle,
   loadPuzzle,
+  lookupVideoChannel,
   makeOwnerKey,
   readMyPuzzles,
   savePuzzle,
   SaveError,
   toBody,
   updatePuzzle,
+  withVideoChannels,
   type Genre,
   type HintRef,
   type MyPuzzle,
@@ -134,6 +135,21 @@ interface Draft {
   input: { q: string; a: string };
   bulkText?: string; // 「まとめて入れる」の文字列（候補はここから計算し直すので文字列だけ残す）
 }
+
+// 下書きにはチャンネル名と見られない印を書かない（画面の中だけの物。Hop 決定 2026-10-19「書き残さない形」）
+const withoutScreenOnly = (hints: Record<string, HintRef>): Record<string, HintRef> =>
+  Object.fromEntries(
+    Object.entries(hints).map(([k, h]) => [k, h.kind === "youtube" ? { kind: "youtube", videoId: h.videoId, startSec: h.startSec } : h]),
+  );
+
+// 戻したヒントに、聞き直したチャンネル名だけを足す（聞いている間に替えたヒントには足さない）
+const mergeChannels = (prev: Record<string, HintRef>, next: Record<string, HintRef>): Record<string, HintRef> =>
+  Object.fromEntries(
+    Object.entries(prev).map(([k, h]) => {
+      const n = next[k];
+      return h.kind === "youtube" && n?.kind === "youtube" && n.channel && n.videoId === h.videoId && n.startSec === h.startSec ? [k, { ...h, channel: n.channel }] : [k, h];
+    }),
+  );
 
 // 文言（HarmonyPalette の ja.json の puzzle.builder から。問題文の呼び名は「ヒント」→「カギ」）
 const T = {
@@ -704,16 +720,10 @@ export default function CrosswordPage() {
         const puzzleToLoad = loaded.puzzle;
         setPlayerPuzzle(puzzleToLoad);
         setPlayerHints(loaded.hints);
-        // ハロプロのジャンルは、台帳から消えた動画のヒントに印を付ける（見られなくなりましたと出す。Hop 決定 2026-10-04）
-        if (loadedGenre === "hello") {
-          const hints = loaded.hints;
-          // チャンネル名付き（外のチャンネルの動画）は台帳に無くて当たり前なので外す。見られないかは再生側が知らせる
-          const ids = Array.from(new Set(Object.values(hints).flatMap((h) => (h.kind === "youtube" && !h.channel ? [h.videoId] : []))));
-          catalogVideoIdsPresent(ids)
-            .then((present) => {
-              if (!alive || ids.every((id) => present.has(id))) return;
-              setPlayerHints(Object.fromEntries(Object.entries(hints).map(([k, h]) => [k, h.kind === "youtube" && !h.channel && !present.has(h.videoId) ? { ...h, gone: true } : h])));
-            })
+        // 台帳に無い動画にチャンネル名を添え、ハロプロのジャンルで見られない動画に印を付ける（見られなくなりましたと出す。Hop 決定 2026-10-04）
+        if (loadedGenre) {
+          withVideoChannels(loaded.hints, loadedGenre)
+            .then((next) => alive && setPlayerHints(next))
             .catch((err) => console.warn("Failed to check hint videos:", err));
         }
         setIsAssemblyAnimating(true);
@@ -1372,6 +1382,9 @@ export default function CrosswordPage() {
         setTags(Array.isArray(rec.tags) ? rec.tags : []);
         setIsBeginner(rec.is_beginner === true);
         setHints(restoredHints);
+        withVideoChannels(restoredHints, rec.genre)
+          .then((next) => setHints((prev) => mergeChannels(prev, next)))
+          .catch(() => {});
         setEditorItems(placed.map(({ id, question, answer }) => ({ id, question, answer })));
         // 盤は保存した時の形のまま組む（番号も同じ）。組み替えたい時は「再シャッフル」
         const grid = buildGrid(placed);
@@ -1413,7 +1426,11 @@ export default function CrosswordPage() {
           items.push({ id: it.id, question: it.question, answer });
         }
         if (d.hints && typeof d.hints === "object") {
-          setHints(Object.fromEntries(Object.entries(d.hints as Record<string, HintRef>).filter(([id]) => seen.has(id))));
+          const restored = withoutScreenOnly(Object.fromEntries(Object.entries(d.hints as Record<string, HintRef>).filter(([id]) => seen.has(id))));
+          setHints(restored);
+          withVideoChannels(restored, d.genre === "hello" ? "hello" : "other")
+            .then((next) => setHints((prev) => mergeChannels(prev, next)))
+            .catch(() => {});
         }
         if (items.length > 0) {
           setEditorItems(items);
@@ -1433,7 +1450,7 @@ export default function CrosswordPage() {
       lsRemove(DRAFT_KEY);
       return;
     }
-    const d: Draft = { title: puzzleTitle, creatorName, genre, tags, isBeginner, items: editorItems, hints, input: currentInput, bulkText };
+    const d: Draft = { title: puzzleTitle, creatorName, genre, tags, isBeginner, items: editorItems, hints: withoutScreenOnly(hints), input: currentInput, bulkText };
     lsSet(DRAFT_KEY, JSON.stringify(d));
   }, [isPlayerMode, draftReady, editStatus, puzzleTitle, creatorName, genre, tags, isBeginner, editorItems, hints, currentInput, bulkText]);
 
@@ -1661,12 +1678,12 @@ export default function CrosswordPage() {
 
     setIsSaving(true);
     try {
-      // ハロプロのジャンルでは、チャンネル名の無い YouTube のヒントが台帳にある動画か確かめる（その他で選んだ後にジャンルを変えた場合など）。チャンネル名付きは外のチャンネルの動画なので台帳に無くてよい（2026-10-19 案1）
+      // ハロプロのジャンルでは、チャンネル名の無い YouTube のヒントが台帳にある動画か、YouTube にチャンネル名を聞ける動画か確かめる（組み直しで棚から読んだヒントにはチャンネル名が無い）。外のチャンネルの動画は台帳に無くてよい（2026-10-19 案1）
       if (genre === "hello") {
         const ng: string[] = [];
         for (const item of generatedPuzzle.items) {
           const h = hints[item.id];
-          if (h?.kind === "youtube" && !h.channel && !(await isCatalogVideo(h.videoId))) ng.push(item.answer.join(""));
+          if (h?.kind === "youtube" && !h.channel && !(await isCatalogVideo(h.videoId)) && !(await lookupVideoChannel(h.videoId))) ng.push(item.answer.join(""));
         }
         if (ng.length > 0) {
           toast.error(`${T.saveReasons.video}\n（${ng.join("、")}）`, { duration: 5000 });

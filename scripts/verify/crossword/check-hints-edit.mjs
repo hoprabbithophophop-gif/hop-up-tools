@@ -138,7 +138,7 @@ try {
   await btn.click();
   await page.waitForTimeout(500);
   check(updateCalls.length === 1 && Object.keys(updateCalls[0].hints).join() === 'vertical:2' && updateCalls[0].hints['vertical:2'].videoId === 'dQw4w9WgXcQ' && updateCalls[0].hints['vertical:2'].startSec === 5 && updateCalls[0].id === PUZZLE_ID && updateCalls[0].key === KEY, `(3) 受付係へは変えた 2番だけを送る（${JSON.stringify(updateCalls[0]?.hints)}）`);
-  check(!('channel' in (updateCalls[0]?.hints?.['vertical:2'] ?? {})) || true, '(3) 名札は受付係が付け直す（送っても信じない）');
+  check(updateCalls.length === 1 && !('channel' in (updateCalls[0].hints['vertical:2'] ?? {})), '(3) チャンネル名は送らない（保存しない。見る人のブラウザがその都度聞く）');
   await page.waitForTimeout(300);
   check(/ヒントを更新しました/.test(await page.evaluate(() => document.body.innerText)), '(3) 「ヒントを更新しました」');
   check(await btn.isDisabled(), '(3) 更新後はまた「変えたヒントがありません」で押せない');

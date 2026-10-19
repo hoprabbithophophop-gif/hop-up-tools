@@ -17,7 +17,7 @@ export default function PrivacyPage() {
     <div style={{ background: "#f8f9fa", minHeight: "100vh" }}><div style={s.wrap}>
       <Link to="/" style={s.back}>← ホームに戻る</Link>
       <div style={s.header}>プライバシーポリシー</div>
-      <div style={s.updated}>最終更新日: 2026年10月6日</div>
+      <div style={s.updated}>最終更新日: 2026年10月19日</div>
 
       <p style={s.p}>
         hop-up-tools（以下「本サービス」）は、hop_rabbit（以下「運営者」）が提供するHello! Project ファン向けWebツール集です。
@@ -127,6 +127,9 @@ export default function PrivacyPage() {
       </p>
       <p style={s.p}>
         クロスワードのヒントでは、YouTube の埋め込みプレイヤーを使用します。ヒントの動画のサムネイル画像を表示するときや、プレイヤーを表示すると YouTube（Google）との通信が行われ、YouTube 側でCookie等が使用される場合があります。
+      </p>
+      <p style={s.p}>
+        また、クロスワードの問題を開いたとき、作る画面でヒントの YouTube 動画を選んだとき、自分が作った問題の一覧を開いたときには、動画のチャンネル名を表示するためと、動画が今も見られるかを確かめるために、お使いのブラウザから YouTube に動画の番号を送って問い合わせることがあります。問い合わせで得たチャンネル名は、本サービスのサーバーには保存しません。
       </p>
 
       <h2 style={s.h2}>4. アクセス解析・不正利用の防止</h2>
