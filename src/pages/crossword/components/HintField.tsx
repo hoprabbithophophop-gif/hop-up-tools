@@ -27,7 +27,7 @@ const YT_FORM = "YouTube の URL の形が違います。動画のページの U
 // チャンネル名を聞けなかった（削除・非公開・埋め込み禁止・通信）【仮】
 const YT_UNKNOWN = "この動画を確かめられませんでした。削除・非公開・埋め込み禁止になっていないかご確認ください。";
 // 台帳に無い動画に添える一言（ハロプロだけ。Hop 2026-10-19「公式情報をヒントにしてもらえると」）【仮】
-const CHECK_OFFICIAL = "公式の発信か確かめてください。";
+const CHECK_OFFICIAL = "ハロプロの公式の発信か確かめてください。";
 
 export interface Selected {
   hint: HintRef;

@@ -86,8 +86,8 @@ await fieldByLabel(pa, 'ヒント').fill('https://youtu.be/dQw4w9WgXcQ?t=83');
 await pa.waitForTimeout(1500);
 const helloText = await pa.evaluate(() => document.body.innerText);
 // 2026-10-19 案1: 台帳に無い動画は断らず、チャンネル名と「公式の発信か確かめてください」を添える（youtube.com に聞くので通信が要る）
-r['5 ハロプロで台帳に無い YouTube はチャンネル名付きで通る'] = /チャンネル: .+ 公式の発信か確かめてください/.test(helloText);
-r['5 ハロプロのヒント欄に公式の発信の案内'] = /ヒントは公式の発信/.test(helloText);
+r['5 ハロプロで台帳に無い YouTube はチャンネル名付きで通る'] = /チャンネル: .+ ハロプロの公式の発信か確かめてください/.test(helloText);
+r['5 ハロプロのヒント欄に公式の発信の案内'] = /ヒントはハロプロの公式の発信/.test(helloText);
 await pa.getByLabel('ヒントを外す').click(); // 選ばれた札を外して欄に戻す
 await pa.waitForTimeout(300);
 await fieldByLabel(pa, 'ヒント').fill('https://youtu.be/6Y2X6RxYnY');
