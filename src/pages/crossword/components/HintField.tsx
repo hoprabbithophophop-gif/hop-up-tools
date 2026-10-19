@@ -41,13 +41,16 @@ export interface Selected {
 
 interface HintFieldProps {
   genre: Genre;
-  onChange: (hint: HintRef | null) => void;
+  /** label は選んだ物の名前（動画の題名・貼った URL）。作る画面の3の段の「ヒント: 出どころ 名前」に使う */
+  onChange: (hint: HintRef | null, label?: string) => void;
   resetKey: number; // 変わったら欄を空にする（追加した後・ジャンルを変えた後）
   inputClassName: string;
   /** 登録済みのカギを直すとき、resetKey が変わった時点でこのヒントが選ばれた状態にする */
   initial?: Selected | null;
   /** 上の札（label）と結び付けるための id（検索・URL の欄に付ける） */
   inputId?: string;
+  /** 検索結果の一覧に高さの上限を付けない（下から出る窓の中で、窓と一覧の二重のスクロールにしないため） */
+  flatResults?: boolean;
 }
 
 const looksLikeUrl = (t: string) => /^https?:\/\//i.test(t.trim());
@@ -83,7 +86,7 @@ const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   </p>
 );
 
-export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey, inputClassName, initial, inputId }) => {
+export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey, inputClassName, initial, inputId, flatResults }) => {
   const [text, setText] = useState("");
   const [selected, setSelected] = useState<Selected | null>(null);
   // 出どころの印（Hop 決定 2026-10-19 案A-2）。初期は YouTube。URL を貼ると行き先に合わせて切り替わる
@@ -139,8 +142,8 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
     if (!selected) return onChange(null);
     if (selected.hint.kind === "youtube") {
       const sec = parseTimeInput(timeText);
-      onChange(sec === null ? null : { ...selected.hint, startSec: sec });
-    } else onChange(selected.hint);
+      onChange(sec === null ? null : { ...selected.hint, startSec: sec }, selected.label);
+    } else onChange(selected.hint, selected.label);
   }, [selected, timeText]);
 
   const choose = (s: Selected) => {
@@ -478,7 +481,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
       />
       {busy && <p className="text-xs" style={{ color: C.secondary }}>読み込み中…</p>}
       {(results.length > 0 || chapterResults.length > 0) && (
-        <div className="max-h-96 overflow-y-auto bg-surface-container-low">
+        <div className={`${flatResults ? "" : "max-h-96 overflow-y-auto "}bg-surface-container-low`}>
           {results.length > 0 && (
             <>
               <SectionLabel>動画</SectionLabel>
