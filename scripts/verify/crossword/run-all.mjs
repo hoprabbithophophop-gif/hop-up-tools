@@ -2,13 +2,13 @@
 //
 // ■ 検収役の流し方
 //   node scripts/verify/crossword/run-all.mjs
-// - 引数も環境変数も要らない。行き先と問題の番号は targets.json（base・puzzleId・hiddenPuzzleId・noImagePuzzleId）
+// - 引数も環境変数も要らない。行き先と問題の番号は targets.json（base・puzzleId・hiddenPuzzleId）
 // - 写真は 一時置き場/hop-up-tools-verify/crossword/<台本名>/ に置く。作業フォルダには書かない。環境変数 OUT があればそちら
 // - 1本ずつ流すときも引数は要らない（node scripts/verify/crossword/check-edge.mjs など）。引数を渡せば引数が勝つ
 // - 答えはブラウザに渡らない作りなので、最初に受付係に回を1つ始めてもらい、全部のマスを「1文字見る」で聞いて
 //   一時置き場の _cache/ に控える。次からは控えを使う
 // - 2026-10-18 から3列で並べて流す（Hop 指示「並列にして」）。列A・列B はプレビューに対する台本、列C は手元にサーバーを立てる3本
-//   （口の番号は 5193・5191・5195 で重ならない）。3列が終わってから、本番に書く check-replay・check-real-score と、
+//   （口の番号は 5193・5191・5195・5192 で重ならない）。3列が終わってから、本番に書く check-replay・check-real-score と、
 //   上限を使い切る check-limits を1本ずつ流す。上限の台本を他と並べると、同じ接続元の他の台本が巻き添えで 429 になるため。
 //   台本の出力は1本が終わった時にまとめて出す（列が混ざらないように）。総括の並びは列に関係なく決まった順
 // - 1本が落ちても次へ進む。台本ごとに OK/NG の数と最後の行を集め、最後に総括を出す。
@@ -21,10 +21,12 @@
 // - check-reporter-key: 守り「通報の『別々の3人』は IPv6 を /64 の帯で丸めてから数える」（reporterKey.ts をそのまま動かす。通信しない）
 // - check-entry: 一覧「玄関 /crossword はギャラリー・見出しの右端に『作る』」／「作る画面は /crossword/create・解く画面の戻る矢印はギャラリーへ」
 //   ／文面「トップページのツール一覧にクロスワードは載せない」「フッターに非公式の一文は無い」／「Xに投稿」の文は「解けた！　題名」＋URL
-// - check-fixtures: 守り「隠された問題は URL を直接開いても中身が届かない・非表示の知らせ」「画像を置けなかった問題に無い画像を指す札は出ない」
+// - check-fixtures: 守り「隠された問題は URL を直接開いても中身が届かない・非表示の知らせ」（本番にもとからある隠れた問題を読むだけ）
+//   「画像を置けなかった問題に無い画像を指す札は出ない」（札の受付係を手元で動かし、作り物の棚で）
 // - check-maru-mine: 作る「カギの欄の○ボタン」／自分の問題「/crossword/mine の一覧・削除の確かめ・作る画面には入口がいつも出る」
 // - check-create-width: 作る画面の入力欄が 390・960・1280px で画面に収まる（紙に専用の行は無い。見た目の崩れの確かめ）
-// - check-stage1 --skip-save: 作る「ヒントを選ぶ（ハロプロで台帳に無い YouTube は断る・その他は URL の時刻が欄に入る）」
+// - check-stage1: 作る「組み立ての動き・保存して URL が出る」／解く「構築中の動き・タイマー・文字盤の濁点と小さい字・ヒントの YouTube が時刻つきで自動再生しない・開き直しても残る」
+//   ／作る「ヒントを選ぶ（台帳に無い YouTube はチャンネル名つきで通る・その他は URL の時刻が欄に入る）」。手元の画面と作り物の通信で流す（列C）
 // - check-play-count: 解く「遊ばれた回数は最初の1文字で1増える・開いただけでは増えない・作った本人の端末では数えない」
 // - check-resume: 解く「30分以上空いた続きで『前回の続きがあります』［最初から］［続きから］」
 // - check-auto-check: 解く「最後の空きマスで答え合わせ・『どこかに間違いがあります。』『まだ埋まっていないマスがあります。』・赤枠と降参は無い」
@@ -42,11 +44,9 @@
 // - check-limits: 守り「削除の受付係は同じ接続元で1時間20回」「本文を読む前に大きさで断る（play 8192・save 450000 バイト）」
 //   ／（--start-limit の時だけ）解く「回を始める上限は同じ接続元で1時間300回」
 //
-// ■ 保存が要るため検収役では流せない物（保存は人間確認 Turnstile を通る必要があり、機械のブラウザでは通らない）
-// - check-stage1 の 1〜4: 組み立ての動き・保存して URL が出る・構築中の動き・タイマーが進む・文字盤の濁点と小さい字・
-//   ヒントの YouTube が時刻つきで自動再生しない・開き直しても残る・途中の答え合わせ
-//   このうち「途中の答え合わせ」は check-auto-check、「ヒントのプレイヤー」は check-edge・check-iphone でも見ている。
-//   残りはほかの台本では見ていない
+// ■ 本番にもプレビューにも検収用の問題を作って置かない（2026-10-19 Hop「本番環境から見える形で検収用パズル登録を二度とするな」）
+// - 保存が要る確かめ（check-stage1 の 1〜4）は手元の画面と作り物の受付係で流す。人間確認（Turnstile）も作り物が答える
+// - 組み直しの通し（check-owner-edit の (d)）と画像の無い問題の札（check-fixtures の 2）は、受付係を手元で動かして作り物の棚で確かめる
 //
 // ■ 本番に残る行とその印
 // - crossword_scores（ランキング）: check-real-score が1回につき1行。名前は「検収」＋月日時分（例: 検収10050321）。問題は targets.json の puzzleId
@@ -54,7 +54,7 @@
 //   回には名前の欄が無く印を付けられない。問題が puzzleId の回で、何もしていない回は1日、それ以外は30日で片付く。
 //   回の番号を出す台本（check-edge・check-reveal・check-real-score）はその番号で見分ける
 // - rate_limit_log（上限の数え）: check-limits と各台本の回の始め。1時間で片付く
-// - crossword_puzzles（問題）: check-stage1 の 1〜4 を Hop の Chrome で流した時だけ。題名が「検収用」で始まる
+// - crossword_puzzles（問題）: どの台本も作らない・書き換えない
 // - 遊ばれた回数（touch）・ランキングへの送信（check-real-score 以外）・名前の通報は台本が途中で受け止めて本物には届けない。
 //   check-limits の削除の連投は、でたらめな合言葉なので何も消さない
 import { spawn } from 'node:child_process';
@@ -111,18 +111,16 @@ async function lane(items) {
 // 総括の並び（列に関係なく、この順で出す）
 const ORDER = [
   'check-reporter-key', 'check-cells', 'check-suggest', 'check-build', 'check-pin', 'check-entry', 'check-fixtures', 'check-maru-mine', 'check-create-width',
-  'check-stage1 の 1〜4（作って保存し、その URL で解く）', 'check-stage1', 'check-play-count', 'check-resume', 'check-auto-check', 'check-edge', 'check-reveal',
+  'check-stage1', 'check-play-count', 'check-resume', 'check-auto-check', 'check-edge', 'check-reveal',
   'check-own-ranking', 'check-replay', 'check-ranking', 'check-name-report', 'check-real-score', 'check-iphone', 'check-owner-edit', 'check-review-fixes',
   'check-tutorial', 'check-a11y', 'check-limits', 'check-limits の (b) 回を始める連投',
 ];
 
-skip('check-stage1 の 1〜4（作って保存し、その URL で解く）', '保存が要るため検収役では流せない。Hop の Chrome で確認済み');
-
-// 列A・列B: プレビューに対する台本（本番には書かない）。列C: 手元にサーバーを立てる3本（口は 5193・5191・5195）
+// 列A・列B: プレビューに対する台本（本番には書かない）。列C: 手元にサーバーを立てる4本（口は 5193・5191・5195・5192）
 await Promise.all([
   lane([
     ['check-reporter-key'], ['check-cells'], ['check-suggest'], ['check-build'], ['check-pin'],
-    ['check-entry'], ['check-fixtures'], ['check-maru-mine'], ['check-create-width'], ['check-stage1', ['--skip-save']],
+    ['check-entry'], ['check-fixtures'], ['check-maru-mine'], ['check-create-width'],
     ['check-play-count'], ['check-resume'],
   ]),
   lane([
@@ -133,6 +131,7 @@ await Promise.all([
     ['check-review-fixes'], // 2026-10-06 の公開前レビューの直し（濁点・丸付けの待ち・↻・終わりの画面・絞り込み・札など）を通しで
     ['check-tutorial'], // 作る側と解く側のチュートリアルを通しで（本番の棚には書かない）
     ['check-a11y'], // アクセシビリティ（axe・キーボードだけで解く・窓の作法）。本番の棚には書かない
+    ['check-stage1'], // 作る→保存→その URL で解く・ヒントの選び方（手元の作り物の棚。本番に問題を置かない）
   ]),
 ]);
 

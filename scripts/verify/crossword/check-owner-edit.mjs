@@ -4,15 +4,16 @@
 //      （本文の形の悪さで 400 になるのを見るのは、本物の合言葉がある (d) で）
 //  (b) 無い番号＋適当な合言葉 → 404 not_found（owner-get・update とも。update は本文の形に関係なく 404）
 //  (c) 大きさ超え → 413（owner-get は 8192 バイト超・update は 450000 バイト超）
-//  (d) 本物の問題での通し。targets.json に ownerPuzzleId と ownerKey があるときだけ流す（無ければ飛ばす）
+//  (d) 問題での通し。受付係のコードを手元で動かし、作り物の棚に置いた問題で確かめる（_localFunctions.mjs）。
+//      本番にもプレビューにも問題を置かない・書き換えない（2026-10-19 Hop「本番環境から見える形で検収用パズル登録を二度とするな」）
 //      owner-get で中身が戻る → 同じ中身で update → owner-get で書き換わったのを見る
-//      本物の合言葉で、交わるマスの字が食い違う本文の update → 400（棚は書き換わらない）
-//      ownerPlayedPuzzleId と ownerPlayedKey もあれば、遊ばれた後の問題の update が 409 already_played になるのを見る
-// 本番の棚への影響: (a)〜(c) は何も書き換えない（rate_limit_log に数えが1時間残るだけ）。
-//   (d) は ownerPuzzleId の問題を、同じ中身（題名の末尾だけ入れ替え）で書き換える。シェア画像は送らない
+//      合う合言葉で、交わるマスの字が食い違う本文の update → 400（棚は書き換わらない）
+//      遊ばれた後の問題の update が 409 already_played・合わない合言葉は 404・隠れた問題は 404
+// 本番の棚への影響: (a)〜(c) は何も書き換えない（rate_limit_log に数えが1時間残るだけ）。(d) は本番にもプレビューにも通信しない
 // 使い方: node scripts/verify/crossword/check-owner-edit.mjs [サイト]（省略時は targets.json）
 import { randomBytes } from 'node:crypto';
-import { BASE_DEFAULT, TARGETS } from './_lib.mjs';
+import { BASE_DEFAULT } from './_lib.mjs';
+import { openFunctions, fakeShelf, callFunction } from './_localFunctions.mjs';
 
 const BASE = process.argv[2] || BASE_DEFAULT;
 let fail = 0;
@@ -76,46 +77,51 @@ const samplePuzzle = {
   check(u.status === 404 && u.j?.reason === 'not_found', `(b) update に無い番号（本文は正しい形） → ${u.status} ${u.j?.reason ?? ''}`);
 }
 
-// (d) 本物の問題での通し
-if (!TARGETS.ownerPuzzleId || !TARGETS.ownerKey) {
-  console.log('飛ばす (d): targets.json に ownerPuzzleId と ownerKey が無い（作った端末の合言葉の控えが要る）');
-} else {
-  const id = TARGETS.ownerPuzzleId;
-  const key = TARGETS.ownerKey;
-  const g = await post('/api/crossword-owner-get', { id, key });
-  check(g.status === 200 && g.j?.ok === true && Array.isArray(g.j?.answers), `(d) owner-get で中身が戻る → ${g.status}`);
-  if (g.status === 200 && g.j?.puzzle) {
-    const p = g.j.puzzle;
-    const clues = p.body.clues.map(({ length, ...c }, i) => ({ ...c, answer: g.j.answers[i] }));
-    const stamp = `確${Date.now() % 10000}`;
-    const title = `${String(p.title).replace(/ 確\d+$/, '').slice(0, 50)} ${stamp}`;
-    const body = { version: 1, width: p.body.width, height: p.body.height, clues, ...(p.body.creatorName ? { creatorName: p.body.creatorName } : {}) };
-    const u = await post('/api/crossword-update', { id, key, puzzle: { title, genre: p.genre, tags: p.tags, isBeginner: p.is_beginner, body } });
-    check(u.status === 200 && u.j?.ok === true, `(d) update で書き換え → ${u.status} ${u.j?.reason ?? ''}`);
-    const g2 = await post('/api/crossword-owner-get', { id, key });
-    check(g2.j?.puzzle?.title === title, `(d) 書き換わった題名が戻る → ${g2.j?.puzzle?.title}`);
-    // 交わるマスの字が食い違う本文（1語目と同じ位置・同じ向きに、別の字の語を重ねる）
-    const c0 = clues[0];
-    const clash = { ...c0, clueIndex: c0.clueIndex + 1000, answer: c0.answer.map((ch) => (ch === 'ア' ? 'イ' : 'ア')) };
-    const bad = await post('/api/crossword-update', { id, key, puzzle: { title, genre: p.genre, tags: p.tags, isBeginner: p.is_beginner, body: { ...body, clues: [...clues, clash] } } });
-    check(bad.status === 400 && bad.j?.reason === 'bad_request', `(d) 本物の合言葉＋字が食い違う本文の update → ${bad.status} ${bad.j?.reason ?? ''}`);
-  }
-  if (TARGETS.ownerPlayedPuzzleId && TARGETS.ownerPlayedKey) {
-    const gp = await post('/api/crossword-owner-get', { id: TARGETS.ownerPlayedPuzzleId, key: TARGETS.ownerPlayedKey });
-    if (gp.status === 200 && gp.j?.puzzle) {
-      const p = gp.j.puzzle;
-      const clues = p.body.clues.map(({ length, ...c }, i) => ({ ...c, answer: gp.j.answers[i] }));
-      const u = await post('/api/crossword-update', {
-        id: TARGETS.ownerPlayedPuzzleId,
-        key: TARGETS.ownerPlayedKey,
-        puzzle: { title: p.title, genre: p.genre, tags: p.tags, isBeginner: p.is_beginner, body: { version: 1, width: p.body.width, height: p.body.height, clues } },
-      });
-      check(u.status === 409 && u.j?.reason === 'already_played', `(d) 遊ばれた後の問題の update → ${u.status} ${u.j?.reason ?? ''}`);
-    } else {
-      check(false, `(d) 遊ばれた後の問題の中身が読めない → ${gp.status}`);
+// (d) 問題での通し（手元の受付係＋作り物の棚。本番にもプレビューにも通信しない）
+{
+  const fns = await openFunctions();
+  try {
+    const ownerGet = (await fns.load('functions/api/crossword-owner-get.ts')).onRequestPost;
+    const update = (await fns.load('functions/api/crossword-update.ts')).onRequestPost;
+    const shelf = fakeShelf();
+    const id = 'LocalOw1';
+    const key = randKey();
+    shelf.addPuzzle({ id, key, title: '確かめ用', width: 3, height: 3, clues: samplePuzzle.body.clues });
+    const playedId = 'LocalOw2';
+    const playedKey = randKey();
+    shelf.addPuzzle({ id: playedId, key: playedKey, title: '遊ばれた確かめ用', play_count: 3, width: 3, height: 3, clues: samplePuzzle.body.clues });
+    const hiddenId = 'LocalOw3';
+    const hiddenKey = randKey();
+    shelf.addPuzzle({ id: hiddenId, key: hiddenKey, title: '隠れた確かめ用', is_hidden: true, width: 3, height: 3, clues: samplePuzzle.body.clues });
+    const call = (handler, body) => callFunction(handler, shelf, { body });
+
+    const g = await call(ownerGet, { id, key });
+    check(g.status === 200 && g.j?.ok === true && Array.isArray(g.j?.answers), `(d) owner-get で中身が戻る → ${g.status}`);
+    if (g.status === 200 && g.j?.puzzle) {
+      const p = g.j.puzzle;
+      const clues = p.body.clues.map(({ length, ...c }, i) => ({ ...c, answer: g.j.answers[i] }));
+      const title = `確かめ用 確${Date.now() % 10000}`;
+      const body = { version: 1, width: p.body.width, height: p.body.height, clues };
+      const u = await call(update, { id, key, puzzle: { title, genre: p.genre, tags: p.tags, isBeginner: p.is_beginner, body } });
+      check(u.status === 200 && u.j?.ok === true, `(d) update で書き換え → ${u.status} ${u.j?.reason ?? ''}`);
+      const g2 = await call(ownerGet, { id, key });
+      check(g2.j?.puzzle?.title === title, `(d) 書き換わった題名が戻る → ${g2.j?.puzzle?.title}`);
+      // 交わるマスの字が食い違う本文（1語目と同じ位置・同じ向きに、別の字の語を重ねる）
+      const c0 = clues[0];
+      const clash = { ...c0, clueIndex: c0.clueIndex + 1000, answer: c0.answer.map((ch) => (ch === 'ア' ? 'イ' : 'ア')) };
+      const bad = await call(update, { id, key, puzzle: { title: '食い違い', genre: p.genre, tags: p.tags, isBeginner: p.is_beginner, body: { ...body, clues: [...clues, clash] } } });
+      check(bad.status === 400 && bad.j?.reason === 'bad_request', `(d) 合う合言葉＋字が食い違う本文の update → ${bad.status} ${bad.j?.reason ?? ''}`);
+      check(shelf.puzzles.get(id).title === title, '(d) 食い違う本文では棚は書き換わらない');
     }
-  } else {
-    console.log('飛ばす (d) の 409: targets.json に ownerPlayedPuzzleId と ownerPlayedKey が無い');
+    const played = await call(update, { id: playedId, key: playedKey, puzzle: samplePuzzle });
+    check(played.status === 409 && played.j?.reason === 'already_played', `(d) 遊ばれた後の問題の update → ${played.status} ${played.j?.reason ?? ''}`);
+    const wrong = await call(update, { id, key: randKey(), puzzle: samplePuzzle });
+    check(wrong.status === 404 && wrong.j?.reason === 'not_found', `(d) 合わない合言葉の update → ${wrong.status} ${wrong.j?.reason ?? ''}`);
+    const hiddenGet = await call(ownerGet, { id: hiddenId, key: hiddenKey });
+    check(hiddenGet.status === 404 && hiddenGet.j?.reason === 'not_found', `(d) 隠れた問題は合う合言葉でも owner-get が 404 → ${hiddenGet.status} ${hiddenGet.j?.reason ?? ''}`);
+    check(shelf.outside.length === 0, `(d) 外への通信は無い${shelf.outside.length ? `（${shelf.outside[0]}）` : ''}`);
+  } finally {
+    await fns.close();
   }
 }
 
