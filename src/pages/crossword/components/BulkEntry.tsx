@@ -251,21 +251,31 @@ export const BulkEntry: React.FC<{
   const crossChars = useMemo(() => intersectionMarks(passed), [passed]);
 
   useEffect(() => {
+    let clearTimer = 0;
     const onSel = () => {
       const r = selectionRange(linesRef.current);
-      // 行の外を押しただけでは消さない（ボタンを押す時に選択が消える端末のため）。選択が無くなったのは次の書き換えで捨てる
+      window.clearTimeout(clearTimer);
       if (r) {
         setSel({ ...r, text });
         setActive(lineOf(r.start));
         setSelMark(null);
       } else {
         const s = window.getSelection();
-        // 選択が無くなった（なぞるのをやめた）ら帯を消す（帯はなぞっている間だけ。Hop 決定 2026-10-20）
-        if (!s || s.isCollapsed) setSel(null);
+        // 選択が無くなった（なぞるのをやめた）ら帯を消す（帯はなぞっている間だけ。Hop 決定 2026-10-20）。
+        // ただしボタンを押す瞬間に選択が消える端末があるので、少し待ってから消す
+        if (!s || s.isCollapsed) {
+          clearTimer = window.setTimeout(() => {
+            const now = window.getSelection();
+            if (!now || now.isCollapsed) setSel(null);
+          }, 400);
+        }
       }
     };
     document.addEventListener("selectionchange", onSel);
-    return () => document.removeEventListener("selectionchange", onSel);
+    return () => {
+      window.clearTimeout(clearTimer);
+      document.removeEventListener("selectionchange", onSel);
+    };
   }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 画面の操作で文字列を書き換える時は、印の中の半角 | も全角にそろえる
