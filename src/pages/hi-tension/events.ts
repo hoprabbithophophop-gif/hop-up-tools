@@ -159,6 +159,26 @@ ${SHARE_URL}`,
       `里吉うたのさん お誕生日おめでとう🎂💙\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
     enterLabel: "テンション高く手を挙げよう",
   },
+  {
+    key: "okamura_bd_2026",
+    title: "岡村美波さんバースデースペシャル",
+    shortTitle: "岡村美波さん💓",
+    // 💓はご本人が一番よく使う絵文字（Hop 指示 2026-10-20）
+    heart: "💓",
+    color: "#F57EB6",
+    targetMemberId: "okamura",
+    kind: "birthday",
+    start: "2026-10-20T00:00:00+09:00",
+    // 公開が当日の朝になるぶん、主役で迎える期間を翌朝6時まで延ばす（小林さん回と同じ）【仮】
+    end: "2026-10-21T06:00:00+09:00",
+    // バースデーメッセージカードの締切（翌月15日）に合わせ、11/15いっぱいまで参加可。
+    joinableUntil: "2026-11-16T00:00:00+09:00",
+    endCardCongrats: "岡村美波さん お誕生日おめでとう🎂💓",
+    shareText: (count: number) =>
+      `岡村美波さん お誕生日おめでとう🎂💓\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
+    // 里吉さん回と同じ一言（別のパートで同じ歌詞を歌っているため。Hop 指示 2026-10-20）
+    enterLabel: "テンション高く手を挙げよう",
+  },
 ];
 
 export function getEvent(key: string | null | undefined): SpecialEvent | null {
