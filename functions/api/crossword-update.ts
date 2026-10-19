@@ -6,7 +6,7 @@
  *
  *   1. 番号と合言葉の形を確かめる。同じ接続元からは 1 時間に 10 回まで【仮】（成否に関係なく数える。IPv6 は /64 の帯で数える）
  *   2. 重い検査の前に、rpc crossword_owner_read で合言葉だけを先に照らす。合わない（番号が無い・合言葉が違う）なら 404 not_found
- *   3. 本文の確かめ（validateSavePayload）・ハロプロの YouTube ヒントの台帳の確認（checkHelloVideos）
+ *   3. 本文の確かめ（validateSavePayload）。YouTube の動画はここでは確かめない（台帳に無い動画のチャンネル名は見る人のブラウザが聞く。Hop 決定 2026-10-19）
  *   4. rpc crossword_update（合言葉が合い・遊ばれた回数 0・隠されていない時だけ書き換える）
  *      false のときは合言葉と問題の行を照らし直し、合言葉が合わない・問題が無い・隠れているなら 404 not_found
  *      （合言葉の正誤を区別しない）、隠れておらず遊ばれた回数が 0 でないときだけ 409 already_played【仮】
@@ -20,7 +20,7 @@ import { decodeOgpPng, uploadOgpPng } from "../_shared/crosswordOgp";
 import { readJsonLimited } from "../_shared/bodyLimit";
 import { logBackground } from "../_shared/background";
 import { reporterKey } from "../_shared/reporterKey";
-import { json, pgCode, resolveVideoChannels, sha256Hex, toStoredBody, validateSavePayload, withChannels } from "./crossword-save";
+import { json, pgCode, sha256Hex, toStoredBody, validateSavePayload } from "./crossword-save";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -119,12 +119,6 @@ export async function onRequestPost(context: {
   if (!raw || typeof raw !== "object") return json({ ok: false, reason: "bad_request" }, 400);
   const puzzle = validateSavePayload({ ...(raw as Record<string, unknown>), key });
   if (!puzzle) return json({ ok: false, reason: "bad_request" }, 400);
-
-  const resolved = await resolveVideoChannels(rest, dbHeaders, puzzle.videoIds, "crossword-update");
-  if (resolved.status !== "ok") return json({ ok: false, reason: resolved.status }, resolved.status === "server" ? 503 : 400);
-  const bodyWithChannels = withChannels(puzzle.body, resolved.channels);
-  if (!bodyWithChannels) return json({ ok: false, reason: "bad_request" }, 400);
-  puzzle.body = bodyWithChannels;
 
   // 4. 書き換え
   let updated = false;

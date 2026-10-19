@@ -16,17 +16,18 @@ import { toLargeKana } from "../../../functions/_shared/crosswordKana";
 import { determineNextSelection } from "../../lib/crossword/puzzleSelectionLogic";
 import {
   addMyPuzzle,
-  catalogVideoIdsPresent,
   fetchOwnedPuzzle,
   isCatalogVideo,
   isHiddenPuzzle,
   loadPuzzle,
+  lookupVideoChannel,
   makeOwnerKey,
   readMyPuzzles,
   savePuzzle,
   SaveError,
   toBody,
   updatePuzzle,
+  withVideoChannels,
   type Genre,
   type HintRef,
   type MyPuzzle,
@@ -675,16 +676,10 @@ export default function CrosswordPage() {
         const puzzleToLoad = loaded.puzzle;
         setPlayerPuzzle(puzzleToLoad);
         setPlayerHints(loaded.hints);
-        // ハロプロのジャンルは、台帳から消えた動画のヒントに印を付ける（見られなくなりましたと出す。Hop 決定 2026-10-04）
-        if (loadedGenre === "hello") {
-          const hints = loaded.hints;
-          // チャンネル名付き（外のチャンネルの動画）は台帳に無くて当たり前なので外す。見られないかは再生側が知らせる
-          const ids = Array.from(new Set(Object.values(hints).flatMap((h) => (h.kind === "youtube" && !h.channel ? [h.videoId] : []))));
-          catalogVideoIdsPresent(ids)
-            .then((present) => {
-              if (!alive || ids.every((id) => present.has(id))) return;
-              setPlayerHints(Object.fromEntries(Object.entries(hints).map(([k, h]) => [k, h.kind === "youtube" && !h.channel && !present.has(h.videoId) ? { ...h, gone: true } : h])));
-            })
+        // 台帳に無い動画にチャンネル名を添え、ハロプロのジャンルで見られない動画に印を付ける（見られなくなりましたと出す。Hop 決定 2026-10-04）
+        if (loadedGenre) {
+          withVideoChannels(loaded.hints, loadedGenre)
+            .then((next) => alive && setPlayerHints(next))
             .catch((err) => console.warn("Failed to check hint videos:", err));
         }
         setIsAssemblyAnimating(true);
@@ -1620,12 +1615,12 @@ export default function CrosswordPage() {
 
     setIsSaving(true);
     try {
-      // ハロプロのジャンルでは、チャンネル名の無い YouTube のヒントが台帳にある動画か確かめる（その他で選んだ後にジャンルを変えた場合など）。チャンネル名付きは外のチャンネルの動画なので台帳に無くてよい（2026-10-19 案1）
+      // ハロプロのジャンルでは、チャンネル名の無い YouTube のヒントが台帳にある動画か、YouTube にチャンネル名を聞ける動画か確かめる（組み直しで棚から読んだヒントにはチャンネル名が無い）。外のチャンネルの動画は台帳に無くてよい（2026-10-19 案1）
       if (genre === "hello") {
         const ng: string[] = [];
         for (const item of generatedPuzzle.items) {
           const h = hints[item.id];
-          if (h?.kind === "youtube" && !h.channel && !(await isCatalogVideo(h.videoId))) ng.push(item.answer.join(""));
+          if (h?.kind === "youtube" && !h.channel && !(await isCatalogVideo(h.videoId)) && !(await lookupVideoChannel(h.videoId))) ng.push(item.answer.join(""));
         }
         if (ng.length > 0) {
           toast.error(`${T.saveReasons.video}\n（${ng.join("、")}）`, { duration: 5000 });
