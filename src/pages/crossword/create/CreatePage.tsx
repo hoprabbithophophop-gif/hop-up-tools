@@ -222,7 +222,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     lsSet(TIP_KEYS[name], "1");
     setTipsSeen((prev) => ({ ...prev, [name]: true }));
   };
-  const [traceAllowed] = useState(() => !lsGet(TRACE_KEY));
+  const [traceAllowed, setTraceAllowed] = useState(() => !lsGet(TRACE_KEY));
 
   // 保存
   const [draftReady, setDraftReady] = useState(false);
@@ -863,7 +863,10 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                 onSearch={runSearch}
                 tip={answers.length === 1 && !tipsSeen.cross ? <Tip name="cross" /> : null}
                 trace={traceAllowed}
-                onTraceShown={() => lsSet(TRACE_KEY, "1")}
+                onTraceShown={() => {
+                  lsSet(TRACE_KEY, "1");
+                  setTraceAllowed(false);
+                }}
                 barHidden={!!hintOpen}
               />
             </>
