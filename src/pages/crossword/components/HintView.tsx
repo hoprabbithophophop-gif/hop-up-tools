@@ -1,12 +1,28 @@
 // 解く画面のヒント。YouTube はアプリ内のプレイヤー（自動再生しない・上に何も重ねない）、それ以外は別タブで開くリンク
 // 動画が見られなくなっていたら（台帳から消えた・削除・非公開・埋め込み禁止）、プレイヤーの代わりに知らせを出す（Hop 決定 2026-10-04）
 import React, { useEffect, useRef, useState } from "react";
-import type { HintRef } from "../../../lib/crossword/puzzleStore";
+import type { Genre, HintRef } from "../../../lib/crossword/puzzleStore";
+import { listedTagOfUrl } from "../../../lib/crossword/socialUrl";
 import { PAUSE_PLAYERS_EVENT } from "../../../lib/pageWave";
 import { loadYouTubeAPI, UNAVAILABLE_CODES } from "./HintPlayer";
 import { C } from "../style";
 
 const GONE = "このヒントの動画は見られなくなりました。";
+
+// X・Instagram のリンクに添える札（ハロプロだけ。Hop 決定 2026-10-19「公式サイトに載っている分だけ」）。
+// URL に書かれたアカウント名を公式サイトの名簿と照らす。載っていなくても止めず、札だけ添える（YouTube の名札と同じ考え）。
+// 読めない形の URL（instagram.com/p/… など）には札を出さない。札は証明ではない【仮】
+const LISTED = "公式サイトに載っているアカウント";
+const NOT_LISTED = "公式サイトに載っていないアカウント";
+export const AccountTag: React.FC<{ url: string; className?: string }> = ({ url, className }) => {
+  const tag = listedTagOfUrl(url);
+  if (!tag) return null;
+  return (
+    <span data-hint-account="" data-listed={tag.listed ? "true" : "false"} className={className} style={{ color: C.secondary }}>
+      {`@${tag.handle} ${tag.listed ? LISTED : NOT_LISTED}`}
+    </span>
+  );
+};
 
 // 見た目はこれまでの埋め込みと同じ。再生できない合図を受け取るために IFrame API で置く（自動再生しない）
 const HintVideo: React.FC<{ videoId: string; startSec: number }> = ({ videoId, startSec }) => {
@@ -62,7 +78,7 @@ const GoneNote: React.FC = () => (
   </div>
 );
 
-export const HintView: React.FC<{ hint: HintRef }> = ({ hint }) => {
+export const HintView: React.FC<{ hint: HintRef; genre?: Genre | null }> = ({ hint, genre = null }) => {
   if (hint.kind === "youtube") {
     // gone は問題を開いた時に台帳で確かめた印（ハロプロのジャンル）
     if (hint.gone) return <GoneNote />;
@@ -102,6 +118,7 @@ export const HintView: React.FC<{ hint: HintRef }> = ({ hint }) => {
         </span>
         <span aria-hidden="true" className="material-symbols-outlined leading-none shrink-0" style={{ fontSize: "18px" }}>open_in_new</span>
       </a>
+      {genre === "hello" && <AccountTag url={hint.url} className="block px-3 pt-2 text-xs break-all" />}
     </div>
   );
 };

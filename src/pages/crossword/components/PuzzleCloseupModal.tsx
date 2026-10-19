@@ -13,7 +13,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import type { PlacedItem } from "../../../lib/crossword/types";
-import type { HintRef } from "../../../lib/crossword/puzzleStore";
+import type { Genre, HintRef } from "../../../lib/crossword/puzzleStore";
 import { animateElement, currentValue, type MotionHandle } from "../../../lib/crossword/motion";
 import { PAUSE_PLAYERS_EVENT } from "../../../lib/pageWave";
 import { PuzzleKeypad, type KeypadType } from "./PuzzleKeypad";
@@ -29,6 +29,8 @@ interface PuzzleCloseupModalProps {
   activeIndex: number;
   keypadType: KeypadType;
   hint?: HintRef;
+  /** 問題のジャンル。ハロプロの時だけ X・Instagram のリンクに公式サイトの名簿の札を添える */
+  genre?: Genre | null;
   /** 練習問題のヒント（動画でなく1行の文）。あれば「ヒント」を押すと文字盤の場所にこの文が出る */
   hintText?: string;
   onKeyPress: (char: string) => void;
@@ -55,6 +57,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
   activeIndex,
   keypadType,
   hint,
+  genre = null,
   hintText,
   onKeyPress,
   onBackspace,
@@ -364,7 +367,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
                   </button>
                 </div>
               )}
-              <HintView hint={hint} />
+              <HintView hint={hint} genre={genre} />
             </div>
           ) : showHint && hintText ? (
             <p className="p-4 text-sm leading-relaxed" style={{ color: C.ink }}>{hintText}</p>

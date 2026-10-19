@@ -51,7 +51,7 @@ export const HintList: React.FC<{ items: PlacedItem[]; hints: Record<string, Hin
                         <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "20px", color: C.secondary }}>close</span>
                       </button>
                     </div>
-                    <HintView hint={hint} />
+                    <HintView hint={hint} genre={genre} />
                   </div>
                 ) : (
                   // 枠の左右の余白まで使って、幅 360px の画面でも縮めずに収める
@@ -75,7 +75,7 @@ export const HintList: React.FC<{ items: PlacedItem[]; hints: Record<string, Hin
                 )
               ) : (
                 <div className="-mx-4">
-                  <HintView hint={hint} />
+                  <HintView hint={hint} genre={genre} />
                 </div>
               )}
               {hint.kind === "youtube" && (

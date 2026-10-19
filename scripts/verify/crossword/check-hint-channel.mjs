@@ -103,7 +103,7 @@ try {
     await hint.fill(bad);
     await page.waitForTimeout(400);
     const txt = await page.evaluate(() => document.body.innerText);
-    check(/YouTube の URL の形が違います/.test(txt) && (await page.locator('[data-hint-channel]').count()) === 0 && !/^リンク$/m.test(txt), `(3) ${bad.slice(8, 40)} は「形が違います」で止まる`);
+    check(/YouTube の URL の形が違います/.test(txt) && (await page.locator('[data-hint-channel]').count()) === 0 && (await page.locator('[data-hint-kind]').count()) === 0, `(3) ${bad.slice(8, 40)} は「形が違います」で止まる`);
   }
 
   // (4) チャンネル名を聞けない動画（削除・非公開・埋め込み禁止）は使えない
