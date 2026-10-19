@@ -176,6 +176,8 @@ ${SHARE_URL}`,
     endCardCongrats: "岡村美波さん お誕生日おめでとう🎂🩷",
     shareText: (count: number) =>
       `岡村美波さん お誕生日おめでとう🎂🩷\nハイ！テンション✋ practice ver. で ${count}回 手を挙げてお祝いしました🖐️\n#ハイテンションPractice\n${SHARE_URL}`,
+    // 里吉さん回と同じ一言（別のパートで同じ歌詞を歌っているため。Hop 指示 2026-10-20）
+    enterLabel: "テンション高く手を挙げよう",
   },
 ];
 
