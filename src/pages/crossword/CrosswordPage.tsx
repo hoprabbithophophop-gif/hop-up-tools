@@ -2776,7 +2776,7 @@ export default function CrosswordPage() {
                   {/* 公式の発信から選んでもらう案内（ハロプロだけ。Hop 2026-10-19）【仮】 */}
                   {genre === "hello" && (
                     <p id="cw-hint-guide" data-hint-guide="" className="text-xs" style={{ color: C.secondary }}>
-                      ヒントは公式の発信（YouTube・Instagram・X・アメーバブログ・公式サイト）から選んでください。解く人が正しい情報と分かるためです。
+                      ヒントはハロプロの公式の発信（YouTube・Instagram・X・アメーバブログ・公式サイト）から選んでください。解く人が正しい情報と分かるためです。
                     </p>
                   )}
                   <HintField inputId="cw-hint" genre={genre} onChange={setPendingHint} resetKey={hintResetKey} inputClassName={inputClass} initial={hintInitial} />

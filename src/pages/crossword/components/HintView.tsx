@@ -12,8 +12,8 @@ const GONE = "このヒントの動画は見られなくなりました。";
 // X・Instagram のリンクに添える札（ハロプロだけ。Hop 決定 2026-10-19「公式サイトに載っている分だけ」）。
 // URL に書かれたアカウント名を公式サイトの名簿と照らす。載っていなくても止めず、札だけ添える（YouTube の名札と同じ考え）。
 // 読めない形の URL（instagram.com/p/… など）には札を出さない。札は証明ではない【仮】
-const LISTED = "公式サイトに載っているアカウント";
-const NOT_LISTED = "公式サイトに載っていないアカウント";
+const LISTED = "ハロプロ公式サイトに載っているアカウント";
+const NOT_LISTED = "ハロプロ公式サイトに載っていないアカウント";
 export const AccountTag: React.FC<{ url: string; className?: string }> = ({ url, className }) => {
   const tag = listedTagOfUrl(url);
   if (!tag) return null;

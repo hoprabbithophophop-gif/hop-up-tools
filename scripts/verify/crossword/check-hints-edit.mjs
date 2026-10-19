@@ -188,13 +188,13 @@ try {
   await page.waitForTimeout(300);
   check((await page.locator('[data-hint-kind]').textContent()) === 'X', `(5) X の URL を貼ると札の出どころが X になる（${await page.locator('[data-hint-kind]').textContent()}）`);
   const acct1 = await page.locator('[data-hint-account]').textContent().catch(() => null);
-  check(acct1 === '@helloproject 公式サイトに載っていないアカウント', `(5) 名簿に無いアカウントは「載っていないアカウント」の札で通る（${acct1}）`);
+  check(acct1 === '@helloproject ハロプロ公式サイトに載っていないアカウント', `(5) 名簿に無いアカウントは「載っていないアカウント」の札で通る（${acct1}）`);
   await page.getByLabel('ヒントを外す').click();
   await page.waitForTimeout(200);
   await page.locator('#cw-hint').fill('https://x.com/beyooooonds_/status/2');
   await page.waitForTimeout(300);
   const acct2 = await page.locator('[data-hint-account]').textContent().catch(() => null);
-  check(acct2 === '@beyooooonds_ 公式サイトに載っているアカウント', `(5) 名簿にあるアカウント（大文字小文字違い）は「載っているアカウント」（${acct2}）`);
+  check(acct2 === '@beyooooonds_ ハロプロ公式サイトに載っているアカウント', `(5) 名簿にあるアカウント（大文字小文字違い）は「載っているアカウント」（${acct2}）`);
   await page.getByLabel('ヒントを外す').click();
   await page.waitForTimeout(200);
   await page.locator('#cw-hint').fill('https://www.instagram.com/p/abc123/');
@@ -275,7 +275,7 @@ try {
   await play.getByRole('button', { name: 'ヒント', exact: true }).first().click();
   await play.waitForTimeout(400);
   const playTag = await play.locator('[data-hint-account]').textContent().catch(() => null);
-  check(playTag === '@BEYOOOOONDS_ 公式サイトに載っているアカウント', `(6) 解く画面の X のリンクに名簿の札（${playTag}）`);
+  check(playTag === '@BEYOOOOONDS_ ハロプロ公式サイトに載っているアカウント', `(6) 解く画面の X のリンクに名簿の札（${playTag}）`);
   check((await play.getByRole('link', { name: /x\.com/ }).count()) === 1, '(6) リンクは今まで通り別タブで開く形');
   await play.locator('[data-coach="keypad"]').screenshot({ path: path.join(OUT, '5-play-tag-390.png') });
 

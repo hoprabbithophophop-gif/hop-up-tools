@@ -84,13 +84,13 @@ try {
 
   // (1) ハロプロのヒント欄に公式の発信の案内
   const guide = await page.locator('[data-hint-guide]').textContent().catch(() => null);
-  check(guide && guide.startsWith('ヒントは公式の発信'), `(1) ハロプロのヒント欄に案内（${guide && guide.slice(0, 20)}…）`);
+  check(guide && guide.startsWith('ヒントはハロプロの公式の発信'), `(1) ハロプロのヒント欄に案内（${guide && guide.slice(0, 20)}…）`);
 
   // (2) 台帳に無い YouTube → チャンネル名と「公式の発信か確かめてください」付きで選ばれる
   await hint.fill('https://youtu.be/dQw4w9WgXcQ?t=83');
   await page.waitForTimeout(800);
   const ch = await page.locator('[data-hint-channel]').textContent().catch(() => null);
-  check(ch === 'チャンネル: テストチャンネル 公式の発信か確かめてください。', `(2) ハロプロで台帳に無い動画はチャンネル名付きで通る（${ch}）`);
+  check(ch === 'チャンネル: テストチャンネル ハロプロの公式の発信か確かめてください。', `(2) ハロプロで台帳に無い動画はチャンネル名付きで通る（${ch}）`);
   check(oembedCalls === 1, `(2) チャンネル名は YouTube に1回だけ聞く（${oembedCalls}回）`);
   const timeVal = await page.locator('#cw-hint-time').inputValue().catch(() => null);
   check(timeVal === '1:23', `(2) URL の時刻が欄に入る（${timeVal}）`);
