@@ -94,7 +94,7 @@ export function officialXSearchUrl(group: OfficialAccountGroup, keyword: string,
 
 // Instagram は自前の検索に期間が無いので Google に頼む。Google が拾っている投稿だけが対象。
 // 投稿の住所（instagram.com/p/番号/）にはアカウント名が入らないので、site:instagram.com/アカウント名 ではほぼ当たらなかった（Hop 2026-10-21「できなさそう」）。
-// アカウント名を住所でなく言葉として探す形に変えて試す（Hop 決定 2026-10-21 案B。効くかは未確認）
+// アカウント名を住所でなく言葉として探す形に変えて試す（Hop 決定 2026-10-21 案B。同日 Hop が実機の Google で投稿が見つかるのを確かめた。コメント欄の言葉にも当たるのは Google がページ全体で探すためで、このままにする＝Hop 決定）
 export function officialIgSearchQuery(handle: string, keyword: string, period: SearchPeriod | null = null): string {
   return `"${handle}" ${keyword.trim()} site:instagram.com${googlePeriodWords(period)}`.replace(/\s+/g, " ");
 }
