@@ -166,6 +166,17 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
     } else onChange(selected.hint, selected.label);
   }, [selected, timeText]);
 
+  // 期間と公式ブログの選択肢（下の「ヒントが選ばれていたら途中で返す」より前に置く。確認の数が毎回同じでないと画面が止まるため）
+  const period: SearchPeriod | null = periodYear ? { year: Number(periodYear), month: periodMonth ? Number(periodMonth) : undefined } : null;
+  // 公式ブログの選択肢は「いつごろ」に記事があるブログだけ（Hop 決定 2026-10-21）。選んでいた物が外れたら先頭に選び直す
+  const blogOptionGroups = blogOptions(period);
+  const blogOptionValues = blogOptionGroups.flatMap((g) => g.options.map((o) => o.value));
+  const blogChoiceNow = blogOptionValues.includes(blogChoice) ? blogChoice : blogOptionValues[0] ?? blogChoice;
+  useEffect(() => {
+    if (blogChoiceNow !== blogChoice) setBlogChoice(blogChoiceNow);
+  }, [blogChoiceNow, blogChoice]);
+  const blogGroup = blogChoiceTarget(blogChoiceNow, period);
+
   const choose = (s: Selected) => {
     setSelected(s);
     setResults([]);
@@ -322,15 +333,6 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   // 箱（① 探す・② 貼る）の中の欄は白地、ボタンは一段濃い灰（箱の地が surface-container-low なので、欄の場所が見えるように。見本 2026-10-20 案A）
   const boxInputClassName = "w-full min-w-0 h-11 bg-white px-3 text-base text-on-surface placeholder:text-outline focus:outline-none focus:shadow-[inset_0_-2px_0_#000]";
   const selectClassName = "w-full min-w-0 h-11 bg-white px-2 text-base focus:outline-none focus:shadow-[inset_0_-2px_0_#000]";
-  const period: SearchPeriod | null = periodYear ? { year: Number(periodYear), month: periodMonth ? Number(periodMonth) : undefined } : null;
-  // 公式ブログの選択肢は「いつごろ」に記事があるブログだけ（Hop 決定 2026-10-21）。選んでいた物が外れたら先頭に選び直す
-  const blogOptionGroups = blogOptions(period);
-  const blogOptionValues = blogOptionGroups.flatMap((g) => g.options.map((o) => o.value));
-  const blogChoiceNow = blogOptionValues.includes(blogChoice) ? blogChoice : blogOptionValues[0] ?? blogChoice;
-  useEffect(() => {
-    if (blogChoiceNow !== blogChoice) setBlogChoice(blogChoiceNow);
-  }, [blogChoiceNow, blogChoice]);
-  const blogGroup = blogChoiceTarget(blogChoiceNow, period);
   const blogSearchHref = blogKeyword.trim() ? officialBlogSearchUrl(blogGroup, blogKeyword, period) : null;
   const blogSearchText = blogKeyword.trim() ? officialBlogSearchQuery(blogGroup, blogKeyword, period) : null;
   const xGroup = OFFICIAL_ACCOUNT_GROUPS.find((g) => g.key === xGroupKey) ?? OFFICIAL_ACCOUNT_GROUPS[0];
