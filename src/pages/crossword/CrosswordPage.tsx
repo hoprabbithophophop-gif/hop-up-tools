@@ -1862,13 +1862,14 @@ export default function CrosswordPage() {
   // 保存してあった盤を開き直しただけでは始めない（最初の1回は今の状態を覚えるだけ）
   // 埋まった瞬間の丸付けも、黙る方と同じだけ待ってから走らせる。その間に ゛゜ で字が変われば、変わった後の盤で丸付けする
   // （最後のマスが濁る字の時に、゛ の前に答え合わせが走らないように。2026-10-06 レビューの直し）。待ちの間は入力の窓を閉じない
-  const AUTO_CHECK_WAIT_MS = 400; // 【仮】
+  const AUTO_CHECK_WAIT_MS = 400; // Hop 決定 2026-10-21
   // 最後に字が変わったマスの字が ゛゜ を付けられる字なら、゛゜ を押すのを待つ（Hop 決定 2026-10-21）。
   // 付けられるかは文字盤の ゛゜ の働き（押すと別の字になるか）で決める。バ→パのように行き来できる字も入る
-  const AUTO_CHECK_MARK_WAIT_MS = 2000;
+  // 1文字見るで入った字も同じ規則。複数のマスが一度に変わった時は1つでも付けられる字なら 2000ms
+  const AUTO_CHECK_MARK_WAIT_MS = 2000; // Hop 決定 2026-10-21
   const canTakeMark = (ch: string | undefined) => !!ch && (!!modifiedChar("dakuten", ch) || !!modifiedChar("handakuten", ch));
   // loud = 埋まった瞬間の反応（合否を知らせる方）をまだ返していない
-  // holdMs = 答え合わせ待ちを始めた時の開いていた時間（ミリ秒）。待っている間はタイマーの表示をこの値で止め、待った分を受付係に添える
+  // holdMs = 答え合わせ待ちを始めた時（最後に字が変わった時）の開いていた時間（ミリ秒）。待っている間はタイマーの表示をこの値で止め、待った分を受付係に添える
   // prev = 前に見た盤（どのマスの字が変わったかを見る）。waitMs = 最後に字が変わった時に決めた待ち時間
   const autoCheckRef = useRef<{ ready: boolean; full: boolean; loud: boolean; holdMs: number | null; prev: Record<string, string>; waitMs: number }>({
     ready: false,
@@ -1905,8 +1906,9 @@ export default function CrosswordPage() {
     // 字が変わったマスがあれば待ち時間を決め直す（字が変わっていない時は前に決めた待ち時間のまま）
     const changed = Object.keys(userAnswers).filter((k) => userAnswers[k] !== prev[k]);
     if (changed.length > 0) autoCheckRef.current.waitMs = changed.some((k) => canTakeMark(userAnswers[k])) ? AUTO_CHECK_MARK_WAIT_MS : AUTO_CHECK_WAIT_MS;
-    // 待ち始め（全部埋まった時・埋まったまま字が変わった時）。待ち直しても待ち始めは動かさない
-    if (autoCheckRef.current.holdMs === null) autoCheckRef.current.holdMs = activeMsNow();
+    // 待ち始めは最後に字が変わった時（゛゜ で字が変わった時もそこから止め直す。Hop 決定 2026-10-21）。
+    // 表示を止めた分＝受付係に添える待った時間、になるようにそろえる
+    if (changed.length > 0 || autoCheckRef.current.holdMs === null) autoCheckRef.current.holdMs = activeMsNow();
     // 打ち終わるのを少し待ってから丸付けする（1字ごとに通信しない）
     const timer = setTimeout(() => {
       const loud = autoCheckRef.current.loud;
