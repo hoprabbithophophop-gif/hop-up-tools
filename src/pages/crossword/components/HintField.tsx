@@ -349,16 +349,16 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
       コピー
     </button>
   );
-  // いつごろ（年・月）。選ばなければ期間なし
+  // いつごろ（年・月）。選ばなければ期間なし。幅が狭い所（ヒント差し替えの画面）では2段に折り返して字が切れないようにする
   const periodPicker = (
-    <div data-helper-period="" className="flex gap-2">
-      <select aria-label="いつごろ（年）" value={periodYear} onChange={(e) => { setPeriodYear(e.target.value); if (!e.target.value) setPeriodMonth(""); }} className={`${selectClassName} flex-1`} style={{ color: C.ink }}>
+    <div data-helper-period="" className="flex flex-wrap gap-2">
+      <select aria-label="いつごろ（年）" value={periodYear} onChange={(e) => { setPeriodYear(e.target.value); if (!e.target.value) setPeriodMonth(""); }} className={`${selectClassName} grow basis-[9.5rem]`} style={{ color: C.ink }}>
         <option value="">いつごろ（年）</option>
         {periodYears().map((y) => (
           <option key={y} value={String(y)}>{`${y}年`}</option>
         ))}
       </select>
-      <select aria-label="いつごろ（月）" value={periodMonth} onChange={(e) => setPeriodMonth(e.target.value)} disabled={!periodYear} className={`${selectClassName} flex-1 ${periodYear ? "" : "opacity-40"}`} style={{ color: C.ink }}>
+      <select aria-label="いつごろ（月）" value={periodMonth} onChange={(e) => setPeriodMonth(e.target.value)} disabled={!periodYear} className={`${selectClassName} grow basis-[9.5rem] ${periodYear ? "" : "opacity-40"}`} style={{ color: C.ink }}>
         <option value="">月を選ばない</option>
         {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
           <option key={m} value={String(m)}>{`${m}月`}</option>
@@ -409,7 +409,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
       : source === "ameblo"
         ? "記事の URL を貼る"
         : source === "x" || source === "ig"
-          // ハロプロは「② 見つけた投稿の URL を貼る」の箱の中で幅が狭く、長い文だと切れるので短い方にする（見本 2026-10-20 案A と同じ文）【仮】
+          // ハロプロは「② 見つけた投稿の URL を貼る」の箱の中で幅が狭く、長い文だと切れるので短い方にする（Hop 承認 2026-10-20）
           ? "投稿の URL を貼る"
           : genre === "hello" ? "ハロプロ公式サイトなどの URL を貼る" : "URL を貼る";
   // ハロプロの YouTube 以外は「① 探す」「② 見つけた◯◯の URL を貼る」の2つの箱に分ける（Hop 決定 2026-10-20）。YouTube と「その他」のジャンルは今のまま
@@ -439,7 +439,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
                   <option key={g.key} value={g.key}>{g.label}</option>
                 ))}
               </select>
-              {keywordInput("公式ブログを探す言葉", blogKeyword, setBlogKeyword, "公式ブログを探す言葉（例: 武道館）")}
+              {keywordInput("公式ブログを探す言葉", blogKeyword, setBlogKeyword, "探す言葉（例: 武道館）")}
               {periodPicker}
               <div className="flex gap-2">
                 {helperLink(blogSearchHref, "公式ブログを探す", "blog")}
@@ -456,7 +456,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
                   <option key={g.key} value={g.key}>{g.label}</option>
                 ))}
               </select>
-              {keywordInput("公式の投稿を探す言葉", xKeyword, setXKeyword, "公式の投稿を探す言葉（例: 武道館）")}
+              {keywordInput("公式の投稿を探す言葉", xKeyword, setXKeyword, "探す言葉（例: 武道館）")}
               {periodPicker}
               <div className="flex gap-2">
                 {helperLink(xSearchHref, "公式の投稿を探す", "x")}
@@ -478,7 +478,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
                   </optgroup>
                 ))}
               </select>
-              {keywordInput("公式の投稿を探す言葉", igKeyword, setIgKeyword, "公式の投稿を探す言葉（例: 武道館）")}
+              {keywordInput("公式の投稿を探す言葉", igKeyword, setIgKeyword, "探す言葉（例: 武道館）")}
               {periodPicker}
               <div className="flex gap-2">
                 {helperLink(igSearchHref, "Google で探す", "ig-search")}
@@ -491,7 +491,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
           {/* 公式サイトを探す（リンクの印。ハロプロ公式サイトと /link/ の関連サイトだけを対象にした Google 検索。Hop 決定 2026-10-20） */}
           {stepSource === "link" && (
             <div data-site-search="" className="flex flex-col gap-2">
-              {keywordInput("公式サイトを探す言葉", siteKeyword, setSiteKeyword, "公式サイトを探す言葉（例: 武道館）")}
+              {keywordInput("公式サイトを探す言葉", siteKeyword, setSiteKeyword, "探す言葉（例: 武道館）")}
               {periodPicker}
               <div className="flex gap-2">
                 {helperLink(siteSearchHref, STEP_TEXT.siteSearch, "site")}
