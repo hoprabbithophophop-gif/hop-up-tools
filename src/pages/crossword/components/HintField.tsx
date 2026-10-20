@@ -34,12 +34,13 @@ const YT_FORM = "YouTube の URL の形が違います。動画のページの U
 const YT_UNKNOWN = "この動画を確かめられませんでした。削除・非公開・埋め込み禁止になっていないかご確認ください。";
 // 台帳に無い動画に添える一言（ハロプロだけ。Hop 2026-10-19「公式情報をヒントにしてもらえると」）【仮】
 const CHECK_OFFICIAL = "ハロプロの公式の発信か確かめてください。";
-// アメブロ・X・Instagram・リンクの「① 探す」「② 貼る」の箱の言葉（Hop 決定 2026-10-20 の形。言葉は承認待ち【仮】）。差し替えはここだけ
+// アメブロ・X・Instagram・リンクの「① 探す」「② 貼る」の箱の言葉（Hop 決定・承認 2026-10-20）。差し替えはここだけ
 const STEP_TEXT = {
   find: { ameblo: "公式ブログを探す", x: "公式の投稿を探す", ig: "公式の投稿を探す", link: "公式サイトを探す" },
   paste: { ameblo: "見つけた記事の URL を貼る", x: "見つけた投稿の URL を貼る", ig: "見つけた投稿の URL を貼る", link: "見つけたページの URL を貼る" },
   pasteNote: "開いたページの URL をコピーして、ここに貼ります。",
   siteSearch: "公式サイトを探す",
+  pasteButton: "貼り付け", // 【仮】欄の横のボタン（Hop 決定 2026-10-20 案C。言葉は承認待ち）
 } as const;
 type StepSource = keyof typeof STEP_TEXT.find;
 
@@ -126,6 +127,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   // サムネイルを押して拡大して見ている動画（見る）。窓の中の「この位置でヒントにする」で選ぶ（決める）
   const [preview, setPreview] = useState<Selected | null>(null);
   const previewRef = useRef<HintPlayerApi>(null);
+  const urlRef = useRef<HTMLInputElement>(null);
   // 拡大して見る窓のキーボードの作法（2026-10-06 アクセシビリティの直し）
   const previewDialog = useDialog({ active: !!preview, onClose: () => setPreview(null) });
 
@@ -416,12 +418,40 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   const stepSource: StepSource | null = genre === "hello" && source !== "yt" ? source : null;
   const urlInput = (
     <input
+      ref={urlRef}
       id={inputId}
       value={text}
       onChange={(e) => handleText(e.target.value)}
       placeholder={placeholder}
       className={stepSource ? boxInputClassName : inputClassName}
     />
+  );
+  // 「貼り付け」: コピーした物を欄に入れる。読めない時（断られた・未対応）は欄に入力を移し、ふだんの貼り付けができる状態にする
+  const pasteFromClipboard = async () => {
+    try {
+      const got = (await navigator.clipboard.readText()).trim();
+      if (got) {
+        handleText(got);
+        return;
+      }
+    } catch {
+      // 読めない端末・断られた時は下で欄に移る
+    }
+    urlRef.current?.focus();
+  };
+  const pasteRow = (
+    <div className="flex gap-2">
+      <div className="flex-1 min-w-0">{urlInput}</div>
+      <button
+        type="button"
+        data-helper-paste=""
+        onClick={pasteFromClipboard}
+        className="shrink-0 h-11 px-3 text-sm font-bold bg-surface-container-highest hover:opacity-80 transition-opacity whitespace-nowrap"
+        style={{ color: C.ink }}
+      >
+        {STEP_TEXT.pasteButton}
+      </button>
+    </div>
   );
   const busyNote = busy && <p className="text-xs" style={{ color: C.secondary }}>読み込み中…</p>;
   const messageNote = message && <p className="text-xs" style={{ color: C.secondary }}>{message}</p>;
@@ -506,7 +536,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
         <div data-hint-step="2" className={boxClassName}>
           {stepHead("②", STEP_TEXT.paste[stepSource])}
           <p className="text-xs leading-relaxed" style={{ color: C.secondary }}>{STEP_TEXT.pasteNote}</p>
-          {urlInput}
+          {pasteRow}
           {busyNote}
           {messageNote}
         </div>
