@@ -237,31 +237,42 @@ export interface CatalogChapter {
   channel_name: string | null;
 }
 
-// ハロプロのジャンルのヒント選び。台帳の表示してよい動画を題名で探す
-export async function searchCatalogVideos(query: string, limit = 8): Promise<CatalogVideo[]> {
-  const q = query.trim();
-  if (!q) return [];
-  const { data, error } = await getSupabase()
+// 探す言葉を空白で区切る（全角の空白も）。棚への問い合わせの書き方を壊す字（, ( ) " \）は外す
+const searchTerms = (query: string): string[] =>
+  query
+    .split(/[\s\u3000]+/)
+    .map((t) => t.replace(/[,()"\\]/g, "").trim())
+    .filter(Boolean)
+    .slice(0, 5);
+// どの言葉も、いずれかの欄に含まれる物（言葉ごとに「欄のどれか」、言葉どうしは「全部」）
+const everyTermInAny = (terms: string[], columns: string[]) => terms.map((t) => columns.map((c) => `${c}.ilike."%${t}%"`).join(","));
+
+// ハロプロのジャンルのヒント選び。台帳の表示してよい動画を、題名とチャンネル名で探す。
+// 言葉を空白で区切ると、全部を含む物だけ出す（2026-10-20 Hop「台帳の動画が見つからない」: ひと続きの一致・8件だけで古い動画が埋もれていた）
+export async function searchCatalogVideos(query: string, limit = 20): Promise<CatalogVideo[]> {
+  const terms = searchTerms(query);
+  if (terms.length === 0) return [];
+  let req = getSupabase()
     .from("youtube_videos")
     .select("video_id,title,channel_name,published_at")
-    .eq("is_active_content", true)
-    .ilike("title", `%${q}%`)
-    .order("published_at", { ascending: false })
-    .limit(limit);
+    .eq("is_active_content", true);
+  for (const cond of everyTermInAny(terms, ["title", "channel_name"])) req = req.or(cond);
+  const { data, error } = await req.order("published_at", { ascending: false }).limit(limit);
   if (error) throw error;
   return (data as CatalogVideo[] | null) ?? [];
 }
 
 // 曲名で区切りを探す。表示してよい動画（is_active_content=true）の区切りだけ返す
 export async function searchCatalogChapters(query: string, limit = 12): Promise<CatalogChapter[]> {
-  const q = query.trim();
-  if (!q) return [];
+  const terms = searchTerms(query);
+  if (terms.length === 0) return [];
   const sb = getSupabase();
-  // 表示してよい動画に絞ると落ちる分があるので、多めに取ってから絞る
-  const { data, error } = await sb
+  // 表示してよい動画に絞ると落ちる分があるので、多めに取ってから絞る。言葉は曲名・グループ名・会場のどれかに含まれればよい
+  let req = sb
     .from("video_chapters")
-    .select("video_id,seq,toc_sec,content_start_sec,song_title,group_name,venue,performed_on")
-    .ilike("song_title", `%${q}%`)
+    .select("video_id,seq,toc_sec,content_start_sec,song_title,group_name,venue,performed_on");
+  for (const cond of everyTermInAny(terms, ["song_title", "group_name", "venue"])) req = req.or(cond);
+  const { data, error } = await req
     .order("performed_on", { ascending: false, nullsFirst: false })
     .limit(limit * 4);
   if (error) throw error;
