@@ -66,6 +66,7 @@ var CHANNELS = [
   { key: 'satoyama',         channelId: 'UCUTRGHLVk2pf76N6bB8RwLw', name: 'SATOYAMA&SATOUMI',    handle: '@satoyamachannel' },
   { key: 'anison',           channelId: 'UClWwpGtkZmZ6I82o134FmuA', name: 'ハロー!アニソン部',    handle: '@ハローアニソン部' },
   { key: 'tinytiny',         channelId: 'UCyoK1-NYjHoWWylFy-5nHgw', name: 'tiny tiny',           handle: '@tinytinytiny' },
+  { key: 'engeki',           channelId: 'UClFzEnuxbE3b2tmGpE85z4A', name: '演劇女子部',           handle: '@engekijyoshibu' },
 
   // 活動終了グループの公式チャンネル
   { key: 'kobushi',          channelId: 'UCt3f_Tu1lNua1xLQZu2Td-w', name: 'こぶしファクトリー',   handle: '@kobushifactory' },
