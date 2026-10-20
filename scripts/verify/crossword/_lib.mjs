@@ -269,7 +269,11 @@ export async function watchStumbles(page, sink, label = '') {
     stumbleWatched.add(ctx);
     await ctx.addInitScript(errorScreenScript, ERROR_SCREEN_TEXT);
   }
-  page.on('pageerror', (e) => sink.push(`${tag}${String(e)}`));
+  // 例外は、そのときの住所と投げた場所の1行目も控える（どの画面・どの読み込み元かを切り分けるため）
+  page.on('pageerror', (e) => {
+    const at = String(e.stack || '').split(/\r?\n/).find((l) => /^\s*at /.test(l))?.trim() ?? '';
+    sink.push(`${tag}${String(e)}（${page.url()}${at ? ' ' + at.slice(0, 200) : ''}）`);
+  });
   page.on('console', (m) => {
     if (m.type() !== 'error') return;
     const t = m.text();

@@ -9,7 +9,7 @@
 // 1・3・4・5 は本物の受付係で回を始めるので、それを含む時は見張らない（今までどおり）
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { guardWrites, interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
+import { guardWrites, watchStumbles, interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
 import { writeLines, openHintSheet } from './_create.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
@@ -29,6 +29,8 @@ delete almost[LAST];
 const [lx, ly] = LAST ? LAST.split(',').map(Number) : [];
 const GUARD = !needsPuzzle;
 const writes = [];
+// 画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）を控える（2026-10-21）
+const stumbles = [];
 console.log(`流す場面: ${[...ITEMS].join(',')}${GUARD ? '（書き込みの見張りあり）' : ''}`);
 
 let fail = 0;
@@ -45,6 +47,7 @@ async function open(path, { answers = null, play = undefined, routes = [], mine 
   await ctx.route('**/api/crossword-score', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
   for (const [pattern, handler] of routes) await ctx.route(pattern, handler);
   const page = await ctx.newPage();
+  await watchStumbles(page, stumbles, path);
   await page.goto(`${BASE}/crossword/mine`);
   await page.evaluate(({ id, answers, play, mine }) => {
     localStorage.setItem('crossword_seen_help', 'true');
@@ -191,6 +194,7 @@ if (run(6)) {
 }
 
 await browser.close();
+check(stumbles.length === 0, `画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）が無い${stumbles.length ? '：' + stumbles.slice(0, 3).join(' / ') : ''}`);
 if (GUARD) check(writes.length === 0, `行き先への書き込みは0件（見張り役が断った通信: ${writes.length}件${writes.length ? ' ' + writes.join(' , ') : ''}）`);
 console.log(fail ? `NG ${fail}件` : 'すべてOK');
 process.exit(fail ? 1 : 0);

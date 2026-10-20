@@ -4,7 +4,7 @@
 // 使い方: node scripts/verify/crossword/check-iphone.mjs [サイト] [問題の番号] ['<答えの配置 JSON>'] [残すマス1 x,y] [残すマス2 x,y]
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { webkit, devices } from 'playwright';
-import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt, xy, waitForPlayToken } from './_lib.mjs';
+import { watchStumbles, interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt, xy, waitForPlayToken } from './_lib.mjs';
 import { writeLines, openHintSheet, closeHintSheet, setLinkHint, toBoard, toClues } from './_create.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
@@ -30,8 +30,9 @@ const ctx = await browser.newContext({ ...devices['iPhone 13'] });
 await interceptCount(ctx);
 await ctx.route('**/api/crossword-score', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
 const page = await ctx.newPage();
+// 画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）を控える（2026-10-21。前は JS の例外だけ）
 const errors = [];
-page.on('pageerror', (e) => errors.push(String(e)));
+await watchStumbles(page, errors);
 const text = () => page.evaluate(() => document.body.innerText);
 const noSideScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
 
@@ -131,7 +132,7 @@ await ctx2.close();
 await page.goto(`${BASE}/privacy`);
 await page.waitForTimeout(2000);
 check((await text()).includes('クロスワードで問題を作って共有した場合'), 'プライバシーポリシー: クロスワードの段落が出る');
-check(errors.length === 0, `画面のエラーが無い: ${JSON.stringify(errors.slice(0, 3))}`);
+check(errors.length === 0, `画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）が無い: ${JSON.stringify(errors.slice(0, 3))}`);
 
 await browser.close();
 console.log(fail ? `NG ${fail}件` : 'すべてOK');

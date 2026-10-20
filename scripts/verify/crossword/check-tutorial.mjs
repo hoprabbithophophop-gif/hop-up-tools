@@ -13,7 +13,7 @@
 import { chromium } from 'playwright';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { arg, outDir, ROOT, ID_DEFAULT, leaveFirstVisitMarks, cellAt } from './_lib.mjs';
+import { arg, outDir, ROOT, ID_DEFAULT, leaveFirstVisitMarks, cellAt, watchStumbles } from './_lib.mjs';
 import { writeLines, toBoard, toClues, hintAllInClues, openShare } from './_create.mjs';
 
 // 「初めて」の印を立てずに流す（ほかの台本は _lib.mjs が印を立ててから開く）
@@ -60,6 +60,8 @@ const browser = { b: null };
 // 受付係・棚への書き込み（外へ出た物）と、台本が受け止めた保存
 const writes = [];
 let mockedSaves = 0;
+// 画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）を控える（2026-10-21）
+const stumbles = [];
 
 // --- 小物 ---
 async function newCtx() {
@@ -81,6 +83,7 @@ async function newCtx() {
     return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"id":"TUTORIALCHECK"}' });
   });
   const page = await ctx.newPage();
+  await watchStumbles(page, stumbles);
   return { ctx, page };
 }
 const bubble = (page) => page.locator('[data-coach-bubble]');
@@ -378,6 +381,7 @@ async function run() {
   }
 
   // ===== (e) 書き込み =====
+  check(stumbles.length === 0, `画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）が無い${stumbles.length ? '：' + stumbles.slice(0, 3).join(' / ') : ''}`);
   check(writes.length === 0, `(e) 受付係・棚への書き込みは0回（${writes.length}回${writes.length ? ': ' + writes.join(' / ') : ''}）。保存は台本が ${mockedSaves} 回受け止めて外へ出していない`);
 }
 

@@ -9,7 +9,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { chromium } from 'playwright';
-import { outDir, ROOT } from './_lib.mjs';
+import { outDir, ROOT, watchStumbles } from './_lib.mjs';
 
 const PORT = 5196;
 const BASE = `http://localhost:${PORT}`;
@@ -106,7 +106,7 @@ async function newPage({ oembed, marks = SEEN }) {
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: 'テストチャンネル', title: 'テストの動画' }) });
   });
   const page = await ctx.newPage();
-  page.on('pageerror', (e) => pageErrors.push(String(e)));
+  await watchStumbles(page, pageErrors); // JS の例外・React の描画の誤り・エラー時の画面（2026-10-21。前は JS の例外だけ）
   return { ctx, page, st };
 }
 
@@ -193,7 +193,7 @@ try {
     await ctx.close();
   }
 
-  check(pageErrors.length === 0, `画面のつまずき（JS の例外）が無い${pageErrors.length ? `（${pageErrors[0].slice(0, 120)}）` : ''}`);
+  check(pageErrors.length === 0, `画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）が無い${pageErrors.length ? `（${pageErrors[0].slice(0, 120)}）` : ''}`);
 } catch (e) {
   console.log(`NG 台本が途中で止まった: ${String(e).slice(0, 300)}`);
   fail++;

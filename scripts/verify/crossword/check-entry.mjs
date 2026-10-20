@@ -7,7 +7,7 @@
 // 作り物の丸付けは、一時置き場に控えた答えの配置と照らす。受け止め役が返さなかった受付係・棚への書き込みは見張り役が断り、最後に件数を出す
 // 使い方: node scripts/verify/crossword/check-entry.mjs [サイト] [問題の番号]（省略時は targets.json）
 import { chromium } from 'playwright';
-import { guardWrites, interceptCount, arg, outDir, puzzleArgs, puzzleLayout, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
+import { guardWrites, watchStumbles, interceptCount, arg, outDir, puzzleArgs, puzzleLayout, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -19,6 +19,8 @@ const check = (ok, msg) => {
 };
 const browser = await chromium.launch();
 const writes = [];
+// 画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）を控える（2026-10-21）
+const stumbles = [];
 // 作り物の受付係の丸付けで照らす答え（5 で答えの配置を読んでから入れる）。マス "x,y" → 字と、語ごとの字の並び
 const fake = { solution: null, answers: null, starts: 0, checks: 0 };
 const newPage = async () => {
@@ -42,7 +44,9 @@ const newPage = async () => {
     return r.fulfill({ status: 400, contentType: 'application/json', body: '{"ok":false}' });
   });
   await ctx.route('**/api/crossword-score', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
-  return { ctx, page: await ctx.newPage() };
+  const page = await ctx.newPage();
+  await watchStumbles(page, stumbles);
+  return { ctx, page };
 };
 const text = (page) => page.evaluate(() => document.body.innerText);
 const noUnofficial = async (page, where) => check(!(await text(page)).includes('非公式'), `${where}: 画面に「非公式」の一文が無い`);
@@ -166,6 +170,7 @@ const noUnofficial = async (page, where) => check(!(await text(page)).includes('
 }
 
 await browser.close();
+check(stumbles.length === 0, `画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）が無い${stumbles.length ? '：' + stumbles.slice(0, 3).join(' / ') : ''}`);
 console.log(`作り物の受付係: 回の始め ${fake.starts}回・丸付け ${fake.checks}回`);
 check(writes.length === 0, `行き先への書き込みは0件（見張り役が断った通信: ${writes.length}件${writes.length ? ' ' + writes.join(' , ') : ''}）`);
 console.log(fail ? `NG ${fail}件` : 'すべてOK');

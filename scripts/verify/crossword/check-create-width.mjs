@@ -3,7 +3,7 @@
 // 行き先の画面を読むだけで、棚にも受付係にも書かない（組み合わせ探しはブラウザの中だけで動く。保存は押さない）。
 // 使い方: node scripts/verify/crossword/check-create-width.mjs [サイト] [スクショの置き場]（省略時は targets.json と一時置き場）
 import { chromium } from 'playwright';
-import { arg, outDir, BASE_DEFAULT, guardWrites } from './_lib.mjs';
+import { arg, outDir, BASE_DEFAULT, guardWrites, watchStumbles } from './_lib.mjs';
 import { writeLines, hintMode, openHintSheet, closeHintSheet, setLinkHint, toBoard, toClues, hintAllInClues, openShare } from './_create.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
@@ -29,10 +29,13 @@ const fits = (m, withSheet) => !!m.panel && m.panel.left >= 0 && m.panel.right >
 const browser = await chromium.launch();
 // 行き先への書き込み（受け止め役が無いので、受付係・棚への書き込みは全部）を見張り役が断って控える（2026-10-21）
 const writes = [];
+// 画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）を控える（2026-10-21）
+const stumbles = [];
 for (const w of [390, 960, 1280]) {
   const wctx = await browser.newContext({ viewport: { width: w, height: 900 } });
   await guardWrites(wctx, writes, BASE);
   const page = await wctx.newPage();
+  await watchStumbles(page, stumbles, `幅 ${w}px`);
   await page.goto(`${BASE}/crossword/create`);
   await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
   await page.waitForTimeout(1500);
@@ -64,6 +67,7 @@ for (const w of [390, 960, 1280]) {
   await page.context().close();
 }
 await browser.close();
+check(stumbles.length === 0, `画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）が無い${stumbles.length ? '：' + stumbles.slice(0, 3).join(' / ') : ''}`);
 check(writes.length === 0, `行き先への書き込みは0件（見張り役が断った通信: ${writes.length}件${writes.length ? ' ' + writes.join(' , ') : ''}）`);
 console.log(fail ? `NG ${fail}件` : 'すべてOK', OUT);
 process.exit(fail ? 1 : 0);
