@@ -92,9 +92,11 @@ export function officialXSearchUrl(group: OfficialAccountGroup, keyword: string,
   return `https://x.com/search?q=${encodeURIComponent(officialXSearchQuery(group, keyword, period))}&f=live`;
 }
 
-// Instagram は自前の検索に期間が無いので Google に頼む（site:instagram.com/アカウント名）。Google が拾っている投稿だけが対象で、拾いは薄い（2026-10-19 確認: beyooooonds_official で 4 ページ）
+// Instagram は自前の検索に期間が無いので Google に頼む。Google が拾っている投稿だけが対象。
+// 投稿の住所（instagram.com/p/番号/）にはアカウント名が入らないので、site:instagram.com/アカウント名 ではほぼ当たらなかった（Hop 2026-10-21「できなさそう」）。
+// アカウント名を住所でなく言葉として探す形に変えて試す（Hop 決定 2026-10-21 案B。効くかは未確認）
 export function officialIgSearchQuery(handle: string, keyword: string, period: SearchPeriod | null = null): string {
-  return `${keyword.trim()} site:instagram.com/${handle}${googlePeriodWords(period)}`;
+  return `"${handle}" ${keyword.trim()} site:instagram.com${googlePeriodWords(period)}`.replace(/\s+/g, " ");
 }
 export function officialIgSearchUrl(handle: string, keyword: string, period: SearchPeriod | null = null): string {
   return `https://www.google.com/search?q=${encodeURIComponent(officialIgSearchQuery(handle, keyword, period))}`;

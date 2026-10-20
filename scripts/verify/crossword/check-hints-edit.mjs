@@ -241,7 +241,7 @@ try {
   await ig.locator('[data-helper-period] select').nth(1).selectOption('7');
   await page.waitForTimeout(100);
   const igq = decodeURIComponent(new URL(await ig.locator('[data-helper-link="ig-search"]').getAttribute('href')).searchParams.get('q'));
-  check(igq === 'ハロコン site:instagram.com/beyooooonds_official after:2026-07-01 before:2026-08-01' && (await ig.locator('[data-helper-copy="ig"]').getAttribute('data-copy-text')) === igq, `(5) Instagram は Google の site: と期間で探す（${igq}）`);
+  check(igq === '"beyooooonds_official" ハロコン site:instagram.com after:2026-07-01 before:2026-08-01' && (await ig.locator('[data-helper-copy="ig"]').getAttribute('data-copy-text')) === igq, `(5) Instagram はアカウント名を言葉にして Google の site: と期間で探す（${igq}）`);
   const optN = await ig.getByLabel('公式アカウント', { exact: true }).locator('option').count();
   check(optN === 55, `(5) 選べるのは公式サイトのグループのページに載っている 55 アカウント（${optN}）`);
   await page.locator('[data-coach="create-hint"]').screenshot({ path: path.join(OUT, '4-ig-open-390.png') });

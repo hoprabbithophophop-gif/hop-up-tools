@@ -502,7 +502,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
             </div>
           )}
           {/* 公式アカウントの投稿を探す（Instagram の印。グループの次にメンバーのアカウントが続く。名前はアカウント名のまま）。
-              Instagram 自身に期間の指定が無いので、言葉と期間は Google（site:instagram.com/アカウント名）に頼む。Google が拾っている投稿だけが対象（Hop 決定 2026-10-19） */}
+              Instagram 自身に期間の指定が無いので、言葉と期間は Google（"アカウント名" 言葉 site:instagram.com）に頼む。Google が拾っている投稿だけが対象（Hop 決定 2026-10-19、探し方は 2026-10-21 案B） */}
           {stepSource === "ig" && (
             <div data-ig-open="" className="flex flex-col gap-2">
               <select aria-label="公式アカウント" value={igHandle} onChange={(e) => setIgHandle(e.target.value)} className={selectClassName} style={{ color: C.ink }}>
