@@ -6,8 +6,12 @@
 //  (3) 見られない → { status: "gone" }（動画が無い・非公開・埋め込み禁止・年齢制限）。エッジに 1時間置く。限定公開は見られる
 //  (4) 分からない → 503 { status: "unknown" }（鍵が無い・YouTube が 200 以外・通信の失敗・名前が読めない）。エッジに置かない
 //  (5) 番号の形が違えば 400。YouTube に聞かない
-//  (6) 接続元ごとに 1時間 120回まで。超えたら 429 で YouTube に聞かない。数えは生の IP でなくハッシュで残す
+//  (6) 接続元ごとに 1時間 120回まで・全員合わせて 1時間 125回まで。超えたら 429 で YouTube に聞かない。数えは生の IP でなくハッシュで残す。
+//      先に接続元ごとを数え、達していれば記録を書かずに断る。記録を書いてから数え直し、同時に叩かれた分も断る。
+//      数えは HEAD + Prefer: count=exact で件数だけを聞く。照会・記録に失敗したら 503 で YouTube に聞かない。
+//      掃除はこのエンドポイントの 1時間より古い物だけ
 //  (7) 鍵は返事にも記録（console）にも出ない
+//  (8) Sec-Fetch-Site が same-origin 以外なら 403 でエッジにも数えにも YouTube にも行かない。same-origin と付いていない時は通る
 // 使い方: node scripts/verify/crossword/check-video-info.mjs（引数なし）
 import { openFunctions, FAKE_SUPA, FAKE_ENV, callFunction } from './_localFunctions.mjs';
 
@@ -37,7 +41,15 @@ globalThis.caches = {
 
 // ---- 作り物の YouTube と数えの棚 ----
 const yt = { calls: [], mode: () => ({ status: 200, body: { items: [] } }) };
-const rl = { gets: 0, posts: [], deletes: 0, count: 0 };
+// 数えの棚。rows は { ip_hash, endpoint, created_at(ミリ秒) }。HEAD は絞り込みに合う件数を Content-Range で返す
+const rl = { heads: 0, gets: 0, posts: [], deletes: [], deleted: 0, rows: [], onPost: null, failHead: false, failPost: false, noRange: false, headInit: [] };
+const rowMatch = (row, params) => [...params].every(([col, cond]) => {
+  if (col === 'select') return true;
+  if (cond.startsWith('eq.')) return String(row[col]) === cond.slice(3);
+  if (cond.startsWith('gt.')) return row[col] > Date.parse(cond.slice(3));
+  if (cond.startsWith('lt.')) return row[col] < Date.parse(cond.slice(3));
+  throw new Error(`作り物の数えの棚は ${col}=${cond} を真似ていない`);
+});
 const outside = [];
 const jsonRes = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const fakeFetch = async (input, init = {}) => {
@@ -51,16 +63,34 @@ const fakeFetch = async (input, init = {}) => {
     return jsonRes(m.body ?? { error: { message: `bad request for ${url.href}` } }, m.status);
   }
   if (url.origin === FAKE_SUPA && url.pathname === '/rest/v1/rate_limit_log') {
+    if (method === 'HEAD') {
+      rl.heads++;
+      rl.headInit.push({ url, prefer: init.headers?.Prefer });
+      if (rl.failHead === 'throw') throw new Error('照会の通信の失敗');
+      if (rl.failHead) return new Response(null, { status: 500 });
+      // 件数を頼まれない時・件数を返さない場面では Content-Range を付けない
+      if (rl.noRange || init.headers?.Prefer !== 'count=exact') return new Response(null, { status: 200 });
+      const n = rl.rows.filter((row) => rowMatch(row, url.searchParams)).length;
+      return new Response(null, { status: 200, headers: { 'Content-Range': n === 0 ? '*/0' : `0-${n - 1}/${n}` } });
+    }
     if (method === 'GET') {
       rl.gets++;
-      return jsonRes(Array.from({ length: rl.count }, (_, i) => ({ id: i })));
+      return jsonRes([]);
     }
     if (method === 'POST') {
-      rl.posts.push(JSON.parse(init.body));
+      if (rl.failPost === 'throw') throw new Error('記録の通信の失敗');
+      if (rl.failPost) return new Response(null, { status: 500 });
+      const b = JSON.parse(init.body);
+      rl.posts.push(b);
+      rl.rows.push({ ...b, created_at: Date.now() });
+      rl.onPost?.(b);
       return new Response(null, { status: 201 });
     }
     if (method === 'DELETE') {
-      rl.deletes++;
+      rl.deletes.push(url);
+      const before = rl.rows.length;
+      rl.rows = rl.rows.filter((row) => !rowMatch(row, url.searchParams));
+      rl.deleted += before - rl.rows.length;
       return new Response(null, { status: 204 });
     }
   }
@@ -86,12 +116,12 @@ const item = ({ channel = 'テストチャンネル', privacy = 'public', embedd
 const fns = await openFunctions();
 try {
   const { onRequestGet } = await fns.load('functions/api/crossword-video-info.ts');
-  const ask = (id, { env = ENV, extra = '', ip = '203.0.113.7' } = {}) =>
+  const ask = (id, { env = ENV, extra = '', ip = '203.0.113.7', site = 'same-origin' } = {}) =>
     callFunction(onRequestGet, shelf, {
       method: 'GET',
       path: `/api/crossword-video-info${id === null ? '' : `?id=${encodeURIComponent(id)}`}${extra}`,
       env,
-      headers: { 'CF-Connecting-IP': ip },
+      headers: { 'CF-Connecting-IP': ip, ...(site === null ? {} : { 'Sec-Fetch-Site': site }) },
     }).then(async (r) => r);
   const cc = (id) => edge.get(`https://local.invalid/api/crossword-video-info?id=${id}`)?.headers.find(([k]) => k === 'cache-control')?.[1];
   const texts = [];
@@ -112,9 +142,22 @@ try {
     '(1) 聞き方は videos.list・part=snippet,status,contentDetails・決めた fields・鍵つき',
   );
   check(cc('AAAAAAAAAA1') === 'public, s-maxage=21600', `(1) エッジに 6時間置く（${cc('AAAAAAAAAA1')}）`);
-  check(rl.gets === 1 && rl.posts.length === 1 && rl.posts[0].endpoint === 'crossword-video-info', `(1) エッジに無い時は数える（照会 ${rl.gets}・記録 ${rl.posts.length}・${rl.posts[0]?.endpoint}）`);
+  check(rl.heads === 3 && rl.posts.length === 1 && rl.posts[0].endpoint === 'crossword-video-info', `(1) エッジに無い時は数える（件数の照会 ${rl.heads}・記録 ${rl.posts.length}・${rl.posts[0]?.endpoint}）`);
+  check(rl.gets === 0, `(6) 数えは行を取ってこない（GET ${rl.gets}回）`);
+  check(
+    rl.headInit.length === 3 && rl.headInit.every((h) => h.prefer === 'count=exact' && h.url.searchParams.get('endpoint') === 'eq.crossword-video-info'),
+    '(6) 数えは HEAD + Prefer: count=exact で、このエンドポイントの分だけ',
+  );
   check(/^[0-9a-f]{64}$/.test(rl.posts[0]?.ip_hash ?? '') && !JSON.stringify(rl.posts).includes('203.0.113.7'), '(6) 数えは生の IP でなくハッシュで残す');
-  check(rl.deletes === 1, `(6) 1時間より古い数えを掃除する（${rl.deletes}回）`);
+  {
+    const d = rl.deletes[0];
+    const lt = d ? Date.parse((d.searchParams.get('created_at') || '').replace(/^lt\./, '')) : NaN;
+    const age = Date.now() - lt;
+    check(
+      rl.deletes.length === 1 && d.searchParams.get('endpoint') === 'eq.crossword-video-info' && age > 59 * 60e3 && age < 61 * 60e3,
+      `(6) 掃除はこのエンドポイントの 1時間より古い物だけ（${rl.deletes.length}回・${d?.searchParams.get('endpoint')}・${Math.round(age / 60e3)}分より前）`,
+    );
+  }
 
   // 長い名前は 100字まで・前後の空白は落とす
   yt.mode = () => ({ status: 200, body: item({ channel: `  ${'あ'.repeat(150)}  ` }) });
@@ -127,14 +170,14 @@ try {
 
   // ---- (2) エッジに当たる ----
   {
-    const before = { yt: yt.calls.length, gets: rl.gets, posts: rl.posts.length };
+    const before = { yt: yt.calls.length, heads: rl.heads, posts: rl.posts.length };
     yt.mode = () => ({ status: 500 });
     r = await askT('AAAAAAAAAA1');
     check(r.status === 200 && r.j?.status === 'ok' && r.j?.channel === 'テストチャンネル', `(2) 同じ番号はエッジの答えを返す（${r.text}）`);
     r = await askT('AAAAAAAAAA1', { extra: '&x=1' });
     check(r.j?.status === 'ok', '(2) 余計な引数を付けてもエッジの答えを返す');
     check(yt.calls.length === before.yt, `(2) エッジに当たった時は YouTube に聞かない（${yt.calls.length - before.yt}回）`);
-    check(rl.gets === before.gets && rl.posts.length === before.posts, '(2) エッジに当たった時は数えない');
+    check(rl.heads === before.heads && rl.posts.length === before.posts, '(2) エッジに当たった時は数えない');
   }
 
   // ---- (3) 見られない ----
@@ -184,22 +227,133 @@ try {
   }
 
   // ---- (6) 回数の上限 ----
+  const myHash = rl.posts[0].ip_hash; // 203.0.113.7 のハッシュ
+  const seed = (n, ipHash, agoMs = 60e3) => {
+    for (let i = 0; i < n; i++) rl.rows.push({ ip_hash: ipHash, endpoint: 'crossword-video-info', created_at: Date.now() - agoMs });
+  };
+  const reset = () => {
+    rl.rows = [];
+    rl.onPost = null;
+    rl.failHead = false;
+    rl.failPost = false;
+    rl.noRange = false;
+  };
+  const noEdge = (id) => !edge.has(`https://local.invalid/api/crossword-video-info?id=${id}`);
   yt.mode = () => ({ status: 200, body: item() });
-  rl.count = 119;
+
+  reset();
+  seed(119, myHash);
   r = await askT('AAAAAAAAAD1');
-  check(r.status === 200 && r.j?.status === 'ok', `(6) 1時間に 119回までなら通す（${r.status}）`);
-  rl.count = 120;
+  check(r.status === 200 && r.j?.status === 'ok', `(6) 接続元ごと 1時間に 119回までなら通す（${r.status}）`);
+
+  reset();
+  seed(120, myHash);
   {
     const n0 = yt.calls.length;
     const p0 = rl.posts.length;
     r = await askT('AAAAAAAAAD2');
-    check(r.status === 429 && r.j?.status === 'unknown' && yt.calls.length === n0, `(6) 120回に達したら 429・YouTube に聞かない（${r.status} ${r.text}）`);
-    check(rl.posts.length === p0, '(6) 断った回は数えに足さない（数えるのは通した回だけ）');
-    check(!edge.has('https://local.invalid/api/crossword-video-info?id=AAAAAAAAAD2'), '(6) 断った答えはエッジに置かない');
+    check(r.status === 429 && r.j?.status === 'unknown' && yt.calls.length === n0, `(6) 接続元ごと 120回に達したら 429・YouTube に聞かない（${r.status} ${r.text}）`);
+    check(rl.posts.length === p0, '(6) 先の数えで断った回は記録を書かない（攻撃で記録が膨らまない）');
+    check(noEdge('AAAAAAAAAD2'), '(6) 断った答えはエッジに置かない');
     r = await askT('AAAAAAAAAA1');
     check(r.status === 200 && r.j?.status === 'ok', '(6) 上限に達していてもエッジにある番号は答える');
   }
-  rl.count = 0;
+
+  // 1時間より前の記録は数えず、掃除で消える
+  reset();
+  seed(200, myHash, 61 * 60e3);
+  seed(200, 'other', 61 * 60e3);
+  r = await askT('AAAAAAAAAD3');
+  check(r.status === 200 && r.j?.status === 'ok', `(6) 1時間より前の記録は数えない（${r.status}）`);
+  check(rl.rows.length === 1 && rl.rows.every((row) => row.created_at > Date.now() - 60 * 60e3), `(6) 掃除で1時間より古い記録が消える（残り ${rl.rows.length}行）`);
+  {
+    // ほかのエンドポイントの古い記録は消さない
+    rl.rows.push({ ip_hash: 'x', endpoint: 'hai-to-diamond-comments', created_at: Date.now() - 61 * 60e3 });
+    r = await askT('AAAAAAAAAD3');
+    r = await askT('AAAAAAAAAE3');
+    check(rl.rows.some((row) => row.endpoint === 'hai-to-diamond-comments'), '(6) ほかのエンドポイントの古い記録には触らない');
+  }
+
+  // 同時に叩かれた場面の代わり: 先の数えは 119 だが、記録を書く間にほかの回が 2つ書いた
+  reset();
+  seed(119, myHash);
+  rl.onPost = () => seed(2, myHash, 0);
+  {
+    const n0 = yt.calls.length;
+    const p0 = rl.posts.length;
+    r = await askT('AAAAAAAAAD4');
+    check(r.status === 429 && r.j?.status === 'unknown' && yt.calls.length === n0, `(6) 書いた後の数え直しで接続元ごと 120回を超えたら 429・YouTube に聞かない（${r.status} ${r.text}）`);
+    check(rl.posts.length === p0 + 1, '(6) 数え直しで断った回の記録は残る（書いた後に数え直すため）');
+    check(noEdge('AAAAAAAAAD4'), '(6) 数え直しで断った答えはエッジに置かない');
+  }
+
+  // 全員合わせて 1時間 125回
+  reset();
+  seed(124, 'other');
+  r = await askT('AAAAAAAAAD5');
+  check(r.status === 200 && r.j?.status === 'ok', `(6) 全体で自分を含めて 125回までなら通す（${r.status}）`);
+  reset();
+  seed(125, 'other');
+  {
+    const n0 = yt.calls.length;
+    r = await askT('AAAAAAAAAD6');
+    check(r.status === 429 && r.j?.status === 'unknown' && yt.calls.length === n0, `(6) 全体 125回に達していたら 429・YouTube に聞かない（${r.status} ${r.text}）`);
+    check(noEdge('AAAAAAAAAD6'), '(6) 全体の上限で断った答えはエッジに置かない');
+  }
+  reset();
+  seed(124, 'other');
+  rl.onPost = () => seed(1, 'other2', 0);
+  {
+    const n0 = yt.calls.length;
+    r = await askT('AAAAAAAAAD7');
+    check(r.status === 429 && yt.calls.length === n0, `(6) 書いた後の数え直しで全体 125回を超えたら 429・YouTube に聞かない（${r.status}）`);
+  }
+
+  // 照会・記録の失敗は通さない
+  for (const [label, set] of [
+    ['照会が 500', () => { rl.failHead = true; }],
+    ['照会の通信の失敗', () => { rl.failHead = 'throw'; }],
+    ['件数が読めない（Content-Range が無い）', () => { rl.noRange = true; }],
+  ]) {
+    reset();
+    set();
+    const n0 = yt.calls.length;
+    const p0 = rl.posts.length;
+    r = await askT('AAAAAAAAAD8');
+    check(r.status === 503 && r.j?.status === 'unknown' && yt.calls.length === n0 && rl.posts.length === p0, `(6) ${label} → 503 unknown・記録を書かず YouTube に聞かない（${r.status} ${r.text}）`);
+    check(noEdge('AAAAAAAAAD8'), `(6) ${label} の答えはエッジに置かない`);
+  }
+  for (const [label, set] of [
+    ['記録が 500', () => { rl.failPost = true; }],
+    ['記録の通信の失敗', () => { rl.failPost = 'throw'; }],
+    ['数え直しの照会の失敗', () => { rl.onPost = () => { rl.failHead = true; }; }],
+  ]) {
+    reset();
+    set();
+    const n0 = yt.calls.length;
+    r = await askT('AAAAAAAAAD9');
+    check(r.status === 503 && r.j?.status === 'unknown' && yt.calls.length === n0, `(6) ${label} → 503 unknown・YouTube に聞かない（${r.status} ${r.text}）`);
+    check(noEdge('AAAAAAAAAD9'), `(6) ${label} の答えはエッジに置かない`);
+  }
+  reset();
+
+  // ---- (8) 呼ばれ元 ----
+  for (const site of ['cross-site', 'same-site', 'none']) {
+    const before = { yt: yt.calls.length, heads: rl.heads, posts: rl.posts.length };
+    r = await askT('AAAAAAAAAF1', { site });
+    check(
+      r.status === 403 && r.j?.status === 'unknown' && yt.calls.length === before.yt && rl.heads === before.heads && rl.posts.length === before.posts,
+      `(8) Sec-Fetch-Site: ${site} → 403・数えにも YouTube にも行かない（${r.status} ${r.text}）`,
+    );
+  }
+  check(noEdge('AAAAAAAAAF1'), '(8) よそから断った答えはエッジに置かない');
+  r = await askT('AAAAAAAAAA1', { site: 'cross-site' });
+  check(r.status === 403, `(8) エッジにある番号でも、よそからは 403（${r.status}）`);
+  r = await askT('AAAAAAAAAF2', { site: 'same-origin' });
+  check(r.status === 200 && r.j?.status === 'ok', `(8) same-origin は通る（${r.status}）`);
+  r = await askT('AAAAAAAAAF3', { site: null });
+  check(r.status === 200 && r.j?.status === 'ok', `(8) Sec-Fetch-Site が付いていない時は通る（${r.status}）`);
+  reset();
 
   // ---- (7) 鍵が出ない ----
   check(texts.length > 0 && texts.every((t) => !t.includes(KEY)), `(7) 鍵はどの返事にも出ない（${texts.length}件を見た）`);
