@@ -60,7 +60,7 @@ const MAX_ANSWER_CHARS = 20;
 const MAX_CLUES = 60;
 const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
-// チャンネル名は保存しない。台帳に無い動画のチャンネル名は、見る人のブラウザがその都度 YouTube に聞く（Hop 決定 2026-10-19「書き残さない形」）
+// チャンネル名は保存しない。台帳に無い動画のチャンネル名は、画面を開くたびに受付係 crossword-video-info が YouTube Data API に聞く（Hop 決定 2026-10-19「書き残さない形」・2026-10-21 正式な窓口へ）
 type Hint = { kind: "youtube"; videoId: string; startSec: number } | { kind: "link"; url: string };
 const isYouTubeHost = (host: string) => {
   const h = host.replace(/^(www\.|m\.|music\.)/, "");
