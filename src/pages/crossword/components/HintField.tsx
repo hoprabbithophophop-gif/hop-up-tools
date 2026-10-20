@@ -16,6 +16,7 @@ import {
 import { formatTime, parseTimeInput, parseYouTubeUrl, linkProblem, isYouTubeHost } from "../../../lib/crossword/youtubeUrl";
 import { OFFICIAL_BLOGS, officialBlogSearchQuery, officialBlogSearchUrl } from "../../../data/officialBlogs";
 import { OFFICIAL_ACCOUNT_GROUPS, officialXSearchQuery, officialXSearchUrl, officialIgSearchQuery, officialIgSearchUrl, igAccountUrl } from "../../../data/officialAccounts";
+import { officialSiteSearchQuery, officialSiteSearchUrl } from "../../../data/officialSites";
 import { periodYears, type SearchPeriod } from "../../../lib/crossword/searchPeriod";
 import { AccountTag } from "./HintView";
 import { HINT_SOURCES, HintSourceBar, sourceOfUrl, type HintSource } from "./HintSourceBar";
@@ -33,6 +34,14 @@ const YT_FORM = "YouTube の URL の形が違います。動画のページの U
 const YT_UNKNOWN = "この動画を確かめられませんでした。削除・非公開・埋め込み禁止になっていないかご確認ください。";
 // 台帳に無い動画に添える一言（ハロプロだけ。Hop 2026-10-19「公式情報をヒントにしてもらえると」）【仮】
 const CHECK_OFFICIAL = "ハロプロの公式の発信か確かめてください。";
+// アメブロ・X・Instagram・リンクの「① 探す」「② 貼る」の箱の言葉（Hop 決定 2026-10-20 の形。言葉は承認待ち【仮】）。差し替えはここだけ
+const STEP_TEXT = {
+  find: { ameblo: "公式ブログを探す", x: "公式の投稿を探す", ig: "公式の投稿を探す", link: "公式サイトを探す" },
+  paste: { ameblo: "見つけた記事の URL を貼る", x: "見つけた投稿の URL を貼る", ig: "見つけた投稿の URL を貼る", link: "見つけたページの URL を貼る" },
+  pasteNote: "開いたページの URL をコピーして、ここに貼ります。",
+  siteSearch: "公式サイトを探す",
+} as const;
+type StepSource = keyof typeof STEP_TEXT.find;
 
 export interface Selected {
   hint: HintRef;
@@ -105,6 +114,8 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   // 公式アカウントを開く（Instagram の印の時だけ。Instagram は言葉で探せないので、アカウントのページを開くだけ）
   const [igHandle, setIgHandle] = useState(OFFICIAL_ACCOUNT_GROUPS[0].ig[0]);
   const [igKeyword, setIgKeyword] = useState("");
+  // 公式サイトを探す（リンクの印の時だけ。公式サイトと /link/ の関連サイトを対象にした Google 検索を新しいタブで開くだけ。Hop 決定 2026-10-20）
+  const [siteKeyword, setSiteKeyword] = useState("");
   const [timeText, setTimeText] = useState("0:00");
   const [results, setResults] = useState<CatalogVideo[]>([]);
   const [chapterResults, setChapterResults] = useState<CatalogChapter[]>([]);
@@ -128,6 +139,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
     setBlogKeyword("");
     setXKeyword("");
     setIgKeyword("");
+    setSiteKeyword("");
     setPeriodYear("");
     setPeriodMonth("");
     setCopied("");
@@ -299,7 +311,9 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
     );
   }
 
-  const selectClassName = "flex-1 min-w-0 h-10 bg-surface-container-low px-2 text-base focus:outline-none focus:shadow-[inset_0_-2px_0_#000]";
+  // 箱（① 探す・② 貼る）の中の欄は白地、ボタンは一段濃い灰（箱の地が surface-container-low なので、欄の場所が見えるように。見本 2026-10-20 案A）
+  const boxInputClassName = "w-full min-w-0 h-11 bg-white px-3 text-base text-on-surface placeholder:text-outline focus:outline-none focus:shadow-[inset_0_-2px_0_#000]";
+  const selectClassName = "w-full min-w-0 h-11 bg-white px-2 text-base focus:outline-none focus:shadow-[inset_0_-2px_0_#000]";
   const period: SearchPeriod | null = periodYear ? { year: Number(periodYear), month: periodMonth ? Number(periodMonth) : undefined } : null;
   const blogGroup = OFFICIAL_BLOGS.find((g) => g.key === blogGroupKey) ?? OFFICIAL_BLOGS[0];
   const blogSearchHref = blogKeyword.trim() ? officialBlogSearchUrl(blogGroup, blogKeyword, period) : null;
@@ -309,6 +323,8 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   const xSearchText = xKeyword.trim() ? officialXSearchQuery(xGroup, xKeyword, period) : null;
   const igSearchHref = igKeyword.trim() ? officialIgSearchUrl(igHandle, igKeyword, period) : null;
   const igSearchText = igKeyword.trim() ? officialIgSearchQuery(igHandle, igKeyword, period) : null;
+  const siteSearchHref = siteKeyword.trim() ? officialSiteSearchUrl(siteKeyword, period) : null;
+  const siteSearchText = siteKeyword.trim() ? officialSiteSearchQuery(siteKeyword, period) : null;
   // 組み立てた検索の言葉をそのままクリップボードにコピーする（X や Google の画面で手直しして使えるように。Hop 依頼 2026-10-19）
   const copyText = async (text: string) => {
     try {
@@ -325,7 +341,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
       data-copy-text={text ?? ""}
       disabled={!text}
       onClick={() => text && copyText(text)}
-      className={`shrink-0 inline-flex items-center gap-1 h-10 px-3 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors whitespace-nowrap ${text ? "" : "opacity-40 cursor-default"}`}
+      className={`shrink-0 inline-flex items-center gap-1 h-11 px-3 text-sm font-bold bg-surface-container-highest hover:opacity-80 transition-opacity whitespace-nowrap ${text ? "" : "opacity-40 cursor-default"}`}
       style={{ color: C.ink }}
       aria-label="検索の言葉をコピー"
     >
@@ -335,14 +351,14 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   );
   // いつごろ（年・月）。選ばなければ期間なし
   const periodPicker = (
-    <div data-helper-period="" className="basis-full flex gap-2">
-      <select aria-label="いつごろ（年）" value={periodYear} onChange={(e) => { setPeriodYear(e.target.value); if (!e.target.value) setPeriodMonth(""); }} className={selectClassName} style={{ color: C.ink }}>
+    <div data-helper-period="" className="flex gap-2">
+      <select aria-label="いつごろ（年）" value={periodYear} onChange={(e) => { setPeriodYear(e.target.value); if (!e.target.value) setPeriodMonth(""); }} className={`${selectClassName} flex-1`} style={{ color: C.ink }}>
         <option value="">いつごろ（年）</option>
         {periodYears().map((y) => (
           <option key={y} value={String(y)}>{`${y}年`}</option>
         ))}
       </select>
-      <select aria-label="いつごろ（月）" value={periodMonth} onChange={(e) => setPeriodMonth(e.target.value)} disabled={!periodYear} className={`${selectClassName} ${periodYear ? "" : "opacity-40"}`} style={{ color: C.ink }}>
+      <select aria-label="いつごろ（月）" value={periodMonth} onChange={(e) => setPeriodMonth(e.target.value)} disabled={!periodYear} className={`${selectClassName} flex-1 ${periodYear ? "" : "opacity-40"}`} style={{ color: C.ink }}>
         <option value="">月を選ばない</option>
         {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
           <option key={m} value={String(m)}>{`${m}月`}</option>
@@ -350,7 +366,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
       </select>
     </div>
   );
-  // 探す補助のボタン（アメブロ・X で同じ見た目）
+  // 探す補助のボタン（アメブロ・X・Instagram・リンクで同じ見た目）
   const helperLink = (href: string | null, label: string, testId: string) => (
     <a
       data-helper-link={testId}
@@ -359,12 +375,31 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
       rel="noopener noreferrer"
       aria-disabled={!href}
       onClick={(e) => { if (!href) e.preventDefault(); }}
-      className={`flex-1 inline-flex items-center justify-center h-10 px-3 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors whitespace-nowrap ${href ? "" : "opacity-40 cursor-default"}`}
+      className={`flex-1 inline-flex items-center justify-center h-11 px-3 text-sm font-bold bg-surface-container-highest hover:opacity-80 transition-opacity whitespace-nowrap ${href ? "" : "opacity-40 cursor-default"}`}
       style={{ color: C.ink }}
     >
       {label}
     </a>
   );
+  // 探す言葉の欄（4つの出どころで同じ形）
+  const keywordInput = (label: string, value: string, set: (v: string) => void, ph: string) => (
+    <input
+      aria-label={label}
+      value={value}
+      onChange={(e) => { set(e.target.value); setCopied(""); }}
+      placeholder={ph}
+      className={boxInputClassName}
+    />
+  );
+  const copiedNote = copied && <p className="text-xs" style={{ color: C.secondary }}>{copied}</p>;
+  // 箱の見出し。「①」を太字で、続けて見出しの文
+  const stepHead = (num: string, label: string) => (
+    <p className="flex items-baseline gap-2" style={{ color: C.ink }}>
+      <span className="text-[15px] font-black leading-none">{num}</span>
+      <span className="text-sm font-bold">{label}</span>
+    </p>
+  );
+  const boxClassName = "flex flex-col gap-2 p-3 bg-surface-container-low";
   // 出どころごとの欄の説明【仮】
   const placeholder =
     source === "yt"
@@ -374,112 +409,113 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
       : source === "ameblo"
         ? "記事の URL を貼る"
         : source === "x" || source === "ig"
-          ? genre === "hello" ? "ハロプロ公式アカウントの投稿の URL を貼る" : "投稿の URL を貼る"
+          // ハロプロは「② 見つけた投稿の URL を貼る」の箱の中で幅が狭く、長い文だと切れるので短い方にする（見本 2026-10-20 案A と同じ文）【仮】
+          ? "投稿の URL を貼る"
           : genre === "hello" ? "ハロプロ公式サイトなどの URL を貼る" : "URL を貼る";
+  // ハロプロの YouTube 以外は「① 探す」「② 見つけた◯◯の URL を貼る」の2つの箱に分ける（Hop 決定 2026-10-20）。YouTube と「その他」のジャンルは今のまま
+  const stepSource: StepSource | null = genre === "hello" && source !== "yt" ? source : null;
+  const urlInput = (
+    <input
+      id={inputId}
+      value={text}
+      onChange={(e) => handleText(e.target.value)}
+      placeholder={placeholder}
+      className={stepSource ? boxInputClassName : inputClassName}
+    />
+  );
+  const busyNote = busy && <p className="text-xs" style={{ color: C.secondary }}>読み込み中…</p>;
+  const messageNote = message && <p className="text-xs" style={{ color: C.secondary }}>{message}</p>;
   return (
     <div className="space-y-2">
       <HintSourceBar value={source} onChange={(s) => { setSource(s); setMessage(""); setCopied(""); setResults([]); setChapterResults([]); }} idPrefix={inputId ? `${inputId}-src` : undefined} />
-      {/* 公式ブログを探す（アメブロの印・ハロプロだけ。Hop 依頼 2026-10-19。棚は触らず Google を新しいタブで開くだけ） */}
-      {source === "ameblo" && genre === "hello" && (
-        <div data-blog-search="" className="flex flex-wrap items-stretch gap-2">
-          <input
-            aria-label="公式ブログを探す言葉"
-            value={blogKeyword}
-            onChange={(e) => { setBlogKeyword(e.target.value); setCopied(""); }}
-            placeholder="公式ブログを探す言葉（例: 武道館）"
-            className={`${inputClassName} basis-full min-w-0`}
-          />
-          <select
-            aria-label="公式ブログのグループ"
-            value={blogGroupKey}
-            onChange={(e) => setBlogGroupKey(e.target.value)}
-            className={`${selectClassName} basis-full`}
-            style={{ color: C.ink }}
-          >
-            {OFFICIAL_BLOGS.map((g) => (
-              <option key={g.key} value={g.key}>{g.label}</option>
-            ))}
-          </select>
-          {periodPicker}
-          <div className="basis-full flex gap-2">
-            {helperLink(blogSearchHref, "公式ブログを探す", "blog")}
-            {copyButton(blogSearchText, "blog")}
-          </div>
-          {copied && <p className="basis-full text-xs" style={{ color: C.secondary }}>{copied}</p>}
-        </div>
-      )}
-      {/* 公式の投稿を探す（X の印・ハロプロだけ。公式サイトに載っているグループのアカウントの投稿を x.com で新しい順に探す） */}
-      {source === "x" && genre === "hello" && (
-        <div data-x-search="" className="flex flex-wrap items-stretch gap-2">
-          <input
-            aria-label="公式の投稿を探す言葉"
-            value={xKeyword}
-            onChange={(e) => { setXKeyword(e.target.value); setCopied(""); }}
-            placeholder="公式の投稿を探す言葉（例: 武道館）"
-            className={`${inputClassName} basis-full min-w-0`}
-          />
-          <select
-            aria-label="公式アカウントのグループ"
-            value={xGroupKey}
-            onChange={(e) => setXGroupKey(e.target.value)}
-            className={`${selectClassName} basis-full`}
-            style={{ color: C.ink }}
-          >
-            {OFFICIAL_ACCOUNT_GROUPS.map((g) => (
-              <option key={g.key} value={g.key}>{g.label}</option>
-            ))}
-          </select>
-          {periodPicker}
-          <div className="basis-full flex gap-2">
-            {helperLink(xSearchHref, "公式の投稿を探す", "x")}
-            {copyButton(xSearchText, "x")}
-          </div>
-          {copied && <p className="basis-full text-xs" style={{ color: C.secondary }}>{copied}</p>}
-        </div>
-      )}
-      {/* 公式アカウントの投稿を探す（Instagram の印・ハロプロだけ。グループの次にメンバーのアカウントが続く。名前はアカウント名のまま）。
-          Instagram 自身に期間の指定が無いので、言葉と期間は Google（site:instagram.com/アカウント名）に頼む。Google が拾っている投稿だけが対象（Hop 決定 2026-10-19） */}
-      {source === "ig" && genre === "hello" && (
-        <div data-ig-open="" className="flex flex-wrap items-stretch gap-2">
-          <input
-            aria-label="公式の投稿を探す言葉"
-            value={igKeyword}
-            onChange={(e) => { setIgKeyword(e.target.value); setCopied(""); }}
-            placeholder="公式の投稿を探す言葉（例: 武道館）"
-            className={`${inputClassName} basis-full min-w-0`}
-          />
-          <select
-            aria-label="公式アカウント"
-            value={igHandle}
-            onChange={(e) => setIgHandle(e.target.value)}
-            className={`${selectClassName} basis-full`}
-            style={{ color: C.ink }}
-          >
-            {OFFICIAL_ACCOUNT_GROUPS.map((g) => (
-              <optgroup key={g.key} label={g.label}>
-                {g.ig.map((h) => (
-                  <option key={h} value={h}>{h}</option>
+      {stepSource && (
+        <div data-hint-step="1" className={boxClassName}>
+          {stepHead("①", STEP_TEXT.find[stepSource])}
+          {/* 公式ブログを探す（アメブロの印。Hop 依頼 2026-10-19。棚は触らず Google を新しいタブで開くだけ） */}
+          {stepSource === "ameblo" && (
+            <div data-blog-search="" className="flex flex-col gap-2">
+              <select aria-label="公式ブログのグループ" value={blogGroupKey} onChange={(e) => setBlogGroupKey(e.target.value)} className={selectClassName} style={{ color: C.ink }}>
+                {OFFICIAL_BLOGS.map((g) => (
+                  <option key={g.key} value={g.key}>{g.label}</option>
                 ))}
-              </optgroup>
-            ))}
-          </select>
-          {periodPicker}
-          <div className="basis-full flex gap-2">
-            {helperLink(igSearchHref, "Google で探す", "ig-search")}
-            {copyButton(igSearchText, "ig")}
-          </div>
-          <div className="basis-full flex">{helperLink(igAccountUrl(igHandle), "Instagram で開く", "ig")}</div>
-          {copied && <p className="basis-full text-xs" style={{ color: C.secondary }}>{copied}</p>}
+              </select>
+              {keywordInput("公式ブログを探す言葉", blogKeyword, setBlogKeyword, "公式ブログを探す言葉（例: 武道館）")}
+              {periodPicker}
+              <div className="flex gap-2">
+                {helperLink(blogSearchHref, "公式ブログを探す", "blog")}
+                {copyButton(blogSearchText, "blog")}
+              </div>
+              {copiedNote}
+            </div>
+          )}
+          {/* 公式の投稿を探す（X の印。公式サイトに載っているグループのアカウントの投稿を x.com で新しい順に探す） */}
+          {stepSource === "x" && (
+            <div data-x-search="" className="flex flex-col gap-2">
+              <select aria-label="公式アカウントのグループ" value={xGroupKey} onChange={(e) => setXGroupKey(e.target.value)} className={selectClassName} style={{ color: C.ink }}>
+                {OFFICIAL_ACCOUNT_GROUPS.map((g) => (
+                  <option key={g.key} value={g.key}>{g.label}</option>
+                ))}
+              </select>
+              {keywordInput("公式の投稿を探す言葉", xKeyword, setXKeyword, "公式の投稿を探す言葉（例: 武道館）")}
+              {periodPicker}
+              <div className="flex gap-2">
+                {helperLink(xSearchHref, "公式の投稿を探す", "x")}
+                {copyButton(xSearchText, "x")}
+              </div>
+              {copiedNote}
+            </div>
+          )}
+          {/* 公式アカウントの投稿を探す（Instagram の印。グループの次にメンバーのアカウントが続く。名前はアカウント名のまま）。
+              Instagram 自身に期間の指定が無いので、言葉と期間は Google（site:instagram.com/アカウント名）に頼む。Google が拾っている投稿だけが対象（Hop 決定 2026-10-19） */}
+          {stepSource === "ig" && (
+            <div data-ig-open="" className="flex flex-col gap-2">
+              <select aria-label="公式アカウント" value={igHandle} onChange={(e) => setIgHandle(e.target.value)} className={selectClassName} style={{ color: C.ink }}>
+                {OFFICIAL_ACCOUNT_GROUPS.map((g) => (
+                  <optgroup key={g.key} label={g.label}>
+                    {g.ig.map((h) => (
+                      <option key={h} value={h}>{h}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              {keywordInput("公式の投稿を探す言葉", igKeyword, setIgKeyword, "公式の投稿を探す言葉（例: 武道館）")}
+              {periodPicker}
+              <div className="flex gap-2">
+                {helperLink(igSearchHref, "Google で探す", "ig-search")}
+                {copyButton(igSearchText, "ig")}
+              </div>
+              <div className="flex">{helperLink(igAccountUrl(igHandle), "Instagram で開く", "ig")}</div>
+              {copiedNote}
+            </div>
+          )}
+          {/* 公式サイトを探す（リンクの印。ハロプロ公式サイトと /link/ の関連サイトだけを対象にした Google 検索。Hop 決定 2026-10-20） */}
+          {stepSource === "link" && (
+            <div data-site-search="" className="flex flex-col gap-2">
+              {keywordInput("公式サイトを探す言葉", siteKeyword, setSiteKeyword, "公式サイトを探す言葉（例: 武道館）")}
+              {periodPicker}
+              <div className="flex gap-2">
+                {helperLink(siteSearchHref, STEP_TEXT.siteSearch, "site")}
+                {copyButton(siteSearchText, "site")}
+              </div>
+              {copiedNote}
+            </div>
+          )}
         </div>
       )}
-      <input
-        id={inputId}
-        value={text}
-        onChange={(e) => handleText(e.target.value)}
-        placeholder={placeholder}
-        className={inputClassName}
-      />
-      {busy && <p className="text-xs" style={{ color: C.secondary }}>読み込み中…</p>}
+      {stepSource ? (
+        <div data-hint-step="2" className={boxClassName}>
+          {stepHead("②", STEP_TEXT.paste[stepSource])}
+          <p className="text-xs leading-relaxed" style={{ color: C.secondary }}>{STEP_TEXT.pasteNote}</p>
+          {urlInput}
+          {busyNote}
+          {messageNote}
+        </div>
+      ) : (
+        <>
+          {urlInput}
+          {busyNote}
+        </>
+      )}
       {(results.length > 0 || chapterResults.length > 0) && (
         <div className={`${flatResults ? "" : "max-h-96 overflow-y-auto "}bg-surface-container-low`}>
           {results.length > 0 && (
@@ -544,7 +580,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
           )}
         </div>
       )}
-      {message && <p className="text-xs" style={{ color: C.secondary }}>{message}</p>}
+      {!stepSource && messageNote}
 
       {/* 拡大して見る窓。動画の上には何も重ねず、操作は動画の下に置く（YouTube の決まり） */}
       {preview && preview.hint.kind === "youtube" && (
