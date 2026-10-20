@@ -21,6 +21,33 @@ export const OFFICIAL_BLOGS: OfficialBlogGroup[] = [
   { key: "rosy", label: "ロージークロニクル", ids: ["rosychronicle"] },
 ];
 
+// ブログごとの表示名（Hop 依頼 2026-10-21「全部からも細かくも選べると嬉しい」）。
+// 出どころ: 各ブログのページの題名（<title>）を 2026-10-21 に機械で拾い、「オフィシャルブログ」を外した物。本文は読んでいない。
+// つばきファクトリーの2つは題名がほぼ同じで見分けられないので、住所の名前のまま【仮】
+export const BLOG_NAMES: Record<string, string> = {
+  "morningmusume-10ki": "天気組",
+  "mm-12ki": "12期",
+  "morningmusume15ki": "15期",
+  "morningmusume16ki": "16期17期18期",
+  "tsubaki-factory": "tsubaki-factory",
+  "tsubaki-factory-new": "tsubaki-factory-new",
+  "beyooooonds": "SeasoningS",
+  "beyooooonds-blog": "BEYOOOOONDS",
+  "beyooooonds-chicatetsu": "CHICA#TETSU",
+  "beyooooonds-rfro": "雨ノ森 川海",
+};
+
+// 選択欄の値: "g:グループの key"（そのグループのブログ全部）か "b:ブログの ID"（1つだけ）。探す対象をグループの形で返す
+export function blogChoiceTarget(choice: string): OfficialBlogGroup {
+  if (choice.startsWith("b:")) {
+    const id = choice.slice(2);
+    const group = OFFICIAL_BLOGS.find((g) => g.ids.includes(id));
+    if (group) return { key: group.key, label: `${group.label} ${BLOG_NAMES[id] ?? id}`, ids: [id] };
+  }
+  const key = choice.startsWith("g:") ? choice.slice(2) : choice;
+  return OFFICIAL_BLOGS.find((g) => g.key === key) ?? OFFICIAL_BLOGS[0];
+}
+
 // Google の site: 検索の住所。複数のブログは OR でつなぐ。
 // inurl:entry で記事ページに絞ろうとすると Google が 0 件を返す（2026-10-19 に Hop の Chrome で確認。site: と組むと効かない）ので付けない
 // 期間（いつごろ）は after:/before: で足す（Hop 依頼 2026-10-19）。写して使えるように、言葉そのものも返す

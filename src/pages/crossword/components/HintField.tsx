@@ -14,7 +14,7 @@ import {
   type CatalogVideo,
 } from "../../../lib/crossword/puzzleStore";
 import { formatTime, parseTimeInput, parseYouTubeUrl, linkProblem, isYouTubeHost } from "../../../lib/crossword/youtubeUrl";
-import { OFFICIAL_BLOGS, officialBlogSearchQuery, officialBlogSearchUrl } from "../../../data/officialBlogs";
+import { OFFICIAL_BLOGS, BLOG_NAMES, blogChoiceTarget, officialBlogSearchQuery, officialBlogSearchUrl } from "../../../data/officialBlogs";
 import { OFFICIAL_ACCOUNT_GROUPS, officialXSearchQuery, officialXSearchUrl, officialIgSearchQuery, officialIgSearchUrl, igAccountUrl } from "../../../data/officialAccounts";
 import { officialSiteSearchQuery, officialSiteSearchUrl } from "../../../data/officialSites";
 import { periodYears, type SearchPeriod } from "../../../lib/crossword/searchPeriod";
@@ -108,7 +108,8 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   // 出どころの印（Hop 決定 2026-10-19 案A-2）。初期は YouTube。URL を貼ると行き先に合わせて切り替わる
   const [source, setSource] = useState<HintSource>("yt");
   // 公式ブログを探す（アメブロの印の時だけ。Google の site: 検索を新しいタブで開くだけ）
-  const [blogGroupKey, setBlogGroupKey] = useState(OFFICIAL_BLOGS[0].key);
+  // 公式ブログの選択（"g:グループ"＝そのグループのブログ全部／"b:ブログ"＝1つだけ。Hop 依頼 2026-10-21）
+  const [blogChoice, setBlogChoice] = useState(`g:${OFFICIAL_BLOGS[0].key}`);
   // 探す言葉はアメブロ・X・Instagram・リンクで共通の1つ。出どころを選び直しても消えない（Hop 依頼 2026-10-21「入れ直しはめんどい」）
   const [findKeyword, setFindKeyword] = useState("");
   const [blogKeyword, setBlogKeyword] = [findKeyword, setFindKeyword];
@@ -322,7 +323,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   const boxInputClassName = "w-full min-w-0 h-11 bg-white px-3 text-base text-on-surface placeholder:text-outline focus:outline-none focus:shadow-[inset_0_-2px_0_#000]";
   const selectClassName = "w-full min-w-0 h-11 bg-white px-2 text-base focus:outline-none focus:shadow-[inset_0_-2px_0_#000]";
   const period: SearchPeriod | null = periodYear ? { year: Number(periodYear), month: periodMonth ? Number(periodMonth) : undefined } : null;
-  const blogGroup = OFFICIAL_BLOGS.find((g) => g.key === blogGroupKey) ?? OFFICIAL_BLOGS[0];
+  const blogGroup = blogChoiceTarget(blogChoice);
   const blogSearchHref = blogKeyword.trim() ? officialBlogSearchUrl(blogGroup, blogKeyword, period) : null;
   const blogSearchText = blogKeyword.trim() ? officialBlogSearchQuery(blogGroup, blogKeyword, period) : null;
   const xGroup = OFFICIAL_ACCOUNT_GROUPS.find((g) => g.key === xGroupKey) ?? OFFICIAL_ACCOUNT_GROUPS[0];
@@ -469,10 +470,19 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
           {/* 公式ブログを探す（アメブロの印。Hop 依頼 2026-10-19。棚は触らず Google を新しいタブで開くだけ） */}
           {stepSource === "ameblo" && (
             <div data-blog-search="" className="flex flex-col gap-2">
-              <select aria-label="公式ブログのグループ" value={blogGroupKey} onChange={(e) => setBlogGroupKey(e.target.value)} className={selectClassName} style={{ color: C.ink }}>
-                {OFFICIAL_BLOGS.map((g) => (
-                  <option key={g.key} value={g.key}>{g.label}</option>
-                ))}
+              <select aria-label="公式ブログ" value={blogChoice} onChange={(e) => setBlogChoice(e.target.value)} className={selectClassName} style={{ color: C.ink }}>
+                {OFFICIAL_BLOGS.map((g) =>
+                  g.ids.length > 1 ? (
+                    <optgroup key={g.key} label={g.label}>
+                      <option value={`g:${g.key}`}>{`${g.label}（全部）`}</option>
+                      {g.ids.map((id) => (
+                        <option key={id} value={`b:${id}`}>{BLOG_NAMES[id] ?? id}</option>
+                      ))}
+                    </optgroup>
+                  ) : (
+                    <option key={g.key} value={`g:${g.key}`}>{g.label}</option>
+                  )
+                )}
               </select>
               {keywordInput("公式ブログを探す言葉", blogKeyword, setBlogKeyword, "探す言葉（例: 武道館）")}
               {periodPicker}
