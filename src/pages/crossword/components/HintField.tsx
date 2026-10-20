@@ -14,7 +14,7 @@ import {
   type CatalogVideo,
 } from "../../../lib/crossword/puzzleStore";
 import { formatTime, parseTimeInput, parseYouTubeUrl, linkProblem, isYouTubeHost } from "../../../lib/crossword/youtubeUrl";
-import { OFFICIAL_BLOGS, BLOG_NAMES, blogChoiceTarget, officialBlogSearchQuery, officialBlogSearchUrl } from "../../../data/officialBlogs";
+import { OFFICIAL_BLOGS, blogChoiceTarget, blogOptions, officialBlogSearchQuery, officialBlogSearchUrl } from "../../../data/officialBlogs";
 import { OFFICIAL_ACCOUNT_GROUPS, officialXSearchQuery, officialXSearchUrl, officialIgSearchQuery, officialIgSearchUrl, igAccountUrl } from "../../../data/officialAccounts";
 import { officialSiteSearchQuery, officialSiteSearchUrl } from "../../../data/officialSites";
 import { periodYears, type SearchPeriod } from "../../../lib/crossword/searchPeriod";
@@ -323,7 +323,14 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   const boxInputClassName = "w-full min-w-0 h-11 bg-white px-3 text-base text-on-surface placeholder:text-outline focus:outline-none focus:shadow-[inset_0_-2px_0_#000]";
   const selectClassName = "w-full min-w-0 h-11 bg-white px-2 text-base focus:outline-none focus:shadow-[inset_0_-2px_0_#000]";
   const period: SearchPeriod | null = periodYear ? { year: Number(periodYear), month: periodMonth ? Number(periodMonth) : undefined } : null;
-  const blogGroup = blogChoiceTarget(blogChoice);
+  // 公式ブログの選択肢は「いつごろ」に記事があるブログだけ（Hop 決定 2026-10-21）。選んでいた物が外れたら先頭に選び直す
+  const blogOptionGroups = blogOptions(period);
+  const blogOptionValues = blogOptionGroups.flatMap((g) => g.options.map((o) => o.value));
+  const blogChoiceNow = blogOptionValues.includes(blogChoice) ? blogChoice : blogOptionValues[0] ?? blogChoice;
+  useEffect(() => {
+    if (blogChoiceNow !== blogChoice) setBlogChoice(blogChoiceNow);
+  }, [blogChoiceNow, blogChoice]);
+  const blogGroup = blogChoiceTarget(blogChoiceNow, period);
   const blogSearchHref = blogKeyword.trim() ? officialBlogSearchUrl(blogGroup, blogKeyword, period) : null;
   const blogSearchText = blogKeyword.trim() ? officialBlogSearchQuery(blogGroup, blogKeyword, period) : null;
   const xGroup = OFFICIAL_ACCOUNT_GROUPS.find((g) => g.key === xGroupKey) ?? OFFICIAL_ACCOUNT_GROUPS[0];
@@ -470,17 +477,16 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
           {/* 公式ブログを探す（アメブロの印。Hop 依頼 2026-10-19。棚は触らず Google を新しいタブで開くだけ） */}
           {stepSource === "ameblo" && (
             <div data-blog-search="" className="flex flex-col gap-2">
-              <select aria-label="公式ブログ" value={blogChoice} onChange={(e) => setBlogChoice(e.target.value)} className={selectClassName} style={{ color: C.ink }}>
-                {OFFICIAL_BLOGS.map((g) =>
-                  g.ids.length > 1 ? (
-                    <optgroup key={g.key} label={g.label}>
-                      <option value={`g:${g.key}`}>{`${g.label}（全部）`}</option>
-                      {g.ids.map((id) => (
-                        <option key={id} value={`b:${id}`}>{BLOG_NAMES[id] ?? id}</option>
+              <select aria-label="公式ブログ" value={blogChoiceNow} onChange={(e) => setBlogChoice(e.target.value)} className={selectClassName} style={{ color: C.ink }}>
+                {blogOptionGroups.map((g, i) =>
+                  g.label ? (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.options.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </optgroup>
                   ) : (
-                    <option key={g.key} value={`g:${g.key}`}>{g.label}</option>
+                    <option key={g.options[0].value + i} value={g.options[0].value}>{g.options[0].label}</option>
                   )
                 )}
               </select>
