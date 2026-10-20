@@ -109,20 +109,22 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   const [source, setSource] = useState<HintSource>("yt");
   // 公式ブログを探す（アメブロの印の時だけ。Google の site: 検索を新しいタブで開くだけ）
   const [blogGroupKey, setBlogGroupKey] = useState(OFFICIAL_BLOGS[0].key);
-  const [blogKeyword, setBlogKeyword] = useState("");
+  // 探す言葉はアメブロ・X・Instagram・リンクで共通の1つ。出どころを選び直しても消えない（Hop 依頼 2026-10-21「入れ直しはめんどい」）
+  const [findKeyword, setFindKeyword] = useState("");
+  const [blogKeyword, setBlogKeyword] = [findKeyword, setFindKeyword];
   // 公式の投稿を探す（X の印の時だけ。x.com の検索を新しいタブで開くだけ。Hop 決定 2026-10-19「公式サイトに載っている分だけ」）
   const [xGroupKey, setXGroupKey] = useState(OFFICIAL_ACCOUNT_GROUPS[0].key);
-  const [xKeyword, setXKeyword] = useState("");
-  // いつごろ（年・月。アメブロと X で共通。空なら期間なし。Hop 依頼 2026-10-19 案A）
+  const [xKeyword, setXKeyword] = [findKeyword, setFindKeyword];
+  // いつごろ（年・月。アメブロ・X・Instagram・リンクで共通。出どころを選び直しても消えない。空なら期間なし。Hop 依頼 2026-10-19 案A）
   const [periodYear, setPeriodYear] = useState("");
   const [periodMonth, setPeriodMonth] = useState("");
   // 「コピー」の結果の一言
   const [copied, setCopied] = useState("");
   // 公式アカウントを開く（Instagram の印の時だけ。Instagram は言葉で探せないので、アカウントのページを開くだけ）
   const [igHandle, setIgHandle] = useState(OFFICIAL_ACCOUNT_GROUPS[0].ig[0]);
-  const [igKeyword, setIgKeyword] = useState("");
+  const [igKeyword, setIgKeyword] = [findKeyword, setFindKeyword];
   // 公式サイトを探す（リンクの印の時だけ。公式サイトと /link/ の関連サイトを対象にした Google 検索を新しいタブで開くだけ。Hop 決定 2026-10-20）
-  const [siteKeyword, setSiteKeyword] = useState("");
+  const [siteKeyword, setSiteKeyword] = [findKeyword, setFindKeyword];
   const [timeText, setTimeText] = useState("0:00");
   const [results, setResults] = useState<CatalogVideo[]>([]);
   const [chapterResults, setChapterResults] = useState<CatalogChapter[]>([]);
@@ -144,10 +146,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
     setText("");
     setSelected(initial ?? null);
     setSource(!initial ? "yt" : initial.hint.kind === "youtube" ? "yt" : sourceOfUrl(initial.hint.url));
-    setBlogKeyword("");
-    setXKeyword("");
-    setIgKeyword("");
-    setSiteKeyword("");
+    setFindKeyword("");
     setPeriodYear("");
     setPeriodMonth("");
     setCopied("");
