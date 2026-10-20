@@ -21,6 +21,7 @@ export interface BulkTexts {
   insertBar: string;
   insertBarLabel: string;
   insertArrow: string;
+  unmarkBar: (word: string) => string;
   insertArrowLabel: string;
   reading: string;
   readingOf: (word: string) => string;
@@ -256,6 +257,8 @@ export const BulkEntry: React.FC<{
   // 欄の中で選んでいる範囲（ボタンを押す瞬間に選択が消える端末のため、少し待ってから消す）
   const [areaSel, setAreaSel] = useState<{ start: number; end: number; text: string } | null>(null);
   const areaSelTimer = useRef(0);
+  // 欄の中で【語】の中にカーソルがある時、その印の位置（下の帯を「「語」の囲みを外す」にする。Hop 決定 2026-10-20）
+  const [areaMark, setAreaMark] = useState<number | null>(null);
   useEffect(() => () => window.clearTimeout(areaSelTimer.current), []);
   const [readingDraft, setReadingDraft] = useState("");
   const readingBoxRef = useRef<HTMLInputElement>(null);
@@ -297,9 +300,16 @@ export const BulkEntry: React.FC<{
         window.clearTimeout(areaSelTimer.current);
         if (area.selectionStart < area.selectionEnd) {
           setAreaSel({ start: area.selectionStart, end: area.selectionEnd, text });
+          setAreaMark(null);
           setSelMark(null);
         } else {
-          areaSelTimer.current = window.setTimeout(() => setAreaSel(null), 400);
+          const pos = area.selectionStart;
+          const inside = parseMarks(text).find((m) => pos > m.start && pos < m.end);
+          if (inside) setAreaMark(inside.start);
+          areaSelTimer.current = window.setTimeout(() => {
+            setAreaSel(null);
+            if (!inside) setAreaMark(null);
+          }, 400);
         }
         return;
       }
@@ -479,6 +489,7 @@ export const BulkEntry: React.FC<{
   }, [traceRunning]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showEditor = !collapsed || !text.trim();
+  const areaMarkObj = areaMark === null ? null : (marks.find((m) => m.start === areaMark) ?? null);
   const barWord = current ? (current.picked.length > 12 ? `${current.picked.slice(0, 12)}…` : current.picked) : traceBar;
   const searchable = passed.length >= 2;
 
@@ -524,13 +535,17 @@ export const BulkEntry: React.FC<{
               setSel(null);
               setSelMark(null);
               setAreaSel(null);
+              setAreaMark(null);
               onText(e.target.value);
             }}
             // 半角の | は欄を離れた時に全角へそろえる（打っている途中に書き換えると変換中の字が崩れるため）
             onBlur={() => {
               // 欄を離れたら選択の帯も少し待って消す（帯のボタンを押す瞬間に欄を離れる端末のため待つ）
               window.clearTimeout(areaSelTimer.current);
-              areaSelTimer.current = window.setTimeout(() => setAreaSel(null), 400);
+              areaSelTimer.current = window.setTimeout(() => {
+                setAreaSel(null);
+                setAreaMark(null);
+              }, 400);
               const next = fullWidthBars(text);
               if (next !== text) onText(next);
             }}
@@ -814,6 +829,30 @@ export const BulkEntry: React.FC<{
               style={{ color: C.ink }}
             >
               {t.closeBar}
+            </button>
+          </div>
+        </div>
+      ) : !barWord && areaMarkObj ? (
+        <div data-bulk-markbar="" className="fixed inset-x-0 bottom-0 z-30 bg-white" style={{ boxShadow: `0 -1px 0 ${C.mid}`, paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+          <div className="max-w-[640px] mx-auto px-4 py-2">
+            <button
+              type="button"
+              data-bulk-unmarkbar=""
+              {...keepFocus}
+              onClick={() => {
+                const m = areaMarkObj;
+                setAreaMark(null);
+                unmark(m);
+                requestAnimationFrame(() => {
+                  const area = areaRef.current;
+                  if (!area) return;
+                  area.focus();
+                  area.setSelectionRange(m.start, m.start + m.surface.length);
+                });
+              }}
+              className="w-full min-h-12 px-4 font-semibold bg-primary text-white hover:bg-secondary transition-colors truncate"
+            >
+              {t.unmarkBar(areaMarkObj.surface.length > 12 ? `${areaMarkObj.surface.slice(0, 12)}…` : areaMarkObj.surface)}
             </button>
           </div>
         </div>

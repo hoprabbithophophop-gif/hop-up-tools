@@ -103,6 +103,7 @@ export const BULK_TEXTS: BulkTexts = {
   insertBarLabel: "｜を入れる", // 読み上げ名【仮】
   insertArrow: "→",
   insertArrowLabel: "→を入れる", // 読み上げ名【仮】
+  unmarkBar: (w: string) => `「${w}」の囲みを外す`, // ヒントの窓の「囲みを外す」と同じ言葉
   reading: "読み",
   readingOf: (w: string) => `${w} の読み`, // 読みの欄の読み上げ名【仮】
   unmark: (w: string) => `${w} の囲みを外す`, // 帯の「外す」の読み上げ名【仮】
