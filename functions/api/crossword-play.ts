@@ -8,8 +8,9 @@
  *
  * action:
  *   start  { puzzleId }            → 回を始める。{ token, startedAt }（startedAt は受付係の時計のミリ秒）
- *   check  { token, answers }      → 全部埋まった答案を丸付けする。{ correct, answers?, timeSeconds? }
+ *   check  { token, answers, waitedMs? } → 全部埋まった答案を丸付けする。{ correct, answers?, timeSeconds? }
  *                                    合っていなければ、どこが違うかは返さない（Hop 2026-10-04）
+ *                                    waitedMs = 画面が最後の字のあと答え合わせまで待った時間。解けた時だけタイムから引く（0〜MAX_WAITED_MS に切り詰める）
  *   reveal { token, x, y }         → そのマスの字を1つ返す。{ char, reveals }
  *   touch  { token }               → 最初の1文字が入った。遊ばれた回数をこの回で1度だけ足す（同じ接続元・同じ問題は24時間に1度まで）
  *   resume { token }               → 盤を開いた（再開）。{ activeMs, open: true }
@@ -42,6 +43,9 @@ const MAX_CHECKS_PER_PLAY = 2000;
 const PLAY_KEEP_DAYS = 30;
 const PING_GRACE_MS = 90 * 1000; // 生存の合図は60秒ごと。届かなくなってからこの分だけ「開いていた」と見なす
 const MIN_SEC_PER_CELL = 1; // 人間が答えを知っていても1マスにかかる下限（Hop 決定 2026-10-04）
+// 画面は最後の字のあと答え合わせまで少し待つ（゛゜を付けられる字は2秒、ほかは0.4秒）。その待ちはタイムに入れない。
+// 画面の申告なので、引くのは1回につき最大2秒まで（Hop 決定 2026-10-21）
+const MAX_WAITED_MS = 2000;
 const COUNT_ENDPOINT = "crossword-count";
 const ID_RE = /^[A-Za-z0-9_-]{8}$/;
 const TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -79,6 +83,10 @@ const activeMsOf = (p: Play, nowMs: number): number => {
   }
   return p.active_ms + open;
 };
+
+/** 画面が申告した待った時間を 0〜MAX_WAITED_MS の整数にする。無い・数字でない時は 0（待った時間を送らない古い画面からの通信） */
+export const waitedMsOf = (v: unknown): number =>
+  typeof v === "number" && Number.isFinite(v) ? Math.min(MAX_WAITED_MS, Math.max(0, Math.floor(v))) : 0;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -291,8 +299,9 @@ export async function onRequestPost(context: {
         let res: Response;
         if (correct) {
           const now = new Date().toISOString();
-          // 開いていた時間を締めてタイムにする（閉じたまま解けることは無いが、合図が落ちていても今の分まで数える）
-          const total = Math.max(1000, activeMsOf(cur, Date.parse(now)));
+          // 開いていた時間を締めてタイムにする（閉じたまま解けることは無いが、合図が落ちていても今の分まで数える）。
+          // 画面が答え合わせまで待った時間は引く。下限と速すぎる回の判定は引いた後のタイムで
+          const total = Math.max(1000, activeMsOf(cur, Date.parse(now)) - waitedMsOf(body.waitedMs));
           const tooFast = Math.floor(total / 1000) < expected.size * MIN_SEC_PER_CELL;
           // 解けた時刻は最初の1回だけ書く（同時に来ても後の方で上書きしない）
           res = await patchPlay(

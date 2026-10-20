@@ -35,7 +35,9 @@ export interface CheckResult {
 }
 
 // 答案を丸付けしてもらう。合っていなければ、どこが違うかは返ってこない
-export const checkPlay = (token: string, answers: Record<string, string>) => call<CheckResult>({ action: "check", token, answers });
+// waitedMs = 最後の字のあと答え合わせまで待った時間（開いていた時間のミリ秒）。解けた時に受付係がタイムから引く（最大2秒）
+export const checkPlay = (token: string, answers: Record<string, string>, waitedMs = 0) =>
+  call<CheckResult>({ action: "check", token, answers, waitedMs });
 
 // 最初の1文字が入ったことを知らせる。遊ばれた回数は受付係がこの回で1度だけ数える
 export const touchPlay = (token: string) => call<{ counted: boolean }>({ action: "touch", token });

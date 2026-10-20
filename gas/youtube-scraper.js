@@ -2,7 +2,7 @@
  * hop-up-tools YouTube スクレイパー
  *
  * 【トリガー設定】
- * - YTmain: 1日1回（新着動画取り込み）
+ * - YTmain: 1時間ごと（中で 10〜22時の決めた時刻だけ動く。新着動画取り込み。メインは毎回、その他は5分の残りで輪番）
  * - checkVideoAvailability: 週1回（直近6ヶ月の削除/非公開検出）
  * - checkVideoAvailabilityFull: 日次（全件巡回、500件ずつ）
  * - syncMembers: 週1回（メンバーの加入・卒業に加え、メンバーカラー・加入日もまとめて同期。
@@ -31,47 +31,50 @@
  */
 
 // ===== チャンネル定義 =====
+// main: true はハロプロとグループの公式のメインチャンネル（Hop 決定 2026-10-18）。YTmain は毎回これを最初に全部見る。
+// 残りは5分の残り時間で順に回り、時間切れなら次の回に続きから（ハロ！ステ 水金17/19時・M-line 木19時を落とさないため）
 var CHANNELS = [
   // 判明済み
-  { key: 'hello_station',    channelId: 'UCnoYhOtV0IXZ6lv2R-ZnB_Q', name: 'ハロ！ステ',           handle: '@helloprojectstation' },
-  { key: 'upfront',          channelId: 'UCjXGuJZhvCwBSl7dwUJDJdg', name: 'アップフロントチャンネル', handle: '@upfrontchannel' },
-  { key: 'morning_musume',   channelId: 'UCoKXb95K5h3sME3c9OCBaeA', name: 'モーニング娘。',         handle: '@morningmusume' },
-  { key: 'tsubaki',          channelId: 'UCXTsCXNGHmePgo3a47hnsAA', name: 'つばきファクトリー',      handle: '@tsubakifactory' },
-  { key: 'rosy',             channelId: 'UCaAqTsMF-VcHxaLpjDGOtcg', name: 'ロージークロニクル',     handle: '@rosychronicle' },
+  { key: 'hello_station',    main: true, channelId: 'UCnoYhOtV0IXZ6lv2R-ZnB_Q', name: 'ハロ！ステ',           handle: '@helloprojectstation' },
+  { key: 'upfront',          main: true, channelId: 'UCjXGuJZhvCwBSl7dwUJDJdg', name: 'アップフロントチャンネル', handle: '@upfrontchannel' },
+  { key: 'morning_musume',   main: true, channelId: 'UCoKXb95K5h3sME3c9OCBaeA', name: 'モーニング娘。',         handle: '@morningmusume' },
+  { key: 'tsubaki',          main: true, channelId: 'UCXTsCXNGHmePgo3a47hnsAA', name: 'つばきファクトリー',      handle: '@tsubakifactory' },
+  { key: 'rosy',             main: true, channelId: 'UCaAqTsMF-VcHxaLpjDGOtcg', name: 'ロージークロニクル',     handle: '@rosychronicle' },
 
-  // スクリプトプロパティから取得
-  { key: 'angerme',          channelId: '', name: 'アンジュルム',       handle: '@angerme' },
-  { key: 'juicejuice',       channelId: '', name: 'Juice=Juice',         handle: '@juicejuice' },
-  { key: 'beyooooonds',      channelId: '', name: 'BEYOOOOONDS',         handle: '@beyooooonds' },
-  { key: 'ochanorma',        channelId: '', name: 'OCHA NORMA',          handle: '@ochanorma' },
-  { key: 'kenshusei',        channelId: 'UCrFu9o-a6yWxsWP0AtDVycw', name: 'ハロプロ研修生',      handle: '@HelloProKenshusei' },
-  { key: 'omake',            channelId: '', name: 'OMAKE CHANNEL',       handle: '@omake' },
-  { key: 'uf_fanclub',       channelId: '', name: 'UFfanclub',           handle: '@uffanclub' },
-  { key: 'uf_goods',         channelId: '', name: 'UF Goods Land',       handle: '@ufgoodsland' },
-  { key: 'mline_music',      channelId: '', name: 'M-line Music',        handle: '@mlinemusic' },
+  // 2026-10-18 に番号をコードへ写した（それまではスクリプトプロパティ CH_<key> から読んでいた。プロパティは50個を超えると画面から足せなくなるため）
+  { key: 'angerme',          main: true, channelId: 'UCDwcZ85zjLKD-3-jqlv1wQQ', name: 'アンジュルム',       handle: '@angerme' },
+  { key: 'juicejuice',       main: true, channelId: 'UC6FadPgGviUcq6VQ0CEJqdQ', name: 'Juice=Juice',         handle: '@juicejuice' },
+  { key: 'beyooooonds',      main: true, channelId: 'UCE5GP4BHm2EJx4xyxBVSLlg', name: 'BEYOOOOONDS',         handle: '@beyooooonds' },
+  { key: 'ochanorma',        main: true, channelId: 'UCEbxO0RPlOQIVWrDaeepvuA', name: 'OCHA NORMA',          handle: '@ochanorma' },
+  { key: 'kenshusei',        main: true, channelId: 'UCrFu9o-a6yWxsWP0AtDVycw', name: 'ハロプロ研修生',      handle: '@HelloProKenshusei' },
+  { key: 'omake',            channelId: 'UCFBY6EJFIwCQCl-DiYYNKlg', name: 'OMAKE CHANNEL',       handle: '@omake' },
+  { key: 'uf_fanclub',       channelId: 'UC3oHasOAxRUwX0HpEhnWsQg', name: 'UFfanclub',           handle: '@uffanclub' },
+  { key: 'uf_goods',         channelId: 'UCNnIuuP67kGgWngvaPzSdOQ', name: 'UF Goods Land',       handle: '@ufgoodsland' },
+  { key: 'mline_music',      main: true, channelId: 'UC3mqDg-KHFdByufd-Vg0ogg', name: 'M-line Music',        handle: '@mlinemusic' },
   { key: 'upcomi',           channelId: 'UCm7S9NqpjZcB3OQ1-2zAghA', name: 'アプカミ',           handle: '@upcomi' },
 
   // 外部公式チャンネル（ハロプロ出演動画のみ取り込み）
-  { key: 'famitsu_game',     channelId: '', name: 'ファミ通ゲーム実況',  handle: '@famitsugamelive' },
-  { key: 'first_take',       channelId: '', name: 'THE FIRST TAKE',      handle: '@The_FirstTake' },
-  { key: 'yanmaga',          channelId: '', name: 'ヤンマガch',           handle: '@ヤンマガch' },
-  { key: 'douhaji',          channelId: '', name: '動画はじめてみました', handle: '@douhaji' },
-  { key: 'mementomori',      channelId: '', name: 'メメントモリ公式',     handle: '@mementomori_boi' },
+  { key: 'famitsu_game',     channelId: 'UCHWbhVkBo-kvNwVOL_JFFUg', name: 'ファミ通ゲーム実況',  handle: '@famitsugamelive' },
+  { key: 'first_take',       channelId: 'UC9zY_E8mcAo_Oq772LEZq8Q', name: 'THE FIRST TAKE',      handle: '@The_FirstTake' },
+  { key: 'yanmaga',          channelId: 'UC8dwPSQ5DOJGtwhmcNhNjSw', name: 'ヤンマガch',           handle: '@ヤンマガch' },
+  { key: 'douhaji',          channelId: 'UCkGCQ4TN-8gvb8QCYIqygHw', name: '動画はじめてみました', handle: '@douhaji' },
+  { key: 'mementomori',      channelId: 'UCQ_LN6ELte7ug9IeS1VP1bw', name: 'メメントモリ公式',     handle: '@mementomori_boi' },
 
   // ハロプロ関連公式チャンネル（グループ専用・ユニット・ムーブメント）
-  { key: 'hapisugo',         channelId: '', name: 'happyに過ごそうよ',   handle: '@hapisugo' },
-  { key: 'beyonobi',         channelId: '', name: 'ビヨーンズの伸びしろ', handle: '@beyonobi' },
-  { key: 'satoyama',         channelId: '', name: 'SATOYAMA&SATOUMI',    handle: '@satoyamachannel' },
-  { key: 'anison',           channelId: '', name: 'ハロー!アニソン部',    handle: '@ハローアニソン部' },
-  { key: 'tinytiny',         channelId: '', name: 'tiny tiny',           handle: '@tinytinytiny' },
+  { key: 'hapisugo',         channelId: 'UCfbSi3j0UCiS3YX-jrEg7_Q', name: 'happyに過ごそうよ',   handle: '@hapisugo' },
+  { key: 'beyonobi',         channelId: 'UCBWz3v7TuibgAIZXWf8pPhQ', name: 'ビヨーンズの伸びしろ', handle: '@beyonobi' },
+  { key: 'satoyama',         channelId: 'UCUTRGHLVk2pf76N6bB8RwLw', name: 'SATOYAMA&SATOUMI',    handle: '@satoyamachannel' },
+  { key: 'anison',           channelId: 'UClWwpGtkZmZ6I82o134FmuA', name: 'ハロー!アニソン部',    handle: '@ハローアニソン部' },
+  { key: 'tinytiny',         channelId: 'UCyoK1-NYjHoWWylFy-5nHgw', name: 'tiny tiny',           handle: '@tinytinytiny' },
+  { key: 'engeki',           channelId: 'UClFzEnuxbE3b2tmGpE85z4A', name: '演劇女子部',           handle: '@engekijyoshibu' },
 
   // 活動終了グループの公式チャンネル
-  { key: 'kobushi',          channelId: '', name: 'こぶしファクトリー',   handle: '@kobushifactory' },
-  { key: 'berryz',           channelId: '', name: 'Berryz工房',          handle: '@berryzkobo' },
-  { key: 'cute',             channelId: '', name: '℃-ute',               handle: '@cute' },
-  { key: 'countrygirls',     channelId: '', name: 'カントリー・ガールズ', handle: '@countrygirlschannel' },
-  { key: 'buono',            channelId: '', name: 'Buono!',              handle: '@buonochannel' },
-  { key: 'kimitsuta',        channelId: '', name: 'ハロプロちょっと面白い話', handle: '@kimitsuta' },
+  { key: 'kobushi',          channelId: 'UCt3f_Tu1lNua1xLQZu2Td-w', name: 'こぶしファクトリー',   handle: '@kobushifactory' },
+  { key: 'berryz',           channelId: 'UCWBTV02MVmyLqNPWRGDrl6A', name: 'Berryz工房',          handle: '@berryzkobo' },
+  { key: 'cute',             channelId: 'UCcS2E_TVMSwbN4Q5eH7F_oA', name: '℃-ute',               handle: '@cute' },
+  { key: 'countrygirls',     channelId: 'UCoxHJjctNXq1UgGk1vx3LUw', name: 'カントリー・ガールズ', handle: '@countrygirlschannel' },
+  { key: 'buono',            channelId: 'UCQuNrURlzPsbJZD17icx7Gw', name: 'Buono!',              handle: '@buonochannel' },
+  { key: 'kimitsuta',        channelId: 'UCJSMg_RL65nw-oYKAIQmVlg', name: 'ハロプロちょっと面白い話', handle: '@kimitsuta' },
 ];
 
 // GROUP_PAGES / ACTIVE_GROUPS / CHANNEL_GROUP_MAP / GROUP_KEYWORDS は
@@ -103,30 +106,65 @@ function YTmain() {
     throw new Error('スクリプトプロパティが設定されていません。YOUTUBE_API_KEY / SUPABASE_URL / SUPABASE_SERVICE_KEY を確認してください。');
   }
 
-  CHANNELS.forEach(function(channel) {
-    var channelId = channel.channelId || props.getProperty('CH_' + channel.key);
-    if (!channelId) {
-      Logger.log('[SKIP] ' + channel.name + ': チャンネルIDが未設定');
-      return;
-    }
+  var startedAt = Date.now();
+  var elapsed = function() { return Date.now() - startedAt; };
+  var mains = CHANNELS.filter(function(c) { return c.main; });
+  var others = CHANNELS.filter(function(c) { return !c.main; });
 
-    Logger.log('[START] ' + channel.name);
-    try {
-      var videos = fetchNewVideos(apiKey, channelId, channel.name, supabaseUrl, supabaseKey);
-      if (videos.length > 0) {
-        upsertToSupabase(supabaseUrl, supabaseKey, videos);
-        Logger.log('[DONE] ' + channel.name + ': ' + videos.length + '件 upsert');
-      } else {
-        Logger.log('[SKIP] ' + channel.name + ': 新着なし');
-      }
-    } catch(e) {
-      Logger.log('[ERROR] ' + channel.name + ': ' + e.message);
-    }
+  // メインは毎回、必ず最初に全部見る（時間の見張りはしない。合わせても1〜2分で済む）
+  mains.forEach(function(channel) { ytProcessChannel_(channel, props, apiKey, supabaseUrl, supabaseKey); });
+  Logger.log('[YT] メイン ' + mains.length + ' チャンネル済み: ' + Math.round(elapsed() / 1000) + '秒');
 
-    Utilities.sleep(500);
-  });
+  // その他は前回の続きから。5分を過ぎたら残りを次の回に回す
+  var start = parseInt(props.getProperty(YT_ROTATE_PROP) || '0', 10);
+  if (!(start >= 0 && start < others.length)) start = 0;
+  var i = start;
+  var seen = 0;
+  while (seen < others.length) {
+    if (elapsed() > YT_TIME_BUDGET_MS) break;
+    ytProcessChannel_(others[i], props, apiKey, supabaseUrl, supabaseKey);
+    i = (i + 1) % others.length;
+    seen++;
+  }
+  props.setProperty(YT_ROTATE_PROP, String(i));
+  if (seen < others.length) {
+    Logger.log('[YT] 時間切れ: その他は ' + seen + '/' + others.length + ' まで。次の回は ' + others[i].name + ' から');
+    return;
+  }
+  Logger.log('[YT] その他 ' + others.length + ' チャンネル済み: ' + Math.round(elapsed() / 1000) + '秒');
 
+  // 公開予定だった動画の見直しは、残り時間がある回だけ
+  if (elapsed() > YT_REACTIVATE_DEADLINE_MS) {
+    Logger.log('[YT] 公開予定の見直しは次の回に回す（' + Math.round(elapsed() / 1000) + '秒経過）');
+    return;
+  }
   reactivateFormerUpcoming(apiKey, supabaseUrl, supabaseKey);
+}
+
+var YT_TIME_BUDGET_MS = 5 * 60 * 1000;          // GAS の上限6分に対して、その他のチャンネルを回すのはここまで
+var YT_REACTIVATE_DEADLINE_MS = 3.5 * 60 * 1000; // これを過ぎていたら「公開予定の見直し」は次の回へ
+var YT_ROTATE_PROP = 'YT_ROTATE_INDEX';          // その他のチャンネルをどこまで見たか（次の回の始まり）
+
+// 1チャンネルぶんの新着取り込み。失敗してもログに残して次へ進む
+function ytProcessChannel_(channel, props, apiKey, supabaseUrl, supabaseKey) {
+  var channelId = channel.channelId || props.getProperty('CH_' + channel.key); // CH_ のプロパティは昔の名残。番号は全部コードにある
+  if (!channelId) {
+    Logger.log('[SKIP] ' + channel.name + ': チャンネルIDが未設定');
+    return;
+  }
+  Logger.log('[START] ' + channel.name);
+  try {
+    var videos = fetchNewVideos(apiKey, channelId, channel.name, supabaseUrl, supabaseKey);
+    if (videos.length > 0) {
+      upsertToSupabase(supabaseUrl, supabaseKey, videos);
+      Logger.log('[DONE] ' + channel.name + ': ' + videos.length + '件 upsert');
+    } else {
+      Logger.log('[SKIP] ' + channel.name + ': 新着なし');
+    }
+  } catch(e) {
+    Logger.log('[ERROR] ' + channel.name + ': ' + e.message);
+  }
+  Utilities.sleep(500);
 }
 
 // ===== 動画取得（差分のみ） =====
