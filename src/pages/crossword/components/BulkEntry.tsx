@@ -116,25 +116,41 @@ export const evaluateCandidates = (marks: Mark[], listKeys: string[] = []): Cand
 // 書いた文字列から、通った答え（同じ答えは最初の1つだけ）を書いた順に出す
 export const answersOf = (text: string): Candidate[] => evaluateCandidates(parseMarks(text)).filter((c) => !c.reason);
 
-// カギの下書き: その語の印がある行の、その印だけを答えの字数ぶんの○にし、ほかの印は表記だけ残す
+// 同じ行のほかの答えは字数ぶんの□で隠す（カギにほかの答えが見えないように。Hop 決定 2026-10-20）。答えにならない印（読みが無い等）は表記のまま
+const hiddenOther = (m: Mark): string => {
+  const src = (m.reading?.trim() || m.surface.trim());
+  const cells = src ? toCells(src) : [];
+  return cells.length > 0 && cells.every(isUsableCell) ? "□".repeat(cells.length) : m.surface;
+};
+
+// カギの下書き: その語の印がある行の、その印だけを答えの字数ぶんの○にし、同じ行のほかの答えは□で隠す
 export const clueDraft = (text: string, marks: Mark[], target: Mark, answerLength: number): string => {
   const lines = text.split("\n");
   let lineStart = 0;
   for (let i = 0; i < target.line; i++) lineStart += lines[i].length + 1;
   const lineEnd = lineStart + lines[target.line].length;
-  // 行の最後の答えの前に「→」があれば、「→」と答えを消す（「ニャーと鳴く動物→【ネコ】」→「ニャーと鳴く動物」。Hop 決定 2026-10-20）
-  if (!text.slice(target.end, lineEnd).trim()) {
-    const before = text.slice(lineStart, target.start);
-    const arrow = before.search(/→\s*$/);
-    if (arrow >= 0) {
+  // 行の終わりが「→【答え】」の形なら（→ の後ろが答えの印と空白だけ）、→ から後ろを消す
+  // （「ニャーと鳴く動物→【ネコ】」→「ニャーと鳴く動物」、「問題文→【ネコ】【イヌ】」はどちらも「問題文」。Hop 決定 2026-10-20）
+  const lineMarks = marks.filter((m) => m.line === target.line);
+  const arrowAt = text.lastIndexOf("→", lineEnd - 1);
+  if (arrowAt >= lineStart && target.start > arrowAt) {
+    let rest = "";
+    let at = arrowAt + 1;
+    for (const m of lineMarks) {
+      if (m.start < arrowAt + 1) continue;
+      rest += text.slice(at, m.start);
+      at = m.end;
+    }
+    rest += text.slice(at, lineEnd);
+    if (!rest.trim()) {
       let head = "";
-      let at = lineStart;
-      for (const m of marks) {
-        if (m.line !== target.line || m.start >= lineStart + arrow) continue;
-        head += text.slice(at, m.start) + m.surface;
-        at = m.end;
+      let pos = lineStart;
+      for (const m of lineMarks) {
+        if (m.start >= arrowAt) continue;
+        head += text.slice(pos, m.start) + hiddenOther(m);
+        pos = m.end;
       }
-      return (head + text.slice(at, lineStart + arrow)).trim();
+      return (head + text.slice(pos, arrowAt)).trim();
     }
   }
   let out = "";
@@ -142,7 +158,7 @@ export const clueDraft = (text: string, marks: Mark[], target: Mark, answerLengt
   for (const m of marks) {
     if (m.line !== target.line) continue;
     out += text.slice(pos, m.start);
-    out += m === target || (m.start === target.start && m.end === target.end) ? "○".repeat(answerLength) : m.surface;
+    out += m === target || (m.start === target.start && m.end === target.end) ? "○".repeat(answerLength) : hiddenOther(m);
     pos = m.end;
   }
   out += text.slice(pos, lineEnd);
