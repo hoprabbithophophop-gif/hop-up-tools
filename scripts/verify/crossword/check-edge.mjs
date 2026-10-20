@@ -3,23 +3,33 @@
 // 回数を足す呼び出しとランキングへの送信は受け止めるので、本物の回数とランキングは変わらない。
 // 2 と 6 の作る画面の確かめは 2026-10-21 に4段の流れ（1の段のヒントの窓）に合わせて書き直した。ジャンルの切り替えは無くなったのでハロプロのまま確かめる。
 // 使い方: node scripts/verify/crossword/check-edge.mjs [サイト] [ハロプロの問題の番号] ['<答えの配置 JSON>'] [残すマス x,y]
+// 一部の場面だけ流すときは環境変数 ITEMS に番号を並べる（例: ITEMS=2,6）。省くと1〜6を全部流す（2026-10-21）。
+// 2 と 6 は作る画面だけで回を始めないので、その2つだけなら答えの配置も聞かない
+// 2 と 6 だけの時は、行き先へ出る書き込み（受け止め役が返さなかった受付係・棚への通信）を見張り役が断り、最後に件数を出す。
+// 1・3・4・5 は本物の受付係で回を始めるので、それを含む時は見張らない（今までどおり）
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
-import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
+import { guardWrites, interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
 import { writeLines, openHintSheet } from './_create.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
-const P = await puzzleArgs(BASE, ID, { cluesJson: arg(4), last: arg(5) });
-const LAST = P.last;
+const ITEMS = new Set((process.env.ITEMS || '1,2,3,4,5,6').split(',').map((x) => x.trim()));
+const run = (n) => ITEMS.has(String(n));
+const needsPuzzle = [1, 3, 4, 5].some(run);
+const P = needsPuzzle ? await puzzleArgs(BASE, ID, { cluesJson: arg(4), last: arg(5) }) : null;
+const LAST = P?.last;
 const OUT = outDir('check-edge');
 const full = {};
-for (const c of P.cluesJson) c.a.forEach((ch, i) => {
+for (const c of P?.cluesJson ?? []) c.a.forEach((ch, i) => {
   full[`${c.d === 'horizontal' ? c.x + i : c.x},${c.d === 'vertical' ? c.y + i : c.y}`] = ch;
 });
 const almost = { ...full };
 delete almost[LAST];
-const [lx, ly] = LAST.split(',').map(Number);
+const [lx, ly] = LAST ? LAST.split(',').map(Number) : [];
+const GUARD = !needsPuzzle;
+const writes = [];
+console.log(`流す場面: ${[...ITEMS].join(',')}${GUARD ? '（書き込みの見張りあり）' : ''}`);
 
 let fail = 0;
 const check = (ok, msg) => {
@@ -30,6 +40,7 @@ const browser = await chromium.launch();
 
 async function open(path, { answers = null, play = undefined, routes = [], mine = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  if (GUARD) await guardWrites(ctx, writes, BASE);
   await interceptCount(ctx);
   await ctx.route('**/api/crossword-score', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
   for (const [pattern, handler] of routes) await ctx.route(pattern, handler);
@@ -55,7 +66,7 @@ const fillLast = async (page) => {
 const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' })];
 
 // 1a. ハロプロのジャンル: 台帳から消えた動画のヒントは「見られなくなりました」
-{
+if (run(1)) {
   const { ctx, page } = await open(`/crossword/${ID}`, { routes: [noCatalog] });
   await waitBoard(page);
   await page.locator('[id^="cell-"]').first().click();
@@ -68,7 +79,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   await ctx.close();
 }
 // 1b. 台帳にあれば今まで通りプレイヤー
-{
+if (run(1)) {
   const { ctx, page } = await open(`/crossword/${ID}`);
   await waitBoard(page);
   await page.locator('[id^="cell-"]').first().click();
@@ -78,7 +89,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   await ctx.close();
 }
 // 1c. 自分が作った問題: 見られなくなったヒントがあると知らせる
-{
+if (run(1)) {
   const { ctx, page } = await open('/crossword/mine', { routes: [noCatalog], mine: true });
   await page.getByRole('heading', { name: '自分が作った問題' }).waitFor();
   await page.waitForTimeout(3000);
@@ -88,7 +99,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
 // 2. 作る画面のヒントの窓: 台帳に無く YouTube にチャンネル名を聞けない動画（存在しない番号）は「確かめられませんでした」で選べない。
 //    聞けても再生できない動画は「この動画はヒントに使えません。」で選べない（YouTube の再生部品は本物。チャンネル名の返事だけ作り物にする）
 //    台帳にあるかの確かめは、プレビューの画面が本番の棚（youtube_videos）を読むだけ
-{
+if (run(2)) {
   const { ctx, page } = await open('/crossword/create');
   await writeLines(page, '【ネコ】\n【コアラ】');
   await openHintSheet(page, 'ネコ');
@@ -97,7 +108,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   check((await page.locator('[data-hint-sheet]').innerText()).includes('この動画を確かめられませんでした。'), '2 チャンネル名を聞けない動画は「この動画を確かめられませんでした。…」で選べない');
   await ctx.close();
 }
-{
+if (run(2)) {
   const fakeChannel = [/^https:\/\/www\.youtube\.com\/oembed/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: '台本の作り物', title: 'x' }) })];
   const { ctx, page } = await open('/crossword/create', { routes: [fakeChannel] });
   await writeLines(page, '【ネコ】\n【コアラ】');
@@ -110,7 +121,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   await ctx.close();
 }
 // 3. 解いている途中に問題が隠された・消された
-{
+if (run(3)) {
   const gone = ['**/api/crossword-play', (r) => {
     const body = JSON.parse(r.request().postData() || '{}');
     if (body.action === 'check') return r.fulfill({ status: 404, contentType: 'application/json', body: '{"ok":false,"reason":"not_found"}' });
@@ -124,7 +135,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   await ctx.close();
 }
 // 4. 回の記録が無くなっていた（30 日で片付いた）→ 新しい回として始め直して解き終える（本物の受付係）
-{
+if (run(4)) {
   const { ctx, page } = await open(`/crossword/${ID}`, { answers: almost, play: { token: '00000000-0000-4000-8000-000000000000', localStart: Date.now() - 40 * 86400 * 1000 } });
   // NG の時に原因を切り分けられるよう、受付係とのやり取り（動作・返事の番号・返事の頭）を控える
   const talk = [];
@@ -147,7 +158,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   await ctx.close();
 }
 // 5. 回を始める人が多すぎる
-{
+if (run(5)) {
   const busy = ['**/api/crossword-play', (r) => {
     const body = JSON.parse(r.request().postData() || '{}');
     if (body.action === 'start') return r.fulfill({ status: 429, contentType: 'application/json', body: '{"ok":false,"reason":"too_many"}' });
@@ -162,7 +173,7 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
 }
 
 // 6. リンクのヒントの決まり（https だけ・IP アドレスだけの住所は不可。2026-10-04 洗い出しの G）。作る画面のヒントの窓で
-{
+if (run(6)) {
   const { ctx, page } = await open('/crossword/create');
   await writeLines(page, '【ネコ】\n【コアラ】');
   await openHintSheet(page, 'ネコ');
@@ -180,5 +191,6 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
 }
 
 await browser.close();
+if (GUARD) check(writes.length === 0, `行き先への書き込みは0件（見張り役が断った通信: ${writes.length}件${writes.length ? ' ' + writes.join(' , ') : ''}）`);
 console.log(fail ? `NG ${fail}件` : 'すべてOK');
 process.exit(fail ? 1 : 0);

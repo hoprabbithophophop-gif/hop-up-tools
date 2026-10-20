@@ -2,10 +2,12 @@
 //  紙: 「玄関 /crossword はギャラリー…見出しの右端に作る画面への入口『作る』」「作る画面は /crossword/create。解く画面の戻る矢印はギャラリーへ」
 //      「トップページのツール一覧にクロスワードは載せない」「ページのフッターに非公式の一文は無い」
 //      「解き終えた画面のハンコとタイムの真下に『Xに投稿』があり、文は『解けた！　題名』＋その問題の URL」
-// 回数を足す呼び出しとランキングへの送信は受け止める（本物の回数とランキングは変わらない）。解き終えるのに本物の回が1つ増える。
+// 回数を足す呼び出しとランキングへの送信は受け止める（本物の回数とランキングは変わらない）。
+// 2026-10-21 から、回を始める・丸付けの受付係（/api/crossword-play）も台本の作り物が答える（本物の回は増やさない）。
+// 作り物の丸付けは、一時置き場に控えた答えの配置と照らす。受け止め役が返さなかった受付係・棚への書き込みは見張り役が断り、最後に件数を出す
 // 使い方: node scripts/verify/crossword/check-entry.mjs [サイト] [問題の番号]（省略時は targets.json）
 import { chromium } from 'playwright';
-import { interceptCount, arg, outDir, puzzleArgs, puzzleLayout, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
+import { guardWrites, interceptCount, arg, outDir, puzzleArgs, puzzleLayout, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -16,9 +18,29 @@ const check = (ok, msg) => {
   if (!ok) fail++;
 };
 const browser = await chromium.launch();
+const writes = [];
+// 作り物の受付係の丸付けで照らす答え（5 で答えの配置を読んでから入れる）。マス "x,y" → 字と、語ごとの字の並び
+const fake = { solution: null, answers: null, starts: 0, checks: 0 };
 const newPage = async () => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await guardWrites(ctx, writes, BASE);
   await interceptCount(ctx);
+  await ctx.route('**/api/crossword-play', (r) => {
+    const body = JSON.parse(r.request().postData() || '{}');
+    const reply = (o) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, ...o }) });
+    if (body.action === 'touch') return r.fallback(); // 回数は interceptCount が受け止める
+    if (body.action === 'start') {
+      fake.starts++;
+      return reply({ token: `check-entry-${fake.starts}`, startedAt: Date.now() });
+    }
+    if (body.action === 'check' && fake.solution) {
+      fake.checks++;
+      const a = body.answers || {};
+      const correct = Object.keys(fake.solution).every((k) => a[k] === fake.solution[k]);
+      return reply(correct ? { correct, answers: fake.answers, timeSeconds: 60, rankable: false } : { correct });
+    }
+    return r.fulfill({ status: 400, contentType: 'application/json', body: '{"ok":false}' });
+  });
   await ctx.route('**/api/crossword-score', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
   return { ctx, page: await ctx.newPage() };
 };
@@ -95,6 +117,8 @@ const noUnofficial = async (page, where) => check(!(await text(page)).includes('
 {
   const P = await puzzleArgs(BASE, ID);
   const { title } = await puzzleLayout(BASE, ID);
+  fake.solution = P.full;
+  fake.answers = P.cluesJson.map((c) => c.a);
   const almost = { ...P.full };
   delete almost[P.last];
   const [lx, ly] = P.last.split(',').map(Number);
@@ -142,5 +166,7 @@ const noUnofficial = async (page, where) => check(!(await text(page)).includes('
 }
 
 await browser.close();
+console.log(`作り物の受付係: 回の始め ${fake.starts}回・丸付け ${fake.checks}回`);
+check(writes.length === 0, `行き先への書き込みは0件（見張り役が断った通信: ${writes.length}件${writes.length ? ' ' + writes.join(' , ') : ''}）`);
 console.log(fail ? `NG ${fail}件` : 'すべてOK');
 process.exit(fail ? 1 : 0);

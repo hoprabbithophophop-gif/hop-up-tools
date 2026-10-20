@@ -295,7 +295,8 @@ try {
   check((await page.locator('[data-bulk-text]').count()) === 0 && (await page.getByText('書いた行（下線が答え。押すとヒントを付けられます）').count()) === 1, '(b) 「ヒントを付ける」では欄が消え、「書いた行（下線が答え。…）」の一覧が出る');
   check((await page.locator('[data-bulk-legend]').textContent()) === '黒い字＝ほかの答えと交差できる字　● ヒント済み　○ まだ', '(b) 一覧の下に凡例');
   const answers = await page.locator('[data-bulk-answer]').evaluateAll((els) => els.map((e) => e.getAttribute('data-bulk-answer')));
-  check(answers.join(',') === 'マジ,ダンス,マスク,コマ,コアラ,ラッコ,ネコ', `(b) 行の下に答えごとの印（${answers.join(',')}）`);
+  // 印の名前は答えのマスの字の並び（小さい字は大きい字にそろえた物。BulkEntry の key）なので、ラッコは「ラツコ」
+  check(answers.join(',') === 'マジ,ダンス,マスク,コマ,コアラ,ラツコ,ネコ', `(b) 行の下に答えごとの印（${answers.join(',')}）`);
   const reasons = await page.locator('[data-bulk-reason]').evaluateAll((els) => els.map((e) => `${e.getAttribute('data-bulk-reason')}=${e.textContent}`));
   check(reasons.includes('noReading=武道館：読みが未入力') && reasons.includes('noReading=本棚：読みが未入力'), `(b) 読み無しの漢字は「読みが未入力」（${reasons.join(' / ')}）`);
   check(reasons.some((r) => r.startsWith('tooLong=') && r.endsWith('20字まで')), '(b) 21字は「20字まで」');

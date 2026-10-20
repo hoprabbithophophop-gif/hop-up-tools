@@ -3,7 +3,7 @@
 // 使い方: node scripts/verify/crossword/check-maru-mine.mjs [サイト] [スクショの置き場]（省略時は targets.json と一時置き場）
 import { chromium } from 'playwright';
 import path from 'node:path';
-import { arg, outDir, BASE_DEFAULT } from './_lib.mjs';
+import { arg, outDir, BASE_DEFAULT, guardWrites } from './_lib.mjs';
 import { throughToClues } from './_create.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
@@ -16,7 +16,10 @@ const check = (ok, label) => {
 };
 
 const browser = await chromium.launch();
+// 行き先への書き込み（受け止め役が無いので、受付係・棚への書き込みは全部）を見張り役が断って控える（2026-10-21）
+const writes = [];
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+await guardWrites(ctx, writes, BASE);
 const page = await ctx.newPage();
 
 // 1. 作る画面の入口は、作った問題の数に関係なくいつも出る（紙: 作る画面には /crossword/mine の入口がいつも出る）
@@ -90,5 +93,6 @@ check((await page.getByText('この端末で作った問題はまだありませ
 await page.screenshot({ path: path.join(OUT, '3-mine-empty.png') });
 
 await browser.close();
+check(writes.length === 0, `行き先への書き込みは0件（見張り役が断った通信: ${writes.length}件${writes.length ? ' ' + writes.join(' , ') : ''}）`);
 console.log(fail ? `NG ${fail}件` : 'すべてOK', OUT);
 process.exit(fail ? 1 : 0);

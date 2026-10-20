@@ -78,6 +78,37 @@ export async function interceptCount(ctx, onCount = () => {}) {
   });
 }
 
+// 行き先（プレビュー・本番）へ書き込みが出ないようにする見張り（2026-10-21）。ブラウザの記録を作った直後、ほかの受け止め役より先に呼ぶ。
+// 後から足した受け止め役が先に効くので、ここまで届いた物は「どの受け止め役も返さなかった通信」。
+// 行き先の受付係（/api/）への通信と、棚（/rest/v1/）への GET・HEAD・OPTIONS 以外（読むだけの rpc/crossword_is_hidden は通す）は外へ出さずに断り、writes に控える
+export const READ_ONLY_RPC = ['/rest/v1/rpc/crossword_is_hidden'];
+// 台本が途中で止まっても、断った件数は終わりに必ず1行出す
+const guarded = new Set();
+let guardReport = false;
+export async function guardWrites(ctx, writes, base = BASE_DEFAULT) {
+  const site = new URL(base).origin;
+  guarded.add(writes);
+  if (!guardReport) {
+    guardReport = true;
+    process.on('exit', () => {
+      const all = [...guarded].flat();
+      console.log(`見張り役: 行き先への書き込みを断った通信 ${all.length}件${all.length ? ' ' + all.join(' , ') : ''}`);
+    });
+  }
+  await ctx.route('**/*', (r) => {
+    const req = r.request();
+    const u = new URL(req.url());
+    const m = req.method();
+    const isApi = u.origin === site && u.pathname.startsWith('/api/');
+    const isShelfWrite = u.pathname.startsWith('/rest/v1/') && m !== 'GET' && m !== 'HEAD' && m !== 'OPTIONS' && !READ_ONLY_RPC.includes(u.pathname);
+    if (isApi || isShelfWrite) {
+      writes.push(`${m} ${u.origin}${u.pathname}`);
+      return r.abort('blockedbyclient');
+    }
+    return r.fallback();
+  });
+}
+
 // 受付係は「字の数×1秒」より速く解けた回をランキングに載せない（2026-10-04）。
 // 名前を入れる窓まで確かめる台本は、解き終える前にこれだけ待つ
 export const humanWaitMs = (cells) => (cells + 3) * 1000;
