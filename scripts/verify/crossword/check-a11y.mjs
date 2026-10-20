@@ -13,7 +13,7 @@
 import { chromium } from 'playwright';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { arg, ROOT } from './_lib.mjs';
+import { arg, ROOT, watchStumbles } from './_lib.mjs';
 import { writeLines, hintMode, hintAllInAnswers, toBoard, toClues, openShare } from './_create.mjs';
 
 const PORT = 5195;
@@ -68,6 +68,8 @@ async function startServer() {
 
 let browser = null;
 const writes = [];
+// 画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）の控え
+const stumbles = [];
 async function newPage({ seenHelp = true, width = 390 } = {}) {
   const ctx = await browser.newContext({ viewport: { width, height: 844 }, deviceScaleFactor: 1 });
   if (seenHelp) await ctx.addInitScript(() => { try { localStorage.setItem('crossword_seen_help', 'true'); } catch { /* */ } });
@@ -84,6 +86,7 @@ async function newPage({ seenHelp = true, width = 390 } = {}) {
     return json(u.pathname.endsWith('/crossword_puzzles') ? ROWS : []);
   });
   const page = await ctx.newPage();
+  await watchStumbles(page, stumbles);
   return { ctx, page };
 }
 
@@ -484,6 +487,7 @@ try {
   await browser?.close().catch(() => {});
   stopServer();
 }
+check(stumbles.length === 0, `画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）が無い${stumbles.length ? ': ' + stumbles.slice(0, 3).join(' / ') : ''}`);
 console.log('');
 console.log('axe の件数（致命的・重大 ／ 色のコントラスト ／ 中・軽）');
 for (const s of summary) console.log(`  ${s.label}: ${s.bad} ／ ${s.contrast} ／ ${s.rest}`);

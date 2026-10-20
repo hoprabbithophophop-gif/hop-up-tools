@@ -6,7 +6,7 @@
 // 使い方: node scripts/verify/crossword/check-hints-edit.mjs
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { outDir } from './_lib.mjs';
+import { outDir, watchStumbles } from './_lib.mjs';
 import { writeLines, openHintSheet, closeHintSheet } from './_create.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -108,7 +108,7 @@ try {
   await ctx.route(/^https:\/\/(i\.ytimg\.com|www\.youtube\.com|challenges\.cloudflare\.com|[a-z.]*cloudflareinsights\.com)\//, (r) => r.fulfill({ status: 204, body: '' }));
   await ctx.route(/^https:\/\/www\.youtube\.com\/oembed/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: 'テストチャンネル' }) }));
   const page = await ctx.newPage();
-  page.on('pageerror', (e) => pageErrors.push(String(e)));
+  await watchStumbles(page, pageErrors);
 
   // (1) 自分が作った問題: 遊ばれた問題に「ヒントを直す」
   await page.goto(`${BASE}/crossword/mine`);
@@ -213,6 +213,31 @@ try {
   await page.waitForTimeout(100);
   check(decodeURIComponent(new URL(await link.getAttribute('href')).searchParams.get('q')).endsWith(' after:2025-01-01 before:2026-01-01'), '(5) 月を選ばなければ年いっぱい');
   await per.locator('select').nth(0).selectOption('');
+  await page.waitForTimeout(100);
+  // 公式ブログの選択肢は「いつごろ」に記事があるブログだけ（Hop 決定 2026-10-21。正は src/data/officialBlogs.ts の BLOG_PERIODS と blogOptions）
+  const blogOpts = () => blogSel.locator('option').evaluateAll((els) => els.map((e) => ({ v: e.value, t: e.textContent })));
+  const has = (opts, v) => opts.some((o) => o.v === v);
+  const ENDED = ['b:kobushi-factory', 'b:countrygirls', 'b:c-ute-official'];
+  const all = await blogOpts();
+  check(all.some((o) => o.v === 'b:morningmusume-9ki' && o.t === 'Q期（2012〜2025）') && all.some((o) => o.v === 'b:c-ute-official' && o.t === '℃-ute（2015〜2017）'), `(5) いつごろ無しでは更新が止まったブログも期間つきで並ぶ（${all.filter((o) => /（\d{4}〜\d{4}）/.test(o.t)).map((o) => o.t).join(' / ')}）`);
+  await blogSel.selectOption('b:morningm-13ki');
+  await per.locator('select').nth(0).selectOption('2016');
+  await page.waitForTimeout(150);
+  const y2016 = await blogOpts();
+  check(!has(y2016, 'b:morningm-13ki'), '(5) 2016年ではモーニング娘。の13期（2017年から）が出ない');
+  check(ENDED.every((v) => has(y2016, v)), `(5) 2016年では活動を終えたグループの3つが出る（${ENDED.filter((v) => has(y2016, v)).join('・')}）`);
+  check(!y2016.some((o) => o.v.includes('beyooooonds')), `(5) 2016年では BEYOOOOONDS が出ない（${y2016.filter((o) => o.v.includes('beyooooonds')).map((o) => o.v).join('・') || 'なし'}）`);
+  const chosen = await blogSel.inputValue();
+  check(chosen === 'g:morningmusume', `(5) 13期を選んだまま2016年にすると先頭（モーニング娘。（全部））に選び直される（${chosen}）`);
+  const q2016 = decodeURIComponent(new URL(await link.getAttribute('href')).searchParams.get('q'));
+  const sites2016 = [...q2016.matchAll(/site:ameblo\.jp\/([\w-]+)/g)].map((m) => m[1]);
+  check(sites2016.join(',') === 'morningmusume-9ki,morningmusume-10ki,mm-12ki' && q2016.endsWith(' after:2016-01-01 before:2017-01-01'), `(5) 2016年の「モーニング娘。（全部）」は Q期・天気組・12期の3つだけを探す（${q2016}）`);
+  await per.locator('select').nth(0).selectOption('2026');
+  await page.waitForTimeout(150);
+  const y2026 = await blogOpts();
+  check(!has(y2026, 'b:morningmusume-9ki') && !has(y2026, 'b:morningm-13ki') && ENDED.every((v) => !has(y2026, v)) && !has(y2026, 'g:ended'), `(5) 2026年では Q期・13期・活動を終えたグループが出ない（残った物 ${[...ENDED, 'g:ended', 'b:morningmusume-9ki', 'b:morningm-13ki'].filter((v) => has(y2026, v)).join('・') || 'なし'}）`);
+  await per.locator('select').nth(0).selectOption('');
+  await blogSel.selectOption('g:beyooooonds');
   await sheet.screenshot({ path: path.join(OUT, '2-blog-search-390.png') });
   // X の URL を貼ると印が X に移る
   await urlBox.fill('https://x.com/helloproject/status/1');
@@ -316,7 +341,7 @@ try {
   // (6) 解く側: ハロプロの問題の X のヒントに札、アカウント名の無い Instagram には札なし
   // 作る画面は書きかけがあると離れる前に確かめる窓を出すので、別のページで開く
   const play = await ctx.newPage();
-  play.on('pageerror', (e) => pageErrors.push(String(e)));
+  await watchStumbles(play, pageErrors, '解く画面');
   await play.goto(`${BASE}/crossword/${PLAY_ID}`);
   await play.locator('#cell-0-0').waitFor({ timeout: 30000 });
   await play.waitForTimeout(2300);
@@ -328,7 +353,7 @@ try {
   check((await play.getByRole('link', { name: /x\.com/ }).count()) === 1, '(6) リンクは今まで通り別タブで開く形');
   await play.locator('[data-coach="keypad"]').screenshot({ path: path.join(OUT, '5-play-tag-390.png') });
 
-  check(pageErrors.length === 0, `(7) 画面のつまずき（JS の例外）が無い${pageErrors.length ? '：' + pageErrors.join(' / ') : ''}`);
+  check(pageErrors.length === 0, `(7) 画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）が無い${pageErrors.length ? '：' + pageErrors.join(' / ') : ''}`);
   console.log(`写真: ${OUT}`);
 } finally {
   await browser.close();

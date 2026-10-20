@@ -231,3 +231,48 @@ export async function puzzleArgs(base, id, given = {}) {
     layout,
   };
 }
+
+// 画面のつまずきの見張り（2026-10-21）。JS の例外（pageerror）に加えて、
+// React がエラーの受け止め役（src/components/ErrorBoundary.tsx）に渡した描画の誤りと、エラー時の画面（「予期しないエラーが発生しました」）が出たことを数える。
+// React 19 は受け止め役が受け止めた例外を pageerror にしない（console.error に出すだけ）ので、pageerror だけを見ていると素通りする。
+// 数えるのは下の REACT_STUMBLE に合う console の error だけ。favicon の 404・cloudflareinsights の CORS など関係ない誤りは数えない。
+// 使い方: ページを開く前（goto の前）に watchStumbles(page, 控える配列, '作る画面') を呼ぶ。控える配列の数が 0 なら OK
+export const REACT_STUMBLE = [
+  /Rendered (fewer|more) hooks than expected/,
+  /change in the order of Hooks/,
+  /Minified React error/,
+  /The above error occurred/,
+  /An error occurred in the <[^>]+> component/,
+  /Maximum update depth exceeded/,
+  /\[ErrorBoundary\]/,
+  /\[台本の見張り\]/,
+];
+export const ERROR_SCREEN_TEXT = '予期しないエラーが発生しました';
+const stumbleWatched = new WeakSet();
+const errorScreenScript = (text) => {
+  try {
+    let told = false;
+    const look = () => {
+      if (told || !document.body) return;
+      if (document.body.innerText.includes(text)) {
+        told = true;
+        console.error(`[台本の見張り] エラー時の画面が出た（${location.pathname}${location.search}）`);
+      }
+    };
+    new MutationObserver(look).observe(document, { childList: true, subtree: true, characterData: true });
+  } catch { /* 見張れないページ（about:blank など）では何もしない */ }
+};
+export async function watchStumbles(page, sink, label = '') {
+  const tag = label ? `${label}: ` : '';
+  const ctx = page.context();
+  if (!stumbleWatched.has(ctx)) {
+    stumbleWatched.add(ctx);
+    await ctx.addInitScript(errorScreenScript, ERROR_SCREEN_TEXT);
+  }
+  page.on('pageerror', (e) => sink.push(`${tag}${String(e)}`));
+  page.on('console', (m) => {
+    if (m.type() !== 'error') return;
+    const t = m.text();
+    if (REACT_STUMBLE.some((re) => re.test(t))) sink.push(`${tag}${t.replace(/\s+/g, ' ').slice(0, 300)}`);
+  });
+}

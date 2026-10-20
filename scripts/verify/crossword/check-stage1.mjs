@@ -8,7 +8,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { chromium } from 'playwright';
 import path from 'node:path';
-import { outDir, ROOT } from './_lib.mjs';
+import { outDir, ROOT, watchStumbles } from './_lib.mjs';
 import { writeLines, openHintSheet, closeHintSheet, toClues, hintAllInClues, openShare } from './_create.mjs';
 
 const SKIP_SAVE = process.argv.includes('--skip-save');
@@ -145,7 +145,7 @@ const browser = await chromium.launch();
 const ctxA = await browser.newContext({ viewport: { width: 390, height: 844 } });
 await mockAll(ctxA);
 const pa = await ctxA.newPage();
-pa.on('pageerror', (e) => errs.push('作る画面: ' + e));
+await watchStumbles(pa, errs, '作る画面');
 let url = null;
 if (SKIP_SAVE) {
   console.log('飛ばす 1〜4（保存して出た URL で解く）: --skip-save が付いている');
@@ -204,7 +204,7 @@ if (url) {
   const ctxB = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await mockAll(ctxB);
   const pb = await ctxB.newPage();
-  pb.on('pageerror', (e) => errs.push('解く画面: ' + e));
+  await watchStumbles(pb, errs, '解く画面');
   await pb.goto(url, { waitUntil: 'domcontentloaded' });
   // isVisible は待たないので、出るまで待つ形で見る
 r['2 構築中の動きが出た'] = await pb.getByText(T.building).first().waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false);

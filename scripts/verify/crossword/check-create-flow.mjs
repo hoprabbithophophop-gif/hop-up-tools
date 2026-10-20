@@ -17,7 +17,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { chromium } from 'playwright';
-import { outDir, ROOT, leaveFirstVisitMarks } from './_lib.mjs';
+import { outDir, ROOT, leaveFirstVisitMarks, watchStumbles } from './_lib.mjs';
 import {
   CREATE_MARKS, shownStep, currentStepLabel, writeLines, hintMode, openHintSheet, closeHintSheet, setLinkHint, hintAllInAnswers,
   toBoard, toClues, hintAllInClues, openShare, clueInput, clueKeys, boardCells, readDraft, exampleUrl,
@@ -116,7 +116,7 @@ async function newPage({ marks = CREATE_MARKS, reducedMotion, extra = {} } = {})
   );
   await ctx.route(/^https:\/\/www\.youtube\.com\/oembed/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: 'テストチャンネル', title: 'テストの動画' }) }));
   const page = await ctx.newPage();
-  page.on('pageerror', (e) => pageErrors.push(String(e)));
+  await watchStumbles(page, pageErrors);
   return { ctx, page };
 }
 const bodyText = (page) => page.evaluate(() => document.body.innerText);
@@ -417,7 +417,7 @@ try {
   await browser.close();
   stopServer();
 }
-check(pageErrors.length === 0, `画面のつまずき（JS の例外）が無い${pageErrors.length ? `: ${pageErrors.slice(0, 3).join(' / ')}` : ''}`);
+check(pageErrors.length === 0, `画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）が無い${pageErrors.length ? `: ${pageErrors.slice(0, 3).join(' / ')}` : ''}`);
 console.log(`写真: ${OUT}`);
 console.log(fail ? `NG ${fail}件` : 'すべてOK');
 process.exit(fail ? 1 : 0);

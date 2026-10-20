@@ -5,7 +5,7 @@
 // 使い方: node scripts/verify/crossword/check-hint-channel.mjs
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { outDir } from './_lib.mjs';
+import { outDir, watchStumbles } from './_lib.mjs';
 import { writeLines, openHintSheet, closeHintSheet } from './_create.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -86,7 +86,7 @@ try {
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: 'テストチャンネル', title: 'テストの動画' }) });
   });
   const page = await ctx.newPage();
-  page.on('pageerror', (e) => pageErrors.push(String(e)));
+  await watchStumbles(page, pageErrors);
 
   // 作る画面の1の段で答えを2つ書き、下線の語「ネコ」を押してヒントの窓を開く
   await page.goto(`${BASE}/crossword/create`);
@@ -152,7 +152,7 @@ try {
   const wide = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   check(wide, '(6) 390px で横にはみ出さない');
 
-  check(pageErrors.length === 0, `(7) 画面のつまずき（JS の例外）が無い${pageErrors.length ? '：' + pageErrors.join(' / ') : ''}`);
+  check(pageErrors.length === 0, `(7) 画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）が無い${pageErrors.length ? '：' + pageErrors.join(' / ') : ''}`);
   console.log(`写真: ${OUT}`);
 } finally {
   await browser.close();

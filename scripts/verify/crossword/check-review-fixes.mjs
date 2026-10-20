@@ -16,7 +16,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { chromium } from 'playwright';
-import { outDir, ROOT, leaveFirstVisitMarks, cellState } from './_lib.mjs';
+import { outDir, ROOT, leaveFirstVisitMarks, cellState, watchStumbles } from './_lib.mjs';
 import { CREATE_MARKS, writeLines, hintMode, hintAllInAnswers, toBoard } from './_create.mjs';
 
 // 「初めて」の印は台本の中で場面ごとに立てる
@@ -186,7 +186,7 @@ async function newPage({ marks = {}, tables = { crossword_puzzles: BASE_ROWS, cr
   // 外のサイト（YouTube のサムネイル等）へは出さない
   await ctx.route(/^https:\/\/(i\.ytimg\.com|www\.youtube\.com|challenges\.cloudflare\.com|[a-z.]*cloudflareinsights\.com)\//, (r) => r.fulfill({ status: 204, body: '' }));
   const page = await ctx.newPage();
-  page.on('pageerror', (e) => pageErrors.push(String(e)));
+  await watchStumbles(page, pageErrors);
   return { ctx, page, st, supaLog };
 }
 const SEEN_SOLVE = { crossword_seen_help: 'true', crossword_seen_first_cell: '1' };
@@ -578,7 +578,7 @@ try {
   stopServer();
 }
 
-check(pageErrors.length === 0, `画面のつまずき（JS の例外）が無い${pageErrors.length ? `: ${pageErrors.slice(0, 3).join(' / ')}` : ''}`);
+check(pageErrors.length === 0, `画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）が無い${pageErrors.length ? `: ${pageErrors.slice(0, 3).join(' / ')}` : ''}`);
 console.log(`写真: ${OUT}`);
 console.log(fail ? `NG ${fail}件` : 'すべてOK');
 process.exit(fail ? 1 : 0);

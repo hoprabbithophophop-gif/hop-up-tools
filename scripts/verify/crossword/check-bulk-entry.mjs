@@ -11,7 +11,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { stripTypeScriptTypes } from 'node:module';
 import { performance } from 'node:perf_hooks';
-import { ROOT, outDir } from './_lib.mjs';
+import { ROOT, outDir, watchStumbles } from './_lib.mjs';
 
 let fail = 0;
 const check = (ok, msg) => {
@@ -228,7 +228,7 @@ try {
   await ctx.route('**/api/**', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
   await ctx.route(/^https:\/\/(i\.ytimg\.com|www\.youtube\.com|challenges\.cloudflare\.com|[a-z.]*cloudflareinsights\.com)\//, (r) => r.fulfill({ status: 204, body: '' }));
   const page = await ctx.newPage();
-  page.on('pageerror', (e) => pageErrors.push(String(e)));
+  await watchStumbles(page, pageErrors);
 
   await page.goto(`${BASE}/crossword/create`);
   const area = page.locator('[data-bulk-text]');
@@ -440,6 +440,6 @@ try {
   await browser.close();
   stopServer();
 }
-check(pageErrors.length === 0, `(b) 画面のつまずき（JS の例外）が無い${pageErrors.length ? `: ${pageErrors.slice(0, 3).join(' / ')}` : ''}`);
+check(pageErrors.length === 0, `(b) 画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）が無い${pageErrors.length ? `: ${pageErrors.slice(0, 3).join(' / ')}` : ''}`);
 console.log(`写真: ${OUT}`);
 process.exit(fail ? 1 : 0);
