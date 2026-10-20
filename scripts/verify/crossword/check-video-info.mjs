@@ -6,7 +6,7 @@
 //  (3) 見られない → { status: "gone" }（動画が無い・非公開・埋め込み禁止・年齢制限）。エッジに 1時間置く。限定公開は見られる
 //  (4) 分からない → 503 { status: "unknown" }（鍵が無い・YouTube が 200 以外・通信の失敗・名前が読めない）。エッジに置かない
 //  (5) 番号の形が違えば 400。YouTube に聞かない
-//  (6) 接続元ごとに 1時間 120回まで・全員合わせて 1時間 125回まで。超えたら 429 で YouTube に聞かない。数えは生の IP でなくハッシュで残す。
+//  (6) 接続元ごとに 1時間 30回まで・全員合わせて 1時間 125回まで。超えたら 429 で YouTube に聞かない。数えは生の IP でなくハッシュで残す。
 //      先に接続元ごとを数え、達していれば記録を書かずに断る。記録を書いてから数え直し、同時に叩かれた分も断る。
 //      数えは HEAD + Prefer: count=exact で件数だけを聞く。照会・記録に失敗したら 503 で YouTube に聞かない。
 //      掃除はこのエンドポイントの 1時間より古い物だけ
@@ -242,17 +242,17 @@ try {
   yt.mode = () => ({ status: 200, body: item() });
 
   reset();
-  seed(119, myHash);
+  seed(29, myHash);
   r = await askT('AAAAAAAAAD1');
-  check(r.status === 200 && r.j?.status === 'ok', `(6) 接続元ごと 1時間に 119回までなら通す（${r.status}）`);
+  check(r.status === 200 && r.j?.status === 'ok', `(6) 接続元ごと 1時間に 29回までなら通す（${r.status}）`);
 
   reset();
-  seed(120, myHash);
+  seed(30, myHash);
   {
     const n0 = yt.calls.length;
     const p0 = rl.posts.length;
     r = await askT('AAAAAAAAAD2');
-    check(r.status === 429 && r.j?.status === 'unknown' && yt.calls.length === n0, `(6) 接続元ごと 120回に達したら 429・YouTube に聞かない（${r.status} ${r.text}）`);
+    check(r.status === 429 && r.j?.status === 'unknown' && yt.calls.length === n0, `(6) 接続元ごと 30回に達したら 429・YouTube に聞かない（${r.status} ${r.text}）`);
     check(rl.posts.length === p0, '(6) 先の数えで断った回は記録を書かない（攻撃で記録が膨らまない）');
     check(noEdge('AAAAAAAAAD2'), '(6) 断った答えはエッジに置かない');
     r = await askT('AAAAAAAAAA1');
@@ -274,15 +274,15 @@ try {
     check(rl.rows.some((row) => row.endpoint === 'hai-to-diamond-comments'), '(6) ほかのエンドポイントの古い記録には触らない');
   }
 
-  // 同時に叩かれた場面の代わり: 先の数えは 119 だが、記録を書く間にほかの回が 2つ書いた
+  // 同時に叩かれた場面の代わり: 先の数えは 29 だが、記録を書く間にほかの回が 2つ書いた
   reset();
-  seed(119, myHash);
+  seed(29, myHash);
   rl.onPost = () => seed(2, myHash, 0);
   {
     const n0 = yt.calls.length;
     const p0 = rl.posts.length;
     r = await askT('AAAAAAAAAD4');
-    check(r.status === 429 && r.j?.status === 'unknown' && yt.calls.length === n0, `(6) 書いた後の数え直しで接続元ごと 120回を超えたら 429・YouTube に聞かない（${r.status} ${r.text}）`);
+    check(r.status === 429 && r.j?.status === 'unknown' && yt.calls.length === n0, `(6) 書いた後の数え直しで接続元ごと 30回を超えたら 429・YouTube に聞かない（${r.status} ${r.text}）`);
     check(rl.posts.length === p0 + 1, '(6) 数え直しで断った回の記録は残る（書いた後に数え直すため）');
     check(noEdge('AAAAAAAAAD4'), '(6) 数え直しで断った答えはエッジに置かない');
   }
