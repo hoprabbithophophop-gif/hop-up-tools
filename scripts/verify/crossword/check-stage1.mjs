@@ -104,7 +104,8 @@ async function mockAll(ctx) {
   await ctx.route('https://challenges.cloudflare.com/turnstile/**', (r) =>
     r.fulfill({ contentType: 'application/javascript', body: 'window.turnstile={render:function(el,o){setTimeout(function(){o.callback("check-stage1")},50);return "w"},remove:function(){},reset:function(){}};' }),
   );
-  await ctx.route(/^https:\/\/www\.youtube\.com\/oembed/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: 'テストチャンネル', title: 'テストの動画' }) }));
+  // チャンネル名を答える受付係の作り物（上の受付係全体の受け止めより後に置く）
+  await ctx.route(/\/api\/crossword-video-info\?/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', channel: 'テストチャンネル' }) }));
   // YouTube の再生部品（iframe_api）の作り物。画面が渡した videoId と playerVars（start・autoplay）を、本物と同じく埋め込みの住所の引数にして枠を作る
   await ctx.route('https://www.youtube.com/iframe_api', (r) =>
     r.fulfill({

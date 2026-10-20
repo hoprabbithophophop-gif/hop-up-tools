@@ -1,6 +1,6 @@
 // 作る画面の「ヒント」欄で、台帳に無い YouTube をチャンネル名付きで通す動き（Hop 決定 2026-10-19 案1）と、
 // 形の崩れた YouTube の住所をリンクとして通さない抜け穴ふさぎを確かめる。
-// 手元の vite を立ち上げ、棚（/rest/v1）・受付係（/api）・YouTube の oEmbed はブラウザの中で受け止める（本番にもプレビューにも通信しない）。
+// 手元の vite を立ち上げ、棚（/rest/v1）・受付係（/api。チャンネル名を答える /api/crossword-video-info も）はブラウザの中で受け止める（本番にもプレビューにも通信しない）。
 // 使い方: node scripts/verify/crossword/check-hint-channel.mjs
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,8 +49,8 @@ async function startServer() {
 
 const browser = await chromium.launch();
 const pageErrors = [];
-let oembedMode = 'ok'; // ok | gone
-let oembedCalls = 0;
+let videoInfoMode = 'ok'; // ok | gone
+let videoInfoCalls = 0;
 try {
   await startServer();
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
@@ -67,11 +67,11 @@ try {
   });
   await ctx.route('**/api/**', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
   await ctx.route(/^https:\/\/(i\.ytimg\.com|www\.youtube\.com|challenges\.cloudflare\.com|[a-z.]*cloudflareinsights\.com)\//, (r) => r.fulfill({ status: 204, body: '' }));
-  // YouTube の oEmbed は作り物で答える（後に登録した route が先に当たるので、上の受け止めより後に置く）
-  await ctx.route(/^https:\/\/www\.youtube\.com\/oembed/, (r) => {
-    oembedCalls++;
-    if (oembedMode === 'gone') return r.fulfill({ status: 401, body: 'Unauthorized' });
-    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: 'テストチャンネル', title: 'テストの動画' }) });
+  // チャンネル名を答える受付係は作り物で答える（後に登録した route が先に当たるので、上の受け止めより後に置く）
+  await ctx.route(/\/api\/crossword-video-info\?/, (r) => {
+    videoInfoCalls++;
+    if (videoInfoMode === 'gone') return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'gone' }) });
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', channel: 'テストチャンネル' }) });
   });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => pageErrors.push(String(e)));
@@ -91,7 +91,7 @@ try {
   await page.waitForTimeout(800);
   const ch = await page.locator('[data-hint-channel]').textContent().catch(() => null);
   check(ch === 'チャンネル: テストチャンネル ハロプロの公式の発信か確かめてください。', `(2) ハロプロで台帳に無い動画はチャンネル名付きで通る（${ch}）`);
-  check(oembedCalls === 1, `(2) チャンネル名は YouTube に1回だけ聞く（${oembedCalls}回）`);
+  check(videoInfoCalls === 1, `(2) チャンネル名は YouTube に1回だけ聞く（${videoInfoCalls}回）`);
   const timeVal = await page.locator('#cw-hint-time').inputValue().catch(() => null);
   check(timeVal === '1:23', `(2) URL の時刻が欄に入る（${timeVal}）`);
   await page.locator('[data-coach="create-hint"]').screenshot({ path: path.join(OUT, '1-hello-channel-390.png') });
@@ -107,12 +107,12 @@ try {
   }
 
   // (4) チャンネル名を聞けない動画（削除・非公開・埋め込み禁止）は使えない
-  oembedMode = 'gone';
+  videoInfoMode = 'gone';
   await hint.fill('https://www.youtube.com/watch?v=abcdefghijk');
   await page.waitForTimeout(800);
   const goneTxt = await page.evaluate(() => document.body.innerText);
   check(/この動画を確かめられませんでした/.test(goneTxt), '(4) チャンネル名を聞けない動画は「確かめられませんでした」で使えない');
-  oembedMode = 'ok';
+  videoInfoMode = 'ok';
 
   // (5) その他: 案内は無し。チャンネル名は出るが「公式の発信か確かめて」は付かない
   await page.getByText('その他', { exact: true }).first().click();

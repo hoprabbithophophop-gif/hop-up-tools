@@ -1,5 +1,5 @@
 // YouTube のチャンネル名を問題に保存せず、見る人のブラウザがその都度聞く形（Hop 決定 2026-10-19「書き残さない形」）を、手元の開発サーバーで確かめる。
-// 本番にもプレビューにも通信しない。手元の vite をこの台本が立ち上げ、棚（/rest/v1）・受付係（/api）・YouTube の oEmbed はブラウザの中で受け止める。
+// 本番にもプレビューにも通信しない。手元の vite をこの台本が立ち上げ、棚（/rest/v1）・受付係（/api。チャンネル名を答える /api/crossword-video-info も）はブラウザの中で受け止める。
 //   (1) ハロプロ: 台帳に無い動画は、開いた時に YouTube に聞いた名前が「チャンネル: …」で出る
 //   (2) ハロプロ: 台帳にある動画は聞かず、チャンネル名も出ない
 //   (3) ハロプロ: 台帳に無く YouTube が見られないと答えた動画は「見られなくなりました」。混み合い（429）の時は印を付けない
@@ -68,9 +68,9 @@ const SEEN = { crossword_seen_help: 'true', crossword_seen_first_cell: '1', cros
 const browser = await chromium.launch();
 const pageErrors = [];
 
-// oembed: 'ok' なら名前を返し、'gone' なら 401（削除・非公開・埋め込み禁止と同じ返事）、'busy' なら 429（混み合い）
-async function newPage({ oembed, marks = SEEN }) {
-  const st = { oembedIds: [] };
+// videoInfo: 'ok' なら名前を返し、'gone' なら { status: 'gone' }（削除・非公開・埋め込み禁止と同じ返事）、'busy' なら 429（混み合い）
+async function newPage({ videoInfo, marks = SEEN }) {
+  const st = { askedIds: [] };
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
   await ctx.addInitScript((m) => {
     try {
@@ -98,12 +98,12 @@ async function newPage({ oembed, marks = SEEN }) {
   await ctx.route('**/api/**', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
   await ctx.route(/^https:\/\/(i\.ytimg\.com|www\.youtube\.com|challenges\.cloudflare\.com|[a-z.]*cloudflareinsights\.com|pagead2\.googlesyndication\.com)\//, (r) => r.fulfill({ status: 204, body: '' }));
   // 後に登録した route が先に当たるので、上の受け止めより後に置く
-  await ctx.route(/^https:\/\/www\.youtube\.com\/oembed/, (r) => {
-    const id = new URL(new URL(r.request().url()).searchParams.get('url')).searchParams.get('v');
-    st.oembedIds.push(id);
-    if (oembed === 'gone') return r.fulfill({ status: 401, body: 'Unauthorized' });
-    if (oembed === 'busy') return r.fulfill({ status: 429, body: 'Too Many Requests' });
-    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: 'テストチャンネル', title: 'テストの動画' }) });
+  await ctx.route(/\/api\/crossword-video-info\?/, (r) => {
+    const id = new URL(r.request().url()).searchParams.get('id');
+    st.askedIds.push(id);
+    if (videoInfo === 'gone') return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'gone' }) });
+    if (videoInfo === 'busy') return r.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({ status: 'unknown' }) });
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', channel: 'テストチャンネル' }) });
   });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => pageErrors.push(String(e)));
@@ -134,20 +134,20 @@ try {
 
   // ---- (1)(2) ハロプロ・YouTube に聞ける ----
   {
-    const { ctx, page, st } = await newPage({ oembed: 'ok' });
+    const { ctx, page, st } = await newPage({ videoInfo: 'ok' });
     await openPuzzle(page, 'MOCKCHH1');
     const a = await hintText(page, 0, 0);
     check(a.ch === 'チャンネル: テストチャンネル' && !a.gone, `(1) ハロプロ・台帳に無い動画はチャンネル名が出る（${a.ch}）`);
     await page.screenshot({ path: path.join(OUT, '1-hello-outside-390.png') });
     const b = await hintText(page, 1, 2);
     check(b.ch === null && !b.gone, `(2) ハロプロ・台帳にある動画はチャンネル名が出ない（${b.ch}）`);
-    check(!st.oembedIds.includes(IN_CATALOG), `(2) 台帳にある動画は YouTube に聞かない（聞いた番号: ${st.oembedIds.join(',') || 'なし'}）`);
+    check(!st.askedIds.includes(IN_CATALOG), `(2) 台帳にある動画は YouTube に聞かない（聞いた番号: ${st.askedIds.join(',') || 'なし'}）`);
     await ctx.close();
   }
 
   // ---- (3) ハロプロ・YouTube に聞けない ----
   {
-    const { ctx, page } = await newPage({ oembed: 'gone' });
+    const { ctx, page } = await newPage({ videoInfo: 'gone' });
     await openPuzzle(page, 'MOCKCHH1');
     const a = await hintText(page, 0, 0);
     check(a.gone && a.ch === null, `(3) ハロプロ・台帳に無く聞けない動画は「見られなくなりました」（gone=${a.gone} ch=${a.ch}）`);
@@ -155,7 +155,7 @@ try {
     await ctx.close();
   }
   {
-    const { ctx, page } = await newPage({ oembed: 'busy' });
+    const { ctx, page } = await newPage({ videoInfo: 'busy' });
     await openPuzzle(page, 'MOCKCHH1');
     const a = await hintText(page, 0, 0);
     check(!a.gone && a.ch === null, `(3) ハロプロ・YouTube が混み合い（429）の時は「見られなくなりました」にしない（gone=${a.gone} ch=${a.ch}）`);
@@ -164,16 +164,16 @@ try {
 
   // ---- (4) その他 ----
   {
-    const { ctx, page, st } = await newPage({ oembed: 'ok' });
+    const { ctx, page, st } = await newPage({ videoInfo: 'ok' });
     await openPuzzle(page, 'MOCKCHO1');
     const a = await hintText(page, 0, 0);
     const b = await hintText(page, 1, 2);
     check(a.ch === 'チャンネル: テストチャンネル' && b.ch === 'チャンネル: テストチャンネル', `(4) その他は台帳を見ずにチャンネル名が出る（${a.ch} / ${b.ch}）`);
-    check(st.oembedIds.includes(IN_CATALOG), '(4) その他は台帳にある動画も YouTube に聞く');
+    check(st.askedIds.includes(IN_CATALOG), '(4) その他は台帳にある動画も YouTube に聞く');
     await ctx.close();
   }
   {
-    const { ctx, page } = await newPage({ oembed: 'gone' });
+    const { ctx, page } = await newPage({ videoInfo: 'gone' });
     await openPuzzle(page, 'MOCKCHO1');
     const a = await hintText(page, 0, 0);
     check(!a.gone && a.ch === null, `(4) その他は聞けなくても「見られなくなりました」にしない（gone=${a.gone} ch=${a.ch}）`);
@@ -183,7 +183,7 @@ try {
   // ---- (5) 作った問題の一覧 ----
   const mine = JSON.stringify([{ id: 'MOCKCHH1', key: KEY, title: 'チャンネル名の見本', createdAt: Date.now() }]);
   for (const [mode, expectGone] of [['ok', false], ['gone', true], ['busy', false]]) {
-    const { ctx, page } = await newPage({ oembed: mode, marks: { ...SEEN, crossword_my_puzzles: mine } });
+    const { ctx, page } = await newPage({ videoInfo: mode, marks: { ...SEEN, crossword_my_puzzles: mine } });
     await page.goto(`${BASE}/crossword/mine`);
     await page.getByText('チャンネル名の見本').first().waitFor({ timeout: 20000 });
     await page.waitForTimeout(1500);

@@ -1,5 +1,5 @@
 // 「ヒントを直す」画面（/crossword/hints/<番号>。Hop 決定 2026-10-19）と、作る画面の「公式ブログを探す」を確かめる。
-// 手元の vite を立ち上げ、棚（/rest/v1）・受付係（/api）・YouTube の oEmbed はブラウザの中で受け止める（本番にもプレビューにも通信しない）。
+// 手元の vite を立ち上げ、棚（/rest/v1）・受付係（/api。チャンネル名を答える /api/crossword-video-info も）はブラウザの中で受け止める（本番にもプレビューにも通信しない）。
 // 使い方: node scripts/verify/crossword/check-hints-edit.mjs
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -86,7 +86,7 @@ try {
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
   });
   await ctx.route(/^https:\/\/(i\.ytimg\.com|www\.youtube\.com|challenges\.cloudflare\.com|[a-z.]*cloudflareinsights\.com)\//, (r) => r.fulfill({ status: 204, body: '' }));
-  await ctx.route(/^https:\/\/www\.youtube\.com\/oembed/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: 'テストチャンネル' }) }));
+  await ctx.route(/\/api\/crossword-video-info\?/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', channel: 'テストチャンネル' }) }));
   const page = await ctx.newPage();
   page.on('pageerror', (e) => pageErrors.push(String(e)));
 
