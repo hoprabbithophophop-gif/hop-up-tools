@@ -1766,8 +1766,6 @@ export default function CrosswordPage() {
       if (!silent) toast.error("まだ埋まっていないマスがあります。", { duration: 4000 });
       return;
     }
-    autoCheckRef.current.holdMs = null; // 丸付けが走ったら、止めていたタイマーの表示を戻す
-
     let allCorrect = false;
     let serverTime: number | null = null;
     if (isDebugMode || isTutorial) {
@@ -1795,6 +1793,7 @@ export default function CrosswordPage() {
         console.warn("Failed to check:", err);
         // 黙る方でも失敗は隠さない。盤が変わらないと丸付けし直されないので、少し待って自動でもう一度試す（3回まで）
         setBoardStatus("failed");
+        autoCheckRef.current.holdMs = null; // 止めていたタイマーの表示を戻す
         if (!silent) toast.error(playErrorOf(err));
         if (retryRef.current < 3) {
           retryRef.current += 1;
@@ -1813,6 +1812,8 @@ export default function CrosswordPage() {
     }
 
     retryRef.current = 0;
+    // 止めていたタイマーの表示は、解けなかった時だけ戻す（解けた時は止めたまま終わりの画面へ。通信の間に表示が進んで見えないように）
+    if (!allCorrect) autoCheckRef.current.holdMs = null;
     setBoardStatus(allCorrect ? null : "wrong");
     if (allCorrect) {
       // 解けたら幕は出さない（通信の間に幕がかかっていた時のため）
@@ -1872,7 +1873,8 @@ export default function CrosswordPage() {
   // holdMs = 答え合わせ待ちを始めた時（最後に字が変わった時）の開いていた時間（ミリ秒）。待っている間はタイマーの表示をこの値で止め、待った分を受付係に添える
   // prev = 前に見た盤（どのマスの字が変わったかを見る）。waitMs = 最後に字が変わった時に決めた待ち時間
   // pending = まだ走っていない答え合わせがある（一時停止で取り消した待ちも含む。再開した時に待ち直して走らせる）
-  const autoCheckRef = useRef<{ ready: boolean; full: boolean; loud: boolean; holdMs: number | null; prev: Record<string, string>; waitMs: number; pending: boolean }>({
+  // dueAt = 答え合わせを走らせる時刻（端末の時計。待ちを始めた時に決める）
+  const autoCheckRef = useRef<{ ready: boolean; full: boolean; loud: boolean; holdMs: number | null; prev: Record<string, string>; waitMs: number; pending: boolean; dueAt: number }>({
     ready: false,
     full: false,
     loud: false,
@@ -1880,6 +1882,7 @@ export default function CrosswordPage() {
     prev: {},
     waitMs: AUTO_CHECK_WAIT_MS,
     pending: false,
+    dueAt: 0,
   });
   useEffect(() => {
     const prev = autoCheckRef.current.prev;
@@ -1892,10 +1895,13 @@ export default function CrosswordPage() {
       autoCheckRef.current.ready = true;
       return;
     }
-    // 答え合わせの通信中に盤が変わったら、通信の後に今の盤でもう一度丸付けする
+    const changed = Object.keys(userAnswers).filter((k) => userAnswers[k] !== prev[k]);
+    // 答え合わせの通信中に盤が変わったら、通信の後に今の盤でもう一度丸付けする（一時停止の切り替えだけで見張りが動いた時は、盤が同じなので印を立てない）
     if (checkingRef.current) {
-      checkDirtyRef.current = true;
-      autoCheckRef.current.holdMs = null; // この後の丸付けし直しは待たずに走るので、表示も止めない
+      if (changed.length > 0) {
+        checkDirtyRef.current = true;
+        autoCheckRef.current.holdMs = null; // この後の丸付けし直しは待たずに走るので、表示も止めない
+      }
       return;
     }
     if (!full) {
@@ -1907,7 +1913,6 @@ export default function CrosswordPage() {
     }
     if (!wasFull) autoCheckRef.current.loud = true;
     // 字が変わったマスがあれば待ち時間を決め直す（字が変わっていない時は前に決めた待ち時間のまま）
-    const changed = Object.keys(userAnswers).filter((k) => userAnswers[k] !== prev[k]);
     if (changed.length > 0) autoCheckRef.current.waitMs = changed.some((k) => canTakeMark(userAnswers[k])) ? AUTO_CHECK_MARK_WAIT_MS : AUTO_CHECK_WAIT_MS;
     // 走らせる答え合わせが無ければ何もしない（盤が変わらずに見直しが走った時に、同じ盤を何度も丸付けしない）
     if (changed.length === 0 && wasFull && !autoCheckRef.current.pending) return;
@@ -1919,9 +1924,18 @@ export default function CrosswordPage() {
     }
     // 待ち始めは最後に字が変わった時（゛゜ で字が変わった時もそこから止め直す。Hop 決定 2026-10-21）。
     // 表示を止めた分＝受付係に添える待った時間、になるようにそろえる
-    if (changed.length > 0 || autoCheckRef.current.holdMs === null) autoCheckRef.current.holdMs = activeMsNow();
-    // 打ち終わるのを少し待ってから丸付けする（1字ごとに通信しない）
+    if (changed.length > 0 || autoCheckRef.current.holdMs === null) {
+      autoCheckRef.current.holdMs = activeMsNow();
+      autoCheckRef.current.dueAt = Date.now() + autoCheckRef.current.waitMs;
+    }
+    // 打ち終わるのを少し待ってから丸付けする（1字ごとに通信しない）。
+    // 同じ字を入れ直すなど盤が変わらずに見張りが動いた時は、待ちを最初からやり直さず残りだけ待つ（止めた表示と待った時間がずれないように）
     const timer = setTimeout(() => {
+      // 止めた直後、描き直しで待ちが取り消される前に鳴った時も走らせない（pending のまま、再開した時に待ち直す）
+      if (pausedRef.current) {
+        autoCheckRef.current.holdMs = null;
+        return;
+      }
       autoCheckRef.current.pending = false;
       const loud = autoCheckRef.current.loud;
       autoCheckRef.current.loud = false;
@@ -1931,7 +1945,7 @@ export default function CrosswordPage() {
       const waitedMs = hold !== null ? Math.max(0, Math.round(activeMsNow() - hold)) : 0;
       if (loud) setShowCloseup(false); // 結果が盤の上で見えるように、拡大の窓は閉じる
       void handleClearCheck(!loud, waitedMs);
-    }, autoCheckRef.current.waitMs);
+    }, Math.max(0, autoCheckRef.current.dueAt - Date.now()));
     return () => clearTimeout(timer);
   }, [userAnswers, playerPuzzle, isCleared, gamePhase, paused]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1951,7 +1965,7 @@ export default function CrosswordPage() {
     setReveals(0);
     playRef.current = null;
     restoredElapsedRef.current = 0;
-    autoCheckRef.current = { ready: false, full: false, loud: false, holdMs: null, prev: {}, waitMs: AUTO_CHECK_WAIT_MS, pending: false };
+    autoCheckRef.current = { ready: false, full: false, loud: false, holdMs: null, prev: {}, waitMs: AUTO_CHECK_WAIT_MS, pending: false, dueAt: 0 };
     setGamePhase("ready");
   };
 
