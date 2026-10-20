@@ -38,9 +38,15 @@ const CHECK_OFFICIAL = "ハロプロの公式の発信か確かめてくださ�
 const STEP_TEXT = {
   find: { ameblo: "公式ブログを探す", x: "公式の投稿を探す", ig: "公式の投稿を探す", link: "公式サイトを探す" },
   paste: { ameblo: "見つけた記事の URL を貼る", x: "見つけた投稿の URL を貼る", ig: "見つけた投稿の URL を貼る", link: "見つけたページの URL を貼る" },
-  pasteNote: "開いたページの URL をコピーして、ここに貼ります。",
+  // ②の一文は出どころ別。表記は各社の公式ヘルプ（2026-10-21 前提監査）に合わせた（Hop 承認 2026-10-21）
+  pasteNote: {
+    x: "投稿の共有アイコンから「リンクをコピー」を選んで、ここに貼ります。",
+    ig: "投稿の「送信」（ブラウザでは「オプション」）から「リンクをコピー」を選んで、ここに貼ります。",
+    ameblo: "記事のシェアボタンか、ブラウザの住所の欄から URL をコピーして、ここに貼ります。",
+    link: "開いたページの URL をコピーして、ここに貼ります。",
+  },
   siteSearch: "公式サイトを探す",
-  pasteButton: "貼り付け", // 【仮】欄の横のボタン（Hop 決定 2026-10-20 案C。言葉は承認待ち）
+  pasteButton: "貼り付け", // 欄の横のボタン（Hop 決定 2026-10-20 案C・言葉は 2026-10-21 承認）
 } as const;
 type StepSource = keyof typeof STEP_TEXT.find;
 
@@ -535,7 +541,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
       {stepSource ? (
         <div data-hint-step="2" className={boxClassName}>
           {stepHead("②", STEP_TEXT.paste[stepSource])}
-          <p className="text-xs leading-relaxed" style={{ color: C.secondary }}>{STEP_TEXT.pasteNote}</p>
+          <p className="text-xs leading-relaxed" style={{ color: C.secondary }}>{STEP_TEXT.pasteNote[stepSource]}</p>
           {pasteRow}
           {busyNote}
           {messageNote}
