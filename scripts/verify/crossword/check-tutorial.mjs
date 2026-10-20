@@ -4,8 +4,9 @@
 //   (a) 記録が空の端末で問題を開く → 遊び方の窓は「始める！」だけ → 始めると最初のマスが脈打ち、盤の下に1行
 //       → マスを押すと両方消える → 開き直しても出ない。幕は無い
 //   (b) 「?」→「練習する」→ 案内は2段（×つき）→ 案内なしで解き切る → ハンコ → 「本番へ」。見出しの戻る矢印はいつも出ている
-//   (c) 作る画面: 初めて開いても案内（幕）は出ない → 語を1つ追加 → 札1 → × → 2語目 → 札2 → × → 題名 → 共有 → 窓に札3。二度目は出ない
-//   (d) 「?」→「案内を見る」の11段: 各段に × と「とばす」。× ・幕のタップ・Esc で終われる（「次へ」を押せない段でも）。終えた後は本物の部品が押せる
+//   (c) 作る画面（4段の流れ・2026-10-21 に書き直し）: 初めて開いても案内（幕）は出ない → 1の段で答えが1つ → 札1 → × → 2語目 → 2の段で盤 → 札2 → ×
+//       → 3の段 → 4の窓（共有する）に札3 → × → 二度目は出ない（保存は押さない）
+//   (d) 作る画面に「?」（パズルの作り方）と11段の案内は無い（2026-10-20 Hop 決定で外した）
 //   (e) 受付係・棚への書き込み（保存・更新・記録・通報・削除）は0回。本物の問題を開く時の回の開始は数えない
 // 場面ごとに 390px の写真を残し、吹き出しと「×」が画面に収まっているか・横にはみ出したスクロールが無いかを見る。
 // 使い方: node scripts/verify/crossword/check-tutorial.mjs [サイト（省略すると手元の開発サーバーを立てる）] [問題の番号]
@@ -13,6 +14,7 @@ import { chromium } from 'playwright';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { arg, outDir, ROOT, ID_DEFAULT, leaveFirstVisitMarks, cellAt } from './_lib.mjs';
+import { writeLines, toBoard, toClues, hintAllInClues, openShare } from './_create.mjs';
 
 // 「初めて」の印を立てずに流す（ほかの台本は _lib.mjs が印を立ててから開く）
 leaveFirstVisitMarks();
@@ -149,15 +151,6 @@ const closeSheet = async (page) => {
   await page.locator('[data-coach="closeup-head"]').getByRole('button', { name: '閉じる' }).click();
   await page.waitForTimeout(500);
 };
-// 作る画面で語を1つ入れて追加する（ヒントは https のリンク。棚を読まない）
-async function addWord(page, answer, clue) {
-  await page.locator('[data-coach="create-answer"] input').fill(answer);
-  await page.locator('[data-coach="create-clue"] input').fill(clue);
-  await page.locator('[data-coach="create-hint"] input').first().fill('https://example.com/');
-  await page.waitForTimeout(300);
-  await page.getByRole('button', { name: 'リストに追加' }).click();
-}
-
 async function run() {
   // ===== (a) 解く側: 初めての脈打ちと1行 =====
   let entryPath = `/crossword/${ID}`;
@@ -300,167 +293,87 @@ async function run() {
     await ctx.close();
   }
 
-  // ===== (c) 作る側: 場面ごとの札 =====
+  // ===== (c) 作る側: 場面ごとの札（4段の流れ・2026-10-21 に書き直し） =====
+  // 1の段は「書く」の側だけで進める（「ヒントを付ける」の側は初めての端末でなぞる動きが出る。なぞる動きは check-create-flow が見る）
   {
     const { ctx, page } = await newCtx();
     await page.goto(`${BASE}/crossword/create`);
-    await page.waitForTimeout(4500);
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await page.waitForTimeout(2500);
     check((await page.locator('[data-coach-layer]').count()) === 0, '(c) 作る画面を初めて開いても幕つきの案内は出ない');
-    check((await page.locator('[data-tip]').count()) === 0, '(c) 語が無い間は札も出ない');
+    check((await page.locator('[data-tip]').count()) === 0, '(c) 答えが無い間は札も出ない');
     await page.screenshot({ path: path.join(OUT, 'c0-create.png') });
-    await addWord(page, 'ネコ', 'ニャーと鳴く動物');
-    const tip1 = await page.locator('[data-tip="cross"]').waitFor({ timeout: 30000 }).then(() => true).catch(() => false);
-    check(tip1, '(c) 最初の語を追加すると札1 が出る');
+    await writeLines(page, 'ニャーと鳴く動物→【ネコ】');
+    const tip1 = await page.locator('[data-tip="cross"]').waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+    check(tip1, '(c) 1の段で答えが1つになると札1 が出る');
     check((await page.locator('[data-tip="cross"]').innerText().catch(() => '')).includes('もう1語足すと、同じ字で交差して組まれます'), '(c) 札1 の文「もう1語足すと、同じ字で交差して組まれます」');
-    const below1 = await page.evaluate(() => {
-      const b = document.querySelector('[data-coach="create-board"]')?.getBoundingClientRect();
-      const t = document.querySelector('[data-tip]')?.getBoundingClientRect();
-      return !!b && !!t && t.top >= b.bottom - 1;
-    });
-    check(below1, '(c) 札1 は盤の下');
     check((await page.locator('[data-tip]').count()) === 1 && (await page.locator('[data-coach-layer]').count()) === 0, '(c) 札は1つだけ・幕は無い');
     await page.locator('[data-tip="cross"]').scrollIntoViewIfNeeded();
     await shot(page, 'c1-tip-cross');
     await page.locator('[data-tip="cross"]').getByRole('button', { name: '閉じる' }).click();
     check((await page.locator('[data-tip]').count()) === 0, '(c) 札1 の × で消える');
-    await addWord(page, 'コアラ', 'ユーカリの葉を食べる動物');
-    const tip2 = await page.locator('[data-tip="move"]').waitFor({ timeout: 30000 }).then(() => true).catch(() => false);
-    check(tip2, '(c) 2語目が交差して組まれると札2 が出る');
+    await writeLines(page, 'ニャーと鳴く動物→【ネコ】\n【コアラ】はユーカリを食べる');
+    await toBoard(page);
+    const tip2 = await page.locator('[data-tip="move"]').waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+    check(tip2, '(c) 2の段で盤ができると札2 が出る');
     check((await page.locator('[data-tip="move"]').innerText().catch(() => '')).includes('盤の語は長押しで動かせます'), '(c) 札2 の文「盤の語は長押しで動かせます」');
+    const below2 = await page.evaluate(() => {
+      const b = document.querySelector('[data-create-board]')?.getBoundingClientRect();
+      const t = document.querySelector('[data-tip="move"]')?.getBoundingClientRect();
+      return !!b && !!t && t.top >= b.bottom - 1;
+    });
+    check(below2, '(c) 札2 は盤の下');
     check((await page.locator('[data-tip]').count()) === 1, '(c) 札は1つだけ');
     await page.locator('[data-tip="move"]').scrollIntoViewIfNeeded();
     await shot(page, 'c2-tip-move');
     await page.locator('[data-tip="move"]').getByRole('button', { name: '閉じる' }).click();
     check((await page.locator('[data-tip]').count()) === 0, '(c) 札2 の × で消える');
-    await page.locator('[data-coach="create-title"] input').fill('札の確かめ');
-    await page.getByRole('button', { name: '共有する' }).click();
-    const modal = await page.getByText('問題を共有').waitFor({ timeout: 20000 }).then(() => true).catch(() => false);
-    check(modal, '(c) 共有の窓が出る（人間確認と保存は台本が受け止めた）');
-    const tip3 = page.locator('[data-tip="saved"]');
-    check((await tip3.innerText().catch(() => '')).includes('作りかけはこの端末に自動で残ります。作った問題は「自分が作った問題」にあり、遊ばれる前なら組み直せます'), '(c) 共有の窓の中に札3 が出る');
-    const near = await page.evaluate(() => {
-      const n = [...document.querySelectorAll('div')].find((d) => d.textContent === 'この問題を公開しました。誰でも遊べます。');
-      const t = document.querySelector('[data-tip="saved"]');
-      if (!n || !t) return null;
-      return Math.round(t.getBoundingClientRect().top - n.getBoundingClientRect().bottom);
+    await toClues(page);
+    await hintAllInClues(page); // ヒントは https のリンク（棚を読まない）
+    await openShare(page);
+    const tip3 = page.locator('[data-share-sheet] [data-tip="saved"]');
+    check((await tip3.innerText().catch(() => '')).includes('作りかけはこの端末に自動で残ります。作った問題は「自分が作った問題」にあり、遊ばれる前なら組み直せます'), '(c) 4の窓（共有する）の中に札3 が出る');
+    const above = await page.evaluate(() => {
+      const t = document.querySelector('[data-share-sheet] [data-tip="saved"]')?.getBoundingClientRect();
+      const title = document.querySelector('#cw-title')?.getBoundingClientRect();
+      return !!t && !!title && t.bottom <= title.top + 1;
     });
-    check(near !== null && near >= 0 && near < 40, `(c) 札3 は「公開され…」の文のすぐ下（${near}px）`);
+    check(above, '(c) 札3 は窓の上（題名の欄より上）');
     await shot(page, 'c3-tip-saved');
     await tip3.getByRole('button', { name: '閉じる' }).click();
     check((await page.locator('[data-tip]').count()) === 0, '(c) 札3 の × で消える');
-    await page.getByRole('button', { name: '閉じる' }).last().click();
-    await page.getByRole('button', { name: '共有する' }).click();
-    await page.getByText('問題を共有').waitFor({ timeout: 20000 });
+    await page.locator('[data-share-sheet] [data-step-back="3"]').click();
+    await openShare(page);
     check((await page.locator('[data-tip="saved"]').count()) === 0, '(c) 二度目の共有の窓には札3 は出ない');
-    await page.getByRole('button', { name: '閉じる' }).last().click();
+    await page.locator('[data-share-sheet] [data-step-back="3"]').click();
     // 開き直して1語目から作り直しても、札1・札2 はもう出ない
     await page.evaluate(() => localStorage.removeItem('crossword_draft'));
     await page.reload();
-    await page.waitForTimeout(3000);
-    await addWord(page, 'ネコ', 'ニャーと鳴く動物');
-    await page.waitForFunction(() => document.querySelectorAll('[data-coach="create-board"] .puzzle-cell').length > 0, null, { timeout: 30000 });
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await writeLines(page, 'ニャーと鳴く動物→【ネコ】');
     await page.waitForTimeout(1000);
     check((await page.locator('[data-tip]').count()) === 0, '(c) 二度目は札1 が出ない');
-    await addWord(page, 'コアラ', 'ユーカリの葉を食べる動物');
-    await page.waitForFunction(() => document.querySelectorAll('[data-coach="create-board"] .puzzle-cell').length === 4, null, { timeout: 30000 });
-    await page.waitForTimeout(1500);
+    await writeLines(page, 'ニャーと鳴く動物→【ネコ】\n【コアラ】はユーカリを食べる');
+    await toBoard(page);
+    await page.waitForTimeout(1000);
     check((await page.locator('[data-tip]').count()) === 0, '(c) 二度目は札2 も出ない');
-    const keys = await page.evaluate(() => ['crossword_seen_first_cell', 'crossword_seen_tip_cross', 'crossword_seen_tip_move', 'crossword_seen_tip_saved', 'crossword_seen_create_guide'].map((k) => `${k}=${localStorage.getItem(k)}`).join(' '));
+    const keys = await page.evaluate(() => ['crossword_seen_first_cell', 'crossword_seen_tip_cross', 'crossword_seen_tip_move', 'crossword_seen_tip_saved', 'crossword_seen_trace'].map((k) => `${k}=${localStorage.getItem(k)}`).join(' '));
     console.log(`   この端末の印: ${keys}`);
     await ctx.close();
   }
 
-  // ===== (d) 「?」→「案内を見る」（11段・各段に × と「とばす」） =====
+  // ===== (d) 作る画面に「?」と11段の案内は無い（Hop 決定 2026-10-20。「パズルの作り方」と11段の案内は外した） =====
   {
     const { ctx, page } = await newCtx();
     await page.goto(`${BASE}/crossword/create`);
-    await page.waitForTimeout(3000);
-    const openGuide = async () => {
-      await page.getByTitle('パズルの作り方').first().click();
-      await page.getByRole('button', { name: '案内を見る' }).click();
-    };
-    // 抜け道: 「次へ」を押せない段1 で ×・幕・Esc
-    await openGuide();
-    await waitBubble(page, '答えはひらがなかカタカナで', '(d) 段1');
-    check(await nextBtn(page).isDisabled(), '(d) 段1 は答えを打つまで「次へ」を押せない段');
-    await page.locator('[data-coach-close]').click();
-    check(await layerGone(page), '(d) 段1 の × で案内が終わる');
-    await page.getByRole('radio', { name: 'その他' }).click();
-    check((await page.getByRole('radio', { name: 'その他' }).getAttribute('aria-checked')) === 'true', '(d) 終えた後は幕の下だった部品（ジャンル）が押せる');
-    await page.getByRole('radio', { name: 'ハロプロ' }).click();
-    await openGuide();
-    await waitBubble(page, '答えはひらがなかカタカナで', '(d) 段1 もう一度');
-    check(await tapMask(page), '(d) 幕の1点を押せた');
-    check(await layerGone(page), '(d) 段1 の幕のタップで案内が終わる');
-    await openGuide();
-    await waitBubble(page, '答えはひらがなかカタカナで', '(d) 段1 Esc');
-    await page.keyboard.press('Escape');
-    check(await layerGone(page), '(d) Esc キーで案内が終わる');
-
-    // 段5 まで進めて幕のタップで終える（終えたら、その場面の札が出る）
-    await openGuide();
-    await waitBubble(page, '答えはひらがなかカタカナで', '(d) 通し 段1');
-    await shot(page, 'd01-answer');
-    await page.locator('[data-coach="create-answer"] input').fill('ねこ');
-    await nextBtn(page).click();
-    await waitBubble(page, 'カギは、答えを当てるための問題文です', '(d) 段2');
-    await shot(page, 'd02-clue');
-    await page.locator('[data-coach="create-clue"] input').fill('ニャーと鳴く動物');
-    await nextBtn(page).click();
-    await waitBubble(page, 'ヒントは答えの根拠です', '(d) 段3');
-    await shot(page, 'd03-hint');
-    await page.locator('[data-coach="create-hint"] input').first().fill('https://example.com/');
-    await page.waitForTimeout(300);
-    await nextBtn(page).click();
-    await waitBubble(page, '「リストに追加」を押します', '(d) 段4');
-    await shot(page, 'd04-add');
-    await page.getByRole('button', { name: 'リストに追加' }).click();
-    await waitBubble(page, 'ここに盤が組み上がります', '(d) 段5');
-    await enabledNext(page);
-    check((await page.locator('[data-tip]').count()) === 0, '(d) 案内の間は札を出さない（一度に1つ）');
-    await shot(page, 'd05-board');
-    check(await tapMask(page), '(d) 段5 の幕の1点を押せた');
-    check(await layerGone(page), '(d) 段5 の幕のタップで案内が終わる');
-    check(await page.locator('[data-tip="cross"]').isVisible().catch(() => false), '(d) 案内を終えると、その場面の札が出る');
-    await page.locator('[data-tip="cross"]').getByRole('button', { name: '閉じる' }).click();
-    // 開き直して残りの段を通す
-    await openGuide();
-    await waitBubble(page, '答えはひらがなかカタカナで', '(d) 開き直し 段1');
-    await page.locator('[data-coach="create-answer"] input').fill('コアラ');
-    await nextBtn(page).click();
-    await page.locator('[data-coach="create-clue"] input').fill('ユーカリの葉を食べる動物');
-    await nextBtn(page).click();
-    await page.locator('[data-coach="create-hint"] input').first().fill('https://example.com/');
-    await page.waitForTimeout(300);
-    await nextBtn(page).click();
-    await page.getByRole('button', { name: 'リストに追加' }).click();
-    await waitBubble(page, 'ここに盤が組み上がります', '(d) 開き直し 段5');
-    await enabledNext(page);
-    await nextBtn(page).click();
-    await waitBubble(page, 'もう1語足してみましょう', '(d) 段6');
-    await shot(page, 'd06-second');
-    await addWord(page, 'ラムネ', 'ビー玉で栓をした炭酸の飲み物');
-    await waitBubble(page, '型の案内', '(d) 段7');
-    await enabledNext(page);
-    await shot(page, 'd07-shape');
-    await nextBtn(page).click();
-    await waitBubble(page, '長押しで動かせます', '(d) 段8');
-    await shot(page, 'd08-move');
-    await nextBtn(page).click();
-    await waitBubble(page, '題名を入れます', '(d) 段9');
-    await shot(page, 'd09-title');
-    await nextBtn(page).click();
-    await waitBubble(page, '「共有する」で保存すると公開され', '(d) 段10');
-    await shot(page, 'd10-share');
-    await nextBtn(page).click();
-    await waitBubble(page, '作りかけは、この端末に自動で残ります', '(d) 段11');
-    await shot(page, 'd11-mine');
-    await bubble(page).getByRole('button', { name: '閉じる' }).click();
-    check(await layerGone(page), '(d) 最後の段の「閉じる」で案内が終わる');
-    check(await page.evaluate(() => (localStorage.getItem('crossword_draft') || '').includes('ビー玉で栓をした炭酸の飲み物')), '(d) 案内の間に入れた語は作りかけとして残る');
-    await page.reload();
-    await page.waitForTimeout(4000);
-    check((await page.locator('[data-coach-layer]').count()) === 0, '(d) 開き直しても案内は自動では出ない');
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await page.waitForTimeout(2000);
+    const st = await page.evaluate(() => ({
+      help: document.querySelectorAll('[title="パズルの作り方"], [aria-label="パズルの作り方"]').length,
+      guide: [...document.querySelectorAll('button')].filter((b) => b.textContent.trim() === '案内を見る').length,
+      layer: document.querySelectorAll('[data-coach-layer]').length,
+    }));
+    check(st.help === 0 && st.guide === 0 && st.layer === 0, `(d) 作る画面に「?」（パズルの作り方）も「案内を見る」も幕も無い（? ${st.help}・案内 ${st.guide}・幕 ${st.layer}）`);
     await ctx.close();
   }
 

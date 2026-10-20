@@ -1,10 +1,12 @@
 // 起こりうる困った場面（2026-10-04 洗い出しの 1〜5）で、詰まらず正しい知らせが出るかを確かめる。
 // 台帳・受付係の答えは途中で差し替えて場面を作る。4 だけは本物の受付係で、無い回の番号から始め直せるかを見る。
 // 回数を足す呼び出しとランキングへの送信は受け止めるので、本物の回数とランキングは変わらない。
+// 2 と 6 の作る画面の確かめは 2026-10-21 に4段の流れ（1の段のヒントの窓）に合わせて書き直した。ジャンルの切り替えは無くなったのでハロプロのまま確かめる。
 // 使い方: node scripts/verify/crossword/check-edge.mjs [サイト] [ハロプロの問題の番号] ['<答えの配置 JSON>'] [残すマス x,y]
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { chromium } from 'playwright';
 import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt } from './_lib.mjs';
+import { writeLines, openHintSheet } from './_create.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -83,15 +85,26 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   check((await text(page)).includes('見られなくなったヒントがあります'), '1 自分が作った問題に「見られなくなったヒントがあります」');
   await ctx.close();
 }
-// 2. 作る画面: 再生できない動画（存在しない番号）は選べない
+// 2. 作る画面のヒントの窓: 台帳に無く YouTube にチャンネル名を聞けない動画（存在しない番号）は「確かめられませんでした」で選べない。
+//    聞けても再生できない動画は「この動画はヒントに使えません。」で選べない（YouTube の再生部品は本物。チャンネル名の返事だけ作り物にする）
+//    台帳にあるかの確かめは、プレビューの画面が本番の棚（youtube_videos）を読むだけ
 {
   const { ctx, page } = await open('/crossword/create');
-  await page.getByPlaceholder('例：ニャーと鳴く動物').waitFor();
-  await page.waitForTimeout(2500);
-  await page.getByRole('radio', { name: 'その他' }).click();
-  await page.getByPlaceholder(/URL/).first().fill('https://youtu.be/aaaaaaaaaa0');
+  await writeLines(page, '【ネコ】\n【コアラ】');
+  await openHintSheet(page, 'ネコ');
+  await page.locator('[data-hint-sheet] #cw-hint').fill('https://youtu.be/aaaaaaaaaa0');
+  await page.waitForTimeout(6000);
+  check((await page.locator('[data-hint-sheet]').innerText()).includes('この動画を確かめられませんでした。'), '2 チャンネル名を聞けない動画は「この動画を確かめられませんでした。…」で選べない');
+  await ctx.close();
+}
+{
+  const fakeChannel = [/^https:\/\/www\.youtube\.com\/oembed/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: '台本の作り物', title: 'x' }) })];
+  const { ctx, page } = await open('/crossword/create', { routes: [fakeChannel] });
+  await writeLines(page, '【ネコ】\n【コアラ】');
+  await openHintSheet(page, 'ネコ');
+  await page.locator('[data-hint-sheet] #cw-hint').fill('https://youtu.be/aaaaaaaaaa0');
   await page.waitForTimeout(8000);
-  const t = await text(page);
+  const t = await page.locator('[data-hint-sheet]').innerText();
   check(t.includes('この動画はヒントに使えません。'), '2 再生できない動画は「この動画はヒントに使えません。」で選べない');
   await page.screenshot({ path: `${OUT}/edge-2-unusable.png` });
   await ctx.close();
@@ -148,21 +161,21 @@ const noCatalog = ['**/rest/v1/youtube_videos*', (r) => r.fulfill({ status: 200,
   await ctx.close();
 }
 
-// 6. リンクのヒントの決まり（https だけ・IP アドレスだけの住所は不可。2026-10-04 洗い出しの G）
+// 6. リンクのヒントの決まり（https だけ・IP アドレスだけの住所は不可。2026-10-04 洗い出しの G）。作る画面のヒントの窓で
 {
   const { ctx, page } = await open('/crossword/create');
-  await page.getByPlaceholder('例：ニャーと鳴く動物').waitFor();
-  await page.waitForTimeout(2500);
-  await page.getByRole('radio', { name: 'その他' }).click();
-  const box = page.getByPlaceholder(/URL/).first();
+  await writeLines(page, '【ネコ】\n【コアラ】');
+  await openHintSheet(page, 'ネコ');
+  const sheet = page.locator('[data-hint-sheet]');
+  const box = sheet.locator('#cw-hint');
   for (const bad of ['http://example.com/', 'https://192.168.0.1/']) {
     await box.fill(bad);
     await page.waitForTimeout(600);
-    check((await text(page)).includes('リンクは https から始まる URL だけ使えます。'), `6 ${bad} は使えないと出る`);
+    check((await sheet.innerText()).includes('リンクは https から始まる URL だけ使えます。') && (await sheet.locator('[data-hint-kind]').count()) === 0, `6 ${bad} は使えないと出る`);
   }
   await box.fill('https://example.com/page');
   await page.waitForTimeout(600);
-  check((await text(page)).includes('リンク') && !(await text(page)).includes('リンクは https から'), '6 https のサイトは選べる');
+  check((await sheet.locator('[data-hint-kind]').textContent().catch(() => null)) === 'リンク' && !(await sheet.innerText()).includes('リンクは https から'), '6 https のサイトは選べる');
   await ctx.close();
 }
 

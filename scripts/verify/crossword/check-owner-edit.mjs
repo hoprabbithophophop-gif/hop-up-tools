@@ -6,7 +6,7 @@
 //  (c) 大きさ超え → 413（owner-get は 8192 バイト超・update は 450000 バイト超）
 //  (d) 問題での通し。受付係のコードを手元で動かし、作り物の棚に置いた問題で確かめる（_localFunctions.mjs）。
 //      本番にもプレビューにも問題を置かない・書き換えない（2026-10-19 Hop「本番環境から見える形で検収用パズル登録を二度とするな」）
-//      owner-get で中身が戻る → 同じ中身で update → owner-get で書き換わったのを見る
+//      owner-get で中身が戻る → 同じ中身で update → owner-get で書き換わったのを見る（送ったジャンルが other でも棚には hello で書く。2026-10-20）
 //      合う合言葉で、交わるマスの字が食い違う本文の update → 400（棚は書き換わらない）
 //      遊ばれた後の問題の update が 409 already_played・合わない合言葉は 404・隠れた問題は 404
 // 本番の棚への影響: (a)〜(c) は何も書き換えない（rate_limit_log に数えが1時間残るだけ）。(d) は本番にもプレビューにも通信しない
@@ -106,6 +106,8 @@ const samplePuzzle = {
       check(u.status === 200 && u.j?.ok === true, `(d) update で書き換え → ${u.status} ${u.j?.reason ?? ''}`);
       const g2 = await call(ownerGet, { id, key });
       check(g2.j?.puzzle?.title === title, `(d) 書き換わった題名が戻る → ${g2.j?.puzzle?.title}`);
+      // ジャンルはハロプロだけ（Hop 決定 2026-10-20）。受付係は送られたジャンル（ここでは元の問題の other）を見ず hello で書く
+      check(p.genre === 'other' && shelf.puzzles.get(id).genre === 'hello', `(d) 送ったジャンル ${p.genre} でも棚には hello で書く → ${shelf.puzzles.get(id).genre}`);
       // 交わるマスの字が食い違う本文（1語目と同じ位置・同じ向きに、別の字の語を重ねる）
       const c0 = clues[0];
       const clash = { ...c0, clueIndex: c0.clueIndex + 1000, answer: c0.answer.map((ch) => (ch === 'ア' ? 'イ' : 'ア')) };

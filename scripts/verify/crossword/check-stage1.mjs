@@ -1,4 +1,5 @@
 // クロスワード段階1の完成の定義（docs/definition-of-done.md）の5項目を、実際の画面で順に確かめる。
+// 作る部分は 2026-10-21 に4段の流れ（1 答え・2 盤・3 カギ・4 共有）に合わせて書き直した。ヒントは1の段のヒントの窓で選ぶ
 // 本番にもプレビューにも通信しない（2026-10-19 Hop「本番環境から見える形で検収用パズル登録を二度とするな」）。
 // 手元の vite をこの台本が立ち上げ、棚（/rest/v1）・受付係（/api）・人間確認（Turnstile）・YouTube はブラウザの中で受け止める。
 // 保存は作り物の受付係が受け、台本の中に持った問題で解く。受付係そのものの動きは check-owner-edit・check-fixtures（手元の受付係）で見る
@@ -8,6 +9,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { chromium } from 'playwright';
 import path from 'node:path';
 import { outDir, ROOT } from './_lib.mjs';
+import { writeLines, openHintSheet, closeHintSheet, toClues, hintAllInClues, openShare } from './_create.mjs';
 
 const SKIP_SAVE = process.argv.includes('--skip-save');
 const PORT = 5192;
@@ -116,26 +118,22 @@ async function mockAll(ctx) {
 
 // 画面の言葉。実装に合わせてここだけ直す
 const T = {
-  add: 'リストに追加',
-  save: '共有する',
-  check: '答え合わせ',
   hint: 'ヒント',
   dakuten: '゛',
-  del: '消す',
   done: '決定',
   building: '読み込み中',
   optimizing: '組み立て中',
-  clear: 'CLEAR',
-  notFilled: 'まだ埋まっていないマスがあります',
 };
 
-// ひらがなで入れて、カタカナにそろうかも見る。「ボ」は文字盤の ゛ で作る
+// ひらがなで囲んで、カタカナにそろうかも見る。「ボ」は文字盤の ゛ で作る。行は「問題文→【答え】」の形にして、カギの下書きが問題文だけになるようにする
 const WORDS = [
-  { a: 'かぼちゃ', clue: 'ハロウィンでくり抜かれる野菜', hint: 'https://youtu.be/dQw4w9WgXcQ?t=83' },
-  { a: 'ちゃーはん', clue: '中華料理店のパラパラのご飯', hint: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1m5s' },
-  { a: 'はんかち', clue: 'ポケットに入れて手を拭く布', hint: 'https://ja.wikipedia.org/wiki/ハンカチ' },
-  { a: 'かき', clue: '秋に実る橙色の果物', hint: 'https://youtu.be/dQw4w9WgXcQ' },
+  { a: 'かぼちゃ', key: 'カボチヤ', clue: 'ハロウィンでくり抜かれる野菜', hint: 'https://youtu.be/dQw4w9WgXcQ?t=83' },
+  { a: 'ちゃーはん', key: 'チヤーハン', clue: '中華料理店のパラパラのご飯', hint: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1m5s' },
+  { a: 'はんかち', key: 'ハンカチ', clue: 'ポケットに入れて手を拭く布', hint: 'https://ja.wikipedia.org/wiki/ハンカチ' },
+  { a: 'かき', key: 'カキ', clue: '秋に実る橙色の果物', hint: 'https://youtu.be/dQw4w9WgXcQ' },
 ];
+
+const clickText = (page, text) => page.getByRole('button', { name: text, exact: false }).first().click();
 
 const r = {};
 const errs = [];
@@ -143,13 +141,7 @@ const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
 await startServer();
 const browser = await chromium.launch();
 
-// 見出しと欄が仕組みの上でつながっていないので、見出しのすぐ次にある入力欄を探す。ヒントは案内の文字で探す
-const fieldByLabel = (page, label) => label === 'ヒント'
-  ? page.getByPlaceholder(/URL を貼る/).first()
-  : page.locator('xpath=//label[contains(normalize-space(.), "' + label + '")]/following-sibling::*[1]/descendant-or-self::input').first();
-const clickText = (page, text) => page.getByRole('button', { name: text, exact: false }).first().click();
-
-// ---- 1. 作る: 組み立ての動き → 保存 → URL ----
+// ---- 1. 作る: 1の段で書いてヒント → 2の段の組み立ての動き → 3の段のカギ → 4の窓で保存 → URL ----
 const ctxA = await browser.newContext({ viewport: { width: 390, height: 844 } });
 await mockAll(ctxA);
 const pa = await ctxA.newPage();
@@ -158,50 +150,53 @@ let url = null;
 if (SKIP_SAVE) {
   console.log('飛ばす 1〜4（保存して出た URL で解く）: --skip-save が付いている');
 } else {
-await pa.goto(BASE + '/crossword/create', { waitUntil: 'networkidle' });
-await fieldByLabel(pa, '題名').fill(`検収用 ${stamp}`);
-await pa.getByText('その他', { exact: true }).first().click();
-let sawOptimizing = false;
-for (const w of WORDS) {
-  await fieldByLabel(pa, '答え').fill(w.a);
-  await fieldByLabel(pa, 'カギ').fill(w.clue);
-  await fieldByLabel(pa, 'ヒント').fill(w.hint);
-  await clickText(pa, T.add);
-  sawOptimizing ||= await pa.getByText(T.optimizing).first().isVisible().catch(() => false);
-}
-// 50試行×100ms の組み立てが終わるのを待つ
-await pa.waitForTimeout(6500);
-await pa.screenshot({ path: path.join(OUT, '1-built.png'), fullPage: true });
-await clickText(pa, T.save);
-url = await pa.waitForFunction(() => {
-  // 共有カードの URL は入力欄の中に出るので、欄の中身も合わせて探す
-  const all = document.body.innerText + ' ' + [...document.querySelectorAll('input')].map((i) => i.value).join(' ');
-  const m = all.match(/https?:\/\/\S+\/crossword\/[A-Za-z0-9_-]{8}/);
-  return m ? m[0] : null;
-}, null, { timeout: 20000 }).then((h) => h.jsonValue(), () => null);
-r['1 組み立ての動きが出た'] = sawOptimizing;
-r['1 保存して URL が出た'] = Boolean(url);
+  await pa.goto(BASE + '/crossword/create', { waitUntil: 'networkidle' });
+  await writeLines(pa, WORDS.map((w) => `${w.clue}→【${w.a}】`).join('\n'));
+  for (const w of WORDS) {
+    await openHintSheet(pa, w.a);
+    await pa.locator('[data-hint-sheet] #cw-hint').fill(w.hint);
+    await pa.locator('[data-hint-sheet] [data-hint-kind]').waitFor({ timeout: 10000 }).catch(() => {});
+    await closeHintSheet(pa);
+  }
+  await pa.locator('[data-bulk-search]').click();
+  const sawOptimizing = await pa.getByText(T.optimizing).first().waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false);
+  await pa.locator('[data-bulk-adopt]:enabled').waitFor({ timeout: 45000 });
+  await pa.screenshot({ path: path.join(OUT, '1-built.png'), fullPage: true });
+  await toClues(pa);
+  const clue0 = await pa.locator(`[data-clue-row="${WORDS[0].key}"] input`).inputValue().catch(() => null);
+  r['1 ひらがなの答えはカタカナにそろい、カギの下書きは「問題文→【答え】」の問題文だけ'] = clue0 === WORDS[0].clue;
+  await hintAllInClues(pa); // 盤に入った語でヒントが抜けていた時の分（ふつうは何もしない）
+  await openShare(pa);
+  await pa.locator('#cw-title').fill(`検収用 ${stamp}`);
+  await pa.locator('[data-share-sheet] [data-save]').click();
+  url = await pa.waitForFunction(() => {
+    // 共有カードの URL は入力欄の中に出るので、欄の中身も合わせて探す
+    const all = document.body.innerText + ' ' + [...document.querySelectorAll('input')].map((i) => i.value).join(' ');
+    const m = all.match(/https?:\/\/\S+\/crossword\/[A-Za-z0-9_-]{8}/);
+    return m ? m[0] : null;
+  }, null, { timeout: 20000 }).then((h) => h.jsonValue(), () => null);
+  r['1 組み立ての動きが出た'] = sawOptimizing;
+  r['1 保存して URL が出た'] = Boolean(url);
+  r['1 保存の中身のジャンルは hello'] = [...saved.values()].at(-1)?.row.genre === 'hello';
 }
 
-// ---- 5. ヒントの選び方（作る画面のまま確かめる） ----
+// ---- 5. ヒントの選び方（作る画面のヒントの窓で確かめる） ----
 await pa.goto(BASE + '/crossword/create', { waitUntil: 'networkidle' });
-await pa.getByText('ハロプロ', { exact: true }).first().click();
-await fieldByLabel(pa, 'ヒント').fill('https://youtu.be/dQw4w9WgXcQ?t=83');
+await writeLines(pa, '【ネコ】\n【コアラ】');
+await openHintSheet(pa, 'ネコ');
+const hintBox = pa.locator('[data-hint-sheet] #cw-hint');
+await hintBox.fill('https://youtu.be/dQw4w9WgXcQ?t=83');
 await pa.waitForTimeout(1500);
-const helloText = await pa.evaluate(() => document.body.innerText);
+const helloText = await pa.locator('[data-hint-sheet]').innerText();
 // 2026-10-19 案1: 台帳に無い動画は断らず、チャンネル名と「公式の発信か確かめてください」を添える（YouTube への問い合わせは作り物が答える）
-r['5 ハロプロで台帳に無い YouTube はチャンネル名付きで通る'] = /チャンネル: .+ ハロプロの公式の発信か確かめてください/.test(helloText);
-r['5 ハロプロのヒント欄に公式の発信の案内'] = /ヒントはハロプロの公式の発信/.test(helloText);
+r['5 台帳に無い YouTube はチャンネル名付きで通る'] = /チャンネル: .+ ハロプロの公式の発信か確かめてください/.test(helloText);
+r['5 ヒントの窓に公式の発信の案内'] = /ヒントはハロプロの公式の発信/.test(helloText);
+r['5 URL の時刻が開始時刻の欄に入る'] = (await pa.locator('#cw-hint-time').inputValue().catch(() => null)) === '1:23';
 await pa.getByLabel('ヒントを外す').click(); // 選ばれた札を外して欄に戻す
 await pa.waitForTimeout(300);
-await fieldByLabel(pa, 'ヒント').fill('https://youtu.be/6Y2X6RxYnY');
+await hintBox.fill('https://youtu.be/6Y2X6RxYnY');
 await pa.waitForTimeout(500);
-r['5 形の崩れた YouTube はリンクとして通さない'] = /YouTube の URL の形が違います/.test(await pa.evaluate(() => document.body.innerText));
-await pa.getByText('その他', { exact: true }).first().click();
-await pa.waitForTimeout(500); // 切り替えで欄が空に戻るのを待ってから貼る
-await fieldByLabel(pa, 'ヒント').fill('https://youtu.be/dQw4w9WgXcQ?t=83');
-await pa.waitForTimeout(1500);
-r['5 その他で URL の時刻が欄に入る'] = await pa.locator('input').evaluateAll((els) => els.some((e) => e.value === '1:23'));
+r['5 形の崩れた YouTube はリンクとして通さない'] = /YouTube の URL の形が違います/.test(await pa.locator('[data-hint-sheet]').innerText()) && (await pa.locator('[data-hint-kind]').count()) === 0;
 await pa.screenshot({ path: path.join(OUT, '5-hint-picker.png'), fullPage: true });
 
 // ---- 2〜4. 記録が空のブラウザで解く ----

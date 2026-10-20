@@ -19,6 +19,7 @@ export const SEEN_MARKS = {
   crossword_seen_tip_cross: '1', // 作る画面の札（最初の語の後）
   crossword_seen_tip_move: '1', // 作る画面の札（交差して組まれた後）
   crossword_seen_tip_saved: '1', // 共有の窓の札
+  crossword_seen_trace: '1', // 作る画面の1の段の「字をなぞる」動き（2026-10-20。初めての端末で一度だけ。check-create-flow が確かめる）
 };
 let markSeen = true;
 export const leaveFirstVisitMarks = () => {

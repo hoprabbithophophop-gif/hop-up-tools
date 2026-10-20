@@ -1,8 +1,10 @@
-// ○ボタンで欄の選ばれ方が変わらないことと、「自分が作った問題」の別画面を確かめる
+// ○ボタン（3の段のカギの欄の横）で欄の選ばれ方が変わらないことと、「自分が作った問題」の別画面を確かめる
+// 2026-10-21 に4段の流れに合わせて書き直した。行き先の画面を読むだけで、棚にも受付係にも書かない（保存は押さない。消す？ も「やめる」で戻る）
 // 使い方: node scripts/verify/crossword/check-maru-mine.mjs [サイト] [スクショの置き場]（省略時は targets.json と一時置き場）
 import { chromium } from 'playwright';
 import path from 'node:path';
 import { arg, outDir, BASE_DEFAULT } from './_lib.mjs';
+import { throughToClues } from './_create.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const OUT = outDir('check-maru-mine', process.argv[3]);
@@ -19,15 +21,18 @@ const page = await ctx.newPage();
 
 // 1. 作る画面の入口は、作った問題の数に関係なくいつも出る（紙: 作る画面には /crossword/mine の入口がいつも出る）
 await page.goto(`${BASE}/crossword/create`);
-const clue = page.getByPlaceholder('例：ニャーと鳴く動物').first();
-await clue.waitFor();
-check((await page.getByRole('link', { name: /自分が作った問題/ }).count()) === 1, '作った問題が無くても入口は出る');
+await page.locator('[data-bulk-text]').waitFor();
+check((await page.getByRole('link', { name: /自分が作った問題/ }).count()) === 1, '作った問題が無くても入口は出る（1の段）');
 
-// 2. 欄を選んだまま○を押す → 欄は選ばれたまま、文字の位置に入る
-await clue.click();
+// 2. ○ボタンは3の段のカギの欄の横（4段の流れ・2026-10-20）。1の段で2語書いてヒントを付け、2の段の盤で進む（どれもブラウザの中だけ。保存はしない）
+await throughToClues(page, 'ニャーと鳴く動物→【ネコ】\n【コアラ】はユーカリを食べる', ['ネコ', 'コアラ']);
+check((await page.getByRole('link', { name: /自分が作った問題/ }).count()) === 1, '3の段にも入口が出る');
+const clue = page.locator('[data-clue-row] input').first();
+// 欄を選んだまま○を押す → 欄は選ばれたまま、文字の位置に入る
+await clue.tap();
 await clue.fill('音大卒の伝道師');
 await clue.evaluate((el) => el.setSelectionRange(3, 3));
-const maru = page.getByRole('button', { name: '○を入れる' });
+const maru = page.locator('[data-clue-row]').first().getByRole('button', { name: '○を入れる' });
 await maru.tap();
 await maru.tap();
 await maru.tap();
@@ -51,7 +56,7 @@ await page.evaluate(() =>
   )
 );
 await page.goto(`${BASE}/crossword/create`);
-await page.getByPlaceholder('例：ニャーと鳴く動物').first().waitFor();
+await page.locator('[data-create-step]').waitFor(); // 作りかけが残っているので3の段で開く
 check((await page.getByText('試しの問題1').count()) === 0, '作る画面に一覧は出ない');
 const entry = page.getByRole('link', { name: /自分が作った問題/ });
 check((await entry.count()) === 1, '作る画面に入口が出る');

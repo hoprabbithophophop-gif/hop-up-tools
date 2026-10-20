@@ -5,6 +5,7 @@
 // （省略した引数は targets.json の問題から決める。答えの配置は受付係に聞いて一時置き場に控える）
 import { webkit, devices } from 'playwright';
 import { interceptCount, humanWaitMs, arg, outDir, puzzleArgs, BASE_DEFAULT, ID_DEFAULT, cellAt, xy, waitForPlayToken } from './_lib.mjs';
+import { writeLines, openHintSheet, closeHintSheet, setLinkHint, toBoard, toClues } from './_create.mjs';
 
 const BASE = arg(2, BASE_DEFAULT);
 const ID = arg(3, ID_DEFAULT);
@@ -34,16 +35,29 @@ page.on('pageerror', (e) => errors.push(String(e)));
 const text = () => page.evaluate(() => document.body.innerText);
 const noSideScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
 
-// 1. 作る画面
+// 1. 作る画面（4段の流れ・2026-10-20。1の段で書いてヒント → 2の段の盤 → 3の段のカギ。保存は押さない＝棚に書かない）
 await page.goto(`${BASE}/crossword/create`);
-const clue = page.getByPlaceholder('例：ニャーと鳴く動物');
-await clue.waitFor({ timeout: 20000 });
-await page.waitForTimeout(2500);
-check(await noSideScroll(), '作る画面: 横にはみ出さない');
+await page.locator('[data-bulk-text]').waitFor({ timeout: 20000 });
+await page.waitForTimeout(1500);
+check(await noSideScroll(), '作る画面（1の段）: 横にはみ出さない');
+await writeLines(page, 'ニャーと鳴く動物→【ネコ】\n【コアラ】はユーカリを食べる');
+await openHintSheet(page, 'ネコ');
+check(await noSideScroll(), '作る画面（ヒントの窓）: 横にはみ出さない');
+await setLinkHint(page, 'https://example.com/neko');
+await closeHintSheet(page);
+await openHintSheet(page, 'コアラ');
+await setLinkHint(page, 'https://example.com/koara');
+await closeHintSheet(page);
+await toBoard(page);
+check(await noSideScroll(), '作る画面（2の段）: 横にはみ出さない');
+await page.screenshot({ path: `${OUT}/iphone-1a-board.png` });
+await toClues(page);
+check(await noSideScroll(), '作る画面（3の段）: 横にはみ出さない');
+const clue = page.locator('[data-clue-row] input').first();
 await clue.tap();
 await clue.fill('音大卒の伝道師');
 await clue.evaluate((el) => el.setSelectionRange(3, 3));
-await page.getByRole('button', { name: '○を入れる' }).tap();
+await page.locator('[data-clue-row]').first().getByRole('button', { name: '○を入れる' }).tap();
 check((await clue.inputValue()) === '音大卒○の伝道師' && (await clue.evaluate((el) => document.activeElement === el)), '作る画面: ○ボタンで欄が選ばれたまま位置に入る');
 check((await page.getByRole('link', { name: /自分が作った問題/ }).count()) === 1, '作る画面: 自分が作った問題の入口がある');
 await page.screenshot({ path: `${OUT}/iphone-1-create.png` });

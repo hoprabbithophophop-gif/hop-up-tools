@@ -1,17 +1,20 @@
 // アクセシビリティの確かめ（2026-10-06）。手元の開発サーバー（vite）をこの台本が立ち上げ、終わったら止める。
 // 本番の棚は読むだけで、何も書かない（解くのは ?debug=true の見本の問題。受付係を通さない）。
 //   (1) axe-core を画面に差し込み、致命的（critical）・重大（serious）の指摘が0件か。場面は
-//       見本の問題（遊び方の窓・解く画面・入力カード）・練習問題・作る画面（作り方の窓）・ギャラリー
+//       見本の問題（遊び方の窓・解く画面・入力カード）・練習問題・作る画面（1の段・ヒントの窓・2の段・3の段・4の窓）・問い合わせの窓・ギャラリー
 //       色のコントラスト（color-contrast）は色の決まり（DESIGN.md・Hop が決める）なので数に入れず、別に件数だけ出す
 //   (2) キーボードだけで見本の問題を解く: Tab で最初に盤に入ると 1行1列 → 止まっただけでは開かない → Enter でカード
 //       → フォーカスはカードの中 → Tab はカードの中だけで回る → 文字盤で字を入れる → Backspace・矢印が効く
 //       → Esc で閉じて元のマスへ戻る → 全部埋めると「解けました」を知らせの入れ物で知らせる
-//   (3) 窓（遊び方・作り方・問い合わせ）は role="dialog"・名前つき・開くとフォーカスが中へ・Esc で閉じて元へ戻る
+//   (2) 作る画面もキーボード（Tab・Enter・矢印・Esc）だけで1の段から4の窓まで行ける（なぞる代わりに欄で選んで「【 】」。段が変わると見出しへフォーカス）
+//   (3) 窓（遊び方・ヒントの窓・4の窓・問い合わせ）は role="dialog"・名前つき・開くとフォーカスが中へ・Esc で閉じて元へ戻る
+//   作る画面の部分は 2026-10-21 に4段の流れに合わせて書き直した（作る画面の「?」と作り方の窓は 2026-10-20 に外れた）
 // 使い方: node scripts/verify/crossword/check-a11y.mjs [サイト（省略すると手元の開発サーバーを立てる）]
 import { chromium } from 'playwright';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { arg, ROOT } from './_lib.mjs';
+import { writeLines, hintMode, hintAllInAnswers, toBoard, toClues, openShare } from './_create.mjs';
 
 const PORT = 5195;
 const LOCAL = `http://localhost:${PORT}`;
@@ -107,6 +110,31 @@ const active = (page) => page.evaluate(() => {
   return { id: a?.id ?? '', label: a?.getAttribute('aria-label') ?? '', text: (a?.textContent ?? '').trim().slice(0, 20), inDialog: !!a?.closest('[role="dialog"][aria-modal="true"]'), tag: a?.tagName ?? '' };
 });
 const dialogOpen = (page) => page.evaluate(() => !!document.querySelector('[role="dialog"][aria-modal="true"]'));
+const dialogName = (page) => page.evaluate(() => {
+  const d = document.querySelector('[role="dialog"][aria-modal="true"]');
+  const id = d?.getAttribute('aria-labelledby');
+  return id ? document.getElementById(id)?.textContent ?? '' : d?.getAttribute('aria-label') ?? '';
+});
+// 窓が開いている間、Tab を n 回押してもフォーカスが窓の外へ出ないか
+async function tabStays(page, n) {
+  for (let i = 0; i < n; i++) {
+    await page.keyboard.press('Tab');
+    if (!(await active(page)).inDialog) return false;
+  }
+  return true;
+}
+// Tab（届かなければ Shift+Tab）だけで selector の物にフォーカスを移す。移れたら true
+async function tabTo(page, selector, max = 60) {
+  const here = () => page.evaluate((s) => !!document.activeElement?.matches(s), selector);
+  if (await here()) return true;
+  for (const key of ['Tab', 'Shift+Tab']) {
+    for (let i = 0; i < max; i++) {
+      await page.keyboard.press(key);
+      if (await here()) return true;
+    }
+  }
+  return false;
+}
 const liveText = (page) => page.evaluate(() => Array.from(document.querySelectorAll('[aria-live="polite"]')).map((e) => e.textContent).join(' '));
 
 // 見本の問題の答え（CrosswordPage.tsx の DEBUG_MOCK_PUZZLE）。カギの文 → 答え
@@ -188,45 +216,121 @@ async function run() {
     await ctx.close();
   }
   {
+    // 作る画面（4段の流れ・2026-10-20）。1の段・ヒントの窓・2の段・3の段・4の窓で axe。窓は名前つき・フォーカスが中・Tab が中で回る・Esc で閉じて元へ
     const { ctx, page } = await newPage({ width: 1280 });
     await page.goto(`${BASE}/crossword/create`);
-    await page.getByRole('heading', { level: 1 }).waitFor({ timeout: 20000 });
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 20000 });
     await page.waitForTimeout(500);
-    await axeScan(page, '作る画面');
-    // 作り方の窓
-    const help = page.locator('button[aria-label="パズルの作り方"]');
-    await help.focus();
+    await axeScan(page, '作る画面・1の段（書く）');
+    await writeLines(page, 'ニャーと鳴く動物→【ネコ】\n【コアラ】はユーカリを食べる');
+    await hintMode(page);
+    await axeScan(page, '作る画面・1の段（ヒントを付ける）');
+    // ヒントの窓（下線の語に Enter）
+    await page.locator('[data-bulk-mark="ネコ"]').focus();
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(500);
-    await axeScan(page, '作る画面・作り方の窓');
+    await page.locator('[data-hint-sheet]').waitFor({ timeout: 5000 });
+    await page.waitForTimeout(400);
+    await axeScan(page, '作る画面・ヒントの窓');
     const a = await active(page);
-    check(a.inDialog, `(3) 作り方の窓が開くとフォーカスは窓の中（${a.tag} ${a.text || a.label}）`);
-    let stayed = true;
-    for (let i = 0; i < 12; i++) {
-      await page.keyboard.press('Tab');
-      if (!(await active(page)).inDialog) stayed = false;
-    }
-    check(stayed, '(3) 作り方の窓の中で Tab が回る（外へ出ない）');
+    check(a.inDialog && (await dialogName(page)) === '「ネコ」のヒント', `(3) ヒントの窓は名前つき（${await dialogName(page)}）で、開くとフォーカスは窓の中（${a.tag} ${a.text || a.label}）`);
+    check(await tabStays(page, 15), '(3) ヒントの窓の中で Tab が回る（外へ出ない）');
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(400);
     const b = await active(page);
-    check(!(await dialogOpen(page)) && b.label === 'パズルの作り方', `(3) Esc で閉じて「?」へ戻る（${b.tag} ${b.label}）`);
-    if (await page.getByRole('heading', { name: 'パズルの作り方' }).count()) await page.getByRole('button', { name: '閉じる' }).last().click();
-    // 作り方の窓から問い合わせの窓（要望を送る）
-    await help.click();
+    check(!(await dialogOpen(page)) && b.label === 'ネコ を選ぶ', `(3) Esc でヒントの窓が閉じて、押した語へ戻る（${b.tag} ${b.label}）`);
+    await hintAllInAnswers(page, ['ネコ', 'コアラ']);
+    await toBoard(page);
+    await page.waitForTimeout(300);
+    await axeScan(page, '作る画面・2の段');
+    await toClues(page);
+    await page.waitForTimeout(300);
+    const h = await active(page);
+    check(h.tag === 'H2' && h.text === 'カギを書く', `(2) 段が変わるとフォーカスは段の見出しへ（${h.tag} ${h.text}）`);
+    await axeScan(page, '作る画面・3の段');
+    await openShare(page);
+    await page.waitForTimeout(400);
+    await axeScan(page, '作る画面・4の窓（共有する）');
+    const c = await active(page);
+    check(c.inDialog && (await dialogName(page)) === '共有する', `(3) 4の窓は名前つき（${await dialogName(page)}）で、開くとフォーカスは窓の中（${c.tag} ${c.text || c.label}）`);
+    check(await tabStays(page, 15), '(3) 4の窓の中で Tab が回る（外へ出ない）');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    check(!(await dialogOpen(page)) && (await page.locator('[data-create-step="3"]').count()) === 1, '(3) Esc で4の窓が閉じて3の段に戻る');
+    await ctx.close();
+  }
+  {
+    // 解く画面の「?」（遊び方）→「要望を送る」で問い合わせの窓（作る画面の「?」は 2026-10-20 に外したので、解く画面の見本の問題で）
+    const { ctx, page } = await newPage({ width: 1280 });
+    await page.goto(`${BASE}/crossword/create?debug=true`);
+    await page.locator('#cell-0-0').waitFor({ timeout: 20000 });
+    await page.waitForTimeout(2500);
+    await page.getByTitle('遊び方').first().click();
     await page.getByRole('button', { name: '要望を送る' }).click();
     await page.waitForTimeout(600);
     const c = await active(page);
-    const contactName = await page.evaluate(() => {
-      const d = document.querySelector('[role="dialog"][aria-modal="true"]');
-      const id = d?.getAttribute('aria-labelledby');
-      return id ? document.getElementById(id)?.textContent ?? '' : d?.getAttribute('aria-label') ?? '';
-    });
+    const contactName = await dialogName(page);
     check(c.inDialog && contactName.includes('お問い合わせ'), `(3) 問い合わせの窓は名前つきで、フォーカスは中（${contactName}・${c.tag}）`);
     await axeScan(page, '問い合わせの窓');
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
     check(!(await dialogOpen(page)), '(3) 問い合わせの窓は Esc で閉じる');
+    await ctx.close();
+  }
+  {
+    // (2) 作る画面もキーボードだけで1の段から4の窓まで行ける（なぞる代わりに、欄で文字を選んで「【 】」ボタン）
+    const { ctx, page } = await newPage({ width: 1280 });
+    await page.goto(`${BASE}/crossword/create`);
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 20000 });
+    await page.waitForTimeout(500);
+    const reached = [];
+    const step = async (label, ok) => { reached.push(`${ok ? '○' : '×'}${label}`); if (!ok) throw new Error(`キーボードで ${label} に行けない`); };
+    try {
+      await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0); });
+      await step('書く欄', await tabTo(page, '#cw-bulk-text'));
+      await page.keyboard.insertText('ニャーと鳴く動物→ネコ\nコアラはユーカリを食べる');
+      // 1行目の「ネコ」を Shift＋矢印で選び、Tab で「【 】」へ移って Enter
+      await page.keyboard.press('Control+Home');
+      for (let i = 0; i < 9; i++) await page.keyboard.press('ArrowRight');
+      for (let i = 0; i < 2; i++) await page.keyboard.press('Shift+ArrowRight');
+      await step('「【 】」ボタン', await tabTo(page, '[data-bulk-insert="brackets"]'));
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(200);
+      // 2行目の「コアラ」も同じく
+      await page.keyboard.press('Control+End');
+      await page.keyboard.press('Home');
+      for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowRight');
+      await step('「【 】」ボタン（2語目）', await tabTo(page, '[data-bulk-insert="brackets"]'));
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(200);
+      const v = await page.locator('[data-bulk-text]').inputValue();
+      await step(`【 】で囲めた（${v.replace(/\n/g, ' ／ ')}）`, v === 'ニャーと鳴く動物→【ネコ】\n【コアラ】はユーカリを食べる');
+      await step('「ヒントを付ける」', await tabTo(page, '[data-bulk-mode-button="hint"]'));
+      await page.keyboard.press('Enter');
+      await page.locator('[data-bulk-lines]').waitFor({ timeout: 5000 });
+      for (const w of ['ネコ', 'コアラ']) {
+        await step(`下線の語「${w}」`, await tabTo(page, `[data-bulk-mark="${w}"]`));
+        await page.keyboard.press('Enter');
+        await page.locator('[data-hint-sheet]').waitFor({ timeout: 5000 });
+        await step(`「${w}」のヒントの欄`, await tabTo(page, '[data-hint-sheet] #cw-hint'));
+        await page.keyboard.insertText(`https://example.com/${encodeURIComponent(w)}`);
+        await page.locator('[data-hint-sheet] [data-hint-kind]').waitFor({ timeout: 5000 });
+        await page.keyboard.press('Escape');
+        await page.locator('[data-hint-sheet]').waitFor({ state: 'detached', timeout: 5000 });
+      }
+      await step('「組み合わせを探す」', await tabTo(page, '[data-bulk-search]'));
+      await page.keyboard.press('Enter');
+      await page.locator('[data-bulk-adopt]:enabled').waitFor({ timeout: 45000 });
+      await step('「この盤で進む」', await tabTo(page, '[data-bulk-adopt]'));
+      await page.keyboard.press('Enter');
+      await page.locator('[data-create-step="3"]').waitFor({ timeout: 5000 });
+      await step('「共有する」', await tabTo(page, '[data-open-share]'));
+      await page.keyboard.press('Enter');
+      await page.locator('[data-share-sheet]').waitFor({ timeout: 5000 });
+      await step('題名の欄', await tabTo(page, '#cw-title'));
+      await page.keyboard.insertText('キーボードの確かめ');
+      await step('4の窓の「共有する」', await tabTo(page, '[data-share-sheet] [data-save]'));
+    } catch { /* 下で NG にする */ }
+    check(!reached.some((r) => r.startsWith('×')) && reached.length === 14, `(2) キーボード（Tab・Enter・矢印・Esc）だけで1の段から4の窓の「共有する」まで行ける（${reached.join(' → ')}）`);
     await ctx.close();
   }
   {

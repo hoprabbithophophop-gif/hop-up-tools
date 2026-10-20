@@ -1,10 +1,13 @@
 // 「ヒントを直す」画面（/crossword/hints/<番号>。Hop 決定 2026-10-19）と、作る画面のヒント欄の出どころの印・公式を探す補助（アメブロ・X・Instagram）・
 // X・Instagram のリンクに添える「公式サイトに載っている／載っていないアカウント」の札（作る側・解く側）を確かめる。
+// 作る画面のヒントの窓は 2026-10-21 に4段の流れ（1の段の下線の語を押すと下から出る窓）に合わせて書き直した。「① 探す」「② 見つけた◯◯の URL を貼る」の箱・②の一文・「貼り付け」・
+// 公式ブログの「全部／1つだけ」・探す言葉が出どころ共通・リンクの ① の公式サイト検索を足し、ジャンル「その他」の項目は消した。
 // 手元の vite を立ち上げ、棚（/rest/v1）・受付係（/api）・YouTube の oEmbed はブラウザの中で受け止める（本番にもプレビューにも通信しない）。
 // 使い方: node scripts/verify/crossword/check-hints-edit.mjs
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { outDir } from './_lib.mjs';
+import { writeLines, openHintSheet, closeHintSheet } from './_create.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const { spawn, spawnSync } = await import('node:child_process');
@@ -77,7 +80,7 @@ try {
   await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE }); // 「写す」を本当に写せたか読むため
   await ctx.addInitScript(({ id, key }) => {
     try {
-      for (const k of ['crossword_seen_tip_cross', 'crossword_seen_tip_move', 'crossword_seen_tip_saved', 'crossword_seen_create_guide', 'crossword_seen_first_cell', 'crossword_seen_tutorial']) localStorage.setItem(k, '1');
+      for (const k of ['crossword_seen_tip_cross', 'crossword_seen_tip_move', 'crossword_seen_tip_saved', 'crossword_seen_trace', 'crossword_seen_first_cell', 'crossword_seen_tutorial']) localStorage.setItem(k, '1');
       localStorage.setItem('crossword_seen_help', 'true'); // 解く画面の「遊び方」の窓を出さない
       // この端末で作った問題として合言葉を置く（自分が作った問題と同じ置き場）
       localStorage.setItem('crossword_my_puzzles', JSON.stringify([{ id, key, title: 'ヒント直しの試験', createdAt: Date.now() }]));
@@ -148,29 +151,56 @@ try {
   await page.waitForURL(`**/crossword/hints/${PUZZLE_ID}`, { timeout: 30000 }).catch(() => {});
   check(page.url().endsWith(`/crossword/hints/${PUZZLE_ID}`), `(4) 遊ばれた問題の組み直しは「ヒントを直す」へ回る（${page.url()}）`);
 
-  // (5) 作る画面の「公式ブログを探す」（ハロプロだけ。言葉が空なら押せない。Google の site: 検索を新しいタブで）
+  // (5) 作る画面のヒントの窓（1の段で下線の語を押すと下から出る）。出どころの印・「① 探す」「② 見つけた◯◯の URL を貼る」の箱・公式を探す補助・「貼り付け」
   await page.goto(`${BASE}/crossword/create`);
-  await page.locator('#cw-hint').waitFor({ timeout: 30000 });
-  await page.getByText('ハロプロ', { exact: true }).first().click();
-  await page.waitForTimeout(300);
-  const srcBar = page.locator('[data-hint-sources]');
+  await writeLines(page, '【ネコ】\n【コアラ】');
+  await openHintSheet(page, 'ネコ');
+  const sheet = page.locator('[data-hint-sheet]');
+  const urlBox = sheet.locator('#cw-hint');
+  const srcBar = sheet.locator('[data-hint-sources]');
   const srcBtns = await srcBar.locator('button').evaluateAll((els) => els.map((e) => ({ w: Math.round(e.getBoundingClientRect().width), h: Math.round(e.getBoundingClientRect().height), label: e.getAttribute('aria-label'), on: e.getAttribute('aria-checked') })));
   check(srcBtns.length === 5 && srcBtns.map((b) => b.label).join() === 'YouTube,アメブロ,X,Instagram,リンク', `(5) 欄の上に出どころの印が5つ（${srcBtns.map((b) => b.label).join('/')}）`);
   check(new Set(srcBtns.map((b) => b.w)).size <= 2 && Math.max(...srcBtns.map((b) => b.w)) - Math.min(...srcBtns.map((b) => b.w)) <= 1 && srcBtns.every((b) => b.h === 52), `(5) 印は全部同じ大きさ（幅 ${srcBtns.map((b) => b.w).join('/')}・高さ ${srcBtns[0]?.h}）`);
-  check(srcBtns[0].on === 'true' && (await page.locator('[data-blog-search]').count()) === 0, '(5) 初期は YouTube で、ブログの探す補助は出ていない');
+  check(srcBtns[0].on === 'true' && (await sheet.locator('[data-blog-search]').count()) === 0 && (await sheet.locator('[data-hint-step]').count()) === 0, '(5) 初期は YouTube で、①②の箱と探す補助は出ていない');
+  // 箱の見出し（①・②）と②の一文（出どころ別。Hop 承認 2026-10-20・10-21）
+  const boxes = async () => sheet.locator('[data-hint-step]').evaluateAll((els) => els.map((e) => ({ step: e.getAttribute('data-hint-step'), head: e.querySelector('p')?.textContent ?? '', note: e.querySelectorAll('p')[1]?.textContent ?? '' })));
+  const BOX = {
+    ameblo: ['①公式ブログを探す', '②見つけた記事の URL を貼る', '記事のシェアボタンか、ブラウザの住所の欄から URL をコピーして、ここに貼ります。'],
+    x: ['①公式の投稿を探す', '②見つけた投稿の URL を貼る', '投稿の共有アイコンから「リンクをコピー」を選んで、ここに貼ります。'],
+    ig: ['①公式の投稿を探す', '②見つけた投稿の URL を貼る', '投稿の「送信」（ブラウザでは「オプション」）から「リンクをコピー」を選んで、ここに貼ります。'],
+    link: ['①公式サイトを探す', '②見つけたページの URL を貼る', '開いたページの URL をコピーして、ここに貼ります。'],
+  };
+  const checkBoxes = async (src) => {
+    const b = await boxes();
+    const [h1, h2, note] = BOX[src];
+    check(b.length === 2 && b[0].step === '1' && b[0].head === h1 && b[1].step === '2' && b[1].head === h2 && b[1].note === note,
+      `(5) ${src} の印: 「${h1}」「${h2}」の2つの箱と②の一文（${b.map((x) => x.head).join(' ／ ')} ／ ${b[1]?.note}）`);
+    const paste = sheet.locator('[data-hint-step="2"] [data-helper-paste]');
+    check((await paste.count()) === 1 && (await paste.textContent()) === '貼り付け' && (await sheet.locator('[data-hint-step="2"] #cw-hint').count()) === 1, `(5) ${src} の印: ②の箱の欄の横に「貼り付け」`);
+  };
   await srcBar.locator('[data-hint-source="ameblo"]').click();
   await page.waitForTimeout(200);
-  const blog = page.locator('[data-blog-search]');
-  check((await blog.count()) === 1 && (await page.locator('#cw-hint').getAttribute('placeholder')) === '記事の URL を貼る', '(5) アメブロの印を押すと「公式ブログを探す」と記事の URL の欄');
-  const link = blog.locator('a');
+  const blog = sheet.locator('[data-blog-search]');
+  check((await blog.count()) === 1 && (await urlBox.getAttribute('placeholder')) === '記事の URL を貼る', '(5) アメブロの印を押すと「公式ブログを探す」と記事の URL の欄');
+  await checkBoxes('ameblo');
+  const link = blog.locator('[data-helper-link="blog"]');
   check((await link.getAttribute('aria-disabled')) === 'true', '(5) 言葉が空の間は押せない');
-  await blog.getByLabel('公式ブログのグループ').selectOption('beyooooonds');
+  // 公式ブログ: グループ全部（g:）と1つだけ（b:）を選べる（2026-10-21 Hop 依頼「全部からも細かくも選べると嬉しい」）
+  const blogSel = blog.getByLabel('公式ブログ', { exact: true });
+  const beyoOpts = await blogSel.locator('optgroup[label="BEYOOOOONDS"] option').evaluateAll((els) => els.map((e) => `${e.value}=${e.textContent}`));
+  check(beyoOpts.join(',') === 'g:beyooooonds=BEYOOOOONDS（全部）,b:beyooooonds=SeasoningS,b:beyooooonds-blog=BEYOOOOONDS,b:beyooooonds-chicatetsu=CHICA#TETSU,b:beyooooonds-rfro=雨ノ森 川海', `(5) BEYOOOOONDS は「（全部）」と各ブログの名前が並ぶ（${beyoOpts.join(' / ')}）`);
+  await blogSel.selectOption('g:beyooooonds');
   await blog.locator('input').fill('武道館');
   await page.waitForTimeout(100);
   const href = await link.getAttribute('href');
   const q = href ? decodeURIComponent(new URL(href).searchParams.get('q')) : '';
-  check(href?.startsWith('https://www.google.com/search?q=') && q.includes('武道館') && q.includes('site:ameblo.jp/beyooooonds') && q.includes('site:ameblo.jp/beyooooonds-rfro') && !q.includes('inurl:') && !q.includes('after:') && (await link.getAttribute('target')) === '_blank', `(5) Google の site: 検索の住所になる（${q}）`);
-  // いつごろ（年・月）→ after:/before:。月は翌月の1日で閉じる。「写す」は同じ言葉を持つ
+  check(href?.startsWith('https://www.google.com/search?q=') && q.startsWith('武道館 (') && ['beyooooonds', 'beyooooonds-blog', 'beyooooonds-chicatetsu', 'beyooooonds-rfro'].every((id) => q.includes(`site:ameblo.jp/${id})`) || q.includes(`site:ameblo.jp/${id} `)) && !q.includes('inurl:') && !q.includes('after:') && (await link.getAttribute('target')) === '_blank', `(5) 「BEYOOOOONDS（全部）」は4つのブログの site: 検索（${q}）`);
+  await blogSel.selectOption('b:beyooooonds-rfro');
+  await page.waitForTimeout(100);
+  const q1 = decodeURIComponent(new URL(await link.getAttribute('href')).searchParams.get('q'));
+  check(q1 === '武道館 (site:ameblo.jp/beyooooonds-rfro)', `(5) 1つだけ（雨ノ森 川海）を選ぶとそのブログだけの site: 検索（${q1}）`);
+  await blogSel.selectOption('g:beyooooonds');
+  // いつごろ（年・月）→ after:/before:。月は翌月の1日で閉じる。「コピー」は同じ言葉を持つ
   const per = blog.locator('[data-helper-period]');
   check((await per.locator('select').nth(1).isDisabled()), '(5) 年を選ぶまで月は選べない');
   await per.locator('select').nth(0).selectOption('2025');
@@ -183,30 +213,36 @@ try {
   await page.waitForTimeout(100);
   check(decodeURIComponent(new URL(await link.getAttribute('href')).searchParams.get('q')).endsWith(' after:2025-01-01 before:2026-01-01'), '(5) 月を選ばなければ年いっぱい');
   await per.locator('select').nth(0).selectOption('');
+  await sheet.screenshot({ path: path.join(OUT, '2-blog-search-390.png') });
   // X の URL を貼ると印が X に移る
-  await page.locator('#cw-hint').fill('https://x.com/helloproject/status/1');
+  await urlBox.fill('https://x.com/helloproject/status/1');
   await page.waitForTimeout(300);
-  check((await page.locator('[data-hint-kind]').textContent()) === 'X', `(5) X の URL を貼ると札の出どころが X になる（${await page.locator('[data-hint-kind]').textContent()}）`);
-  const acct1 = await page.locator('[data-hint-account]').textContent().catch(() => null);
+  check((await sheet.locator('[data-hint-kind]').textContent()) === 'X', `(5) X の URL を貼ると札の出どころが X になる（${await sheet.locator('[data-hint-kind]').textContent()}）`);
+  const acct1 = await sheet.locator('[data-hint-account]').textContent().catch(() => null);
   check(acct1 === '@helloproject ハロプロ公式サイトに載っていないアカウント', `(5) 名簿に無いアカウントは「載っていないアカウント」の札で通る（${acct1}）`);
-  await page.getByLabel('ヒントを外す').click();
+  await sheet.getByLabel('ヒントを外す').click();
   await page.waitForTimeout(200);
-  await page.locator('#cw-hint').fill('https://x.com/beyooooonds_/status/2');
+  await urlBox.fill('https://x.com/beyooooonds_/status/2');
   await page.waitForTimeout(300);
-  const acct2 = await page.locator('[data-hint-account]').textContent().catch(() => null);
+  const acct2 = await sheet.locator('[data-hint-account]').textContent().catch(() => null);
   check(acct2 === '@beyooooonds_ ハロプロ公式サイトに載っているアカウント', `(5) 名簿にあるアカウント（大文字小文字違い）は「載っているアカウント」（${acct2}）`);
-  await page.getByLabel('ヒントを外す').click();
+  await sheet.getByLabel('ヒントを外す').click();
   await page.waitForTimeout(200);
-  await page.locator('#cw-hint').fill('https://www.instagram.com/p/abc123/');
+  await urlBox.fill('https://www.instagram.com/p/abc123/');
   await page.waitForTimeout(300);
-  check((await page.locator('[data-hint-kind]').textContent()) === 'Instagram' && (await page.locator('[data-hint-account]').count()) === 0, '(5) アカウント名の無い Instagram の投稿 URL は札なしで通る');
-  await page.getByLabel('ヒントを外す').click();
+  check((await sheet.locator('[data-hint-kind]').textContent()) === 'Instagram' && (await sheet.locator('[data-hint-account]').count()) === 0, '(5) アカウント名の無い Instagram の投稿 URL は札なしで通る');
+  await sheet.getByLabel('ヒントを外す').click();
   await page.waitForTimeout(200);
-  // X の印: 言葉＋グループ → x.com の検索（新しい順）
+  // X の印: 言葉＋グループ → x.com の検索（新しい順）。探す言葉は出どころ共通なので、アメブロで打った「武道館」が残る（2026-10-21 Hop 依頼）
   await srcBar.locator('[data-hint-source="x"]').click();
   await page.waitForTimeout(200);
-  const xs = page.locator('[data-x-search]');
-  check((await xs.count()) === 1 && (await page.locator('[data-blog-search]').count()) === 0 && (await xs.locator('a').getAttribute('aria-disabled')) === 'true', '(5) X の印で「公式の投稿を探す」が出て、言葉が空の間は押せない');
+  const xs = sheet.locator('[data-x-search]');
+  check((await xs.count()) === 1 && (await sheet.locator('[data-blog-search]').count()) === 0, '(5) X の印で「公式の投稿を探す」が出る');
+  await checkBoxes('x');
+  check((await xs.locator('input').inputValue()) === '武道館', `(5) 探す言葉は出どころを替えても残る（${await xs.locator('input').inputValue()}）`);
+  await xs.locator('input').fill('');
+  await page.waitForTimeout(100);
+  check((await xs.locator('a').getAttribute('aria-disabled')) === 'true', '(5) X でも言葉が空の間は押せない');
   await xs.getByLabel('公式アカウントのグループ').selectOption('beyooooonds');
   await xs.locator('input').fill('武道館');
   await page.waitForTimeout(100);
@@ -221,48 +257,61 @@ try {
   await xs.locator('[data-helper-copy="x"]').click();
   await page.waitForTimeout(200);
   const clip = await page.evaluate(() => navigator.clipboard.readText()).catch(() => null);
-  check(clip === xq2 && /コピーしました。/.test(await page.evaluate(() => document.body.innerText)), `(5) 「コピー」で検索の言葉がそのまま写る（${clip === xq2 ? '一致' : clip}）`);
+  check(clip === xq2 && /コピーしました。/.test(await sheet.innerText()), `(5) 「コピー」で検索の言葉がそのまま写る（${clip === xq2 ? '一致' : clip}）`);
   await xs.locator('input').fill('武道館 ');
   await page.waitForTimeout(100);
-  check(!/コピーしました。/.test(await page.evaluate(() => document.body.innerText)), '(5) 言葉を打ち直すと「コピーしました。」は消える');
+  check(!/コピーしました。/.test(await sheet.innerText()), '(5) 言葉を打ち直すと「コピーしました。」は消える');
   await xs.locator('input').fill('武道館');
   await page.waitForTimeout(100);
-  await page.locator('[data-coach="create-hint"]').screenshot({ path: path.join(OUT, '3-x-search-390.png') });
-  // Instagram の印: アカウントを選んで開く
+  await sheet.screenshot({ path: path.join(OUT, '3-x-search-390.png') });
+  // Instagram の印: アカウントを選んで開く・言葉と期間で Google に頼む
   await srcBar.locator('[data-hint-source="ig"]').click();
   await page.waitForTimeout(200);
-  const ig = page.locator('[data-ig-open]');
+  const ig = sheet.locator('[data-ig-open]');
   const igOpen = ig.locator('[data-helper-link="ig"]');
   check((await ig.count()) === 1 && (await xs.count()) === 0 && (await igOpen.getAttribute('href')) === 'https://www.instagram.com/morningmusume_official/', `(5) Instagram の印で公式アカウントを開くリンク（${await igOpen.getAttribute('href').catch(() => null)}）`);
+  await checkBoxes('ig');
+  const igPer = ig.locator('[data-helper-period] select');
+  check((await ig.locator('input').inputValue()) === '武道館' && (await igPer.nth(0).inputValue()) === '2025' && (await igPer.nth(1).inputValue()) === '4', '(5) 探す言葉といつごろは Instagram に替えても残る');
   await ig.getByLabel('公式アカウント', { exact: true }).selectOption('beyooooonds_official');
   check((await igOpen.getAttribute('href')) === 'https://www.instagram.com/beyooooonds_official/', '(5) 選んだアカウントのページを開く');
   await ig.locator('input').fill('ハロコン');
-  await ig.locator('[data-helper-period] select').nth(0).selectOption('2026');
-  await ig.locator('[data-helper-period] select').nth(1).selectOption('7');
+  await igPer.nth(0).selectOption('2026');
+  await igPer.nth(1).selectOption('7');
   await page.waitForTimeout(100);
   const igq = decodeURIComponent(new URL(await ig.locator('[data-helper-link="ig-search"]').getAttribute('href')).searchParams.get('q'));
   check(igq === '"beyooooonds_official" ハロコン site:instagram.com after:2026-07-01 before:2026-08-01' && (await ig.locator('[data-helper-copy="ig"]').getAttribute('data-copy-text')) === igq, `(5) Instagram はアカウント名を言葉にして Google の site: と期間で探す（${igq}）`);
   const optN = await ig.getByLabel('公式アカウント', { exact: true }).locator('option').count();
   check(optN === 55, `(5) 選べるのは公式サイトのグループのページに載っている 55 アカウント（${optN}）`);
-  await page.locator('[data-coach="create-hint"]').screenshot({ path: path.join(OUT, '4-ig-open-390.png') });
-  await page.getByText('その他', { exact: true }).first().click();
-  await page.waitForTimeout(300);
-  await page.locator('[data-hint-sources] [data-hint-source="ameblo"]').click();
+  await sheet.screenshot({ path: path.join(OUT, '4-ig-open-390.png') });
+  // リンクの印: ① はハロプロ公式サイトと関連サイトだけを対象にした Google 検索（Hop 決定 2026-10-20。対象は src/data/officialSites.ts）
+  await srcBar.locator('[data-hint-source="link"]').click();
   await page.waitForTimeout(200);
-  check((await page.locator('[data-blog-search]').count()) === 0, '(5) その他ではアメブロの印でも探す補助は出ない（URL の欄だけ）');
-  await page.locator('[data-hint-sources] [data-hint-source="x"]').click();
-  await page.waitForTimeout(200);
-  check((await page.locator('[data-x-search]').count()) === 0, '(5) その他では X の印でも探す補助は出ない');
-  await page.locator('#cw-hint').fill('https://x.com/helloproject/status/1');
-  await page.waitForTimeout(300);
-  check((await page.locator('[data-hint-account]').count()) === 0, '(5) その他では名簿の札も付かない');
-  await page.getByLabel('ヒントを外す').click();
-  await page.waitForTimeout(200);
-  await page.getByText('ハロプロ', { exact: true }).first().click();
-  await page.waitForTimeout(300);
+  const site = sheet.locator('[data-site-search]');
+  check((await site.count()) === 1 && (await urlBox.getAttribute('placeholder')) === 'ハロプロ公式サイトなどの URL を貼る', '(5) リンクの印で「公式サイトを探す」とハロプロ公式サイトなどの URL の欄');
+  await checkBoxes('link');
+  await site.locator('input').fill('武道館');
+  await site.locator('[data-helper-period] select').nth(0).selectOption('');
+  await page.waitForTimeout(100);
+  const siteHref = await site.locator('[data-helper-link="site"]').getAttribute('href');
+  const sq = siteHref ? decodeURIComponent(new URL(siteHref).searchParams.get('q')) : '';
+  check(siteHref?.startsWith('https://www.google.com/search?q=') && sq.startsWith('武道館 (site:helloproject.com OR ') && sq.includes('site:up-front-works.jp') && !/elineupmall|helloshop|ody-books|orical/.test(sq) && sq.split(/\s+/).length <= 32,
+    `(5) リンクの ① は公式サイトと関連サイトだけの site: 検索（ショップは入らない・32語まで。${sq.slice(0, 60)}…）`);
+  check((await site.locator('[data-helper-copy="site"]').getAttribute('data-copy-text')) === sq, '(5) リンクの「コピー」も検索の言葉と同じ文');
+  // 「貼り付け」: コピーした URL をそのまま欄に入れて選ぶ（2026-10-20 案C・言葉は 2026-10-21 承認）
+  await page.evaluate(() => navigator.clipboard.writeText('https://x.com/beyooooonds_/status/3'));
+  await sheet.locator('[data-helper-paste]').click();
+  await page.waitForTimeout(400);
+  check((await sheet.locator('[data-hint-kind]').textContent().catch(() => null)) === 'X' && (await sheet.locator('[data-hint-account]').textContent().catch(() => null)) === '@beyooooonds_ ハロプロ公式サイトに載っているアカウント', '(5) 「貼り付け」でコピーした X の URL がヒントになり、印も札も合う');
   const wide = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   check(wide, '(5) 390px で横にはみ出さない');
-  await page.locator('[data-coach="create-hint"]').screenshot({ path: path.join(OUT, '2-blog-search-390.png') });
+  await closeHintSheet(page);
+  // 別の語のヒントを開き直すと、探す言葉は空に戻る（Hop 依頼 2026-10-21）
+  await openHintSheet(page, 'コアラ');
+  await sheet.locator('[data-hint-source="ameblo"]').click();
+  await page.waitForTimeout(200);
+  check((await sheet.locator('[data-blog-search] input').inputValue()) === '', '(5) 別の語のヒントを開き直すと探す言葉は空に戻る');
+  await closeHintSheet(page);
 
   // (6) 解く側: ハロプロの問題の X のヒントに札、アカウント名の無い Instagram には札なし
   // 作る画面は書きかけがあると離れる前に確かめる窓を出すので、別のページで開く

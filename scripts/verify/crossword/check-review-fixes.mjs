@@ -8,13 +8,16 @@
 //   (5) 答え合わせの通信中に直した字は、通信の後にもう一度丸付けされる
 //   (6) 練習問題のハンコは2秒で薄れる（C）
 //   (7) ギャラリー: グループの印が無くてもタグにグループ名（表記ゆれ込み）がある問題を拾う（B）・空の絞り込みの道（E）
-//   (8) 作る画面: 「リストに追加」が押せない理由の1行（D）・置けない所の上の影（F）・固定がつながらない盤（8）・1日5個の知らせが無い
-//   (9) 作る画面の案内（11段）は、記録の空のブラウザで初めて開いても自動では始まらない
+//   (7) ギャラリーにジャンルの切り替え（ハロプロ｜その他）が無く、一覧をジャンルで絞って頼まない（2026-10-20）
+//   (8) 作る画面（4段の流れ・2026-10-21 に書き直し）: 使えない字（ヰ）・半角カナ・置けない所の上の影（F）・固定がつながらない盤（8・下書きを置いて確かめる）・1日5個の知らせが無い
+//       （「リストに追加」が押せない理由の1行（D）は、1語ずつの欄と一緒に無くなったので消した）
+//   (9) 作る画面は記録の空のブラウザで初めて開いても幕の案内が出ず、「?」も無い（11段の案内は解く画面の「?」からだけ）
 // 使い方: node scripts/verify/crossword/check-review-fixes.mjs（引数なし）
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { outDir, ROOT, leaveFirstVisitMarks, cellState } from './_lib.mjs';
+import { CREATE_MARKS, writeLines, hintMode, hintAllInAnswers, toBoard } from './_create.mjs';
 
 // 「初めて」の印は台本の中で場面ごとに立てる
 leaveFirstVisitMarks();
@@ -445,9 +448,14 @@ try {
 
   // ---- (7) ギャラリー ----
   {
-    const { ctx, page } = await newPage({ tables: { crossword_puzzles: GALLERY_ROWS } });
+    const { ctx, page, supaLog } = await newPage({ tables: { crossword_puzzles: GALLERY_ROWS } });
     await page.goto(`${BASE}/crossword`);
     await page.getByText('印あり アンジュルム').waitFor({ timeout: 20000 });
+    // ジャンルの「ハロプロ｜その他」の切り替えは無い（Hop 決定 2026-10-20）。棚へもジャンルで絞って頼まない
+    const genreUi = await page.evaluate(() => [...document.querySelectorAll('button, [role="radio"], [role="tab"], option')].filter((e) => ['ハロプロ', 'その他'].includes((e.getAttribute('aria-label') || e.textContent || '').trim())).length);
+    check(genreUi === 0, `(7) ギャラリーにジャンルの切り替え（ハロプロ｜その他）は無い（${genreUi}）`);
+    const genreAsk = supaLog.filter((l) => l.includes('/crossword_puzzles') && /[?&]genre=/.test(l));
+    check(genreAsk.length === 0, `(7) 一覧はジャンルで絞らずに頼む（${genreAsk[0] ?? 'ジャンルの絞り込み無し'}）`);
     const groupSelect = page.locator('select').nth(1);
     const titles = () => page.evaluate(() => [...new Set([...document.body.innerText.matchAll(/(印あり \S+|タグ \S+)/g)].map((m) => m[0]))]);
     await groupSelect.selectOption('BEYOOOOONDS');
@@ -475,83 +483,57 @@ try {
     await ctx.close();
   }
 
-  // ---- (9) 作る画面の案内は初めて開いても自動で始まらない（記録の空のブラウザ） ----
+  // ---- (9) 作る画面は初めて開いても案内（幕）が出ず、「?」も無い（記録の空のブラウザ。11段の案内と「?」は 2026-10-20 Hop 決定で外した） ----
   {
     const { ctx, page } = await newPage({ marks: {} });
     await page.goto(`${BASE}/crossword/create`);
-    await page.getByText('リストに追加').first().waitFor({ timeout: 20000 });
-    await page.waitForTimeout(4000);
-    const st = await page.evaluate(() => ({ layer: document.querySelectorAll('[data-coach-layer]').length, tip: document.querySelectorAll('[data-tip]').length, keys: Object.keys(localStorage).filter((k) => k.startsWith('crossword_')) }));
-    check(st.layer === 0, `(9) 記録の空のブラウザで作る画面を初めて開いても、11段の案内（幕と吹き出し）は出ない（幕 ${st.layer}）`);
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 20000 });
+    await page.waitForTimeout(3000);
+    const st = await page.evaluate(() => ({
+      layer: document.querySelectorAll('[data-coach-layer]').length,
+      help: document.querySelectorAll('[title="パズルの作り方"], [aria-label="パズルの作り方"]').length,
+      tip: document.querySelectorAll('[data-tip]').length,
+      keys: Object.keys(localStorage).filter((k) => k.startsWith('crossword_')),
+    }));
+    check(st.layer === 0, `(9) 記録の空のブラウザで作る画面を初めて開いても、幕と吹き出しの案内は出ない（幕 ${st.layer}）`);
+    check(st.help === 0, `(9) 作る画面に「?」（パズルの作り方）は無い（${st.help}）`);
     console.log(`    その時の札 ${st.tip}枚・端末の記録 ${JSON.stringify(st.keys)}`);
     await page.screenshot({ path: path.join(OUT, '9-create-first-open-390.png') });
     await ctx.close();
   }
 
-  // ---- (8) 作る画面 ----
+  // ---- (8) 作る画面（4段の流れ・2026-10-20）: 使えない字・半角カナ・置けない所の上の影・「1日5個」の知らせが無い ----
   {
-    const { ctx, page } = await newPage({ marks: { crossword_seen_tip_cross: '1', crossword_seen_tip_move: '1', crossword_seen_tip_saved: '1' } });
-    const toasts = [];
-    page.on('console', () => {});
+    const { ctx, page } = await newPage({ marks: CREATE_MARKS });
     await page.goto(`${BASE}/crossword/create`);
-    await page.getByText('リストに追加').first().waitFor({ timeout: 20000 });
-    const reason = page.locator('[data-add-reason]');
-    check((await reason.textContent()) === 'ヒントの動画を選ぶと追加できます。', `(8) ハロプロでヒントが未選択の時、ボタンの下に「${await reason.textContent()}」`);
-    await page.getByText('その他', { exact: true }).first().click();
-    await page.waitForTimeout(300);
-    check(/^ヒントの URL を入れると追加できます。?$/.test(await reason.textContent()), `(8) その他で URL が無い時は「${await reason.textContent()}」`);
-    await page.screenshot({ path: path.join(OUT, '8-add-reason-390.png') });
-    const field = (label) => page.locator(`xpath=//label[contains(normalize-space(.), "${label}")]/following-sibling::*[1]/descendant-or-self::input`).first();
-    const hint = () => page.getByPlaceholder(/URL を貼る/).first();
-    const add = async (a, q) => {
-      await field('答え').fill(a);
-      await field('カギ').fill(q);
-      await hint().fill('https://example.com/' + encodeURIComponent(a));
-      await page.waitForTimeout(200);
-      await page.getByRole('button', { name: 'リストに追加' }).click();
-    };
-    await hint().fill('https://example.com/x');
-    await page.waitForTimeout(200);
-    check(!/URL/.test((await reason.count()) ? await reason.first().textContent() : ''), '(8) URL を入れると理由の1行（URL）は消える');
-    // ヰ・ヱ は使えない字として断る
-    await field('答え').fill('ヰド');
-    await field('カギ').fill('見本');
-    await page.getByRole('button', { name: 'リストに追加' }).click();
-    await page.waitForTimeout(300);
-    check((await page.getByText('「ヰ」「ヱ」は使えません。').count()) > 0, '(8) 答えに ヰ が入っていると「「ヰ」「ヱ」は使えません。」と断る');
-    // 半角カナは NFKC でそろう（ヒントは選んだまま残っている）
-    await field('答え').fill('ｶﾞｸ');
-    await field('カギ').fill('半角の見本');
-    await page.waitForTimeout(200);
-    await page.getByRole('button', { name: 'リストに追加' }).click();
-    await page.waitForTimeout(300);
-    check((await page.getByText('ガ ク', { exact: true }).count()) > 0, '(8) 半角カナ「ｶﾞｸ」は「ガ ク」の2マスにそろう');
-    await page.getByRole('button', { name: '消す', exact: true }).first().click();
-    await page.waitForTimeout(500);
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 20000 });
+    // ヰ・ヱ は使えない字として断る。半角カナは NFKC でそろう（1の段の「ヒントを付ける」側の行の下に出る）
+    await writeLines(page, '【ヰド】の話\n【ｶﾞｸ】\n【コアラ】\n【ネコ】');
+    await hintMode(page);
+    check((await page.locator('[data-bulk-reason="unusable"]').textContent().catch(() => null)) === 'ヰド：使えない字（ヰ・ヱ）', '(8) 答えに ヰ が入っていると「使えない字（ヰ・ヱ）」と断る');
+    check((await page.locator('[data-bulk-answer="ガク"]').count()) === 1, '(8) 半角カナ「ｶﾞｸ」は「ガク」の2マスにそろう');
+    await page.screenshot({ path: path.join(OUT, '8-reasons-390.png'), fullPage: true });
 
-    // F: 置けない所の上では影が薄い
-    await add('コアラ', 'ユーカリの葉を食べる動物');
-    await page.waitForTimeout(800);
-    await add('ネコ', 'ニャーと鳴く動物');
-    await page.waitForTimeout(8000);
-    const box = async (x, y) => (await cell(page, x, y).boundingBox());
-    // 盤: コアラ 横(0,1)・ネコ 縦(0,0)。ネコ の ネ (0,0) をつまむ
-    await cell(page, 0, 0).scrollIntoViewIfNeeded();
+    // F: 置けない所の上では影が薄い（2の段の盤）
+    await writeLines(page, '【コアラ】\n【ネコ】');
+    await hintAllInAnswers(page, ['コアラ', 'ネコ']);
+    await toBoard(page);
+    const ne = page.locator('[data-create-board] [id^="cell-"][aria-label$="・ネ"]');
+    await ne.scrollIntoViewIfNeeded();
     await page.waitForTimeout(300);
-    const ne = await box(0, 0);
-    const label00 = await cellText(page, 0, 0);
-    check(label00 === '1行1列：ネ', `(8) 見本の盤が組めた（${label00}）`);
-    const cx = ne.x + ne.width / 2, cy = ne.y + ne.height / 2;
+    const nb = await ne.boundingBox();
+    check(!!nb, `(8) 見本の盤が組めた（ネのマス ${nb ? 'あり' : '無し'}）`);
+    const cx = nb.x + nb.width / 2, cy = nb.y + nb.height / 2;
     await page.mouse.move(cx, cy);
     await page.mouse.down();
     await page.waitForTimeout(450);
-    // 右へ2マス（どの語とも交わらない所）
-    for (let i = 1; i <= 8; i++) await page.mouse.move(cx + (ne.width * 2 * i) / 8, cy);
+    // 右へ2マス（ネコ が縦でも横でも、どの語とも正しく交わらない所）
+    for (let i = 1; i <= 8; i++) await page.mouse.move(cx + (nb.width * 2 * i) / 8, cy);
     await page.waitForTimeout(200);
     const g1 = await page.evaluate(() => { const g = document.querySelector('[data-ghost]'); return g ? { p: g.getAttribute('data-placeable'), o: getComputedStyle(g).opacity } : null; });
     await page.screenshot({ path: path.join(OUT, '8-ghost-blocked-390.png') });
     // 元の場所へ戻す（置ける扱い）
-    for (let i = 7; i >= 0; i--) await page.mouse.move(cx + (ne.width * 2 * i) / 8, cy);
+    for (let i = 7; i >= 0; i--) await page.mouse.move(cx + (nb.width * 2 * i) / 8, cy);
     await page.waitForTimeout(200);
     const g2 = await page.evaluate(() => { const g = document.querySelector('[data-ghost]'); return g ? { p: g.getAttribute('data-placeable'), o: getComputedStyle(g).opacity } : null; });
     await page.screenshot({ path: path.join(OUT, '8-ghost-placeable-390.png') });
@@ -559,77 +541,34 @@ try {
     check(g1 && g1.p === 'no' && Number(g1.o) < 0.3, `(8) 置けない所の上では持ち上げた語の影が薄い（${g1 ? g1.o : '影なし'}）`);
     check(g2 && g2.p === 'yes' && Math.abs(Number(g2.o) - 0.6) < 0.01, `(8) 置ける所（元の場所）では今の濃さ（${g2 ? g2.o : '影なし'}）`);
     check((await page.getByText(/1日に作成・保存できるパズルは5個まで/).count()) === 0, '(8) 「1日5個まで」の知らせは無い');
-    void toasts;
     await ctx.close();
   }
 
   // ---- (8) 固定した語どうしがつながらない盤 ----
+  // 4段の流れでは、動かす時に盤がつながったままの所にしか置けず、1の段で語を消して探し直すと固定は外れるので、画面の操作ではこの盤にならない見込み。
+  // 作りかけ（端末の下書き）に、固定した2語が離れた盤が残っていた時の守り（「この盤で進む」を押せず理由が出る）を、下書きを置いて確かめる
   {
-    const { ctx, page } = await newPage({ marks: { crossword_seen_tip_cross: '1', crossword_seen_tip_move: '1', crossword_seen_tip_saved: '1' } });
-    await page.goto(`${BASE}/crossword/create`);
-    await page.getByText('リストに追加').first().waitFor({ timeout: 20000 });
-    await page.getByText('その他', { exact: true }).first().click();
-    const field = (label) => page.locator(`xpath=//label[contains(normalize-space(.), "${label}")]/following-sibling::*[1]/descendant-or-self::input`).first();
-    const hint = () => page.getByPlaceholder(/URL を貼る/).first();
-    for (const [a, q] of [['アイアイア', '見本の横'], ['アカ', '見本の縦1'], ['アキ', '見本の縦2']]) {
-      await field('答え').fill(a);
-      await field('カギ').fill(q);
-      await hint().fill('https://example.com/' + encodeURIComponent(a));
-      await page.waitForTimeout(200);
-      await page.getByRole('button', { name: 'リストに追加' }).click();
-      await page.waitForTimeout(300);
-    }
-    await page.waitForTimeout(8500);
-    // 縦の語の2字目（カ・キ）のある列を探す
-    const colOf = async (ch) => page.evaluate((c) => {
-      const b = [...document.querySelectorAll('[id^="cell-"]')].find((e) => /[：・]$/.test('') || (e.getAttribute('aria-label') || '').match(/[：・]([^：・]+)$/)?.[1] === c);
-      return b ? Number(b.id.split('-')[1]) : null;
-    }, ch);
-    const drag = async (fromX, toX) => {
-      await cell(page, fromX, 1).scrollIntoViewIfNeeded();
-      await page.waitForTimeout(300);
-      const f = await cell(page, fromX, 1).boundingBox();
-      const t = await cell(page, 0, 0).boundingBox();
-      const cx = f.x + f.width / 2, cy = f.y + f.height / 2;
-      const tx = t.x + t.width / 2 + (toX * t.width), ty = cy;
-      await page.mouse.move(cx, cy);
-      await page.mouse.down();
-      await page.waitForTimeout(450);
-      for (let i = 1; i <= 10; i++) await page.mouse.move(cx + ((tx - cx) * i) / 10, ty);
-      await page.waitForTimeout(150);
-      await page.mouse.up();
-      await page.waitForTimeout(500);
+    const draft = {
+      version: 2, step: 2, bulkText: '【アカ】\n【アキ】', collapsed: true, hints: {}, hintLabels: {}, clues: {},
+      board: [
+        { id: 'アカ', uuid: 'アカ', question: '', answer: ['ア', 'カ'], direction: 'horizontal', startX: 0, startY: 0, length: 2, pinned: true },
+        { id: 'アキ', uuid: 'アキ', question: '', answer: ['ア', 'キ'], direction: 'horizontal', startX: 0, startY: 2, length: 2, pinned: true },
+      ],
+      proposals: null, picked: null, title: '', creatorName: '', tags: [], isBeginner: false,
     };
-    const free = (used) => [0, 2, 4].find((x) => !used.includes(x));
-    let ka = await colOf('カ'), ki = await colOf('キ');
-    console.log(`    組めた盤: アカ ${ka}列・アキ ${ki}列`);
-    let to = free([ka, ki]);
-    await drag(ka, to);
-    ka = await colOf('カ');
-    to = free([ka, ki]);
-    await drag(ki, to);
-    ki = await colOf('キ');
+    const { ctx, page } = await newPage({ marks: { ...CREATE_MARKS, crossword_draft: JSON.stringify(draft) } });
+    await page.goto(`${BASE}/crossword/create`);
+    await page.locator('[data-create-step="2"]').waitFor({ timeout: 20000 });
+    await page.waitForTimeout(500);
     const pins = await page.locator('[data-pin]').count();
-    console.log(`    動かした後: アカ ${ka}列・アキ ${ki}列・固定の印 ${pins}`);
-    check(pins === 2, `(8) 縦の2語を動かして固定した（固定の印 ${pins}）`);
-    // 橋になっている横の語を消すと、固定した2語が離れる
-    const rows = page.locator('div.max-h-40 > div');
-    const n = await rows.count();
-    for (let i = 0; i < n; i++) {
-      if ((await rows.nth(i).textContent()).includes('ア イ ア イ ア')) {
-        await rows.nth(i).getByRole('button', { name: '消す', exact: true }).click();
-        break;
-      }
-    }
-    await page.waitForTimeout(8000);
+    check(pins === 2, `(8) 下書きの盤は固定の印つきで2の段に戻る（固定の印 ${pins}）`);
     const msg = page.locator('[data-not-connected]');
     check((await msg.count()) === 1 && (await msg.textContent()).includes('固定した語がつながっていません'), '(8) 固定した語がつながらない盤では「固定した語がつながっていません。…」が出る');
-    const share = page.getByRole('button', { name: /共有する/ });
-    check((await share.count()) === 1 && (await share.isDisabled()), '(8) 「共有する」は押せない');
+    check(await page.locator('[data-bulk-adopt]').isDisabled(), '(8) 「この盤で進む」は押せない（3の段へ進めないので共有もできない）');
     await page.screenshot({ path: path.join(OUT, '8-not-connected-390.png'), fullPage: true });
     await page.getByRole('button', { name: '固定を外す' }).click();
-    await page.waitForTimeout(8000);
-    check((await page.locator('[data-not-connected]').count()) === 0, '(8) 「固定を外す」で組み直すと知らせは消える');
+    await page.locator('[data-bulk-adopt]:enabled').waitFor({ timeout: 30000 }).catch(() => {});
+    check((await page.locator('[data-not-connected]').count()) === 0 && (await page.locator('[data-pin]').count()) === 0, '(8) 「固定を外す」で組み直すと知らせと固定の印は消える');
     await ctx.close();
   }
 } catch (e) {

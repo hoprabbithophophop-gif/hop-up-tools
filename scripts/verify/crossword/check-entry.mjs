@@ -54,9 +54,10 @@ const noUnofficial = async (page, where) => check(!(await text(page)).includes('
 {
   const { ctx, page } = await newPage();
   await page.goto(`${BASE}/crossword/create`);
-  await page.getByPlaceholder('例：ニャーと鳴く動物').first().waitFor({ timeout: 20000 });
+  await page.locator('[data-bulk-text]').waitFor({ timeout: 20000 }).catch(() => {});
   await page.waitForTimeout(2000);
-  check(true, '/crossword/create は作る画面（カギの欄がある）');
+  // 作る画面は4段の流れ（2026-10-20）。開くと1の段（段の札「1 答え」が黒い・書く欄がある）
+  check((await page.locator('[data-bulk-text]').count()) === 1 && (await page.locator('nav li[aria-current="step"]').textContent().catch(() => null)) === '1 答え', '/crossword/create は作る画面（1の段「1 答え」の書く欄がある）');
   await noUnofficial(page, '/crossword/create');
   // 矢印は読み上げから外してあるので、名前は「パズルギャラリー」で探し、見えている字に → があるかを見る
   const toList = page.getByRole('link', { name: 'パズルギャラリー', exact: true });

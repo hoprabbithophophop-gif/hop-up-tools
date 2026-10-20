@@ -1,7 +1,10 @@
 // 「まとめて入れる」を確かめる。
 // (a) 探す仕組み（src/lib/crossword/bulkSelect.ts）を、本物のファイルのまま node で動かす。
 //     ts は check-build.mjs と同じく stripTypeScriptTypes で型だけ外し、一時置き場に .mjs として書いて読み込む（論理は写さない）。
-// (b) 作る画面（/crossword/create）を、手元に立てた開発サーバー（口 5197）と Playwright で通しで動かす。棚と受付係への通信は受け止める。
+// (b) 作る画面（/crossword/create）の1の段「まとめて入れる」を、手元に立てた開発サーバー（口 5197）と Playwright で動かす。棚と受付係への通信は受け止める。
+//     書く｜ヒントを付ける・【 】｜→ ボタン・欄で選ぶと帯「「語」を出す」・【語】の中にカーソルで「「語」の囲みを外す」・弾く理由・読みの帯（決める・外す）
+//     ・下線の語でヒントの窓・行をなぞって帯・触った行だけ 16px（他は 10px）・凡例と ●○・交差できる字の黒い札（2026-10-21 に4段の流れに合わせて書き直した）。
+//     2〜4の段・作りかけ・なぞる動きは check-create-flow.mjs が見る
 // 使い方: node scripts/verify/crossword/check-bulk-entry.mjs（引数なし）
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -189,34 +192,38 @@ async function startServer() {
   throw new Error('開発サーバーが60秒で立ち上がらなかった');
 }
 
-// 貼る行。1行に2語・読み付き・読み無しの漢字（武道館）・21字・重複（ダンス）を含める。最後の行の「クマ」は画面でなぞって囲む
+
+// 書く行。1行に2語・読み付き・半角の |・読み無しの漢字（武道館・本棚）・21字・重複（ダンス）・使えない字（ヰ）を含める。最後の行の「クマ」は画面でなぞって囲む
 const LINES = [
   'ステージで【本気｜マジ】の【ダンス】を見せる',
   '【マスク】をつけて【独楽|コマ】を回す',
   '【コアラ】と【ラッコ】と【ネコ】',
   '【武道館】に立つ日',
+  '【本棚】を買う',
   '【アイウエオカキクケコサシスセソタチツテトナ】は長すぎる',
   'もう一度【ダンス】',
+  '【ヰド】の話',
   '森で クマ に会った',
 ];
 const TEXT = LINES.join('\n');
+const GUIDE = '出す語を【 】で囲む。読みは｜の後に（例: 【本気｜マジ】）。カタカナだけの語は読み不要。答えが問題文に無い時は、後ろに「→」で区切って書く（例: ニャーと鳴く動物→【ネコ】）。';
 
 const browser = await chromium.launch();
 const pageErrors = [];
 try {
   await startServer();
   const ctx = await browser.newContext({ viewport: { width: VW, height: 844 }, deviceScaleFactor: 1 });
-  // 作る画面の札と案内は出さない（_lib.mjs の印に加えて、ここでも立てる）
+  // 作る画面の札となぞる動きは出さない（_lib.mjs の印に加えて、ここでも立てる。なぞる動きは check-create-flow が見る）
   await ctx.addInitScript(() => {
     try {
-      for (const k of ['crossword_seen_tip_cross', 'crossword_seen_tip_move', 'crossword_seen_tip_saved', 'crossword_seen_create_guide']) localStorage.setItem(k, '1');
+      for (const k of ['crossword_seen_tip_cross', 'crossword_seen_tip_move', 'crossword_seen_tip_saved', 'crossword_seen_trace']) localStorage.setItem(k, '1');
     } catch { /* 無視 */ }
   });
   // 棚は空で答える。受付係と外のサイトへは出さない
   await ctx.route(`${MOCK_SUPA}/**`, (route) => {
     const u = new URL(route.request().url());
     const body = u.pathname.endsWith('/rpc/crossword_is_hidden') ? false : [];
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'content-range': '*/0' }, body: JSON.stringify(body) });
   });
   await ctx.route('**/api/**', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
   await ctx.route(/^https:\/\/(i\.ytimg\.com|www\.youtube\.com|challenges\.cloudflare\.com|[a-z.]*cloudflareinsights\.com)\//, (r) => r.fulfill({ status: 204, body: '' }));
@@ -226,82 +233,133 @@ try {
   await page.goto(`${BASE}/crossword/create`);
   const area = page.locator('[data-bulk-text]');
   await area.waitFor({ timeout: 30000 });
-  await page.getByText('その他', { exact: true }).first().click();
+  check((await page.locator('[data-bulk-mode]').count()) === 0, '(b) 何も書いていない間は「書く｜ヒントを付ける」の切り替えは出ない');
+  check((await page.locator('#cw-bulk-guide').textContent()) === GUIDE, '(b) 欄の上の説明は本番の文＋「→」の書き方の文');
   await area.fill(TEXT);
-  await page.waitForTimeout(300);
+  await area.evaluate((el) => el.blur());
+  await page.waitForTimeout(450);
+  const modeBtns = await page.locator('[data-bulk-mode-button]').evaluateAll((els) => els.map((e) => `${e.textContent}:${e.getAttribute('aria-pressed')}`));
+  check(modeBtns.join(',') === '書く:true,ヒントを付ける:false', `(b) 書くと切り替え「書く｜ヒントを付ける」が出て、今は「書く」（${modeBtns.join(',')}）`);
+  check((await page.locator('[data-bulk-lines]').count()) === 0, '(b) 「書く」の側では書いた行の一覧は出ない（同じ文が2か所に並ばない）');
+  const searchBtn = page.locator('[data-bulk-search]');
+  check((await searchBtn.textContent()) === '組み合わせを探す（7語）' && (await searchBtn.isEnabled()), `(b) 通った答えは7語（マジ・ダンス・マスク・コマ・コアラ・ラッコ・ネコ）で「${await searchBtn.textContent()}」`);
+  check((await page.locator('[data-bulk-markbar]').count()) === 0, '(b) 何も選んでいない間は画面の下の帯は出ない');
 
-  // 候補の数と弾かれた理由3種
-  const okCount = () => page.locator('[data-bulk-candidate="ok"]').count();
-  const reasons = await page.locator('[data-bulk-reason]').allTextContents();
-  const ok1 = await okCount();
-  check(ok1 === 7, `(b) 通った候補は7語（マジ・ダンス・マスク・コマ・コアラ・ラッコ・ネコ）: ${ok1}語`);
-  check(reasons.includes('読みが未入力'), `(b) 読み無しの漢字（武道館）は「読みが未入力」: ${reasons.join(' / ')}`);
-  check(reasons.includes('20字まで'), '(b) 21字は「20字まで」');
-  check(reasons.includes('同じ答えがあります'), '(b) 2回目の「ダンス」は「同じ答えがあります」');
-  check(reasons.length === 3, `(b) 弾かれたのは3つだけ: ${reasons.length}`);
-  // 薄く（半透明）は使わず、字色を secondary にして残す（Webデザイナー観点の直し。コントラスト 4.5:1 以上）
-  const ngColors = await page.locator('[data-bulk-candidate="ng"]').evaluateAll((els) => els.map((e) => getComputedStyle(e).color));
-  check(ngColors.length === 3 && ngColors.every((c) => c === 'rgb(88, 95, 108)'), `(b) 弾かれた候補は灰色の字で残る（半透明でない）: ${ngColors.join(' / ')}`);
-  check((await page.locator('[data-bulk-candidates]').getByText('（本気）').count()) === 1, '(b) 読み付きの候補に「（本気）」が添えてある');
-  await page.screenshot({ path: path.join(OUT, 'b1-candidates-390.png'), fullPage: true });
-
-  // なぞる前の帯のボタンは「ここを出す」で押せない
-  const markBtn0 = page.locator('[data-bulk-markbar] button');
-  check((await markBtn0.textContent()) === 'ここを出す' && (await markBtn0.isDisabled()), '(b) なぞる前の帯のボタンは「ここを出す」で押せない');
-
-  // 印を入れるボタン: 欄の末尾にカーソル→「｜」でその位置に入る→「【 】」で【】が入りカーソルは間
+  // 印を入れるボタン: 欄の末尾にカーソル→「｜」でその位置に入る→「【 】」で【】が入りカーソルは間→「→」で → が入る
+  const btnLabels = await page.locator('[data-bulk-insert]').evaluateAll((els) => els.map((e) => e.textContent));
+  check(btnLabels.join(' ') === '【 】 ｜ →', `(b) 欄の真上に「【 】」「｜」「→」のボタン（${btnLabels.join(' ')}）`);
   await area.evaluate((el) => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); });
   await page.locator('[data-bulk-insert="bar"]').click();
   await page.waitForTimeout(100);
-  const afterBar = await area.inputValue();
-  check(afterBar.endsWith('｜'), '(b) 「｜」ボタンでカーソルの位置に ｜ が入る');
+  check((await area.inputValue()).endsWith('｜'), '(b) 「｜」ボタンでカーソルの位置に ｜ が入る');
   await page.locator('[data-bulk-insert="brackets"]').click();
   await page.waitForTimeout(100);
   const afterBr = await area.evaluate((el) => ({ v: el.value, s: el.selectionStart, e: el.selectionEnd, focused: document.activeElement === el }));
   check(afterBr.v.endsWith('｜【】') && afterBr.s === afterBr.v.length - 1 && afterBr.s === afterBr.e && afterBr.focused, `(b) 「【 】」ボタンで【】が入りカーソルは間・欄は選ばれたまま（位置 ${afterBr.s} / ${afterBr.v.length}）`);
+  await page.locator('[data-bulk-insert="arrow"]').click();
+  await page.waitForTimeout(100);
+  check((await area.inputValue()).endsWith('｜【→】'), '(b) 「→」ボタンでカーソルの位置に → が入る');
   // 欄で文字を選んで「【 】」→その文字を囲む
+  await area.fill(TEXT);
   await area.evaluate((el) => { const i = el.value.indexOf('会った'); el.focus(); el.setSelectionRange(i, i + 3); });
   await page.locator('[data-bulk-insert="brackets"]').click();
   await page.waitForTimeout(100);
   check((await area.inputValue()).includes('【会った】'), '(b) 欄で選んだ文字を「【 】」ボタンで囲める');
-  // 元の文字列に戻してから続ける
+  // 欄で文字を選ぶと、画面の下の帯「「語」を出す」が出て、押すとその文字を囲む（Hop 決定 2026-10-20 案C）
   await area.fill(TEXT);
+  await area.evaluate((el) => { const i = el.value.indexOf('立つ日'); el.focus(); el.setSelectionRange(i, i + 3); });
   await page.waitForTimeout(200);
+  const selBar = page.locator('[data-bulk-markbar] button');
+  check((await selBar.textContent().catch(() => null)) === '「立つ日」を出す', `(b) 欄で文字を選ぶと下の帯が「「立つ日」を出す」（${await selBar.textContent().catch(() => '帯なし')}）`);
+  await selBar.click();
+  await page.waitForTimeout(200);
+  check((await area.inputValue()).includes('【武道館】に【立つ日】'), '(b) 帯を押すと選んだ文字が囲まれる');
+  // 欄で【語】の中にカーソルを置く（何も選ばない）と、帯が「「語」の囲みを外す」になり、押すと囲みが外れる（Hop 決定 2026-10-20）
+  await area.fill(TEXT);
+  await area.evaluate((el) => { const i = el.value.indexOf('【マスク】') + 2; el.focus(); el.setSelectionRange(i, i); });
+  await page.waitForTimeout(200);
+  const unBar = page.locator('[data-bulk-unmarkbar]');
+  check((await unBar.textContent().catch(() => null)) === '「マスク」の囲みを外す', `(b) 【マスク】の中にカーソルを置くと帯が「「マスク」の囲みを外す」（${await unBar.textContent().catch(() => '帯なし')}）`);
+  await unBar.click();
+  await page.waitForTimeout(200);
+  check((await area.inputValue()).includes('\nマスクをつけて【独楽'), '(b) 帯を押すと【マスク】の囲みが外れる');
+  // 元の文字列に戻してから続ける（欄を離れると半角の | は全角にそろう）
+  await area.fill(TEXT);
   await area.evaluate((el) => el.blur());
+  await page.waitForTimeout(450);
+  check((await area.inputValue()).includes('【独楽｜コマ】'), '(b) 欄を離れると半角の | は全角の ｜ にそろう');
 
-  // 下線の語を押すと、下の帯が「語・読みの欄・外す」になる（Hop 2026-10-19 案A）
+  // 「ヒントを付ける」側: 書いた行の一覧と凡例だけ
+  await page.locator('[data-bulk-mode-button="hint"]').click();
+  await page.locator('[data-bulk-lines]').waitFor();
+  check((await page.locator('[data-bulk-text]').count()) === 0 && (await page.getByText('書いた行（下線が答え。押すとヒントを付けられます）').count()) === 1, '(b) 「ヒントを付ける」では欄が消え、「書いた行（下線が答え。…）」の一覧が出る');
+  check((await page.locator('[data-bulk-legend]').textContent()) === '黒い字＝ほかの答えと交差できる字　● ヒント済み　○ まだ', '(b) 一覧の下に凡例');
+  const answers = await page.locator('[data-bulk-answer]').evaluateAll((els) => els.map((e) => e.getAttribute('data-bulk-answer')));
+  check(answers.join(',') === 'マジ,ダンス,マスク,コマ,コアラ,ラッコ,ネコ', `(b) 行の下に答えごとの印（${answers.join(',')}）`);
+  const reasons = await page.locator('[data-bulk-reason]').evaluateAll((els) => els.map((e) => `${e.getAttribute('data-bulk-reason')}=${e.textContent}`));
+  check(reasons.includes('noReading=武道館：読みが未入力') && reasons.includes('noReading=本棚：読みが未入力'), `(b) 読み無しの漢字は「読みが未入力」（${reasons.join(' / ')}）`);
+  check(reasons.some((r) => r.startsWith('tooLong=') && r.endsWith('20字まで')), '(b) 21字は「20字まで」');
+  check(reasons.includes('duplicate=ダンス：同じ答えがあります'), '(b) 2回目の「ダンス」は「同じ答えがあります」');
+  check(reasons.includes('unusable=ヰド：使えない字（ヰ・ヱ）'), '(b) ヰ の入った答えは「使えない字（ヰ・ヱ）」');
+  check(reasons.length === 5, `(b) 弾かれたのは5つだけ: ${reasons.length}`);
+  const majiCross = await page.locator('[data-bulk-answer="マジ"] span[title]').allTextContents();
+  check(majiCross.includes('マ'), `(b) ほかの答えと交差できる字に黒い札（マジ: ${majiCross.join('')}）`);
+  const dots = await page.locator('[data-bulk-hint]').evaluateAll((els) => els.map((e) => `${e.textContent}${e.getAttribute('aria-label')}`));
+  check(dots.length === 7 && dots.every((d) => d === '○まだ'), `(b) ヒントの印は全部「○ まだ」（${dots.length}個）`);
+  const styles = await page.evaluate(() => [...document.querySelectorAll('[data-bulk-mark]')].map((e) => ({ w: e.dataset.bulkMark, deco: getComputedStyle(e).textDecorationLine, style: getComputedStyle(e).textDecorationStyle, bg: getComputedStyle(e).backgroundColor })));
+  check(styles.every((s) => s.deco.includes('underline') && s.bg === 'rgba(0, 0, 0, 0)'), '(b) 囲んだ語は箱でなく下線');
+  const dashed = styles.filter((s) => s.style === 'dashed').map((s) => s.w);
+  check(dashed.join(',') === '武道館,本棚', `(b) 読みが要るのに無い語だけ点線（${dashed.join(',')}）`);
+  // 何も触っていなければ全部 16px
+  const sizes0 = await page.locator('[data-bulk-line] > div:first-child').evaluateAll((els) => els.map((e) => parseFloat(getComputedStyle(e).fontSize)));
+  check(sizes0.every((v) => v === 16), `(b) 何も触っていない間は全部の行が 16px（${[...new Set(sizes0)].join(',')}）`);
+  const ruby = await page.locator('[data-bulk-mark="本気"] rt').textContent().catch(() => null);
+  check(ruby === 'マジ', `(b) 読みは語の上にルビで出る（本気: ${ruby}）`);
+  await page.screenshot({ path: path.join(OUT, 'b1-lines-390.png'), fullPage: true });
+
+  // 読みが要るのに無い語を押すと、下の帯が「語・読みの欄・決める・外す・×」になる
   await page.locator('[data-bulk-mark="武道館"]').click();
-  await page.waitForTimeout(150);
+  await page.waitForTimeout(200);
   const rbar = page.locator('[data-bulk-readingbar]');
   const rb = await rbar.evaluate((el) => {
     const inp = el.querySelector('input');
-    return { word: el.querySelector('span')?.textContent, inputPx: parseFloat(getComputedStyle(inp).fontSize), focused: document.activeElement === inp, btn: el.querySelector('button')?.textContent, sticky: getComputedStyle(el.parentElement).position };
+    const bar = el.parentElement.getBoundingClientRect();
+    return {
+      word: el.querySelector('label')?.textContent, ph: inp.placeholder, inputPx: parseFloat(getComputedStyle(inp).fontSize), focused: document.activeElement === inp,
+      btns: [...el.querySelectorAll('button')].map((b) => b.textContent), pos: getComputedStyle(el.parentElement).position, bottom: Math.round(bar.bottom), vh: window.innerHeight,
+    };
   }).catch(() => null);
-  check(rb && rb.word === '武道館' && rb.btn === '外す', `(b) 「武道館」を押すと帯に 語・読みの欄・外す（${rb && rb.word} / ${rb && rb.btn}）`);
+  check(rb && rb.word === '武道館' && rb.ph === '読み' && rb.btns.join(',') === '決める,外す,×', `(b) 「武道館」を押すと帯に 語・読みの欄・決める・外す・×（${rb && `${rb.word} / ${rb.ph} / ${rb.btns.join(',')}`}）`);
   check(rb && rb.inputPx === 16 && rb.focused, `(b) 帯の読みの欄は 16px で、押した直後に入れる状態（${rb && rb.inputPx}px / 入力中=${rb && rb.focused}）`);
-  check(rb && rb.sticky === 'sticky', `(b) 読みの欄も画面の下に貼り付く帯の中（${rb && rb.sticky}）`);
+  check(rb && rb.pos === 'fixed' && rb.bottom <= rb.vh, `(b) 帯は画面の下に貼り付く（${rb && `${rb.pos} / 下端 ${rb.bottom} ≤ ${rb.vh}`}）`);
+  check((await page.locator('[data-hint-sheet]').count()) === 0, '(b) 読みの要る語を押してもヒントの窓は出ない');
   await rbar.locator('input').fill('ブドウカン');
-  await page.waitForTimeout(150);
-  const afterReading = await area.inputValue();
-  check(afterReading.includes('【武道館｜ブドウカン】'), '(b) 帯で打った読みが文字列【武道館｜ブドウカン】に入る');
-  const ruby = await page.locator('[data-bulk-mark="武道館"] rt').textContent().catch(() => null);
-  check(ruby === 'ブドウカン', `(b) 触っている行の語に読みがルビで出る（${ruby}）`);
-  const dashedAfter = await page.locator('[data-bulk-mark="武道館"]').evaluate((e) => getComputedStyle(e).borderBottomStyle);
-  check(dashedAfter === 'solid', `(b) 読みが入ると点線が実線になる（${dashedAfter}）`);
-  // 「外す」で囲みが外れ、帯は「出す」に戻る
+  await rbar.locator('[data-bulk-decide]').click();
+  await page.waitForTimeout(200);
+  await page.locator('[data-bulk-mode-button="write"]').click();
+  check((await area.inputValue()).includes('【武道館｜ブドウカン】'), '(b) 「決める」で読みが文字列【武道館｜ブドウカン】に入る');
+  await page.locator('[data-bulk-mode-button="hint"]').click();
+  await page.locator('[data-bulk-mark="武道館"]').waitFor();
+  const deco = await page.locator('[data-bulk-mark="武道館"]').evaluate((e) => getComputedStyle(e).textDecorationStyle);
+  check(deco === 'solid', `(b) 読みが入ると点線が実線になる（${deco}）`);
+  check((await page.locator('[data-bulk-answer="ブドウカン"]').count()) === 1, '(b) 読みの入った武道館が答え（ブドウカン）になる');
+  // 「外す」で囲みが外れる
+  await page.locator('[data-bulk-mark="本棚"]').click();
+  await page.waitForTimeout(200);
+  await page.getByRole('button', { name: '本棚 の囲みを外す' }).click();
+  await page.waitForTimeout(200);
+  check((await page.locator('[data-bulk-mark="本棚"]').count()) === 0 && (await page.locator('[data-bulk-readingbar]').count()) === 0, '(b) 帯の「外す」で【本棚】の囲みが外れ、帯が消える');
+  // 下線の語（答え）を押すとヒントの窓。窓の一番下の「「語」の囲みを外す」で囲みが外れる
   await page.locator('[data-bulk-mark="ネコ"]').click();
-  await page.waitForTimeout(150);
-  await page.locator('[data-bulk-readingbar] button').click();
-  await page.waitForTimeout(200);
-  const afterUnmark = await area.inputValue();
-  check(afterUnmark.includes('【コアラ】と【ラッコ】とネコ') && (await page.locator('[data-bulk-mark="ネコ"]').count()) === 0, '(b) 「外す」で【ネコ】の囲みが外れる');
-  check((await page.locator('[data-bulk-readingbar]').count()) === 0 && (await page.locator('[data-bulk-markbar] button').textContent()) === 'ここを出す', '(b) 外した後の帯は「ここを出す」に戻る');
-  // 囲み直して元の形に戻す（以降の確認は7語の前提）
-  await area.fill(TEXT);
-  await page.waitForTimeout(200);
-  await area.evaluate((el) => el.blur());
+  const sheet = page.locator('[data-hint-sheet]');
+  await sheet.waitFor({ timeout: 5000 });
+  check((await sheet.locator('h2').first().textContent()) === '「ネコ」のヒント', '(b) 答えの下線の語を押すと「「ネコ」のヒント」の窓が下から出る');
+  check((await page.locator('[data-bulk-markbar]').count()) === 0, '(b) 窓が出ている間は画面の下の帯を出さない');
+  await sheet.locator('[data-unmark-sheet]').click();
+  await page.waitForTimeout(300);
+  check((await sheet.count()) === 0 && (await page.locator('[data-bulk-mark="ネコ"]').count()) === 0, '(b) 窓の「「ネコ」の囲みを外す」で囲みが外れ、窓が閉じる');
 
-  // 並べた行で「クマ」をなぞって「ここを出す」
+  // 並べた行で「クマ」をなぞって「「クマ」を出す」
   const selected = await page.evaluate(() => {
     const seg = [...document.querySelectorAll('[data-bulk-lines] [data-seg-start]')].find((e) => e.textContent.includes('クマ'));
     if (!seg) return false;
@@ -316,128 +374,64 @@ try {
     return sel.toString();
   });
   check(selected === 'クマ', `(b) 並べた行で「クマ」をなぞれた（${selected}）`);
-  // なぞった行だけ 16px のまま、他の行は 14px で薄い色（Hop 2026-10-19）
-  await page.waitForTimeout(100);
+  await page.waitForTimeout(200);
+  // なぞった行だけ 16px の黒字、他の行は 10px の薄い字・1行で「…」に切る（Hop 決定 2026-10-19・10-20）
   const sizes = await page.evaluate(() => {
     const rows = [...document.querySelectorAll('[data-bulk-line]')];
     const on = rows.filter((e) => e.hasAttribute('data-bulk-active'));
     const off = rows.filter((e) => !e.hasAttribute('data-bulk-active'));
-    const px = (e) => parseFloat(getComputedStyle(e).fontSize);
-    const inputPx = off.flatMap((e) => [...e.querySelectorAll('input')]).map(px);
-    const offRt = off.flatMap((e) => [...e.querySelectorAll('rt')]).length;
-    const marks = [...document.querySelectorAll('[data-bulk-mark]')];
-    const marksBoxed = marks.filter((e) => !e.hasAttribute('data-bulk-mark-selected') && getComputedStyle(e).backgroundColor !== 'rgba(0, 0, 0, 0)').length;
-    const dashed = marks.filter((e) => getComputedStyle(e).borderBottomStyle === 'dashed').map((e) => e.dataset.bulkMark);
-    return { on: on.map(px), off: off.map(px), onHasKuma: on.some((e) => e.textContent.includes('クマ')), offColor: off.map((e) => getComputedStyle(e).color), onColor: on.map((e) => getComputedStyle(e).color), inputPx, offRt, marksBoxed, dashed };
+    const txt = (e) => e.firstElementChild;
+    const px = (e) => parseFloat(getComputedStyle(txt(e)).fontSize);
+    return {
+      on: on.map(px), off: off.map(px), onHasKuma: on.some((e) => e.textContent.includes('クマ')),
+      offColor: off.map((e) => getComputedStyle(txt(e)).color), onColor: on.map((e) => getComputedStyle(txt(e)).color),
+      offCut: off.every((e) => getComputedStyle(txt(e)).textOverflow === 'ellipsis' && getComputedStyle(txt(e)).whiteSpace === 'nowrap'),
+      offRt: off.flatMap((e) => [...e.querySelectorAll('rt')]).length,
+    };
   });
   check(sizes.on.length === 1 && sizes.onHasKuma && sizes.on[0] === 16, `(b) なぞった行だけが 16px（${sizes.on.join(',')} / クマ=${sizes.onHasKuma}）`);
-  check(sizes.off.length >= 1 && sizes.off.every((v) => v === 10), `(b) 他の行は 10px（${sizes.off.join(',')}）`);
+  check(sizes.off.length >= 1 && sizes.off.every((v) => v === 10), `(b) 他の行は 10px（${[...new Set(sizes.off)].join(',')}）`);
   check(sizes.off.length >= 1 && sizes.offColor.every((c) => c !== sizes.onColor[0]), `(b) 他の行は薄い色（${sizes.offColor[0]} ≠ ${sizes.onColor[0]}）`);
-  check(sizes.inputPx.length === 0 && sizes.offRt === 0, `(b) 小さい行には読みの欄もルビも無い（欄 ${sizes.inputPx.length}・ルビ ${sizes.offRt}）`);
-  check(sizes.marksBoxed === 0, `(b) 囲んだ語は箱でなく下線（背景付き ${sizes.marksBoxed} 個）`);
-  check(sizes.dashed.length === 1 && sizes.dashed[0] === '武道館', `(b) 読みが無い漢字の語だけ点線（${sizes.dashed.join(',')}）`);
-  check(await page.locator('[data-bulk-readingbar]').count() === 0, '(b) なぞると帯は「出す」に戻る（読みの欄は消える）');
-  await page.screenshot({ path: path.join(OUT, 'b1b-active-line-390.png'), fullPage: true });
-  // 画面の下の帯のボタンは、なぞった文字入りの「「クマ」を出す」になり、なぞる前は「ここを出す」で押せない
+  check(sizes.offCut && sizes.offRt === 0, `(b) 小さい行は1行で「…」に切り、ルビを出さない（ルビ ${sizes.offRt}）`);
+  await page.screenshot({ path: path.join(OUT, 'b2-traced-390.png'), fullPage: true });
   const markBtn = page.locator('[data-bulk-markbar] button');
-  await page.waitForTimeout(100);
-  check((await markBtn.textContent()) === '「クマ」を出す' && (await markBtn.isEnabled()), `(b) 帯のボタンが「「クマ」を出す」になり押せる（${await markBtn.textContent()}）`);
-  const barPos = await markBtn.evaluate((el) => ({ sticky: getComputedStyle(el.parentElement).position, bottom: Math.round(el.parentElement.getBoundingClientRect().bottom), vh: window.innerHeight }));
-  check(barPos.sticky === 'sticky' && barPos.bottom <= barPos.vh, `(b) 帯は画面の下に貼り付く（${barPos.sticky} / 下端 ${barPos.bottom} ≤ ${barPos.vh}）`);
+  check((await markBtn.textContent().catch(() => null)) === '「クマ」を出す', `(b) なぞっている間、下の帯は「「クマ」を出す」（${await markBtn.textContent().catch(() => '帯なし')}）`);
   await markBtn.click();
   await page.waitForTimeout(300);
-  const ok2 = await okCount();
-  const text2 = await area.inputValue();
-  check(ok2 === ok1 + 1 && text2.includes('森で 【クマ】 に会った'), `(b) 「ここを出す」で文字列が【クマ】で囲まれ、候補が1つ増える（${ok1}→${ok2}）`);
-  check(text2.includes('【独楽｜コマ】'), '(b) 半角の | は全角の ｜ にそろう');
-
-  // 組み合わせを探す
-  const searchBtn = page.locator('[data-bulk-search]');
-  check(/^組み合わせを探す（8語）$/.test((await searchBtn.textContent()) ?? ''), `(b) ボタンは「${await searchBtn.textContent()}」`);
-  await searchBtn.click();
-  // 全部入る盤が数msでそろうと進み具合の行は出ないまま提案が出る。どちらかが出れば探す処理は動いている
-  const sawProgress = await page.locator('[data-bulk-progress], [data-bulk-proposal]').first().waitFor({ timeout: 3000 }).then(() => true).catch(() => false);
-  check(sawProgress, '(b) 探している間の「探しています… 試行 N 回」か、提案が出る');
-  await page.locator('[data-bulk-proposal]').first().waitFor({ timeout: 20000 });
-  const cards = page.locator('[data-bulk-proposal]');
-  const nCards = await cards.count();
-  check(nCards === 3, `(b) 提案が3つ: ${nCards}`);
-  const stats = await page.locator('[data-bulk-stats]').allTextContents();
-  check(stats.length === nCards && stats.every((s) => /^\d+語・\d+マス・交差\d+$/.test(s)), `(b) それぞれに「語・マス・交差」の数字: ${stats.join(' / ')}`);
-  const ids = await page.evaluate(() => [...document.querySelectorAll('[data-bulk-proposal] [id]')].length);
-  check(ids === 0, `(b) 提案の小さな盤にはマスの id が無い（右の盤と重ならない）: ${ids}`);
-  await page.waitForTimeout(400); // FitGrid が幅を測って縮める 0.2 秒の動きが終わってから測る
+  check((await page.locator('[data-bulk-mark="クマ"]').count()) === 1 && (await page.locator('[data-bulk-answer="クマ"]').count()) === 1, '(b) 帯を押すと「クマ」が囲まれて答えになる');
+  // なぞるのをやめると帯は消える
+  await page.evaluate(() => {
+    const seg = [...document.querySelectorAll('[data-bulk-lines] [data-seg-start]')].find((e) => e.textContent.includes('会った'));
+    const r = document.createRange();
+    r.setStart(seg.firstChild, 0);
+    r.setEnd(seg.firstChild, 2);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(r);
+  });
+  await page.waitForTimeout(200);
+  const had = (await page.locator('[data-bulk-markbar]').count()) === 1;
+  await page.evaluate(() => window.getSelection().removeAllRanges());
+  await page.waitForTimeout(600);
+  check(had && (await page.locator('[data-bulk-markbar]').count()) === 0, '(b) 帯はなぞっている間だけ出る（なぞるのをやめると消える）');
+  // 答えの数: マジ・ダンス・マスク・コマ・コアラ・ラッコ・ブドウカン・クマ（ネコは外した）
+  check((await searchBtn.textContent()) === '組み合わせを探す（8語）', `(b) ボタンは「${await searchBtn.textContent()}」`);
   const wide = await page.evaluate(() => ({
     sw: document.documentElement.scrollWidth,
-    over: [...document.querySelectorAll('[data-bulk] *')].filter((e) => e.getBoundingClientRect().right > window.innerWidth + 0.5).slice(0, 3).map((e) => `${e.tagName}${e.className ? '.' + String(e.className).split(' ')[0] : ''}`),
+    over: [...document.querySelectorAll('[data-bulk] *')].filter((e) => e.getBoundingClientRect().right > window.innerWidth + 0.5 && !e.closest('[data-bulk-line]:not([data-bulk-active])')).slice(0, 3).map((e) => e.tagName),
   }));
-  check(wide.sw <= VW && wide.over.length === 0, `(b) 390px で横にはみ出さない（提案が出た状態。ページ幅 ${wide.sw}px${wide.over.length ? `・はみ出し ${wide.over.join(', ')}` : ''}）`);
-  await page.screenshot({ path: path.join(OUT, 'b2-proposals-390.png'), fullPage: true });
+  check(wide.sw <= VW && wide.over.length === 0, `(b) 390px で横にはみ出さない（ページ幅 ${wide.sw}px${wide.over.length ? `・はみ出し ${wide.over.join(', ')}` : ''}）`);
 
-  // 2番目を選んで「この盤で進む」
-  const second = cards.nth(1);
-  const want = { w: Number(await second.getAttribute('data-width')), h: Number(await second.getAttribute('data-height')) };
-  const wantWords = Number(((await second.locator('[data-bulk-stats]').textContent()) ?? '').match(/^(\d+)語/)?.[1]);
-  await second.getByRole('button').click();
-  check((await second.getByRole('button').getAttribute('aria-pressed')) === 'true', '(b) 2番目を選べた');
-  await page.locator('[data-bulk-adopt]').click();
-  // 組み立ての演出が終わるのを待つ（保存の押せない理由の1行が出るまで）
-  await page.locator('[data-missing-hints]').waitFor({ timeout: 30000 });
-  await page.waitForTimeout(300);
-  const board = await page.evaluate(() => {
-    const cells = [...document.querySelectorAll('#puzzle-preview-area [id^="cell-"]')].map((e) => e.id.split('-').slice(1).map(Number));
-    return { w: Math.max(...cells.map((c) => c[0])) + 1, h: Math.max(...cells.map((c) => c[1])) + 1, n: cells.length };
-  });
-  check(board.w === want.w && board.h === want.h, `(b) 右の盤の大きさが選んだ提案と同じ（盤 ${board.w}x${board.h} ／ 提案 ${want.w}x${want.h}）`);
-  check((await page.locator('[data-bulk-proposal]').count()) === 0, '(b) 進んだ後は提案が消える');
-
-  // 一覧: 語が入り、カギ欄に○の下書き（○の数＝字数）・「未選択 → ヒントを選ぶ」
-  const rows = await page.evaluate(() =>
-    [...document.querySelectorAll('[data-pick-hint]')].map((b) => {
-      const box = b.parentElement;
-      return { answer: box.querySelector('.font-mono span').textContent.replace(/\s/g, ''), clue: box.children[1].textContent, pick: b.textContent, extra: box.querySelector('.font-mono').textContent };
-    })
-  );
-  check(rows.length === wantWords, `(b) 一覧に選んだ盤の語が入った: ${rows.length}語（提案 ${wantWords}語）`);
-  check(rows.every((r) => r.pick === '未選択 → ヒントを選ぶ'), '(b) どの行にも「未選択 → ヒントを選ぶ」');
-  const maruOk = rows.every((r) => (r.clue.match(/○/g) ?? []).length === r.answer.length && !/[【】｜]/.test(r.clue));
-  check(maruOk, `(b) カギ欄は○の下書き（○の数＝字数・印は残らない）: ${rows.map((r) => `${r.answer}=${r.clue}`).join(' / ')}`);
-  const maji = rows.find((r) => r.answer === 'マジ');
-  if (maji) {
-    check(maji.clue === 'ステージで○○のダンスを見せる', `(b) 「マジ」のカギは「ステージで○○のダンスを見せる」: ${maji.clue}`);
-    check(maji.extra.includes('（本気）'), '(b) 読み付きの語は一覧に「（本気）」を添える');
-  }
-  const kuma = rows.find((r) => r.answer === 'クマ');
-  if (kuma) check(kuma.clue === '森で ○○ に会った', `(b) なぞって囲んだ「クマ」のカギ: ${kuma.clue}`);
-  check(!!maji || !!kuma, '(b) 下書きの中身を確かめる語（マジ・クマ）のどちらかが盤に入った');
-
-  // 保存ボタンが押せず、理由に語数
-  const share = page.getByRole('button', { name: /共有する/ });
-  const reason = (await page.locator('[data-missing-hints]').textContent()) ?? '';
-  check((await share.isDisabled()) && reason === `ヒントが未選択の語が ${rows.length} 語あります`, `(b) 「共有する」は押せず、理由「${reason}」`);
-  await page.screenshot({ path: path.join(OUT, 'b3-adopted-390.png'), fullPage: true });
-
-  // 「未選択 → ヒントを選ぶ」で入力欄に戻る（既存の鉛筆と同じ道）
-  await page.locator('[data-pick-hint]').first().click();
-  await page.waitForTimeout(300);
-  const back = await page.evaluate(() => ({ a: document.querySelector('#cw-answer')?.value, q: document.querySelector('#cw-clue')?.value }));
-  check(back.a === rows[0].answer && back.q === rows[0].clue && (await page.getByRole('button', { name: '更新する', exact: true }).count()) === 1, `(b) 「未選択 → ヒントを選ぶ」で入力欄に戻り「更新する」になる（${back.a} ／ ${back.q}）`);
-  await page.getByRole('button', { name: 'やめる', exact: true }).click();
-
-  // 読み込み直すと textarea と候補が戻る（下書き）
-  const before = { text: await area.inputValue(), cands: await page.locator('[data-bulk-candidate]').count() };
+  // 読み込み直すと、書いた文字列と「ヒントを付ける」側（前回の側）が戻る
+  await page.locator('[data-bulk-mode-button="write"]').click();
+  const before = await area.inputValue();
+  await page.locator('[data-bulk-mode-button="hint"]').click();
   await page.waitForTimeout(500);
   await page.reload();
-  await area.waitFor({ timeout: 30000 });
-  await page.waitForTimeout(500);
-  const after = { text: await area.inputValue(), cands: await page.locator('[data-bulk-candidate]').count() };
-  check(after.text === before.text && after.cands === before.cands && after.cands > 0, `(b) 読み込み直しても文字列と候補が戻る（候補 ${before.cands}→${after.cands}）`);
-  const inList = await page.locator('[data-bulk-reason]').allTextContents();
-  // 2回目の「ダンス」も一覧に入った答えなので「一覧に入っています」になる（ダンスが盤に入った時だけ1つ多い）
-  const dupInList = rows.some((r) => r.answer === 'ダンス') ? 1 : 0;
-  const nInList = inList.filter((r) => r === '一覧に入っています').length;
-  check(nInList === rows.length + dupInList, `(b) 一覧に入った語の候補は「一覧に入っています」: ${nInList}（一覧 ${rows.length}語＋2回目のダンス ${dupInList}）`);
-  await page.screenshot({ path: path.join(OUT, 'b4-reloaded-390.png'), fullPage: true });
+  await page.locator('[data-bulk-lines]').waitFor({ timeout: 30000 }).catch(() => {});
+  check((await page.locator('[data-bulk-mode-button="hint"]').getAttribute('aria-pressed').catch(() => null)) === 'true', '(b) 読み込み直すと前回の側（ヒントを付ける）で開く');
+  await page.locator('[data-bulk-mode-button="write"]').click();
+  check((await area.inputValue()) === before, '(b) 読み込み直しても書いた文字列が戻る');
+  await page.screenshot({ path: path.join(OUT, 'b3-reloaded-390.png'), fullPage: true });
   await ctx.close();
 } catch (e) {
   check(false, `(b) 台本が途中で止まった: ${e.message}`);
