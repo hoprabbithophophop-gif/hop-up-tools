@@ -30,8 +30,9 @@ export interface BulkTexts {
   decide: string;
   closeBar: string;
   closeBarLabel: string;
-  collapse: string;
-  expand: string;
+  modeWrite: string;
+  modeHint: string;
+  modeLabel: string;
   linesLabel: string;
   legend: string;
   hinted: string;
@@ -467,6 +468,30 @@ export const BulkEntry: React.FC<{
 
   return (
     <section data-bulk="" className="space-y-3">
+      {/* 「書く｜ヒントを付ける」の切り替え（Hop 決定 2026-10-20 案B）。同じ文が2か所に並ばないよう、どちらか一方だけを出す */}
+      {lines.length > 0 && (
+        <div role="group" aria-label={t.modeLabel} data-bulk-mode={showEditor ? "write" : "hint"} className="grid grid-cols-2 gap-0.5">
+          {([["write", t.modeWrite], ["hint", t.modeHint]] as const).map(([m, label]) => {
+            const on = (m === "write") === showEditor;
+            return (
+              <button
+                key={m}
+                type="button"
+                data-bulk-mode-button={m}
+                aria-pressed={on}
+                onClick={() => {
+                  onCollapsed(m === "hint");
+                  if (m === "write") requestAnimationFrame(() => areaRef.current?.focus());
+                }}
+                className={`min-h-11 px-3 text-sm font-bold transition-colors ${on ? "bg-primary text-white" : "bg-surface-container-low hover:bg-surface-container-high"}`}
+                style={on ? undefined : { color: C.ink }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {showEditor ? (
         <>
           <p id="cw-bulk-guide" className="text-xs leading-relaxed" style={{ color: C.secondary }}>
@@ -531,36 +556,11 @@ export const BulkEntry: React.FC<{
             >
               {t.insertArrow}
             </button>
-            <span className="flex-1" />
-            {lines.length > 0 && (
-              <button
-                type="button"
-                data-bulk-collapse=""
-                onClick={() => onCollapsed(true)}
-                className="px-3 min-h-11 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors"
-                style={{ color: C.ink }}
-              >
-                {t.collapse}
-              </button>
-            )}
           </div>
         </>
-      ) : (
-        <button
-          type="button"
-          data-bulk-expand=""
-          onClick={() => {
-            onCollapsed(false);
-            requestAnimationFrame(() => areaRef.current?.focus());
-          }}
-          className="w-full min-h-12 px-4 font-semibold bg-surface-container-high hover:bg-surface-container-highest transition-colors"
-          style={{ color: C.ink }}
-        >
-          {t.expand}
-        </button>
-      )}
+      ) : null}
 
-      {lines.length > 0 && (
+      {lines.length > 0 && !showEditor && (
         <div className="space-y-2">
           <p className="text-xs font-bold" style={{ color: C.secondary }}>
             {t.linesLabel}

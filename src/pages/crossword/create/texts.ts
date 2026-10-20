@@ -111,8 +111,9 @@ export const BULK_TEXTS: BulkTexts = {
   decide: "決める",
   closeBar: "×",
   closeBarLabel: "帯を閉じる", // 読み上げ名
-  collapse: "畳む",
-  expand: "行を書き足す・直す",
+  modeWrite: "書く",
+  modeHint: "ヒントを付ける",
+  modeLabel: "書く・ヒントを付ける", // 切り替えの読み上げ名【仮】
   linesLabel: "書いた行（下線が答え。押すとヒントを付けられます）",
   legend: "黒い字＝ほかの答えと交差できる字　● ヒント済み　○ まだ",
   hinted: "ヒント済み", // ●の読み上げ名
