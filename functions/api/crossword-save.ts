@@ -61,8 +61,15 @@ const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
 // チャンネル名は保存しない。台帳に無い動画のチャンネル名は、見る人のブラウザがその都度 YouTube に聞く（Hop 決定 2026-10-19「書き残さない形」）
 type Hint = { kind: "youtube"; videoId: string; startSec: number } | { kind: "link"; url: string };
+// 末尾の点（youtube.com.）を外し、頭の www. / m. / music. は重なっていても全部外してから見る
+// （画面の src/lib/crossword/youtubeUrl.ts の youtubeBaseHost と同じ。直す時は両方そろえる）
+const youtubeBaseHost = (hostname: string) => {
+  let h = hostname.toLowerCase().replace(/\.+$/, "");
+  while (/^(www|m|music)\./.test(h)) h = h.replace(/^(www|m|music)\./, "");
+  return h;
+};
 const isYouTubeHost = (host: string) => {
-  const h = host.replace(/^(www\.|m\.|music\.)/, "");
+  const h = youtubeBaseHost(host);
   return h === "youtu.be" || h === "youtube.com" || h === "youtube-nocookie.com";
 };
 

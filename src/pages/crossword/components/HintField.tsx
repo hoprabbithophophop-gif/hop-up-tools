@@ -104,9 +104,10 @@ const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
 export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey, inputClassName, initial, inputId, flatResults }) => {
   const [text, setText] = useState("");
-  const [selected, setSelected] = useState<Selected | null>(null);
+  // 最初から initial で始める（「選択なし」で一度描くと、親と下書きへ「ヒント無し」が一瞬送られるため）
+  const [selected, setSelected] = useState<Selected | null>(initial ?? null);
   // 出どころの印（Hop 決定 2026-10-19 案A-2）。初期は YouTube。URL を貼ると行き先に合わせて切り替わる
-  const [source, setSource] = useState<HintSource>("yt");
+  const [source, setSource] = useState<HintSource>(() => (!initial ? "yt" : initial.hint.kind === "youtube" ? "yt" : sourceOfUrl(initial.hint.url)));
   // 公式ブログを探す（アメブロの印の時だけ。Google の site: 検索を新しいタブで開くだけ）
   // 公式ブログの選択（"g:グループ"＝そのグループのブログ全部／"b:ブログ"＝1つだけ。Hop 依頼 2026-10-21）
   const [blogChoice, setBlogChoice] = useState(`g:${OFFICIAL_BLOGS[0].key}`);
@@ -126,7 +127,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   const [igKeyword, setIgKeyword] = [findKeyword, setFindKeyword];
   // 公式サイトを探す（リンクの印の時だけ。公式サイトと /link/ の関連サイトを対象にした Google 検索を新しいタブで開くだけ。Hop 決定 2026-10-20）
   const [siteKeyword, setSiteKeyword] = [findKeyword, setFindKeyword];
-  const [timeText, setTimeText] = useState("0:00");
+  const [timeText, setTimeText] = useState(() => (initial?.hint.kind === "youtube" ? formatTime(initial.hint.startSec) : "0:00"));
   const [results, setResults] = useState<CatalogVideo[]>([]);
   const [chapterResults, setChapterResults] = useState<CatalogChapter[]>([]);
   const [message, setMessage] = useState("");

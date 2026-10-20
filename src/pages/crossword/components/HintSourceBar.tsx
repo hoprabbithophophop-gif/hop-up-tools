@@ -3,6 +3,7 @@
 // 印は Simple Icons（CC0 1.0）の単色版を書き写した物（youtube / ameba / x / instagram）。リンクだけ Material Symbols の link。
 import React from "react";
 import { C } from "../style";
+import { isYouTubeHost } from "../../../lib/crossword/youtubeUrl";
 
 export type HintSource = "yt" | "ameblo" | "x" | "ig" | "link";
 
@@ -22,7 +23,7 @@ export function sourceOfUrl(input: string): HintSource {
   } catch {
     return "link";
   }
-  if (host === "youtu.be" || host === "youtube.com" || host === "youtube-nocookie.com") return "yt";
+  if (isYouTubeHost(input)) return "yt";
   if (host === "ameblo.jp" || host.endsWith(".ameba.jp") || host === "ameba.jp") return "ameblo";
   if (host === "x.com" || host === "twitter.com") return "x";
   if (host === "instagram.com" || host === "instagr.am") return "ig";

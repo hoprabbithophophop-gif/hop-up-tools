@@ -18,11 +18,11 @@ export const OFFICIAL_SITES: string[] = [
   "ody-inc.com",
 ];
 
-// Google の検索語は32語までと言われている（未確認の前提）。空白で区切った語（site:〜・OR・after:〜 も1語）を数える
-export const GOOGLE_WORD_LIMIT = 32;
+// Google の検索語は32語までと言われている（未確認の前提）。余裕を取って30語までにする。空白で区切った語（site:〜・OR・after:〜 も1語）を数える
+export const GOOGLE_WORD_LIMIT = 30;
 export const countSearchWords = (q: string) => q.trim().split(/\s+/).filter(Boolean).length;
 
-// 「探す言葉 (site:a OR site:b OR …)」＋いつごろ。32語を超える時は一覧の後ろのサイトから削る（1つは必ず残す）
+// 「探す言葉 (site:a OR site:b OR …)」＋いつごろ。30語を超える時は一覧の後ろのサイトから削る（1つは必ず残す）
 export function officialSiteSearchQuery(keyword: string, period: SearchPeriod | null = null): string {
   const build = (sites: string[]) => `${keyword.trim()} (${sites.map((s) => `site:${s}`).join(" OR ")})${googlePeriodWords(period)}`;
   let sites = OFFICIAL_SITES;

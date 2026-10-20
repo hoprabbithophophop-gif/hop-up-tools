@@ -15,11 +15,19 @@ const parseTime = (raw: string | null): number => {
   return (Number(m[1] ?? 0) * 3600) + (Number(m[2] ?? 0) * 60) + Number(m[3] ?? 0);
 };
 
+// 住所の名前を YouTube の判定用にそろえる。末尾の点（youtube.com.）を外し、頭の www. / m. / music. は重なっていても全部外す
+// （受付係 functions/api/crossword-save.ts の youtubeBaseHost と同じ。直す時は両方そろえる）
+export function youtubeBaseHost(hostname: string): string {
+  let h = hostname.toLowerCase().replace(/\.+$/, "");
+  while (/^(www|m|music)\./.test(h)) h = h.replace(/^(www|m|music)\./, "");
+  return h;
+}
+const isYouTubeBase = (h: string) => h === "youtu.be" || h === "youtube.com" || h === "youtube-nocookie.com";
+
 // YouTube の住所か（形が崩れていて動画番号が読めない物も含む）。ハロプロ・その他とも、YouTube を「リンク」として通さないために使う
 export function isYouTubeHost(input: string): boolean {
   try {
-    const host = new URL(input.trim()).hostname.replace(/^(www\.|m\.|music\.)/, "");
-    return host === "youtu.be" || host === "youtube.com" || host === "youtube-nocookie.com";
+    return isYouTubeBase(youtubeBaseHost(new URL(input.trim()).hostname));
   } catch {
     return false;
   }
@@ -32,7 +40,7 @@ export function parseYouTubeUrl(input: string): ParsedYouTube | null {
   } catch {
     return null;
   }
-  const host = url.hostname.replace(/^(www\.|m\.|music\.)/, "");
+  const host = youtubeBaseHost(url.hostname);
   let id: string | null = null;
   if (host === "youtu.be") {
     id = url.pathname.slice(1).split("/")[0];

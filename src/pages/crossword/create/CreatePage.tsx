@@ -729,19 +729,11 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       const reason = error instanceof SaveError ? error.reason : "";
       const message = reason === "already_played" ? CT.edit.alreadyPlayed : reason === "not_found" ? CT.edit.notEditable : CT.saveReasons[reason] ?? CT.errors.saveFailed;
       toast.error(message, { duration: 5000 });
-      // もう遊ばれていたら、普通の作る画面に戻す（Hop 決定 2026-10-05）。入力中の中身はそのまま残し、ここから下書きに書く
+      // もう遊ばれていたら、ヒントだけ差し替えられる画面へ回す（紙「遊ばれた後の ?edit= はヒント差し替えの画面へ回す」と同じ。Hop 決定 2026-10-19）。
+      // 組み直しの中身は作りかけの控えに書かない（別の作りかけを上書きしないため）
       if (reason === "already_played") {
-        setDraftReady(true);
-        setEditTarget(null);
-        setEditStatus("none");
-        setSearchParams(
-          (prev) => {
-            const next = new URLSearchParams(prev);
-            next.delete("edit");
-            return next;
-          },
-          { replace: true }
-        );
+        navigate(`/crossword/hints/${editTarget.id}`, { replace: true });
+        return;
       }
     } finally {
       setIsSaving(false);

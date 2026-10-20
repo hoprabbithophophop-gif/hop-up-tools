@@ -193,12 +193,14 @@ export async function lookupVideoChannel(videoId: string): Promise<string | null
   return r === "gone" || r === "unknown" ? null : r;
 }
 
-// 同じく聞くが、答えを3つに分ける。名前／"gone"＝YouTube が見られないと答えた（429 以外の 4xx）／"unknown"＝混み合い・通信の失敗で分からない
+// 同じく聞くが、答えを3つに分ける。名前／"gone"＝YouTube が見られないと答えた（400・401・403・404）／"unknown"＝ほかの 4xx・混み合い・通信の失敗で分からない
 // 見られない印は "gone" の時だけ付ける（一時的な失敗を「見られなくなりました」と出さない）
+// 【仮】403 も gone に入れる（埋め込み禁止の動画で返ると言われるため）
+const GONE_STATUS = new Set([400, 401, 403, 404]);
 async function askVideoChannel(videoId: string): Promise<string | "gone" | "unknown"> {
   try {
     const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`);
-    if (res.status >= 400 && res.status < 500 && res.status !== 429) return "gone";
+    if (GONE_STATUS.has(res.status)) return "gone";
     if (!res.ok) return "unknown";
     const data = (await res.json()) as { author_name?: unknown };
     return typeof data.author_name === "string" && data.author_name.trim() ? data.author_name.trim().slice(0, 100) : "gone";

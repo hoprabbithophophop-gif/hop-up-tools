@@ -390,8 +390,10 @@ export const BulkEntry: React.FC<{
       next = text.slice(0, s) + (kind === "bar" ? "｜" : "→") + text.slice(e);
       caret = s + 1;
     } else {
-      const p = s < e ? pickable({ start: s, end: e }) : null;
-      if (p) {
+      if (s < e) {
+        // 囲めない選び方（行をまたぐ・【語】を含む等）の時は、選んだ文を消さないよう何もしない
+        const p = pickable({ start: s, end: e });
+        if (!p) return;
         next = text.slice(0, p.start) + `【${p.picked}】` + text.slice(p.end);
         caret = p.end + 2;
       } else {

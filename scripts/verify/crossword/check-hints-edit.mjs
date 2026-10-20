@@ -320,8 +320,8 @@ try {
   await page.waitForTimeout(100);
   const siteHref = await site.locator('[data-helper-link="site"]').getAttribute('href');
   const sq = siteHref ? decodeURIComponent(new URL(siteHref).searchParams.get('q')) : '';
-  check(siteHref?.startsWith('https://www.google.com/search?q=') && sq.startsWith('武道館 (site:helloproject.com OR ') && sq.includes('site:up-front-works.jp') && !/elineupmall|helloshop|ody-books|orical/.test(sq) && sq.split(/\s+/).length <= 32,
-    `(5) リンクの ① は公式サイトと関連サイトだけの site: 検索（ショップは入らない・32語まで。${sq.slice(0, 60)}…）`);
+  check(siteHref?.startsWith('https://www.google.com/search?q=') && sq.startsWith('武道館 (site:helloproject.com OR ') && sq.includes('site:up-front-works.jp') && !/elineupmall|helloshop|ody-books|orical/.test(sq) && sq.split(/\s+/).length <= 30,
+    `(5) リンクの ① は公式サイトと関連サイトだけの site: 検索（ショップは入らない・30語まで。${sq.slice(0, 60)}…）`);
   check((await site.locator('[data-helper-copy="site"]').getAttribute('data-copy-text')) === sq, '(5) リンクの「コピー」も検索の言葉と同じ文');
   // 「貼り付け」: コピーした URL をそのまま欄に入れて選ぶ（2026-10-20 案C・言葉は 2026-10-21 承認）
   await page.evaluate(() => navigator.clipboard.writeText('https://x.com/beyooooonds_/status/3'));
