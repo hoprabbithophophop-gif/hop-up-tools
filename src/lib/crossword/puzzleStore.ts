@@ -187,21 +187,23 @@ export async function loadPuzzle(id: string): Promise<PuzzleRecord | null> {
 }
 
 // ハロプロのジャンルでは、台帳に載っていて表示してよい動画だけを使える
-// 動画のチャンネル名を YouTube に聞く（鍵なしの oEmbed。削除・非公開・埋め込み禁止の動画は null）。画面に出すためだけに使い、保存しない
+// 動画のチャンネル名を聞く（私たちの受付係 /api/crossword-video-info が YouTube Data API に聞く。削除・非公開・埋め込み禁止・年齢制限の動画は null）。画面に出すためだけに使い、保存しない
 export async function lookupVideoChannel(videoId: string): Promise<string | null> {
   const r = await askVideoChannel(videoId);
   return r === "gone" || r === "unknown" ? null : r;
 }
 
-// 同じく聞くが、答えを3つに分ける。名前／"gone"＝YouTube が見られないと答えた（429 以外の 4xx）／"unknown"＝混み合い・通信の失敗で分からない
+// 同じく聞くが、答えを3つに分ける。名前／"gone"＝受付係が「YouTube が見られないと答えた」と返した／"unknown"＝混み合い（429）・受付係や YouTube の不調（5xx）・通信の失敗で分からない
 // 見られない印は "gone" の時だけ付ける（一時的な失敗を「見られなくなりました」と出さない）
+// YouTube の鍵は受付係だけが持つので、ブラウザから YouTube へは直接聞かない（Hop 決定 2026-10-21「正式な窓口に切り替えてから出す」）
 async function askVideoChannel(videoId: string): Promise<string | "gone" | "unknown"> {
   try {
-    const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`);
-    if (res.status >= 400 && res.status < 500 && res.status !== 429) return "gone";
+    const res = await fetch(`/api/crossword-video-info?id=${encodeURIComponent(videoId)}`);
     if (!res.ok) return "unknown";
-    const data = (await res.json()) as { author_name?: unknown };
-    return typeof data.author_name === "string" && data.author_name.trim() ? data.author_name.trim().slice(0, 100) : "gone";
+    const data = (await res.json()) as { status?: unknown; channel?: unknown };
+    if (data.status === "gone") return "gone";
+    if (data.status === "ok" && typeof data.channel === "string" && data.channel.trim()) return data.channel.trim().slice(0, 100);
+    return "unknown";
   } catch {
     return "unknown";
   }
