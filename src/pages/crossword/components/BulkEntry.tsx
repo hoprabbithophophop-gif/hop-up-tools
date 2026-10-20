@@ -20,6 +20,8 @@ export interface BulkTexts {
   insertBracketsLabel: string;
   insertBar: string;
   insertBarLabel: string;
+  insertArrow: string;
+  insertArrowLabel: string;
   reading: string;
   readingOf: (word: string) => string;
   unmark: (word: string) => string;
@@ -119,6 +121,21 @@ export const clueDraft = (text: string, marks: Mark[], target: Mark, answerLengt
   let lineStart = 0;
   for (let i = 0; i < target.line; i++) lineStart += lines[i].length + 1;
   const lineEnd = lineStart + lines[target.line].length;
+  // 行の最後の答えの前に「→」があれば、「→」と答えを消す（「ニャーと鳴く動物→【ネコ】」→「ニャーと鳴く動物」。Hop 決定 2026-10-20）
+  if (!text.slice(target.end, lineEnd).trim()) {
+    const before = text.slice(lineStart, target.start);
+    const arrow = before.search(/→\s*$/);
+    if (arrow >= 0) {
+      let head = "";
+      let at = lineStart;
+      for (const m of marks) {
+        if (m.line !== target.line || m.start >= lineStart + arrow) continue;
+        head += text.slice(at, m.start) + m.surface;
+        at = m.end;
+      }
+      return (head + text.slice(at, lineStart + arrow)).trim();
+    }
+  }
   let out = "";
   let pos = lineStart;
   for (const m of marks) {
@@ -219,6 +236,10 @@ export const BulkEntry: React.FC<{
   const [active, setActive] = useState<number | null>(null);
   // 押した囲みの語（位置で覚える）。読みが要るのに無い語などは、下の帯に「語・読みの欄・決める・外す・×」を出す
   const [selMark, setSelMark] = useState<number | null>(null);
+  // 欄の中で選んでいる範囲（ボタンを押す瞬間に選択が消える端末のため、少し待ってから消す）
+  const [areaSel, setAreaSel] = useState<{ start: number; end: number; text: string } | null>(null);
+  const areaSelTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(areaSelTimer.current), []);
   const [readingDraft, setReadingDraft] = useState("");
   const readingBoxRef = useRef<HTMLInputElement>(null);
   const lineOf = (pos: number) => text.slice(0, pos).split("\n").length - 1;
@@ -253,6 +274,18 @@ export const BulkEntry: React.FC<{
   useEffect(() => {
     let clearTimer = 0;
     const onSel = () => {
+      // 欄の中の選択（欄の選択は文書の選択に出ないので、欄の選択の位置で見る）
+      const area = areaRef.current;
+      if (area && document.activeElement === area) {
+        window.clearTimeout(areaSelTimer.current);
+        if (area.selectionStart < area.selectionEnd) {
+          setAreaSel({ start: area.selectionStart, end: area.selectionEnd, text });
+          setSelMark(null);
+        } else {
+          areaSelTimer.current = window.setTimeout(() => setAreaSel(null), 400);
+        }
+        return;
+      }
       const r = selectionRange(linesRef.current);
       window.clearTimeout(clearTimer);
       if (r) {
@@ -307,26 +340,27 @@ export const BulkEntry: React.FC<{
     setReadingDraft(selected.reading ?? "");
     requestAnimationFrame(() => readingBoxRef.current?.focus());
   }, [selMark]); // eslint-disable-line react-hooks/exhaustive-deps
-  // 今なぞっている範囲（控えは同じ文字列の時だけ使う）
-  const current = pickable(sel && sel.text === text ? sel : null);
+  // 今なぞっている範囲（控えは同じ文字列の時だけ使う）。欄で文字を選んでいる時もその範囲で帯を出す（Hop 決定 2026-10-20 案C）
+  const current = pickable(sel && sel.text === text ? sel : null) ?? pickable(areaSel && areaSel.text === text ? areaSel : null);
 
   const markHere = () => {
     const live = pickable(selectionRange(linesRef.current)) ?? current;
     if (!live) return;
+    setAreaSel(null);
     write(text.slice(0, live.start) + `【${live.picked}】` + text.slice(live.end));
     window.getSelection()?.removeAllRanges();
   };
 
   // 入力欄に印を入れる。欄で文字を選んでいれば【 】で囲み、選んでいなければ【】を入れてその間にカーソルを置く。｜はカーソルの位置に入れる
-  const insert = (kind: "brackets" | "bar") => {
+  const insert = (kind: "brackets" | "bar" | "arrow") => {
     const area = areaRef.current;
     if (!area) return;
     const s = area.selectionStart ?? text.length;
     const e = area.selectionEnd ?? s;
     let next: string;
     let caret: number;
-    if (kind === "bar") {
-      next = text.slice(0, s) + "｜" + text.slice(e);
+    if (kind === "bar" || kind === "arrow") {
+      next = text.slice(0, s) + (kind === "bar" ? "｜" : "→") + text.slice(e);
       caret = s + 1;
     } else {
       const p = s < e ? pickable({ start: s, end: e }) : null;
@@ -448,10 +482,14 @@ export const BulkEntry: React.FC<{
             onChange={(e) => {
               setSel(null);
               setSelMark(null);
+              setAreaSel(null);
               onText(e.target.value);
             }}
             // 半角の | は欄を離れた時に全角へそろえる（打っている途中に書き換えると変換中の字が崩れるため）
             onBlur={() => {
+              // 欄を離れたら選択の帯も少し待って消す（帯のボタンを押す瞬間に欄を離れる端末のため待つ）
+              window.clearTimeout(areaSelTimer.current);
+              areaSelTimer.current = window.setTimeout(() => setAreaSel(null), 400);
               const next = fullWidthBars(text);
               if (next !== text) onText(next);
             }}
@@ -481,6 +519,17 @@ export const BulkEntry: React.FC<{
               style={{ color: C.ink }}
             >
               {t.insertBar}
+            </button>
+            <button
+              type="button"
+              data-bulk-insert="arrow"
+              {...keepFocus}
+              onClick={() => insert("arrow")}
+              aria-label={t.insertArrowLabel}
+              className="min-w-11 px-3 min-h-11 font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors"
+              style={{ color: C.ink }}
+            >
+              {t.insertArrow}
             </button>
             <span className="flex-1" />
             {lines.length > 0 && (
