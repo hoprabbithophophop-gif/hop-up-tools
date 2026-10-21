@@ -144,3 +144,15 @@ export function officialBlogSearchQuery(group: OfficialBlogGroup, keyword: strin
 export function officialBlogSearchUrl(group: OfficialBlogGroup, keyword: string, period: SearchPeriod | null = null): string {
   return `https://www.google.com/search?q=${encodeURIComponent(officialBlogSearchQuery(group, keyword, period))}`;
 }
+
+// ブログ1つの、その月の記事一覧の住所（https://ameblo.jp/<ID>/archive1-<年4桁><月2桁>.html。Hop 決定 2026-10-22）。
+// Google の site: 検索に after:/before: を足すと古い記事が見つからないことが多いため、月ごとの一覧を直接開けるようにする。
+// 住所の形は返事 200 と robots.txt で禁止されていないことだけを確かめた（中身は公式の本文なので読まない）。
+// 知らないブログ・そのブログに記事がある期間（BLOG_PERIODS）の外の月は null
+export function blogMonthArchiveUrl(id: string, year: number, month: number): string | null {
+  const p = BLOG_PERIODS[id];
+  if (!p || !Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return null;
+  const ym = `${year}-${String(month).padStart(2, "0")}`;
+  if (ym < p.from || (p.to !== null && ym > p.to)) return null;
+  return `https://ameblo.jp/${encodeURIComponent(id)}/archive1-${year}${String(month).padStart(2, "0")}.html`;
+}

@@ -13,7 +13,7 @@ import {
   type CatalogVideo,
 } from "../../../lib/crossword/puzzleStore";
 import { formatTime, parseTimeInput, parseYouTubeUrl, linkProblem, isYouTubeHost } from "../../../lib/crossword/youtubeUrl";
-import { OFFICIAL_BLOGS, blogChoiceTarget, blogOptions, officialBlogSearchQuery, officialBlogSearchUrl } from "../../../data/officialBlogs";
+import { OFFICIAL_BLOGS, blogChoiceTarget, blogMonthArchiveUrl, blogOptions, officialBlogSearchQuery, officialBlogSearchUrl } from "../../../data/officialBlogs";
 import { OFFICIAL_ACCOUNT_GROUPS, officialXSearchQuery, officialXSearchUrl, officialIgSearchQuery, officialIgSearchUrl, igAccountUrl } from "../../../data/officialAccounts";
 import { officialSiteSearchQuery, officialSiteSearchUrl } from "../../../data/officialSites";
 import { periodYears, type SearchPeriod } from "../../../lib/crossword/searchPeriod";
@@ -43,6 +43,7 @@ const STEP_TEXT = {
     link: "開いたページの URL をコピーして、ここに貼ります。",
   },
   siteSearch: "公式サイトを探す",
+  blogArchive: "その月の記事一覧を開く", // 【仮】アメブロでブログを1つ選び、年と月を選んだ時だけ（Hop 決定 2026-10-22）
   pasteButton: "貼り付け", // 欄の横のボタン（Hop 決定 2026-10-20 案C・言葉は 2026-10-21 承認）
 } as const;
 type StepSource = keyof typeof STEP_TEXT.find;
@@ -336,6 +337,9 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   const selectClassName = "w-full min-w-0 h-11 bg-white px-2 text-base focus:outline-none focus:shadow-[inset_0_-2px_0_#000]";
   const blogSearchHref = blogKeyword.trim() ? officialBlogSearchUrl(blogGroup, blogKeyword, period) : null;
   const blogSearchText = blogKeyword.trim() ? officialBlogSearchQuery(blogGroup, blogKeyword, period) : null;
+  // その月の記事一覧（ブログを1つだけ選び「b:」、年と月の両方を選んだ時だけ。そのブログの期間の外の月は出さない。Hop 決定 2026-10-22）。
+  // 探す言葉は使わないので、言葉が空でも出す
+  const blogArchiveHref = blogChoiceNow.startsWith("b:") && period?.month ? blogMonthArchiveUrl(blogChoiceNow.slice(2), period.year, period.month) : null;
   const xGroup = OFFICIAL_ACCOUNT_GROUPS.find((g) => g.key === xGroupKey) ?? OFFICIAL_ACCOUNT_GROUPS[0];
   const xSearchHref = xKeyword.trim() ? officialXSearchUrl(xGroup, xKeyword, period) : null;
   const xSearchText = xKeyword.trim() ? officialXSearchQuery(xGroup, xKeyword, period) : null;
@@ -499,6 +503,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
                 {helperLink(blogSearchHref, "公式ブログを探す", "blog")}
                 {copyButton(blogSearchText, "blog")}
               </div>
+              {blogArchiveHref && <div className="flex">{helperLink(blogArchiveHref, STEP_TEXT.blogArchive, "blog-archive")}</div>}
               {copiedNote}
             </div>
           )}

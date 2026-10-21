@@ -209,6 +209,42 @@ try {
   await page.waitForTimeout(100);
   const q1 = decodeURIComponent(new URL(await link.getAttribute('href')).searchParams.get('q'));
   check(q1 === '武道館 (site:ameblo.jp/beyooooonds-rfro)', `(5) 1つだけ（雨ノ森 川海）を選ぶとそのブログだけの site: 検索（${q1}）`);
+  // その月の記事一覧を開く（Hop 決定 2026-10-22）: ブログを1つ（b:）選び、年と月の両方を選んだ時だけ。期間の外の月・グループ全部・月なしでは出さない。
+  // 住所の形を見るだけで、開かない（アメブロの中身は読まない）
+  const archive = blog.locator('[data-helper-link="blog-archive"]');
+  const perSel = blog.locator('[data-helper-period] select');
+  check((await archive.count()) === 0, '(5) 年と月を選ぶ前は「その月の記事一覧を開く」が出ない');
+  await perSel.nth(0).selectOption('2020');
+  await page.waitForTimeout(100);
+  check((await archive.count()) === 0, '(5) 年だけ（月を選ばない）では出ない');
+  await perSel.nth(1).selectOption('10');
+  await page.waitForTimeout(100);
+  check((await archive.count()) === 1 && (await archive.textContent()) === 'その月の記事一覧を開く' && (await archive.getAttribute('href')) === 'https://ameblo.jp/beyooooonds-rfro/archive1-202010.html' && (await archive.getAttribute('target')) === '_blank',
+    `(5) 雨ノ森 川海・2020年10月で「その月の記事一覧を開く」が出て、住所は月ごとの一覧（${await archive.getAttribute('href').catch(() => null)}）`);
+  check((await link.getAttribute('href'))?.startsWith('https://www.google.com/search?q=') === true, '(5) Google で探すボタンはそのまま残る');
+  await sheet.screenshot({ path: path.join(OUT, '2-blog-archive-390.png') });
+  await blog.locator('input').fill('');
+  await page.waitForTimeout(100);
+  check((await archive.count()) === 1, '(5) 探す言葉が空でも「その月の記事一覧を開く」は出る（言葉を使わないため）');
+  await blog.locator('input').fill('武道館');
+  await perSel.nth(1).selectOption('3');
+  await page.waitForTimeout(100);
+  check((await archive.getAttribute('href').catch(() => null)) === 'https://ameblo.jp/beyooooonds-rfro/archive1-202003.html', `(5) 月を選び直すと住所の月も変わる・1桁の月は0を付ける（${await archive.getAttribute('href').catch(() => null)}）`);
+  await blogSel.selectOption('g:beyooooonds');
+  await page.waitForTimeout(100);
+  check((await archive.count()) === 0, '(5) グループの全部を選んだ時は出ない');
+  // そのブログの期間の外（雨ノ森 川海は 2018年10月から）: 2018年9月では選択肢から外れて選び直され、出ない
+  await blogSel.selectOption('b:beyooooonds-rfro');
+  await perSel.nth(0).selectOption('2018');
+  await perSel.nth(1).selectOption('9');
+  await page.waitForTimeout(150);
+  check((await archive.count()) === 0 && (await blogSel.inputValue()) !== 'b:beyooooonds-rfro', `(5) ブログの期間の外の月（2018年9月）では出ない（選択 ${await blogSel.inputValue()}）`);
+  await perSel.nth(1).selectOption('10');
+  await blogSel.selectOption('b:beyooooonds-rfro');
+  await page.waitForTimeout(100);
+  check((await archive.getAttribute('href').catch(() => null)) === 'https://ameblo.jp/beyooooonds-rfro/archive1-201810.html', '(5) 期間の最初の月（2018年10月）では出る');
+  await perSel.nth(0).selectOption('');
+  await page.waitForTimeout(100);
   await blogSel.selectOption('g:beyooooonds');
   // いつごろ（年・月）→ after:/before:。月は翌月の1日で閉じる。「コピー」は同じ言葉を持つ
   const per = blog.locator('[data-helper-period]');
