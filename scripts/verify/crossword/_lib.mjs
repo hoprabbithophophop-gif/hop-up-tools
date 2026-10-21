@@ -280,3 +280,20 @@ export async function watchStumbles(page, sink, label = '') {
     if (REACT_STUMBLE.some((re) => re.test(t))) sink.push(`${tag}${t.replace(/\s+/g, ' ').slice(0, 300)}`);
   });
 }
+
+// 手元の開発サーバー（vite）を台本ごとに別のまとめ置き場で立てるための設定ファイル（2026-10-22）。
+// vite は画面が初めて読み込んだ部品をその場でまとめ直し、まとめ直すとページを読み込み直す。まとめ置き場（node_modules/.vite）は
+// 作業場所どうしで共有なので、別の台本の vite がまとめ直すと巻き添えで読み込み直され、確かめの途中で書いた中身が消えて落ちる。
+// 本物の vite.config.ts をそのまま読み込み、まとめ置き場（cacheDir）だけを一時置き場の口ごとの場所に替える。
+// 書き換えの見張り（HMR）も止める（台本を並べて流すと PC が重くなり、見張りのつなぎが切れたと見なしてページを読み込み直すため）。使い方:
+//   spawn(node, [vite.js, '--config', isolatedViteConfig(PORT), '--port', String(PORT), '--strictPort'], { cwd: ROOT, ... })
+export function isolatedViteConfig(port) {
+  const dir = path.join(TMP_ROOT, '_vite');
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `vite.config.${port}.mjs`);
+  const slash = (p) => p.split(path.sep).join('/');
+  const base = slash(path.join(ROOT, 'vite.config.ts'));
+  const cache = slash(path.join(dir, `cache-${port}`));
+  writeFileSync(file, `import base from ${JSON.stringify(base)};\nexport default { ...base, root: ${JSON.stringify(slash(ROOT))}, cacheDir: ${JSON.stringify(cache)}, server: { ...(base.server || {}), hmr: false } };\n`);
+  return file;
+}

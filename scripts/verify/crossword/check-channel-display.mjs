@@ -14,7 +14,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { chromium } from 'playwright';
-import { outDir, ROOT, watchStumbles } from './_lib.mjs';
+import { outDir, ROOT, watchStumbles, isolatedViteConfig } from './_lib.mjs';
 
 const PORT = 5196;
 const BASE = `http://localhost:${PORT}`;
@@ -34,7 +34,7 @@ function stopServer() {
   else server.kill('SIGTERM');
 }
 async function startServer() {
-  server = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), '--port', String(PORT), '--strictPort'], {
+  server = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), '--config', isolatedViteConfig(PORT), '--port', String(PORT), '--strictPort'], {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, VITE_SUPABASE_URL: MOCK_SUPA, VITE_SUPABASE_ANON_KEY: 'mock-anon-key' },
