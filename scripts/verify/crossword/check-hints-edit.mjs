@@ -233,6 +233,10 @@ try {
   await blogSel.selectOption('g:beyooooonds');
   await page.waitForTimeout(100);
   check((await archive.count()) === 0, '(5) グループの全部を選んだ時は出ない');
+  // ブログが1本だけのグループ（Juice=Juice）は、グループを選んだだけでブログが1つに決まるので出す（Hop 決定 2026-10-22「出す」）
+  await blogSel.selectOption('g:juicejuice');
+  await page.waitForTimeout(100);
+  check((await archive.getAttribute('href').catch(() => null)) === 'https://ameblo.jp/juicejuice-official/archive1-202003.html', `(5) ブログが1本だけのグループ（Juice=Juice）でも出る（${await archive.getAttribute('href').catch(() => null)}）`);
   // そのブログの期間の外（雨ノ森 川海は 2018年10月から）: 2018年9月では選択肢から外れて選び直され、出ない
   await blogSel.selectOption('b:beyooooonds-rfro');
   await perSel.nth(0).selectOption('2018');

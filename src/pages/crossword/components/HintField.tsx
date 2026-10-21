@@ -43,7 +43,7 @@ const STEP_TEXT = {
     link: "開いたページの URL をコピーして、ここに貼ります。",
   },
   siteSearch: "公式サイトを探す",
-  blogArchive: "その月の記事一覧を開く", // 【仮】アメブロでブログを1つ選び、年と月を選んだ時だけ（Hop 決定 2026-10-22）
+  blogArchive: "その月の記事一覧を開く", // 【仮】アメブロでブログが1つに決まり、年と月を選んだ時だけ（Hop 決定 2026-10-22）
   pasteButton: "貼り付け", // 欄の横のボタン（Hop 決定 2026-10-20 案C・言葉は 2026-10-21 承認）
 } as const;
 type StepSource = keyof typeof STEP_TEXT.find;
@@ -337,9 +337,16 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   const selectClassName = "w-full min-w-0 h-11 bg-white px-2 text-base focus:outline-none focus:shadow-[inset_0_-2px_0_#000]";
   const blogSearchHref = blogKeyword.trim() ? officialBlogSearchUrl(blogGroup, blogKeyword, period) : null;
   const blogSearchText = blogKeyword.trim() ? officialBlogSearchQuery(blogGroup, blogKeyword, period) : null;
-  // その月の記事一覧（ブログを1つだけ選び「b:」、年と月の両方を選んだ時だけ。そのブログの期間の外の月は出さない。Hop 決定 2026-10-22）。
+  // その月の記事一覧（ブログが1つに決まり、年と月の両方を選んだ時だけ。そのブログの期間の外の月は出さない。Hop 決定 2026-10-22）。
+  // ブログが1つに決まる＝ブログを1つ選んだ「b:」か、ブログが1本だけのグループ（Juice=Juice など）を選んだ「g:」（Hop 決定 2026-10-22「出す」）。
   // 探す言葉は使わないので、言葉が空でも出す
-  const blogArchiveHref = blogChoiceNow.startsWith("b:") && period?.month ? blogMonthArchiveUrl(blogChoiceNow.slice(2), period.year, period.month) : null;
+  const singleBlogId = blogChoiceNow.startsWith("b:")
+    ? blogChoiceNow.slice(2)
+    : (() => {
+        const ids = OFFICIAL_BLOGS.find((g) => `g:${g.key}` === blogChoiceNow)?.ids ?? [];
+        return ids.length === 1 ? ids[0] : null;
+      })();
+  const blogArchiveHref = singleBlogId && period?.month ? blogMonthArchiveUrl(singleBlogId, period.year, period.month) : null;
   const xGroup = OFFICIAL_ACCOUNT_GROUPS.find((g) => g.key === xGroupKey) ?? OFFICIAL_ACCOUNT_GROUPS[0];
   const xSearchHref = xKeyword.trim() ? officialXSearchUrl(xGroup, xKeyword, period) : null;
   const xSearchText = xKeyword.trim() ? officialXSearchQuery(xGroup, xKeyword, period) : null;
