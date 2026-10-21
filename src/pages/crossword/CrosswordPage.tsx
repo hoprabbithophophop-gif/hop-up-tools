@@ -1640,7 +1640,7 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
 
           {!isTrial && (
           <div className="flex justify-center items-center gap-4 mb-8">
-            <p className="text-center text-sm" style={{ color: C.secondary }}>クロスワードパズル</p>
+            <p className="text-center text-sm" style={{ color: C.secondary }}>クロスワード</p>
             <button
               onClick={() => (isTutorial ? !isCleared && setTutStep(0) : setShowHelp(true))}
               className="transition-colors hover:text-black"
