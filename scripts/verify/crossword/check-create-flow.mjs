@@ -264,7 +264,7 @@ try {
       check((await page.locator('[data-bulk-text]').inputValue()) === SAMPLE, `${T} (1) 記録が空のブラウザでは見本の4行が入っている`);
       check(JSON.stringify(await wordKeys(page)) === JSON.stringify(SAMPLE_WORDS), `${T} (1) 語の一覧は見本の答え4つ（${(await wordKeys(page)).join('・')}）`);
       const stats0 = await waitBoard(page);
-      check(/^4語・\d+マス・交差\d+$/.test(stats0), `${T} (1) 見本の4語で盤が組める（${stats0}）`);
+      check(/^答え4つ・\d+マス・交差\d+$/.test(stats0), `${T} (1) 見本の4語で盤が組める（${stats0}）`);
       check(await currentMode(page) === 'make', `${T} (1) 「作る」から始まる`);
       for (const [k, want] of Object.entries(SAMPLE_DRAFTS)) {
         await openWordSheet(page, k);
@@ -351,7 +351,7 @@ try {
       await waitBoard(page);
       await openShare(page);
       const blocks = await page.locator('[data-share-blocks]').textContent();
-      check(blocks.startsWith('ヒントがあと4語') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 見本のままだと押せない理由の先頭が「${blocks}」で、共有するが押せない`);
+      check(blocks.startsWith('ヒントがあと4つ') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 見本のままだと押せない理由の先頭が「${blocks}」で、共有するが押せない`);
       const foot = await page.locator('[data-save]').boundingBox();
       check(foot && foot.y + foot.height <= size[1] + 0.5, `${T} (3) 共有の窓の「共有する」と押せない理由が窓の下に見えている（下端 ${foot && Math.round(foot.y + foot.height)}）`);
       await page.screenshot({ path: path.join(OUT, `${T}-3-missing.png`) });
@@ -360,7 +360,7 @@ try {
       const keys = d.board.map((i) => i.id);
       await fillWords(page, keys.slice(0, -1));
       await openShare(page);
-      check((await page.locator('[data-share-blocks]').textContent()).startsWith('ヒントがあと1語') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 1語残すと「ヒントがあと1語」で押せない`);
+      check((await page.locator('[data-share-blocks]').textContent()).startsWith('ヒントがあと1つ') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 1語残すと「ヒントがあと1つ」で押せない`);
       await closeShare(page);
       await fillWords(page, keys.slice(-1));
       await openShare(page);
@@ -371,7 +371,7 @@ try {
       await closeWordSheet(page);
       check(JSON.stringify(await missingOf(page, keys[0])) === '["clue"]', `${T} (3) カギを空にすると語の行に「カギがまだ」`);
       await openShare(page);
-      check((await page.locator('[data-share-blocks]').textContent()).startsWith('カギがあと1語') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 共有の窓は「カギがあと1語」で押せない`);
+      check((await page.locator('[data-share-blocks]').textContent()).startsWith('カギがあと1つ') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 共有の窓は「カギがあと1つ」で押せない`);
       await closeShare(page);
       for (const [text, label] of [['【ネコ】', '語が1つ'], ['', '語が0']]) {
         await writeLines(page, text);
@@ -379,7 +379,7 @@ try {
         const status = await page.locator('[data-mini-status]').textContent().catch(() => '');
         await openShare(page);
         const b = await page.locator('[data-share-blocks]').textContent();
-        check(b.includes('保存するには、語を2つ以上追加してください。') && (await page.locator('[data-save]').isDisabled()) && (await page.locator('[data-dock-share][data-strong]').count()) === 0,
+        check(b.includes('保存するには、答えを2つ以上追加してください。') && (await page.locator('[data-save]').isDisabled()) && (await page.locator('[data-dock-share][data-strong]').count()) === 0,
           `${T} (3) ${label}の時は盤が無く共有できない（小さい盤「${status}」・理由「${b}」）`);
         await closeShare(page);
       }
@@ -457,7 +457,7 @@ try {
       await page.waitForTimeout(800);
       check((await page.locator('h1').first().textContent()) === 'クロスワードパズルの組み直し' && (await currentMode(page)) === 'make', `${T} (5) 組み直しの画面になり「作る」から始まる`);
       check((await page.locator('[data-bulk-text]').inputValue()) === '【ネコ】\n【コアラ】', `${T} (5) 語は【語】の行として戻る`);
-      check((await page.locator('[data-mini-stats]').textContent()) === '2語・4マス・交差1', `${T} (5) 保存した時の盤が出る（${await page.locator('[data-mini-stats]').textContent()}）`);
+      check((await page.locator('[data-mini-stats]').textContent()) === '答え2つ・4マス・交差1', `${T} (5) 保存した時の盤が出る（${await page.locator('[data-mini-stats]').textContent()}）`);
       await openWordSheet(page, 'コアラ');
       check((await page.locator('#cw-clue').inputValue()) === 'ユーカリの葉を食べる動物', `${T} (5) カギが戻る`);
       await setClue(page, 'ユーカリを食べる動物（直した）');
@@ -468,8 +468,8 @@ try {
       check((await btn.textContent()) === '更新する', `${T} (5) 保存のボタンは「${await btn.textContent()}」`);
       const upBefore = sent.updates.length;
       await btn.click();
-      await page.getByText('この問題を更新しました。URL は変わりません。').waitFor({ timeout: 20000 }).catch(() => {});
-      check((await bodyText(page)).includes('この問題を更新しました。URL は変わりません。'), `${T} (5) 「この問題を更新しました。URL は変わりません。」`);
+      await page.getByText('このクロスワードを更新しました。URL は変わりません。').waitFor({ timeout: 20000 }).catch(() => {});
+      check((await bodyText(page)).includes('このクロスワードを更新しました。URL は変わりません。'), `${T} (5) 「このクロスワードを更新しました。URL は変わりません。」`);
       check((await page.locator('#cw-share-url').inputValue()).endsWith(`/crossword/${EDIT_ID}`), `${T} (5) 同じ URL のまま`);
       const up = sent.updates[upBefore];
       const clues = up?.puzzle?.body?.clues ?? [];

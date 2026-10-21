@@ -386,7 +386,7 @@ async function run() {
     await writeLines(page, 'ニャーと鳴く動物→【ネコ】');
     const tip1 = await page.locator('[data-tip="cross"]').waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
     check(tip1, '(c) 見本を消して答えを1つにすると札 cross が出る');
-    check((await page.locator('[data-tip="cross"]').innerText().catch(() => '')).includes('もう1語足すと、同じ字で交差して組まれます'), '(c) 札 cross の文「もう1語足すと、同じ字で交差して組まれます」');
+    check((await page.locator('[data-tip="cross"]').innerText().catch(() => '')).includes('答えをもう1つ足すと、同じ字で交差して組まれます'), '(c) 札 cross の文「答えをもう1つ足すと、同じ字で交差して組まれます」');
     check((await page.locator('[data-tip]').count()) === 1 && (await page.locator('[data-coach-layer]').count()) === 0, '(c) 札は1つだけ・幕は無い');
     const below1 = await page.evaluate(() => {
       const a = document.querySelector('[data-bulk-text]')?.getBoundingClientRect();
@@ -405,7 +405,7 @@ async function run() {
     await openBoard(page);
     const tip2 = await page.locator('[data-board-sheet] [data-tip="move"]').waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
     check(tip2, '(c) 広げた盤に盤が出ると札 move が出る');
-    check((await page.locator('[data-tip="move"]').innerText().catch(() => '')).includes('盤の語は長押しで動かせます'), '(c) 札 move の文「盤の語は長押しで動かせます」');
+    check((await page.locator('[data-tip="move"]').innerText().catch(() => '')).includes('マス目の答えは長押しで動かせます'), '(c) 札 move の文「マス目の答えは長押しで動かせます」');
     const below2 = await page.evaluate(() => {
       const b = document.querySelector('[data-create-board]')?.getBoundingClientRect();
       const t = document.querySelector('[data-tip="move"]')?.getBoundingClientRect();
@@ -421,7 +421,7 @@ async function run() {
     // 札 saved: 「公開の準備」で共有の窓（カギとヒントが無くても窓は開く。保存は押さない）
     await openShare(page);
     const tip3 = page.locator('[data-share-sheet] [data-tip="saved"]');
-    check((await tip3.innerText().catch(() => '')).includes('作りかけはこの端末に自動で残ります。作った問題は「自分が作った問題」にあり、遊ばれる前なら組み直せます'), '(c) 共有の窓の中に札 saved が出る');
+    check((await tip3.innerText().catch(() => '')).includes('作りかけはこの端末に自動で残ります。作ったクロスワードは「自分が作った問題」にあり、遊ばれる前なら組み直せます'), '(c) 共有の窓の中に札 saved が出る');
     const above = await page.evaluate(() => {
       const t = document.querySelector('[data-share-sheet] [data-tip="saved"]')?.getBoundingClientRect();
       const title = document.querySelector('#cw-title')?.getBoundingClientRect();

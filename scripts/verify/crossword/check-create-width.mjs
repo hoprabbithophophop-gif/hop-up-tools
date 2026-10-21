@@ -220,7 +220,7 @@ try {
       check(inY(m5, '[data-share-sheet]'), `${tag}・共有の窓: 画面の上下からはみ出さない（${box(m5, '[data-share-sheet]')}・見える高さ${m5.ih}）`);
       check(inY(m5, '[data-save]') && inY(m5, '[data-share-blocks]'), `${tag}・共有の窓: 開いたままで「共有する」と押せない理由が画面の中に見える（${box(m5, '[data-share-blocks]')}・${box(m5, '[data-save]')}）`);
       const blocks = (await page.locator('[data-share-blocks]').textContent())?.trim() ?? '';
-      check(blocks.includes('ヒントがあと4語') && (await page.locator('[data-save]').isDisabled()), `${tag}・共有の窓: 押せない理由「${blocks}」が出て「共有する」は押せない`);
+      check(blocks.includes('ヒントがあと4つ') && (await page.locator('[data-save]').isDisabled()), `${tag}・共有の窓: 押せない理由「${blocks}」が出て「共有する」は押せない`);
       check(m5.sw <= m5.cw, `${tag}・共有の窓: ページが横にスクロールしない（scrollWidth ${m5.sw}）`);
       await shot('5-share');
     } catch (e) {

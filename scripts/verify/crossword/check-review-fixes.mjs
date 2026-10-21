@@ -571,12 +571,12 @@ try {
     const pins = await page.locator('[data-board-sheet] [data-pin]').count();
     check(pins === 2, `(8) 下書きの盤は固定の印つきで広げた盤に戻る（固定の印 ${pins}）`);
     const msg = page.locator('[data-board-sheet] [data-not-connected]');
-    check((await msg.count()) === 1 && (await msg.textContent()).includes('固定した語がつながっていません'), '(8) 固定した語がつながらない盤では、広げた盤に「固定した語がつながっていません。…」が出る');
+    check((await msg.count()) === 1 && (await msg.textContent()).includes('固定した答えがつながっていません'), '(8) 固定した語がつながらない盤では、広げた盤に「固定した答えがつながっていません。…」が出る');
     await page.screenshot({ path: path.join(OUT, '8-not-connected-390.png') });
     await closeBoard(page);
     await openShare(page);
     const blocks = (await page.locator('[data-share-blocks]').textContent()) ?? '';
-    check(blocks.includes('固定した語がつながっていません') && (await page.locator('[data-save]').isDisabled()), `(8) 共有の窓に押せない理由が出て「共有する」は押せない（${blocks.trim()}）`);
+    check(blocks.includes('固定した答えがつながっていません') && (await page.locator('[data-save]').isDisabled()), `(8) 共有の窓に押せない理由が出て「共有する」は押せない（${blocks.trim()}）`);
     await page.screenshot({ path: path.join(OUT, '8-not-connected-share-390.png') });
     await closeShare(page);
     await openBoard(page);

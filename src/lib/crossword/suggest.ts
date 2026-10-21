@@ -231,8 +231,8 @@ export const formatGuide = (g: Pick<ShapeGuide, 'kind' | 'positions' | 'alts' | 
   const parts = g.positions.map((p, i) => `${p + 1}文字目が${g.alts[i].join('／')}`);
   if (g.kind === 'single') return [`${g.minLength}文字`, ...parts].join('・');
   const len = g.minLength === g.maxLength
-    ? `${g.minLength}文字の語`
-    : `${g.minLength}文字以上の語（${g.maxLength}文字まで）`;
+    ? `${g.minLength}文字の答え`
+    : `${g.minLength}文字以上の答え（${g.maxLength}文字まで）`;
   return `${parts.join('・')}の${len}`;
 };
 
@@ -271,7 +271,7 @@ export interface BoardGuide {
   placeableNow: string[]; // 新しい語が無くても今の盤にそのまま置ける、置けなかった語（組み立てが見落とした物）
 }
 
-export const NO_ENTER_TEXT = '今の盤に交差できる字が無く、入る型がありません';
+export const NO_ENTER_TEXT = '今のマス目に交差できる字が無く、入る型がありません';
 
 const other = (d: 'horizontal' | 'vertical') => (d === 'horizontal' ? 'vertical' : 'horizontal');
 
@@ -437,8 +437,8 @@ export const formatEnterGuide = (g: Pick<EnterGuide, 'positions' | 'alts' | 'min
     }),
   ].sort((a, b) => a.at - b.at);
   const len = g.minLength === g.maxLength
-    ? `${g.minLength}文字の語`
-    : `${g.minLength}文字以上の語（${g.maxLength}文字まで）`;
+    ? `${g.minLength}文字の答え`
+    : `${g.minLength}文字以上の答え（${g.maxLength}文字まで）`;
   return `${parts.map((p) => p.text).join('・')}の${len}`;
 };
 

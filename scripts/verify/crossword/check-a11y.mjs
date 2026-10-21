@@ -255,7 +255,7 @@ async function run() {
     await axeScan(page, '作る画面（見本の4行）');
     const focusOn = (sel) => page.evaluate((x) => !!document.activeElement?.matches(x), sel);
     const dialogs = [
-      { label: '広げた盤', opener: '[data-mini-open]', sheet: '[data-board-sheet]', name: '盤' },
+      { label: '広げた盤', opener: '[data-mini-open]', sheet: '[data-board-sheet]', name: 'マス目をいじる' },
       { label: '語の窓', opener: '[data-word-row="ネコ"]', sheet: '[data-word-sheet="ネコ"]', name: '「ネコ」のカギとヒント' },
       { label: '共有の窓', opener: '[data-dock-share]', sheet: '[data-share-sheet]', name: '共有する' },
     ];
