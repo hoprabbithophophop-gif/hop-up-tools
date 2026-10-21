@@ -5,7 +5,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { PuzzleData, PlacedItem } from "../../../lib/crossword/types";
 import { canMoveTo } from "../../../lib/crossword/engine";
-import { PuzzleGridRetro } from "./PuzzleGridRetro";
+import { PuzzleGridRetro, type GridFx } from "./PuzzleGridRetro";
 import { C } from "../style";
 
 // 持ち上げた語の影の濃さ。置ける所では今の濃さ、置けない所の上にいる間は薄くする（2026-10-06 任天堂シミュで決定）
@@ -25,6 +25,8 @@ interface Props {
   enabled: boolean;
   /** 語を (startX, startY) に置く。置けたら true。置けなければ false で、語は元に戻る */
   onDrop: (uuid: string, startX: number, startY: number) => boolean;
+  /** 盤の動き（組み立てが終わって盤が決まった瞬間だけ渡す） */
+  fx?: GridFx | null;
 }
 
 interface Press {
@@ -51,7 +53,7 @@ const cellsOf = (it: PlacedItem) =>
     ch: it.answer[i],
   }));
 
-export const MovableBoard: React.FC<Props> = ({ data, enabled, onDrop }) => {
+export const MovableBoard: React.FC<Props> = ({ data, enabled, onDrop, fx = null }) => {
   const layerRef = useRef<HTMLDivElement>(null);
   const pressRef = useRef<Press | null>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -175,7 +177,7 @@ export const MovableBoard: React.FC<Props> = ({ data, enabled, onDrop }) => {
           { left: W2 - M, top: M, width: M, height: h },
         ].map((r, i) => <div key={`margin-${i}`} data-move-margin="" className="absolute pointer-events-none" style={{ ...r, background: C.high }} />)}
       <div className="absolute" style={{ left: M, top: M, width: w, height: h }}>
-        <PuzzleGridRetro data={data} showSolution={true} />
+        <PuzzleGridRetro data={data} showSolution={true} fx={fx} />
 
         {/* 固定の印（語の先頭のマスの右上。左上は番号）【仮】 */}
         {pins.map((it) => (

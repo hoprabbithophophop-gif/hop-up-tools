@@ -5,7 +5,7 @@
 //   4 共有: 下から出る窓で題名などを入れ、人間確認（Turnstile）を通って保存
 // 中身の部品は本番の物をそのまま使う（BulkEntry・bulkSelect・MovableBoard・engine・suggest・HintField・SaveCheckModal）。
 // 盤の組み立て・動かす・保存の処理は、もとの CrosswordPage.tsx の作る画面から写した（動きは同じ）。
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { buildGrid, createPuzzleSearch, generateMonteCarloSteps, isBetterPlacement, isConnected, moveItem, validatePlacement } from "../../../lib/crossword/engine";
@@ -34,7 +34,9 @@ import { HintField } from "../components/HintField";
 import { HINT_SOURCES, sourceOfUrl } from "../components/HintSourceBar";
 import { FitGrid } from "../components/FitGrid";
 import { MovableBoard, MOVE_MARGIN } from "../components/MovableBoard";
-import { PuzzleGridRetro } from "../components/PuzzleGridRetro";
+import { PuzzleGridRetro, type GridFx } from "../components/PuzzleGridRetro";
+import { Motion } from "../components/Motion";
+import { animateElement } from "../../../lib/crossword/motion";
 import { useDialog } from "../components/useDialog";
 import { Toaster, toast } from "../components/Toast";
 import { SaveCheckModal } from "../components/SaveCheckModal";
@@ -269,7 +271,27 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   );
 
   // --- 段の行き来 ---
+  // 組み立てが終わって盤が決まった瞬間の動き（決まった盤の字が左上から順に置かれる。Hop が見本で選んだ案 C・2026-10-21）。
+  // 案を選び直した時・語を動かした時・段を行き来した時は動かさない
+  const [placeFx, setPlaceFx] = useState<GridFx | null>(null);
+  const placeFxId = useRef(0);
+  const emitPlace = () => setPlaceFx({ id: ++placeFxId.current, place: true });
+
+  // 3 カギ: 全部のカギとヒントがそろった時、文がふわっと替わる（Hop が見本で選んだ案 B・2026-10-21）。そろった状態で開いた時は動かさない
+  const missingTotal = missingHints + missingClues;
+  const missingTextRef = useRef<HTMLParagraphElement>(null);
+  const prevMissing = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const onClues = step === 3 || step === 4;
+    const prev = prevMissing.current;
+    prevMissing.current = onClues ? missingTotal : null;
+    if (!onClues || prev === null || prev === 0 || missingTotal !== 0) return;
+    const el = missingTextRef.current;
+    if (el) animateElement(el, { opacity: 0, y: 4 }, { opacity: 1, y: 0 });
+  }, [missingTotal, step]);
+
   const goStep = (s: Step) => {
+    setPlaceFx(null);
     setStep(s);
     if (s !== 4) {
       window.scrollTo(0, 0);
@@ -345,7 +367,10 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       if (generationIdRef.current !== currentGenId) return;
       const found = search.best();
       if (found.length > 0 && isBetterPlacement(found, search.bestArea(), bestPuzzle ? bestPuzzle.items : null, bestArea)) bestPuzzle = buildGrid(found);
-      if (bestPuzzle) setGeneratedPuzzle(bestPuzzle);
+      if (bestPuzzle) {
+        setGeneratedPuzzle(bestPuzzle);
+        emitPlace();
+      }
     } catch (error) {
       console.error("[MonteCarloAnim] Error:", error);
     } finally {
@@ -363,6 +388,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     ++generationIdRef.current;
     setIsLiveGenerating(false);
     setBackgroundPuzzle(null);
+    setPlaceFx(null);
     setPicked(i);
     setGeneratedPuzzle(buildGrid(p.placed.map((x) => ({ ...x, pinned: false }))));
   };
@@ -401,6 +427,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       if (list.length > 0) {
         setPicked(0);
         setGeneratedPuzzle(buildGrid(list[0].placed.map((x) => ({ ...x, pinned: false }))));
+        emitPlace();
       } else setNoProposal(true);
     } catch (error) {
       console.error("[BulkSearch] Error:", error);
@@ -914,7 +941,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                 ) : generatedPuzzle ? (
                   <div className="w-full">
                     <FitGrid width={generatedPuzzle.width + 2 * MOVE_MARGIN} height={generatedPuzzle.height + 2 * MOVE_MARGIN}>
-                      <MovableBoard data={generatedPuzzle} enabled={!isLiveGenerating} onDrop={handleMoveWord} />
+                      <MovableBoard data={generatedPuzzle} enabled={!isLiveGenerating} onDrop={handleMoveWord} fx={placeFx} />
                     </FitGrid>
                   </div>
                 ) : null}
@@ -1025,7 +1052,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                   );
                 })}
               </div>
-              <p data-missing-hints="" aria-live="polite" className="text-xs" style={{ color: C.secondary }}>
+              <p ref={missingTextRef} data-missing-hints="" aria-live="polite" className="text-xs" style={{ color: C.secondary }}>
                 {missingHints + missingClues > 0
                   ? [missingHints ? CT.missingHints(missingHints) : "", missingClues ? CT.missingClues(missingClues) : ""].filter(Boolean).join("　")
                   : CT.allSet}
@@ -1177,7 +1204,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       {/* 保存できた後の窓（本番の「問題を共有」のまま） */}
       {showShareModal && (
         <div ref={shareDialog} role="dialog" aria-modal="true" aria-labelledby="cw-share-title" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.7)" }}>
-          <div className="bg-white p-6 max-w-md w-full space-y-6" style={{ boxShadow: C.modalShadow }}>
+          {/* 名前を入れる窓と同じく 0.9倍・透明から出る（Hop が見本で選んだ案 B・2026-10-21） */}
+          <Motion initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="bg-white p-6 max-w-md w-full space-y-6" style={{ boxShadow: C.modalShadow }}>
             <h2 id="cw-share-title" className="text-2xl font-black text-center pb-3" style={{ color: C.ink }}>
               {CT.shareModal.modalTitle}
             </h2>
@@ -1210,7 +1238,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                 {CT.close}
               </button>
             </div>
-          </div>
+          </Motion>
         </div>
       )}
 

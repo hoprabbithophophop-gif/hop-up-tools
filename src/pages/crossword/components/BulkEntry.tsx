@@ -247,6 +247,8 @@ export const BulkEntry: React.FC<{
   barHidden?: boolean;
 }> = ({ text, onText, t, textareaClassName, collapsed, onCollapsed, hinted, onOpenHint, openKey, onSearch, tip, trace, onTraceShown, barHidden }) => {
   const linesRef = useRef<HTMLDivElement>(null);
+  // 書いた行で今【 】で囲んだ語の位置（下線を引く動きに使う）
+  const justMarkedRef = useRef<number | null>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   // なぞっている範囲。ボタンの文字に出す・押した時に選択が消える端末の控えにする（文字列が変わったら捨てる）
   const [sel, setSel] = useState<{ start: number; end: number; text: string } | null>(null);
@@ -374,6 +376,7 @@ export const BulkEntry: React.FC<{
     const live = pickable(selectionRange(linesRef.current)) ?? current;
     if (!live) return;
     setAreaSel(null);
+    justMarkedRef.current = live.start;
     write(text.slice(0, live.start) + `【${live.picked}】` + text.slice(live.end));
     window.getSelection()?.removeAllRanges();
   };
@@ -434,6 +437,42 @@ export const BulkEntry: React.FC<{
     });
     return out;
   }, [text, marks]);
+
+  // --- 書いた行の語を【 】で囲んだ瞬間: 下線が左から引かれる（400ms・cubic-bezier(0.4,0,0.2,1)。Hop が見本で選んだ案 B・2026-10-21） ---
+  // 下線は文字の飾り（text-decoration）で引いているため、動く間だけ同じ位置・太さの線を背景に描いて左から伸ばし、終わったら元の下線に戻す
+  useLayoutEffect(() => {
+    const start = justMarkedRef.current;
+    justMarkedRef.current = null;
+    if (start === null || prefersReducedMotion()) return;
+    const idx = marks.findIndex((m) => m.start === start);
+    const el = idx < 0 ? null : linesRef.current?.querySelectorAll<HTMLElement>("[data-bulk-mark]")[idx];
+    if (!el || typeof el.animate !== "function") return;
+    const cs = getComputedStyle(el);
+    const thick = parseFloat(cs.textDecorationThickness) || 1;
+    const offset = parseFloat(cs.textUnderlineOffset) || 0;
+    // 字の並びの基準の線（下線はここから offset 下に引かれる）を、幅0の箱を一瞬入れて測る
+    const probe = document.createElement("span");
+    probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+    el.insertBefore(probe, el.firstChild);
+    const baseline = probe.getBoundingClientRect().top;
+    probe.remove();
+    const top = el.getClientRects()[0]?.top ?? el.getBoundingClientRect().top;
+    const color = cs.color;
+    const image = cs.textDecorationStyle === "dashed" ? `repeating-linear-gradient(to right, ${color} 0 3px, transparent 3px 6px)` : `linear-gradient(${color}, ${color})`;
+    el.style.textDecorationColor = "transparent";
+    el.style.backgroundImage = image;
+    el.style.backgroundRepeat = "no-repeat";
+    el.style.backgroundPosition = `0 ${baseline - top + offset}px`;
+    const a = el.animate([{ backgroundSize: `0% ${thick}px` }, { backgroundSize: `100% ${thick}px` }], { duration: 400, easing: "cubic-bezier(0.4, 0, 0.2, 1)", fill: "both" });
+    const restore = () => {
+      el.style.textDecorationColor = "";
+      el.style.backgroundImage = "";
+      el.style.backgroundRepeat = "";
+      el.style.backgroundPosition = "";
+      a.cancel();
+    };
+    a.finished.then(restore, restore);
+  }, [marks]);
 
   // --- なぞる動きの見本（公開後、初めて作る画面を開いた端末で一度だけ。Hop 決定 2026-10-20） ---
   // 最初に出てきた、囲んでいない2字以上の地の文の頭の2〜3字をなぞって見せる【仮】
