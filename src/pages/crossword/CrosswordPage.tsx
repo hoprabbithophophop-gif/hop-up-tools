@@ -201,6 +201,34 @@ const DEBUG_MOCK_PUZZLE: PuzzleData = {
   ],
 };
 
+// プレビューで触って確かめるための見本（?debug=big・?debug=dakuten。2026-10-21 Hop 依頼）。保存先には書かず、ブラウザの中だけで答え合わせする
+// big = 進み具合の帯が細かく区切られる・1本の帯に替わる所を見る大きい盤（横15字の語1つと、そこから下がる縦13字の語8つ。111マス）。字は意味の無い並び
+const debugItem = (id: number, answer: string, direction: "horizontal" | "vertical", startX: number, startY: number, question: string): PlacedItem => ({
+  id: String(id), uuid: String(id), answer: Array.from(answer), question, direction, startX, startY, length: Array.from(answer).length, clueIndex: 0,
+});
+const DEBUG_BIG_PUZZLE: PuzzleData = (() => {
+  const kana = Array.from("アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワ");
+  const top = Array.from({ length: 15 }, (_, i) => kana[i % kana.length]).join("");
+  const items = [debugItem(1, top, "horizontal", 0, 0, "見本の横の語（15字）")];
+  for (let x = 0; x < 15; x += 2) {
+    const down = top[x] + Array.from({ length: 12 }, (_, i) => kana[(x * 3 + i + 7) % kana.length]).join("");
+    items.push(debugItem(items.length + 1, down, "vertical", x, 0, `見本の縦の語（13字・${x / 2 + 1}本目）`));
+  }
+  return { ...buildGrid(items), id: "debug-big", title: "見本・大きい問題", creatorName: "テストユーザー" };
+})();
+// dakuten = 最後が ゛ を付ける字で終わる見本。「スズ」の「ズ」を「ス」→「゛」で入れると、答え合わせまで2秒待つのを触って確かめられる
+const DEBUG_DAKUTEN_PUZZLE: PuzzleData = {
+  ...buildGrid([
+    debugItem(1, "カバン", "horizontal", 0, 0, "荷物を入れて持ち歩く物"),
+    debugItem(2, "バス", "vertical", 1, 0, "大勢を乗せて走る車"),
+    debugItem(3, "スズ", "horizontal", 1, 1, "鳴らすとチリンと音が出る"),
+  ]),
+  id: "debug-dakuten",
+  title: "見本・最後が濁る字",
+  creatorName: "テストユーザー",
+};
+const DEBUG_SAMPLES: Record<string, PuzzleData> = { true: DEBUG_MOCK_PUZZLE, big: DEBUG_BIG_PUZZLE, dakuten: DEBUG_DAKUTEN_PUZZLE };
+
 // 保存した中身から盤を組み直す（位置は保存時のまま。番号も同じになる）
 function recordToPuzzle(rec: PuzzleRecord): { puzzle: PuzzleData; hints: Record<string, HintRef> } {
   const body = rec.body;
@@ -252,7 +280,8 @@ const Button = ({ children, onClick, disabled, className, variant = "primary" }:
 export default function CrosswordPage() {
   const { id: puzzleId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const isDebugMode = searchParams.get("debug") === "true"; // デバッグモード
+  const debugSample = DEBUG_SAMPLES[searchParams.get("debug") ?? ""] ?? null; // デバッグモードの見本（true・big・dakuten）
+  const isDebugMode = debugSample !== null; // デバッグモード
   const navigate = useNavigate();
   // 練習問題（/crossword/tutorial）。答え合わせはブラウザの中だけ・回を数えない・ランキングと X 投稿と通報を出さない
   const isTutorial = useLocation().pathname === TUTORIAL_PATH;
@@ -430,7 +459,7 @@ export default function CrosswordPage() {
       let failMessage = "";
       let loadedGenre: Genre | null = null;
       // ヒントの見た目を確かめるため、1 と 2 にだけ見本のヒントを付ける（デバッグ用・HarmonyPalette には無い）
-      if (isDebugMode) loaded = { puzzle: DEBUG_MOCK_PUZZLE, hints: { "1": { kind: "youtube", videoId: "dQw4w9WgXcQ", startSec: 83 }, "2": { kind: "link", url: "https://example.com/" } } };
+      if (debugSample) loaded = { puzzle: debugSample, hints: { "1": { kind: "youtube", videoId: "dQw4w9WgXcQ", startSec: 83 }, "2": { kind: "link", url: "https://example.com/" } } };
       else try {
         const rec = await loadPuzzle(puzzleId!);
         if (!rec) {
