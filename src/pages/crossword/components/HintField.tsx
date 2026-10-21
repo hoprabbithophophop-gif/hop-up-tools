@@ -1,5 +1,5 @@
 // 作る画面の「ヒント」欄（HarmonyPalette に無い、足した物）。
-// ハロプロ: YouTube は HELLO! VIDEO の台帳から題名・曲名で検索する。結果のサムネイルを押すと拡大の窓で再生して見られ（見る）、窓の「この位置でヒントにする」か題名側を押すと選ぶ（決める）。URL を貼った時は台帳にあるか確かめ、無ければ YouTube にチャンネル名を聞いて添える（聞けなければ使えない。Hop 決定 2026-10-19 案1）。形の崩れた YouTube の住所はリンクとしても通さない
+// ハロプロ: YouTube は HELLO! VIDEO の台帳から題名・曲名で検索する。結果のサムネイルを押すと拡大の窓で再生して見られ（見る）、窓の「この位置でヒントにする」か題名側を押すと選ぶ（決める）。URL を貼った時は台帳にあるか確かめ、無ければ問い合わせずにそのまま選び、outside の印を付けて公式チャンネルの動画か確かめる一言を添える（Hop 決定 2026-10-21）。形の崩れた YouTube の住所はリンクとしても通さない
 // その他: YouTube の URL を貼ると時刻が欄に入る（直せる）
 // 選んだ YouTube はその場で埋め込み、開始時刻の位置で止めて出す。「今の位置にする」で時刻を入れられる
 // どちらのジャンルも YouTube 以外のリンクは「リンク」として貼れる（再生しない）
@@ -7,7 +7,6 @@ import React, { useEffect, useRef, useState } from "react";
 import type { Genre, HintRef } from "../../../lib/crossword/puzzleStore";
 import {
   isCatalogVideo,
-  lookupVideoChannel,
   searchCatalogChapters,
   searchCatalogVideos,
   type CatalogChapter,
@@ -30,10 +29,8 @@ const UNUSABLE = "この動画はヒントに使えません。";
 const LINK_RULE = "リンクは https から始まる URL だけ使えます。"; // Hop 決定 2026-10-06
 // 動画番号が読めない形の YouTube の住所（? 抜け・番号の字足らず）。一般のリンクとしては通さない（2026-10-19 抜け穴ふさぎ）【仮】
 const YT_FORM = "YouTube の URL の形が違います。動画のページの URL をそのまま貼ってください。";
-// チャンネル名を聞けなかった（削除・非公開・埋め込み禁止・通信）【仮】
-const YT_UNKNOWN = "この動画を確かめられませんでした。削除・非公開・埋め込み禁止になっていないかご確認ください。";
-// 台帳に無い動画に添える一言（ハロプロだけ。Hop 2026-10-19「公式情報をヒントにしてもらえると」）【仮】
-const CHECK_OFFICIAL = "ハロプロの公式の発信か確かめてください。";
+// 台帳に無い動画を選んだ時に添える一言（ハロプロだけ。Hop 決定 2026-10-21「公式のものを使ってくれよなってお願いはしよう」）
+const CHECK_OFFICIAL_CHANNEL = "ハロプロのグループや事務所の公式チャンネルの動画か、確かめてください。";
 // アメブロ・X・Instagram・リンクの「① 探す」「② 貼る」の箱の言葉（Hop 決定・承認 2026-10-20）。差し替えはここだけ
 const STEP_TEXT = {
   find: { ameblo: "公式ブログを探す", x: "公式の投稿を探す", ig: "公式の投稿を探す", link: "公式サイトを探す" },
@@ -202,20 +199,24 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
       setSource(sourceOfUrl(t));
       const yt = parseYouTubeUrl(t);
       if (yt) {
-        // 台帳にある動画はそのまま。無い動画（外のチャンネル）はチャンネル名を聞いて添える。聞けない動画は使えない（Hop 決定 2026-10-19 案1）
+        // 動画のことはどこにも問い合わせない（チャンネル名も「見られるか」も聞かない。Hop 決定 2026-10-21）
+        if (genre !== "hello") {
+          choose({ hint: { kind: "youtube", videoId: yt.videoId, startSec: yt.startSec }, label: t });
+          return;
+        }
+        // ハロプロ: 台帳にある動画はそのまま。無い動画は outside の印を付けて選ぶ。
+        // 台帳を確かめられなかった時も outside にする（嘘の「見られなくなりました」を付けない側に倒す）
         setBusy(true);
-        (genre === "hello" ? isCatalogVideo(yt.videoId) : Promise.resolve(false))
+        isCatalogVideo(yt.videoId)
           .catch(() => false)
-          .then(async (inCatalog) => {
-            if (inCatalog) return { hint: { kind: "youtube" as const, videoId: yt.videoId, startSec: yt.startSec }, label: t };
-            const channel = await lookupVideoChannel(yt.videoId);
-            if (!channel) return null;
-            return { hint: { kind: "youtube" as const, videoId: yt.videoId, startSec: yt.startSec, channel }, label: t };
-          })
-          .then((picked) => {
+          .then((inCatalog) => {
             if (my !== seq.current) return;
-            if (picked) choose(picked);
-            else setMessage(YT_UNKNOWN);
+            choose({
+              hint: inCatalog
+                ? { kind: "youtube", videoId: yt.videoId, startSec: yt.startSec }
+                : { kind: "youtube", videoId: yt.videoId, startSec: yt.startSec, outside: true },
+              label: t,
+            });
           })
           .finally(() => my === seq.current && setBusy(false));
         return;
@@ -264,10 +265,9 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
           </span>
           <span className="flex-1 min-w-0 text-sm break-all" style={{ color: C.ink }}>
             {selected.label}
-            {selected.hint.kind === "youtube" && selected.hint.channel && (
-              <span data-hint-channel="" className="block text-xs pt-1" style={{ color: C.secondary }}>
-                {`チャンネル: ${selected.hint.channel}`}
-                {genre === "hello" && ` ${CHECK_OFFICIAL}`}
+            {genre === "hello" && selected.hint.kind === "youtube" && selected.hint.outside === true && (
+              <span data-hint-outside="" className="block text-xs pt-1" style={{ color: C.secondary }}>
+                {CHECK_OFFICIAL_CHANNEL}
               </span>
             )}
             {/* X・Instagram は URL のアカウント名を公式サイトの名簿と照らして札を添える（ハロプロだけ。止めはしない） */}

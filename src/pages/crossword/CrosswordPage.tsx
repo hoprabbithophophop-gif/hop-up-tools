@@ -16,7 +16,7 @@ import {
   isHiddenPuzzle,
   loadPuzzle,
   readMyPuzzles,
-  withVideoChannels,
+  withGoneMarks,
   type Genre,
   type HintRef,
   type PuzzleRecord,
@@ -28,7 +28,7 @@ import { PuzzleGridRetro, type GridFx } from "./components/PuzzleGridRetro";
 import { SegmentBar } from "./components/SegmentBar";
 import { animateElement, buildTrack, prefersReducedMotion } from "../../lib/crossword/motion";
 import { ClearEffect } from "./components/ClearEffect";
-import { detectKeypadType } from "./components/PuzzleKeypad";
+import { detectKeypadType, modifiedChar } from "./components/PuzzleKeypad";
 import { StickyHintBar } from "./components/StickyHintBar";
 import { PuzzleCloseupModal } from "./components/PuzzleCloseupModal";
 import { FitGrid } from "./components/FitGrid";
@@ -482,10 +482,11 @@ export default function CrosswordPage() {
         const puzzleToLoad = loaded.puzzle;
         setPlayerPuzzle(puzzleToLoad);
         setPlayerHints(loaded.hints);
-        // 台帳に無い動画にチャンネル名を添え、ハロプロのジャンルで見られない動画に印を付ける（見られなくなりましたと出す。Hop 決定 2026-10-04）
-        if (loadedGenre) {
-          withVideoChannels(loaded.hints, loadedGenre)
-            .then((next) => alive && setPlayerHints(next))
+        // ハロプロのジャンルは、台帳から消えた動画のヒントに印を付ける（見られなくなりましたと出す。Hop 決定 2026-10-04）。
+        // 保存の時点で台帳に無かった動画（outside の印）には付けない（Hop 決定 2026-10-21）
+        if (loadedGenre === "hello") {
+          withGoneMarks(loaded.hints, loadedGenre)
+            .then((next) => alive && next !== loaded.hints && setPlayerHints(next))
             .catch((err) => console.warn("Failed to check hint videos:", err));
         }
         setIsAssemblyAnimating(true);
@@ -991,7 +992,10 @@ export default function CrosswordPage() {
         return;
       }
       lastTickRef.current = now;
-      setElapsedSeconds(Math.max(0, Math.floor(activeMsNow(timing, now) / 1000)));
+      // 全部埋まってから答え合わせが走るまでは、表示を待ち始めた時の値で止める（Hop 決定 2026-10-21。その待ちはタイムに入れない）
+      const hold = autoCheckRef.current.holdMs;
+      const shown = hold !== null ? Math.min(hold, activeMsNow(timing, now)) : activeMsNow(timing, now);
+      setElapsedSeconds(Math.max(0, Math.floor(shown / 1000)));
     };
     tick();
     const interval = setInterval(tick, 1000);
@@ -1092,7 +1096,8 @@ export default function CrosswordPage() {
 
   // 丸付け。空きマスがあればその場で知らせ、全部埋まっていれば受付係に丸付けしてもらう。
   // silent は、埋まったまま直している途中の丸付け（合っていた時だけ終える。違っていても何も言わない）
-  const handleClearCheck = async (silent = false) => {
+  // waitedMs は自動の答え合わせが走るまで待った時間。受付係に添えて、解けた時のタイムから引いてもらう
+  const handleClearCheck = async (silent = false, waitedMs = 0) => {
     if (!playerPuzzle?.cells || isCleared) return;
     if (checking || checkingRef.current) {
       // 通信中に呼ばれた（盤が変わった）。通信の後に今の盤でもう一度丸付けする
@@ -1105,7 +1110,6 @@ export default function CrosswordPage() {
       if (!silent) toast.error("まだ埋まっていないマスがあります。", { duration: 4000 });
       return;
     }
-
     let allCorrect = false;
     let serverTime: number | null = null;
     if (isDebugMode || isTutorial) {
@@ -1116,7 +1120,7 @@ export default function CrosswordPage() {
       checkingRef.current = true;
       checkDirtyRef.current = false;
       try {
-        const r = await withPlay((token) => checkPlay(token, userAnswers));
+        const r = await withPlay((token) => checkPlay(token, userAnswers, waitedMs));
         allCorrect = r.correct;
         if (r.correct && r.answers) {
           // 解けたので答えを受け取って盤に入れる（終わりの画面の答えの表示に使う）
@@ -1133,6 +1137,7 @@ export default function CrosswordPage() {
         console.warn("Failed to check:", err);
         // 黙る方でも失敗は隠さない。盤が変わらないと丸付けし直されないので、少し待って自動でもう一度試す（3回まで）
         setBoardStatus("failed");
+        autoCheckRef.current.holdMs = null; // 止めていたタイマーの表示を戻す
         if (!silent) toast.error(playErrorOf(err));
         if (retryRef.current < 3) {
           retryRef.current += 1;
@@ -1151,6 +1156,8 @@ export default function CrosswordPage() {
     }
 
     retryRef.current = 0;
+    // 止めていたタイマーの表示は、解けなかった時だけ戻す（解けた時は止めたまま終わりの画面へ。通信の間に表示が進んで見えないように）
+    if (!allCorrect) autoCheckRef.current.holdMs = null;
     setBoardStatus(allCorrect ? null : "wrong");
     if (allCorrect) {
       // 解けたら幕は出さない（通信の間に幕がかかっていた時のため）
@@ -1213,10 +1220,30 @@ export default function CrosswordPage() {
   // 保存してあった盤を開き直しただけでは始めない（最初の1回は今の状態を覚えるだけ）
   // 埋まった瞬間の丸付けも、黙る方と同じだけ待ってから走らせる。その間に ゛゜ で字が変われば、変わった後の盤で丸付けする
   // （最後のマスが濁る字の時に、゛ の前に答え合わせが走らないように。2026-10-06 レビューの直し）。待ちの間は入力の窓を閉じない
-  const AUTO_CHECK_WAIT_MS = 400; // 【仮】
+  const AUTO_CHECK_WAIT_MS = 400; // Hop 決定 2026-10-21
+  // 最後に字が変わったマスの字が ゛゜ を付けられる字なら、゛゜ を押すのを待つ（Hop 決定 2026-10-21）。
+  // 付けられるかは文字盤の ゛゜ の働き（押すと別の字になるか）で決める。バ→パのように行き来できる字も入る
+  // 1文字見るで入った字も同じ規則。複数のマスが一度に変わった時は1つでも付けられる字なら 2000ms
+  const AUTO_CHECK_MARK_WAIT_MS = 2000; // Hop 決定 2026-10-21
+  const canTakeMark = (ch: string | undefined) => !!ch && (!!modifiedChar("dakuten", ch) || !!modifiedChar("handakuten", ch));
   // loud = 埋まった瞬間の反応（合否を知らせる方）をまだ返していない
-  const autoCheckRef = useRef<{ ready: boolean; full: boolean; loud: boolean }>({ ready: false, full: false, loud: false });
+  // holdMs = 答え合わせ待ちを始めた時（最後に字が変わった時）の開いていた時間（ミリ秒）。待っている間はタイマーの表示をこの値で止め、待った分を受付係に添える
+  // prev = 前に見た盤（どのマスの字が変わったかを見る）。waitMs = 最後に字が変わった時に決めた待ち時間
+  // pending = まだ走っていない答え合わせがある（一時停止で取り消した待ちも含む。再開した時に待ち直して走らせる）
+  // dueAt = 答え合わせを走らせる時刻（端末の時計。待ちを始めた時に決める）
+  const autoCheckRef = useRef<{ ready: boolean; full: boolean; loud: boolean; holdMs: number | null; prev: Record<string, string>; waitMs: number; pending: boolean; dueAt: number }>({
+    ready: false,
+    full: false,
+    loud: false,
+    holdMs: null,
+    prev: {},
+    waitMs: AUTO_CHECK_WAIT_MS,
+    pending: false,
+    dueAt: 0,
+  });
   useEffect(() => {
+    const prev = autoCheckRef.current.prev;
+    autoCheckRef.current.prev = userAnswers;
     if (!playerPuzzle?.cells || isCleared || gamePhase !== "playing") return;
     const full = playerPuzzle.cells.every((c) => !!userAnswers[`${c.x},${c.y}`]);
     const wasFull = autoCheckRef.current.full;
@@ -1225,26 +1252,59 @@ export default function CrosswordPage() {
       autoCheckRef.current.ready = true;
       return;
     }
-    // 答え合わせの通信中に盤が変わったら、通信の後に今の盤でもう一度丸付けする
+    const changed = Object.keys(userAnswers).filter((k) => userAnswers[k] !== prev[k]);
+    // 答え合わせの通信中に盤が変わったら、通信の後に今の盤でもう一度丸付けする（一時停止の切り替えだけで見張りが動いた時は、盤が同じなので印を立てない）
     if (checkingRef.current) {
-      checkDirtyRef.current = true;
+      if (changed.length > 0) {
+        checkDirtyRef.current = true;
+        autoCheckRef.current.holdMs = null; // この後の丸付けし直しは待たずに走るので、表示も止めない
+      }
       return;
     }
     if (!full) {
       autoCheckRef.current.loud = false;
+      autoCheckRef.current.holdMs = null;
+      autoCheckRef.current.pending = false;
       setBoardStatus(null);
       return;
     }
     if (!wasFull) autoCheckRef.current.loud = true;
-    // 打ち終わるのを少し待ってから丸付けする（1字ごとに通信しない）
+    // 字が変わったマスがあれば待ち時間を決め直す（字が変わっていない時は前に決めた待ち時間のまま）
+    if (changed.length > 0) autoCheckRef.current.waitMs = changed.some((k) => canTakeMark(userAnswers[k])) ? AUTO_CHECK_MARK_WAIT_MS : AUTO_CHECK_WAIT_MS;
+    // 走らせる答え合わせが無ければ何もしない（盤が変わらずに見直しが走った時に、同じ盤を何度も丸付けしない）
+    if (changed.length === 0 && wasFull && !autoCheckRef.current.pending) return;
+    autoCheckRef.current.pending = true;
+    // 一時停止の幕の間・画面を隠している間は走らせない（Hop 指示 2026-10-21）。待ちは取り消し、再開した時にその盤で待ち直す
+    if (paused) {
+      autoCheckRef.current.holdMs = null;
+      return;
+    }
+    // 待ち始めは最後に字が変わった時（゛゜ で字が変わった時もそこから止め直す。Hop 決定 2026-10-21）。
+    // 表示を止めた分＝受付係に添える待った時間、になるようにそろえる
+    if (changed.length > 0 || autoCheckRef.current.holdMs === null) {
+      autoCheckRef.current.holdMs = activeMsNow();
+      autoCheckRef.current.dueAt = Date.now() + autoCheckRef.current.waitMs;
+    }
+    // 打ち終わるのを少し待ってから丸付けする（1字ごとに通信しない）。
+    // 同じ字を入れ直すなど盤が変わらずに見張りが動いた時は、待ちを最初からやり直さず残りだけ待つ（止めた表示と待った時間がずれないように）
     const timer = setTimeout(() => {
+      // 止めた直後、描き直しで待ちが取り消される前に鳴った時も走らせない（pending のまま、再開した時に待ち直す）
+      if (pausedRef.current) {
+        autoCheckRef.current.holdMs = null;
+        return;
+      }
+      autoCheckRef.current.pending = false;
       const loud = autoCheckRef.current.loud;
       autoCheckRef.current.loud = false;
+      const hold = autoCheckRef.current.holdMs;
+      autoCheckRef.current.holdMs = null;
+      // 待った時間は開いていた時間で測る（待ちの間に一時停止していた分は入れない）
+      const waitedMs = hold !== null ? Math.max(0, Math.round(activeMsNow() - hold)) : 0;
       if (loud) setShowCloseup(false); // 結果が盤の上で見えるように、拡大の窓は閉じる
-      void handleClearCheck(!loud);
-    }, AUTO_CHECK_WAIT_MS);
+      void handleClearCheck(!loud, waitedMs);
+    }, Math.max(0, autoCheckRef.current.dueAt - Date.now()));
     return () => clearTimeout(timer);
-  }, [userAnswers, playerPuzzle, isCleared, gamePhase]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [userAnswers, playerPuzzle, isCleared, gamePhase, paused]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // もう一度解く: 解き終えた印を外し、新しい回として最初から。開いた時と同じ流れ（遊び方の窓・決まりのクイズの扉）を通る
   const handlePlayAgain = () => {
@@ -1262,13 +1322,18 @@ export default function CrosswordPage() {
     setReveals(0);
     playRef.current = null;
     restoredElapsedRef.current = 0;
-    autoCheckRef.current = { ready: false, full: false, loud: false };
+    autoCheckRef.current = { ready: false, full: false, loud: false, holdMs: null, prev: {}, waitMs: AUTO_CHECK_WAIT_MS, pending: false, dueAt: 0 };
     setGamePhase("ready");
   };
 
   // 通信中に盤が変わっていた時の丸付けし直し（黙る方。今の盤で）
   useEffect(() => {
     if (recheckTick === 0) return;
+    // 止まっている間は走らせず、再開した時に待ち直して走らせる（上の見張りが pending を見る）
+    if (pausedRef.current) {
+      autoCheckRef.current.pending = true;
+      return;
+    }
     void handleClearCheck(true);
   }, [recheckTick]); // eslint-disable-line react-hooks/exhaustive-deps
 

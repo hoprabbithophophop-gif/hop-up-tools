@@ -66,7 +66,6 @@ export const CT = {
   saveReasons: {
     too_many: "保存が集中しています。時間をおいてもう一度お試しください。",
     verification: "確認に失敗しました。ページを再読み込みしてお試しください。",
-    video: "ヒントの動画を確かめられませんでした。削除・非公開・埋め込み禁止になっていないかご確認ください。", // 【仮】
     bad_request: "内容をご確認のうえ、もう一度お試しください。",
   } as Record<string, string>,
   edit: {

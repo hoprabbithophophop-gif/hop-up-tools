@@ -6,8 +6,9 @@ export type Genre = "hello" | "other";
 // カギごとのヒント。YouTube はアプリ内で再生、それ以外はリンクで開く
 export type HintRef =
   // gone は画面の中だけで使う印（台帳から消えた・再生できない動画）。保存はしない
-  // channel は台帳に無い動画（外のチャンネル）だけに付く、画面の中だけの名前。保存はせず、開くたびにブラウザが YouTube に聞く（Hop 決定 2026-10-19 案1・「書き残さない形」）
-  | { kind: "youtube"; videoId: string; startSec: number; channel?: string; gone?: boolean }
+  // outside は保存の時点で台帳（youtube_videos）に無かった動画の印。保存する。この印のある動画には「見られなくなりました」を付けない
+  // （台帳に無い動画は YouTube にもどこにも問い合わせずに通すので、台帳に無いことだけでは消えた動画と見分けられないため。Hop 決定 2026-10-21）
+  | { kind: "youtube"; videoId: string; startSec: number; outside?: true; gone?: boolean }
   | { kind: "link"; url: string };
 
 export interface StoredClue {
@@ -186,29 +187,7 @@ export async function loadPuzzle(id: string): Promise<PuzzleRecord | null> {
   return (data as PuzzleRecord | null) ?? null;
 }
 
-// ハロプロのジャンルでは、台帳に載っていて表示してよい動画だけを使える
-// 動画のチャンネル名を YouTube に聞く（鍵なしの oEmbed。削除・非公開・埋め込み禁止の動画は null）。画面に出すためだけに使い、保存しない
-export async function lookupVideoChannel(videoId: string): Promise<string | null> {
-  const r = await askVideoChannel(videoId);
-  return r === "gone" || r === "unknown" ? null : r;
-}
-
-// 同じく聞くが、答えを3つに分ける。名前／"gone"＝YouTube が見られないと答えた（400・401・403・404）／"unknown"＝ほかの 4xx・混み合い・通信の失敗で分からない
-// 見られない印は "gone" の時だけ付ける（一時的な失敗を「見られなくなりました」と出さない）
-// 【仮】403 も gone に入れる（埋め込み禁止の動画で返ると言われるため）
-const GONE_STATUS = new Set([400, 401, 403, 404]);
-async function askVideoChannel(videoId: string): Promise<string | "gone" | "unknown"> {
-  try {
-    const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`);
-    if (GONE_STATUS.has(res.status)) return "gone";
-    if (!res.ok) return "unknown";
-    const data = (await res.json()) as { author_name?: unknown };
-    return typeof data.author_name === "string" && data.author_name.trim() ? data.author_name.trim().slice(0, 100) : "gone";
-  } catch {
-    return "unknown";
-  }
-}
-
+// 台帳（youtube_videos）に載っていて表示してよい動画か。台帳に無い動画も問い合わせずにヒントに使える（Hop 決定 2026-10-21）。ここは outside の印を決めるためだけに使う
 export async function isCatalogVideo(videoId: string): Promise<boolean> {
   const { count, error } = await getSupabase()
     .from("youtube_videos")
@@ -404,49 +383,58 @@ export async function catalogVideoIdsPresent(ids: string[]): Promise<Set<string>
   return new Set(((data as { video_id: string }[] | null) ?? []).map((r) => r.video_id));
 }
 
-// 台帳に無い動画ごとの YouTube の答え。一度に聞くのは 6 件まで【仮】（作った問題の一覧は問題の数だけ増えるため）
-async function askOutsideChannels(ids: string[]): Promise<Map<string, string>> {
-  const answers = new Map<string, string>();
-  let next = 0;
-  const worker = async () => {
-    while (next < ids.length) {
-      const id = ids[next++];
-      answers.set(id, await askVideoChannel(id));
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(6, ids.length) }, worker));
-  return answers;
+// 見られない印を付けてよい動画か。outside の印のある動画（保存の時点で台帳に無かった動画）は、台帳に無くても消えたとは言えないので外す（Hop 決定 2026-10-21）
+const watchedByCatalog = (h: HintRef | undefined): h is Extract<HintRef, { kind: "youtube" }> => h?.kind === "youtube" && h.outside !== true;
+
+// 開いた問題のハロプロのジャンルの YouTube のヒントに、台帳から消えた動画だけ見られない印を付ける（画面の中だけ。Hop 決定 2026-10-04）。
+// 印を付けるのは「ハロプロのジャンル」「outside の印が無い」「今の台帳に無い」の3つがそろった時だけ。その他のジャンルには付けない
+export async function withGoneMarks(hints: Record<string, HintRef>, genre: Genre): Promise<Record<string, HintRef>> {
+  if (genre !== "hello") return hints;
+  const ids = Array.from(new Set(Object.values(hints).flatMap((h) => (watchedByCatalog(h) ? [h.videoId] : []))));
+  if (ids.length === 0) return hints;
+  const present = await catalogVideoIdsPresent(ids);
+  if (ids.every((id) => present.has(id))) return hints;
+  return Object.fromEntries(Object.entries(hints).map(([k, h]) => [k, watchedByCatalog(h) && !present.has(h.videoId) ? { ...h, gone: true } : h]));
 }
 
-// 開いた問題の YouTube のヒントに、台帳に無い動画だけチャンネル名か見られない印を付ける（どちらも画面の中だけ）
-// ハロプロ: 台帳にあればそのまま。無ければチャンネル名を聞き、YouTube が見られないと答えたら見られない印（Hop 決定 2026-10-04）。分からない時はそのまま
-// その他: 台帳を見ずに全部チャンネル名を聞く。聞けなければそのまま（再生側が知らせる）
-export async function withVideoChannels(hints: Record<string, HintRef>, genre: Genre): Promise<Record<string, HintRef>> {
-  const ids = Array.from(new Set(Object.values(hints).flatMap((h) => (h.kind === "youtube" ? [h.videoId] : []))));
-  if (ids.length === 0) return hints;
-  const present = genre === "hello" ? await catalogVideoIdsPresent(ids) : new Set<string>();
-  const answers = await askOutsideChannels(ids.filter((id) => !present.has(id)));
+// 保存の直前に、YouTube のヒントへ outside の印を付け直す（台帳に載っていて表示してよい動画なら外し、無ければ付ける）。
+// 台帳を確かめられなかった時は outside を付ける（嘘の「見られなくなりました」を出さない側に倒す。Hop 決定 2026-10-21）。
+// 画面の中だけの印（gone など）はここで落とし、動画の番号・開始の秒・outside だけにする
+// stored = 組み直し・ヒントの差し替えで、棚に保存してあったヒント。同じ動画の番号のヒントは、保存してあった印をそのまま引き継ぐ
+// （台帳から消えた動画を「台帳に無い動画」と取り違えて、見られなくなった印が黙って消えないように。2026-10-21 レビューの直し）。
+// 台帳を確かめられない時は投げる（呼ぶ側が保存を止めて知らせる。全部を outside にして印を消さないように。今の本番も保存を止めていた）
+export async function withOutsideMarks(
+  hints: Record<string, HintRef>,
+  stored: (HintRef | null | undefined)[] = [],
+): Promise<Record<string, HintRef>> {
+  const inherited = new Map<string, boolean>();
+  for (const s of stored) if (s?.kind === "youtube") inherited.set(s.videoId, s.outside === true);
+  const ids = Array.from(
+    new Set(Object.values(hints).flatMap((h) => (h.kind === "youtube" && !inherited.has(h.videoId) ? [h.videoId] : []))),
+  );
+  let active = new Set<string>();
+  if (ids.length > 0) {
+    const { data, error } = await getSupabase().from("youtube_videos").select("video_id").in("video_id", ids).eq("is_active_content", true);
+    if (error) throw error;
+    active = new Set(((data as { video_id: string }[] | null) ?? []).map((r) => r.video_id));
+  }
   return Object.fromEntries(
     Object.entries(hints).map(([k, h]) => {
-      if (h.kind !== "youtube" || present.has(h.videoId)) return [k, h];
-      const a = answers.get(h.videoId);
-      if (a === "gone") return [k, genre === "hello" ? { ...h, gone: true } : h];
-      if (!a || a === "unknown") return [k, h];
-      return [k, { ...h, channel: a }];
+      if (h.kind !== "youtube") return [k, h];
+      const outside = inherited.has(h.videoId) ? inherited.get(h.videoId) : !active.has(h.videoId);
+      return [k, outside ? { kind: "youtube", videoId: h.videoId, startSec: h.startSec, outside: true } : { kind: "youtube", videoId: h.videoId, startSec: h.startSec }];
     }),
   );
 }
 
 // 自分が作った問題のうち、ヒントの動画が見られなくなった物（ハロプロのジャンルだけ。その他のジャンルの動画は台帳の外なので分からない）
-// 台帳に無い動画は、YouTube が見られないと答えた時だけ見られない物に数える（チャンネル名は保存していない。分からない時は数えない）
+// 解く画面と同じく、outside の印のある動画は数えない
 export async function loadPuzzlesWithGoneHints(ids: string[]): Promise<Set<string>> {
   if (ids.length === 0) return new Set();
   const { data, error } = await getSupabase().from("crossword_puzzles").select("id,genre,body").in("id", ids).eq("genre", "hello");
   if (error) throw error;
   const rows = (data as { id: string; body: PuzzleBody | null }[] | null) ?? [];
-  const videosOf = (b: PuzzleBody | null) => (b?.clues ?? []).flatMap((c) => (c.hint?.kind === "youtube" ? [c.hint.videoId] : []));
-  const all = Array.from(new Set(rows.flatMap((r) => videosOf(r.body))));
-  const present = await catalogVideoIdsPresent(all);
-  const answers = await askOutsideChannels(all.filter((v) => !present.has(v)));
-  return new Set(rows.filter((r) => videosOf(r.body).some((v) => !present.has(v) && answers.get(v) === "gone")).map((r) => r.id));
+  const videosOf = (b: PuzzleBody | null) => (b?.clues ?? []).flatMap((c) => (watchedByCatalog(c.hint) ? [c.hint.videoId] : []));
+  const present = await catalogVideoIdsPresent(Array.from(new Set(rows.flatMap((r) => videosOf(r.body)))));
+  return new Set(rows.filter((r) => videosOf(r.body).some((v) => !present.has(v))).map((r) => r.id));
 }

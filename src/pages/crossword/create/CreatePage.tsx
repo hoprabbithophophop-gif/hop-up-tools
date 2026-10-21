@@ -16,15 +16,13 @@ import { isUsableCell, toCells } from "../../../lib/crossword/cells";
 import {
   addMyPuzzle,
   fetchOwnedPuzzle,
-  isCatalogVideo,
-  lookupVideoChannel,
   makeOwnerKey,
   readMyPuzzles,
   savePuzzle,
   SaveError,
   toBody,
   updatePuzzle,
-  withVideoChannels,
+  withOutsideMarks,
   type HintRef,
   type MyPuzzle,
 } from "../../../lib/crossword/puzzleStore";
@@ -110,20 +108,14 @@ interface DraftV2 {
   isBeginner: boolean;
 }
 
-// 下書きにはチャンネル名と見られない印を書かない（画面の中だけの物。Hop 決定 2026-10-19「書き残さない形」）
-const withoutScreenOnly = (hints: Record<string, HintRef>): Record<string, HintRef> =>
-  Object.fromEntries(
-    Object.entries(hints).map(([k, h]) => [k, h.kind === "youtube" ? { kind: "youtube", videoId: h.videoId, startSec: h.startSec } : h]),
-  );
-
-// 戻したヒントに、聞き直したチャンネル名だけを足す（聞いている間に替えたヒントには足さない）
-const mergeChannels = (prev: Record<string, HintRef>, next: Record<string, HintRef>): Record<string, HintRef> =>
-  Object.fromEntries(
-    Object.entries(prev).map(([k, h]) => {
-      const n = next[k];
-      return h.kind === "youtube" && n?.kind === "youtube" && n.channel && n.videoId === h.videoId && n.startSec === h.startSec ? [k, { ...h, channel: n.channel }] : [k, h];
-    }),
-  );
+// 作りかけから戻したヒントは、動画の番号・開始の秒・outside の印だけにする（前の版の作りかけに残っているほかの欄は捨てる。
+// YouTube の動画のことはどこにも問い合わせない。Hop 決定 2026-10-21「チャンネル名を出さない」）
+const draftHint = (h: HintRef): HintRef =>
+  h.kind === "youtube"
+    ? h.outside === true
+      ? { kind: "youtube", videoId: h.videoId, startSec: h.startSec, outside: true }
+      : { kind: "youtube", videoId: h.videoId, startSec: h.startSec }
+    : { kind: "link", url: h.url };
 
 const isHintRef = (h: unknown): h is HintRef => {
   if (!h || typeof h !== "object") return false;
@@ -187,6 +179,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   const [editStatus, setEditStatus] = useState<"none" | "checking" | "editing">(editParam ? "checking" : "none");
   const [editTarget, setEditTarget] = useState<MyPuzzle | null>(null);
   const editStartedRef = useRef(false);
+  // 組み直しで開いた時に棚に保存してあったヒント（保存の時に outside の印を引き継ぐのに使う。Hop 決定 2026-10-21）
+  const storedHintsRef = useRef<Record<string, HintRef>>({});
 
   const [step, setStep] = useState<Step>(1);
   const [bulkText, setBulkText] = useState("");
@@ -230,6 +224,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   const [draftReady, setDraftReady] = useState(false);
   const savedSnapshotRef = useRef<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  // 共有を押した時に outside の印を付け直したヒント（保存の送信はこれを使う）
+  const saveHintsRef = useRef<Record<string, HintRef> | null>(null);
   const [showSaveCheck, setShowSaveCheck] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
@@ -496,9 +492,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
         setCollapsed(true);
         setClues(restoredClues);
         setHints(restoredHints);
-        withVideoChannels(restoredHints, "hello")
-          .then((next) => setHints((prev) => mergeChannels(prev, next)))
-          .catch(() => {});
+        storedHintsRef.current = restoredHints;
         // 盤は保存した時の形のまま（番号も同じ）。組み替えたい時は「再シャッフル」
         setGeneratedPuzzle(buildGrid(placed));
         setEditTarget({ ...mine, title: rec.title });
@@ -529,7 +523,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
         const restoredClues: Record<string, string> = {};
         const restoredLabels: Record<string, string> = {};
         if (d.version === 2) {
-          for (const [k, h] of Object.entries(rawHints)) if (isHintRef(h)) restoredHints[k] = h;
+          for (const [k, h] of Object.entries(rawHints)) if (isHintRef(h)) restoredHints[k] = draftHint(h);
           if (d.clues && typeof d.clues === "object") for (const [k, v] of Object.entries(d.clues as Record<string, unknown>)) if (typeof v === "string") restoredClues[k] = v;
           if (d.hintLabels && typeof d.hintLabels === "object") for (const [k, v] of Object.entries(d.hintLabels as Record<string, unknown>)) if (typeof v === "string") restoredLabels[k] = v;
         } else {
@@ -548,18 +542,14 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
             }
             if (typeof it.question === "string" && it.question.trim()) restoredClues[key] = it.question;
             const h = rawHints[it.id];
-            if (isHintRef(h)) restoredHints[key] = h;
+            if (isHintRef(h)) restoredHints[key] = draftHint(h);
           }
           if (extra.length > 0) nextText = [text.replace(/\s+$/, ""), ...extra].filter(Boolean).join("\n");
         }
-        restoredHints = withoutScreenOnly(restoredHints);
         setBulkText(nextText);
         setHints(restoredHints);
         setClues(restoredClues);
         setHintLabels(restoredLabels);
-        withVideoChannels(restoredHints, "hello")
-          .then((next) => setHints((prev) => mergeChannels(prev, next)))
-          .catch(() => {});
         if (d.version === 2) {
           setCollapsed(d.collapsed === true);
           const keys = new Set(evaluateCandidates(parseMarks(nextText)).filter((c) => !c.reason).map((c) => c.key));
@@ -602,7 +592,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     const content = {
       bulkText,
       collapsed,
-      hints: withoutScreenOnly(hints),
+      hints,
       hintLabels,
       clues,
       board: generatedPuzzle && !isLiveGenerating ? generatedPuzzle.items.map(({ id, uuid, answer, direction, startX, startY, length, pinned }) => ({ id, uuid, question: "", answer, direction, startX, startY, length, pinned: !!pinned })) : null,
@@ -707,40 +697,36 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       return;
     }
     setIsSaving(true);
+    // 保存の直前に、盤に入った答えの YouTube のヒントへ outside の印を台帳で確かめて付け直す（もとの作る画面と同じ。Hop 決定 2026-10-21 チャンネル名を出さない）。
+    // 組み直しでは、保存してあった動画と同じ番号なら印を引き継ぐ（台帳から消えた動画の「見られなくなりました」が黙って消えないように）。
+    // 台帳を確かめられなければ保存を止めて知らせる
+    let marked: Record<string, HintRef>;
     try {
-      // チャンネル名の無い YouTube のヒントが台帳にある動画か、YouTube にチャンネル名を聞ける動画か確かめる（2026-10-19 案1）
-      const ng: string[] = [];
-      for (const item of generatedPuzzle.items) {
-        const h = hints[item.id];
-        if (h?.kind === "youtube" && !h.channel && !(await isCatalogVideo(h.videoId)) && !(await lookupVideoChannel(h.videoId))) ng.push(item.answer.join(""));
-      }
-      if (ng.length > 0) {
-        toast.error(`${CT.saveReasons.video}\n（${ng.join("、")}）`, { duration: 5000 });
-        setIsSaving(false);
-        return;
-      }
+      const placedHints = Object.fromEntries(generatedPuzzle.items.map((i) => [i.id, hints[i.id]!]));
+      marked = await withOutsideMarks(placedHints, editTarget ? Object.values(storedHintsRef.current) : []);
     } catch (error) {
-      console.error("Failed to save puzzle:", error);
-      toast.error(CT.errors.saveFailed);
+      console.error("Failed to check hint videos:", error);
+      toast.error(CT.errors.saveFailed, { duration: 5000 });
       setIsSaving(false);
       return;
     }
+    saveHintsRef.current = marked;
     // 組み直しは人間確認を挟まない【仮】（合言葉が本人確認を兼ねる）
     if (editTarget) {
-      void updateEdited();
+      void updateEdited(marked);
       return;
     }
     setShowSaveCheck(true);
   };
 
-  const updateEdited = async () => {
+  const updateEdited = async (savedHints: Record<string, HintRef>) => {
     if (!generatedPuzzle || !editTarget) {
       setIsSaving(false);
       return;
     }
     const title = puzzleTitle.trim();
     try {
-      const body = toBody(itemsToSave(), generatedPuzzle.width, generatedPuzzle.height, (id) => hints[id]);
+      const body = toBody(itemsToSave(), generatedPuzzle.width, generatedPuzzle.height, (id) => savedHints[id]);
       if (creatorName.trim()) body.creatorName = creatorName.trim();
       const ogpImage = await drawShareImage(generatedPuzzle, title);
       await updatePuzzle(editTarget.id, editTarget.key, { title, genre: "hello", tags, body, isBeginner }, { ogpImage });
@@ -778,9 +764,14 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       setIsSaving(false);
       return;
     }
+    const savedHints = saveHintsRef.current;
+    if (!savedHints) {
+      setIsSaving(false);
+      return;
+    }
     const title = puzzleTitle.trim();
     try {
-      const body = toBody(itemsToSave(), generatedPuzzle.width, generatedPuzzle.height, (id) => hints[id]);
+      const body = toBody(itemsToSave(), generatedPuzzle.width, generatedPuzzle.height, (id) => savedHints[id]);
       if (creatorName.trim()) body.creatorName = creatorName.trim();
       const key = makeOwnerKey();
       const ogpImage = await drawShareImage(generatedPuzzle, title);
@@ -792,7 +783,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       // 保存できたので作りかけの控えは消す（このあと中身を変えたら、また新しく残り始める）
       lsRemove(DRAFT_KEY);
       savedSnapshotRef.current = JSON.stringify({
-        bulkText, collapsed, hints: withoutScreenOnly(hints), hintLabels, clues,
+        bulkText, collapsed, hints, hintLabels, clues,
         board: generatedPuzzle.items.map(({ id: i, uuid, answer, direction, startX, startY, length, pinned }) => ({ id: i, uuid, question: "", answer, direction, startX, startY, length, pinned: !!pinned })),
         proposals, picked, title: puzzleTitle, creatorName, tags, isBeginner,
       });

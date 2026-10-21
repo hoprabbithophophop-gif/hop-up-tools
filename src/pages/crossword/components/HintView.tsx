@@ -10,7 +10,7 @@ import { C } from "../style";
 const GONE = "このヒントの動画は見られなくなりました。";
 
 // X・Instagram のリンクに添える札（ハロプロだけ。Hop 決定 2026-10-19「公式サイトに載っている分だけ」）。
-// URL に書かれたアカウント名を公式サイトの名簿と照らす。載っていなくても止めず、札だけ添える（YouTube の名札と同じ考え）。
+// URL に書かれたアカウント名を公式サイトの名簿と照らす。載っていなくても止めず、札だけ添える。
 // 読めない形の URL（instagram.com/p/… など）には札を出さない。札は証明ではない【仮】
 const LISTED = "ハロプロ公式サイトに載っているアカウント";
 const NOT_LISTED = "ハロプロ公式サイトに載っていないアカウント";
@@ -82,17 +82,7 @@ export const HintView: React.FC<{ hint: HintRef; genre?: Genre | null }> = ({ hi
   if (hint.kind === "youtube") {
     // gone は問題を開いた時に台帳で確かめた印（ハロプロのジャンル）
     if (hint.gone) return <GoneNote />;
-    return (
-      <>
-        <HintVideo videoId={hint.videoId} startSec={hint.startSec} />
-        {/* 台帳に無い動画はチャンネル名を添える（Hop 決定 2026-10-19 案1。公式かどうかは解く人も見て分かるように） */}
-        {hint.channel && (
-          <p data-hint-channel="" className="px-4 pt-2 text-xs break-all" style={{ color: C.secondary }}>
-            {`チャンネル: ${hint.channel}`}
-          </p>
-        )}
-      </>
-    );
+    return <HintVideo videoId={hint.videoId} startSec={hint.startSec} />;
   }
   // 保存された中身はだれでも入れられるので、http(s) 以外のリンクは開けないようにする
   if (!/^https?:\/\//i.test(hint.url)) {
