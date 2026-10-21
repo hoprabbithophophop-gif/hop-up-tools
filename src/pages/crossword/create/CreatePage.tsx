@@ -892,8 +892,10 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     </div>
   );
 
+  // 「← 戻る」は段の札を押した時と同じ動き（Hop 決定 2026-10-22）。3 カギの「← 盤へ戻る」は、答えが前に探した時と変わっていれば探し直してから 2 盤へ、
+  // 変わっていなければ今の盤のまま 2 盤へ（古い盤が出て「この盤で進む」→ 3 で「盤を決めてください」の堂々巡りにしないため）
   const backButton = (label: string, to: Step) => (
-    <button type="button" data-step-back={to} onClick={() => goStep(to)} className="self-start min-h-11 px-3 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.ink }}>
+    <button type="button" data-step-back={to} onClick={() => onStepTab(to)} className="self-start min-h-11 px-3 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.ink }}>
       {label}
     </button>
   );

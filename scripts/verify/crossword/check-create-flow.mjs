@@ -25,7 +25,7 @@
 //       答え1つで「2 盤」を押しても 2 へ行かない・1 から札で 3・4 へ飛べる・盤が無い時の 3 は答え全部の欄・
 //       盤が無い時の 4 は共有を押せず理由の先頭に「共有する前に、2 盤で盤を決めてください。」・札の「2 盤」で探す・答えが同じなら探し直さない・
 //       札で 3 へ行ってから書いたカギとヒントは盤ができた後も残る・答えを変えると盤は古い扱い（開き直しても）・
-//       組み立て中に札で 1 へ移っても組み立ては裏で終わる
+//       組み立て中に札で 1 へ移っても組み立ては裏で終わる・3 の「← 盤へ戻る」も札の「2 盤」と同じ（答えを変えていれば探し直す・変えていなければ探し直さない）
 // 使い方: node scripts/verify/crossword/check-create-flow.mjs（引数なし）
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -727,6 +727,31 @@ try {
     await page.locator('[data-create-step="3"] [data-clue-row]').first().waitFor({ timeout: 5000 });
     check(!(await page.locator('[data-missing-hints]').textContent()).includes(NEED), '(11) 組み立て中に 1 へ移っても組み立ては裏で終わり、3 では盤が使える');
     await page.screenshot({ path: path.join(OUT, '11-2-after-background-390.png'), fullPage: true });
+
+    // 3 カギの「← 盤へ戻る」も札の「2 盤」と同じ（Hop 決定 2026-10-22）: 答えが同じなら探し直さず今の盤のまま、変えていれば探し直す
+    const boardPos = (d) => JSON.stringify((d?.board ?? []).map(({ id, direction, startX, startY }) => [id, direction, startX, startY]));
+    const posBefore = boardPos(await readDraft(page));
+    await page.locator('[data-create-step="3"] [data-step-back="2"]').click();
+    await page.locator('[data-create-step="2"]').waitFor({ timeout: 5000 });
+    const buildingBack = await page.locator('[data-create-board] [role="status"]').count();
+    await page.waitForTimeout(300);
+    check(buildingBack === 0 && posBefore !== '[]' && boardPos(await readDraft(page)) === posBefore, `(11) 答えが同じなら 3 の「← 盤へ戻る」で探し直さず今の盤のまま（組み立て中 ${buildingBack}）`);
+    await stepTab(page, 1);
+    await page.locator('[data-create-step="1"]').waitFor({ timeout: 5000 });
+    await writeLines(page, TEXT); // ネコジャラシを外す
+    await stepTab(page, 3);
+    await page.locator('[data-create-step="3"] [data-clue-row]').first().waitFor({ timeout: 5000 });
+    await page.locator('[data-create-step="3"] [data-step-back="2"]').click();
+    await page.locator('[data-create-step="2"]').waitFor({ timeout: 5000 });
+    const startedBack = await page.locator('[data-create-board] [role="status"]').count();
+    await page.locator('[data-bulk-adopt]:enabled').waitFor({ timeout: 45000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    const dBack = await readDraft(page);
+    check(startedBack === 1 && !!dBack?.boardSig && dBack.boardSig === dBack.searchedSig && !String(dBack.boardSig).includes('ネコジャラシ') && (await page.locator('[data-bulk-adopt]').isEnabled()),
+      `(11) 答えを変えて 3 の「← 盤へ戻る」を押すと探し直し、今の答えの盤で「この盤で進む」が押せる（組み立て中 ${startedBack}）`);
+    await page.locator('[data-bulk-adopt]').click();
+    await page.locator('[data-create-step="3"] [data-clue-row]').first().waitFor({ timeout: 5000 });
+    check(!(await page.locator('[data-missing-hints]').textContent()).includes(NEED), '(11) 探し直した盤で 3 へ進むと「盤を決めてください」は出ない（堂々巡りにならない）');
     await ctx.close();
   }
 
