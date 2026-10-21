@@ -108,6 +108,33 @@ body {
   animation: pick-float-in 0.3s ease-out both;
 }
 
+/* クロスワードのギャラリーの動き（Hop が見本で選んだ案・2026-10-21）。
+   カードの入り方は pick-float-in と同じ値（0.3秒・ease-out・下から10px）、絞り込みを変えた時は 120ms で消えて 180ms で出る */
+.cw-float-in {
+  animation: pick-float-in 0.3s ease-out both;
+}
+@keyframes cw-list-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes cw-list-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.cw-list-out {
+  animation: cw-list-out 120ms var(--ease-standard) both;
+}
+.cw-list-in {
+  animation: cw-list-in 180ms var(--ease-standard) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cw-float-in,
+  .cw-list-out,
+  .cw-list-in {
+    animation: none;
+  }
+}
+
 /* ページ遷移フェードイン（全ページ共通） */
 @keyframes page-fade-in {
   from { opacity: 0; }

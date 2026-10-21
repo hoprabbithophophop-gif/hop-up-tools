@@ -1,8 +1,25 @@
 // HarmonyPalette の PuzzleGridRetro の移植。並び・大きさ・線の引き方は同じ。
 // 色は docs/DESIGN.md のトークンに置き換え（黄色の選択色 → 面の濃淡と黒、赤は間違いの表示だけ）
-import React from "react";
+import React, { useLayoutEffect, useRef } from "react";
 import type { GridCell, PuzzleData } from "../../../lib/crossword/types";
+import { animateElement } from "../../../lib/crossword/motion";
 import { C } from "../style";
+
+/**
+ * 盤の動き（Hop が見本で選んだ案。2026-10-21）。id が変わった時に1回だけ動かす。渡さなければ何も動かない。
+ * 動きの判断には答え・正誤を使わない（どのマスが埋まったかだけで決める）
+ * - press: 語の並びの濃淡を、押したマスから1マス25msずつ遅らせて付ける（キーは "x,y"、値は遅らせる ms）
+ * - input: 入れた字を 1.3倍・透明から 1倍へ（ばね 550/30 と不透明度）
+ * - words: 埋まった語のマスの字が上に4px跳ねて戻る（0.3秒。キーは "x,y"、値は遅らせる ms。Hop 2026-10-21 灰の帯から変更）
+ * - place: 決まった盤のマスを左上から1マス20msずつ置く（透明・0.6倍から 0.2秒）
+ */
+export interface GridFx {
+  id: number;
+  press?: Record<string, number>;
+  input?: string;
+  words?: Record<string, number>;
+  place?: boolean;
+}
 
 interface PuzzleGridRetroProps {
   data: PuzzleData;
@@ -17,6 +34,8 @@ interface PuzzleGridRetroProps {
   wrongCells?: Set<string>;
   /** 静かに脈打たせるマス（初めて解く人に、押す所を知らせる。Hop 決定 2026-10-05）。色は使わず濃淡だけ */
   pulseCell?: { x: number; y: number } | null;
+  /** 盤の動き（解く画面と作る画面の2の段だけが渡す） */
+  fx?: GridFx | null;
 }
 
 export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
@@ -29,8 +48,43 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
   onCellClick,
   wrongCells = new Set(),
   pulseCell = null,
+  fx = null,
 }) => {
   const cellSize = 48;
+  const boardRef = useRef<HTMLDivElement>(null);
+  const doneFx = useRef<number | null>(null);
+
+  // 動きは描いた後に、マスの部品を目印で探して動かす（入力は止めない。途中で押しても打っても動きと関係なく進む）。
+  // 途中の return より前に置く
+  useLayoutEffect(() => {
+    const root = boardRef.current;
+    if (!fx || !root || doneFx.current === fx.id) return;
+    doneFx.current = fx.id;
+    const at = (key: string, part: string) => root.querySelector<HTMLElement>(`[data-cell="${key}"] [data-cell-${part}]`);
+    if (fx.press) {
+      Object.entries(fx.press).forEach(([key, ms]) => {
+        const el = at(key, "hl");
+        if (el) animateElement(el, { opacity: 0 }, { opacity: 1 }, { delay: ms / 1000 });
+      });
+    }
+    if (fx.input) {
+      const el = at(fx.input, "char");
+      if (el) animateElement(el, { scale: 1.3, opacity: 0 }, { scale: 1, opacity: 1 });
+    }
+    if (fx.words) {
+      Object.entries(fx.words).forEach(([key, ms]) => {
+        const el = at(key, "char");
+        if (el) animateElement(el, {}, { y: [0, -4, 0] }, { duration: 0.3, ease: "easeOut", delay: ms / 1000 });
+      });
+    }
+    if (fx.place) {
+      root.querySelectorAll<HTMLElement>("[data-cell]").forEach((el) => {
+        const [x, y] = (el.dataset.cell ?? "0,0").split(",").map(Number);
+        animateElement(el, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1 }, { duration: 0.2, ease: "easeOut", delay: (x + y) * 0.02 });
+      });
+    }
+  }, [fx]);
+
   const containerWidth = data.width * cellSize;
   const containerHeight = data.height * cellSize;
 
@@ -90,7 +144,7 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
         }
       `}</style>
 
-      <div className="relative" style={{ width: containerWidth, height: containerHeight }}>
+      <div ref={boardRef} className="relative" style={{ width: containerWidth, height: containerHeight }}>
         {orderedCells.map((cell) => {
           const cellKey = `${cell.x},${cell.y}`;
           const isActive = activeCell?.x === cell.x && activeCell?.y === cell.y;
@@ -105,12 +159,13 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
           return (
             <div
               key={cellKey}
+              data-cell={cellKey}
               className="absolute"
               style={{ width: cellSize, height: cellSize, left: cell.x * cellSize, top: cell.y * cellSize }}
             >
               {/* [No.13] ハイライト強化 - 関連ワード背景 */}
               {isRowColActive && !isActive && (
-                <div className="absolute inset-0 pointer-events-none z-0" style={{ background: C.highlight }} />
+                <div data-cell-hl="" className="absolute inset-0 pointer-events-none z-0" style={{ background: C.highlight }} />
               )}
 
               {/* [No.13] アクティブセル背景 */}
@@ -158,7 +213,8 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
                 }}
                 disabled={showSolution}
               >
-                {value || ""}
+                {/* 字を入れた時に字だけを動かせるよう、字を箱に入れる */}
+                {value ? <span data-cell-char="" style={{ display: "inline-block" }}>{value}</span> : ""}
               </button>
 
               {/* Clue Number */}

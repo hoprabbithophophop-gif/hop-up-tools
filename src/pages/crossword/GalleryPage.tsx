@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { usePageReady } from "../../lib/pageReady";
 import { getPublicPuzzles, type GalleryPuzzle, type SortOption } from "../../lib/crossword/gallery";
+import { prefersReducedMotion } from "../../lib/crossword/motion";
 import { GROUP_NAMES } from "../../lib/crossword/groupDetect";
 import { PuzzleGalleryCard, BEGINNER_LABEL } from "./components/PuzzleGalleryCard";
 import { Footer, Icon } from "./components/ui";
@@ -49,6 +50,20 @@ export default function GalleryPage() {
   const [nextOffset, setNextOffset] = useState(0); // 「もっと見る」で次に読み始める位置
   const reqId = useRef(0);
 
+  // 一覧の動き（Hop が見本で選んだ案・2026-10-21）。
+  // 開いた時・読み込み直した時・「もっと見る」で増えた時は、増えたカードが上から順にふわっと入る（1件40msずつ）。
+  // 絞り込み・並び替え・検索を変えた時は、今の一覧が 120ms で消え、届いた一覧が 180ms で出る（カードごとの入り方は付けない）
+  const [enter, setEnter] = useState<{ gen: number; mode: "float" | "fade"; from: number }>({ gen: 0, mode: "float", from: 0 });
+  const enterMode = useRef<"float" | "fade">("float");
+  const [exitList, setExitList] = useState<GalleryPuzzle[] | null>(null);
+  const exitTimer = useRef<number | null>(null);
+  const shownRef = useRef<GalleryPuzzle[]>([]);
+  // 前回読んだ時の絞り込み（同じなら開いた時の読み込み。開発時に見張りが二度走っても「変えた」扱いにしない）
+  const lastFilter = useRef<string | null>(null);
+  useEffect(() => () => {
+    if (exitTimer.current !== null) window.clearTimeout(exitTimer.current);
+  }, []);
+
   // ページ移動の波は、最初の一覧が届くまで待ってもらう
   usePageReady(firstDone);
 
@@ -72,8 +87,15 @@ export default function GalleryPage() {
           offset: isLoadMore ? nextOffset : 0,
         });
         if (id !== reqId.current) return; // 絞り込みを変えた後に届いた古い答えは捨てる
-        if (isLoadMore) setPuzzles((prev) => [...prev, ...response.puzzles]);
-        else setPuzzles(response.puzzles);
+        if (isLoadMore) {
+          const from = shownRef.current.length;
+          setPuzzles((prev) => [...prev, ...response.puzzles]);
+          setEnter((e) => ({ ...e, mode: "float", from }));
+        } else {
+          setPuzzles(response.puzzles);
+          const mode = enterMode.current;
+          setEnter((e) => ({ gen: e.gen + 1, mode, from: mode === "float" ? 0 : Infinity }));
+        }
         setHasMore(response.hasMore);
         setNextOffset(response.nextOffset);
       } catch (err) {
@@ -93,8 +115,26 @@ export default function GalleryPage() {
 
   // 初回ロードとフィルタ変更時
   useEffect(() => {
+    const filterKey = JSON.stringify([appliedSearch, sortBy, group, appliedTag, beginnerOnly]);
+    const changed = lastFilter.current !== null && lastFilter.current !== filterKey;
+    lastFilter.current = filterKey;
+    if (!changed) {
+      enterMode.current = "float";
+    } else {
+      enterMode.current = "fade";
+      // 今出ている一覧を 120ms で消す（読み込みは待たせない。消えている間に届いた一覧は消え終わってから出す）
+      if (!loading && !error && puzzles.length > 0 && !prefersReducedMotion()) {
+        if (exitTimer.current !== null) window.clearTimeout(exitTimer.current);
+        setExitList(puzzles);
+        exitTimer.current = window.setTimeout(() => {
+          exitTimer.current = null;
+          setExitList(null);
+        }, 120);
+      }
+    }
     fetchPuzzles(false);
   }, [appliedSearch, sortBy, group, appliedTag, beginnerOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  shownRef.current = puzzles;
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,7 +150,10 @@ export default function GalleryPage() {
     if (!loadingMore && hasMore) fetchPuzzles(true);
   };
 
-  const handleRefresh = () => fetchPuzzles(false);
+  const handleRefresh = () => {
+    enterMode.current = "float";
+    fetchPuzzles(false);
+  };
 
   const clearSearch = () => {
     setSearchQuery("");
@@ -255,7 +298,13 @@ export default function GalleryPage() {
           </div>
 
           {/* コンテンツエリア */}
-          {loading ? (
+          {exitList ? (
+            <div key="cw-list-out" aria-hidden="true" inert className="cw-list-out pointer-events-none grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[2px]">
+              {exitList.map((puzzle) => (
+                <PuzzleGalleryCard key={puzzle.id} puzzle={puzzle} />
+              ))}
+            </div>
+          ) : loading ? (
             <div className="flex items-center justify-center py-20">
               <div className="w-6 h-6 border-2 border-black border-t-transparent motion-safe:animate-spin" />
               <span className="ml-3" style={{ color: C.secondary }}>読み込み中…</span>
@@ -300,9 +349,9 @@ export default function GalleryPage() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[2px]">
-                {puzzles.map((puzzle) => (
-                  <PuzzleGalleryCard key={puzzle.id} puzzle={puzzle} />
+              <div key={`cw-list-${enter.gen}`} className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[2px]${enter.mode === "fade" && enter.from === Infinity ? " cw-list-in" : ""}`}>
+                {puzzles.map((puzzle, i) => (
+                  <PuzzleGalleryCard key={puzzle.id} puzzle={puzzle} enterDelayMs={i >= enter.from ? (i - enter.from) * 40 : undefined} />
                 ))}
               </div>
 

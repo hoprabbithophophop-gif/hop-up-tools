@@ -2,9 +2,10 @@
 // 変えた所: 見た目（DESIGN.md。枠線なしの白い面、角なし、影なし、hover は面の濃淡）、アイコン（Material Symbols）、
 // 足した物（「初めての人向け」の印）、下段の「ランキング」の入口（Hop 指示 2026-10-17。解かなくてもランキングを見られるように。
 // これに伴い、カード全体が1つのボタンだった作りを、面の押下＋下段の2つのリンクに変えた。ボタンの中にリンクは置けないため）。
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { GalleryPuzzle } from "../../../lib/crossword/gallery";
+import { prefersReducedMotion } from "../../../lib/crossword/motion";
 import { C } from "../style";
 import { Icon } from "./ui";
 
@@ -22,16 +23,36 @@ function formatDate(iso?: string): string {
 }
 
 // headingLevel: 題名の見出しの段（ギャラリーは h2、解き終えた画面の「ほかの問題」の下では h3。2026-10-06 アクセシビリティの直し）
-export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle; headingLevel?: 2 | 3 }> = ({ puzzle, headingLevel = 2 }) => {
+// 押した時の動き（Hop が見本で選んだ案 C・2026-10-21）: 押した面の濃さを 120ms 残してから解く画面へ
+const PRESS_HOLD_MS = 120;
+
+// enterDelayMs: 一覧に出る時の入り方（上から順にふわっと。ギャラリーだけが渡す。渡さなければ動かない）
+export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle; headingLevel?: 2 | 3; enterDelayMs?: number }> = ({ puzzle, headingLevel = 2, enterDelayMs }) => {
   const Heading = headingLevel === 3 ? "h3" : "h2";
   const navigate = useNavigate();
   const dateStr = formatDate(puzzle.created_at);
+  const [pressed, setPressed] = useState(false);
+  const pressTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
+  }, []);
+  const open = () => {
+    if (pressTimer.current !== null) return; // 続けて押しても1回だけ移る
+    const to = `/crossword/${puzzle.id}`;
+    if (prefersReducedMotion()) {
+      navigate(to);
+      return;
+    }
+    setPressed(true);
+    pressTimer.current = window.setTimeout(() => navigate(to), PRESS_HOLD_MS);
+  };
 
   return (
     <article
-      onClick={() => navigate(`/crossword/${puzzle.id}`)}
-      className="bg-white hover:bg-surface-container-low p-4 text-left w-full transition-colors cursor-pointer"
-      style={{ color: C.ink }}
+      onClick={open}
+      data-pressed={pressed ? "" : undefined}
+      className={`bg-white hover:bg-surface-container-low p-4 text-left w-full transition-colors cursor-pointer${enterDelayMs !== undefined ? " cw-float-in" : ""}`}
+      style={{ color: C.ink, ...(pressed ? { backgroundColor: C.high } : null), ...(enterDelayMs !== undefined ? { animationDelay: `${enterDelayMs}ms` } : null) }}
     >
       {/* ヘッダー：タイトル */}
       <div className="flex items-start gap-2 mb-3">

@@ -11,7 +11,7 @@
  *           字は縦線の右のマスに入って縦線が右へ進む。゛゜と消すは縦線の左の字に効く
  */
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PlacedItem } from "../../../lib/crossword/types";
 import type { Genre, HintRef } from "../../../lib/crossword/puzzleStore";
 import { animateElement, currentValue, type MotionHandle } from "../../../lib/crossword/motion";
@@ -36,6 +36,8 @@ interface PuzzleCloseupModalProps {
   onKeyPress: (char: string) => void;
   onBackspace: () => void;
   onClose: () => void;
+  /** 窓が消え終わって画面から外れた時（盤が見えた時に、窓に隠れている間に埋まった語を跳ねさせる） */
+  onExited?: () => void;
   onComplete: () => void;
   onPrevCell: () => void;
   onNextCell: () => void;
@@ -44,6 +46,8 @@ interface PuzzleCloseupModalProps {
   onReveal?: () => void;
   /** その回ですでに1文字見るを使ったか（使っていれば確かめずに開ける） */
   revealUsed?: boolean;
+  /** 字を入れた時の動き（id が変わったら key のマスの字をぽんと置く。key は盤の "x,y"） */
+  inputFx?: { id: number; key: string } | null;
 }
 
 // framer-motion の drag="y" / dragElastic 0.2 / dragConstraints {top:0,bottom:0} の再現に使う値
@@ -62,12 +66,14 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
   onKeyPress,
   onBackspace,
   onClose,
+  onExited,
   onComplete,
   onPrevCell,
   onNextCell,
   onModifyChar,
   onReveal,
   revealUsed = false,
+  inputFx = null,
 }) => {
   const [showHint, setShowHint] = useState(false);
   const [confirmReveal, setConfirmReveal] = useState(false);
@@ -81,6 +87,11 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
   const drag = useRef<{ id: number; startY: number; dragging: boolean } | null>(null);
   const dragY = useRef(0); // 今の y（px）。ドラッグで動いた後の exit はここから始める
   const snapBack = useRef<MotionHandle | null>(null);
+
+  // 消える動きが終わって外れた時に知らせる（呼ぶのはその時の最新の関数）
+  const onExitedRef = useRef(onExited);
+  onExitedRef.current = onExited;
+  useEffect(() => () => onExitedRef.current?.(), []);
 
   // カギが変わったら入力に戻す
   useEffect(() => {
@@ -106,6 +117,19 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
     Array.from(el.children).forEach((c) => ro.observe(c));
     return () => ro.disconnect();
   }, [sheetRef]);
+
+  // 字を入れた時: 盤と同じく、字が 1.3倍・透明から 1倍へ（ばね 550/30 と不透明度。Hop が見本で選んだ案 B・2026-10-21）
+  const doneInputFx = useRef<number | null>(inputFx?.id ?? null);
+  useLayoutEffect(() => {
+    if (!inputFx || doneInputFx.current === inputFx.id) return;
+    doneInputFx.current = inputFx.id;
+    const [x, y] = inputFx.key.split(",").map(Number);
+    const index = wordItem.direction === "horizontal" ? x - wordItem.startX : y - wordItem.startY;
+    const onWord = wordItem.direction === "horizontal" ? y === wordItem.startY : x === wordItem.startX;
+    if (!onWord || index < 0 || index >= wordItem.length) return;
+    const el = cellsRef.current?.querySelectorAll<HTMLElement>("[data-closeup-cell]")[index]?.querySelector<HTMLElement>("[data-closeup-char]");
+    if (el) animateElement(el, { scale: 1.3, opacity: 0 }, { scale: 1, opacity: 1 });
+  }, [inputFx]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getCellValue = (index: number): string => {
     const x = wordItem.direction === "horizontal" ? wordItem.startX + index : wordItem.startX;
@@ -223,6 +247,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
       {/* [No.04] ボトムシート化 - 画面下部からスライドイン */}
       <Motion
         ref={sheetRef}
+        data-closeup-sheet=""
         initial={{ y: "100%", opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: "100%", opacity: 0 }}
@@ -346,7 +371,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
                       color: value ? "#1a1a1a" : C.placeholder,
                     }}
                   >
-                    {value || "·"}
+                    {value ? <span data-closeup-char="" style={{ display: "inline-block" }}>{value}</span> : "·"}
                   </button>
                 </React.Fragment>
               );
