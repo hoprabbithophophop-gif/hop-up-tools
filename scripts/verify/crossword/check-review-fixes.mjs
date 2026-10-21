@@ -9,15 +9,18 @@
 //   (6) 練習問題のハンコは2秒で薄れる（C）
 //   (7) ギャラリー: グループの印が無くてもタグにグループ名（表記ゆれ込み）がある問題を拾う（B）・空の絞り込みの道（E）
 //   (7) ギャラリーにジャンルの切り替え（ハロプロ｜その他）が無く、一覧をジャンルで絞って頼まない（2026-10-20）
-//   (8) 作る画面（4段の流れ・2026-10-21 に書き直し）: 使えない字（ヰ）・半角カナ・置けない所の上の影（F）・固定がつながらない盤（8・下書きを置いて確かめる）・1日5個の知らせが無い
-//       （「リストに追加」が押せない理由の1行（D）は、1語ずつの欄と一緒に無くなったので消した）
+//   (8) 作る画面（案A「作る｜試す」・Hop 決定 2026-10-22 に合わせて 2026-10-22 に書き直し）: 使えない字（ヰ）は語の一覧で断る・半角カナは語の一覧で全角にそろう・
+//       置けない所の上の影（F）は広げた盤で見る・固定がつながらない盤（作りかけを置いて確かめる）は広げた盤に知らせが出て共有の窓で「共有する」が押せない・1日5個の知らせが無い
+//       （「リストに追加」が押せない理由の1行（D）は、1語ずつの欄と一緒に無くなったので消した。
+//         「1の段のヒントを付ける側の行」は段の切り替えが無くなったので語の一覧で見る。「この盤で進む」が押せない確かめは、ボタンが無くなったので共有の窓の「共有する」に替えた）
 //   (9) 作る画面は記録の空のブラウザで初めて開いても幕の案内が出ず、「?」も無い（11段の案内は解く画面の「?」からだけ）
+// 手元の vite は口ごとの一時置き場で部品をまとめ、書き換えの見張り（HMR）を止めて立てる（_lib.mjs の isolatedViteConfig。途中でページが読み込み直されないように）
 // 使い方: node scripts/verify/crossword/check-review-fixes.mjs（引数なし）
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { chromium } from 'playwright';
-import { outDir, ROOT, leaveFirstVisitMarks, cellState, watchStumbles } from './_lib.mjs';
-import { CREATE_MARKS, writeLines, hintMode, hintAllInAnswers, toBoard } from './_create.mjs';
+import { outDir, ROOT, leaveFirstVisitMarks, cellState, watchStumbles, isolatedViteConfig } from './_lib.mjs';
+import { CREATE_MARKS, writeLines, waitBoard, openBoard, closeBoard, openShare, closeShare } from './_create.mjs';
 
 // 「初めて」の印は台本の中で場面ごとに立てる
 leaveFirstVisitMarks();
@@ -42,7 +45,7 @@ function stopServer() {
   else server.kill('SIGTERM');
 }
 async function startServer() {
-  server = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), '--port', String(PORT), '--strictPort'], {
+  server = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), '--config', isolatedViteConfig(PORT), '--port', String(PORT), '--strictPort'], {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, VITE_SUPABASE_URL: MOCK_SUPA, VITE_SUPABASE_ANON_KEY: 'mock-anon-key' },
@@ -502,27 +505,28 @@ try {
     await ctx.close();
   }
 
-  // ---- (8) 作る画面（4段の流れ・2026-10-20）: 使えない字・半角カナ・置けない所の上の影・「1日5個」の知らせが無い ----
+  // ---- (8) 作る画面（案A「作る｜試す」・2026-10-22）: 使えない字・半角カナ・置けない所の上の影・「1日5個」の知らせが無い ----
   {
     const { ctx, page } = await newPage({ marks: CREATE_MARKS });
     await page.goto(`${BASE}/crossword/create`);
     await page.locator('[data-bulk-text]').waitFor({ timeout: 20000 });
-    // ヰ・ヱ は使えない字として断る。半角カナは NFKC でそろう（1の段の「ヒントを付ける」側の行の下に出る）
+    // ヰ・ヱ は使えない字として断る。半角カナは NFKC でそろう（どちらも書く欄の下の語の一覧に出る）
     await writeLines(page, '【ヰド】の話\n【ｶﾞｸ】\n【コアラ】\n【ネコ】');
-    await hintMode(page);
-    check((await page.locator('[data-bulk-reason="unusable"]').textContent().catch(() => null)) === 'ヰド：使えない字（ヰ・ヱ）', '(8) 答えに ヰ が入っていると「使えない字（ヰ・ヱ）」と断る');
-    check((await page.locator('[data-bulk-answer="ガク"]').count()) === 1, '(8) 半角カナ「ｶﾞｸ」は「ガク」の2マスにそろう');
+    check((await page.locator('[data-word-list] [data-bulk-reason="unusable"]').textContent().catch(() => null)) === 'ヰド：使えない字（ヰ・ヱ）', '(8) 答えに ヰ が入っていると語の一覧で「使えない字（ヰ・ヱ）」と断る');
+    check((await page.locator('[data-word-row="ガク"]').count()) === 1, '(8) 半角カナ「ｶﾞｸ」は語の一覧で「ガク」の2マスにそろう');
     await page.screenshot({ path: path.join(OUT, '8-reasons-390.png'), fullPage: true });
 
-    // F: 置けない所の上では影が薄い（2の段の盤）
+    // F: 置けない所の上では影が薄い（広げた盤）
     await writeLines(page, '【コアラ】\n【ネコ】');
-    await hintAllInAnswers(page, ['コアラ', 'ネコ']);
-    await toBoard(page);
+    await page.waitForFunction(() => document.querySelectorAll('[data-word-row]').length === 2, null, { timeout: 10000 });
+    await waitBoard(page);
+    await openBoard(page);
     const ne = page.locator('[data-create-board] [id^="cell-"][aria-label$="・ネ"]');
+    await ne.waitFor({ timeout: 20000 });
     await ne.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(600);
     const nb = await ne.boundingBox();
-    check(!!nb, `(8) 見本の盤が組めた（ネのマス ${nb ? 'あり' : '無し'}）`);
+    check(!!nb, `(8) 見本の盤が広げた盤に組めた（ネのマス ${nb ? 'あり' : '無し'}）`);
     const cx = nb.x + nb.width / 2, cy = nb.y + nb.height / 2;
     await page.mouse.move(cx, cy);
     await page.mouse.down();
@@ -540,34 +544,45 @@ try {
     await page.mouse.up();
     check(g1 && g1.p === 'no' && Number(g1.o) < 0.3, `(8) 置けない所の上では持ち上げた語の影が薄い（${g1 ? g1.o : '影なし'}）`);
     check(g2 && g2.p === 'yes' && Math.abs(Number(g2.o) - 0.6) < 0.01, `(8) 置ける所（元の場所）では今の濃さ（${g2 ? g2.o : '影なし'}）`);
-    check((await page.getByText(/1日に作成・保存できるパズルは5個まで/).count()) === 0, '(8) 「1日5個まで」の知らせは無い');
+    await closeBoard(page);
+    check((await page.getByText(/1日に作成・保存できるパズルは5個まで/).count()) === 0, '(8) 「1日5個まで」の知らせは無い（作る画面）');
+    await openShare(page);
+    check((await page.getByText(/1日に作成・保存できるパズルは5個まで/).count()) === 0, '(8) 「1日5個まで」の知らせは無い（共有の窓）');
     await ctx.close();
   }
 
   // ---- (8) 固定した語どうしがつながらない盤 ----
-  // 4段の流れでは、動かす時に盤がつながったままの所にしか置けず、1の段で語を消して探し直すと固定は外れるので、画面の操作ではこの盤にならない見込み。
-  // 作りかけ（端末の下書き）に、固定した2語が離れた盤が残っていた時の守り（「この盤で進む」を押せず理由が出る）を、下書きを置いて確かめる
+  // 案A でも、動かす時は盤がつながったままの所にしか置けず、書く欄で語を消して探し直すと固定は外れるので、画面の操作ではこの盤にならない見込み。
+  // 作りかけ（端末の下書き・案A の version 3）に、固定した2語が離れた盤が残っていた時の守りを、下書きを置いて確かめる
   {
     const draft = {
-      version: 2, step: 2, bulkText: '【アカ】\n【アキ】', collapsed: true, hints: {}, hintLabels: {}, clues: {},
+      version: 3, bulkText: '【アカ】\n【アキ】', hints: {}, hintLabels: {}, clues: {},
       board: [
         { id: 'アカ', uuid: 'アカ', question: '', answer: ['ア', 'カ'], direction: 'horizontal', startX: 0, startY: 0, length: 2, pinned: true },
         { id: 'アキ', uuid: 'アキ', question: '', answer: ['ア', 'キ'], direction: 'horizontal', startX: 0, startY: 2, length: 2, pinned: true },
       ],
-      proposals: null, picked: null, title: '', creatorName: '', tags: [], isBeginner: false,
+      proposals: null, picked: null, boardSig: 'アカ:アカ|アキ:アキ', searchedSig: 'アカ:アカ|アキ:アキ', title: '', creatorName: '', tags: [], isBeginner: false,
     };
     const { ctx, page } = await newPage({ marks: { ...CREATE_MARKS, crossword_draft: JSON.stringify(draft) } });
     await page.goto(`${BASE}/crossword/create`);
-    await page.locator('[data-create-step="2"]').waitFor({ timeout: 20000 });
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 20000 });
     await page.waitForTimeout(500);
-    const pins = await page.locator('[data-pin]').count();
-    check(pins === 2, `(8) 下書きの盤は固定の印つきで2の段に戻る（固定の印 ${pins}）`);
-    const msg = page.locator('[data-not-connected]');
-    check((await msg.count()) === 1 && (await msg.textContent()).includes('固定した語がつながっていません'), '(8) 固定した語がつながらない盤では「固定した語がつながっていません。…」が出る');
-    check(await page.locator('[data-bulk-adopt]').isDisabled(), '(8) 「この盤で進む」は押せない（3の段へ進めないので共有もできない）');
-    await page.screenshot({ path: path.join(OUT, '8-not-connected-390.png'), fullPage: true });
-    await page.getByRole('button', { name: '固定を外す' }).click();
-    await page.locator('[data-bulk-adopt]:enabled').waitFor({ timeout: 30000 }).catch(() => {});
+    await openBoard(page);
+    const pins = await page.locator('[data-board-sheet] [data-pin]').count();
+    check(pins === 2, `(8) 下書きの盤は固定の印つきで広げた盤に戻る（固定の印 ${pins}）`);
+    const msg = page.locator('[data-board-sheet] [data-not-connected]');
+    check((await msg.count()) === 1 && (await msg.textContent()).includes('固定した語がつながっていません'), '(8) 固定した語がつながらない盤では、広げた盤に「固定した語がつながっていません。…」が出る');
+    await page.screenshot({ path: path.join(OUT, '8-not-connected-390.png') });
+    await closeBoard(page);
+    await openShare(page);
+    const blocks = (await page.locator('[data-share-blocks]').textContent()) ?? '';
+    check(blocks.includes('固定した語がつながっていません') && (await page.locator('[data-save]').isDisabled()), `(8) 共有の窓に押せない理由が出て「共有する」は押せない（${blocks.trim()}）`);
+    await page.screenshot({ path: path.join(OUT, '8-not-connected-share-390.png') });
+    await closeShare(page);
+    await openBoard(page);
+    await page.locator('[data-pins-release]').click();
+    await page.locator('[data-board-sheet] [data-not-connected]').waitFor({ state: 'detached', timeout: 30000 }).catch(() => {});
+    await page.locator('[data-reshuffle]:enabled').waitFor({ timeout: 30000 }).catch(() => {});
     check((await page.locator('[data-not-connected]').count()) === 0 && (await page.locator('[data-pin]').count()) === 0, '(8) 「固定を外す」で組み直すと知らせと固定の印は消える');
     await ctx.close();
   }
