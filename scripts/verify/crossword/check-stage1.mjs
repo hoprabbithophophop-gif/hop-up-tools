@@ -1,6 +1,9 @@
 // クロスワード段階1の完成の定義（docs/definition-of-done.md）の5項目を、実際の画面で順に確かめる。
 // 本番にもプレビューにも通信しない（2026-10-19 Hop「本番環境から見える形で検収用パズル登録を二度とするな」）。
 // 手元の vite をこの台本が立ち上げ、棚（/rest/v1）・受付係（/api）・人間確認（Turnstile）・YouTube はブラウザの中で受け止める。
+// 動画のことは YouTube にもどこにも問い合わせない作り（Hop 決定 2026-10-21）なので、ブラウザから YouTube の oEmbed（youtube.com/oembed）・googleapis.com・
+// /api/crossword-video-info への通信が1本も無いことも見る。確かめるのはこの3つの宛先だけ。埋め込みの再生の読み込み（www.youtube.com・i.ytimg.com）と
+// 字の形の読み込み（fonts.googleapis.com）は範囲の外
 // 保存は作り物の受付係が受け、台本の中に持った問題で解く。受付係そのものの動きは check-owner-edit・check-fixtures（手元の受付係）で見る
 // 使い方: node scripts/verify/crossword/check-stage1.mjs（引数なし。--skip-save を付けると 1〜4 を飛ばす）
 // スクリーンショットの置き場は環境変数 OUT（古い名前の VERIFY_OUT も可）があればそこ、無ければ 一時置き場/hop-up-tools-verify/crossword/check-stage1/
@@ -44,6 +47,8 @@ async function startServer() {
 
 // ---- 作り物の棚と受付係。保存された問題をここに持つ（ブラウザの記録が別でも同じ問題が開ける） ----
 const saved = new Map(); // id → { row, answers }
+const asked = []; // 問い合わせてはいけない宛先への通信
+const FORBIDDEN = /youtube\.com\/oembed|(?<!fonts\.)googleapis\.com|\/api\/crossword-video-info/;
 function storedRow(id, puzzle) {
   const { body } = puzzle;
   return {
@@ -63,6 +68,9 @@ const solutionOf = (id) => {
   return cells;
 };
 async function mockAll(ctx) {
+  ctx.on('request', (req) => {
+    if (FORBIDDEN.test(req.url())) asked.push(req.url());
+  });
   await ctx.route(`${MOCK_SUPA}/**`, (route) => {
     const u = new URL(route.request().url());
     const json = (body) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'content-range': '*/0' }, body: JSON.stringify(body) });
@@ -104,8 +112,6 @@ async function mockAll(ctx) {
   await ctx.route('https://challenges.cloudflare.com/turnstile/**', (r) =>
     r.fulfill({ contentType: 'application/javascript', body: 'window.turnstile={render:function(el,o){setTimeout(function(){o.callback("check-stage1")},50);return "w"},remove:function(){},reset:function(){}};' }),
   );
-  // チャンネル名を答える受付係の作り物（上の受付係全体の受け止めより後に置く）
-  await ctx.route(/\/api\/crossword-video-info\?/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', channel: 'テストチャンネル' }) }));
   // YouTube の再生部品（iframe_api）の作り物。画面が渡した videoId と playerVars（start・autoplay）を、本物と同じく埋め込みの住所の引数にして枠を作る
   await ctx.route('https://www.youtube.com/iframe_api', (r) =>
     r.fulfill({
@@ -190,8 +196,10 @@ await pa.getByText('ハロプロ', { exact: true }).first().click();
 await fieldByLabel(pa, 'ヒント').fill('https://youtu.be/dQw4w9WgXcQ?t=83');
 await pa.waitForTimeout(1500);
 const helloText = await pa.evaluate(() => document.body.innerText);
-// 2026-10-19 案1: 台帳に無い動画は断らず、チャンネル名と「公式の発信か確かめてください」を添える（YouTube への問い合わせは作り物が答える）
-r['5 ハロプロで台帳に無い YouTube はチャンネル名付きで通る'] = /チャンネル: .+ ハロプロの公式の発信か確かめてください/.test(helloText);
+// 2026-10-21: 台帳に無い動画は問い合わせずにそのまま選び、公式チャンネルの動画か確かめる1文を添える（作り物の台帳は空＝どの動画も台帳に無い）
+r['5 ハロプロで台帳に無い YouTube は問い合わせずに通り、1文が出る'] =
+  (await pa.locator('[data-hint-outside]').textContent().catch(() => null)) === 'ハロプロのグループや事務所の公式チャンネルの動画か、確かめてください。';
+r['5 チャンネル名は出ない'] = !/チャンネル:/.test(helloText);
 r['5 ハロプロのヒント欄に公式の発信の案内'] = /ヒントはハロプロの公式の発信/.test(helloText);
 await pa.getByLabel('ヒントを外す').click(); // 選ばれた札を外して欄に戻す
 await pa.waitForTimeout(300);
@@ -251,6 +259,8 @@ r['2 構築中の動きが出た'] = await pb.getByText(T.building).first().wait
 await browser.close();
 stopServer();
 r['外に置いた試しの問題'] = 'なし（手元の作り物の棚だけ）';
+r['oEmbed・googleapis.com・/api/crossword-video-info への通信が無い'] = asked.length === 0;
+if (asked.length) console.log(`   問い合わせた宛先: ${asked[0]}`);
 r['つまずき'] = errs.length ? errs : 'なし';
 let fail = 0;
 for (const [k, v] of Object.entries(r)) {

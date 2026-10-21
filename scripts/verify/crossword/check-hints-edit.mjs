@@ -1,5 +1,8 @@
 // 「ヒントを直す」画面（/crossword/hints/<番号>。Hop 決定 2026-10-19）と、作る画面の「公式ブログを探す」を確かめる。
-// 手元の vite を立ち上げ、棚（/rest/v1）・受付係（/api。チャンネル名を答える /api/crossword-video-info も）はブラウザの中で受け止める（本番にもプレビューにも通信しない）。
+// 手元の vite を立ち上げ、棚（/rest/v1）・受付係（/api）はブラウザの中で受け止める（本番にもプレビューにも通信しない）。
+// 差し替えた YouTube が台帳（youtube_videos）に無い時は、問い合わせずに選ばれ、送る中身に outside: true が入る（Hop 決定 2026-10-21）。
+// ブラウザから YouTube の oEmbed（youtube.com/oembed）・googleapis.com・/api/crossword-video-info への通信が無いことも見る。
+// 確かめるのはこの3つの宛先だけ。埋め込みの再生の読み込み（www.youtube.com・i.ytimg.com）と字の形の読み込み（fonts.googleapis.com）は範囲の外
 // 使い方: node scripts/verify/crossword/check-hints-edit.mjs
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,6 +64,8 @@ const answers = [['ア', 'イ', 'ウ'], ['ア', 'エ']];
 const browser = await chromium.launch();
 const pageErrors = [];
 let updateCalls = [];
+const asked = [];
+const FORBIDDEN = /youtube\.com\/oembed|(?<!fonts\.)googleapis\.com|\/api\/crossword-video-info/;
 try {
   await startServer();
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
@@ -86,9 +91,11 @@ try {
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
   });
   await ctx.route(/^https:\/\/(i\.ytimg\.com|www\.youtube\.com|challenges\.cloudflare\.com|[a-z.]*cloudflareinsights\.com)\//, (r) => r.fulfill({ status: 204, body: '' }));
-  await ctx.route(/\/api\/crossword-video-info\?/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', channel: 'テストチャンネル' }) }));
   const page = await ctx.newPage();
   page.on('pageerror', (e) => pageErrors.push(String(e)));
+  page.on('request', (req) => {
+    if (FORBIDDEN.test(req.url())) asked.push(req.url());
+  });
 
   // (1) 自分が作った問題: 遊ばれた問題に「ヒントを直す」
   await page.goto(`${BASE}/crossword/mine`);
@@ -118,10 +125,13 @@ try {
   await row2.locator('input').first().fill('https://youtu.be/dQw4w9WgXcQ?t=5');
   await page.waitForTimeout(1000);
   check(await btn.isEnabled(), '(3) 差し替えるとボタンが押せる');
+  const outsideTxt = await row2.locator('[data-hint-outside]').textContent().catch(() => null);
+  check(outsideTxt === 'ハロプロのグループや事務所の公式チャンネルの動画か、確かめてください。', `(3) 台帳に無い動画は問い合わせずに選ばれ、1文が出る（${outsideTxt}）`);
   await btn.click();
   await page.waitForTimeout(500);
   check(updateCalls.length === 1 && Object.keys(updateCalls[0].hints).join() === 'vertical:2' && updateCalls[0].hints['vertical:2'].videoId === 'dQw4w9WgXcQ' && updateCalls[0].hints['vertical:2'].startSec === 5 && updateCalls[0].id === PUZZLE_ID && updateCalls[0].key === KEY, `(3) 受付係へは変えた 2番だけを送る（${JSON.stringify(updateCalls[0]?.hints)}）`);
-  check(updateCalls.length === 1 && !('channel' in (updateCalls[0].hints['vertical:2'] ?? {})), '(3) チャンネル名は送らない（保存しない。見る人のブラウザがその都度聞く）');
+  check(updateCalls.length === 1 && updateCalls[0].hints['vertical:2'].outside === true, `(3) 台帳に無い動画には outside: true を付けて送る（${JSON.stringify(updateCalls[0]?.hints['vertical:2'])}）`);
+  check(updateCalls.length === 1 && !('channel' in (updateCalls[0].hints['vertical:2'] ?? {})), '(3) チャンネル名は送らない');
   await page.waitForTimeout(300);
   check(/ヒントを更新しました/.test(await page.evaluate(() => document.body.innerText)), '(3) 「ヒントを更新しました」');
   check(await btn.isDisabled(), '(3) 更新後はまた「変えたヒントがありません」で押せない');
@@ -155,6 +165,7 @@ try {
   check(wide, '(5) 390px で横にはみ出さない');
   await page.locator('[data-coach="create-hint"]').screenshot({ path: path.join(OUT, '2-blog-search-390.png') });
 
+  check(asked.length === 0, `(6) oEmbed・googleapis.com・/api/crossword-video-info への通信が無い${asked.length ? `（${asked[0]}）` : ''}`);
   check(pageErrors.length === 0, `(6) 画面のつまずき（JS の例外）が無い${pageErrors.length ? '：' + pageErrors.join(' / ') : ''}`);
   console.log(`写真: ${OUT}`);
 } finally {
