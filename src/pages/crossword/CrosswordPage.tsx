@@ -3,7 +3,7 @@
 // 変えた所: 見た目（docs/DESIGN.md）、アイコン（Material Symbols）、動き（framer-motion を使わず同じ式で再現）、
 // 知らせ（react-hot-toast を使わず自前）、保存先（Supabase）、持ってこない物（広告・Cookie 同意・コード進行・計測・ランキング等）、
 // 足した物（ジャンル・タグ・ヒント・カタカナの ゛゜小）。
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import ContactModal from "@/components/ContactModal";
@@ -24,7 +24,9 @@ import {
 import { formatTime } from "../../lib/crossword/youtubeUrl";
 
 import { PuzzleGridMinimal } from "./components/PuzzleGridMinimal";
-import { PuzzleGridRetro } from "./components/PuzzleGridRetro";
+import { PuzzleGridRetro, type GridFx } from "./components/PuzzleGridRetro";
+import { SegmentBar } from "./components/SegmentBar";
+import { animateElement, buildTrack, prefersReducedMotion } from "../../lib/crossword/motion";
 import { ClearEffect } from "./components/ClearEffect";
 import { detectKeypadType } from "./components/PuzzleKeypad";
 import { StickyHintBar } from "./components/StickyHintBar";
@@ -59,6 +61,15 @@ const TUTORIAL_KEY = "crossword_seen_tutorial";
 const TUTORIAL_PATH = "/crossword/tutorial";
 // 練習問題のハンコが薄れるまで（「本番へ」が読めるように。2026-10-06 任天堂シミュで決定）【仮】
 const TUTORIAL_STAMP_FADE_MS = 2000;
+// 解けた時のハンコが盤に届く時刻（ハンコのばね 300/20/1.5 が 1倍に最初に届く時刻を式から出す）。この時に盤が 250ms 沈む（Hop が見本で選んだ案 C・2026-10-21）
+const STAMP_LAND_MS = (() => {
+  const tr = buildTrack("scale", [3, 1], { type: "spring", stiffness: 300, damping: 20, mass: 1.5 });
+  for (let ms = 0; ms < tr.durationMs; ms += 10) if (tr.sample(ms) <= 1) return ms;
+  return 200;
+})();
+// 語のマス（"x,y" を頭から順に）
+const itemCellKeys = (it: PlacedItem) =>
+  Array.from({ length: it.length }, (_, i) => (it.direction === "horizontal" ? `${it.startX + i},${it.startY}` : `${it.startX},${it.startY + i}`));
 const PROGRESS_PREFIX = "crossword_progress_";
 const PLAYED_PREFIX = "crossword_played_";
 // 解き終えた印（タイム込み）。開き直すと解けた画面をそのまま出し、新しい回は始めない（Hop 指示 2026-10-17。
@@ -337,6 +348,53 @@ export default function CrosswordPage() {
   // 1文字見るを使った数。確かめを出すかどうかに使う（ランキングの印の数は受付係が数える）
   const [reveals, setReveals] = useState(0);
 
+  // 盤の動き（Hop が見本で選んだ案。2026-10-21）。動きの判断に答えや正誤は使わない（どのマスが埋まったかだけ）。動きの間も入力は止めない
+  const [gridFx, setGridFx] = useState<GridFx>({ id: 0 });
+  const fxIdRef = useRef(0);
+  // 字を入れたマス（文字盤・1文字見る）。入った後の盤で「字を入れた時」と「1語・交差が埋まった時」の動きを決める
+  const pendingInputRef = useRef<string | null>(null);
+  const prevAnswersRef = useRef(userAnswers);
+  // 盤の白い面（間違いの時に揺れ、解けた時にハンコを受け止めて沈む）
+  const boardBoxRef = useRef<HTMLDivElement>(null);
+  // 押したマスから語の並びの濃淡を1マス25msずつ遅らせて付ける
+  const emitPress = (word: PlacedItem, x: number, y: number) => {
+    const keys = itemCellKeys(word);
+    const i0 = Math.max(0, keys.indexOf(`${x},${y}`));
+    const press: Record<string, number> = {};
+    keys.forEach((k, i) => (press[k] = Math.abs(i - i0) * 25));
+    setGridFx({ id: ++fxIdRef.current, press });
+  };
+  // 字が入った後: 字をぽんと置き、その字で埋まった語があれば語の字を順に小さく跳ねさせる（1語は語の頭から1字25ms、2語以上は入れたマスからの距離1マス30ms。Hop 2026-10-21 灰の帯から変更）
+  useLayoutEffect(() => {
+    const prev = prevAnswersRef.current;
+    prevAnswersRef.current = userAnswers;
+    const key = pendingInputRef.current;
+    pendingInputRef.current = null;
+    if (!key || !userAnswers[key] || !playerPuzzle) return;
+    const done = playerPuzzle.items.filter((it) => {
+      const keys = itemCellKeys(it);
+      return keys.includes(key) && !keys.every((k) => !!prev[k]) && keys.every((k) => !!userAnswers[k]);
+    });
+    let words: Record<string, number> | undefined;
+    if (done.length === 1) {
+      const w: Record<string, number> = {};
+      itemCellKeys(done[0]).forEach((k, i) => (w[k] = i * 25));
+      words = w;
+    } else if (done.length > 1) {
+      const w: Record<string, number> = {};
+      const [x0, y0] = key.split(",").map(Number);
+      done.forEach((it) =>
+        itemCellKeys(it).forEach((k) => {
+          if (k in w) return;
+          const [x, y] = k.split(",").map(Number);
+          w[k] = (Math.abs(x - x0) + Math.abs(y - y0)) * 30;
+        })
+      );
+      words = w;
+    }
+    setGridFx({ id: ++fxIdRef.current, input: key, words });
+  }, [userAnswers]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 窓のキーボードと読み上げの作法（2026-10-06 アクセシビリティの直し）。
   // 前回の続きは、どちらかを選んでもらう窓なので Esc では閉じない【仮】
   const helpDialog = useDialog({ active: showHelp, onClose: () => closeHelp() });
@@ -345,16 +403,15 @@ export default function CrosswordPage() {
   // ページ移動の波は、問題が届くまで（または届かないと分かるまで）待ってもらう
   usePageReady(loadState === "done");
 
-  // [No.12] プログレスバー: 回答率を計算
-  const progressPercentage = useMemo(() => {
+  // [No.12] プログレスバー: 埋まったマスの数（合っているかは数えない）。帯はマスの数で区切る（Hop が見本で選んだ案 B・2026-10-21）
+  const filledCount = useMemo(() => {
     if (!playerPuzzle) return 0;
-    const totalCells = playerPuzzle.cells.length;
-    let filledCount = 0;
+    let n = 0;
     playerPuzzle.cells.forEach((cell) => {
       const val = userAnswers[`${cell.x},${cell.y}`];
-      if (typeof val === "string" && val.trim() !== "") filledCount++;
+      if (typeof val === "string" && val.trim() !== "") n++;
     });
-    return totalCells > 0 ? Math.round((filledCount / totalCells) * 100) : 0;
+    return n;
   }, [playerPuzzle, userAnswers]);
 
   // --- Initialization ---
@@ -737,6 +794,9 @@ export default function CrosswordPage() {
   // カギクリック → クローズアップモーダルを開く
   const focusCellByItem = (item: PlacedItem) => {
     if (pausedRef.current) return; // 一時停止の幕の間は開かない
+    // 解けた瞬間から解き終えた画面に替わるまでは開かない（前は幕が受け止めていた）
+    if (gamePhase === "cleared" && !isCleared) return;
+    emitPress(item, item.startX, item.startY);
     setActiveWordItem(item);
     setCurrentWordDirection(item.direction);
     setActiveCell({ x: item.startX, y: item.startY });
@@ -747,6 +807,8 @@ export default function CrosswordPage() {
   // セルをタップ → そのセルを含むワードでクローズアップモーダルを開く
   const openCloseupForCell = (x: number, y: number) => {
     if (!playerPuzzle || isCleared || pausedRef.current) return;
+    // 解けた瞬間から解き終えた画面に替わるまでは開かない（前は幕が受け止めていた）
+    if (gamePhase === "cleared") return;
     // 最初のマスの脈打ちと1行は、どこかのマスを押した瞬間に消して二度と出さない
     if (firstCellHint) {
       lsSet(FIRST_CELL_KEY, "1");
@@ -762,6 +824,7 @@ export default function CrosswordPage() {
     if (selection) {
       const { item: word, direction } = selection;
       const index = word.direction === "horizontal" ? x - word.startX : y - word.startY;
+      emitPress(word, x, y);
       setActiveWordItem(word);
       setCurrentWordDirection(direction);
       setActiveCell({ x, y });
@@ -784,6 +847,7 @@ export default function CrosswordPage() {
     if (!activeWordItem || isCleared) return;
     if (activeCloseupIndex >= activeWordItem.length) return;
     const key = closeupCellKey(activeCloseupIndex);
+    pendingInputRef.current = key;
     setUserAnswers((prev) => ({ ...prev, [key]: char.toUpperCase() }));
     setActiveCloseupIndex(activeCloseupIndex + 1);
   };
@@ -797,6 +861,7 @@ export default function CrosswordPage() {
     const [x, y] = closeupCellKey(index).split(",").map(Number);
     if (isDebugMode || isTutorial) {
       setReveals((r) => r + 1);
+      pendingInputRef.current = `${x},${y}`;
       setUserAnswers((prev) => ({ ...prev, [`${x},${y}`]: activeWordItem.answer[index].toUpperCase() }));
       setActiveCloseupIndex(index + 1);
       return;
@@ -804,6 +869,7 @@ export default function CrosswordPage() {
     try {
       const r = await withPlay((token) => revealCell(token, x, y));
       setReveals(r.reveals);
+      pendingInputRef.current = `${x},${y}`;
       setUserAnswers((prev) => ({ ...prev, [`${x},${y}`]: r.char }));
       setActiveCloseupIndex(index + 1);
     } catch (err) {
@@ -1060,9 +1126,17 @@ export default function CrosswordPage() {
     if (allCorrect) {
       // 解けたら幕は出さない（通信の間に幕がかかっていた時のため）
       setPaused(false);
-      // Stage 1: クリア演出開始
+      // Stage 1: クリア演出開始。ハンコをすぐ盤に押し、ハンコが届いた時に盤が沈む（Hop が見本で選んだ案 C「幕なし」・2026-10-21。前は幕＋CLEARED! の後にハンコ）。
+      // ハンコが見えるよう、入力の窓は閉じる
       setShowClearAnimation(true);
       setGamePhase("cleared");
+      setShowCloseup(false);
+      if (!prefersReducedMotion()) {
+        window.setTimeout(() => {
+          const box = boardBoxRef.current;
+          if (box) animateElement(box, {}, { scale: [1, 0.97, 1] }, { duration: 0.25, ease: "easeOut" });
+        }, STAMP_LAND_MS);
+      }
 
       // Stage 2: タイム計算（500ms後）
       clearTimeRef.current = null;
@@ -1096,7 +1170,12 @@ export default function CrosswordPage() {
       // どこが違うかは示さない。どれが間違っているかを自分で考え直すのが楽しいので（Hop 2026-10-04。HarmonyPalette の赤枠は外した）。
       // 文言は埋まっていないマスがあるかで分ける（Hop が任せた文言・2026-10-04）
       // ミスは受付係が数える（間違ったまま全部埋めたことがあるか）
-      if (!silent) toast.error("どこかに間違いがあります。", { duration: 4000 });
+      if (!silent) {
+        toast.error("どこかに間違いがあります。", { duration: 4000 });
+        // 盤が小さく横に揺れる（400ms。Hop が見本で選んだ案 C・2026-10-21）。どこが違うかは示さない
+        const box = boardBoxRef.current;
+        if (box) animateElement(box, {}, { x: [0, -6, 6, -4, 4, 0] }, { duration: 0.4, ease: "easeOut" });
+      }
     }
   };
 
@@ -1287,9 +1366,7 @@ export default function CrosswordPage() {
         {/* [No.12] プログレスバー - ヘッダー直下 */}
         {gamePhase !== "ready" && (
           <div className="sticky top-[60px] z-20 bg-white">
-            <div className="h-1 bg-surface-container-high">
-              <div className="h-full transition-all duration-300 bg-primary" style={{ width: `${progressPercentage}%` }} />
-            </div>
+            <SegmentBar filled={filledCount} total={playerPuzzle.cells.length} />
           </div>
         )}
 
@@ -1399,7 +1476,7 @@ export default function CrosswordPage() {
               <Motion initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8">
                 {/* パズル描画エリア（ハンコはこの上に押す。すぐ下に「Xに投稿」が来るように） */}
                 <div data-board-area="" className="mb-8 w-full relative">
-                  {isCleared && <ClearEffect fadeAfterMs={isTutorial ? TUTORIAL_STAMP_FADE_MS : undefined} />}
+                  {(isCleared || showClearAnimation) && <ClearEffect fadeAfterMs={isTutorial ? TUTORIAL_STAMP_FADE_MS : undefined} />}
                   {/* 一時停止の幕。盤の領域を全部覆い、中身は「再開」だけ（Hop 決定 2026-10-07） */}
                   {paused && !isCleared && (
                     <div data-pause-curtain="" className="absolute inset-0 z-10 flex items-center justify-center bg-surface-container-high">
@@ -1417,7 +1494,7 @@ export default function CrosswordPage() {
                   )}
                   {/* 幕の間は盤を見えなくし、押せなくする */}
                   <div inert={paused} style={paused ? { visibility: "hidden" } : undefined}>
-                  <div className="w-full bg-white p-6 overflow-x-auto">
+                  <div ref={boardBoxRef} data-board-box="" className="w-full bg-white p-6 overflow-x-auto">
                     <FitGrid width={playerPuzzle.width} height={playerPuzzle.height} userScale={scale}>
                       <PuzzleGridRetro
                         data={playerPuzzle}
@@ -1428,6 +1505,7 @@ export default function CrosswordPage() {
                         activeWordId={activeWordItem?.uuid ?? null}
                         onCellClick={(x, y) => openCloseupForCell(x, y)}
                         pulseCell={showFirstCellHint ? firstCellPos : null}
+                        fx={gridFx}
                       />
                     </FitGrid>
                   </div>
@@ -1571,6 +1649,7 @@ export default function CrosswordPage() {
                       const newDirection = currentWordDirection === "horizontal" ? "vertical" : "horizontal";
                       const newWord = findWordAtCell(activeCell.x, activeCell.y, newDirection);
                       if (newWord) {
+                        emitPress(newWord, activeCell.x, activeCell.y);
                         setCurrentWordDirection(newDirection);
                         setActiveWordItem(newWord);
                       }
@@ -1659,33 +1738,12 @@ export default function CrosswordPage() {
               onModifyChar={handleCloseupModifyChar}
               onReveal={handleReveal}
               revealUsed={reveals > 0}
+              inputFx={gridFx.input ? { id: gridFx.id, key: gridFx.input } : null}
             />
           )}
         </Presence>
 
-        {/* Clear Animation Overlay */}
-        <Presence>
-          {showClearAnimation && (
-            <Motion
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 flex flex-col items-center justify-center z-50"
-              style={{ background: "rgba(0,0,0,0.7)" }}
-            >
-              <Motion initial={{ scale: 0 }} animate={{ scale: [0, 1.2, 1] }} transition={{ duration: 0.5 }} className="text-6xl font-black text-white">
-                CLEARED!
-              </Motion>
-              <Motion initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="text-2xl mt-4" style={{ color: "rgba(255,255,255,0.9)" }}>
-                {clearTime !== null && (
-                  <span>
-                    タイム：{clock(clearTime)}
-                  </span>
-                )}
-              </Motion>
-            </Motion>
-          )}
-        </Presence>
+        {/* 解けた時の幕（CLEARED! とタイム）はやめた。ハンコを盤に押す（Hop が見本で選んだ案 C・2026-10-21） */}
 
         {/* Name Entry Modal for Ranking */}
         {resumeAsk !== null && (
