@@ -99,21 +99,10 @@ if (run(1)) {
   check((await text(page)).includes('見られなくなったヒントがあります'), '1 自分が作った問題に「見られなくなったヒントがあります」');
   await ctx.close();
 }
-// 2. 作る画面のヒントの窓: 台帳に無く YouTube にチャンネル名を聞けない動画（存在しない番号）は「確かめられませんでした」で選べない。
-//    聞けても再生できない動画は「この動画はヒントに使えません。」で選べない（YouTube の再生部品は本物。チャンネル名の返事だけ作り物にする）
-//    台帳にあるかの確かめは、プレビューの画面が本番の棚（youtube_videos）を読むだけ
+// 2. 作る画面のヒントの窓: 再生できない動画（存在しない番号）は「この動画はヒントに使えません。」で選べない（YouTube の再生部品は本物）。
+//    動画のことは YouTube にもどこにも問い合わせない（Hop 決定 2026-10-21）。台帳にあるかの確かめは、プレビューの画面が本番の棚（youtube_videos）を読むだけ
 if (run(2)) {
   const { ctx, page } = await open('/crossword/create');
-  await writeLines(page, '【ネコ】\n【コアラ】');
-  await openHintSheet(page, 'ネコ');
-  await page.locator('[data-hint-sheet] #cw-hint').fill('https://youtu.be/aaaaaaaaaa0');
-  await page.waitForTimeout(6000);
-  check((await page.locator('[data-hint-sheet]').innerText()).includes('この動画を確かめられませんでした。'), '2 チャンネル名を聞けない動画は「この動画を確かめられませんでした。…」で選べない');
-  await ctx.close();
-}
-if (run(2)) {
-  const fakeChannel = [/^https:\/\/www\.youtube\.com\/oembed/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: '台本の作り物', title: 'x' }) })];
-  const { ctx, page } = await open('/crossword/create', { routes: [fakeChannel] });
   await writeLines(page, '【ネコ】\n【コアラ】');
   await openHintSheet(page, 'ネコ');
   await page.locator('[data-hint-sheet] #cw-hint').fill('https://youtu.be/aaaaaaaaaa0');

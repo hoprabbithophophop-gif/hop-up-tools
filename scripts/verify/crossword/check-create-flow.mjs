@@ -1,18 +1,22 @@
 // 作る画面の4段の流れ（紙 docs/definition-of-done.md v2.1「### 作る」）を、手元の開発サーバーで通しで確かめる。
 // 本番にもプレビューにも通信しない（2026-10-19 Hop「本番環境から見える形で検収用パズル登録を二度とするな」）。
 // 手元の vite をこの台本が立ち上げ（口 5194・Supabase の住所は使わない仮の住所）、棚（/rest/v1）・受付係（/api）・人間確認（Turnstile）・
-// YouTube の oEmbed はブラウザの中で受け止める。保存と組み直しの更新は作り物が受けて、送られた中身を台本が読む。
+// 埋め込みの読み込みはブラウザの中で受け止める。保存と組み直しの更新は作り物が受けて、送られた中身を台本が読む。
+// YouTube の動画のことはどこにも問い合わせない（Hop 決定 2026-10-21「チャンネル名を出さない」）。台帳（youtube_videos）に無い動画は outside の印で通るので、
+// YouTube の oEmbed（youtube.com/oembed）・googleapis.com（字の形の fonts.googleapis.com は外す）・/api/crossword-video-info への通信が無いことも見る
 //   (1) 初めて開いた作る画面: 段の札4つ（今の段だけ黒い）・「?」・ジャンルの切り替え・「リストに追加」・1語ずつの欄が無い
 //   (2) 1の段: 答えが2つ以上で「組み合わせを探す（N語）」が押せる
 //   (3) 2の段: 案1〜3と「N語・Mマス・交差K」・選んだ案の盤（マスの数＝M）・「再シャッフル」・下書きに盤が残る
 //   (4) 3の段: 盤に入った答えだけが並ぶ・カギの下書き（○・同じ行のほかの答えは□・「問題文→【答え】」は問題文だけ）・○ボタン
 //       ・「ヒントが未選択の語が N 語あります」「カギが空の語が N 語あります」・そろうと「全部の答えにカギとヒントが付きました。」
-//       ・3の段から開いたヒントの窓には「囲みを外す」が無い・YouTube のチャンネル名は下書きに書かない
+//       ・3の段から開いたヒントの窓には「囲みを外す」が無い・台帳に無い YouTube は「公式チャンネルの動画か確かめて」の1文付きで選べ、作りかけに outside の印が残る
 //   (5) 段の行き来: 3→2→1 と戻っても、盤・書いた行・ヒント・書き直したカギが消えない
 //   (6) 作りかけ: 開き直すと同じ段・同じ盤に戻り、組み直さない（「組み立て中…」が出ない）
-//   (7) 4の窓: 題名が空なら「題名を入力してください。」・「カギの段へ戻る」・人間確認を通って保存 → URL が出る・保存の中身のジャンルは hello・作りかけが消える
+//   (7) 4の窓: 題名が空なら「題名を入力してください。」・「カギの段へ戻る」・人間確認を通って保存 → URL が出る・保存の中身のジャンルは hello・
+//       台帳に無い YouTube のヒントに outside: true・作りかけが消える
 //   (8) なぞる動き: 初めての端末で一度だけ（なぞる印・指・吹き出し・帯の「「語」を出す」）。開き直すと出ない。「動きを減らす」では止めた絵
-//   (9) 組み直し（?edit=）: 2の段から始まり、書いた行は【語】の行・題名が戻る・「更新する」で送る中身のジャンルは hello・作りかけを書かない
+//   (9) 組み直し（?edit=）: 2の段から始まり、書いた行は【語】の行・題名が戻る・「更新する」で送る中身のジャンルは hello・
+//       保存してあった YouTube のヒントは、台帳に無くても保存してあった印（outside なし）を引き継ぐ・作りかけを書かない
 // 使い方: node scripts/verify/crossword/check-create-flow.mjs（引数なし）
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -72,7 +76,8 @@ const editPuzzle = {
   id: EDIT_ID, title: '組み直しの見本', genre: 'other', tags: ['見本'], is_beginner: true, group_tags: [], play_count: 0,
   body: { version: 1, width: 2, height: 3, creatorName: '台本', clues: [
     { clueIndex: 1, direction: 'horizontal', startX: 0, startY: 0, clue: 'ニャーと鳴く動物', length: 2, hint: { kind: 'link', url: 'https://example.com/neko' } },
-    { clueIndex: 2, direction: 'vertical', startX: 1, startY: 0, clue: 'ユーカリの葉を食べる動物', length: 3, hint: { kind: 'link', url: 'https://example.com/koara' } },
+    // 保存の時点では台帳にあった動画（outside なし）。今の台帳には無い＝台帳から消えた動画として、組み直しで印を引き継ぐかを見る
+    { clueIndex: 2, direction: 'vertical', startX: 1, startY: 0, clue: 'ユーカリの葉を食べる動物', length: 3, hint: { kind: 'youtube', videoId: 'goneVideo01', startSec: 7 } },
   ] },
 };
 const editAnswers = [['ネ', 'コ'], ['コ', 'ア', 'ラ']];
@@ -80,6 +85,8 @@ const editAnswers = [['ネ', 'コ'], ['コ', 'ア', 'ラ']];
 const browser = await chromium.launch();
 const pageErrors = [];
 const sent = { saves: [], updates: [], outside: [] };
+const asked = [];
+const FORBIDDEN = /youtube\.com\/oembed|(?<!fonts\.)googleapis\.com|\/api\/crossword-video-info/;
 
 async function newPage({ marks = CREATE_MARKS, reducedMotion, extra = {} } = {}) {
   const ctx = await browser.newContext({ viewport: { width: W, height: 844 }, deviceScaleFactor: 1, ...(reducedMotion ? { reducedMotion } : {}) });
@@ -114,9 +121,11 @@ async function newPage({ marks = CREATE_MARKS, reducedMotion, extra = {} } = {})
   await ctx.route('https://challenges.cloudflare.com/turnstile/**', (r) =>
     r.fulfill({ contentType: 'application/javascript', body: 'window.turnstile={render:function(el,o){setTimeout(function(){o.callback("check-create-flow")},50);return "w"},remove:function(){},reset:function(){}};' }),
   );
-  await ctx.route(/^https:\/\/www\.youtube\.com\/oembed/, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ author_name: 'テストチャンネル', title: 'テストの動画' }) }));
   const page = await ctx.newPage();
   await watchStumbles(page, pageErrors);
+  page.on('request', (req) => {
+    if (FORBIDDEN.test(req.url())) asked.push(req.url());
+  });
   return { ctx, page };
 }
 const bodyText = (page) => page.evaluate(() => document.body.innerText);
@@ -233,7 +242,7 @@ try {
     await page.locator(`[data-clue-row="${k0}"] button[aria-label="○を入れる"]`).click();
     check((await clueInput(page, k0).inputValue()) === '○', `(4) ○ボタンでカギの欄に○が入る（${await clueInput(page, k0).inputValue()}）`);
     await clueInput(page, k0).fill(DRAFTS[k0]);
-    // 3の段から開いたヒントの窓（題は「「語」のヒント」・「囲みを外す」は無い）。1語は YouTube にして、チャンネル名が下書きに入らないかを見る
+    // 3の段から開いたヒントの窓（題は「「語」のヒント」・「囲みを外す」は無い）。1語は台帳に無い YouTube にして、1文と作りかけの outside の印を見る
     const ytKey = keys.find((k) => !['ネコ', 'コアラ'].includes(k));
     if (ytKey) {
       await page.locator(`[data-clue-row="${ytKey}"] [data-pick-hint]`).click();
@@ -241,13 +250,14 @@ try {
       await sheet.waitFor();
       check((await sheet.locator('h2').first().textContent()) === `「${ytKey}」のヒント` && (await sheet.locator('[data-unmark-sheet]').count()) === 0, `(4) 3の段から開いた窓は「「${ytKey}」のヒント」で「囲みを外す」が無い`);
       await sheet.locator('#cw-hint').fill('https://youtu.be/dQw4w9WgXcQ?t=83');
-      const ch = await sheet.locator('[data-hint-channel]').textContent({ timeout: 10000 }).catch(() => null);
-      check(ch === 'チャンネル: テストチャンネル ハロプロの公式の発信か確かめてください。', `(4) 台帳に無い YouTube はチャンネル名付きで選べる（${ch}）`);
+      const note = await sheet.locator('[data-hint-outside]').textContent({ timeout: 10000 }).catch(() => null);
+      check(note === 'ハロプロのグループや事務所の公式チャンネルの動画か、確かめてください。', `(4) 台帳に無い YouTube は問い合わせずに選べ、1文が出る（${note}）`);
+      check((await sheet.getByText(/チャンネル:/).count()) === 0, '(4) チャンネル名は出ない');
       await closeHintSheet(page);
       await page.waitForTimeout(300);
       const d = await readDraft(page);
       const h = d?.hints?.[ytKey];
-      check(h?.kind === 'youtube' && h.videoId === 'dQw4w9WgXcQ' && h.startSec === 83 && !('channel' in h), `(4) 作りかけの YouTube のヒントにチャンネル名を書かない（${JSON.stringify(h)}）`);
+      check(h?.kind === 'youtube' && h.videoId === 'dQw4w9WgXcQ' && h.startSec === 83 && h.outside === true && !('channel' in h), `(4) 作りかけの YouTube のヒントは outside の印付きで、チャンネル名は無い（${JSON.stringify(h)}）`);
     }
     await hintAllInClues(page);
     check((await missing.textContent()) === '全部の答えにカギとヒントが付きました。' && (await page.locator('[data-open-share]').isEnabled()), `(4) そろうと「${await missing.textContent()}」で「共有する」が押せる`);
@@ -320,7 +330,8 @@ try {
     check(saved?.genre === 'hello', `(7) 保存の中身のジャンルは hello（${saved?.genre}）`);
     check(saved?.title === '流れの確かめ' && saved?.body?.creatorName === '台本' && saved?.tags?.join() === '見本のタグ' && saved?.isBeginner === true, '(7) 題名・作った人・タグ・初めての人向けが保存の中身に入る');
     check(Array.isArray(saved?.body?.clues) && saved.body.clues.every((c) => c.hint && c.clue) && saved.body.clues.length === keys.length, `(7) 全部の語にカギとヒントが入る（${saved?.body?.clues?.length ?? 0}語）`);
-    // チャンネル名を棚に書かないのは受付係の仕事（画面は送る中身にそのまま載せる。toBody はヒントを素通しにする）。ここでは確かめない
+    const ytSaved = (saved?.body?.clues ?? []).filter((c) => c.hint?.kind === 'youtube');
+    check(ytSaved.length === 1 && ytSaved[0].hint.videoId === 'dQw4w9WgXcQ' && ytSaved[0].hint.outside === true && !('channel' in ytSaved[0].hint), `(7) 台帳に無い YouTube のヒントに outside: true が入り、チャンネル名は無い（${JSON.stringify(ytSaved.map((c) => c.hint))}）`);
     check((await readDraft(page)) === null, '(7) 保存に成功すると作りかけが消える');
     await page.screenshot({ path: path.join(OUT, '7-saved-390.png') });
     await ctx.close();
@@ -404,11 +415,14 @@ try {
     check((await bodyText(page)).includes('この問題を更新しました。URL は変わりません。'), '(9) 「この問題を更新しました。URL は変わりません。」');
     const up = sent.updates[0];
     check(up?.id === EDIT_ID && up?.key === EDIT_KEY && up?.puzzle?.genre === 'hello', `(9) 更新で送る中身のジャンルは hello（元の問題は other。送った ${up?.puzzle?.genre}）`);
+    const koara = (up?.puzzle?.body?.clues ?? []).find((c) => c.hint?.kind === 'youtube' && c.hint.videoId === 'goneVideo01')?.hint;
+    check(koara && koara.startSec === 7 && !('outside' in koara), `(9) 保存してあった YouTube のヒントは、今の台帳に無くても保存してあった印（outside なし）のまま送る（${JSON.stringify(koara)}）`);
     check(sent.saves.length === 1, '(9) 組み直しは新しい問題として保存しない');
     check((await readDraft(page)) === null, '(9) 組み直しの間は作りかけを書かない');
     await ctx.close();
   }
 
+  check(asked.length === 0, `oEmbed・googleapis.com・/api/crossword-video-info への通信が無い${asked.length ? `（${asked[0]}）` : ''}`);
   const stray = sent.outside.filter((u) => !/crossword-(save|update|owner-get)/.test(u));
   check(stray.length === 0, `受付係へのほかの呼び出しが無い${stray.length ? `（${stray.slice(0, 3).join(' / ')}）` : ''}`);
 } catch (e) {

@@ -27,7 +27,7 @@ export default function TermsPage() {
     <div style={{ background: "#f8f9fa", minHeight: "100vh" }}><div style={s.wrap}>
       <Link to="/" style={s.back}>← ホームに戻る</Link>
       <div style={s.header}>利用規約</div>
-      <div style={s.updated}>最終更新日: 2026年10月6日</div>
+      <div style={s.updated}>最終更新日: 2026年10月21日</div>
 
       <div style={s.warning}>
         本サービスは<strong>非公式のファンツール</strong>です。株式会社アップフロントグループ、ハロー！プロジェクト、Hello! Projectオフィシャルファンクラブ（UPFC、株式会社アップフロントインターナショナル）、e-LineUP!Mallとは一切関係ありません。
@@ -72,7 +72,7 @@ export default function TermsPage() {
         クロスワードの問題とランキングの名前は、通報が一定数に達すると自動的に非表示になります。
         利用者が作成・投稿した内容の責任は、作成した利用者が負います。
         ランキングの名前は公開されます。本名や連絡先を入れないでください。
-        作成者は、合言葉を使って問題を削除できます。まだ遊ばれていない問題は組み直せます。合言葉を失った場合は、お問い合わせフォームからご連絡ください。
+        作成者は、合言葉を使って問題を削除できます。まだ遊ばれていない問題は組み直せます。遊ばれた後の問題も、ヒントだけは差し替えられます。合言葉を失った場合は、お問い合わせフォームからご連絡ください。
       </p>
 
       <h2 style={s.h2}>5. サービスの変更・終了</h2>
