@@ -286,6 +286,20 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     return kept;
   };
 
+  // 探し直す前の盤の、固定していない語の位置（今の語の一覧にある物だけ。固定した語は外す）。
+  // 組み合わせ探しでつながった盤が見つからなかった時の候補に使う（Hop 決定 2026-10-21 案A の「固定を守る」に合わせて）。
+  // 置ける条件は確かめ直さない: どれも同じ盤に一緒に置けていた語で、答えの字が変われば別の語になるので位置が食い違うことは無い。
+  // validatePlacement で確かめ直すと、確かめる順によっては置けていた語まで外れる（2語に続けて交わる語が、後から確かめると断られる）
+  const carryBase = (items: PuzzleItem[], pins: PlacedItem[]): PlacedItem[] => {
+    const pinIds = new Set(pins.map((p) => p.id));
+    const kept: PlacedItem[] = [];
+    for (const p of generatedPuzzle?.items.filter((i) => !pinIds.has(i.id)) ?? []) {
+      const it = items.find((i) => i.id === p.id);
+      if (it) kept.push({ ...p, question: it.question, answer: it.answer, length: it.answer.length, pinned: false });
+    }
+    return kept;
+  };
+
   // 盤の語を指で動かした時。置けたら固定の印を付けて盤を組み直さずに置く
   const handleMoveWord = (uuid: string, startX: number, startY: number): boolean => {
     if (!generatedPuzzle || isLiveGenerating) return false;
@@ -352,7 +366,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     }
   };
 
-  // 案を選ぶ（選んだ案の盤をそのまま出す。固定は外す）
+  // 案を選ぶ（選んだ案の盤をそのまま出す）。案はどれも固定した語を同じ座標に置いて組んだ物なので、固定の印はそのまま残す
+  // （前は固定を外していたが、押し直しても固定を守る形にしたため。Hop 決定 2026-10-21 案A）
   const pickProposal = (i: number, list: BulkProposal[] | null = proposals) => {
     const p = list?.[i];
     if (!p) return;
@@ -360,15 +375,19 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     setIsLiveGenerating(false);
     setBackgroundPuzzle(null);
     setPicked(i);
-    setGeneratedPuzzle(buildGrid(p.placed.map((x) => ({ ...x, pinned: false }))));
+    setGeneratedPuzzle(buildGrid(p.placed));
   };
 
   // 「組み合わせを探す」: 2の段へ進み、組み立ての動き（50通りの試行）を見せながら本番の組み合わせ探し（bulkSelect）を回す。
-  // 終わったら上位3つを案1〜3に並べ、案1の盤を出す
+  // 終わったら上位3つを案1〜3に並べ、案1の盤を出す。
+  // 「2 盤」で動かして固定した語は、押し直してもその位置を守り、その語を土台に残りの語だけを組む（Hop 決定 2026-10-21 案A）。
+  // 持ち越しは再シャッフルと同じ carryPins: 「1 答え」で消した語（字を変えた語も、別の答えになるので同じ）の固定は外れる
   const [noProposal, setNoProposal] = useState(false);
   const runSearch = async () => {
     const items = pool;
     if (items.length < 2) return;
+    const pinned = carryPins(items);
+    const base = pinned.length > 0 ? carryBase(items, pinned) : [];
     const run = ++generationIdRef.current;
     goStep(2);
     setProposals(null);
@@ -378,8 +397,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     setIsLiveGenerating(true);
     const still = reducedMotion();
     try {
-      const search = createBulkSearch(items);
-      for (const st of generateMonteCarloSteps(items, ANIMATION_STEPS, [])) {
+      const search = createBulkSearch(items, { pinned, base });
+      for (const st of generateMonteCarloSteps(items, ANIMATION_STEPS, pinned)) {
         const tickStart = performance.now();
         search.step(SEARCH_STEP_MS);
         if (generationIdRef.current !== run) return;
@@ -396,7 +415,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       setProposals(list);
       if (list.length > 0) {
         setPicked(0);
-        setGeneratedPuzzle(buildGrid(list[0].placed.map((x) => ({ ...x, pinned: false }))));
+        setGeneratedPuzzle(buildGrid(list[0].placed));
       } else setNoProposal(true);
     } catch (error) {
       console.error("[BulkSearch] Error:", error);

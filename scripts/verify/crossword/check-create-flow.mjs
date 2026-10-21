@@ -17,8 +17,14 @@
 //   (8) なぞる動き: 初めての端末で一度だけ（なぞる印・指・吹き出し・帯の「「語」を出す」）。開き直すと出ない。「動きを減らす」では止めた絵
 //   (9) 組み直し（?edit=）: 2の段から始まり、書いた行は【語】の行・題名が戻る・「更新する」で送る中身のジャンルは hello・
 //       保存してあった YouTube のヒントは、台帳に無くても保存してあった印（outside なし）を引き継ぐ・作りかけを書かない
+//   (10) 固定を守る（Hop 決定 2026-10-21 案A）: 「2 盤」で2語を長押しで動かして固定 → 「1 答え」に戻って語を足す →「組み合わせを探す」→
+//       固定した2語の向きと互いの位置（盤の左上が動くので2語の差で見る）が同じで、固定の印も残る。案2を選んでも残る。
+//       そのあと固定した1語の【 】を外して探し直すと、その語の固定は外れ（戻しても固定の印は付かない）、もう1語の固定は残る
 // 使い方: node scripts/verify/crossword/check-create-flow.mjs（引数なし）
 import { spawn, spawnSync } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { stripTypeScriptTypes } from 'node:module';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { outDir, ROOT, leaveFirstVisitMarks, watchStumbles } from './_lib.mjs';
@@ -280,6 +286,17 @@ try {
     await page.locator('[data-bulk-mode-button="write"]').click();
     check((await page.locator('[data-bulk-text]').inputValue()) === TEXT, '(5) 書く欄の文字列もそのまま');
     await toBoard(page);
+    // この4語は「ラ」を持つ語が3つで「ラ」のマスが足りず、盤に入るのはいつも3語。探し直すとどの3語になるかは毎回変わるので、
+    // (7) で YouTube のヒントを確かめられるよう、YouTube のヒントを付けた語が入った案を選ぶ（2026-10-22 台本の直し。前は半分ほどの回で (7) が NG になっていた）
+    if (ytKey) {
+      const n = await page.locator('[data-bulk-proposal]').count();
+      for (let i = 0; i < n; i++) {
+        if ((await readDraft(page))?.board?.some((b) => b.id === ytKey)) break;
+        await page.locator('[data-bulk-proposal]').nth(i).click();
+        await page.waitForTimeout(300);
+      }
+      check(!!(await readDraft(page))?.board?.some((b) => b.id === ytKey), `(5) 探し直した案の中に「${ytKey}」の入った盤がある`);
+    }
     await toClues(page);
     check((await clueInput(page, edited).inputValue()) === '書き直したカギ', `(5) 探し直して3の段に戻っても、書き直したカギは残る（${await clueInput(page, edited).inputValue()}）`);
     await hintAllInClues(page); // 探し直して盤に入った語が変わった時の分
@@ -386,6 +403,172 @@ try {
     check(bar === '「ニャー」を出す', `(8) 止めた絵でも帯が出る（${bar}）`);
     await page.waitForTimeout(3300);
     check((await page.locator('[data-trace-tip]').count()) === 0, '(8) 止めた絵は約3秒で消える');
+    await ctx.close();
+  }
+
+  // ===== (10) 動かして固定した語の位置を、探し直しても守る（Hop 決定 2026-10-21 案A） =====
+  {
+    // 動かせる先は画面と同じ engine.ts の canMoveTo で決める（型だけ外して読み込む。論理は写さない。check-pin.mjs と同じやり方）
+    const engDir = path.join(OUT, 'engine');
+    mkdirSync(engDir, { recursive: true });
+    for (const name of ['types', 'engine']) {
+      const src = readFileSync(path.join(ROOT, 'src', 'lib', 'crossword', `${name}.ts`), 'utf8');
+      writeFileSync(path.join(engDir, `${name}.mjs`), stripTypeScriptTypes(src).replace(/from '\.\/(types)'/g, "from './$1.mjs'"));
+    }
+    const { canMoveTo, moveItem, tryPlaceAll, shuffleByLength, buildGrid } = await import(pathToFileURL(path.join(engDir, 'engine.mjs')).href + `?t=${Date.now()}`);
+    const cellsOf = (it) => Array.from({ length: it.length }, (_, i) => (it.direction === 'horizontal' ? [it.startX + i, it.startY] : [it.startX, it.startY + i]));
+    // 盤の上の語を長押しで持ち上げて (dx, dy) マスずらして離す。置ける印（data-placeable="yes"）を見てから離す
+    const dragWord = async (page, board, it, dx, dy) => {
+      const owners = new Map();
+      for (const o of board) for (const [x, y] of cellsOf(o)) owners.set(`${x},${y}`, [...(owners.get(`${x},${y}`) || []), o.id]);
+      // つまむマス: この語だけが通るマス。無ければ語の先頭のマス（交わるマスではそのマスから始まる語をつまむ作り）
+      const own = cellsOf(it).find(([x, y]) => owners.get(`${x},${y}`).length === 1) || [it.startX, it.startY];
+      const minX = Math.min(...board.map((o) => o.startX));
+      const minY = Math.min(...board.map((o) => o.startY));
+      const w = Math.max(...board.map((o) => (o.direction === 'horizontal' ? o.startX + o.length : o.startX + 1))) - minX;
+      const rect = await page.locator('[data-move-layer]').boundingBox();
+      const cs = rect.width / (w + 2); // 盤の周りの余白（MOVE_MARGIN）は1マス
+      const px = rect.x + (1 + own[0] - minX + 0.5) * cs;
+      const py = rect.y + (1 + own[1] - minY + 0.5) * cs;
+      await page.mouse.move(px, py);
+      await page.mouse.down();
+      await page.waitForTimeout(500); // 長押し（300ms）より長く
+      const lifted = await page.locator('[data-ghost]').waitFor({ timeout: 3000 }).then(() => true, () => false);
+      if (!lifted) {
+        await page.mouse.up();
+        return false;
+      }
+      await page.mouse.move(px + dx * cs, py + dy * cs, { steps: 12 });
+      await page.waitForTimeout(150);
+      const ok = (await page.locator('[data-ghost]').getAttribute('data-placeable')) === 'yes';
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+      return ok;
+    };
+    // 今の盤で、まだ固定していない語の動かせる先を1つ探す（近い順）
+    const findMove = (board, skip) => {
+      const tries = [];
+      for (let r = 1; r <= 4; r++) for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) if (Math.max(Math.abs(dx), Math.abs(dy)) === r) tries.push([dx, dy]);
+      for (const it of board) {
+        if (skip.includes(it.id)) continue;
+        for (const [dx, dy] of tries) if (canMoveTo(board, it.uuid, it.startX + dx, it.startY + dy)) return { it, dx, dy };
+      }
+      return null;
+    };
+    const pinsOf = (d) => (d?.board || []).filter((i) => i.pinned);
+    const rel = (d, a, b) => {
+      const A = (d?.board || []).find((i) => i.id === a);
+      const B = (d?.board || []).find((i) => i.id === b);
+      return A && B ? { dx: B.startX - A.startX, dy: B.startY - A.startY, da: A.direction, db: B.direction, pa: !!A.pinned, pb: !!B.pinned } : null;
+    };
+    // 組み立て（「組み立て中…」）が始まって終わるまで待つ（始まる前の盤を読まないように）
+    const waitBuilt = async (page) => {
+      await page.locator('[data-create-step="2"]').waitFor({ timeout: 10000 });
+      await page.locator('[data-create-board] [role="status"]').waitFor({ timeout: 3000 }).catch(() => {});
+      await page.locator('[data-create-board] [role="status"]').waitFor({ state: 'detached', timeout: 45000 });
+      await page.locator('[data-reshuffle]:enabled').waitFor({ timeout: 45000 });
+      await page.waitForTimeout(300);
+    };
+    const search = async (page) => {
+      await page.locator('[data-bulk-search]').click();
+      await waitBuilt(page);
+    };
+
+    const PIN_WORDS = ['スイカ', 'イカスミ', 'カラス', 'アイス', 'スミレ'];
+    const pinLines = (words) => words.map((w) => `【${w}】`).join('\n');
+    const { ctx, page } = await newPage();
+    await page.goto(`${BASE}/crossword/create`);
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await writeLines(page, pinLines(PIN_WORDS));
+    await search(page);
+    // 探して出た盤は語どうしがよく絡んだ小さな盤なので、2語とも動かせる先が無いことが多い。その時は、同じ engine で組んだ
+    // 2語続けて動かせる盤を作りかけとして端末に置いて開き直す（作りかけから戻った盤は組み直さずにそのまま出る作り）
+    const d0 = await readDraft(page);
+    const twoMoves = (board) => {
+      const m1 = findMove(board, []);
+      if (!m1) return false;
+      const b2 = buildGrid(moveItem(board, m1.it.uuid, m1.it.startX + m1.dx, m1.it.startY + m1.dy)).items;
+      return !!findMove(b2, [m1.it.id]);
+    };
+    if (!twoMoves(d0.board)) {
+      const items = PIN_WORDS.map((w) => ({ id: w, question: '', answer: Array.from(w) }));
+      let loose = null;
+      for (let t = 0; t < 500 && !loose; t++) {
+        const b = buildGrid(tryPlaceAll(shuffleByLength(items))).items;
+        if (b.length === PIN_WORDS.length && twoMoves(b)) loose = b;
+      }
+      const board = loose.map(({ id, uuid, answer, direction, startX, startY, length }) => ({ id, uuid, question: '', answer, direction, startX, startY, length, pinned: false }));
+      await page.evaluate((d) => localStorage.setItem('crossword_draft', JSON.stringify(d)), { ...d0, board, proposals: null, picked: null });
+      await page.reload();
+      await page.locator('[data-create-step="2"] [data-move-layer]').waitFor({ timeout: 30000 });
+      await page.waitForTimeout(500);
+      console.log('    探して出た盤では2語続けて動かせないので、同じ engine で組んだ盤を作りかけから出した');
+    }
+    // 2語を動かして固定する
+    const pinned = [];
+    for (let round = 0; round < 4 && pinned.length < 2; round++) {
+      const d = await readDraft(page);
+      const mv = findMove(d.board, pinned);
+      if (!mv) break;
+      const placeable = await dragWord(page, d.board, mv.it, mv.dx, mv.dy);
+      const moved = (await readDraft(page)).board.find((i) => i.id === mv.it.id);
+      if (placeable && moved?.pinned) pinned.push(mv.it.id);
+      console.log(`    動かした: ${mv.it.id} を (${mv.dx}, ${mv.dy}) マス → ${moved ? `(${moved.startX}, ${moved.startY}) ${moved.direction} 固定=${!!moved.pinned}` : '?'}`);
+    }
+    check(pinned.length === 2, `(10) 「2 盤」で2語を長押しで動かして固定できた（${pinned.join('・')}）`);
+    const [pa, pb] = pinned;
+    const dPinned = await readDraft(page);
+    const before = rel(dPinned, pa, pb);
+    check((await page.locator('[data-pin]').count()) === 2, `(10) 固定の印が2つ出る（${await page.locator('[data-pin]').count()}）`);
+    await page.screenshot({ path: path.join(OUT, '10-1-pinned-390.png'), fullPage: true });
+    console.log(`    固定した2語: ${JSON.stringify(pinsOf(dPinned).map(({ id, direction, startX, startY }) => [id, direction, startX, startY]))}`);
+
+    // 1 答えに戻って語を1つ足し、組み合わせを探す
+    await page.locator('[data-step-back="1"]').click();
+    await page.locator('[data-create-step="1"]').waitFor();
+    await writeLines(page, pinLines([...PIN_WORDS, 'ミカン']));
+    await search(page);
+    const dAgain = await readDraft(page);
+    const after = rel(dAgain, pa, pb);
+    console.log(`    探し直した後: ${JSON.stringify(pinsOf(dAgain).map(({ id, direction, startX, startY }) => [id, direction, startX, startY]))}・盤の語 ${dAgain.board.length}`);
+    check(!!before && !!after && after.dx === before.dx && after.dy === before.dy && after.da === before.da && after.db === before.db,
+      `(10) 語を足して探し直しても、固定した2語の向きと互いの位置が同じ（前 ${JSON.stringify(before)} ／ 後 ${JSON.stringify(after)}）`);
+    check(!!after?.pa && !!after?.pb && (await page.locator('[data-pin]').count()) === 2, `(10) 探し直した後も2語に固定の印が残る（印 ${await page.locator('[data-pin]').count()}）`);
+    check(dAgain.board.some((i) => i.id === 'ミカン') || (await page.locator('[data-unplaced]').count()) === 1, '(10) 足した語は盤に入るか、入らない語として出る');
+    check((await page.locator('[data-bulk-proposal]').count()) >= 1, `(10) 案が並ぶ（${await page.locator('[data-bulk-proposal]').count()}）`);
+    // 固定した2語は動かした時につながっていたので、つながる組み方がある。案1はつながった盤で「この盤で進む」が押せる
+    check((await page.locator('[data-not-connected]').count()) === 0 && (await page.locator('[data-bulk-adopt]').isEnabled()), '(10) 案1は盤がつながっていて「この盤で進む」が押せる');
+    await page.screenshot({ path: path.join(OUT, '10-2-research-390.png'), fullPage: true });
+    if ((await page.locator('[data-bulk-proposal]').count()) >= 2) {
+      await page.locator('[data-bulk-proposal]').nth(1).click();
+      await page.waitForTimeout(400);
+      const r2 = rel(await readDraft(page), pa, pb);
+      check(!!r2 && r2.dx === before.dx && r2.dy === before.dy && r2.pa && r2.pb, `(10) 案2を選んでも固定した2語の位置と固定の印が同じ（${JSON.stringify(r2)}）`);
+      await page.locator('[data-bulk-proposal]').first().click();
+      await page.waitForTimeout(400);
+    }
+
+    // 固定した1語（pb）の【 】を外して探し直す → その語の固定は外れ、もう1語（pa）の固定は残る
+    await page.locator('[data-step-back="1"]').click();
+    await page.locator('[data-create-step="1"]').waitFor();
+    const without = [...PIN_WORDS, 'ミカン'].filter((w) => w !== pb);
+    await writeLines(page, `${pinLines(without)}\n${pb}`);
+    await search(page);
+    const dRemoved = await readDraft(page);
+    const keptA = dRemoved.board.find((i) => i.id === pa);
+    const was = dPinned.board.find((i) => i.id === pa);
+    check(!dRemoved.board.some((i) => i.id === pb), `(10) 【 】を外した「${pb}」は盤から消える`);
+    check(keptA?.pinned === true && keptA.direction === was.direction && pinsOf(dRemoved).length === 1, `(10) もう1語「${pa}」の固定は残る（固定 ${pinsOf(dRemoved).map((i) => i.id).join('・')}）`);
+    await page.screenshot({ path: path.join(OUT, '10-3-unmarked-390.png'), fullPage: true });
+    // 【 】を戻して探し直しても、外れた固定は戻らない
+    await page.locator('[data-step-back="1"]').click();
+    await page.locator('[data-create-step="1"]').waitFor();
+    await writeLines(page, pinLines([...without, pb]));
+    await search(page);
+    const dBack = await readDraft(page);
+    const backB = dBack.board.find((i) => i.id === pb);
+    check(!backB || backB.pinned === false, `(10) 戻した「${pb}」には固定の印が付かない（${backB ? `固定=${backB.pinned}` : '盤に入らず'}）`);
+    check(dBack.board.find((i) => i.id === pa)?.pinned === true, `(10) 「${pa}」の固定はそのまま`);
     await ctx.close();
   }
 
