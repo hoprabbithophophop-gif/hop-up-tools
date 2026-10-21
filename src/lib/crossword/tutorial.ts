@@ -14,7 +14,7 @@ const items: PlacedItem[] = [
   { id: "t3", uuid: "t3", answer: ["ラ", "ム", "ネ"], question: "ビー玉で栓をした炭酸の飲み物", direction: "horizontal", startX: 1, startY: 2, length: 3 },
 ];
 
-export const TUTORIAL_TITLE = "練習問題"; // 【仮】
+export const TUTORIAL_TITLE = "練習のクロスワード"; // 【仮】
 
 export function tutorialPuzzle(): PuzzleData {
   const p = buildGrid(items.map((i) => ({ ...i, answer: [...i.answer] })));

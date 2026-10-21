@@ -178,7 +178,7 @@ try {
   const row2 = page.locator('[data-hints-row="vertical:2"]');
   await row2.getByLabel('ヒントを外す').click();
   await page.waitForTimeout(200);
-  check(await btn.isDisabled() && /ヒントが未選択の語が 1 語あります/.test(await page.evaluate(() => document.body.innerText)), '(3) 外した直後は未選択 1 語で押せない');
+  check(await btn.isDisabled() && /ヒントがあと1つ/.test(await page.evaluate(() => document.body.innerText)), '(3) 外した直後は「ヒントがあと1つ」で押せない');
   await row2.locator('input').first().fill('https://youtu.be/dQw4w9WgXcQ?t=5');
   await page.waitForTimeout(1000);
   check(await btn.isEnabled(), '(3) 差し替えるとボタンが押せる');

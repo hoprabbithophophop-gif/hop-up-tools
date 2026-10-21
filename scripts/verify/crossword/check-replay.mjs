@@ -57,7 +57,7 @@ async function openWith(setup, extra) {
   const [fx, fy] = firstKey.split(',').map(Number);
   check((await cellAt(page, fx, fy, full[firstKey]).count()) === 1, `1 盤に答えが入っている（${firstKey}=${full[firstKey]}）`);
   check(t.includes('Xに投稿') || t.includes('X に投稿') || (await page.locator('a[href*="twitter.com/intent"]').count()) === 1, '1 X に投稿の入口が出る');
-  check(t.includes('ほかの問題') || t.includes('パズルギャラリーへ'), '1 ほかの問題への入口が出る');
+  check(t.includes('ほかのクロスワード') || t.includes('パズルギャラリーへ'), '1 ほかのクロスワードへの入口が出る');
   check((await page.getByRole('button', { name: 'もう一度解く' }).count()) === 1, '1 「もう一度解く」が出る');
   check(!t.includes('載せる'), '1 名前を入れる窓は出ない');
 

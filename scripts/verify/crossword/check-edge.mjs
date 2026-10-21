@@ -202,7 +202,7 @@ try {
     await waitBoard(page);
     await fillLast(page);
     await page.waitForTimeout(1500);
-    check((await text(page)).includes('この問題は非表示になったか、消されました。'), '3 「この問題は非表示になったか、消されました。」');
+    check((await text(page)).includes('このクロスワードは非表示になったか、消されました。'), '3 「このクロスワードは非表示になったか、消されました。」');
     await ctx.close();
   }
   // 4. 回の記録が無くなっていた（30 日で片付いた）→ 新しい回として始め直して解き終える（本物の受付係）

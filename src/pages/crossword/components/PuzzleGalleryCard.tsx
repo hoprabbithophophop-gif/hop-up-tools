@@ -12,7 +12,7 @@ import { Icon } from "./ui";
 // 「初めての人向け」の印の文言
 export const BEGINNER_LABEL = "初めての人向け";
 // 下段の入口の文言
-const T = { ranking: "ランキング", play: "遊ぶ", untitled: "無題の問題" };
+const T = { ranking: "ランキング", play: "遊ぶ", untitled: "無題のクロスワード" };
 
 // 日付をフォーマット（例: 1/25）
 function formatDate(iso?: string): string {
@@ -58,7 +58,7 @@ export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle; headingLevel?:
       <div className="flex items-start gap-2 mb-3">
         <Icon icon="extension" className="flex-shrink-0 mt-0.5" />
         <Heading className="text-base font-bold line-clamp-2" style={{ color: C.ink }}>
-          {puzzle.title || "無題の問題"}
+          {puzzle.title || "無題のクロスワード"}
         </Heading>
       </div>
 
@@ -85,7 +85,7 @@ export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle; headingLevel?:
             </div>
           )}
           <div className="flex items-center gap-1">
-            <span>{puzzle.wordCount}語</span>
+            <span>答え{puzzle.wordCount}つ</span>
           </div>
         </div>
       </div>

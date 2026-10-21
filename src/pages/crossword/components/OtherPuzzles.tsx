@@ -9,7 +9,7 @@ import { PuzzleGalleryCard } from "./PuzzleGalleryCard";
 
 // 文言
 const T = {
-  title: "ほかの問題",
+  title: "ほかのクロスワード",
   toList: "パズルギャラリーへ",
 };
 // 出す件数
