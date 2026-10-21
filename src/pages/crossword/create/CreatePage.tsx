@@ -493,7 +493,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   //   1 答え・3 カギ: いつでもその段へ。4 共有: いつでもその窓へ（盤が無ければ窓の中で共有を押せなくし、理由を出す）。
   //   2 盤: 「組み合わせを探す」と同じ（答えが前と同じなら探し直さない）。答えが2つ未満の時は 2 へ行かず、「組み合わせを探す」が押せない
   //         理由（押せないボタンと弾いた語の理由の行）が見える 1 の段へ。
-  //   組み立て中に押した時: 1・3・4 は段だけ移り、組み立ては裏で続けて終わったら盤が入る（2 の段の「← 答えへ戻る」と同じ）。
+  //   組み立て中に押した時: 1・3・4 は段だけ移り、組み立ては裏で続けて終わったら盤が入る。
   //   2 は、組み立て中の答えが今の答えと同じなら組み立てを止めずに 2 の段へ戻るだけ。違えば「組み合わせを探す」と同じく探し直す
   const onStepTab = (n: Step) => {
     if (n === 2) {
@@ -890,13 +890,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     </div>
   );
 
-  // 「← 戻る」は段の札を押した時と同じ動き（Hop 決定 2026-10-22）。3 カギの「← 盤へ戻る」は、答えが前に探した時と変わっていれば探し直してから 2 盤へ、
-  // 変わっていなければ今の盤のまま 2 盤へ（古い盤が出て「この盤で進む」→ 3 で「盤を決めてください」の堂々巡りにしないため）
-  const backButton = (label: string, to: Step) => (
-    <button type="button" data-step-back={to} onClick={() => onStepTab(to)} className="self-start min-h-11 px-3 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.ink }}>
-      {label}
-    </button>
-  );
+  // 2 盤・3 カギの段の上の「← 答えへ戻る」「← 盤へ戻る」は外した。上の段の札で行き来できるため（Hop 決定 2026-10-22）。
+  // 4 共有の窓の中の「カギの段へ戻る」（窓を閉じて 3 へ戻る）は残す
   const heading = (text: string) => (
     <h2 ref={headingRef} tabIndex={-1} className="text-lg font-black focus:outline-none" style={{ color: C.ink }}>
       {text}
@@ -970,7 +965,6 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
 
           {shownStep === 2 && (
             <>
-              {backButton(CT.backToAnswers, 1)}
               {heading(CT.headings.board)}
               {proposals && proposals.length > 0 && (
                 <div className="flex flex-col gap-0.5" role="group" aria-label={CT.headings.board}>
@@ -1077,7 +1071,6 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
 
           {shownStep === 3 && (
             <>
-              {backButton(CT.backToBoard, 2)}
               {heading(CT.headings.clues)}
               <p className="text-xs leading-relaxed" style={{ color: C.secondary }}>
                 {CT.cluesGuide}

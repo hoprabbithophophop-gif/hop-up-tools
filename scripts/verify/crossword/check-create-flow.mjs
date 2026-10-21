@@ -27,7 +27,8 @@
 //       答え1つで「2 盤」を押しても 2 へ行かない・1 から札で 3・4 へ飛べる・盤が無い時の 3 は答え全部の欄・
 //       盤が無い時の 4 は共有を押せず理由の先頭に「共有する前に、2 盤で盤を決めてください。」・札の「2 盤」で探す・答えが同じなら探し直さない・
 //       札で 3 へ行ってから書いたカギとヒントは盤ができた後も残る・答えを変えると盤は古い扱い（開き直しても）・
-//       組み立て中に札で 1 へ移っても組み立ては裏で終わる・3 の「← 盤へ戻る」も札の「2 盤」と同じ（答えを変えていれば探し直す・変えていなければ探し直さない）
+//       組み立て中に札で 1 へ移っても組み立ては裏で終わる・3 から札の「2 盤」へ戻る時も答えを変えていれば探し直す・変えていなければ探し直さない
+//       ・2 盤・3 カギの段の上に戻るボタン（← 答えへ戻る・← 盤へ戻る）が無い（Hop 決定 2026-10-22。札で行き来する）。4 共有の窓の中の「カギの段へ戻る」は残る
 // 使い方: node scripts/verify/crossword/check-create-flow.mjs（引数なし）
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -222,7 +223,8 @@ try {
       await cards.first().click();
       await page.waitForTimeout(300);
     }
-    check((await page.locator('[data-reshuffle]').count()) === 1 && (await page.locator('[data-step-back="1"]').textContent()) === '← 答えへ戻る', '(3) 「再シャッフル」と「← 答えへ戻る」がある');
+    const backIn2 = await page.locator('[data-create-step="2"] button').evaluateAll((els) => els.filter((e) => e.hasAttribute('data-step-back') || e.textContent.includes('戻る')).length);
+    check((await page.locator('[data-reshuffle]').count()) === 1 && backIn2 === 0, `(3) 「再シャッフル」があり、段の上の「← 答えへ戻る」は無い（戻るボタン ${backIn2}個）`);
     const d2 = await readDraft(page);
     check(d2?.version === 2 && d2.step === 2 && Array.isArray(d2.board) && d2.board.length > 0, `(3) 作りかけに段（${d2?.step}）と盤（${d2?.board?.length ?? 0}語）が残る`);
     await page.screenshot({ path: path.join(OUT, '3-board-390.png'), fullPage: true });
@@ -332,16 +334,18 @@ try {
     // (5) 段の行き来で消えない
     const edited = keys.includes('コアラ') ? 'コアラ' : keys[0];
     await clueInput(page, edited).fill('書き直したカギ');
-    await page.locator('[data-step-back="2"]').click();
+    const backIn3 = await page.locator('[data-create-step="3"] button').evaluateAll((els) => els.filter((e) => e.hasAttribute('data-step-back') || e.textContent.includes('戻る')).length);
+    check(backIn3 === 0, `(5) 3の段の上に「← 盤へ戻る」が無い（戻るボタン ${backIn3}個）`);
+    await stepTab(page, 2);
     await page.locator('[data-create-step="2"]').waitFor();
     await page.waitForTimeout(300);
-    check(JSON.stringify(await boardCells(page)) === JSON.stringify(boardBefore), '(5) 「← 盤へ戻る」で同じ盤が出る（組み直さない）');
-    await page.locator('[data-step-back="1"]').click();
+    check(JSON.stringify(await boardCells(page)) === JSON.stringify(boardBefore), '(5) 札の「2 盤」で同じ盤が出る（組み直さない）');
+    await stepTab(page, 1);
     await page.locator('[data-create-step="1"]').waitFor();
     await page.waitForTimeout(300);
     const marksBack = await page.locator('[data-bulk-mark]').evaluateAll((els) => els.map((e) => e.getAttribute('data-bulk-mark')));
     const dotsBack = await page.locator('[data-bulk-hint]').evaluateAll((els) => els.map((e) => e.getAttribute('data-bulk-hint')));
-    check(WORDS.every((w) => marksBack.includes(w)), `(5) 「← 答えへ戻る」で書いた行が残る（${marksBack.join('・')}）`);
+    check(WORDS.every((w) => marksBack.includes(w)), `(5) 札の「1 答え」で書いた行が残る（${marksBack.join('・')}）`);
     check(dotsBack.filter((d) => d === 'on').length >= keys.length, `(5) 付けたヒントも残る（● ${dotsBack.filter((d) => d === 'on').length}）`);
     await page.locator('[data-bulk-mode-button="write"]').click();
     check((await page.locator('[data-bulk-text]').inputValue()) === TEXT, '(5) 書く欄の文字列もそのまま');
@@ -376,7 +380,7 @@ try {
     const dAfter = await readDraft(page);
     const pos = (d) => JSON.stringify((d?.board || []).map(({ id, direction, startX, startY, pinned }) => [id, direction, startX, startY, pinned]).sort());
     check(pos(dBefore) === pos(dAfter) && pos(dAfter) !== '[]', '(6) 盤（語の位置と固定）が開き直す前と同じ');
-    await page.locator('[data-step-back="2"]').click();
+    await stepTab(page, 2);
     await page.locator('[data-create-step="2"]').waitFor();
     const cellsAfter = await boardCells(page);
     check(cellsAfter.length > 0 && (await page.locator('[data-bulk-adopt]').isEnabled()), `(6) 2の段へ戻ると盤がそのまま出る（${cellsAfter.length}マス）`);
@@ -584,7 +588,7 @@ try {
     console.log(`    固定した2語: ${JSON.stringify(pinsOf(dPinned).map(({ id, direction, startX, startY }) => [id, direction, startX, startY]))}`);
 
     // 1 答えに戻って語を1つ足し、組み合わせを探す
-    await page.locator('[data-step-back="1"]').click();
+    await stepTab(page, 1);
     await page.locator('[data-create-step="1"]').waitFor();
     await writeLines(page, pinLines([...PIN_WORDS, 'ミカン']));
     await search(page);
@@ -609,7 +613,7 @@ try {
     }
 
     // 固定した1語（pb）の【 】を外して探し直す → その語の固定は外れ、もう1語（pa）の固定は残る
-    await page.locator('[data-step-back="1"]').click();
+    await stepTab(page, 1);
     await page.locator('[data-create-step="1"]').waitFor();
     const without = [...PIN_WORDS, 'ミカン'].filter((w) => w !== pb);
     await writeLines(page, `${pinLines(without)}\n${pb}`);
@@ -621,7 +625,7 @@ try {
     check(keptA?.pinned === true && keptA.direction === was.direction && pinsOf(dRemoved).length === 1, `(10) もう1語「${pa}」の固定は残る（固定 ${pinsOf(dRemoved).map((i) => i.id).join('・')}）`);
     await page.screenshot({ path: path.join(OUT, '10-3-unmarked-390.png'), fullPage: true });
     // 【 】を戻して探し直しても、外れた固定は戻らない
-    await page.locator('[data-step-back="1"]').click();
+    await stepTab(page, 1);
     await page.locator('[data-create-step="1"]').waitFor();
     await writeLines(page, pinLines([...without, pb]));
     await search(page);
@@ -758,27 +762,27 @@ try {
     check(!(await page.locator('[data-missing-hints]').textContent()).includes(NEED), '(11) 組み立て中に 1 へ移っても組み立ては裏で終わり、3 では盤が使える');
     await page.screenshot({ path: path.join(OUT, '11-2-after-background-390.png'), fullPage: true });
 
-    // 3 カギの「← 盤へ戻る」も札の「2 盤」と同じ（Hop 決定 2026-10-22）: 答えが同じなら探し直さず今の盤のまま、変えていれば探し直す
+    // 3 カギから札の「2 盤」へ戻る時（段の上の「← 盤へ戻る」は 2026-10-22 に外した）: 答えが同じなら探し直さず今の盤のまま、変えていれば探し直す
     const boardPos = (d) => JSON.stringify((d?.board ?? []).map(({ id, direction, startX, startY }) => [id, direction, startX, startY]));
     const posBefore = boardPos(await readDraft(page));
-    await page.locator('[data-create-step="3"] [data-step-back="2"]').click();
+    await stepTab(page, 2);
     await page.locator('[data-create-step="2"]').waitFor({ timeout: 5000 });
     const buildingBack = await page.locator('[data-create-board] [role="status"]').count();
     await page.waitForTimeout(300);
-    check(buildingBack === 0 && posBefore !== '[]' && boardPos(await readDraft(page)) === posBefore, `(11) 答えが同じなら 3 の「← 盤へ戻る」で探し直さず今の盤のまま（組み立て中 ${buildingBack}）`);
+    check(buildingBack === 0 && posBefore !== '[]' && boardPos(await readDraft(page)) === posBefore, `(11) 答えが同じなら 3 から札の「2 盤」で探し直さず今の盤のまま（組み立て中 ${buildingBack}）`);
     await stepTab(page, 1);
     await page.locator('[data-create-step="1"]').waitFor({ timeout: 5000 });
     await writeLines(page, TEXT); // ネコジャラシを外す
     await stepTab(page, 3);
     await page.locator('[data-create-step="3"] [data-clue-row]').first().waitFor({ timeout: 5000 });
-    await page.locator('[data-create-step="3"] [data-step-back="2"]').click();
+    await stepTab(page, 2);
     await page.locator('[data-create-step="2"]').waitFor({ timeout: 5000 });
     const startedBack = await page.locator('[data-create-board] [role="status"]').count();
     await page.locator('[data-bulk-adopt]:enabled').waitFor({ timeout: 45000 }).catch(() => {});
     await page.waitForTimeout(300);
     const dBack = await readDraft(page);
     check(startedBack === 1 && !!dBack?.boardSig && dBack.boardSig === dBack.searchedSig && !String(dBack.boardSig).includes('ネコジャラシ') && (await page.locator('[data-bulk-adopt]').isEnabled()),
-      `(11) 答えを変えて 3 の「← 盤へ戻る」を押すと探し直し、今の答えの盤で「この盤で進む」が押せる（組み立て中 ${startedBack}）`);
+      `(11) 答えを変えて 3 から札の「2 盤」を押すと探し直し、今の答えの盤で「この盤で進む」が押せる（組み立て中 ${startedBack}）`);
     await page.locator('[data-bulk-adopt]').click();
     await page.locator('[data-create-step="3"] [data-clue-row]').first().waitFor({ timeout: 5000 });
     check(!(await page.locator('[data-missing-hints]').textContent()).includes(NEED), '(11) 探し直した盤で 3 へ進むと「盤を決めてください」は出ない（堂々巡りにならない）');
@@ -807,7 +811,7 @@ try {
     await page.waitForTimeout(500);
     check((await page.locator('h1').first().textContent()) === 'クロスワードパズルの組み直し', '(9) 組み直しの画面になる');
     check((await boardCells(page)).length === 4 && (await currentStepLabel(page)) === '2 盤', `(9) 保存した時の盤で2の段から始まる（${(await boardCells(page)).length}マス）`);
-    await page.locator('[data-step-back="1"]').click();
+    await stepTab(page, 1);
     await page.locator('[data-create-step="1"]').waitFor();
     await page.locator('[data-bulk-mode-button="write"]').click();
     check((await page.locator('[data-bulk-text]').inputValue()) === '【ネコ】\n【コアラ】', `(9) 語は1の段の【語】の行として戻る（${JSON.stringify(await page.locator('[data-bulk-text]').inputValue())}）`);

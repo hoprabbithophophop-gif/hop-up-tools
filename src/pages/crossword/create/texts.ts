@@ -5,12 +5,10 @@ import type { BulkTexts } from "../components/BulkEntry";
 
 export const CT = {
   pageTitle: "クロスワードパズル作成",
-  // 段の札と戻るボタン（Hop 承認 2026-10-20）
+  // 段の札と戻るボタン（Hop 承認 2026-10-20）。2 盤・3 カギの段の上の戻るボタンは外した（Hop 決定 2026-10-22。札で行き来できるため）
   steps: ["1 答え", "2 盤", "3 カギ", "4 共有"],
   stepsLabel: "今の段", // 読み上げ名
-  backToAnswers: "← 答えへ戻る",
-  backToBoard: "← 盤へ戻る",
-  backToClues: "カギの段へ戻る",
+  backToClues: "カギの段へ戻る", // 4 共有の窓の中（窓を閉じて 3 へ戻る）
   headings: {
     answers: "まとめて入れる",
     board: "盤の候補から選ぶ",
