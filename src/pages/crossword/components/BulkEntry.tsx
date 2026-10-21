@@ -23,6 +23,8 @@ export interface BulkTexts {
   insertArrow: string;
   unmarkBar: (word: string) => string;
   insertArrowLabel: string;
+  insertMaru: string;
+  insertMaruLabel: string;
   reading: string;
   readingOf: (word: string) => string;
   unmark: (word: string) => string;
@@ -378,16 +380,18 @@ export const BulkEntry: React.FC<{
     window.getSelection()?.removeAllRanges();
   };
 
-  // 入力欄に印を入れる。欄で文字を選んでいれば【 】で囲み、選んでいなければ【】を入れてその間にカーソルを置く。｜はカーソルの位置に入れる
-  const insert = (kind: "brackets" | "bar" | "arrow") => {
+  // 入力欄に印を入れる。欄で文字を選んでいれば【 】で囲み、選んでいなければ【】を入れてその間にカーソルを置く。｜・→・○はカーソルの位置に入れる。
+  // ○は「→」の書き方で、問題文の答えの所を○で書く時に使う（Hop 決定 2026-10-22。3 カギの欄ごとの○ボタンから移した）。
+  // 欄を選んでいない時に押しても、｜・→ と同じく欄が最後に覚えているカーソルの所（一度も触っていなければ欄の末尾）に入れ、欄を選んだ状態にする
+  const insert = (kind: "brackets" | "bar" | "arrow" | "maru") => {
     const area = areaRef.current;
     if (!area) return;
     const s = area.selectionStart ?? text.length;
     const e = area.selectionEnd ?? s;
     let next: string;
     let caret: number;
-    if (kind === "bar" || kind === "arrow") {
-      next = text.slice(0, s) + (kind === "bar" ? "｜" : "→") + text.slice(e);
+    if (kind === "bar" || kind === "arrow" || kind === "maru") {
+      next = text.slice(0, s) + (kind === "bar" ? "｜" : kind === "arrow" ? "→" : "○") + text.slice(e);
       caret = s + 1;
     } else {
       if (s < e) {
@@ -554,7 +558,7 @@ export const BulkEntry: React.FC<{
             rows={5}
             className={`${textareaClassName} resize-y min-h-[8rem] leading-relaxed`}
           />
-          {/* 印を入れるボタン（Hop 2026-10-18）と「畳む」 */}
+          {/* 印を入れるボタン（Hop 2026-10-18。○は 2026-10-22）と「畳む」 */}
           <div className="flex gap-2">
             <button
               type="button"
@@ -588,6 +592,17 @@ export const BulkEntry: React.FC<{
               style={{ color: C.ink }}
             >
               {t.insertArrow}
+            </button>
+            <button
+              type="button"
+              data-bulk-insert="maru"
+              {...keepFocus}
+              onClick={() => insert("maru")}
+              aria-label={t.insertMaruLabel}
+              className="min-w-11 px-3 min-h-11 font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors"
+              style={{ color: C.ink }}
+            >
+              {t.insertMaru}
             </button>
           </div>
         </>

@@ -37,9 +37,8 @@ export const CT = {
   hintOfficial: "ヒントはハロプロの公式の発信（YouTube・Instagram・X・アメーバブログ・公式サイト）から選んでください。解く人が出どころを確かめられるようにするためです。",
   unmarkFull: (surface: string) => `「${surface}」の囲みを外す`,
   close: "閉じる",
-  // 3の段のカギの欄
+  // 3の段のカギの欄（○を入れるボタンは 1 答えの道具の段へ移した。Hop 決定 2026-10-22）
   cluePlaceholder: "例：ニャーと鳴く動物",
-  maruLabel: "○を入れる",
   // 2の段（本番の文）
   reshuffle: "再シャッフル",
   building: "組み立て中…",
@@ -109,6 +108,9 @@ export const BULK_TEXTS: BulkTexts = {
   insertBarLabel: "｜を入れる", // 読み上げ名【仮】
   insertArrow: "→",
   insertArrowLabel: "→を入れる", // 読み上げ名【仮】
+  // ○は 3 カギの欄ごとのボタンから移した（Hop 決定 2026-10-22）。読み上げ名は 3 カギのボタンと同じ
+  insertMaru: "○",
+  insertMaruLabel: "○を入れる",
   unmarkBar: (w: string) => `「${w}」の囲みを外す`, // ヒントの窓の「囲みを外す」と同じ言葉
   reading: "読み",
   readingOf: (w: string) => `${w} の読み`, // 読みの欄の読み上げ名【仮】

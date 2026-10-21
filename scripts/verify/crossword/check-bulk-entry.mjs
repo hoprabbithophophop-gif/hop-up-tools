@@ -2,7 +2,7 @@
 // (a) 探す仕組み（src/lib/crossword/bulkSelect.ts）を、本物のファイルのまま node で動かす。
 //     ts は check-build.mjs と同じく stripTypeScriptTypes で型だけ外し、一時置き場に .mjs として書いて読み込む（論理は写さない）。
 // (b) 作る画面（/crossword/create）の1の段「まとめて入れる」を、手元に立てた開発サーバー（口 5197）と Playwright で動かす。棚と受付係への通信は受け止める。
-//     書く｜ヒントを付ける・【 】｜→ ボタン・欄で選ぶと帯「「語」を出す」・【語】の中にカーソルで「「語」の囲みを外す」・弾く理由・読みの帯（決める・外す）
+//     書く｜ヒントを付ける・【 】｜→○ ボタン（○は 3 カギから移した。Hop 決定 2026-10-22）・欄で選ぶと帯「「語」を出す」・【語】の中にカーソルで「「語」の囲みを外す」・弾く理由・読みの帯（決める・外す）
 //     ・下線の語でヒントの窓・行をなぞって帯・触った行だけ 16px（他は 10px）・凡例と ●○・交差できる字の黒い札（2026-10-21 に4段の流れに合わせて書き直した）。
 //     2〜4の段・作りかけ・なぞる動きは check-create-flow.mjs が見る
 // 使い方: node scripts/verify/crossword/check-bulk-entry.mjs（引数なし）
@@ -247,7 +247,12 @@ try {
 
   // 印を入れるボタン: 欄の末尾にカーソル→「｜」でその位置に入る→「【 】」で【】が入りカーソルは間→「→」で → が入る
   const btnLabels = await page.locator('[data-bulk-insert]').evaluateAll((els) => els.map((e) => e.textContent));
-  check(btnLabels.join(' ') === '【 】 ｜ →', `(b) 欄の真上に「【 】」「｜」「→」のボタン（${btnLabels.join(' ')}）`);
+  check(btnLabels.join(' ') === '【 】 ｜ → ○', `(b) 欄の真上に「【 】」「｜」「→」「○」のボタン（${btnLabels.join(' ')}）`);
+  // ○は ｜・→ と同じ見た目・同じ大きさ（Hop 決定 2026-10-22）
+  const btnBoxes = await page.locator('[data-bulk-insert]').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); const cs = getComputedStyle(e); return { kind: e.dataset.bulkInsert, w: r.width, h: r.height, top: r.top, bg: cs.backgroundColor, fw: cs.fontWeight, fs: cs.fontSize }; }));
+  const bar = btnBoxes.find((b) => b.kind === 'bar');
+  const maruBox = btnBoxes.find((b) => b.kind === 'maru');
+  check(!!bar && !!maruBox && maruBox.h === bar.h && maruBox.top === bar.top && maruBox.bg === bar.bg && maruBox.fw === bar.fw && maruBox.fs === bar.fs && Math.abs(maruBox.w - bar.w) <= 2, `(b) ○ボタンは ｜ボタンと同じ見た目・大きさ・同じ段（○ ${maruBox?.w}×${maruBox?.h} ／ ｜ ${bar?.w}×${bar?.h}）`);
   await area.evaluate((el) => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); });
   await page.locator('[data-bulk-insert="bar"]').click();
   await page.waitForTimeout(100);
@@ -259,6 +264,17 @@ try {
   await page.locator('[data-bulk-insert="arrow"]').click();
   await page.waitForTimeout(100);
   check((await area.inputValue()).endsWith('｜【→】'), '(b) 「→」ボタンでカーソルの位置に → が入る');
+  await page.locator('[data-bulk-insert="maru"]').click();
+  await page.waitForTimeout(100);
+  const afterMaru = await area.evaluate((el) => ({ v: el.value, s: el.selectionStart, focused: document.activeElement === el }));
+  check(afterMaru.v.endsWith('｜【→○】') && afterMaru.s === afterMaru.v.length - 1 && afterMaru.focused, `(b) 「○」ボタンでカーソルの位置に ○ が入り、カーソルは ○ の後ろ（${afterMaru.v.slice(-6)}・位置 ${afterMaru.s}）`);
+  // 欄を選んでいない時: 欄が覚えている最後のカーソルの所に入れ、欄を選んだ状態にする（｜・→ と同じ）
+  await area.evaluate((el) => el.blur());
+  await page.waitForTimeout(450);
+  await page.locator('[data-bulk-insert="maru"]').click();
+  await page.waitForTimeout(100);
+  const afterMaru2 = await area.evaluate((el) => ({ v: el.value, s: el.selectionStart, focused: document.activeElement === el }));
+  check(afterMaru2.v.endsWith('｜【→○○】') && afterMaru2.s === afterMaru2.v.length - 1 && afterMaru2.focused, `(b) 欄を選ばずに「○」を押すと、最後のカーソルの所に ○ が入り欄が選ばれる（${afterMaru2.v.slice(-6)}）`);
   // 欄で文字を選んで「【 】」→その文字を囲む
   await area.fill(TEXT);
   await area.evaluate((el) => { const i = el.value.indexOf('会った'); el.focus(); el.setSelectionRange(i, i + 3); });

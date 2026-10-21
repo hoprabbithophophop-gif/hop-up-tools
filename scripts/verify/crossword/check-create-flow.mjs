@@ -7,7 +7,7 @@
 //   (1) 初めて開いた作る画面: 段の札4つ（今の段だけ黒い）・「?」・ジャンルの切り替え・「リストに追加」・1語ずつの欄が無い
 //   (2) 1の段: 答えが2つ以上で「組み合わせを探す（N語）」が押せる
 //   (3) 2の段: 案1〜3と「N語・Mマス・交差K」・選んだ案の盤（マスの数＝M）・「再シャッフル」・下書きに盤が残る
-//   (4) 3の段: 盤に入った答えだけが並ぶ・カギの下書き（○・同じ行のほかの答えは□・「問題文→【答え】」は問題文だけ）・○ボタン
+//   (4) 3の段: 盤に入った答えだけが並ぶ・カギの下書き（○・同じ行のほかの答えは□・「問題文→【答え】」は問題文だけ）・○ボタンは無い（1 答えの道具の段へ移した。Hop 決定 2026-10-22）
 //       ・「ヒントが未選択の語が N 語あります」「カギが空の語が N 語あります」・そろうと「全部の答えにカギとヒントが付きました。」
 //       ・3の段から開いたヒントの窓には「囲みを外す」が無い・台帳に無い YouTube は「公式チャンネルの動画か確かめて」の1文付きで選べ、作りかけに outside の印が残る
 //       ・カギは30字まで（Hop 決定 2026-10-21）: 欄の下に「あと◯字」。30字ちょうど（絵文字は1字）は共有できる。31字は「1字多いです。…」が欄の下と共有のボタンの上に出て押せない
@@ -251,9 +251,9 @@ try {
     const k0 = keys[0];
     await clueInput(page, k0).fill('');
     check((await missing.textContent()).includes('カギが空の語が 1 語あります'), `(4) カギを空にすると「${await missing.textContent()}」`);
-    // ○ボタン: 欄を選んでいない時は末尾に足す
-    await page.locator(`[data-clue-row="${k0}"] button[aria-label="○を入れる"]`).click();
-    check((await clueInput(page, k0).inputValue()) === '○', `(4) ○ボタンでカギの欄に○が入る（${await clueInput(page, k0).inputValue()}）`);
+    // ○ボタンは 1 答えの道具の段へ移した（Hop 決定 2026-10-22）。3 カギには無い
+    const maruIn3 = await page.locator('[data-create-step="3"] button').evaluateAll((els) => els.filter((e) => e.textContent.trim() === '○' || e.getAttribute('aria-label') === '○を入れる').length);
+    check(maruIn3 === 0, `(4) 3の段に○ボタンが無い（${maruIn3}個）`);
     await clueInput(page, k0).fill(DRAFTS[k0]);
     // 3の段から開いたヒントの窓（題は「「語」のヒント」・「囲みを外す」は無い）。1語は台帳に無い YouTube にして、1文と作りかけの outside の印を見る
     const ytKey = keys.find((k) => !['ネコ', 'コアラ'].includes(k));

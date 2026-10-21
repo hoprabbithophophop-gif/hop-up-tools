@@ -257,7 +257,6 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   const [sharedTitle, setSharedTitle] = useState("");
 
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const clueRefs = useRef(new Map<string, HTMLInputElement>());
 
   // --- 書いた行から答えを出す ---
   const marks = useMemo(() => parseMarks(bulkText), [bulkText]);
@@ -743,19 +742,6 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     setBulkText(bulkText.slice(0, a.mark.start) + a.mark.surface + bulkText.slice(a.mark.end));
   };
 
-  // カギの欄の、今の文字の位置に「○」を入れる（Hop 依頼 2026-10-03。穴あきのカギ用）。押しても欄の選ばれ方を変えない。
-  // 欄を選んでいる最中なら文字の位置に、選んでいなければ末尾に入れる
-  const insertMaru = (key: string) => {
-    const el = clueRefs.current.get(key);
-    const q = clueOf(key);
-    const active = !!el && document.activeElement === el;
-    const start = active ? el!.selectionStart ?? q.length : q.length;
-    const end = active ? el!.selectionEnd ?? q.length : q.length;
-    setClues((prev) => ({ ...prev, [key]: q.slice(0, start) + "○" + q.slice(end) }));
-    if (!active) return;
-    requestAnimationFrame(() => el!.setSelectionRange(start + 1, start + 1));
-  };
-
   const addTag = () => {
     const t = tagInput.trim();
     if (!t || tags.length >= MAX_TAGS || tags.includes(t)) {
@@ -1100,31 +1086,14 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                       <label htmlFor={`cw-clue-${idx}`} className="text-[15px] font-black tracking-[0.12em]" style={{ color: C.ink }}>
                         {key}
                       </label>
-                      <div className="flex gap-2">
-                        <input
-                          id={`cw-clue-${idx}`}
-                          ref={(el) => {
-                            if (el) clueRefs.current.set(key, el);
-                            else clueRefs.current.delete(key);
-                          }}
-                          value={clueOf(key)}
-                          onChange={(e) => setClues((prev) => ({ ...prev, [key]: e.target.value }))}
-                          placeholder={CT.cluePlaceholder}
-                          className={`${inputClass} flex-1 min-w-0 bg-white`}
-                        />
-                        {/* 穴あきのカギ用。今の文字の位置に「○」を1つ入れる */}
-                        <button
-                          type="button"
-                          onPointerDown={(e) => e.preventDefault()}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => insertMaru(key)}
-                          className="shrink-0 min-w-11 min-h-11 px-3 bg-surface-container-high hover:bg-surface-container-highest font-bold transition-colors"
-                          style={{ color: C.ink }}
-                          aria-label={CT.maruLabel}
-                        >
-                          ○
-                        </button>
-                      </div>
+                      {/* ○を入れるボタンは 1 答えの道具の段へ移した（Hop 決定 2026-10-22） */}
+                      <input
+                        id={`cw-clue-${idx}`}
+                        value={clueOf(key)}
+                        onChange={(e) => setClues((prev) => ({ ...prev, [key]: e.target.value }))}
+                        placeholder={CT.cluePlaceholder}
+                        className={`${inputClass} bg-white`}
+                      />
                       {/* 残り字数。30字を超えたら超えた字数（Hop 決定 2026-10-21） */}
                       {(() => {
                         const left = MAX_CLUE_CHARS - clueChars(clueOf(key));
