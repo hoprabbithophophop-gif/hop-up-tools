@@ -12,6 +12,8 @@ import { C } from "../style";
  * - input: 入れた字を 1.3倍・透明から 1倍へ（ばね 550/30 と不透明度）
  * - words: 埋まった語のマスの字が上に4px跳ねて戻る（0.3秒。キーは "x,y"、値は遅らせる ms。Hop 2026-10-21 灰の帯から変更）
  * - place: 決まった盤のマスを左上から1マス20msずつ置く（透明・0.6倍から 0.2秒）
+ * - placeKeys: place と同じ動きを、渡したマスだけに付ける（キーは "x,y"、値は遅らせる ms）。作る画面の小さい盤が育つ時に、
+ *   新しく増えたマスだけを置くのに使う（全部を並べ直さない。Hop 決定 2026-10-22）
  */
 export interface GridFx {
   id: number;
@@ -19,6 +21,7 @@ export interface GridFx {
   input?: string;
   words?: Record<string, number>;
   place?: boolean;
+  placeKeys?: Record<string, number>;
 }
 
 interface PuzzleGridRetroProps {
@@ -34,7 +37,7 @@ interface PuzzleGridRetroProps {
   wrongCells?: Set<string>;
   /** 静かに脈打たせるマス（初めて解く人に、押す所を知らせる。Hop 決定 2026-10-05）。色は使わず濃淡だけ */
   pulseCell?: { x: number; y: number } | null;
-  /** 盤の動き（解く画面と作る画面の2の段だけが渡す） */
+  /** 盤の動き（解く画面と作る画面の盤だけが渡す） */
   fx?: GridFx | null;
 }
 
@@ -81,6 +84,12 @@ export const PuzzleGridRetro: React.FC<PuzzleGridRetroProps> = ({
       root.querySelectorAll<HTMLElement>("[data-cell]").forEach((el) => {
         const [x, y] = (el.dataset.cell ?? "0,0").split(",").map(Number);
         animateElement(el, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1 }, { duration: 0.2, ease: "easeOut", delay: (x + y) * 0.02 });
+      });
+    }
+    if (fx.placeKeys) {
+      Object.entries(fx.placeKeys).forEach(([key, ms]) => {
+        const el = root.querySelector<HTMLElement>(`[data-cell="${key}"]`);
+        if (el) animateElement(el, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1 }, { duration: 0.2, ease: "easeOut", delay: ms / 1000 });
       });
     }
   }, [fx]);

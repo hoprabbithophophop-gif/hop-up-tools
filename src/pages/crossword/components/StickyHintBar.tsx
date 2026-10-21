@@ -17,14 +17,17 @@ interface StickyHintBarProps {
   onPrevHint?: () => void;
   onNextHint?: () => void;
   onToggleDirection?: () => void;
+  /** 画面の下からの位置（作る画面の「試す」では下の貼り付けの段 60px の上に出す。Hop 決定 2026-10-22）。省くと画面の一番下 */
+  bottom?: string;
 }
 
 const barStyle: React.CSSProperties = { background: C.white, boxShadow: "0 -1px 8px rgba(0,0,0,0.08)" };
 
-export const StickyHintBar: React.FC<StickyHintBarProps> = ({ currentHint, onPrevHint, onNextHint, onToggleDirection }) => {
+export const StickyHintBar: React.FC<StickyHintBarProps> = ({ currentHint, onPrevHint, onNextHint, onToggleDirection, bottom }) => {
+  const style = bottom ? { ...barStyle, bottom } : barStyle;
   if (!currentHint) {
     return (
-      <div className="fixed bottom-0 left-0 right-0 z-40 w-full p-3" style={barStyle}>
+      <div className="fixed bottom-0 left-0 right-0 z-40 w-full p-3" style={style}>
         <p className="text-center text-sm font-medium" style={{ color: C.secondary }}>
           マスを押すと、ここにカギが出ます
         </p>
@@ -33,7 +36,7 @@ export const StickyHintBar: React.FC<StickyHintBarProps> = ({ currentHint, onPre
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 w-full p-3" style={barStyle}>
+    <div className="fixed bottom-0 left-0 right-0 z-40 w-full p-3" style={style}>
       <div className="flex items-center gap-2">
         {onPrevHint && (
           <button onClick={onPrevHint} className="p-2 bg-surface-container-low hover:bg-surface-container-high transition-colors" aria-label="前のカギ">

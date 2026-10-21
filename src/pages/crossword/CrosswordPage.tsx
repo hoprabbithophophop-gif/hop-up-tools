@@ -46,7 +46,7 @@ import { checkPlay, pausePlay, pausePlayBeacon, pingPlay, resumePlay, revealCell
 import { CoachMarks, type CoachStep } from "./components/CoachMarks";
 import { tutorialPuzzle, TUTORIAL_HINTS } from "../../lib/crossword/tutorial";
 import { C } from "./style";
-// 作る画面（/crossword/create）は4段の流れの別のファイル（2026-10-20）
+// 作る画面（/crossword/create）は別のファイル（案A「作る｜試す」。Hop 決定 2026-10-22）
 import { CreatePage } from "./create/CreatePage";
 
 // localStorage の鍵（crossword 専用の名前）
@@ -277,7 +277,24 @@ const Button = ({ children, onClick, disabled, className, variant = "primary" }:
 
 // Icon と Footer は components/ui.tsx へ移した（一覧の画面でも使うため。中身は同じ）
 
-export default function CrosswordPage() {
+// 作る画面の「試す」（Hop 決定 2026-10-22・案A）。作る画面が今の盤をこの画面の部品に渡して、その場で解けるようにする。
+// ?debug= の見本と同じく、受付係・棚には何も送らず、ブラウザの中だけで答え合わせする。端末にも途中経過・解き終えた印を残さない。
+// 見出し（題名・タイム・一時停止・リセット）・遊び方の窓・解き終えた画面の「Xに投稿」とランキングとほかの問題・著作権の1行・通報・名前を入れる窓は出さない
+export interface TrialPlay {
+  puzzle: PuzzleData;
+  hints: Record<string, HintRef>;
+  /** 前に「試す」で入れた字（同じ盤の時だけ作る画面が持っていて渡す） */
+  answers?: Record<string, string>;
+  /** 字が変わった時・解けた時に作る画面へ知らせる（作る画面が持って、次に「試す」を開いた時に戻す） */
+  onAnswers?: (answers: Record<string, string>, cleared: boolean) => void;
+  /** 上に貼り付く作る画面の見出しの高さ（進み具合の帯をその下に貼り付ける） */
+  stickyTop: number;
+  /** 画面の下の貼り付けの段の高さ（カギの帯をその上に出す） */
+  dockGap: string;
+}
+
+export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
+  const isTrial = !!trial;
   const { id: puzzleId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const debugSample = DEBUG_SAMPLES[searchParams.get("debug") ?? ""] ?? null; // デバッグモードの見本（true・big・dakuten）
@@ -288,9 +305,9 @@ export default function CrosswordPage() {
   // 練習の後に戻る問題の番号（?from=）
   const fromParam = searchParams.get("from");
   const tutorialFrom = isTutorial && fromParam && /^[A-Za-z0-9_-]{1,64}$/.test(fromParam) ? fromParam : null;
-  const isPlayerMode = !!puzzleId || isDebugMode || isTutorial;
-  // 練習問題と見本は受付係を通らない（タイムはこの端末の時計だけで測る）
-  const isLocalTiming = isTutorial || isDebugMode;
+  const isPlayerMode = !!puzzleId || isDebugMode || isTutorial || isTrial;
+  // 練習問題と見本と作る画面の「試す」は受付係を通らない（タイムはこの端末の時計だけで測る）
+  const isLocalTiming = isTutorial || isDebugMode || isTrial;
   // Player State
   const [loadState, setLoadState] = useState<"loading" | "done">(isPlayerMode ? "loading" : "done");
   const [playerPuzzle, setPlayerPuzzle] = useState<PuzzleData | null>(null);
@@ -362,7 +379,8 @@ export default function CrosswordPage() {
   // 練習問題の案内の段。0 = マスを押す、1 = 文字盤、null = 終わり（あとは案内なしで解く）
   const [tutStep, setTutStep] = useState<number | null>(isTutorial ? 0 : null);
   // 解く画面の最初のマスの脈打ちと1行（記録が空の端末だけ。マスを押したら消えて二度と出ない）
-  const [firstCellHint, setFirstCellHint] = useState(() => !isTutorial && !lsGet(FIRST_CELL_KEY));
+  // 作る画面の「試す」では出さない（印も付けない。本物の問題を初めて解く時に出るように）
+  const [firstCellHint, setFirstCellHint] = useState(() => !isTutorial && !isTrial && !lsGet(FIRST_CELL_KEY));
   const [showClearAnimation, setShowClearAnimation] = useState(false);
   const [restoredCleared, setRestoredCleared] = useState(false); // 開き直しで解けた画面を出している（「もう一度解く」を出す）
   const [scale, setScale] = useState(1);
@@ -475,6 +493,16 @@ export default function CrosswordPage() {
 
   // --- Initialization ---
   useEffect(() => {
+    // 作る画面の「試す」は、作る画面から受け取った盤をそのまま使う（棚から読まない・台帳も確かめない・組み上がりの演出も挟まない）。
+    // ジャンルはハロプロ（作る画面はハロプロだけ。Hop 決定 2026-10-20）。前に入れた字があれば戻す
+    if (trial) {
+      setPlayerPuzzle(trial.puzzle);
+      setPlayerHints(trial.hints);
+      setPlayerGenre("hello");
+      if (trial.answers) setUserAnswers(trial.answers);
+      setLoadState("done");
+      return;
+    }
     // 練習問題は棚から読まない（コードの中の問題）。組み上がりの演出も挟まない
     if (isTutorial) {
       setPlayerPuzzle(tutorialPuzzle());
@@ -580,7 +608,7 @@ export default function CrosswordPage() {
 
   // キューイングされたスコアの再送信（ネットワーク回復時。HarmonyPalette と同じ）
   useEffect(() => {
-    if (isTutorial) return; // 練習問題では受付係に何も送らない
+    if (isTutorial || isTrial) return; // 練習問題と作る画面の「試す」では受付係に何も送らない
     const retry = () => {
       retryQueuedScores().catch((e) => console.error("[Score Queue] Error processing queue:", e));
     };
@@ -594,8 +622,8 @@ export default function CrosswordPage() {
     if (isPlayerMode && playerPuzzle) {
       // 解き終えた問題を開き直した時は、窓も出さず回も始めない（解けた画面がそのまま出ている）
       if (gamePhase === "cleared") return;
-      // 練習問題は遊び方の窓を出さずに始める（タイムは出さないが、一時停止の動きは同じ。端末の時計だけで測る）
-      if (isTutorial) {
+      // 練習問題と作る画面の「試す」は遊び方の窓を出さずに始める（タイムは出さないが、一時停止の動きは同じ。端末の時計だけで測る）
+      if (isTutorial || isTrial) {
         if (gamePhase === "ready") beginTiming();
         return;
       }
@@ -919,7 +947,7 @@ export default function CrosswordPage() {
     if (!activeWordItem || isCleared) return;
     const index = Math.min(activeCloseupIndex, activeWordItem.length - 1);
     const [x, y] = closeupCellKey(index).split(",").map(Number);
-    if (isDebugMode || isTutorial) {
+    if (isDebugMode || isTutorial || isTrial) {
       setReveals((r) => r + 1);
       pendingInputRef.current = `${x},${y}`;
       setUserAnswers((prev) => ({ ...prev, [`${x},${y}`]: activeWordItem.answer[index].toUpperCase() }));
@@ -1017,7 +1045,8 @@ export default function CrosswordPage() {
     lastTickRef.current = Date.now();
     const tick = () => {
       const now = Date.now();
-      if (timing.openedAt !== null && now - lastTickRef.current > SLEEP_GAP_MS) {
+      // 作る画面の「試す」はタイムを出さないので、時計が飛んでも止めない（幕で盤を隠さない）
+      if (timing.openedAt !== null && now - lastTickRef.current > SLEEP_GAP_MS && !isTrial) {
         pauseBoard({ at: lastTickRef.current });
         return;
       }
@@ -1033,8 +1062,9 @@ export default function CrosswordPage() {
   }, [gamePhase, timing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 画面を隠した時・閉じた時は自動で一時停止する（返事は待てないので sendBeacon）。戻っても自動では再開しない
+  // 作る画面の「試す」はタイムを出さないので、画面を隠しても止めない（幕で盤を隠さない）
   useEffect(() => {
-    if (gamePhase !== "playing" || isCleared) return;
+    if (gamePhase !== "playing" || isCleared || isTrial) return;
     const onVisibility = () => {
       if (document.visibilityState === "hidden") pauseBoard({ beacon: true });
     };
@@ -1090,7 +1120,7 @@ export default function CrosswordPage() {
   // 数えるのは受付係（回ごとに1度・同じ接続元と問題は24時間に1度。外から回数を足す呼び出しは使えない）
   // 解き終えた画面を開き直した時（入れた字を戻しただけ）は数えない・回も始めない
   useEffect(() => {
-    if (!playerPuzzle || isDebugMode || isTutorial || gamePhase !== "playing" || Object.keys(userAnswers).length === 0) return;
+    if (!playerPuzzle || isDebugMode || isTutorial || isTrial || gamePhase !== "playing" || Object.keys(userAnswers).length === 0) return;
     const id = playerPuzzle.id;
     if (lsGet(`${PLAYED_PREFIX}${id}`)) return;
     if (readMyPuzzles().some((m) => m.id === id)) return;
@@ -1100,15 +1130,22 @@ export default function CrosswordPage() {
 
   // Persist Progress (including elapsed time)
   useEffect(() => {
-    if (playerPuzzle && !isTutorial && gamePhase === "playing" && Object.keys(userAnswers).length > 0) {
+    if (playerPuzzle && !isTutorial && !isTrial && gamePhase === "playing" && Object.keys(userAnswers).length > 0) {
       lsSet(`${PROGRESS_PREFIX}${playerPuzzle.id}`, JSON.stringify({ userAnswers, elapsedSeconds, reveals, play: playRef.current, savedAt: Date.now() }));
     }
-  }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase, reveals, isTutorial]);
+  }, [userAnswers, playerPuzzle, elapsedSeconds, gamePhase, reveals, isTutorial, isTrial]);
+
+  // 作る画面の「試す」: 入れた字と解けたかを作る画面へ知らせる（端末には残さない。作る画面が画面を開いている間だけ持つ）
+  const onTrialAnswersRef = useRef(trial?.onAnswers);
+  onTrialAnswersRef.current = trial?.onAnswers;
+  useEffect(() => {
+    if (isTrial && playerPuzzle) onTrialAnswersRef.current?.(userAnswers, gamePhase === "cleared");
+  }, [userAnswers, gamePhase, playerPuzzle, isTrial]);
 
   // 解けたら端末の途中経過を消す（2026-10-06 レビューの直し）。開き直した時の見え方は解き終えた印（CLEARED_PREFIX）が決める（Hop 指示 2026-10-17）
   useEffect(() => {
-    if (playerPuzzle && !isTutorial && gamePhase === "cleared") lsRemove(`${PROGRESS_PREFIX}${playerPuzzle.id}`);
-  }, [playerPuzzle, gamePhase, isTutorial]);
+    if (playerPuzzle && !isTutorial && !isTrial && gamePhase === "cleared") lsRemove(`${PROGRESS_PREFIX}${playerPuzzle.id}`);
+  }, [playerPuzzle, gamePhase, isTutorial, isTrial]);
 
   // --- Player Functions ---
   const handleCellChange = (cell: { x: number; y: number }, val: string) => {
@@ -1142,8 +1179,8 @@ export default function CrosswordPage() {
     }
     let allCorrect = false;
     let serverTime: number | null = null;
-    if (isDebugMode || isTutorial) {
-      // 練習問題とデバッグ用の見本は、ブラウザの中で答え合わせする（受付係を通さない）。小さい字は大きい字にそろえて比べる
+    if (isDebugMode || isTutorial || isTrial) {
+      // 練習問題とデバッグ用の見本と作る画面の「試す」は、ブラウザの中で答え合わせする（受付係を通さない）。小さい字は大きい字にそろえて比べる
       allCorrect = playerPuzzle.cells.every((c) => toLargeKana(userAnswers[`${c.x},${c.y}`] ?? "") === toLargeKana(c.value));
     } else {
       setChecking(true);
@@ -1216,7 +1253,7 @@ export default function CrosswordPage() {
         }
         // 解き終えた印を端末に残す。開き直した時はこの画面をそのまま出す（Hop 指示 2026-10-17）
         // 答えは受付係だけが持っていてブラウザには届かないので、盤に出す字は解いた本人が入れた字（全部合っている）を残す
-        if (playerPuzzle && !isTutorial && !isDebugMode) lsSet(`${CLEARED_PREFIX}${playerPuzzle.id}`, JSON.stringify({ clearTime: timeSeconds, userAnswers, clearedAt: Date.now() }));
+        if (playerPuzzle && !isTutorial && !isDebugMode && !isTrial) lsSet(`${CLEARED_PREFIX}${playerPuzzle.id}`, JSON.stringify({ clearTime: timeSeconds, userAnswers, clearedAt: Date.now() }));
         // 読み上げで知らせる（画面には出さない。練習問題はタイムを測らないので文だけ）
         toast.announce(timeSeconds !== null && !isTutorial ? `解けました。タイム ${clock(timeSeconds)}` : "解けました。");
       }, 500);
@@ -1458,9 +1495,11 @@ export default function CrosswordPage() {
 
   if (isPlayerMode && playerPuzzle) {
     return (
-      <div className="min-h-screen bg-surface">
-        <Toaster />
+      <div data-trial={isTrial ? "" : undefined} className={isTrial ? "bg-surface" : "min-h-screen bg-surface"}>
+        {/* 作る画面の「試す」では知らせの入れ物と見出しは作る画面の物を使う */}
+        {!isTrial && <Toaster />}
         {/* [No.01] Sticky Header - 60px固定 */}
+        {!isTrial && (
         <header className="sticky top-0 z-30 bg-surface h-[60px] flex items-center px-4" style={{ borderBottom: `1px solid ${C.ghost}` }}>
           <div className="container mx-auto max-w-4xl flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -1512,10 +1551,11 @@ export default function CrosswordPage() {
             </div>
           </div>
         </header>
+        )}
 
-        {/* [No.12] プログレスバー - ヘッダー直下 */}
+        {/* [No.12] プログレスバー - ヘッダー直下（作る画面の「試す」では作る画面の見出しの下） */}
         {gamePhase !== "ready" && (
-          <div className="sticky top-[60px] z-20 bg-white">
+          <div className="sticky z-20 bg-white" style={{ top: isTrial ? trial!.stickyTop : 60 }}>
             <SegmentBar filled={filledCount} total={playerPuzzle.cells.length} />
           </div>
         )}
@@ -1598,6 +1638,7 @@ export default function CrosswordPage() {
             )}
           </Presence>
 
+          {!isTrial && (
           <div className="flex justify-center items-center gap-4 mb-8">
             <p className="text-center text-sm" style={{ color: C.secondary }}>クロスワードパズル</p>
             <button
@@ -1610,6 +1651,7 @@ export default function CrosswordPage() {
               <Icon icon="help" />
             </button>
           </div>
+          )}
 
           <Presence>
             {isAssemblyAnimating ? (
@@ -1714,7 +1756,7 @@ export default function CrosswordPage() {
                 {isCleared && (
                   <div data-cleared-block="">
                     {/* 解けたことをXに投稿 */}
-                    {puzzleId && (
+                    {puzzleId && !isTrial && (
                       <div>
                         <a
                           href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`解けた！　${playerPuzzle.title}`)}&url=${encodeURIComponent(`${window.location.origin}/crossword/${puzzleId}`)}`}
@@ -1727,7 +1769,7 @@ export default function CrosswordPage() {
                       </div>
                     )}
                     {/* ランキング（名前の窓はこの上に出る） */}
-                    {puzzleId && (
+                    {puzzleId && !isTrial && (
                       <div className="mt-6">
                         <PuzzleRanking
                           puzzleId={puzzleId}
@@ -1738,7 +1780,7 @@ export default function CrosswordPage() {
                       </div>
                     )}
                     {/* ほかの問題と一覧への入口 */}
-                    {puzzleId && playerGenre && <OtherPuzzles genre={playerGenre} puzzleId={puzzleId} />}
+                    {puzzleId && !isTrial && playerGenre && <OtherPuzzles genre={playerGenre} puzzleId={puzzleId} />}
                     {/* ヒントの動画の一覧（畳んである。押すと開く） */}
                     {Object.keys(playerHints).length > 0 &&
                       (showHintVideos ? (
@@ -1768,8 +1810,8 @@ export default function CrosswordPage() {
                         </button>
                       </div>
                     )}
-                    {/* 作成モードへ戻るリンク（練習問題では出さない） */}
-                    {!isTutorial && (
+                    {/* 作成モードへ戻るリンク（練習問題と作る画面の「試す」では出さない） */}
+                    {!isTutorial && !isTrial && (
                       <div className="mt-4">
                         <Link
                           to="/crossword/create"
@@ -1786,6 +1828,7 @@ export default function CrosswordPage() {
                 {/* Sticky Hint Bar - モーダルが閉じている時のみ表示 */}
                 {!isCleared && !showCloseup && !paused && (
                   <StickyHintBar
+                    bottom={isTrial ? trial!.dockGap : undefined}
                     currentHint={activeWordItem ? { number: activeWordItem.clueIndex || 0, direction: activeWordItem.direction, hint: activeWordItem.question } : null}
                     onPrevHint={() => {
                       if (!playerPuzzle || !activeWordItem) return;
@@ -1842,15 +1885,15 @@ export default function CrosswordPage() {
                   ))}
                 </div>
 
-                {/* 練習問題には作成者がいないので、著作権の注意と通報は出さない */}
-                {!isTutorial && (
+                {/* 練習問題には作成者がいないので、著作権の注意と通報は出さない（作る画面の「試す」も、まだ公開していないので出さない） */}
+                {!isTutorial && !isTrial && (
                 <div className="text-center mt-8 text-xs" style={{ color: C.secondary }}>
                   ※作成された問題の著作権および責任は作成者に帰属します。
                 </div>
                 )}
 
                 {/* 不適切な問題を通報するリンク */}
-                {!isTutorial && (
+                {!isTutorial && !isTrial && (
                 <div className="text-center mt-2">
                   <button
                     onClick={() => setShowContact(true)}
@@ -1943,6 +1986,7 @@ export default function CrosswordPage() {
     return <div className="min-h-screen bg-surface" />;
   }
 
-  // 作る画面（4段の流れ・create/CreatePage.tsx）。問題を読み込めなかった時も今までどおり作る画面を出す（その時は下書きを読まない・書かない）
-  return <CreatePage draftEnabled={!isPlayerMode} />;
+  // 作る画面（案A「作る｜試す」・create/CreatePage.tsx）。問題を読み込めなかった時も今までどおり作る画面を出す（その時は下書きを読まない・書かない）。
+  // 「試す」はこの画面の部品をそのまま使う（作る画面がこの画面を読み込むと互いに読み込み合うので、描き方だけを渡す）
+  return <CreatePage draftEnabled={!isPlayerMode} renderTrial={(t) => <CrosswordPage trial={t} />} />;
 }

@@ -1,11 +1,11 @@
-// クロスワードの作る画面（/crossword/create）。4つの段で進む（Hop 決定 2026-10-19 夜〜10-20・見本 v15）。
-//   1 答え: 書いた行の語を【 】で囲んで答えにし、下線の語を押してヒントを付ける →「組み合わせを探す（N語）」
-//   2 盤:   本番の組み合わせ探し（bulkSelect）の上位3つを「案1〜3」で並べ、選んだ盤を出す。長押しで動かす→固定・再シャッフル・固定を外す
-//   3 カギ: 盤に入った答えだけにカギを書く（下書きは元の行の答えを○にした物）→「共有する」
-//   4 共有: 下から出る窓で題名などを入れ、人間確認（Turnstile）を通って保存
-// 中身の部品は本番の物をそのまま使う（BulkEntry・bulkSelect・MovableBoard・engine・suggest・HintField・SaveCheckModal）。
-// 盤の組み立て・動かす・保存の処理は、もとの CrosswordPage.tsx の作る画面から写した（動きは同じ）。
-import React, { useEffect, useMemo, useRef, useState } from "react";
+// クロスワードの作る画面（/crossword/create）。案A「作る｜試す」（Hop 決定 2026-10-22。前の4段の流れ 1 答え・2 盤・3 カギ・4 共有は取りやめ）。
+//   上:     見出しと「作る｜試す」の切り替え（44px・上に貼り付き）
+//   作る:   小さい盤（約110px・上に貼り付き。書くそばで育つ。押すと広げた盤の画面）→ 書く欄 → 語の一覧（行を押すと下から語の窓。カギとヒントを書く）
+//   試す:   今の盤を解く画面の本物の部品で解く（受付係・棚には何も送らない。?debug= の見本と同じくブラウザの中だけで答え合わせ）
+//   下:     貼り付けの段（60px）「試しに解く」「共有へ」。共有の窓で題名などを入れ、人間確認（Turnstile）を通って保存
+// 細かい所から全体へ一方向に進み、途中では止めない。足りない物は共有の直前に「カギがあと◯語・ヒントがあと◯語」とだけ出す（Hop 決定 2026-10-22）。
+// 中身の部品は本番の物をそのまま使う（BulkEntry・bulkSelect・MovableBoard・engine・suggest・HintField・SaveCheckModal・解く画面）。
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { buildGrid, createPuzzleSearch, generateMonteCarloSteps, isBetterPlacement, isConnected, moveItem, validatePlacement } from "../../../lib/crossword/engine";
@@ -28,30 +28,31 @@ import {
 } from "../../../lib/crossword/puzzleStore";
 import { drawShareImage } from "../../../lib/crossword/shareImage";
 import { linkProblem } from "../../../lib/crossword/youtubeUrl";
+import { animateElement, prefersReducedMotion } from "../../../lib/crossword/motion";
 import { BulkEntry, clueDraft, evaluateCandidates, parseMarks, type Candidate } from "../components/BulkEntry";
 import { HintField } from "../components/HintField";
 import { useHintSearch } from "../components/hintSearch";
 import { HINT_SOURCES, sourceOfUrl } from "../components/HintSourceBar";
 import { FitGrid } from "../components/FitGrid";
 import { MovableBoard, MOVE_MARGIN } from "../components/MovableBoard";
-import { PuzzleGridRetro } from "../components/PuzzleGridRetro";
+import { PuzzleGridRetro, type GridFx } from "../components/PuzzleGridRetro";
+import { Motion, Presence } from "../components/Motion";
 import { useDialog } from "../components/useDialog";
 import { Toaster, toast } from "../components/Toast";
 import { SaveCheckModal } from "../components/SaveCheckModal";
 import { Footer, Icon } from "../components/ui";
 import { C } from "../style";
+import type { TrialPlay } from "../CrosswordPage";
 import { BULK_TEXTS, CT, PROPOSAL_TEXTS } from "./texts";
 
 // localStorage の鍵（名前は今までと同じ。消した札は消したまま）
 const DRAFT_KEY = "crossword_draft";
 const TIP_KEYS = {
-  cross: "crossword_seen_tip_cross", // 1の段で答えが1つになった時
-  move: "crossword_seen_tip_move", // 2の段で盤ができた時
+  cross: "crossword_seen_tip_cross", // 答えが1つになった時
+  move: "crossword_seen_tip_move", // 広げた盤に盤が出た時
   saved: "crossword_seen_tip_saved", // 共有の窓の中
 } as const;
 type TipName = keyof typeof TIP_KEYS;
-// なぞる動きを見た印（公開後、初めて作る画面を開いた端末で一度だけ。Hop 決定 2026-10-20）
-const TRACE_KEY = "crossword_seen_trace";
 const MAX_TAGS = 10;
 // カギ（問題文）1つの字数の上限。数え方は見た目の字数（絵文字なども1字。Array.from の長さ）。受付係 crossword-save の MAX_CLUE_CHARS と同じ値。
 // 2026-10-21 に入れた30字は取り違えで、正しくは問題文100字（答えのマス目が30字。Hop 決定 2026-10-22）
@@ -59,16 +60,27 @@ const MAX_CLUE_CHARS = 100;
 // 「あと◯字」を、欄を選んでいなくても出す残りの字数（Hop 決定 2026-10-22「フォーカス中か、残り10字以下の時だけ」）
 const CLUE_LEFT_ALWAYS = 10;
 const clueChars = (s: string) => Array.from(s.trim()).length;
-// 裏の探索を1回の刻みで回す長さ（ミリ秒）。描き変えの100msの合間に収める
+// 裏の探索を1回の刻みで回す長さ（ミリ秒）。刻みの合間に入力を受けるので、打つのを待たせない
 const SEARCH_STEP_MS = 30;
-// 組み立ての演出の試行の数（HarmonyPalette と同じ）。「再シャッフル」で使う
+// 組み立ての演出の試行の数（HarmonyPalette と同じ）。広げた盤の「再シャッフル」で使う
 const ANIMATION_STEPS = 50;
-// 「組み合わせを探す」で見せる試行の数。1回0.1秒なので約1秒（Hop 決定 2026-10-22「変わった時だけ・短く」。50回・約5秒は毎回だと長すぎた）
-const SEARCH_ANIMATION_STEPS = 10;
-// 答えの並びの見出し。前に探した時と同じなら、探し直さずに今の盤のまま「2 盤」へ進む
+// 書く欄の答えが変わってから、裏で盤を組み直し始めるまでの待ち（打っている間は組み直さない。Hop 決定 2026-10-22「短い待ちの後に結果を出す」）【仮】
+const AUTO_SEARCH_WAIT_MS = 250;
+// 見出しと「作る｜試す」の高さ・小さい盤の高さ・下の貼り付けの段の高さ（見本の案A と同じ）
+const HEAD_H = 44;
+const MINI_H = 110;
+const DOCK_H = 60;
+const DOCK_GAP = `calc(${DOCK_H}px + env(safe-area-inset-bottom, 0px))`;
+// 動きの強弱（Hop 決定 2026-10-22）。無いと何が変わったか分からない動き（盤に増えたマス・足りない言葉が消える・下線）は今の強さ、
+// それ以外（窓が出る・文が替わる・試すへの切り替え・盤を広げる／閉じる・文字盤で隠れる／戻る）は短く小さく目立たない形（0.15秒・ずれ 4px・0.97倍）
+const WEAK = { duration: 0.15, ease: "easeOut" as const };
+// 文字盤が出て小さい盤と下の段が隠れる・戻る時の動き（予定表の帯と同じ曲線。弱い組なので 120ms）
+const HIDE_MS = 120;
+const EASE_STANDARD = "cubic-bezier(0.4, 0, 0.2, 1)";
+// 答えの並びの見出し。盤を組んだ時と同じなら組み直さない
 const poolSignature = (items: PuzzleItem[]) => items.map((p) => `${p.id}:${p.answer.join("")}`).sort().join("|");
-
-type Step = 1 | 2 | 3 | 4;
+// 盤の形の見出し（「試す」で入れた字を、同じ盤の時だけ戻すのに使う）
+const boardSignature = (p: PuzzleData) => p.items.map((i) => `${i.id}@${i.startX},${i.startY}${i.direction[0]}`).sort().join("|");
 
 const lsGet = (k: string): string | null => {
   try {
@@ -92,20 +104,11 @@ const lsRemove = (k: string) => {
   }
 };
 
-const reducedMotion = () => {
-  try {
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  } catch {
-    return false;
-  }
-};
-
-// 作りかけ（4段の形・version 2）。ヒント・カギは答え（答えの字を並べた物）ごとに持つ。盤は語の位置と固定のまま残す
-interface DraftV2 {
-  version: 2;
-  step: Step;
+// 作りかけ（案A の形・version 3）。ヒント・カギは答え（答えの字を並べた物）ごとに持つ。盤は語の位置と固定のまま残す。
+// 前の版（4段の版の version 2・段の無い古い形）も開ける（version 2 の段と畳んだ印は使わない）
+interface DraftV3 {
+  version: 3;
   bulkText: string;
-  collapsed: boolean;
   hints: Record<string, HintRef>;
   hintLabels: Record<string, string>;
   clues: Record<string, string>;
@@ -116,9 +119,9 @@ interface DraftV2 {
   creatorName: string;
   tags: string[];
   isBeginner: boolean;
-  // 盤を組んだ時と最後に探した時の答えの並びの見出し（poolSignature）。前の版の作りかけには無い（無ければ戻した時の答えで埋める）
-  boardSig?: string | null;
-  searchedSig?: string | null;
+  // 盤を組んだ時と最後に探した時の答えの並びの見出し（poolSignature）
+  boardSig: string | null;
+  searchedSig: string | null;
 }
 
 // 作りかけから戻したヒントは、動画の番号・開始の秒・outside の印だけにする（前の版の作りかけに残っているほかの欄は捨てる。
@@ -170,6 +173,18 @@ const validBoard = (raw: unknown, keys: Set<string>): PlacedItem[] | null => {
   return out;
 };
 
+// 盤のマスごとの「語の番号:何字目」の印（新しく増えたマスを見分けるのに使う）
+const cellIdsOf = (p: PuzzleData): Map<string, string[]> => {
+  const out = new Map<string, string[]>();
+  for (const it of p.items) {
+    for (let i = 0; i < it.length; i++) {
+      const key = it.direction === "horizontal" ? `${it.startX + i},${it.startY}` : `${it.startX},${it.startY + i}`;
+      out.set(key, [...(out.get(key) ?? []), `${it.id}:${i}`]);
+    }
+  }
+  return out;
+};
+
 const inputClass =
   // 文字は16px。iPhone は16pxより小さい入力欄を押すと画面を拡大するため（Hop 依頼 2026-10-03）
   "w-full h-11 bg-surface-container-low px-3 text-base text-on-surface placeholder:text-outline focus:outline-none focus:bg-white focus:shadow-[inset_0_-2px_0_#000]";
@@ -181,7 +196,7 @@ const btnGray = "min-h-11 px-4 font-semibold bg-surface-container-high hover:bg-
 // 選んだヒントの出どころ（「ヒント: 出どころ 名前」の出どころ）
 const sourceLabel = (h: HintRef) => (h.kind === "youtube" ? "YouTube" : (HINT_SOURCES.find((s) => s.key === sourceOfUrl(h.url))?.label ?? "リンク"));
 const fallbackName = (h: HintRef) => (h.kind === "youtube" ? `https://youtu.be/${h.videoId}` : h.url);
-// 3 カギの「ヒント: 出どころ 名前」を押した時に別のタブで開く行き先（Hop 決定 2026-10-22）。YouTube は開始の秒つき、リンクは保存した URL。
+// 語の窓の「ヒント: 出どころ 名前」を押した時に別のタブで開く行き先（Hop 決定 2026-10-22）。YouTube は開始の秒つき、リンクは保存した URL。
 // 行き先がおかしい・危ない形（https でない・長すぎる・IP の住所など。ヒントの欄と同じ linkProblem で見る）はリンクにしない
 const hintHref = (h: HintRef): string | null => {
   const url = h.kind === "youtube" ? `https://youtu.be/${encodeURIComponent(h.videoId)}?t=${Math.max(0, Math.floor(h.startSec))}` : h.url;
@@ -190,7 +205,16 @@ const hintHref = (h: HintRef): string | null => {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
+// 指で触る端末か（文字盤が出る端末。小さい盤と下の段を隠すかの見分けに使う）
+const coarsePointer = () => {
+  try {
+    return window.matchMedia("(pointer: coarse)").matches;
+  } catch {
+    return false;
+  }
+};
+
+export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolean; renderTrial?: (t: TrialPlay) => React.ReactNode }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   // 組み直し（/crossword/create?edit=<番号>。Hop 決定 2026-10-05）。checking = 中身を受け取り中、editing = 組み直し中（下書きに書かない・読まない【仮】）
@@ -201,10 +225,16 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   // 組み直しで開いた時に棚に保存してあったヒント（保存の時に outside の印を引き継ぐのに使う。Hop 決定 2026-10-21）
   const storedHintsRef = useRef<Record<string, HintRef>>({});
 
-  const [step, setStep] = useState<Step>(1);
+  // 作る｜試す（Hop 決定 2026-10-22）。作りかけには残さない（開き直すといつも「作る」から）
+  const [mode, setMode] = useState<"make" | "try">("make");
+  // 広げた盤の画面・語の窓・共有の窓
+  const [expanded, setExpanded] = useState(false);
+  const [wordSheet, setWordSheet] = useState<{ key: string; n: number } | null>(null);
+  const wordSheetCount = useRef(0);
+  const [shareOpen, setShareOpen] = useState(false);
+
   const [bulkText, setBulkText] = useState("");
-  const [collapsed, setCollapsed] = useState(false);
-  // ヒント・カギは答え（答えの字を並べた物）ごとに持つ（段を行き来しても、探し直しても消えないように）
+  // ヒント・カギは答え（答えの字を並べた物）ごとに持つ（盤を組み直しても消えないように）
   const [hints, setHints] = useState<Record<string, HintRef>>({});
   const [hintLabels, setHintLabels] = useState<Record<string, string>>({});
   const [clues, setClues] = useState<Record<string, string>>({});
@@ -215,28 +245,27 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   const [isBeginner, setIsBeginner] = useState(false);
   const [titleError, setTitleError] = useState(false);
 
-  // 2の段
+  // 盤
   const [proposals, setProposals] = useState<BulkProposal[] | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [generatedPuzzle, setGeneratedPuzzle] = useState<PuzzleData | null>(null);
   const [backgroundPuzzle, setBackgroundPuzzle] = useState<PuzzleData | null>(null);
+  // 広げた盤の「再シャッフル」の組み立ての動きの間
   const [isLiveGenerating, setIsLiveGenerating] = useState(false);
+  // 書く欄の答えが変わった後、裏で組み合わせを探している間（盤は前の盤のまま見せる）
+  const [searching, setSearching] = useState(false);
+  const [noProposal, setNoProposal] = useState(false);
   const generationIdRef = useRef(0);
-  // 最後に「組み合わせを探す」で探した時の答えの並びの見出し（poolSignature）。作りかけ・組み直しで盤を戻した時は、戻した答えで埋める
+  // 最後に組み合わせを探した時の答えの並びの見出し（poolSignature）。作りかけ・組み直しで盤を戻した時は、戻した答えで埋める
   const searchedSigRef = useRef<string | null>(null);
-  // 今の盤を組んだ時の答えの並びの見出し。今の答えと違えば、盤は「無い」扱いにする（答えを変えた後の古い盤で、カギを書いたり共有したりしないように。Hop 決定 2026-10-22）
+  // 今の盤を組んだ時の答えの並びの見出し。今の答えと違えば、盤は「無い」扱いにする（答えを変えた後の古い盤で共有しないように。Hop 決定 2026-10-22）
   const [boardSig, setBoardSig] = useState<string | null>(null);
-  // 組み立て中の答えの並びの見出し（札の「2 盤」を組み立て中に押した時、同じ答えなら組み立てを止めないため）
-  const liveSigRef = useRef<string | null>(null);
 
-  // ヒントの窓（1の段・3の段から）
-  const [hintOpen, setHintOpen] = useState<{ key: string; surface: string; from: 1 | 3; n: number } | null>(null);
-  const hintOpenCount = useRef(0);
-  // ヒントの窓の「① 探す」所の選択と言葉。窓は開くたびに作り直すので、この画面が持って渡す（Hop 決定 2026-10-22「グループはずっと・言葉は問題の間」）。
+  // ヒントの欄の「① 探す」所の選択と言葉。窓は開くたびに作り直すので、この画面が持って渡す（Hop 決定 2026-10-22「グループはずっと・言葉は問題の間」）。
   // 言葉といつごろはこの画面を開いている間だけ（作りかけの控えには入れない。開き直すと空から）。グループの選択はブラウザに覚える
   const hintSearch = useHintSearch();
 
-  // 札（× で消した札は端末に残す）となぞる動き
+  // 札（× で消した札は端末に残す）
   const [tipsSeen, setTipsSeen] = useState<Record<TipName, boolean>>(() => ({
     cross: !!lsGet(TIP_KEYS.cross),
     move: !!lsGet(TIP_KEYS.move),
@@ -246,7 +275,6 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     lsSet(TIP_KEYS[name], "1");
     setTipsSeen((prev) => ({ ...prev, [name]: true }));
   };
-  const [traceAllowed, setTraceAllowed] = useState(() => !lsGet(TRACE_KEY));
 
   // 保存
   const [draftReady, setDraftReady] = useState(false);
@@ -259,25 +287,49 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   const [shareUrl, setShareUrl] = useState("");
   const [sharedTitle, setSharedTitle] = useState("");
 
-  const headingRef = useRef<HTMLHeadingElement>(null);
-  // 今選んでいる（フォーカスがある）カギの欄の答え。「あと◯字」はこの欄か、残りが少ない欄だけに出す（Hop 決定 2026-10-22）
-  const [focusedClue, setFocusedClue] = useState<string | null>(null);
+  // 語の窓のカギの欄を選んでいるか。「あと◯字」はこの間か、残りが少ない時だけ出す（Hop 決定 2026-10-22）
+  const [clueFocused, setClueFocused] = useState(false);
+
+  // 「試す」で入れた字（同じ盤の時だけ、次に「試す」を開いた時に戻す。解けた後は空から。端末には残さない）
+  const trialRef = useRef<{ sig: string; answers: Record<string, string>; cleared: boolean } | null>(null);
+
+  // --- 文字盤が出ている間（書く欄・カギの欄を選んでいる間）は小さい盤と下の段を隠す（Hop 決定 2026-10-22） ---
+  // 文字盤が出る端末（指で触る端末か、見える高さが縮んだ時）だけ隠す。パソコンで書いている間は盤が目の前で育つのを見られるように隠さない
+  const [fieldFocused, setFieldFocused] = useState(false);
+  const [viewportShrunk, setViewportShrunk] = useState(false);
+  const [coarse] = useState(coarsePointer);
+  useEffect(() => {
+    const isField = (el: EventTarget | null) => el instanceof HTMLElement && !!el.closest("[data-kbd-field]");
+    const onIn = (e: FocusEvent) => setFieldFocused(isField(e.target));
+    const onOut = (e: FocusEvent) => setFieldFocused(isField(e.relatedTarget));
+    document.addEventListener("focusin", onIn);
+    document.addEventListener("focusout", onOut);
+    const vv = window.visualViewport;
+    const onResize = () => setViewportShrunk(!!vv && vv.height < window.innerHeight * 0.75);
+    vv?.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("focusin", onIn);
+      document.removeEventListener("focusout", onOut);
+      vv?.removeEventListener("resize", onResize);
+    };
+  }, []);
+  const keyboardUp = fieldFocused && (coarse || viewportShrunk);
 
   // --- 書いた行から答えを出す ---
   const marks = useMemo(() => parseMarks(bulkText), [bulkText]);
-  const answers: Candidate[] = useMemo(() => evaluateCandidates(marks).filter((c) => !c.reason), [marks]);
+  const candidates: Candidate[] = useMemo(() => evaluateCandidates(marks), [marks]);
+  const answers: Candidate[] = useMemo(() => candidates.filter((c) => !c.reason), [candidates]);
   const answerByKey = useMemo(() => new Map(answers.map((a) => [a.key, a])), [answers]);
   const pool: PuzzleItem[] = useMemo(() => answers.map((a) => ({ id: a.key, question: "", answer: a.cells })), [answers]);
+  const poolSig = useMemo(() => poolSignature(pool), [pool]);
   const clueOf = (key: string): string => {
     if (clues[key] !== undefined) return clues[key];
     const a = answerByKey.get(key);
     return a ? clueDraft(bulkText, marks, a.mark, a.cells.length) : "";
   };
 
-  // 盤に入った答え（3の段に並べる。書いた順）
+  // 盤（組み上がっていて、今の答えで組んだ物）。無い時は共有を押せなくし、理由を出す（Hop 決定 2026-10-22）
   const boardReady = !!generatedPuzzle && !isLiveGenerating;
-  const poolSig = useMemo(() => poolSignature(pool), [pool]);
-  // 3 カギ・4 共有で使える盤（組み上がっていて、今の答えで組んだ物）。無い時は 3 に答え全部の欄を出し、共有を押せなくする（Hop 決定 2026-10-22）
   const hasBoard = boardReady && boardSig === poolSig;
   const placedKeys = useMemo(() => {
     if (!generatedPuzzle) return [] as string[];
@@ -286,20 +338,34 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     for (const i of generatedPuzzle.items) if (!ordered.includes(i.id)) ordered.push(i.id);
     return ordered;
   }, [generatedPuzzle, answers]);
-  const unplaced = boardReady ? pool.filter((i) => !generatedPuzzle!.items.some((p) => p.id === i.id)) : [];
+  const placedSet = useMemo(() => new Set(placedKeys), [placedKeys]);
+  const unplaced = hasBoard ? pool.filter((i) => !placedSet.has(i.id)) : [];
   const boardDisconnected = boardReady && !isConnected(generatedPuzzle!.items);
-  // 3の段に並べる答え。盤が無い時は答え全部（カギとヒントは答えごとに持つので、盤ができた後もそのまま使える。Hop 決定 2026-10-22）
-  const clueRowKeys = hasBoard ? placedKeys : pool.map((i) => i.id);
-  const missingHints = clueRowKeys.filter((k) => !hints[k]).length;
-  const missingClues = clueRowKeys.filter((k) => !clueOf(k).trim()).length;
+  // カギとヒントを数える答え。盤がある時は盤に入った答え、無い時は答え全部（カギとヒントは答えごとに持つので、盤ができた後もそのまま使える）
+  const neededKeys = hasBoard ? placedKeys : pool.map((i) => i.id);
+  const hasClue = (k: string) => clueOf(k).trim() !== "";
+  const missingClues = neededKeys.filter((k) => !hasClue(k)).length;
+  const missingHints = neededKeys.filter((k) => !hints[k]).length;
   // 100字を超えたカギ（保存する形＝前後の空白を落とした字数で数える）
-  const overClues = clueRowKeys.filter((k) => clueChars(clueOf(k)) > MAX_CLUE_CHARS);
-  // 共有を押せない理由の並び。盤が無い時はその1行を先頭に（Hop 決定 2026-10-22）。盤がつながっていない時は 2 の段と同じ1行
+  const overClues = neededKeys.filter((k) => clueChars(clueOf(k)) > MAX_CLUE_CHARS);
+  // 盤が無い・足りない時の理由。語が2つ未満・組み合わせを探している間・見つからなかった時・交差が無い時（どれも前からある文）
+  const boardBlock =
+    pool.length < 2
+      ? CT.errors.tooFew
+      : !hasBoard
+        ? noProposal && !searching
+          ? PROPOSAL_TEXTS.noProposal
+          : CT.building
+        : generatedPuzzle!.items.length < 2
+          ? CT.errors.tooFew
+          : generatedPuzzle!.cells.filter((c) => c.horizontalItemId && c.verticalItemId).length < 1
+            ? CT.errors.noCrossing
+            : "";
+  // 共有を押せない理由の並び。足りない物を先頭に（Hop 決定 2026-10-22）
   const shareBlocks = [
-    !hasBoard ? CT.shareNeedsBoard : "",
+    missingClues || missingHints ? CT.missing(missingClues, missingHints) : "",
+    boardBlock,
     hasBoard && boardDisconnected ? CT.pins.notConnected : "",
-    missingHints ? CT.missingHints(missingHints) : "",
-    missingClues ? CT.missingClues(missingClues) : "",
     ...overClues.map((k) => BULK_TEXTS.reasonLine(k, CT.clueOver(clueChars(clueOf(k)) - MAX_CLUE_CHARS))),
   ].filter(Boolean);
   const canShare = shareBlocks.length === 0;
@@ -311,16 +377,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     [generatedPuzzle]
   );
 
-  // --- 段の行き来 ---
-  const goStep = (s: Step) => {
-    setStep(s);
-    if (s !== 4) {
-      window.scrollTo(0, 0);
-      requestAnimationFrame(() => headingRef.current?.focus({ preventScroll: true }));
-    }
-  };
-
-  // --- 盤の組み立て（もとの作る画面の triggerGeneration と同じ） ---
+  // --- 盤の組み立て ---
   // 動かして固定した語を、今の語の一覧に合わせて持ち越す（消した語の固定は外す。置けなくなった固定は外す）。Hop 決定 2026-10-05・案A
   const carryPins = (items: PuzzleItem[]): PlacedItem[] => {
     const kept: PlacedItem[] = [];
@@ -347,18 +404,23 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     return kept;
   };
 
+  // 広げた盤の動き（再シャッフルで盤が決まった瞬間に、決まった盤の字が左上から順に置かれる。Hop が見本で選んだ案 C・2026-10-21）
+  const [placeFx, setPlaceFx] = useState<GridFx | null>(null);
+  const placeFxId = useRef(0);
+
   // 盤の語を指で動かした時。置けたら固定の印を付けて盤を組み直さずに置く
   const handleMoveWord = (uuid: string, startX: number, startY: number): boolean => {
-    if (!generatedPuzzle || isLiveGenerating) return false;
+    if (!generatedPuzzle || isLiveGenerating || searching) return false;
     const moved = moveItem(generatedPuzzle.items, uuid, startX, startY);
     if (!moved) return false;
     const prev = generatedPuzzle;
+    setPlaceFx(null);
     setGeneratedPuzzle({ ...buildGrid(moved), id: prev.id, title: prev.title, creatorName: prev.creatorName });
     setPicked(null);
     return true;
   };
 
-  // HarmonyPalette と同じ組み立ての動き: 50通りの試行が描き変わり、置けた語が最多で面積が最小のものに決まる。
+  // 「再シャッフル」と「固定を外す」: HarmonyPalette と同じ組み立ての動き（50通りの試行が描き変わり、置けた語が最多で面積が最小のものに決まる）。
   // 演出の50回とは別に、全部の語が置けるまで（または時間の上限まで）裏で試行を続ける（Hop 決定 2026-10-05）
   const triggerGeneration = async (items: PuzzleItem[], pinsOverride?: PlacedItem[]) => {
     const pinned = pinsOverride ?? carryPins(items);
@@ -369,10 +431,11 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     }
     const currentGenId = ++generationIdRef.current;
     const sig = poolSignature(items);
-    liveSigRef.current = sig;
     setIsLiveGenerating(true);
+    setSearching(false);
     setPicked(null);
-    const still = reducedMotion();
+    setPlaceFx(null);
+    const still = prefersReducedMotion();
     try {
       const generator = generateMonteCarloSteps(items, ANIMATION_STEPS, pinned);
       const search = createPuzzleSearch(items, undefined, undefined, pinned);
@@ -407,6 +470,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       if (bestPuzzle) {
         setGeneratedPuzzle(bestPuzzle);
         setBoardSig(sig);
+        searchedSigRef.current = sig;
+        setPlaceFx({ id: ++placeFxId.current, place: true });
       }
     } catch (error) {
       console.error("[MonteCarloAnim] Error:", error);
@@ -418,53 +483,35 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     }
   };
 
-  // 案を選ぶ（選んだ案の盤をそのまま出す）。案はどれも固定した語を同じ座標に置いて組んだ物なので、固定の印はそのまま残す
-  // （前は固定を外していたが、押し直しても固定を守る形にしたため。Hop 決定 2026-10-21 案A）
-  const pickProposal = (i: number, list: BulkProposal[] | null = proposals) => {
-    const p = list?.[i];
+  // 案を選ぶ（選んだ案の盤をそのまま出す）。案はどれも固定した語を同じ座標に置いて組んだ物なので、固定の印はそのまま残す（Hop 決定 2026-10-21 案A）
+  const pickProposal = (i: number) => {
+    const p = proposals?.[i];
     if (!p) return;
     ++generationIdRef.current;
     setIsLiveGenerating(false);
+    setSearching(false);
     setBackgroundPuzzle(null);
+    setPlaceFx(null);
     setPicked(i);
     setGeneratedPuzzle(buildGrid(p.placed));
     // 案は最後に探した時の答えで組んだ物
     setBoardSig(searchedSigRef.current);
   };
 
-  // 「組み合わせを探す」: 2の段へ進み、組み立ての動き（50通りの試行）を見せながら本番の組み合わせ探し（bulkSelect）を回す。
-  // 終わったら上位3つを案1〜3に並べ、案1の盤を出す。
-  // 「2 盤」で動かして固定した語は、押し直してもその位置を守り、その語を土台に残りの語だけを組む（Hop 決定 2026-10-21 案A）。
-  // 持ち越しは再シャッフルと同じ carryPins: 「1 答え」で消した語（字を変えた語も、別の答えになるので同じ）の固定は外れる
-  const [noProposal, setNoProposal] = useState(false);
-  const runSearch = async () => {
-    const items = pool;
-    if (items.length < 2) return;
-    // 答えが前に探した時と同じで盤があれば、探し直さずにそのまま「2 盤」へ（Hop 決定 2026-10-22。動かした位置もそのまま残る）
-    if (generatedPuzzle && !isLiveGenerating && searchedSigRef.current === poolSignature(items)) {
-      goStep(2);
-      return;
-    }
+  // 書く欄の答えが変わった時: 裏で本番の組み合わせ探し（bulkSelect）を回し、上位3つを案1〜3にして案1の盤を出す（Hop 決定 2026-10-22「言葉を足すと盤が目の前で育つ」）。
+  // 組み立ての動き（試行が描き変わる）は見せない。探している間も前の盤を出したままにし、打つのを待たせない（刻んで回す）。
+  // 動かして固定した語は、その位置を守り、その語を土台に残りの語だけを組む（Hop 決定 2026-10-21 案A）。消した語・字を変えた語の固定は外れる
+  const autoSearch = async (items: PuzzleItem[]) => {
     const pinned = carryPins(items);
     const base = pinned.length > 0 ? carryBase(items, pinned) : [];
     const run = ++generationIdRef.current;
-    liveSigRef.current = poolSignature(items);
-    goStep(2);
-    setProposals(null);
-    setPicked(null);
+    const sig = poolSignature(items);
+    setIsLiveGenerating(false);
+    setBackgroundPuzzle(null);
+    setSearching(true);
     setNoProposal(false);
-    setGeneratedPuzzle(null);
-    setIsLiveGenerating(true);
-    const still = reducedMotion();
     try {
       const search = createBulkSearch(items, { pinned, base });
-      for (const st of generateMonteCarloSteps(items, SEARCH_ANIMATION_STEPS, pinned)) {
-        const tickStart = performance.now();
-        search.step(SEARCH_STEP_MS);
-        if (generationIdRef.current !== run) return;
-        if (st.placed.length > 0 && !still) setBackgroundPuzzle(buildGrid(st.placed));
-        await sleep(still ? 0 : Math.max(0, 100 - (performance.now() - tickStart)));
-      }
       while (!search.finished()) {
         if (generationIdRef.current !== run) return;
         search.step(SEARCH_STEP_MS);
@@ -472,55 +519,51 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       }
       if (generationIdRef.current !== run) return;
       const list = search.proposals();
-      searchedSigRef.current = poolSignature(items);
+      searchedSigRef.current = sig;
       setProposals(list);
+      setPlaceFx(null);
       if (list.length > 0) {
         setPicked(0);
         setGeneratedPuzzle(buildGrid(list[0].placed));
-        setBoardSig(searchedSigRef.current);
-      } else setNoProposal(true);
+        setBoardSig(sig);
+      } else {
+        setPicked(null);
+        setNoProposal(true);
+      }
     } catch (error) {
       console.error("[BulkSearch] Error:", error);
     } finally {
-      if (generationIdRef.current === run) {
-        setIsLiveGenerating(false);
-        setBackgroundPuzzle(null);
-      }
+      if (generationIdRef.current === run) setSearching(false);
     }
   };
 
-  // 段の札を押した時（Hop 決定 2026-10-22「どの段も押せて、2 決めてなかったら共有前に盤決めてくださいってエラー出すような作り」）。
-  //   1 答え・3 カギ: いつでもその段へ。4 共有: いつでもその窓へ（盤が無ければ窓の中で共有を押せなくし、理由を出す）。
-  //   2 盤: 「組み合わせを探す」と同じ（答えが前と同じなら探し直さない）。答えが2つ未満の時は 2 へ行かず、「組み合わせを探す」が押せない
-  //         理由（押せないボタンと弾いた語の理由の行）が見える 1 の段へ。
-  //   組み立て中に押した時: 1・3・4 は段だけ移り、組み立ては裏で続けて終わったら盤が入る。
-  //   2 は、組み立て中の答えが今の答えと同じなら組み立てを止めずに 2 の段へ戻るだけ。違えば「組み合わせを探す」と同じく探し直す
-  const onStepTab = (n: Step) => {
-    if (n === 2) {
-      if (pool.length < 2) {
-        if (step !== 1) goStep(1);
-        return;
-      }
-      if (isLiveGenerating && liveSigRef.current === poolSig) {
-        goStep(2);
-        return;
-      }
-      void runSearch();
+  // 作りかけ・組み直しを読み終えてから組み始める（読み終える前に見本や空の答えで組まない）
+  const loaded = editStatus === "editing" || (editStatus === "none" && (draftReady || !draftEnabled));
+  useEffect(() => {
+    if (!loaded) return;
+    if (pool.length === 0) {
+      ++generationIdRef.current;
+      setSearching(false);
+      setIsLiveGenerating(false);
+      setNoProposal(false);
+      setProposals(null);
+      setPicked(null);
+      setGeneratedPuzzle(null);
+      setBoardSig(null);
+      searchedSigRef.current = poolSig;
       return;
     }
-    if (n === 4) {
-      setTitleError(false);
-      setStep(4);
-      return;
-    }
-    goStep(n);
-  };
+    if (poolSig === boardSig || poolSig === searchedSigRef.current) return;
+    const items = pool;
+    const t = window.setTimeout(() => void autoSearch(items), AUTO_SEARCH_WAIT_MS);
+    return () => window.clearTimeout(t);
+  }, [loaded, poolSig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 画面を離れたら組み立てをやめる
   useEffect(() => () => void generationIdRef.current++, []);
 
   // --- 組み直し: 端末の控えの合言葉で中身を受け取り、書いた行・カギ・ヒント・盤に戻す（Hop 決定 2026-10-05） ---
-  // 語は1の段の書いた行（【語】の1語1行）として戻す【仮】。盤は保存した時の形のまま、2の段から始める【仮】
+  // 語は書く欄の【語】の1語1行として戻す【仮】。盤は保存した時の形のまま「作る」から始める【仮】
   useEffect(() => {
     if (editStatus !== "checking" || !editParam || editStartedRef.current) return;
     editStartedRef.current = true;
@@ -570,17 +613,15 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
         setTags(Array.isArray(rec.tags) ? rec.tags : []);
         setIsBeginner(rec.is_beginner === true);
         setBulkText(lines.join("\n"));
-        setCollapsed(true);
         setClues(restoredClues);
         setHints(restoredHints);
         storedHintsRef.current = restoredHints;
-        // 盤は保存した時の形のまま（番号も同じ）。組み替えたい時は「再シャッフル」
+        // 盤は保存した時の形のまま（番号も同じ）。組み替えたい時は広げた盤の「再シャッフル」
         setGeneratedPuzzle(buildGrid(placed));
         searchedSigRef.current = poolSignature(placed);
         setBoardSig(searchedSigRef.current);
         setEditTarget({ ...mine, title: rec.title });
         setEditStatus("editing");
-        setStep(2);
       })
       .catch((err) => {
         console.error("Failed to load own puzzle:", err);
@@ -588,10 +629,15 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       });
   }, [editStatus, editParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // --- 作りかけを戻す（組み直しの間は読まない・書かない【仮】） ---
+  // --- 作りかけを戻す（組み直しの間は読まない・書かない【仮】）。作りかけが無い時だけ見本の3行で始める（Hop 決定 2026-10-22） ---
   useEffect(() => {
-    if (!draftEnabled || editStatus !== "none" || draftReady) return;
+    if (editStatus !== "none" || draftReady) return;
+    if (!draftEnabled) {
+      setBulkText(CT.sample);
+      return;
+    }
     const raw = lsGet(DRAFT_KEY);
+    let restored = false;
     if (raw) {
       try {
         const d = JSON.parse(raw) as Record<string, unknown>;
@@ -602,15 +648,17 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
         if (typeof d.isBeginner === "boolean") setIsBeginner(d.isBeginner);
         const rawHints = d.hints && typeof d.hints === "object" ? (d.hints as Record<string, unknown>) : {};
         let nextText = text;
-        let restoredHints: Record<string, HintRef> = {};
+        const restoredHints: Record<string, HintRef> = {};
         const restoredClues: Record<string, string> = {};
         const restoredLabels: Record<string, string> = {};
-        if (d.version === 2) {
+        // version 3（案A）と version 2（4段の版）は同じ持ち方（version 2 の段と畳んだ印は使わない）
+        const boardKind = d.version === 3 || d.version === 2;
+        if (boardKind) {
           for (const [k, h] of Object.entries(rawHints)) if (isHintRef(h)) restoredHints[k] = draftHint(h);
           if (d.clues && typeof d.clues === "object") for (const [k, v] of Object.entries(d.clues as Record<string, unknown>)) if (typeof v === "string") restoredClues[k] = v;
           if (d.hintLabels && typeof d.hintLabels === "object") for (const [k, v] of Object.entries(d.hintLabels as Record<string, unknown>)) if (typeof v === "string") restoredLabels[k] = v;
         } else {
-          // 古い形（段の無い下書き）: 1語ずつ入れた語は書いた行の最後に【語】の1行として足し、カギとヒントは答えごとに持ち替える。1の段から始める
+          // 古い形（段の無い下書き）: 1語ずつ入れた語は書いた行の最後に【語】の1行として足し、カギとヒントは答えごとに持ち替える
           const keys = new Set(evaluateCandidates(parseMarks(text)).filter((c) => !c.reason).map((c) => c.key));
           const extra: string[] = [];
           for (const rawItem of Array.isArray(d.items) ? (d.items as unknown[]) : []) {
@@ -633,8 +681,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
         setHints(restoredHints);
         setClues(restoredClues);
         setHintLabels(restoredLabels);
-        if (d.version === 2) {
-          setCollapsed(d.collapsed === true);
+        restored = true;
+        if (boardKind) {
           const keys = new Set(evaluateCandidates(parseMarks(nextText)).filter((c) => !c.reason).map((c) => c.key));
           // 盤が残っていれば組み直さずにそのまま並べる（2026-10-19 Hop 発見「別のタブを開いて戻ると組み立て中が始まる」の直し）
           const board = validBoard(d.board, keys);
@@ -646,7 +694,6 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
               })
             : [];
           const goodProps = props.every(Boolean) && props.length > 0 ? (props as BulkProposal[]) : null;
-          const s = d.step === 2 || d.step === 3 || d.step === 4 ? (d.step as Step) : 1;
           const restoredSig = poolSignature(
             evaluateCandidates(parseMarks(nextText))
               .filter((c) => !c.reason)
@@ -654,26 +701,39 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
           );
           if (board) {
             setGeneratedPuzzle(buildGrid(board));
-            // 残してあった見出しがあればそれを使う（答えを変えた後の古い盤は、開き直しても古い盤のまま）
+            // 残してあった見出しがあればそれを使う（答えを変えた後の古い盤は、開き直すと組み直す）
             searchedSigRef.current = typeof d.searchedSig === "string" ? d.searchedSig : restoredSig;
             setBoardSig(typeof d.boardSig === "string" ? d.boardSig : restoredSig);
             setProposals(goodProps);
             setPicked(goodProps && typeof d.picked === "number" && goodProps[d.picked] ? d.picked : null);
           }
-          // 段は盤が無くても残した段に戻す（札でどの段へも行けるようにしたため。Hop 決定 2026-10-22）
-          setStep(s);
-        } else {
-          setCollapsed(!!nextText.trim());
-          setStep(1);
         }
       } catch {
         lsRemove(DRAFT_KEY);
+        restored = false;
       }
     }
+    if (!restored) setBulkText(CT.sample);
     setDraftReady(true);
   }, [draftEnabled, editStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- 作りかけを残す（変えるたびに端末へ。保存に成功した直後の中身は書かない） ---
+  const boardForDraft = generatedPuzzle && !isLiveGenerating ? generatedPuzzle.items.map(({ id, uuid, answer, direction, startX, startY, length, pinned }) => ({ id, uuid, question: "", answer, direction, startX, startY, length, pinned: !!pinned })) : null;
+  const draftContent = () => ({
+    bulkText,
+    hints,
+    hintLabels,
+    clues,
+    board: boardForDraft,
+    proposals,
+    picked,
+    boardSig,
+    searchedSig: searchedSigRef.current,
+    title: puzzleTitle,
+    creatorName,
+    tags,
+    isBeginner,
+  });
   useEffect(() => {
     if (!draftEnabled || !draftReady || editStatus !== "none") return;
     const empty = !bulkText.trim() && !puzzleTitle && !creatorName && tags.length === 0;
@@ -681,34 +741,19 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       lsRemove(DRAFT_KEY);
       return;
     }
-    const content = {
-      bulkText,
-      collapsed,
-      hints,
-      hintLabels,
-      clues,
-      board: generatedPuzzle && !isLiveGenerating ? generatedPuzzle.items.map(({ id, uuid, answer, direction, startX, startY, length, pinned }) => ({ id, uuid, question: "", answer, direction, startX, startY, length, pinned: !!pinned })) : null,
-      proposals,
-      picked,
-      boardSig,
-      searchedSig: searchedSigRef.current,
-      title: puzzleTitle,
-      creatorName,
-      tags,
-      isBeginner,
-    };
+    const content = draftContent();
     const snap = JSON.stringify(content);
     if (savedSnapshotRef.current !== null) {
       if (savedSnapshotRef.current === snap) return;
       savedSnapshotRef.current = null;
     }
-    if (isLiveGenerating) return; // 組み立て中の途中の盤は残さない（組み上がってから残す）
-    const d: DraftV2 = { version: 2, step, ...content };
+    if (isLiveGenerating || searching) return; // 組み立て中・探している間の途中の盤は残さない（組み上がってから残す）
+    const d: DraftV3 = { version: 3, ...content };
     lsSet(DRAFT_KEY, JSON.stringify(d));
-  }, [draftEnabled, draftReady, editStatus, step, bulkText, collapsed, hints, hintLabels, clues, generatedPuzzle, isLiveGenerating, proposals, picked, boardSig, puzzleTitle, creatorName, tags, isBeginner]);
+  }, [draftEnabled, draftReady, editStatus, bulkText, hints, hintLabels, clues, generatedPuzzle, isLiveGenerating, searching, proposals, picked, boardSig, puzzleTitle, creatorName, tags, isBeginner]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- 窓が開いている間は後ろの画面をスクロールさせない（窓の中と外で二重にスクロールしない） ---
-  const anySheet = !!hintOpen || step === 4 || showShareModal;
+  const anySheet = !!wordSheet || shareOpen || showShareModal || expanded;
   useEffect(() => {
     if (!anySheet) return;
     const prev = document.body.style.overflow;
@@ -718,14 +763,19 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     };
   }, [anySheet]);
 
-  const closeHint = () => setHintOpen(null);
-  const hintDialog = useDialog({ active: !!hintOpen, onClose: closeHint });
-  const shareSheetDialog = useDialog({ active: step === 4 && !showSaveCheck, onClose: () => setStep(3) });
+  const closeWordSheet = () => setWordSheet(null);
+  const closeShare = () => {
+    if (!isSaving) setShareOpen(false);
+  };
+  const wordDialog = useDialog({ active: !!wordSheet, onClose: closeWordSheet });
+  const boardDialog = useDialog({ active: expanded, onClose: () => setExpanded(false) });
+  const shareSheetDialog = useDialog({ active: shareOpen && !showSaveCheck, onClose: closeShare });
   const shareDialog = useDialog({ active: showShareModal, onClose: () => setShowShareModal(false) });
 
-  const openHint = (key: string, surface: string, from: 1 | 3) => {
-    hintOpenCount.current += 1;
-    setHintOpen({ key, surface, from, n: hintOpenCount.current });
+  const openWordSheet = (key: string) => {
+    wordSheetCount.current += 1;
+    setClueFocused(false);
+    setWordSheet({ key, n: wordSheetCount.current });
   };
   const setHintFor = (key: string, h: HintRef | null, label?: string) => {
     setHints((prev) => {
@@ -739,12 +789,14 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     });
     if (h && label) setHintLabels((prev) => (prev[key] === label ? prev : { ...prev, [key]: label }));
   };
-  // ヒントの窓の「「語」の囲みを外す」（1の段から開いた時だけ）
-  const unmarkFromSheet = (key: string) => {
-    const a = answerByKey.get(key);
-    setHintOpen(null);
-    if (!a) return;
-    setBulkText(bulkText.slice(0, a.mark.start) + a.mark.surface + bulkText.slice(a.mark.end));
+
+  const switchMode = (m: "make" | "try") => {
+    if (m === mode) return;
+    setExpanded(false);
+    setWordSheet(null);
+    setShareOpen(false);
+    setMode(m);
+    window.scrollTo(0, 0);
   };
 
   const addTag = () => {
@@ -757,12 +809,117 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     setTagInput("");
   };
 
+  // --- 動き（Hop「モーションも付けれるだけ付けたろ」2026-10-22）。どれも「動きを減らす」設定では止まり、入力は止めない ---
+
+  // 小さい盤が育つ時: 新しく増えたマスだけが置かれる（全部を並べ直さない）。動きは決まった盤の字が置かれる動きと同じ（透明・0.6倍から 0.2秒。1マス20msずつ）。
+  // 文字盤で隠れている間・広げた盤を開いている間に育った分は、小さい盤が見えた時に置く（最後に見せた盤と比べる）
+  const miniPuzzle = generatedPuzzle && pool.length > 0 && !(noProposal && !searching) ? generatedPuzzle : null;
+  const miniVisible = mode === "make" && !keyboardUp && !expanded;
+  const [miniFx, setMiniFx] = useState<GridFx | null>(null);
+  const miniFxId = useRef(0);
+  const lastSeenIdsRef = useRef<Set<string> | null>(null);
+  useLayoutEffect(() => {
+    if (!miniVisible || !miniPuzzle) return;
+    const byCell = cellIdsOf(miniPuzzle);
+    const last = lastSeenIdsRef.current;
+    lastSeenIdsRef.current = new Set([...byCell.values()].flat());
+    if (last === null) return; // 開いた時の盤はそのまま出す
+    const fresh = [...byCell.entries()].filter(([, ids]) => !ids.some((id) => last.has(id))).map(([k]) => k);
+    if (fresh.length === 0) return;
+    const [x0, y0] = fresh
+      .map((k) => k.split(",").map(Number))
+      .reduce((a, b) => (b[0] + b[1] < a[0] + a[1] ? b : a));
+    const placeKeys: Record<string, number> = {};
+    fresh.forEach((k) => {
+      const [x, y] = k.split(",").map(Number);
+      placeKeys[k] = (Math.abs(x - x0) + Math.abs(y - y0)) * 20;
+    });
+    setMiniFx({ id: ++miniFxId.current, placeKeys });
+  }, [miniPuzzle, miniVisible]);
+
+  // 語の一覧（下線の動きで行を探す）
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // 【 】で囲んだ瞬間: 語の一覧に増えた語の答えの下に、下線が左から引かれる（400ms・cubic-bezier(0.4,0,0.2,1)。モーションの枝の作り・Hop が見本で選んだ案 B）。
+  // 案A では書く欄に下線が無いので、語の一覧の行で引く。引き終えたら 180ms で消す（一覧の行に下線は残さない）。
+  // 打っている途中の答え（【ライ】→【ライブ】）で何度も引かないよう、答えが落ち着いてから（盤を組み始めるのと同じ待ちの後に）増えた語だけ。
+  // 文字盤が出ている間・行が画面の外にある間は覚えておき、行が見えた時に引く
+  const settledKeysRef = useRef<Set<string> | null>(null);
+  const pendingLinesRef = useRef<Set<string>>(new Set());
+  const answerKeysSig = answers.map((a) => a.key).join("|");
+  const drawUnderline = (key: string) => {
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-word-row="${CSS.escape(key)}"] [data-word-line]`);
+    if (!el || prefersReducedMotion() || typeof el.animate !== "function") return true;
+    const r = el.getBoundingClientRect();
+    if (r.bottom < HEAD_H || r.top > window.innerHeight - DOCK_H) return false;
+    el.animate(
+      [
+        { transform: "scaleX(0)", opacity: 1, offset: 0 },
+        { transform: "scaleX(1)", opacity: 1, offset: 400 / 580 },
+        { transform: "scaleX(1)", opacity: 0, offset: 1 },
+      ],
+      { duration: 580, easing: EASE_STANDARD }
+    );
+    return true;
+  };
+  const flushUnderlines = () => {
+    if (mode !== "make" || keyboardUp || anySheet) return;
+    for (const key of [...pendingLinesRef.current]) if (drawUnderline(key)) pendingLinesRef.current.delete(key);
+  };
+  const flushUnderlinesRef = useRef(flushUnderlines);
+  flushUnderlinesRef.current = flushUnderlines;
+  useEffect(() => {
+    if (!loaded) return;
+    const keys = answerKeysSig ? answerKeysSig.split("|") : [];
+    const t = window.setTimeout(() => {
+      const prev = settledKeysRef.current;
+      settledKeysRef.current = new Set(keys);
+      if (prev === null) return; // 開いた時の語には引かない
+      for (const k of keys) if (!prev.has(k)) pendingLinesRef.current.add(k);
+      for (const k of [...pendingLinesRef.current]) if (!keys.includes(k)) pendingLinesRef.current.delete(k);
+      flushUnderlinesRef.current();
+    }, AUTO_SEARCH_WAIT_MS);
+    return () => window.clearTimeout(t);
+  }, [answerKeysSig, loaded]);
+  useEffect(() => {
+    flushUnderlinesRef.current();
+  }, [keyboardUp, anySheet, mode]);
+  useEffect(() => {
+    let raf = 0;
+    const onScroll = () => {
+      if (pendingLinesRef.current.size === 0) return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => flushUnderlinesRef.current());
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  // 足りない物が全部そろった時: 共有の窓の文がふわっと替わる（Hop が見本で選んだ案 B・2026-10-21。そろった状態で開いた時は動かさない）。
+  // 「共有へ」で窓を開いた時に足りない物が出る時も、同じ動きで少し遅れて出す
+  const blocksRef = useRef<HTMLParagraphElement>(null);
+  const prevCanShare = useRef<boolean | null>(null);
+  useLayoutEffect(() => {
+    const prev = prevCanShare.current;
+    prevCanShare.current = shareOpen ? canShare : null;
+    const el = blocksRef.current;
+    if (!shareOpen || !el) return;
+    if (prev === null) {
+      if (!canShare) animateElement(el, { opacity: 0, y: 2 }, { opacity: 1, y: 0 }, { ...WEAK, delay: 0.1 });
+      return;
+    }
+    if (!prev && canShare) animateElement(el, { opacity: 0, y: 2 }, { opacity: 1, y: 0 }, WEAK);
+  }, [canShare, shareOpen]);
+
   // --- 保存（もとの作る画面の handleShare・saveWithToken・updateEdited と同じ。ジャンルは常に hello） ---
   const itemsToSave = (): PlacedItem[] => (generatedPuzzle ? generatedPuzzle.items.map((i) => ({ ...i, question: clueOf(i.id).trim() })) : []);
 
   const handleShare = async () => {
-    // 盤が無い（まだ探していない・答えを変えて古い・組み立て中）時は保存しない（Hop 決定 2026-10-22）
-    if (!generatedPuzzle || !hasBoard) return;
+    // 盤が無い・足りない物がある時は保存しない（押せない理由を出している。Hop 決定 2026-10-22）
+    if (!generatedPuzzle || !hasBoard || !canShare) return;
     if (!isConnected(generatedPuzzle.items)) return;
     if (generatedPuzzle.items.some((i) => !hints[i.id] || !clueOf(i.id).trim() || clueChars(clueOf(i.id)) > MAX_CLUE_CHARS)) return;
     const title = puzzleTitle.trim();
@@ -817,7 +974,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       setEditTarget(updated);
       setShareUrl(`${window.location.origin}/crossword/${editTarget.id}`);
       setSharedTitle(title);
-      setStep(3);
+      setShareOpen(false);
       setShowShareModal(true);
     } catch (error) {
       console.error("Failed to update puzzle:", error);
@@ -864,12 +1021,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       setSharedTitle(title);
       // 保存できたので作りかけの控えは消す（このあと中身を変えたら、また新しく残り始める）
       lsRemove(DRAFT_KEY);
-      savedSnapshotRef.current = JSON.stringify({
-        bulkText, collapsed, hints, hintLabels, clues,
-        board: generatedPuzzle.items.map(({ id: i, uuid, answer, direction, startX, startY, length, pinned }) => ({ id: i, uuid, question: "", answer, direction, startX, startY, length, pinned: !!pinned })),
-        proposals, picked, boardSig, searchedSig: searchedSigRef.current, title: puzzleTitle, creatorName, tags, isBeginner,
-      });
-      setStep(3);
+      savedSnapshotRef.current = JSON.stringify(draftContent());
+      setShareOpen(false);
       setShowShareModal(true);
     } catch (error) {
       console.error("Failed to save puzzle:", error);
@@ -890,14 +1043,6 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     </div>
   );
 
-  // 2 盤・3 カギの段の上の「← 答えへ戻る」「← 盤へ戻る」は外した。上の段の札で行き来できるため（Hop 決定 2026-10-22）。
-  // 4 共有の窓の中の「カギの段へ戻る」（窓を閉じて 3 へ戻る）は残す
-  const heading = (text: string) => (
-    <h2 ref={headingRef} tabIndex={-1} className="text-lg font-black focus:outline-none" style={{ color: C.ink }}>
-      {text}
-    </h2>
-  );
-
   if (editStatus === "checking") {
     return (
       <div className="min-h-screen bg-surface">
@@ -906,395 +1051,601 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     );
   }
 
-  const shownStep: Step = step === 4 ? 3 : step;
-  const hintFor = hintOpen ? hints[hintOpen.key] : undefined;
+  const sheetEntry = wordSheet ? wordSheet.key : null;
+  const sheetHint = sheetEntry ? hints[sheetEntry] : undefined;
+  const sheetClue = sheetEntry ? clueOf(sheetEntry) : "";
+  const stats = hasBoard && generatedPuzzle ? PROPOSAL_TEXTS.stats(generatedPuzzle.items.length, generatedPuzzle.cells.length, generatedPuzzle.cells.filter((c) => (c.wordIds?.length ?? 0) >= 2).length) : "";
+
+  // 「試す」に渡す盤（盤に入った答えと、今のカギ・ヒント）。カギが空の語は空のまま解ける
+  const trialPlay = (): TrialPlay | null => {
+    if (!hasBoard || !generatedPuzzle) return null;
+    const sig = boardSignature(generatedPuzzle);
+    const prev = trialRef.current;
+    const items = generatedPuzzle.items.map((i) => ({ ...i, question: clueOf(i.id).trim() }));
+    const trialHints: Record<string, HintRef> = {};
+    for (const i of items) if (hints[i.id]) trialHints[i.uuid] = hints[i.id];
+    return {
+      puzzle: { ...buildGrid(items), id: "trial", title: puzzleTitle.trim(), creatorName: creatorName.trim() },
+      hints: trialHints,
+      answers: prev && prev.sig === sig && !prev.cleared ? prev.answers : undefined,
+      onAnswers: (a, cleared) => {
+        trialRef.current = { sig, answers: a, cleared };
+      },
+      stickyTop: HEAD_H,
+      dockGap: DOCK_GAP,
+    };
+  };
+  const trial = mode === "try" ? trialPlay() : null;
+
+  // 小さい盤の大きさ（高さ94px・横は数字の分を除いた幅に収める）
+  const miniBoard = miniPuzzle ? (
+    <MiniGrid puzzle={miniPuzzle} fx={miniFx} />
+  ) : (
+    <span data-mini-status="" className="text-xs" style={{ color: C.secondary }}>
+      {boardBlock || CT.building}
+    </span>
+  );
 
   return (
     <div className="min-h-screen bg-surface">
       <Toaster />
-      <h1 className="sr-only">{editTarget ? CT.edit.pageTitle : CT.pageTitle}</h1>
       <div className="max-w-[640px] mx-auto bg-white min-h-screen">
-        {/* 段の札（上に貼り付き、下が透けないよう白で塗る。今の段だけ黒い）。押すとその段へ（指で押せる高さ 44px。Hop 決定 2026-10-22） */}
-        <nav aria-label={CT.stepsLabel} className="sticky top-0 z-20 bg-white px-4 py-2.5" style={{ boxShadow: `0 1px 0 ${C.mid}` }}>
-          <ol className="grid grid-cols-4 gap-0.5">
-            {CT.steps.map((name, i) => {
-              const n = (i + 1) as Step;
-              const now = n === step;
-              return (
-                <li key={name} data-step={n} aria-current={now ? "step" : undefined}>
-                  <button
-                    type="button"
-                    data-step-tab={n}
-                    onClick={() => onStepTab(n)}
-                    className="w-full min-h-11 text-xs font-bold text-center px-0.5 whitespace-nowrap"
-                    style={now ? { background: C.black, color: C.white } : { background: C.low, color: n < step ? C.ink : C.secondary }}
-                  >
-                    {name}
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-        </nav>
-
-        <main className="px-4 pt-4 pb-7 flex flex-col gap-3.5" data-create-step={shownStep}>
-          {shownStep === 1 && (
-            <>
-              {heading(CT.headings.answers)}
-              <BulkEntry
-                text={bulkText}
-                onText={setBulkText}
-                t={BULK_TEXTS}
-                textareaClassName={textareaClass}
-                collapsed={collapsed}
-                onCollapsed={setCollapsed}
-                hinted={(k) => !!hints[k]}
-                onOpenHint={(k, surface) => openHint(k, surface, 1)}
-                openKey={hintOpen?.from === 1 ? hintOpen.key : null}
-                onSearch={runSearch}
-                tip={answers.length === 1 && !tipsSeen.cross ? <Tip name="cross" /> : null}
-                trace={traceAllowed}
-                onTraceShown={() => {
-                  lsSet(TRACE_KEY, "1");
-                  setTraceAllowed(false);
-                }}
-                barHidden={!!hintOpen}
-              />
-            </>
-          )}
-
-          {shownStep === 2 && (
-            <>
-              {heading(CT.headings.board)}
-              {proposals && proposals.length > 0 && (
-                <div className="flex flex-col gap-0.5" role="group" aria-label={CT.headings.board}>
-                  {proposals.map((p, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      data-bulk-proposal={i}
-                      aria-pressed={picked === i}
-                      onClick={() => pickProposal(i)}
-                      className={`min-h-12 px-3 flex items-center justify-between text-left transition-colors ${picked === i ? "bg-surface-container-highest font-bold" : "bg-surface-container-low hover:bg-surface-container-high"}`}
-                      style={{ color: C.ink }}
-                    >
-                      <span>{PROPOSAL_TEXTS.proposal(i + 1)}</span>
-                      <span data-bulk-stats="" className="text-xs font-normal" style={{ color: C.secondary }}>
-                        {PROPOSAL_TEXTS.stats(p.placed.length, p.cells, p.crossings)}
-                      </span>
-                    </button>
-                  ))}
+        {/* 見出しと「作る｜試す」（44px）と小さい盤（110px）。上に貼り付き、下が透けないよう白で塗る（Hop 決定 2026-10-22・見本の案A） */}
+        <div data-create-top="" className="sticky top-0 z-20 bg-white" style={{ boxShadow: `0 1px 0 ${C.mid}` }}>
+          <div data-create-head="" className="flex items-center justify-between gap-2 pl-4" style={{ height: HEAD_H }}>
+            <h1 className="text-sm font-black whitespace-nowrap overflow-hidden text-ellipsis min-w-0" style={{ color: C.ink }}>
+              {editTarget ? CT.edit.pageTitle : CT.pageTitle}
+            </h1>
+            <div role="group" aria-label={CT.modesLabel} className="flex gap-0.5 shrink-0" style={{ height: HEAD_H }}>
+              {(["make", "try"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  data-mode-tab={m}
+                  aria-pressed={mode === m}
+                  onClick={() => switchMode(m)}
+                  className="min-w-16 px-3 text-sm font-bold transition-colors"
+                  style={mode === m ? { background: C.black, color: C.white } : { background: C.low, color: C.secondary }}
+                >
+                  {CT.modes[m]}
+                </button>
+              ))}
+            </div>
+          </div>
+          {mode === "make" && (
+            <div
+              data-mini=""
+              aria-hidden={keyboardUp ? true : undefined}
+              inert={keyboardUp}
+              className="overflow-hidden"
+              style={{ height: keyboardUp ? 0 : MINI_H, opacity: keyboardUp ? 0 : 1, transition: prefersReducedMotion() ? "none" : `height ${HIDE_MS}ms ${EASE_STANDARD}, opacity ${HIDE_MS}ms ${EASE_STANDARD}` }}
+            >
+              <div className="px-4 py-2" style={{ height: MINI_H }}>
+                {/* 盤のマスはボタンなので、押す所は盤の上に重ねた透明のボタン（ボタンの中にボタンを入れない） */}
+                <div className="relative w-full h-full bg-surface-container-low hover:bg-surface-container-high transition-colors flex items-center gap-3 px-2.5 py-1.5">
+                  <span data-mini-board="" className="flex-1 min-w-0 h-full flex items-center justify-center overflow-hidden">
+                    {!expanded && miniBoard}
+                  </span>
+                  <span className="shrink-0 flex flex-col items-end gap-0.5 text-xs" style={{ color: C.secondary }}>
+                    <span data-mini-stats="">{stats}</span>
+                    <span className="font-bold" style={{ color: C.ink }}>
+                      {CT.expand}
+                    </span>
+                  </span>
+                  <button type="button" data-mini-open="" aria-label={CT.expand} onClick={() => setExpanded(true)} className="absolute inset-0 w-full h-full" />
                 </div>
-              )}
-              {noProposal && (
-                <p className="text-sm" style={{ color: C.secondary }}>
-                  {PROPOSAL_TEXTS.noProposal}
-                </p>
-              )}
+              </div>
+            </div>
+          )}
+        </div>
 
-              <div data-create-board="" className="relative bg-surface-container-low p-4 min-h-[200px] flex items-center justify-center overflow-hidden">
-                {isLiveGenerating ? (
-                  <>
-                    {backgroundPuzzle && (
-                      <div className="w-full opacity-20" aria-hidden="true">
-                        <FitGrid width={backgroundPuzzle.width} height={backgroundPuzzle.height}>
-                          <PuzzleGridRetro data={backgroundPuzzle} showSolution={true} />
+        <Presence>
+          {mode === "make" ? (
+            <Motion key="make" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={WEAK}>
+              <main className="px-4 pt-4 pb-7 flex flex-col gap-3.5" data-create-mode="make">
+                <BulkEntry text={bulkText} onText={setBulkText} t={BULK_TEXTS} textareaClassName={textareaClass} barHidden={anySheet} />
+                {answers.length === 1 && !tipsSeen.cross && <Tip name="cross" />}
+
+                {/* 語の一覧（1語1行・44px 以上）。行を押すと語の窓（Hop 決定 2026-10-22「好きな語を好きな順に」） */}
+                {candidates.length > 0 && (
+                  <div ref={listRef} data-word-list="" role="group" aria-label={CT.wordsLabel} className="flex flex-col gap-0.5">
+                    {candidates.map((c) => {
+                      if (c.reason) {
+                        return (
+                          <div key={`r${c.mark.start}`} data-bulk-reason={c.reason} className="min-h-8 flex items-center px-3 text-xs bg-surface-container-low" style={{ color: C.secondary }}>
+                            {BULK_TEXTS.reasonLine(c.mark.surface, BULK_TEXTS.reasons[c.reason])}
+                          </div>
+                        );
+                      }
+                      if (answerByKey.get(c.key)?.mark.start !== c.mark.start) return null;
+                      const clueOn = hasClue(c.key);
+                      const hintOn = !!hints[c.key];
+                      const off = hasBoard && !placedSet.has(c.key);
+                      return (
+                        <button
+                          key={`w${c.key}`}
+                          type="button"
+                          data-word-row={c.key}
+                          onClick={() => openWordSheet(c.key)}
+                          aria-haspopup="dialog"
+                          className="w-full min-h-11 flex items-center gap-2 px-3 text-left bg-surface-container-low hover:bg-surface-container-high transition-colors"
+                          style={{ color: C.ink }}
+                        >
+                          <span className="relative flex-1 min-w-0">
+                            <span className="block text-[15px] font-black tracking-[0.12em] whitespace-nowrap overflow-hidden text-ellipsis">{c.key}</span>
+                            <span data-word-line="" aria-hidden="true" className="absolute left-0 right-0 pointer-events-none" style={{ bottom: -1, height: 2, background: C.ink, transform: "scaleX(0)", transformOrigin: "left center" }} />
+                          </span>
+                          {off && (
+                            <span data-word-unplaced="" className="text-[11px] font-bold whitespace-nowrap" style={{ color: C.error }}>
+                              {CT.unplaced}
+                            </span>
+                          )}
+                          {/* 足りない物だけを言葉で出す（Hop 決定 2026-10-22）。そろった言葉は消える動きで消える */}
+                          <span className="flex items-center gap-2 text-xs whitespace-nowrap" style={{ color: C.secondary }}>
+                            <MissingWord kind="clue" show={!clueOn} text={CT.wordNoClue} />
+                            <MissingWord kind="hint" show={!hintOn} text={CT.wordNoHint} />
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* 一覧と自分が作った問題への入口（作る画面にはいつも出す）【仮】位置は語の一覧の下 */}
+                <div className="flex flex-wrap gap-x-6 gap-y-1 pt-4">
+                  <Link to="/crossword" className="min-h-11 text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
+                    {CT.toList} <span aria-hidden="true">→</span>
+                  </Link>
+                  <Link to="/crossword/mine" data-create-mine="" className="min-h-11 text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
+                    {CT.myPuzzles} <span aria-hidden="true">→</span>
+                  </Link>
+                </div>
+              </main>
+            </Motion>
+          ) : (
+            <Motion key="try" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={WEAK}>
+              <div data-create-mode="try">
+                {trial && renderTrial ? (
+                  <React.Fragment key={boardSignature(trial.puzzle)}>{renderTrial(trial)}</React.Fragment>
+                ) : (
+                  // 盤が無い時の知らせ（盤が無い理由と同じ文。語が2つ未満・探している間・見つからなかった時）【仮】
+                  <p data-trial-empty="" className="px-4 py-8 text-sm" style={{ color: C.secondary }}>
+                    {boardBlock || CT.building}
+                  </p>
+                )}
+              </div>
+            </Motion>
+          )}
+        </Presence>
+      </div>
+
+      {/* 下の貼り付けの段（60px）「試しに解く」「共有へ」（見本の案A）。文字盤が出ている間は下へ隠す */}
+      <div
+        data-dock=""
+        aria-hidden={keyboardUp ? true : undefined}
+        inert={keyboardUp}
+        className="fixed inset-x-0 bottom-0 z-[25] bg-white"
+        style={{
+          boxShadow: `0 -1px 0 ${C.mid}`,
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          transform: keyboardUp ? "translateY(100%)" : "none",
+          transition: prefersReducedMotion() ? "none" : `transform ${HIDE_MS}ms ${EASE_STANDARD}`,
+        }}
+      >
+        <div className="max-w-[640px] mx-auto px-4 py-1.5 flex gap-2" style={{ height: DOCK_H }}>
+          <button
+            type="button"
+            data-dock-try=""
+            aria-pressed={mode === "try"}
+            onClick={() => switchMode(mode === "try" ? "make" : "try")}
+            className="flex-1 min-h-12 font-bold text-[15px] bg-surface-container-high hover:bg-surface-container-highest transition-colors"
+            style={{ color: C.ink, boxShadow: mode === "try" ? "inset 0 -2px 0 #000" : undefined }}
+          >
+            {CT.tryIt}
+          </button>
+          <button
+            type="button"
+            data-dock-share=""
+            onClick={() => {
+              setTitleError(false);
+              setWordSheet(null);
+              setExpanded(false);
+              setShareOpen(true);
+            }}
+            data-strong={canShare ? "" : undefined}
+            // 足りない物（カギ・ヒント・盤）があるうちは控えめの灰、全部そろったら強い黒（押せなくはしない。押すと足りない物が出る。Hop 決定 2026-10-22）
+            className={`flex-1 min-h-12 font-bold text-[15px] transition-colors ${canShare ? "bg-primary text-white hover:bg-secondary" : "bg-surface-container-high hover:bg-surface-container-highest"}`}
+            style={canShare ? undefined : { color: C.ink }}
+          >
+            {CT.toShare}
+          </button>
+        </div>
+      </div>
+
+      {/* 広げた盤の画面（全画面）。中身は前の「2 盤」の働き全部（案1〜3・再シャッフル・置けなかった語・長押しで動かす・固定・固定を外す） */}
+      <Presence>
+        {expanded && (
+          <Motion
+            key="board"
+            ref={boardDialog}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cw-board-title"
+            data-board-sheet=""
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={WEAK}
+            exitTransition={{ duration: 0.12, ease: "easeOut" }}
+            className="fixed inset-0 z-40 bg-white flex flex-col"
+          >
+            <div className="max-w-[640px] w-full mx-auto flex flex-col min-h-0 h-full">
+              <div className="flex items-center justify-between gap-2 px-4 pt-2 pb-1 shrink-0">
+                <h2 id="cw-board-title" className="text-lg font-black" style={{ color: C.ink }}>
+                  {CT.boardTitle}
+                </h2>
+                <button type="button" data-board-close="" onClick={() => setExpanded(false)} className={`${btnGray} shrink-0 text-sm`} style={{ color: C.ink }}>
+                  {CT.close}
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pt-2 pb-6 flex flex-col gap-3">
+                {proposals && proposals.length > 0 && !searching && (
+                  <div className="flex flex-col gap-0.5" role="group" aria-label={CT.boardTitle}>
+                    {proposals.map((p, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        data-bulk-proposal={i}
+                        aria-pressed={picked === i}
+                        onClick={() => pickProposal(i)}
+                        className={`min-h-12 px-3 flex items-center justify-between text-left transition-colors ${picked === i ? "bg-surface-container-highest font-bold" : "bg-surface-container-low hover:bg-surface-container-high"}`}
+                        style={{ color: C.ink }}
+                      >
+                        <span>{PROPOSAL_TEXTS.proposal(i + 1)}</span>
+                        <span data-bulk-stats="" className="text-xs font-normal" style={{ color: C.secondary }}>
+                          {PROPOSAL_TEXTS.stats(p.placed.length, p.cells, p.crossings)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {noProposal && !searching && (
+                  <p className="text-sm" style={{ color: C.secondary }}>
+                    {PROPOSAL_TEXTS.noProposal}
+                  </p>
+                )}
+
+                <div data-create-board="" className="relative bg-surface-container-low p-4 min-h-[200px] flex items-center justify-center overflow-hidden">
+                  {isLiveGenerating ? (
+                    <>
+                      {backgroundPuzzle && (
+                        <div className="w-full opacity-20" aria-hidden="true">
+                          <FitGrid width={backgroundPuzzle.width} height={backgroundPuzzle.height}>
+                            <PuzzleGridRetro data={backgroundPuzzle} showSolution={true} />
+                          </FitGrid>
+                        </div>
+                      )}
+                      <div className="absolute inset-0 flex items-center justify-center" role="status">
+                        <span className="bg-white px-4 py-2 text-sm font-bold flex items-center gap-2" style={{ color: C.ink }}>
+                          <span className="w-4 h-4 border-2 border-black border-t-transparent motion-safe:animate-spin" aria-hidden="true" />
+                          {CT.building}
+                        </span>
+                      </div>
+                    </>
+                  ) : generatedPuzzle && pool.length > 0 ? (
+                    <>
+                      <div className="w-full" style={searching ? { opacity: 0.2 } : undefined} aria-hidden={searching ? true : undefined}>
+                        <FitGrid width={generatedPuzzle.width + 2 * MOVE_MARGIN} height={generatedPuzzle.height + 2 * MOVE_MARGIN}>
+                          <MovableBoard data={generatedPuzzle} enabled={!isLiveGenerating && !searching} onDrop={handleMoveWord} fx={placeFx} />
                         </FitGrid>
                       </div>
-                    )}
-                    <div className="absolute inset-0 flex items-center justify-center" role="status">
-                      <span className="bg-white px-4 py-2 text-sm font-bold flex items-center gap-2" style={{ color: C.ink }}>
-                        <span className="w-4 h-4 border-2 border-black border-t-transparent motion-safe:animate-spin" aria-hidden="true" />
-                        {CT.building}
-                      </span>
-                    </div>
-                  </>
-                ) : generatedPuzzle ? (
-                  <div className="w-full">
-                    <FitGrid width={generatedPuzzle.width + 2 * MOVE_MARGIN} height={generatedPuzzle.height + 2 * MOVE_MARGIN}>
-                      <MovableBoard data={generatedPuzzle} enabled={!isLiveGenerating} onDrop={handleMoveWord} />
-                    </FitGrid>
-                  </div>
-                ) : null}
-              </div>
-
-              {boardReady && !tipsSeen.move && <Tip name="move" />}
-
-              {boardReady && generatedPuzzle!.items.some((i) => i.pinned) && (
-                <button type="button" className={`${btnGray} self-center text-sm`} style={{ color: C.ink }} onClick={() => triggerGeneration(pool, [])}>
-                  {CT.pins.release}
-                </button>
-              )}
-
-              {boardReady && (unplaced.length > 0 || shapeGuide.length > 0) && (
-                <div className="bg-surface-container-low px-3 py-3 text-sm flex flex-col gap-1" style={{ color: C.ink }}>
-                  {unplaced.length > 0 && (
-                    <div data-unplaced="">
-                      <span className="text-xs font-bold tracking-[0.1em] mr-2" style={{ color: C.error }}>
-                        {CT.unplaced}
-                      </span>
-                      {unplaced.map((i) => i.answer.join("")).join("、")}
-                    </div>
-                  )}
-                  {shapeGuide.length > 0 && (
-                    <>
-                      <div className="text-xs font-bold tracking-[0.1em]" style={{ color: C.secondary }}>
-                        {CT.shapeGuide}
-                      </div>
-                      {shapeGuide.map((line, i) => (
-                        <div key={i} data-shape-guide="">
-                          {line}
+                      {searching && (
+                        <div className="absolute inset-0 flex items-center justify-center" role="status">
+                          <span className="bg-white px-4 py-2 text-sm font-bold flex items-center gap-2" style={{ color: C.ink }}>
+                            <span className="w-4 h-4 border-2 border-black border-t-transparent motion-safe:animate-spin" aria-hidden="true" />
+                            {CT.building}
+                          </span>
                         </div>
-                      ))}
+                      )}
                     </>
+                  ) : (
+                    <p className="text-sm" style={{ color: C.secondary }}>
+                      {boardBlock}
+                    </p>
                   )}
                 </div>
-              )}
 
-              <button type="button" data-reshuffle="" className={`${btnGray} w-full`} style={{ color: C.ink }} disabled={isLiveGenerating || pool.length < 2} onClick={() => triggerGeneration(pool)}>
-                {CT.reshuffle}
-              </button>
+                {hasBoard && <p data-board-stats="" className="text-xs" style={{ color: C.secondary }}>{stats}</p>}
 
-              <div className="flex flex-col gap-1">
-                <button type="button" data-bulk-adopt="" className={btnPrimary} disabled={!boardReady || boardDisconnected} onClick={() => goStep(3)}>
-                  {PROPOSAL_TEXTS.adopt}
+                {boardReady && !searching && !tipsSeen.move && <Tip name="move" />}
+
+                {boardReady && !searching && generatedPuzzle!.items.some((i) => i.pinned) && (
+                  <button type="button" data-pins-release="" className={`${btnGray} self-center text-sm`} style={{ color: C.ink }} onClick={() => triggerGeneration(pool, [])}>
+                    {CT.pins.release}
+                  </button>
+                )}
+
+                {hasBoard && (unplaced.length > 0 || shapeGuide.length > 0) && (
+                  <div className="bg-surface-container-low px-3 py-3 text-sm flex flex-col gap-1" style={{ color: C.ink }}>
+                    {unplaced.length > 0 && (
+                      <div data-unplaced="">
+                        <span className="text-xs font-bold tracking-[0.1em] mr-2" style={{ color: C.error }}>
+                          {CT.unplaced}
+                        </span>
+                        {unplaced.map((i) => i.answer.join("")).join("、")}
+                      </div>
+                    )}
+                    {shapeGuide.length > 0 && (
+                      <>
+                        <div className="text-xs font-bold tracking-[0.1em]" style={{ color: C.secondary }}>
+                          {CT.shapeGuide}
+                        </div>
+                        {shapeGuide.map((line, i) => (
+                          <div key={i} data-shape-guide="">
+                            {line}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <button type="button" data-reshuffle="" className={`${btnGray} w-full`} style={{ color: C.ink }} disabled={isLiveGenerating || searching || pool.length < 2} onClick={() => triggerGeneration(pool)}>
+                  {CT.reshuffle}
                 </button>
-                {/* 固定した語どうしがつながっていない盤では進めない（押せない理由を1行） */}
+                {/* 固定した語どうしがつながっていない盤では共有できない（押せない理由を1行） */}
                 {boardDisconnected && (
                   <p data-not-connected="" className="text-xs" style={{ color: C.error }}>
                     {CT.pins.notConnected}
                   </p>
                 )}
               </div>
-            </>
-          )}
+            </div>
+          </Motion>
+        )}
+      </Presence>
 
-          {shownStep === 3 && (
-            <>
-              {heading(CT.headings.clues)}
-              <p className="text-xs leading-relaxed" style={{ color: C.secondary }}>
-                {CT.cluesGuide}
-              </p>
-              <div className="flex flex-col gap-2">
-                {clueRowKeys.map((key, idx) => {
-                  const h = hints[key];
-                  const a = answerByKey.get(key);
-                  return (
-                    <div key={key} data-clue-row={key} className="bg-surface-container-low p-3 flex flex-col gap-2">
-                      <label htmlFor={`cw-clue-${idx}`} className="text-[15px] font-black tracking-[0.12em]" style={{ color: C.ink }}>
-                        {key}
-                      </label>
-                      {/* ○を入れるボタンは 1 答えの道具の段へ移した（Hop 決定 2026-10-22） */}
-                      <input
-                        id={`cw-clue-${idx}`}
-                        value={clueOf(key)}
-                        onChange={(e) => setClues((prev) => ({ ...prev, [key]: e.target.value }))}
-                        onFocus={() => setFocusedClue(key)}
-                        onBlur={() => setFocusedClue((prev) => (prev === key ? null : prev))}
-                        placeholder={CT.cluePlaceholder}
-                        className={`${inputClass} bg-white`}
-                      />
-                      {/* 残り字数は欄を選んでいる間か残り10字以下の時だけ。100字を超えたら超えた字数をいつも出す（Hop 決定 2026-10-21・10-22）。
-                          出さない間も1行ぶんの高さは空けておく（欄を離れた瞬間に下の「ヒントを選ぶ」などが上へずれて、押した所を外さないように） */}
-                      {(() => {
-                        const left = MAX_CLUE_CHARS - clueChars(clueOf(key));
-                        if (left >= 0 && focusedClue !== key && left > CLUE_LEFT_ALWAYS) {
-                          return (
-                            <p aria-hidden="true" className="text-xs invisible">
-                              {" "}
-                            </p>
-                          );
-                        }
-                        return left >= 0 ? (
-                          <p data-clue-left={left} className="text-xs" style={{ color: C.secondary }}>
-                            {CT.clueLeft(left)}
-                          </p>
-                        ) : (
-                          <p data-clue-over={-left} className="text-xs" style={{ color: C.error }}>
-                            {CT.clueOver(-left)}
-                          </p>
-                        );
-                      })()}
-                      {h ? (
-                        // ヒントが付いている行は、左の字が行き先を別のタブで開くリンク、右の「変える」がヒントの窓（Hop 決定 2026-10-22）
-                        <div className="flex items-start gap-2">
-                          {(() => {
-                            const href = hintHref(h);
-                            const text = CT.hintState(sourceLabel(h), hintLabels[key] ?? fallbackName(h));
-                            return href ? (
-                              <a data-hint-state="" href={href} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 min-h-11 flex items-center text-xs break-all hover:underline" style={{ color: C.secondary }}>
-                                {text}
-                              </a>
-                            ) : (
-                              <span data-hint-state="" className="flex-1 min-w-0 min-h-11 flex items-center text-xs break-all" style={{ color: C.secondary }}>
-                                {text}
-                              </span>
-                            );
-                          })()}
-                          <button type="button" data-hint-change="" onClick={() => openHint(key, a?.mark.surface ?? key, 3)} className="shrink-0 min-h-11 px-3 text-xs font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors whitespace-nowrap" style={{ color: C.ink }}>
-                            {CT.changeHint}
-                          </button>
-                        </div>
-                      ) : (
-                        <button type="button" data-pick-hint="" onClick={() => openHint(key, a?.mark.surface ?? key, 3)} className="min-h-11 text-left text-sm font-bold hover:underline underline-offset-2" style={{ color: C.error }}>
-                          {CT.pickHint}
-                        </button>
-                      )}
-                    </div>
+      {/* 語の窓（語の一覧の行を押すと下から出る）。カギの欄とヒントの道具が全部。「閉じる」だけ（「次の語 →」は無い。Hop 決定 2026-10-22） */}
+      <Presence>
+        {wordSheet && sheetEntry && (
+          <Motion
+            key={`word-${wordSheet.n}`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={WEAK}
+            exitTransition={{ duration: 0.12, ease: "easeOut" }}
+            className="fixed inset-0 z-40 flex items-end justify-center"
+            style={{ background: "rgba(0,0,0,0.6)" }}
+            onClick={(e) => e.target === e.currentTarget && closeWordSheet()}
+          >
+            {/* 下を起点に少しだけ小さい所から出る（窓が出る動きは弱い組。Hop 決定 2026-10-22。前は名前を入れる窓と同じ 0.9倍） */}
+            <Motion
+              ref={wordDialog}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="cw-word-sheet-title"
+              data-word-sheet={sheetEntry}
+              data-hint-sheet=""
+              initial={{ opacity: 0, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={WEAK}
+              className="bg-white w-full max-w-[640px] max-h-[90dvh] overflow-y-auto overscroll-contain"
+              style={{ boxShadow: C.modalShadow, transformOrigin: "bottom center" }}
+            >
+              <div className="sticky top-0 z-10 bg-white flex items-center justify-between gap-2 px-4 pt-3 pb-1">
+                <h2 id="cw-word-sheet-title" className="text-lg font-black min-w-0 break-all" style={{ color: C.ink }}>
+                  {CT.wordSheetTitle(sheetEntry)}
+                </h2>
+                <button type="button" data-word-close="" onClick={closeWordSheet} className={`${btnGray} shrink-0 text-sm`} style={{ color: C.ink }}>
+                  {CT.close}
+                </button>
+              </div>
+              <div className="px-4 pt-1 pb-6 flex flex-col gap-2">
+                <label htmlFor="cw-clue" className="text-xs font-bold" style={{ color: C.secondary }}>
+                  {CT.clueLabel}
+                </label>
+                {/* カギは複数行で見える欄（改行は入れない。保存する問題文は1行）。100字まで */}
+                <textarea
+                  id="cw-clue"
+                  data-clue-input=""
+                  data-kbd-field=""
+                  value={sheetClue}
+                  rows={3}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/\r?\n/g, "");
+                    setClues((prev) => ({ ...prev, [sheetEntry]: v }));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) e.preventDefault();
+                  }}
+                  onFocus={() => setClueFocused(true)}
+                  onBlur={() => setClueFocused(false)}
+                  placeholder={CT.cluePlaceholder}
+                  className={`${textareaClass} resize-none leading-relaxed`}
+                />
+                {/* 残り字数は欄を選んでいる間か残り10字以下の時だけ。100字を超えたら超えた字数をいつも出す（Hop 決定 2026-10-21・10-22）。
+                    出さない間も1行ぶんの高さは空けておく（欄を離れた瞬間に下がずれて、押した所を外さないように） */}
+                {(() => {
+                  const left = MAX_CLUE_CHARS - clueChars(sheetClue);
+                  if (left >= 0 && !clueFocused && left > CLUE_LEFT_ALWAYS) {
+                    return (
+                      <p aria-hidden="true" className="text-xs invisible">
+                        {" "}
+                      </p>
+                    );
+                  }
+                  return left >= 0 ? (
+                    <p data-clue-left={left} className="text-xs" style={{ color: C.secondary }}>
+                      {CT.clueLeft(left)}
+                    </p>
+                  ) : (
+                    <p data-clue-over={-left} className="text-xs" style={{ color: C.error }}>
+                      {CT.clueOver(-left)}
+                    </p>
                   );
-                })}
-              </div>
-              <p data-missing-hints="" aria-live="polite" className="text-xs" style={{ color: C.secondary }}>
-                {shareBlocks.length > 0 ? shareBlocks.join("　") : CT.allSet}
-              </p>
-              <button type="button" data-open-share="" className={btnPrimary} disabled={!canShare} onClick={() => { setTitleError(false); setStep(4); }}>
-                {CT.share}
-              </button>
-            </>
-          )}
-
-          {/* 一覧と自分が作った問題への入口（作る画面にはいつも出す）【仮】位置は段の中身の下 */}
-          <div className="flex flex-wrap gap-x-6 gap-y-1 pt-4">
-            <Link to="/crossword" className="min-h-11 text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
-              {CT.toList} <span aria-hidden="true">→</span>
-            </Link>
-            <Link to="/crossword/mine" data-create-mine="" className="min-h-11 text-sm font-bold inline-flex items-center gap-1 hover:text-black transition-colors" style={{ color: C.secondary }}>
-              {CT.myPuzzles} <span aria-hidden="true">→</span>
-            </Link>
-          </div>
-        </main>
-      </div>
-
-      {/* ヒントの窓（下から出る）。中身は今のヒントの道具が全部 */}
-      {hintOpen && (
-        <div className="fixed inset-0 z-40 flex items-end justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={(e) => e.target === e.currentTarget && closeHint()}>
-          <div ref={hintDialog} role="dialog" aria-modal="true" aria-labelledby="cw-hint-sheet-title" data-hint-sheet="" className="bg-white w-full max-w-[640px] max-h-[90dvh] overflow-y-auto overscroll-contain" style={{ boxShadow: C.modalShadow }}>
-            <div className="sticky top-0 z-10 bg-white flex items-center justify-between gap-2 px-4 pt-3 pb-1">
-              <h2 id="cw-hint-sheet-title" className="text-lg font-black min-w-0 break-all" style={{ color: C.ink }}>
-                {CT.hintSheetTitle(hintOpen.key)}
-              </h2>
-              <button type="button" onClick={closeHint} className={`${btnGray} shrink-0 text-sm`} style={{ color: C.ink }}>
-                {CT.close}
-              </button>
-            </div>
-            <div className="px-4 pt-1 pb-6 flex flex-col gap-3">
-              <p className="text-sm" style={{ color: C.ink }}>
-                {CT.hintRoot}
-              </p>
-              <p data-hint-guide="" className="text-xs leading-relaxed" style={{ color: C.secondary }}>
-                {CT.hintOfficial}
-              </p>
-              <HintField
-                key={hintOpen.n}
-                inputId="cw-hint"
-                genre="hello"
-                resetKey={0}
-                inputClassName={inputClass}
-                initial={hintFor ? { hint: hintFor, label: hintLabels[hintOpen.key] ?? fallbackName(hintFor) } : null}
-                onChange={(h, label) => setHintFor(hintOpen.key, h, label)}
-                search={hintSearch}
-                flatResults
-              />
-              {hintOpen.from === 1 && (
-                <button type="button" data-unmark-sheet="" onClick={() => unmarkFromSheet(hintOpen.key)} className={`${btnGray} w-full min-h-12`} style={{ color: C.ink }}>
-                  {CT.unmarkFull(hintOpen.surface)}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 4の窓「共有する」（下から出る） */}
-      {step === 4 && (
-        <div className="fixed inset-0 z-40 flex items-end justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={(e) => e.target === e.currentTarget && !isSaving && setStep(3)}>
-          <div ref={shareSheetDialog} role="dialog" aria-modal="true" aria-labelledby="cw-share-sheet-title" data-share-sheet="" className="bg-white w-full max-w-[640px] max-h-[90dvh] overflow-y-auto overscroll-contain" style={{ boxShadow: C.modalShadow }}>
-            <div className="px-4 pt-4 pb-6 flex flex-col gap-3">
-              <h2 id="cw-share-sheet-title" className="text-lg font-black" style={{ color: C.ink }}>
-                {CT.headings.share}
-              </h2>
-              {!tipsSeen.saved && !editTarget && <Tip name="saved" />}
-              <div className="flex flex-col gap-1">
-                <label htmlFor="cw-title" className="text-xs font-bold" style={{ color: C.secondary }}>
-                  {CT.puzzleTitle}
-                </label>
-                <input id="cw-title" value={puzzleTitle} maxLength={50} onChange={(e) => { setPuzzleTitle(e.target.value); setTitleError(false); }} placeholder={CT.titlePlaceholder} className={inputClass} />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="cw-creator" className="text-xs font-bold" style={{ color: C.secondary }}>
-                  {CT.creatorName}
-                </label>
-                <input id="cw-creator" value={creatorName} maxLength={50} onChange={(e) => setCreatorName(e.target.value)} placeholder={CT.creatorNamePlaceholder} className={inputClass} />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="cw-tag" className="text-xs font-bold" style={{ color: C.secondary }}>
-                  {CT.tagsLabel(MAX_TAGS)}
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    id="cw-tag"
-                    value={tagInput}
-                    maxLength={20}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-                        e.preventDefault();
-                        addTag();
-                      }
-                    }}
-                    placeholder={CT.tagPlaceholder}
-                    className={`${inputClass} flex-1 min-w-0`}
-                  />
-                  <button type="button" onClick={addTag} disabled={!tagInput.trim() || tags.length >= MAX_TAGS} className={`${btnGray} shrink-0`} style={{ color: C.ink }}>
-                    {CT.tagAdd}
-                  </button>
-                </div>
-                {tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 pt-1">
-                    {tags.map((t) => (
-                      <span key={t} className="inline-flex items-center gap-1 pl-2 text-xs bg-surface-container-high" style={{ color: C.ink }}>
-                        {t}
-                        <button type="button" onClick={() => setTags(tags.filter((x) => x !== t))} aria-label={CT.tagRemove(t)} className="w-11 h-11 flex items-center justify-center leading-none">
-                          <Icon size={14} icon="close" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <label className="flex items-center gap-2 min-h-11 text-sm cursor-pointer" style={{ color: C.ink }}>
-                <input type="checkbox" checked={isBeginner} onChange={(e) => setIsBeginner(e.target.checked)} className="w-5 h-5 accent-black" />
-                {CT.beginner}
-              </label>
-              <div className="flex flex-col gap-1">
-                {/* 著作権の2行は「共有する」のボタンの上（1〜3 の段の一番下から移した。Hop 決定 2026-10-22） */}
-                <p data-copyright="" className="text-xs" style={{ color: C.secondary }}>
-                  {CT.copyright[0]}
-                  <br />
-                  {CT.copyright[1]}
+                })()}
+                <p className="text-sm pt-1" style={{ color: C.ink }}>
+                  {CT.hintRoot}
                 </p>
-                {/* 押せない理由（3の段の共有のボタンの上と同じ並び）。札から盤やカギが揃う前に開いた時に出る（Hop 決定 2026-10-22） */}
-                {!canShare && (
-                  <p data-share-blocks="" aria-live="polite" className="text-xs" style={{ color: C.secondary }}>
-                    {shareBlocks.join("　")}
-                  </p>
-                )}
-                <button type="button" data-save="" className={btnPrimary} disabled={isSaving || !canShare} onClick={handleShare}>
-                  {isSaving ? CT.saving : editTarget ? CT.edit.update : CT.share}
-                </button>
-                {titleError && (
-                  <p data-title-error="" role="alert" className="text-xs" style={{ color: C.error }}>
-                    {CT.errors.noTitle}
-                  </p>
-                )}
+                <p data-hint-guide="" className="text-xs leading-relaxed" style={{ color: C.secondary }}>
+                  {CT.hintOfficial}
+                </p>
+                {/* ヒントが付いている時は、行き先を別のタブで開くリンク（Hop 決定 2026-10-22。語の窓でも） */}
+                {sheetHint &&
+                  (() => {
+                    const href = hintHref(sheetHint);
+                    const text = CT.hintState(sourceLabel(sheetHint), hintLabels[sheetEntry] ?? fallbackName(sheetHint));
+                    return href ? (
+                      <a data-hint-state="" href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 flex items-center text-xs break-all hover:underline" style={{ color: C.secondary }}>
+                        {text}
+                      </a>
+                    ) : (
+                      <span data-hint-state="" className="min-h-11 flex items-center text-xs break-all" style={{ color: C.secondary }}>
+                        {text}
+                      </span>
+                    );
+                  })()}
+                <HintField
+                  key={wordSheet.n}
+                  inputId="cw-hint"
+                  genre="hello"
+                  resetKey={0}
+                  inputClassName={inputClass}
+                  initial={sheetHint ? { hint: sheetHint, label: hintLabels[sheetEntry] ?? fallbackName(sheetHint) } : null}
+                  onChange={(h, label) => setHintFor(sheetEntry, h, label)}
+                  search={hintSearch}
+                  flatResults
+                />
               </div>
-              <button type="button" data-step-back={3} className={`${btnGray} w-full min-h-12`} style={{ color: C.ink }} disabled={isSaving} onClick={() => setStep(3)}>
-                {CT.backToClues}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+            </Motion>
+          </Motion>
+        )}
+      </Presence>
+
+      {/* 共有の窓（下から出る）。中身は前の「4 共有」の窓と同じ */}
+      <Presence>
+        {shareOpen && (
+          <Motion
+            key="share"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={WEAK}
+            exitTransition={{ duration: 0.12, ease: "easeOut" }}
+            className="fixed inset-0 z-40 flex items-end justify-center"
+            style={{ background: "rgba(0,0,0,0.6)" }}
+            onClick={(e) => e.target === e.currentTarget && closeShare()}
+          >
+            <Motion
+              ref={shareSheetDialog}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="cw-share-sheet-title"
+              data-share-sheet=""
+              initial={{ opacity: 0, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={WEAK}
+              className="bg-white w-full max-w-[640px] max-h-[90dvh] overflow-y-auto overscroll-contain"
+              style={{ boxShadow: C.modalShadow, transformOrigin: "bottom center" }}
+            >
+              <div className="sticky top-0 z-10 bg-white flex items-center justify-between gap-2 px-4 pt-3 pb-1">
+                <h2 id="cw-share-sheet-title" className="text-lg font-black" style={{ color: C.ink }}>
+                  {CT.shareTitle}
+                </h2>
+                <button type="button" data-share-close="" onClick={closeShare} disabled={isSaving} className={`${btnGray} shrink-0 text-sm`} style={{ color: C.ink }}>
+                  {CT.close}
+                </button>
+              </div>
+              <div className="px-4 pt-1 pb-6 flex flex-col gap-3">
+                {!tipsSeen.saved && !editTarget && <Tip name="saved" />}
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="cw-title" className="text-xs font-bold" style={{ color: C.secondary }}>
+                    {CT.puzzleTitle}
+                  </label>
+                  <input id="cw-title" value={puzzleTitle} maxLength={50} onChange={(e) => { setPuzzleTitle(e.target.value); setTitleError(false); }} placeholder={CT.titlePlaceholder} className={inputClass} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="cw-creator" className="text-xs font-bold" style={{ color: C.secondary }}>
+                    {CT.creatorName}
+                  </label>
+                  <input id="cw-creator" value={creatorName} maxLength={50} onChange={(e) => setCreatorName(e.target.value)} placeholder={CT.creatorNamePlaceholder} className={inputClass} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="cw-tag" className="text-xs font-bold" style={{ color: C.secondary }}>
+                    {CT.tagsLabel(MAX_TAGS)}
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="cw-tag"
+                      value={tagInput}
+                      maxLength={20}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                          e.preventDefault();
+                          addTag();
+                        }
+                      }}
+                      placeholder={CT.tagPlaceholder}
+                      className={`${inputClass} flex-1 min-w-0`}
+                    />
+                    <button type="button" onClick={addTag} disabled={!tagInput.trim() || tags.length >= MAX_TAGS} className={`${btnGray} shrink-0`} style={{ color: C.ink }}>
+                      {CT.tagAdd}
+                    </button>
+                  </div>
+                  {tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {tags.map((t) => (
+                        <span key={t} className="inline-flex items-center gap-1 pl-2 text-xs bg-surface-container-high" style={{ color: C.ink }}>
+                          {t}
+                          <button type="button" onClick={() => setTags(tags.filter((x) => x !== t))} aria-label={CT.tagRemove(t)} className="w-11 h-11 flex items-center justify-center leading-none">
+                            <Icon size={14} icon="close" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <label className="flex items-center gap-2 min-h-11 text-sm cursor-pointer" style={{ color: C.ink }}>
+                  <input type="checkbox" checked={isBeginner} onChange={(e) => setIsBeginner(e.target.checked)} className="w-5 h-5 accent-black" />
+                  {CT.beginner}
+                </label>
+                {/* 盤に置けなかった語（見本の案A の共有の窓。この語は問題に入らない） */}
+                {unplaced.length > 0 && (
+                  <p data-share-unplaced="" className="text-sm bg-surface-container-low px-3 py-2" style={{ color: C.ink }}>
+                    <span className="text-xs font-bold tracking-[0.1em] mr-2" style={{ color: C.error }}>
+                      {CT.unplaced}
+                    </span>
+                    {unplaced.map((i) => i.answer.join("")).join("、")}
+                  </p>
+                )}
+                {/* 著作権の2行・押せない理由・「共有する」は窓の下に貼り付ける（iPhone SE の高さでも、足りない物と押す所がいつも見えるように） */}
+                <div data-share-foot="" className="sticky bottom-0 -mx-4 -mb-6 px-4 pt-2 pb-4 bg-white flex flex-col gap-1" style={{ boxShadow: `0 -1px 0 ${C.mid}` }}>
+                  {/* 著作権の2行は「共有する」のボタンの上（Hop 決定 2026-10-22） */}
+                  <p data-copyright="" className="text-xs" style={{ color: C.secondary }}>
+                    {CT.copyright[0]}
+                    <br />
+                    {CT.copyright[1]}
+                  </p>
+                  {/* 押せない理由（足りない物が先頭）。そろったら「全部の答えにカギとヒントが付きました。」に替わる */}
+                  <p ref={blocksRef} data-share-blocks={canShare ? "ok" : ""} aria-live="polite" className="text-xs" style={{ color: canShare ? C.secondary : C.error }}>
+                    {canShare ? CT.allSet : shareBlocks.join("　")}
+                  </p>
+                  <button type="button" data-save="" className={btnPrimary} disabled={isSaving || !canShare} onClick={handleShare}>
+                    {isSaving ? CT.saving : editTarget ? CT.edit.update : CT.share}
+                  </button>
+                  {titleError && (
+                    <p data-title-error="" role="alert" className="text-xs" style={{ color: C.error }}>
+                      {CT.errors.noTitle}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </Motion>
+          </Motion>
+        )}
+      </Presence>
 
       {/* 保存の直前の確認（Turnstile） */}
       {showSaveCheck && <SaveCheckModal onPass={saveWithToken} onClose={cancelSaveCheck} />}
@@ -1302,7 +1653,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       {/* 保存できた後の窓（本番の「問題を共有」のまま） */}
       {showShareModal && (
         <div ref={shareDialog} role="dialog" aria-modal="true" aria-labelledby="cw-share-title" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: "rgba(0,0,0,0.7)" }}>
-          <div className="bg-white p-6 max-w-md w-full space-y-6" style={{ boxShadow: C.modalShadow }}>
+          {/* 窓が出る動きは弱い組（Hop 決定 2026-10-22。前は名前を入れる窓と同じ 0.9倍） */}
+          <Motion initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={WEAK} className="bg-white p-6 max-w-md w-full space-y-6" style={{ boxShadow: C.modalShadow }}>
             <h2 id="cw-share-title" className="text-2xl font-black text-center pb-3" style={{ color: C.ink }}>
               {CT.shareModal.modalTitle}
             </h2>
@@ -1335,11 +1687,73 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                 {CT.close}
               </button>
             </div>
-          </div>
+          </Motion>
         </div>
       )}
 
       <Footer />
+      {/* 下の貼り付けの段の分の余白（ページの一番下が段に隠れないように） */}
+      <div aria-hidden="true" style={{ height: DOCK_GAP }} />
     </div>
+  );
+}
+
+// 語の一覧の行の足りない言葉（「カギがまだ」など）。そろって消える時は、その場で小さくなって消える（0.2秒。決まった盤の字が置かれる動きの逆）。
+// 消えた事が分からないと何が済んだか分からないので、強めの動きの組（Hop 決定 2026-10-22「動きに強弱」）。出る時は動かさない
+function MissingWord({ kind, show, text }: { kind: "clue" | "hint"; show: boolean; text: string }) {
+  const [shown, setShown] = useState(show);
+  const ref = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    if (show) {
+      setShown(true);
+      return;
+    }
+    if (!shown) return;
+    const el = ref.current;
+    if (!el || prefersReducedMotion()) {
+      setShown(false);
+      return;
+    }
+    const h = animateElement(el, { opacity: 1, scale: 1 }, { opacity: 0, scale: 0.6 }, { duration: 0.2, ease: "easeOut" });
+    let alive = true;
+    void h.finished.then(() => alive && setShown(false));
+    return () => {
+      alive = false;
+      h.cancel();
+    };
+  }, [show]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!shown) return null;
+  return (
+    <span ref={ref} data-word-missing={kind} data-leaving={show ? undefined : ""} className="inline-block">
+      {text}
+    </span>
+  );
+}
+
+// 小さい盤（高さ94px と横の幅に収まる大きさに縮めて置く。押す・動かすはできない。読み上げは広げた盤で）
+const MINI_INNER_H = MINI_H - 16 - 12;
+const CELL = 48;
+function MiniGrid({ puzzle, fx }: { puzzle: PuzzleData; fx: GridFx | null }) {
+  const boxRef = useRef<HTMLSpanElement>(null);
+  const [avail, setAvail] = useState<{ w: number; h: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = boxRef.current?.parentElement;
+    if (!el) return;
+    const measure = () => setAvail({ w: el.clientWidth, h: el.clientHeight || MINI_INNER_H });
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const w = puzzle.width * CELL;
+  const h = puzzle.height * CELL;
+  const s = avail ? Math.min(1, (avail.w - 1) / w, (Math.min(avail.h, MINI_INNER_H) - 1) / h) : 0;
+  return (
+    <span ref={boxRef} aria-hidden="true" inert className="relative block" style={{ width: w * s, height: h * s }}>
+      <span className="absolute left-0 top-0 block" style={{ transform: `scale(${s})`, transformOrigin: "top left" }}>
+        <PuzzleGridRetro data={puzzle} showSolution={true} fx={fx} />
+      </span>
+    </span>
   );
 }
