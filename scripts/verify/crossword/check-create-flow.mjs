@@ -256,6 +256,16 @@ try {
       const sheet = page.locator('[data-hint-sheet]');
       await sheet.waitFor();
       check((await sheet.locator('h2').first().textContent()) === `「${ytKey}」のヒント` && (await sheet.locator('[data-unmark-sheet]').count()) === 0, `(4) 3の段から開いた窓は「「${ytKey}」のヒント」で「囲みを外す」が無い`);
+      // 1つの窓の中で出どころを切り替えても、探す言葉と年月が残る（1 答えから開いた窓は check-hints-edit の (5) で見る。2026-10-22 Hop の指摘を受けて 3 カギの窓でも見る）
+      await sheet.locator('[data-hint-source="ameblo"]').click();
+      await sheet.locator('[data-blog-search] input').fill('武道館');
+      await sheet.locator('[data-blog-search] [data-helper-period] select').nth(0).selectOption('2020');
+      await sheet.locator('[data-blog-search] [data-helper-period] select').nth(1).selectOption('10');
+      await sheet.locator('[data-hint-source="x"]').click();
+      await page.waitForTimeout(200);
+      const kept = await sheet.locator('[data-x-search]').evaluate((el) => [el.querySelector('input')?.value, ...Array.from(el.querySelectorAll('[data-helper-period] select')).map((x) => x.value)].join(',')).catch(() => null);
+      check(kept === '武道館,2020,10', `(4) 3の段から開いた窓でも、出どころを替えて探す言葉と年月が残る（${kept}）`);
+      await sheet.locator('[data-hint-source="yt"]').click();
       await sheet.locator('#cw-hint').fill('https://youtu.be/dQw4w9WgXcQ?t=83');
       const note = await sheet.locator('[data-hint-outside]').textContent({ timeout: 10000 }).catch(() => null);
       check(note === 'ハロプロのグループや事務所の公式チャンネルの動画か、確かめてください。', `(4) 台帳に無い YouTube は問い合わせずに選べ、1文が出る（${note}）`);
