@@ -5,7 +5,7 @@
 //           ・[data-bulk-search]（組み合わせを探す）
 //   ヒントの窓: [data-hint-sheet]・#cw-hint（URL・検索の欄）・[data-hint-kind]（選んだヒントの札）
 //   2 盤:   [data-bulk-proposal]（案1〜3）・[data-create-board]（盤）・[data-bulk-adopt]（この盤で進む）
-//   3 カギ: [data-clue-row="答え"]・[data-pick-hint]（未選択 → ヒントを選ぶ）・[data-hint-state]・[data-missing-hints]・[data-open-share]
+//   3 カギ: [data-clue-row="答え"]・[data-pick-hint]（未選択 → ヒントを選ぶ）・[data-hint-state]（ヒントの行き先を開くリンク。危ない形の時はリンクにしない）・[data-hint-change]（変える → ヒントの窓）・[data-missing-hints]・[data-open-share]
 //   4 の窓: [data-share-sheet]・#cw-title・[data-save]・[data-share-blocks]（押せない理由）
 //   段の札: [data-step-tab="1〜4"]（押すとその段へ）
 // どれも棚・受付係には書かない（保存を押す台本は、保存の受付係をそれぞれの台本の中で受け止める）

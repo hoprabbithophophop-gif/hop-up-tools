@@ -29,6 +29,7 @@ export const CT = {
   allSet: "全部の答えにカギとヒントが付きました。",
   pickHint: "未選択 → ヒントを選ぶ",
   hintState: (source: string, name: string) => `ヒント: ${source} ${name}`,
+  changeHint: "変える", // 【仮】ヒントが付いている行の右の小さいボタン。押すとヒントの窓（Hop 決定 2026-10-22）
   // ヒントの窓（下から出る）
   hintSheetTitle: (answer: string) => `「${answer}」のヒント`,
   hintRoot: "ヒントは答えの根拠です。", // 「?」の案内から移した本番の文

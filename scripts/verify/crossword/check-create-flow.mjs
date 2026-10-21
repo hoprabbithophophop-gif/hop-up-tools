@@ -11,6 +11,7 @@
 //       ・「ヒントが未選択の語が N 語あります」「カギが空の語が N 語あります」・そろうと「全部の答えにカギとヒントが付きました。」
 //       ・3の段から開いたヒントの窓には「囲みを外す」が無い・台帳に無い YouTube は「公式チャンネルの動画か確かめて」の1文付きで選べ、作りかけに outside の印が残る
 //       ・カギは30字まで（Hop 決定 2026-10-21）: 欄の下に「あと◯字」。30字ちょうど（絵文字は1字）は共有できる。31字は「1字多いです。…」が欄の下と共有のボタンの上に出て押せない
+//       ・ヒントが付いた行は、字が行き先を別のタブで開くリンク（YouTube は開始の秒つき）・右の「変える」でヒントの窓（Hop 決定 2026-10-22）。https でない行き先はリンクにしない（(11) の終わり）
 //   (5) 段の行き来: 3→2→1 と戻っても、盤・書いた行・ヒント・書き直したカギが消えない
 //   (6) 作りかけ: 開き直すと同じ段・同じ盤に戻り、組み直さない（「組み立て中…」が出ない）
 //   (7) 4の窓: 題名が空なら「題名を入力してください。」・「カギの段へ戻る」・人間確認を通って保存 → URL が出る・保存の中身のジャンルは hello・
@@ -280,7 +281,21 @@ try {
       const d = await readDraft(page);
       const h = d?.hints?.[ytKey];
       check(h?.kind === 'youtube' && h.videoId === 'dQw4w9WgXcQ' && h.startSec === 83 && h.outside === true && !('channel' in h), `(4) 作りかけの YouTube のヒントは outside の印付きで、チャンネル名は無い（${JSON.stringify(h)}）`);
+      // ヒントが付いた行: 左の字は行き先を別のタブで開くリンク（YouTube は開始の秒つき）、右の「変える」でヒントの窓（Hop 決定 2026-10-22）
+      const ytLink = page.locator(`[data-clue-row="${ytKey}"] [data-hint-state]`);
+      const ytA = await ytLink.evaluate((e) => ({ tag: e.tagName, href: e.getAttribute('href'), target: e.getAttribute('target'), rel: e.getAttribute('rel') }));
+      check(ytA.tag === 'A' && ytA.href === 'https://youtu.be/dQw4w9WgXcQ?t=83' && ytA.target === '_blank' && ytA.rel === 'noopener noreferrer', `(4) YouTube のヒントの字は開始の秒つきの youtu.be を別のタブで開くリンク（${JSON.stringify(ytA)}）`);
     }
+    const nekoA = await page.locator('[data-clue-row="ネコ"] [data-hint-state]').evaluate((e) => ({ tag: e.tagName, href: e.getAttribute('href'), target: e.getAttribute('target'), rel: e.getAttribute('rel') }));
+    check(nekoA.tag === 'A' && nekoA.href === exampleUrl('ネコ') && nekoA.target === '_blank' && nekoA.rel === 'noopener noreferrer', `(4) リンクのヒントの字は保存した URL を別のタブで開くリンク（${JSON.stringify(nekoA)}）`);
+    const change = page.locator('[data-clue-row="ネコ"] [data-hint-change]');
+    const changeBox = await change.evaluate((e) => { const r = e.getBoundingClientRect(); return { text: e.textContent, h: r.height, right: r.right }; });
+    check(changeBox.text === '変える' && changeBox.h >= 44 && changeBox.right <= W, `(4) 右に「変える」（高さ ${changeBox.h}px・右端 ${Math.round(changeBox.right)}）`);
+    await change.click();
+    await page.locator('[data-hint-sheet]').waitFor({ timeout: 10000 });
+    check((await page.locator('[data-hint-sheet] h2').first().textContent()) === '「ネコ」のヒント' && (await page.locator('[data-hint-sheet] [data-hint-kind]').count()) === 1, '(4) 「変える」で今のヒントが選ばれたヒントの窓が開く');
+    await closeHintSheet(page);
+    check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '(4) ヒントの行が 390px で横にはみ出さない');
     await hintAllInClues(page);
     check((await missing.textContent()) === '全部の答えにカギとヒントが付きました。' && (await page.locator('[data-open-share]').isEnabled()), `(4) そろうと「${await missing.textContent()}」で「共有する」が押せる`);
     // カギは30字まで（Hop 決定 2026-10-21）。数え方は見た目の字数（絵文字も1字）
@@ -752,6 +767,19 @@ try {
     await page.locator('[data-bulk-adopt]').click();
     await page.locator('[data-create-step="3"] [data-clue-row]').first().waitFor({ timeout: 5000 });
     check(!(await page.locator('[data-missing-hints]').textContent()).includes(NEED), '(11) 探し直した盤で 3 へ進むと「盤を決めてください」は出ない（堂々巡りにならない）');
+
+    // 行き先が危ない形（https でない）のヒントは、字をリンクにしない（作りかけを書き換えて開き直す。Hop 決定 2026-10-22）
+    const badKey = (await page.locator('[data-clue-row]:has([data-hint-state])').first().getAttribute('data-clue-row'));
+    await page.evaluate((k) => {
+      const d = JSON.parse(localStorage.getItem('crossword_draft'));
+      d.hints[k] = { kind: 'link', url: 'http://example.com/bad' };
+      d.hintLabels[k] = 'http://example.com/bad';
+      localStorage.setItem('crossword_draft', JSON.stringify(d));
+    }, badKey);
+    await page.reload();
+    await page.locator('[data-create-step="3"] [data-clue-row]').first().waitFor({ timeout: 30000 });
+    const bad = await page.locator(`[data-clue-row="${badKey}"] [data-hint-state]`).evaluate((e) => ({ tag: e.tagName, href: e.getAttribute('href'), text: e.textContent }));
+    check(bad.tag === 'SPAN' && bad.href === null && bad.text.includes('http://example.com/bad') && (await page.locator(`[data-clue-row="${badKey}"] [data-hint-change]`).count()) === 1, `(11) https でないヒントは字をリンクにせず、「変える」は出る（${JSON.stringify(bad)}）`);
     await ctx.close();
   }
 

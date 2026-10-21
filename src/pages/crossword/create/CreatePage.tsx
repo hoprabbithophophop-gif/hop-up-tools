@@ -27,6 +27,7 @@ import {
   type MyPuzzle,
 } from "../../../lib/crossword/puzzleStore";
 import { drawShareImage } from "../../../lib/crossword/shareImage";
+import { linkProblem } from "../../../lib/crossword/youtubeUrl";
 import { BulkEntry, clueDraft, evaluateCandidates, parseMarks, type Candidate } from "../components/BulkEntry";
 import { HintField } from "../components/HintField";
 import { useHintSearch } from "../components/hintSearch";
@@ -177,6 +178,12 @@ const btnGray = "min-h-11 px-4 font-semibold bg-surface-container-high hover:bg-
 // 選んだヒントの出どころ（「ヒント: 出どころ 名前」の出どころ）
 const sourceLabel = (h: HintRef) => (h.kind === "youtube" ? "YouTube" : (HINT_SOURCES.find((s) => s.key === sourceOfUrl(h.url))?.label ?? "リンク"));
 const fallbackName = (h: HintRef) => (h.kind === "youtube" ? `https://youtu.be/${h.videoId}` : h.url);
+// 3 カギの「ヒント: 出どころ 名前」を押した時に別のタブで開く行き先（Hop 決定 2026-10-22）。YouTube は開始の秒つき、リンクは保存した URL。
+// 行き先がおかしい・危ない形（https でない・長すぎる・IP の住所など。ヒントの欄と同じ linkProblem で見る）はリンクにしない
+const hintHref = (h: HintRef): string | null => {
+  const url = h.kind === "youtube" ? `https://youtu.be/${encodeURIComponent(h.videoId)}?t=${Math.max(0, Math.floor(h.startSec))}` : h.url;
+  return linkProblem(url) ? null : url;
+};
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -1132,9 +1139,25 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                         );
                       })()}
                       {h ? (
-                        <button type="button" data-hint-state="" onClick={() => openHint(key, a?.mark.surface ?? key, 3)} className="min-h-11 text-left text-xs break-all hover:underline" style={{ color: C.secondary }}>
-                          {CT.hintState(sourceLabel(h), hintLabels[key] ?? fallbackName(h))}
-                        </button>
+                        // ヒントが付いている行は、左の字が行き先を別のタブで開くリンク、右の「変える」がヒントの窓（Hop 決定 2026-10-22）
+                        <div className="flex items-start gap-2">
+                          {(() => {
+                            const href = hintHref(h);
+                            const text = CT.hintState(sourceLabel(h), hintLabels[key] ?? fallbackName(h));
+                            return href ? (
+                              <a data-hint-state="" href={href} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 min-h-11 flex items-center text-xs break-all hover:underline" style={{ color: C.secondary }}>
+                                {text}
+                              </a>
+                            ) : (
+                              <span data-hint-state="" className="flex-1 min-w-0 min-h-11 flex items-center text-xs break-all" style={{ color: C.secondary }}>
+                                {text}
+                              </span>
+                            );
+                          })()}
+                          <button type="button" data-hint-change="" onClick={() => openHint(key, a?.mark.surface ?? key, 3)} className="shrink-0 min-h-11 px-3 text-xs font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors whitespace-nowrap" style={{ color: C.ink }}>
+                            {CT.changeHint}
+                          </button>
+                        </div>
                       ) : (
                         <button type="button" data-pick-hint="" onClick={() => openHint(key, a?.mark.surface ?? key, 3)} className="min-h-11 text-left text-sm font-bold hover:underline underline-offset-2" style={{ color: C.error }}>
                           {CT.pickHint}
