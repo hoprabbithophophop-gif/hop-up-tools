@@ -6,7 +6,8 @@
 //   ヒントの窓: [data-hint-sheet]・#cw-hint（URL・検索の欄）・[data-hint-kind]（選んだヒントの札）
 //   2 盤:   [data-bulk-proposal]（案1〜3）・[data-create-board]（盤）・[data-bulk-adopt]（この盤で進む）
 //   3 カギ: [data-clue-row="答え"]・[data-pick-hint]（未選択 → ヒントを選ぶ）・[data-hint-state]・[data-missing-hints]・[data-open-share]
-//   4 の窓: [data-share-sheet]・#cw-title・[data-save]
+//   4 の窓: [data-share-sheet]・#cw-title・[data-save]・[data-share-blocks]（押せない理由）
+//   段の札: [data-step-tab="1〜4"]（押すとその段へ）
 // どれも棚・受付係には書かない（保存を押す台本は、保存の受付係をそれぞれの台本の中で受け止める）
 
 // 作る画面の札となぞる動きを出さない印（_lib.mjs の SEEN_MARKS と同じ物。印を自分で立てる台本用）
@@ -21,6 +22,8 @@ export const CREATE_MARKS = {
 export const shownStep = async (page) => Number(await page.locator('[data-create-step]').getAttribute('data-create-step'));
 // 今の段の札（「1 答え」など。黒い札＝aria-current="step"）
 export const currentStepLabel = (page) => page.locator('nav li[aria-current="step"]').textContent();
+// 段の札を押す（札は押せるボタン。Hop 決定 2026-10-22）
+export const stepTab = (page, n) => page.locator(`[data-step-tab="${n}"]`).click();
 
 // 1の段の書く欄に文字列を入れる（「ヒントを付ける」側にいれば「書く」へ切り替えてから）。入れた後は欄を離れる
 export async function writeLines(page, text) {

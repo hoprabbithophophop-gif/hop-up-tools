@@ -21,6 +21,11 @@
 //   (10) 固定を守る（Hop 決定 2026-10-21 案A）: 「2 盤」で2語を長押しで動かして固定 → 「1 答え」に戻って語を足す →「組み合わせを探す」→
 //       固定した2語の向きと互いの位置（盤の左上が動くので2語の差で見る）が同じで、固定の印も残る。案2を選んでも残る。
 //       そのあと固定した1語の【 】を外して探し直すと、その語の固定は外れ（戻しても固定の印は付かない）、もう1語の固定は残る
+//   (11) 段の札を押して行き来する（Hop 決定 2026-10-22）: 札は4つとも押せて高さ 44px 以上・390×548 で折り返さない・
+//       答え1つで「2 盤」を押しても 2 へ行かない・1 から札で 3・4 へ飛べる・盤が無い時の 3 は答え全部の欄・
+//       盤が無い時の 4 は共有を押せず理由の先頭に「共有する前に、2 盤で盤を決めてください。」・札の「2 盤」で探す・答えが同じなら探し直さない・
+//       札で 3 へ行ってから書いたカギとヒントは盤ができた後も残る・答えを変えると盤は古い扱い（開き直しても）・
+//       組み立て中に札で 1 へ移っても組み立ては裏で終わる
 // 使い方: node scripts/verify/crossword/check-create-flow.mjs（引数なし）
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -30,7 +35,7 @@ import path from 'node:path';
 import { chromium } from 'playwright';
 import { outDir, ROOT, leaveFirstVisitMarks, watchStumbles } from './_lib.mjs';
 import {
-  CREATE_MARKS, shownStep, currentStepLabel, writeLines, hintMode, openHintSheet, closeHintSheet, setLinkHint, hintAllInAnswers,
+  CREATE_MARKS, stepTab, shownStep, currentStepLabel, writeLines, hintMode, openHintSheet, closeHintSheet, setLinkHint, hintAllInAnswers,
   toBoard, toClues, hintAllInClues, openShare, clueInput, clueKeys, boardCells, readDraft, exampleUrl,
 } from './_create.mjs';
 
@@ -167,7 +172,7 @@ try {
     const steps = await page.locator('nav li[data-step]').allTextContents();
     check(steps.join('/') === '1 答え/2 盤/3 カギ/4 共有', `(1) 段の札が4つ（${steps.join('/')}）`);
     check((await currentStepLabel(page)) === '1 答え' && (await page.locator('nav li[aria-current="step"]').count()) === 1, '(1) 今の段（1 答え）だけが黒い札');
-    const stepBg = await page.locator('nav li[data-step]').evaluateAll((els) => els.map((e) => getComputedStyle(e).backgroundColor));
+    const stepBg = await page.locator('nav li[data-step] [data-step-tab]').evaluateAll((els) => els.map((e) => getComputedStyle(e).backgroundColor));
     check(stepBg[0] !== stepBg[1] && stepBg[1] === stepBg[2], `(1) 黒い札と他の札の色が違う（${stepBg.join(' / ')}）`);
     const stuck = await page.locator('nav[aria-label="今の段"]').evaluate((e) => getComputedStyle(e).position);
     check(stuck === 'sticky', `(1) 段の札は画面の上に貼り付く（${stuck}）`);
@@ -594,6 +599,134 @@ try {
     const backB = dBack.board.find((i) => i.id === pb);
     check(!backB || backB.pinned === false, `(10) 戻した「${pb}」には固定の印が付かない（${backB ? `固定=${backB.pinned}` : '盤に入らず'}）`);
     check(dBack.board.find((i) => i.id === pa)?.pinned === true, `(10) 「${pa}」の固定はそのまま`);
+    await ctx.close();
+  }
+
+  // ===== (11) 段の札を押して行き来する（Hop 決定 2026-10-22） =====
+  {
+    const { ctx, page } = await newPage();
+    await page.setViewportSize({ width: W, height: 548 });
+    await page.goto(`${BASE}/crossword/create`);
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await page.waitForTimeout(800);
+    const NEED = '共有する前に、2 盤で盤を決めてください。';
+    const tabs = await page.locator('[data-step-tab]').evaluateAll((els) => els.map((e) => {
+      const r = e.getBoundingClientRect();
+      return { tag: e.tagName, h: r.height, right: r.right, fits: e.scrollWidth <= e.clientWidth };
+    }));
+    check(tabs.length === 4 && tabs.every((t) => t.tag === 'BUTTON'), `(11) 札は4つとも押せるボタン（${tabs.map((t) => t.tag).join('/')}）`);
+    check(tabs.every((t) => t.h >= 44 && t.h < 60), `(11) 札の高さは 44px 以上で1行（${tabs.map((t) => t.h).join('/')}）`);
+    check(tabs.every((t) => t.fits && t.right <= W), `(11) 390px で札の字がはみ出さない（右端 ${tabs.map((t) => Math.round(t.right)).join('/')}）`);
+    const navH = await page.locator('nav[aria-label="今の段"]').evaluate((e) => e.getBoundingClientRect().height);
+    console.log(`    段の札の帯の高さ ${navH}px（画面の高さ 548px）`);
+
+    // 答え1つで「2 盤」→ 2 へ行かない（1 の段のまま）
+    await writeLines(page, LINES[0]);
+    await stepTab(page, 2);
+    await page.waitForTimeout(400);
+    check((await shownStep(page)) === 1 && (await page.locator('[data-bulk-search]').isDisabled()), `(11) 答え1つで「2 盤」を押しても 2 へ行かない（今の段 ${await shownStep(page)}）`);
+    // 3 からでも、答え1つなら 2 へ行かず 1 へ
+    await stepTab(page, 3);
+    await page.locator('[data-create-step="3"]').waitFor({ timeout: 5000 });
+    await stepTab(page, 2);
+    await page.waitForTimeout(400);
+    check((await shownStep(page)) === 1, `(11) 3 の段で答え1つのまま「2 盤」を押すと 1 の段へ（今の段 ${await shownStep(page)}）`);
+
+    // 1 から札で 3 へ: 盤が無いので答え全部の欄
+    await writeLines(page, TEXT);
+    await page.screenshot({ path: path.join(OUT, '11-0-steps-390.png') });
+    await stepTab(page, 3);
+    await page.locator('[data-create-step="3"] [data-clue-row]').first().waitFor({ timeout: 5000 });
+    check((await currentStepLabel(page)) === '3 カギ', '(11) 1 から札で 3 へ飛べる');
+    const rows0 = (await clueKeys(page)).sort();
+    check(rows0.join('/') === [...WORDS].sort().join('/'), `(11) 盤が無い時の 3 は答え全部の欄が出る（${rows0.join('・')}）`);
+    const line0 = await page.locator('[data-missing-hints]').textContent();
+    check(line0.startsWith(NEED) && (await page.locator('[data-open-share]').isDisabled()), `(11) 盤が無い時の 3 は理由の先頭に盤の1行・共有を押せない（${line0}）`);
+    // 盤が無いうちにカギを書き直し、ヒントを1つ付ける
+    await clueInput(page, 'ネコ').fill('札で書いたカギ');
+    await page.locator('[data-clue-row="ライブ"] [data-pick-hint]').click();
+    await page.locator('[data-hint-sheet]').waitFor({ timeout: 10000 });
+    await setLinkHint(page, exampleUrl('ライブ'));
+    await closeHintSheet(page);
+
+    // 1 から札で 4 へ: 共有を押せず、理由の先頭に盤の1行。ヒントが足りない理由も並ぶ
+    await stepTab(page, 1);
+    await page.locator('[data-create-step="1"]').waitFor({ timeout: 5000 });
+    await stepTab(page, 4);
+    await page.locator('[data-share-sheet]').waitFor({ timeout: 5000 });
+    const blocks0 = await page.locator('[data-share-sheet] [data-share-blocks]').textContent();
+    check((await page.locator('[data-share-sheet] [data-save]').isDisabled()) && blocks0.startsWith(NEED) && blocks0.includes('ヒントが未選択の語が'),
+      `(11) 1 から札で 4 へ。盤が無いので共有を押せず、理由の先頭に盤の1行（${blocks0}）`);
+    await page.screenshot({ path: path.join(OUT, '11-1-share-no-board-390.png') });
+    await page.locator('[data-share-sheet] [data-step-back="3"]').click();
+    await page.locator('[data-share-sheet]').waitFor({ state: 'detached', timeout: 5000 });
+
+    // 札の「2 盤」で探す
+    await stepTab(page, 2);
+    await page.locator('[data-create-step="2"]').waitFor({ timeout: 5000 });
+    await page.locator('[data-bulk-adopt]:enabled').waitFor({ timeout: 45000 });
+    check((await page.locator('[data-bulk-proposal]').count()) >= 1, '(11) 札の「2 盤」で組み合わせを探す（案が並ぶ）');
+    const cellsA = await boardCells(page);
+    // 答えが同じなら探し直さない
+    await stepTab(page, 1);
+    await page.locator('[data-create-step="1"]').waitFor({ timeout: 5000 });
+    await stepTab(page, 2);
+    await page.locator('[data-create-step="2"]').waitFor({ timeout: 5000 });
+    const building = await page.locator('[data-create-board] [role="status"]').count();
+    const cellsB = await boardCells(page);
+    check(building === 0 && cellsA.length > 0 && cellsA.join() === cellsB.join(), `(11) 答えが同じなら札の「2 盤」で探し直さない（組み立て中 ${building}・盤 ${cellsA.join() === cellsB.join() ? '同じ' : '違う'}）`);
+
+    // 盤ができた後の 3: 盤に入った答えだけ。札で書いたカギとヒントが残る
+    await stepTab(page, 3);
+    await page.locator('[data-create-step="3"] [data-clue-row]').first().waitFor({ timeout: 5000 });
+    const rows1 = await clueKeys(page);
+    const placed = (await readDraft(page)).board.map((i) => i.id);
+    check(rows1.length === placed.length && rows1.every((k) => placed.includes(k)), `(11) 盤ができた後の 3 は盤に入った答えだけ（${rows1.join('・')}）`);
+    if (rows1.includes('ネコ')) check((await clueInput(page, 'ネコ').inputValue()) === '札で書いたカギ', '(11) 盤が無い時に書いたカギが、盤ができた後も残る');
+    if (rows1.includes('ライブ')) check((await page.locator('[data-clue-row="ライブ"] [data-hint-state]').count()) === 1, '(11) 盤が無い時に付けたヒントが、盤ができた後も残る');
+    check(!(await page.locator('[data-missing-hints]').textContent()).includes(NEED), '(11) 盤があれば盤の1行は出ない');
+    // カギとヒントが揃うまでは 4 でも押せない（盤の1行は無し）
+    if ((await page.locator('[data-pick-hint]').count()) > 0) {
+      await stepTab(page, 4);
+      await page.locator('[data-share-sheet]').waitFor({ timeout: 5000 });
+      const blocks1 = await page.locator('[data-share-sheet] [data-share-blocks]').textContent();
+      check((await page.locator('[data-share-sheet] [data-save]').isDisabled()) && !blocks1.includes(NEED) && blocks1.includes('ヒントが未選択の語が'), `(11) 盤があってもヒントが足りなければ 4 で押せず、今の理由が並ぶ（${blocks1}）`);
+      await page.locator('[data-share-sheet] [data-step-back="3"]').click();
+      await page.locator('[data-share-sheet]').waitFor({ state: 'detached', timeout: 5000 });
+    }
+    await hintAllInClues(page);
+    await stepTab(page, 4);
+    await page.locator('[data-share-sheet]').waitFor({ timeout: 5000 });
+    check((await page.locator('[data-share-sheet] [data-save]').isEnabled()) && (await page.locator('[data-share-sheet] [data-share-blocks]').count()) === 0, '(11) 揃えば札の 4 から共有を押せる（理由の行は出ない）');
+    await page.locator('[data-share-sheet] [data-step-back="3"]').click();
+    await page.locator('[data-share-sheet]').waitFor({ state: 'detached', timeout: 5000 });
+
+    // 答えを変えると、盤は古い扱い（3 は答え全部・盤の1行）。開き直しても同じ
+    await stepTab(page, 1);
+    await page.locator('[data-create-step="1"]').waitFor({ timeout: 5000 });
+    await writeLines(page, `${TEXT}\n【ネコジャラシ】`);
+    await stepTab(page, 3);
+    await page.locator('[data-create-step="3"] [data-clue-row]').first().waitFor({ timeout: 5000 });
+    check((await clueKeys(page)).length === WORDS.length + 1 && (await page.locator('[data-missing-hints]').textContent()).startsWith(NEED), `(11) 答えを変えた後の 3 は古い盤を使わず、答え全部の欄と盤の1行（${(await clueKeys(page)).length} 行）`);
+    await page.waitForTimeout(300);
+    await page.reload();
+    await page.locator('[data-create-step="3"] [data-clue-row]').first().waitFor({ timeout: 30000 });
+    check((await page.locator('[data-missing-hints]').textContent()).startsWith(NEED) && (await clueKeys(page)).length === WORDS.length + 1, '(11) 開き直しても 3 の段・古い盤は使わないまま');
+
+    // 札の「2 盤」で探し直し、組み立て中に札で 1 へ移る → 組み立ては裏で終わり、3 では盤が使える
+    await stepTab(page, 2);
+    await page.locator('[data-create-step="2"]').waitFor({ timeout: 5000 });
+    const started = await page.locator('[data-create-board] [role="status"]').count();
+    await stepTab(page, 1);
+    await page.locator('[data-create-step="1"]').waitFor({ timeout: 5000 });
+    check(started === 1, `(11) 答えを変えた後の札の「2 盤」は探し直す（組み立て中 ${started}）`);
+    await page.waitForFunction(() => {
+      try { const d = JSON.parse(localStorage.getItem('crossword_draft') || 'null'); return !!d && d.step === 1 && Array.isArray(d.board) && d.board.length > 0 && d.boardSig === d.searchedSig && String(d.boardSig).includes('ネコジャラシ'); } catch { return false; }
+    }, null, { timeout: 45000 }).catch(() => {});
+    await stepTab(page, 3);
+    await page.locator('[data-create-step="3"] [data-clue-row]').first().waitFor({ timeout: 5000 });
+    check(!(await page.locator('[data-missing-hints]').textContent()).includes(NEED), '(11) 組み立て中に 1 へ移っても組み立ては裏で終わり、3 では盤が使える');
+    await page.screenshot({ path: path.join(OUT, '11-2-after-background-390.png'), fullPage: true });
     await ctx.close();
   }
 

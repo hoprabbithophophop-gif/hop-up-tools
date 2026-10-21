@@ -111,6 +111,9 @@ interface DraftV2 {
   creatorName: string;
   tags: string[];
   isBeginner: boolean;
+  // 盤を組んだ時と最後に探した時の答えの並びの見出し（poolSignature）。前の版の作りかけには無い（無ければ戻した時の答えで埋める）
+  boardSig?: string | null;
+  searchedSig?: string | null;
 }
 
 // 作りかけから戻したヒントは、動画の番号・開始の秒・outside の印だけにする（前の版の作りかけに残っているほかの欄は捨てる。
@@ -210,6 +213,10 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   const generationIdRef = useRef(0);
   // 最後に「組み合わせを探す」で探した時の答えの並びの見出し（poolSignature）。作りかけ・組み直しで盤を戻した時は、戻した答えで埋める
   const searchedSigRef = useRef<string | null>(null);
+  // 今の盤を組んだ時の答えの並びの見出し。今の答えと違えば、盤は「無い」扱いにする（答えを変えた後の古い盤で、カギを書いたり共有したりしないように。Hop 決定 2026-10-22）
+  const [boardSig, setBoardSig] = useState<string | null>(null);
+  // 組み立て中の答えの並びの見出し（札の「2 盤」を組み立て中に押した時、同じ答えなら組み立てを止めないため）
+  const liveSigRef = useRef<string | null>(null);
 
   // ヒントの窓（1の段・3の段から）
   const [hintOpen, setHintOpen] = useState<{ key: string; surface: string; from: 1 | 3; n: number } | null>(null);
@@ -254,6 +261,9 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
 
   // 盤に入った答え（3の段に並べる。書いた順）
   const boardReady = !!generatedPuzzle && !isLiveGenerating;
+  const poolSig = useMemo(() => poolSignature(pool), [pool]);
+  // 3 カギ・4 共有で使える盤（組み上がっていて、今の答えで組んだ物）。無い時は 3 に答え全部の欄を出し、共有を押せなくする（Hop 決定 2026-10-22）
+  const hasBoard = boardReady && boardSig === poolSig;
   const placedKeys = useMemo(() => {
     if (!generatedPuzzle) return [] as string[];
     const on = new Set(generatedPuzzle.items.map((i) => i.id));
@@ -263,10 +273,21 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   }, [generatedPuzzle, answers]);
   const unplaced = boardReady ? pool.filter((i) => !generatedPuzzle!.items.some((p) => p.id === i.id)) : [];
   const boardDisconnected = boardReady && !isConnected(generatedPuzzle!.items);
-  const missingHints = placedKeys.filter((k) => !hints[k]).length;
-  const missingClues = placedKeys.filter((k) => !clueOf(k).trim()).length;
+  // 3の段に並べる答え。盤が無い時は答え全部（カギとヒントは答えごとに持つので、盤ができた後もそのまま使える。Hop 決定 2026-10-22）
+  const clueRowKeys = hasBoard ? placedKeys : pool.map((i) => i.id);
+  const missingHints = clueRowKeys.filter((k) => !hints[k]).length;
+  const missingClues = clueRowKeys.filter((k) => !clueOf(k).trim()).length;
   // 30字を超えたカギ（保存する形＝前後の空白を落とした字数で数える）
-  const overClues = placedKeys.filter((k) => clueChars(clueOf(k)) > MAX_CLUE_CHARS);
+  const overClues = clueRowKeys.filter((k) => clueChars(clueOf(k)) > MAX_CLUE_CHARS);
+  // 共有を押せない理由の並び。盤が無い時はその1行を先頭に（Hop 決定 2026-10-22）。盤がつながっていない時は 2 の段と同じ1行
+  const shareBlocks = [
+    !hasBoard ? CT.shareNeedsBoard : "",
+    hasBoard && boardDisconnected ? CT.pins.notConnected : "",
+    missingHints ? CT.missingHints(missingHints) : "",
+    missingClues ? CT.missingClues(missingClues) : "",
+    ...overClues.map((k) => BULK_TEXTS.reasonLine(k, CT.clueOver(clueChars(clueOf(k)) - MAX_CLUE_CHARS))),
+  ].filter(Boolean);
+  const canShare = shareBlocks.length === 0;
 
   // 型の案内（Hop 決定 2026-10-05・段階2）。組み上がった盤が変わった時だけ計算する
   const shapeGuide = useMemo(
@@ -332,6 +353,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       return;
     }
     const currentGenId = ++generationIdRef.current;
+    const sig = poolSignature(items);
+    liveSigRef.current = sig;
     setIsLiveGenerating(true);
     setPicked(null);
     const still = reducedMotion();
@@ -366,7 +389,10 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       if (generationIdRef.current !== currentGenId) return;
       const found = search.best();
       if (found.length > 0 && isBetterPlacement(found, search.bestArea(), bestPuzzle ? bestPuzzle.items : null, bestArea)) bestPuzzle = buildGrid(found);
-      if (bestPuzzle) setGeneratedPuzzle(bestPuzzle);
+      if (bestPuzzle) {
+        setGeneratedPuzzle(bestPuzzle);
+        setBoardSig(sig);
+      }
     } catch (error) {
       console.error("[MonteCarloAnim] Error:", error);
     } finally {
@@ -387,6 +413,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     setBackgroundPuzzle(null);
     setPicked(i);
     setGeneratedPuzzle(buildGrid(p.placed));
+    // 案は最後に探した時の答えで組んだ物
+    setBoardSig(searchedSigRef.current);
   };
 
   // 「組み合わせを探す」: 2の段へ進み、組み立ての動き（50通りの試行）を見せながら本番の組み合わせ探し（bulkSelect）を回す。
@@ -405,6 +433,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     const pinned = carryPins(items);
     const base = pinned.length > 0 ? carryBase(items, pinned) : [];
     const run = ++generationIdRef.current;
+    liveSigRef.current = poolSignature(items);
     goStep(2);
     setProposals(null);
     setPicked(null);
@@ -433,6 +462,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       if (list.length > 0) {
         setPicked(0);
         setGeneratedPuzzle(buildGrid(list[0].placed));
+        setBoardSig(searchedSigRef.current);
       } else setNoProposal(true);
     } catch (error) {
       console.error("[BulkSearch] Error:", error);
@@ -442,6 +472,33 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
         setBackgroundPuzzle(null);
       }
     }
+  };
+
+  // 段の札を押した時（Hop 決定 2026-10-22「どの段も押せて、2 決めてなかったら共有前に盤決めてくださいってエラー出すような作り」）。
+  //   1 答え・3 カギ: いつでもその段へ。4 共有: いつでもその窓へ（盤が無ければ窓の中で共有を押せなくし、理由を出す）。
+  //   2 盤: 「組み合わせを探す」と同じ（答えが前と同じなら探し直さない）。答えが2つ未満の時は 2 へ行かず、「組み合わせを探す」が押せない
+  //         理由（押せないボタンと弾いた語の理由の行）が見える 1 の段へ。
+  //   組み立て中に押した時: 1・3・4 は段だけ移り、組み立ては裏で続けて終わったら盤が入る（2 の段の「← 答えへ戻る」と同じ）。
+  //   2 は、組み立て中の答えが今の答えと同じなら組み立てを止めずに 2 の段へ戻るだけ。違えば「組み合わせを探す」と同じく探し直す
+  const onStepTab = (n: Step) => {
+    if (n === 2) {
+      if (pool.length < 2) {
+        if (step !== 1) goStep(1);
+        return;
+      }
+      if (isLiveGenerating && liveSigRef.current === poolSig) {
+        goStep(2);
+        return;
+      }
+      void runSearch();
+      return;
+    }
+    if (n === 4) {
+      setTitleError(false);
+      setStep(4);
+      return;
+    }
+    goStep(n);
   };
 
   // 画面を離れたら組み立てをやめる
@@ -505,6 +562,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
         // 盤は保存した時の形のまま（番号も同じ）。組み替えたい時は「再シャッフル」
         setGeneratedPuzzle(buildGrid(placed));
         searchedSigRef.current = poolSignature(placed);
+        setBoardSig(searchedSigRef.current);
         setEditTarget({ ...mine, title: rec.title });
         setEditStatus("editing");
         setStep(2);
@@ -574,17 +632,21 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
             : [];
           const goodProps = props.every(Boolean) && props.length > 0 ? (props as BulkProposal[]) : null;
           const s = d.step === 2 || d.step === 3 || d.step === 4 ? (d.step as Step) : 1;
+          const restoredSig = poolSignature(
+            evaluateCandidates(parseMarks(nextText))
+              .filter((c) => !c.reason)
+              .map((c) => ({ id: c.key, question: "", answer: c.cells })),
+          );
           if (board) {
             setGeneratedPuzzle(buildGrid(board));
-            searchedSigRef.current = poolSignature(
-              evaluateCandidates(parseMarks(nextText))
-                .filter((c) => !c.reason)
-                .map((c) => ({ id: c.key, question: "", answer: c.cells })),
-            );
+            // 残してあった見出しがあればそれを使う（答えを変えた後の古い盤は、開き直しても古い盤のまま）
+            searchedSigRef.current = typeof d.searchedSig === "string" ? d.searchedSig : restoredSig;
+            setBoardSig(typeof d.boardSig === "string" ? d.boardSig : restoredSig);
             setProposals(goodProps);
             setPicked(goodProps && typeof d.picked === "number" && goodProps[d.picked] ? d.picked : null);
-            setStep(s);
-          } else setStep(1);
+          }
+          // 段は盤が無くても残した段に戻す（札でどの段へも行けるようにしたため。Hop 決定 2026-10-22）
+          setStep(s);
         } else {
           setCollapsed(!!nextText.trim());
           setStep(1);
@@ -613,6 +675,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       board: generatedPuzzle && !isLiveGenerating ? generatedPuzzle.items.map(({ id, uuid, answer, direction, startX, startY, length, pinned }) => ({ id, uuid, question: "", answer, direction, startX, startY, length, pinned: !!pinned })) : null,
       proposals,
       picked,
+      boardSig,
+      searchedSig: searchedSigRef.current,
       title: puzzleTitle,
       creatorName,
       tags,
@@ -626,7 +690,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     if (isLiveGenerating) return; // 組み立て中の途中の盤は残さない（組み上がってから残す）
     const d: DraftV2 = { version: 2, step, ...content };
     lsSet(DRAFT_KEY, JSON.stringify(d));
-  }, [draftEnabled, draftReady, editStatus, step, bulkText, collapsed, hints, hintLabels, clues, generatedPuzzle, isLiveGenerating, proposals, picked, puzzleTitle, creatorName, tags, isBeginner]);
+  }, [draftEnabled, draftReady, editStatus, step, bulkText, collapsed, hints, hintLabels, clues, generatedPuzzle, isLiveGenerating, proposals, picked, boardSig, puzzleTitle, creatorName, tags, isBeginner]);
 
   // --- 窓が開いている間は後ろの画面をスクロールさせない（窓の中と外で二重にスクロールしない） ---
   const anySheet = !!hintOpen || step === 4 || showShareModal;
@@ -695,7 +759,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   const itemsToSave = (): PlacedItem[] => (generatedPuzzle ? generatedPuzzle.items.map((i) => ({ ...i, question: clueOf(i.id).trim() })) : []);
 
   const handleShare = async () => {
-    if (!generatedPuzzle) return;
+    // 盤が無い（まだ探していない・答えを変えて古い・組み立て中）時は保存しない（Hop 決定 2026-10-22）
+    if (!generatedPuzzle || !hasBoard) return;
     if (!isConnected(generatedPuzzle.items)) return;
     if (generatedPuzzle.items.some((i) => !hints[i.id] || !clueOf(i.id).trim() || clueChars(clueOf(i.id)) > MAX_CLUE_CHARS)) return;
     const title = puzzleTitle.trim();
@@ -800,7 +865,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       savedSnapshotRef.current = JSON.stringify({
         bulkText, collapsed, hints, hintLabels, clues,
         board: generatedPuzzle.items.map(({ id: i, uuid, answer, direction, startX, startY, length, pinned }) => ({ id: i, uuid, question: "", answer, direction, startX, startY, length, pinned: !!pinned })),
-        proposals, picked, title: puzzleTitle, creatorName, tags, isBeginner,
+        proposals, picked, boardSig, searchedSig: searchedSigRef.current, title: puzzleTitle, creatorName, tags, isBeginner,
       });
       setStep(3);
       setShowShareModal(true);
@@ -850,21 +915,23 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       <Toaster />
       <h1 className="sr-only">{editTarget ? CT.edit.pageTitle : CT.pageTitle}</h1>
       <div className="max-w-[640px] mx-auto bg-white min-h-screen">
-        {/* 段の札（上に貼り付き、下が透けないよう白で塗る。今の段だけ黒い） */}
+        {/* 段の札（上に貼り付き、下が透けないよう白で塗る。今の段だけ黒い）。押すとその段へ（指で押せる高さ 44px。Hop 決定 2026-10-22） */}
         <nav aria-label={CT.stepsLabel} className="sticky top-0 z-20 bg-white px-4 py-2.5" style={{ boxShadow: `0 1px 0 ${C.mid}` }}>
           <ol className="grid grid-cols-4 gap-0.5">
             {CT.steps.map((name, i) => {
               const n = (i + 1) as Step;
               const now = n === step;
               return (
-                <li
-                  key={name}
-                  data-step={n}
-                  aria-current={now ? "step" : undefined}
-                  className="text-xs font-bold text-center py-1.5 px-0.5 whitespace-nowrap"
-                  style={now ? { background: C.black, color: C.white } : { background: C.low, color: n < step ? C.ink : C.secondary }}
-                >
-                  {name}
+                <li key={name} data-step={n} aria-current={now ? "step" : undefined}>
+                  <button
+                    type="button"
+                    data-step-tab={n}
+                    onClick={() => onStepTab(n)}
+                    className="w-full min-h-11 text-xs font-bold text-center px-0.5 whitespace-nowrap"
+                    style={now ? { background: C.black, color: C.white } : { background: C.low, color: n < step ? C.ink : C.secondary }}
+                  >
+                    {name}
+                  </button>
                 </li>
               );
             })}
@@ -1012,7 +1079,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                 {CT.cluesGuide}
               </p>
               <div className="flex flex-col gap-2">
-                {placedKeys.map((key, idx) => {
+                {clueRowKeys.map((key, idx) => {
                   const h = hints[key];
                   const a = answerByKey.get(key);
                   return (
@@ -1072,15 +1139,9 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                 })}
               </div>
               <p data-missing-hints="" aria-live="polite" className="text-xs" style={{ color: C.secondary }}>
-                {missingHints + missingClues + overClues.length > 0
-                  ? [
-                      missingHints ? CT.missingHints(missingHints) : "",
-                      missingClues ? CT.missingClues(missingClues) : "",
-                      ...overClues.map((k) => BULK_TEXTS.reasonLine(k, CT.clueOver(clueChars(clueOf(k)) - MAX_CLUE_CHARS))),
-                    ].filter(Boolean).join("　")
-                  : CT.allSet}
+                {shareBlocks.length > 0 ? shareBlocks.join("　") : CT.allSet}
               </p>
-              <button type="button" data-open-share="" className={btnPrimary} disabled={!boardReady || boardDisconnected || missingHints + missingClues + overClues.length > 0} onClick={() => { setTitleError(false); setStep(4); }}>
+              <button type="button" data-open-share="" className={btnPrimary} disabled={!canShare} onClick={() => { setTitleError(false); setStep(4); }}>
                 {CT.share}
               </button>
             </>
@@ -1204,7 +1265,13 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                 {CT.beginner}
               </label>
               <div className="flex flex-col gap-1">
-                <button type="button" data-save="" className={btnPrimary} disabled={isSaving} onClick={handleShare}>
+                {/* 押せない理由（3の段の共有のボタンの上と同じ並び）。札から盤やカギが揃う前に開いた時に出る（Hop 決定 2026-10-22） */}
+                {!canShare && (
+                  <p data-share-blocks="" aria-live="polite" className="text-xs" style={{ color: C.secondary }}>
+                    {shareBlocks.join("　")}
+                  </p>
+                )}
+                <button type="button" data-save="" className={btnPrimary} disabled={isSaving || !canShare} onClick={handleShare}>
                   {isSaving ? CT.saving : editTarget ? CT.edit.update : CT.share}
                 </button>
                 {titleError && (
