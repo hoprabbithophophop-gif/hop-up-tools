@@ -465,6 +465,8 @@ export default function CrosswordPage() {
   const clueInputRef = useRef<HTMLInputElement>(null);
   // 共有を押した時に outside の印を付け直したヒント（保存の送信はこれを使う）
   const saveHintsRef = useRef<Record<string, HintRef> | null>(null);
+  // 組み直しで開いた時に棚に保存してあったヒント（outside の印を引き継ぐのに使う）
+  const storedHintsRef = useRef<Record<string, HintRef>>({});
   // 作りかけを戻し終わるまで残す処理を止めておく（戻す前の空の状態で上書きしないため）
   const [draftReady, setDraftReady] = useState(false);
   const [generatedPuzzle, setGeneratedPuzzle] = useState<PuzzleData | null>(null);
@@ -1343,6 +1345,7 @@ export default function CrosswordPage() {
         setIsBeginner(rec.is_beginner === true);
         setRulesNote(rec.body.rulesNote === true);
         setHints(restoredHints);
+        storedHintsRef.current = restoredHints;
         setEditorItems(placed.map(({ id, question, answer }) => ({ id, question, answer })));
         // 盤は保存した時の形のまま組む（番号も同じ）。組み替えたい時は「再シャッフル」
         const grid = buildGrid(placed);
@@ -1618,10 +1621,19 @@ export default function CrosswordPage() {
     }
 
     setIsSaving(true);
-    // 保存の直前に、YouTube のヒントへ outside の印を台帳で確かめて付け直す（Hop 決定 2026-10-21。台帳を確かめられなければ outside）。
-    // ジャンルによらず付ける: 受付係はグループ名の入った「その他」の問題をハロプロのジャンルにして保存するので、
+    // 保存の直前に、YouTube のヒントへ outside の印を台帳で確かめて付け直す（Hop 決定 2026-10-21 チャンネル名を出さない）。
+    // 組み直しは、保存してあった動画の印を引き継ぐ。台帳を確かめられなければ保存を止める。
+    // ジャンルによらず付ける: 「ハロプロにする」やジャンルの切り替えでその他からハロプロに変わっても、選び済みのヒントは残るので、
     // その他で選んだ台帳に無い動画に印が無いと、ハロプロの問題として開いた時に嘘の「見られなくなりました」が出るため
-    const marked = await withOutsideMarks(hints);
+    let marked: Record<string, HintRef>;
+    try {
+      marked = await withOutsideMarks(hints, editTarget ? Object.values(storedHintsRef.current) : []);
+    } catch (err) {
+      console.error("Failed to check hint videos:", err);
+      toast.error(T.errors.saveFailed, { duration: 5000 });
+      setIsSaving(false);
+      return;
+    }
     saveHintsRef.current = marked;
     // 組み直しは人間確認を挟まない【仮】（合言葉が本人確認を兼ねる）
     if (editTarget) {
@@ -1691,7 +1703,8 @@ export default function CrosswordPage() {
     const title = puzzleTitle.trim();
     try {
       // 共有を押した時に outside の印を付け直したヒントで保存する（人間確認の窓の間はヒントを変えられない）
-      const savedHints = saveHintsRef.current ?? hints;
+      const savedHints = saveHintsRef.current;
+      if (!savedHints) throw new Error("hints not marked"); // 共有を押さずにここへ来た時は、印の無いヒントを送らない
       const body = toBody(generatedPuzzle.items, generatedPuzzle.width, generatedPuzzle.height, (id) => savedHints[id]);
       if (creatorName.trim()) body.creatorName = creatorName.trim();
       if (rulesNote) body.rulesNote = true;

@@ -120,9 +120,13 @@ export default function HintsEditPage() {
     if (!mine || !canSave) return;
     setSaving(true);
     try {
-      // 送る直前に、替える YouTube のヒントへ outside の印を台帳で確かめて付け直す（作る画面の共有と同じ。Hop 決定 2026-10-21）。
+      // 送る直前に、替える YouTube のヒントへ outside の印を台帳で確かめて付け直す（作る画面の共有と同じ。Hop 決定 2026-10-21 チャンネル名を出さない）。
+      // 保存してあった動画と同じ番号なら印を引き継ぐ（時刻だけ替えた時に、台帳から消えた動画の印を消さないため）。台帳を確かめられなければ投げて送らない。
       // 画面の中だけの印（gone など）はここで落ちる
-      const payload = await withOutsideMarks(Object.fromEntries(changed.map((r) => [r.key, hints[r.key]!])));
+      const payload = await withOutsideMarks(
+        Object.fromEntries(changed.map((r) => [r.key, hints[r.key]!])),
+        rows.map((r) => r.stored),
+      );
       await updatePuzzleHints(mine.id, mine.key, payload);
       setRows((prev) => prev.map((r) => (payload[r.key] ? { ...r, stored: payload[r.key] } : r)));
       toast.success(T.saved);

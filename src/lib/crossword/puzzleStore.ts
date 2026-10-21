@@ -389,28 +389,30 @@ export async function withGoneMarks(hints: Record<string, HintRef>, genre: Genre
 // 保存の直前に、YouTube のヒントへ outside の印を付け直す（台帳に載っていて表示してよい動画なら外し、無ければ付ける）。
 // 台帳を確かめられなかった時は outside を付ける（嘘の「見られなくなりました」を出さない側に倒す。Hop 決定 2026-10-21）。
 // 画面の中だけの印（gone など）はここで落とし、動画の番号・開始の秒・outside だけにする
-export async function withOutsideMarks(hints: Record<string, HintRef>): Promise<Record<string, HintRef>> {
-  const ids = Array.from(new Set(Object.values(hints).flatMap((h) => (h.kind === "youtube" ? [h.videoId] : []))));
+// stored = 組み直し・ヒントの差し替えで、棚に保存してあったヒント。同じ動画の番号のヒントは、保存してあった印をそのまま引き継ぐ
+// （台帳から消えた動画を「台帳に無い動画」と取り違えて、見られなくなった印が黙って消えないように。2026-10-21 レビューの直し）。
+// 台帳を確かめられない時は投げる（呼ぶ側が保存を止めて知らせる。全部を outside にして印を消さないように。今の本番も保存を止めていた）
+export async function withOutsideMarks(
+  hints: Record<string, HintRef>,
+  stored: (HintRef | null | undefined)[] = [],
+): Promise<Record<string, HintRef>> {
+  const inherited = new Map<string, boolean>();
+  for (const s of stored) if (s?.kind === "youtube") inherited.set(s.videoId, s.outside === true);
+  const ids = Array.from(
+    new Set(Object.values(hints).flatMap((h) => (h.kind === "youtube" && !inherited.has(h.videoId) ? [h.videoId] : []))),
+  );
   let active = new Set<string>();
   if (ids.length > 0) {
-    try {
-      const { data, error } = await getSupabase().from("youtube_videos").select("video_id").in("video_id", ids).eq("is_active_content", true);
-      if (error) throw error;
-      active = new Set(((data as { video_id: string }[] | null) ?? []).map((r) => r.video_id));
-    } catch (err) {
-      console.warn("Failed to check hint videos:", err);
-      active = new Set();
-    }
+    const { data, error } = await getSupabase().from("youtube_videos").select("video_id").in("video_id", ids).eq("is_active_content", true);
+    if (error) throw error;
+    active = new Set(((data as { video_id: string }[] | null) ?? []).map((r) => r.video_id));
   }
   return Object.fromEntries(
-    Object.entries(hints).map(([k, h]) => [
-      k,
-      h.kind !== "youtube"
-        ? h
-        : active.has(h.videoId)
-          ? { kind: "youtube", videoId: h.videoId, startSec: h.startSec }
-          : { kind: "youtube", videoId: h.videoId, startSec: h.startSec, outside: true },
-    ]),
+    Object.entries(hints).map(([k, h]) => {
+      if (h.kind !== "youtube") return [k, h];
+      const outside = inherited.has(h.videoId) ? inherited.get(h.videoId) : !active.has(h.videoId);
+      return [k, outside ? { kind: "youtube", videoId: h.videoId, startSec: h.startSec, outside: true } : { kind: "youtube", videoId: h.videoId, startSec: h.startSec }];
+    }),
   );
 }
 
