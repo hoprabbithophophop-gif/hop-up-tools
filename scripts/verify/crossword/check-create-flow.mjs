@@ -28,6 +28,7 @@
 //       盤が無い時の 4 は共有を押せず理由の先頭に「共有する前に、2 盤で盤を決めてください。」・札の「2 盤」で探す・答えが同じなら探し直さない・
 //       札で 3 へ行ってから書いたカギとヒントは盤ができた後も残る・答えを変えると盤は古い扱い（開き直しても）・
 //       組み立て中に札で 1 へ移っても組み立ては裏で終わる・3 から札の「2 盤」へ戻る時も答えを変えていれば探し直す・変えていなければ探し直さない
+//       ・著作権の2行は 1〜3 の段に無く、4 共有の窓の「共有する」のボタンの上にある（Hop 決定 2026-10-22）
 //       ・2 盤・3 カギの段の上に戻るボタン（← 答えへ戻る・← 盤へ戻る）が無い（Hop 決定 2026-10-22。札で行き来する）。4 共有の窓の中の「カギの段へ戻る」は残る
 // 使い方: node scripts/verify/crossword/check-create-flow.mjs（引数なし）
 import { spawn, spawnSync } from 'node:child_process';
@@ -50,6 +51,7 @@ const BASE = `http://localhost:${PORT}`;
 const MOCK_SUPA = 'https://mock-supabase.invalid';
 const OUT = outDir('check-create-flow');
 const W = 390;
+const COPYRIGHT = '※作成された問題の著作権および責任は作成者に帰属します。';
 
 let fail = 0;
 const check = (ok, label) => {
@@ -197,6 +199,7 @@ try {
     check((await search.isDisabled()) && (await search.textContent()) === '組み合わせを探す（1語）', `(2) 答えが1つの間は「${await search.textContent()}」が押せない`);
     await writeLines(page, TEXT);
     check((await search.isEnabled()) && (await search.textContent()) === '組み合わせを探す（4語）', `(2) 答えが4つで「${await search.textContent()}」が押せる`);
+    check((await page.getByText(COPYRIGHT).count()) === 0, '(2) 1の段に著作権の2行が無い');
 
     // ヒントは1の段で2語だけ付けておく（残りは3の段で付ける）
     await hintAllInAnswers(page, ['ネコ', 'コアラ']);
@@ -224,6 +227,7 @@ try {
       await page.waitForTimeout(300);
     }
     const backIn2 = await page.locator('[data-create-step="2"] button').evaluateAll((els) => els.filter((e) => e.hasAttribute('data-step-back') || e.textContent.includes('戻る')).length);
+    check((await page.getByText(COPYRIGHT).count()) === 0, '(3) 2の段に著作権の2行が無い');
     check((await page.locator('[data-reshuffle]').count()) === 1 && backIn2 === 0, `(3) 「再シャッフル」があり、段の上の「← 答えへ戻る」は無い（戻るボタン ${backIn2}個）`);
     const d2 = await readDraft(page);
     check(d2?.version === 2 && d2.step === 2 && Array.isArray(d2.board) && d2.board.length > 0, `(3) 作りかけに段（${d2?.step}）と盤（${d2?.board?.length ?? 0}語）が残る`);
@@ -336,6 +340,7 @@ try {
     await clueInput(page, edited).fill('書き直したカギ');
     const backIn3 = await page.locator('[data-create-step="3"] button').evaluateAll((els) => els.filter((e) => e.hasAttribute('data-step-back') || e.textContent.includes('戻る')).length);
     check(backIn3 === 0, `(5) 3の段の上に「← 盤へ戻る」が無い（戻るボタン ${backIn3}個）`);
+    check((await page.getByText(COPYRIGHT).count()) === 0, '(5) 3の段に著作権の2行が無い');
     await stepTab(page, 2);
     await page.locator('[data-create-step="2"]').waitFor();
     await page.waitForTimeout(300);
@@ -390,6 +395,14 @@ try {
     await openShare(page);
     const sheet = page.locator('[data-share-sheet]');
     check((await sheet.locator('h2').first().textContent()) === '共有する', '(7) 「共有する」で下から窓が出る（題「共有する」）');
+    // 著作権の2行は窓の中の「共有する」のボタンの上（Hop 決定 2026-10-22）
+    const cr = await sheet.evaluate((el) => {
+      const p = el.querySelector('[data-copyright]');
+      const btn = el.querySelector('[data-save]');
+      if (!p || !btn) return null;
+      return { text: p.innerText, above: p.getBoundingClientRect().bottom <= btn.getBoundingClientRect().top, before: !!(p.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING), fit: p.getBoundingClientRect().right <= window.innerWidth };
+    });
+    check(cr && cr.text === `${COPYRIGHT}\n他者の権利を侵害する内容を含めないようご注意ください。` && cr.above && cr.before && cr.fit, `(7) 窓の中の「共有する」のボタンの上に著作権の2行（${JSON.stringify(cr)}）`);
     await page.locator('#cw-title').fill('');
     await sheet.locator('[data-save]').click();
     check((await sheet.locator('[data-title-error]').textContent().catch(() => null)) === '題名を入力してください。', '(7) 題名が空なら「題名を入力してください。」');

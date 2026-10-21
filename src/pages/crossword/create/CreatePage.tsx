@@ -1162,11 +1162,6 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
               {CT.myPuzzles} <span aria-hidden="true">→</span>
             </Link>
           </div>
-          <p className="text-xs" style={{ color: C.secondary }}>
-            {CT.copyright[0]}
-            <br />
-            {CT.copyright[1]}
-          </p>
         </main>
       </div>
 
@@ -1272,6 +1267,12 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                 {CT.beginner}
               </label>
               <div className="flex flex-col gap-1">
+                {/* 著作権の2行は「共有する」のボタンの上（1〜3 の段の一番下から移した。Hop 決定 2026-10-22） */}
+                <p data-copyright="" className="text-xs" style={{ color: C.secondary }}>
+                  {CT.copyright[0]}
+                  <br />
+                  {CT.copyright[1]}
+                </p>
                 {/* 押せない理由（3の段の共有のボタンの上と同じ並び）。札から盤やカギが揃う前に開いた時に出る（Hop 決定 2026-10-22） */}
                 {!canShare && (
                   <p data-share-blocks="" aria-live="polite" className="text-xs" style={{ color: C.secondary }}>
