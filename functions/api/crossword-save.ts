@@ -60,8 +60,10 @@ const MAX_ANSWER_CHARS = 20;
 const MAX_CLUES = 60;
 const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
-// チャンネル名は保存しない。台帳に無い動画のチャンネル名は、画面を開くたびに受付係 crossword-video-info が YouTube Data API に聞く（Hop 決定 2026-10-19「書き残さない形」・2026-10-21 正式な窓口へ）
-type Hint = { kind: "youtube"; videoId: string; startSec: number } | { kind: "link"; url: string };
+// YouTube の動画のことは、どこにも問い合わせない（チャンネル名も「見られるか」も聞かない。Hop 決定 2026-10-21）。
+// outside は「保存の時点で台帳（youtube_videos）に無かった動画」の印。画面が台帳を確かめて付ける。
+// 解く画面と自分の問題の一覧は、この印の無いハロプロの動画が台帳から消えた時だけ「見られなくなりました」を出す（Hop 決定 2026-10-04 の決め方を、台帳に無い動画も入るこの作りに合わせた）
+type Hint = { kind: "youtube"; videoId: string; startSec: number; outside?: true } | { kind: "link"; url: string };
 const isYouTubeHost = (host: string) => {
   const h = host.replace(/^(www\.|m\.|music\.)/, "");
   return h === "youtu.be" || h === "youtube.com" || h === "youtube-nocookie.com";
@@ -101,7 +103,10 @@ export function cleanHint(h: unknown): Hint | null {
   if (o.kind === "youtube") {
     if (!isStr(o.videoId) || !VIDEO_ID_RE.test(o.videoId)) return null;
     if (!isInt(o.startSec)) return null;
-    return { kind: "youtube", videoId: o.videoId, startSec: o.startSec };
+    // outside は真偽値の true の時だけ残す（ほかの欄は今どおり捨てる）
+    return o.outside === true
+      ? { kind: "youtube", videoId: o.videoId, startSec: o.startSec, outside: true }
+      : { kind: "youtube", videoId: o.videoId, startSec: o.startSec };
   }
   if (o.kind === "link") {
     if (!isStr(o.url)) return null;

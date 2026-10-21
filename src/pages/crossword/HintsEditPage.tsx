@@ -5,7 +5,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { usePageReady } from "../../lib/pageReady";
-import { fetchOwnedPuzzle, readMyPuzzles, updatePuzzleHints, SaveError, type Genre, type HintRef, type MyPuzzle } from "../../lib/crossword/puzzleStore";
+import { fetchOwnedPuzzle, readMyPuzzles, updatePuzzleHints, withOutsideMarks, SaveError, type Genre, type HintRef, type MyPuzzle } from "../../lib/crossword/puzzleStore";
 import { formatTime } from "../../lib/crossword/youtubeUrl";
 import { HintField, type Selected } from "./components/HintField";
 import { Toaster, toast } from "./components/Toast";
@@ -28,7 +28,6 @@ const T = {
   reasons: {
     not_found: "この問題のヒントは差し替えられません。", // この画面は組み直しでなく差し替えなので、作る画面の言葉から変えた（2026-10-21 レビューの指摘）
     too_many: "更新が集中しています。時間をおいてもう一度お試しください。",
-    video: "ヒントの動画を確かめられませんでした。削除・非公開・埋め込み禁止になっていないかご確認ください。", // 作る画面と同じ
   } as Record<string, string>,
 };
 
@@ -121,14 +120,11 @@ export default function HintsEditPage() {
     if (!mine || !canSave) return;
     setSaving(true);
     try {
-      const payload: Record<string, HintRef> = {};
-      for (const r of changed) {
-        const h = hints[r.key]!;
-        // gone は画面の中だけの印。送らない
-        payload[r.key] = h.kind === "youtube" ? { kind: "youtube", videoId: h.videoId, startSec: h.startSec } : h;
-      }
+      // 送る直前に、替える YouTube のヒントへ outside の印を台帳で確かめて付け直す（作る画面の共有と同じ。Hop 決定 2026-10-21）。
+      // 画面の中だけの印（gone など）はここで落ちる
+      const payload = await withOutsideMarks(Object.fromEntries(changed.map((r) => [r.key, hints[r.key]!])));
       await updatePuzzleHints(mine.id, mine.key, payload);
-      setRows((prev) => prev.map((r) => (payload[r.key] ? { ...r, stored: hints[r.key] ?? undefined } : r)));
+      setRows((prev) => prev.map((r) => (payload[r.key] ? { ...r, stored: payload[r.key] } : r)));
       toast.success(T.saved);
     } catch (err) {
       console.error("Failed to update hints:", err);

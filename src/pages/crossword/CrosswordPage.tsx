@@ -17,17 +17,16 @@ import { determineNextSelection } from "../../lib/crossword/puzzleSelectionLogic
 import {
   addMyPuzzle,
   fetchOwnedPuzzle,
-  isCatalogVideo,
   isHiddenPuzzle,
   loadPuzzle,
-  lookupVideoChannel,
   makeOwnerKey,
   readMyPuzzles,
   savePuzzle,
   SaveError,
   toBody,
   updatePuzzle,
-  withVideoChannels,
+  withGoneMarks,
+  withOutsideMarks,
   type Genre,
   type HintRef,
   type MyPuzzle,
@@ -135,21 +134,6 @@ interface Draft {
   input: { q: string; a: string };
 }
 
-// 下書きにはチャンネル名と見られない印を書かない（画面の中だけの物。Hop 決定 2026-10-19「書き残さない形」）
-const withoutScreenOnly = (hints: Record<string, HintRef>): Record<string, HintRef> =>
-  Object.fromEntries(
-    Object.entries(hints).map(([k, h]) => [k, h.kind === "youtube" ? { kind: "youtube", videoId: h.videoId, startSec: h.startSec } : h]),
-  );
-
-// 戻したヒントに、聞き直したチャンネル名だけを足す（聞いている間に替えたヒントには足さない）
-const mergeChannels = (prev: Record<string, HintRef>, next: Record<string, HintRef>): Record<string, HintRef> =>
-  Object.fromEntries(
-    Object.entries(prev).map(([k, h]) => {
-      const n = next[k];
-      return h.kind === "youtube" && n?.kind === "youtube" && n.channel && n.videoId === h.videoId && n.startSec === h.startSec ? [k, { ...h, channel: n.channel }] : [k, h];
-    }),
-  );
-
 // 文言（HarmonyPalette の ja.json の puzzle.builder から。問題文の呼び名は「ヒント」→「カギ」）
 const T = {
   pageTitle: "クロスワードパズル作成",
@@ -184,7 +168,6 @@ const T = {
   saveReasons: {
     too_many: "保存が集中しています。時間をおいてもう一度お試しください。",
     verification: "確認に失敗しました。ページを再読み込みしてお試しください。",
-    video: "ヒントの動画を確かめられませんでした。削除・非公開・埋め込み禁止になっていないかご確認ください。", // 2026-10-19 案1で台帳だけの決まりをやめた【仮】
     bad_request: "内容をご確認のうえ、もう一度お試しください。",
   } as Record<string, string>,
   // 答え合わせ・1文字見るを受付係に頼めなかった時（2026-10-04。答えを渡さない作りで足した）
@@ -480,6 +463,8 @@ export default function CrosswordPage() {
     return blogKeyword.trim() ? officialBlogSearchUrl(g, blogKeyword) : null;
   }, [blogGroupKey, blogKeyword]);
   const clueInputRef = useRef<HTMLInputElement>(null);
+  // 共有を押した時に outside の印を付け直したヒント（保存の送信はこれを使う）
+  const saveHintsRef = useRef<Record<string, HintRef> | null>(null);
   // 作りかけを戻し終わるまで残す処理を止めておく（戻す前の空の状態で上書きしないため）
   const [draftReady, setDraftReady] = useState(false);
   const [generatedPuzzle, setGeneratedPuzzle] = useState<PuzzleData | null>(null);
@@ -691,10 +676,11 @@ export default function CrosswordPage() {
         const puzzleToLoad = loaded.puzzle;
         setPlayerPuzzle(puzzleToLoad);
         setPlayerHints(loaded.hints);
-        // 台帳に無い動画にチャンネル名を添え、ハロプロのジャンルで見られない動画に印を付ける（見られなくなりましたと出す。Hop 決定 2026-10-04）
-        if (loadedGenre) {
-          withVideoChannels(loaded.hints, loadedGenre)
-            .then((next) => alive && setPlayerHints(next))
+        // ハロプロのジャンルは、台帳から消えた動画のヒントに印を付ける（見られなくなりましたと出す。Hop 決定 2026-10-04）。
+        // 保存の時点で台帳に無かった動画（outside の印）には付けない（Hop 決定 2026-10-21）
+        if (loadedGenre === "hello") {
+          withGoneMarks(loaded.hints, loadedGenre)
+            .then((next) => alive && next !== loaded.hints && setPlayerHints(next))
             .catch((err) => console.warn("Failed to check hint videos:", err));
         }
         setIsAssemblyAnimating(true);
@@ -1357,9 +1343,6 @@ export default function CrosswordPage() {
         setIsBeginner(rec.is_beginner === true);
         setRulesNote(rec.body.rulesNote === true);
         setHints(restoredHints);
-        withVideoChannels(restoredHints, rec.genre)
-          .then((next) => setHints((prev) => mergeChannels(prev, next)))
-          .catch(() => {});
         setEditorItems(placed.map(({ id, question, answer }) => ({ id, question, answer })));
         // 盤は保存した時の形のまま組む（番号も同じ）。組み替えたい時は「再シャッフル」
         const grid = buildGrid(placed);
@@ -1401,11 +1384,7 @@ export default function CrosswordPage() {
           items.push({ id: it.id, question: it.question, answer });
         }
         if (d.hints && typeof d.hints === "object") {
-          const restored = withoutScreenOnly(Object.fromEntries(Object.entries(d.hints as Record<string, HintRef>).filter(([id]) => seen.has(id))));
-          setHints(restored);
-          withVideoChannels(restored, d.genre === "hello" ? "hello" : "other")
-            .then((next) => setHints((prev) => mergeChannels(prev, next)))
-            .catch(() => {});
+          setHints(Object.fromEntries(Object.entries(d.hints as Record<string, HintRef>).filter(([id]) => seen.has(id))));
         }
         if (items.length > 0) {
           setEditorItems(items);
@@ -1425,7 +1404,7 @@ export default function CrosswordPage() {
       lsRemove(DRAFT_KEY);
       return;
     }
-    const d: Draft = { title: puzzleTitle, creatorName, genre, tags, isBeginner, rulesNote, items: editorItems, hints: withoutScreenOnly(hints), input: currentInput };
+    const d: Draft = { title: puzzleTitle, creatorName, genre, tags, isBeginner, rulesNote, items: editorItems, hints, input: currentInput };
     lsSet(DRAFT_KEY, JSON.stringify(d));
   }, [isPlayerMode, draftReady, editStatus, puzzleTitle, creatorName, genre, tags, isBeginner, rulesNote, editorItems, hints, currentInput]);
 
@@ -1639,29 +1618,14 @@ export default function CrosswordPage() {
     }
 
     setIsSaving(true);
-    try {
-      // ハロプロのジャンルでは、チャンネル名の無い YouTube のヒントが台帳にある動画か、YouTube にチャンネル名を聞ける動画か確かめる（組み直しで棚から読んだヒントにはチャンネル名が無い）。外のチャンネルの動画は台帳に無くてよい（2026-10-19 案1）
-      if (genre === "hello") {
-        const ng: string[] = [];
-        for (const item of generatedPuzzle.items) {
-          const h = hints[item.id];
-          if (h?.kind === "youtube" && !h.channel && !(await isCatalogVideo(h.videoId)) && !(await lookupVideoChannel(h.videoId))) ng.push(item.answer.join(""));
-        }
-        if (ng.length > 0) {
-          toast.error(`${T.saveReasons.video}\n（${ng.join("、")}）`, { duration: 5000 });
-          setIsSaving(false);
-          return;
-        }
-      }
-    } catch (error) {
-      console.error("Failed to save puzzle:", error);
-      toast.error(T.errors.saveFailed);
-      setIsSaving(false);
-      return;
-    }
+    // 保存の直前に、YouTube のヒントへ outside の印を台帳で確かめて付け直す（Hop 決定 2026-10-21。台帳を確かめられなければ outside）。
+    // ジャンルによらず付ける: 受付係はグループ名の入った「その他」の問題をハロプロのジャンルにして保存するので、
+    // その他で選んだ台帳に無い動画に印が無いと、ハロプロの問題として開いた時に嘘の「見られなくなりました」が出るため
+    const marked = await withOutsideMarks(hints);
+    saveHintsRef.current = marked;
     // 組み直しは人間確認を挟まない【仮】（合言葉が本人確認を兼ねる）
     if (editTarget) {
-      void updateEdited();
+      void updateEdited(marked);
       return;
     }
     // 保存の直前に人間かどうかを確かめる。済んだら saveWithToken へ続く
@@ -1669,14 +1633,14 @@ export default function CrosswordPage() {
   };
 
   // 組み直した問題で書き換える。成功したら共有の窓（URL は同じ）を出す
-  const updateEdited = async () => {
+  const updateEdited = async (savedHints: Record<string, HintRef>) => {
     if (!generatedPuzzle || !editTarget) {
       setIsSaving(false);
       return;
     }
     const title = puzzleTitle.trim();
     try {
-      const body = toBody(generatedPuzzle.items, generatedPuzzle.width, generatedPuzzle.height, (id) => hints[id]);
+      const body = toBody(generatedPuzzle.items, generatedPuzzle.width, generatedPuzzle.height, (id) => savedHints[id]);
       if (creatorName.trim()) body.creatorName = creatorName.trim();
       if (rulesNote) body.rulesNote = true;
       const ogpImage = await drawShareImage(generatedPuzzle, title);
@@ -1726,7 +1690,9 @@ export default function CrosswordPage() {
     }
     const title = puzzleTitle.trim();
     try {
-      const body = toBody(generatedPuzzle.items, generatedPuzzle.width, generatedPuzzle.height, (id) => hints[id]);
+      // 共有を押した時に outside の印を付け直したヒントで保存する（人間確認の窓の間はヒントを変えられない）
+      const savedHints = saveHintsRef.current ?? hints;
+      const body = toBody(generatedPuzzle.items, generatedPuzzle.width, generatedPuzzle.height, (id) => savedHints[id]);
       if (creatorName.trim()) body.creatorName = creatorName.trim();
       if (rulesNote) body.rulesNote = true;
       const key = makeOwnerKey();
