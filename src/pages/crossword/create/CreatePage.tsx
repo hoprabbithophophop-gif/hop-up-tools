@@ -29,6 +29,7 @@ import {
 import { drawShareImage } from "../../../lib/crossword/shareImage";
 import { BulkEntry, clueDraft, evaluateCandidates, parseMarks, type Candidate } from "../components/BulkEntry";
 import { HintField } from "../components/HintField";
+import { useHintSearch } from "../components/hintSearch";
 import { HINT_SOURCES, sourceOfUrl } from "../components/HintSourceBar";
 import { FitGrid } from "../components/FitGrid";
 import { MovableBoard, MOVE_MARGIN } from "../components/MovableBoard";
@@ -221,6 +222,9 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   // ヒントの窓（1の段・3の段から）
   const [hintOpen, setHintOpen] = useState<{ key: string; surface: string; from: 1 | 3; n: number } | null>(null);
   const hintOpenCount = useRef(0);
+  // ヒントの窓の「① 探す」所の選択と言葉。窓は開くたびに作り直すので、この画面が持って渡す（Hop 決定 2026-10-22「グループはずっと・言葉は問題の間」）。
+  // 言葉といつごろはこの画面を開いている間だけ（作りかけの控えには入れない。開き直すと空から）。グループの選択はブラウザに覚える
+  const hintSearch = useHintSearch();
 
   // 札（× で消した札は端末に残す）となぞる動き
   const [tipsSeen, setTipsSeen] = useState<Record<TipName, boolean>>(() => ({
@@ -1191,6 +1195,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                 inputClassName={inputClass}
                 initial={hintFor ? { hint: hintFor, label: hintLabels[hintOpen.key] ?? fallbackName(hintFor) } : null}
                 onChange={(h, label) => setHintFor(hintOpen.key, h, label)}
+                search={hintSearch}
                 flatResults
               />
               {hintOpen.from === 1 && (

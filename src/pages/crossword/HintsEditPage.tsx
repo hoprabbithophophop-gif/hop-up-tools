@@ -8,6 +8,7 @@ import { usePageReady } from "../../lib/pageReady";
 import { fetchOwnedPuzzle, readMyPuzzles, updatePuzzleHints, withOutsideMarks, SaveError, type Genre, type HintRef, type MyPuzzle } from "../../lib/crossword/puzzleStore";
 import { formatTime } from "../../lib/crossword/youtubeUrl";
 import { HintField, type Selected } from "./components/HintField";
+import { useHintSearch } from "./components/hintSearch";
 import { Toaster, toast } from "./components/Toast";
 import { Icon } from "./components/ui";
 import { C } from "./style";
@@ -58,6 +59,8 @@ export default function HintsEditPage() {
   const mine: MyPuzzle | undefined = useMemo(() => readMyPuzzles().find((m) => m.id === id), [id]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
+  // 「① 探す」所の選択と言葉は全部の語の欄で1つを使う（作る画面と同じ。Hop 決定 2026-10-22）。言葉といつごろはこの画面を開いている間だけ、グループの選択はブラウザに覚える
+  const hintSearch = useHintSearch();
   const [title, setTitle] = useState("");
   const [genre, setGenre] = useState<Genre>("hello");
   const [rows, setRows] = useState<Row[]>([]);
@@ -174,6 +177,7 @@ export default function HintsEditPage() {
                         inputClassName={inputClass}
                         initial={r.stored ? ({ hint: r.stored, label: hintLabel(r.stored) } as Selected) : null}
                         onChange={(h) => setHints((prev) => (prev[r.key] === h ? prev : { ...prev, [r.key]: h }))}
+                        search={hintSearch}
                       />
                     </li>
                   ))}

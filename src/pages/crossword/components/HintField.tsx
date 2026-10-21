@@ -22,6 +22,7 @@ import { HINT_SOURCES, HintSourceBar, sourceOfUrl, type HintSource } from "./Hin
 import { C } from "../style";
 import { HintPlayer, type HintPlayerApi } from "./HintPlayer";
 import { useDialog } from "./useDialog";
+import { useHintSearch, type HintSearchApi } from "./hintSearch";
 
 // 再生できない動画（削除・非公開・埋め込み禁止）を選んだ時の知らせ
 const UNUSABLE = "この動画はヒントに使えません。";
@@ -65,6 +66,8 @@ interface HintFieldProps {
   inputId?: string;
   /** 検索結果の一覧に高さの上限を付けない（下から出る窓の中で、窓と一覧の二重のスクロールにしないため） */
   flatResults?: boolean;
+  /** 「① 探す」所の選択と言葉。持ち主の画面が1つ持って渡すと、語をまたいで残る（Hop 決定 2026-10-22）。渡さなければこの欄だけで持つ */
+  search?: HintSearchApi;
 }
 
 const looksLikeUrl = (t: string) => /^https?:\/\//i.test(t.trim());
@@ -100,28 +103,34 @@ const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   </p>
 );
 
-export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey, inputClassName, initial, inputId, flatResults }) => {
+export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey, inputClassName, initial, inputId, flatResults, search: searchProp }) => {
+  // 「① 探す」所の選択と言葉（Hop 決定 2026-10-22「グループはずっと・言葉は問題の間」）。確認の数が毎回同じになるよう、渡された時も自分の分を作っておく
+  const ownSearch = useHintSearch();
+  const search = searchProp ?? ownSearch;
   const [text, setText] = useState("");
   // 最初から initial で始める（「選択なし」で一度描くと、親と下書きへ「ヒント無し」が一瞬送られるため）
   const [selected, setSelected] = useState<Selected | null>(initial ?? null);
   // 出どころの印（Hop 決定 2026-10-19 案A-2）。初期は YouTube。URL を貼ると行き先に合わせて切り替わる
   const [source, setSource] = useState<HintSource>(() => (!initial ? "yt" : initial.hint.kind === "youtube" ? "yt" : sourceOfUrl(initial.hint.url)));
   // 公式ブログを探す（アメブロの印の時だけ。Google の site: 検索を新しいタブで開くだけ）
-  // 公式ブログの選択（"g:グループ"＝そのグループのブログ全部／"b:ブログ"＝1つだけ。Hop 依頼 2026-10-21）
-  const [blogChoice, setBlogChoice] = useState(`g:${OFFICIAL_BLOGS[0].key}`);
-  // 探す言葉はアメブロ・X・Instagram・リンクで共通の1つ。出どころを選び直しても消えない（Hop 依頼 2026-10-21「入れ直しはめんどい」）
-  const [findKeyword, setFindKeyword] = useState("");
+  // 公式ブログの選択（"g:グループ"＝そのグループのブログ全部／"b:ブログ"＝1つだけ。Hop 依頼 2026-10-21）。選び直すとブラウザに覚える（Hop 決定 2026-10-22）
+  const blogChoice = search.value.blogChoice;
+  const setBlogChoice = (v: string) => search.set({ blogChoice: v });
+  // 探す言葉はアメブロ・X・Instagram・リンクで共通の1つ。出どころを選び直しても消えない（Hop 依頼 2026-10-21「入れ直しはめんどい」）。
+  // 持ち主の画面が持つので、別の語のヒントの窓を開いても残る（Hop 決定 2026-10-22）
+  const findKeyword = search.value.keyword;
+  const setFindKeyword = (v: string) => search.set({ keyword: v });
   const [blogKeyword, setBlogKeyword] = [findKeyword, setFindKeyword];
-  // 公式の投稿を探す（X の印の時だけ。x.com の検索を新しいタブで開くだけ。Hop 決定 2026-10-19「公式サイトに載っている分だけ」）
-  const [xGroupKey, setXGroupKey] = useState(OFFICIAL_ACCOUNT_GROUPS[0].key);
+  // 公式の投稿を探す（X の印の時だけ。x.com の検索を新しいタブで開くだけ。Hop 決定 2026-10-19「公式サイトに載っている分だけ」）。選び直すとブラウザに覚える（Hop 決定 2026-10-22）
+  const xGroupKey = search.value.xGroupKey;
   const [xKeyword, setXKeyword] = [findKeyword, setFindKeyword];
-  // いつごろ（年・月。アメブロ・X・Instagram・リンクで共通。出どころを選び直しても消えない。空なら期間なし。Hop 依頼 2026-10-19 案A）
-  const [periodYear, setPeriodYear] = useState("");
-  const [periodMonth, setPeriodMonth] = useState("");
+  // いつごろ（年・月。アメブロ・X・Instagram・リンクで共通。出どころを選び直しても消えない。空なら期間なし。Hop 依頼 2026-10-19 案A）。言葉と同じく語をまたいで残る（Hop 決定 2026-10-22）
+  const periodYear = search.value.year;
+  const periodMonth = search.value.month;
   // 「コピー」の結果の一言
   const [copied, setCopied] = useState("");
-  // 公式アカウントを開く（Instagram の印の時だけ。Instagram は言葉で探せないので、アカウントのページを開くだけ）
-  const [igHandle, setIgHandle] = useState(OFFICIAL_ACCOUNT_GROUPS[0].ig[0]);
+  // 公式アカウントを開く（Instagram の印の時だけ。Instagram は言葉で探せないので、アカウントのページを開くだけ）。選び直すとブラウザに覚える（Hop 決定 2026-10-22）
+  const igHandle = search.value.igHandle;
   const [igKeyword, setIgKeyword] = [findKeyword, setFindKeyword];
   // 公式サイトを探す（リンクの印の時だけ。公式サイトと /link/ の関連サイトを対象にした Google 検索を新しいタブで開くだけ。Hop 決定 2026-10-20）
   const [siteKeyword, setSiteKeyword] = [findKeyword, setFindKeyword];
@@ -146,9 +155,8 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
     setText("");
     setSelected(initial ?? null);
     setSource(!initial ? "yt" : initial.hint.kind === "youtube" ? "yt" : sourceOfUrl(initial.hint.url));
-    setFindKeyword("");
-    setPeriodYear("");
-    setPeriodMonth("");
+    // 探す言葉といつごろは持ち主の画面が持つので、ここでは空にしない（窓を開くたびに消えないように。Hop 決定 2026-10-22）。この欄だけで持つ時は今までどおり空にする
+    if (!searchProp) ownSearch.set({ keyword: "", year: "", month: "" });
     setCopied("");
     setTimeText(initial?.hint.kind === "youtube" ? formatTime(initial.hint.startSec) : "0:00");
     setResults([]);
@@ -381,13 +389,13 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   // いつごろ（年・月）。選ばなければ期間なし。幅が狭い所（ヒント差し替えの画面）では2段に折り返して字が切れないようにする
   const periodPicker = (
     <div data-helper-period="" className="flex flex-wrap gap-2">
-      <select aria-label="いつごろ（年）" value={periodYear} onChange={(e) => { setPeriodYear(e.target.value); if (!e.target.value) setPeriodMonth(""); }} className={`${selectClassName} grow basis-[9.5rem]`} style={{ color: C.ink }}>
+      <select aria-label="いつごろ（年）" value={periodYear} onChange={(e) => search.set(e.target.value ? { year: e.target.value } : { year: "", month: "" })} className={`${selectClassName} grow basis-[9.5rem]`} style={{ color: C.ink }}>
         <option value="">いつごろ（年）</option>
         {periodYears().map((y) => (
           <option key={y} value={String(y)}>{`${y}年`}</option>
         ))}
       </select>
-      <select aria-label="いつごろ（月）" value={periodMonth} onChange={(e) => setPeriodMonth(e.target.value)} disabled={!periodYear} className={`${selectClassName} grow basis-[9.5rem] ${periodYear ? "" : "opacity-40"}`} style={{ color: C.ink }}>
+      <select aria-label="いつごろ（月）" value={periodMonth} onChange={(e) => search.set({ month: e.target.value })} disabled={!periodYear} className={`${selectClassName} grow basis-[9.5rem] ${periodYear ? "" : "opacity-40"}`} style={{ color: C.ink }}>
         <option value="">月を選ばない</option>
         {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
           <option key={m} value={String(m)}>{`${m}月`}</option>
@@ -491,7 +499,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
           {/* 公式ブログを探す（アメブロの印。Hop 依頼 2026-10-19。棚は触らず Google を新しいタブで開くだけ） */}
           {stepSource === "ameblo" && (
             <div data-blog-search="" className="flex flex-col gap-2">
-              <select aria-label="公式ブログ" value={blogChoiceNow} onChange={(e) => setBlogChoice(e.target.value)} className={selectClassName} style={{ color: C.ink }}>
+              <select aria-label="公式ブログ" value={blogChoiceNow} onChange={(e) => search.remember({ blogChoice: e.target.value })} className={selectClassName} style={{ color: C.ink }}>
                 {blogOptionGroups.map((g, i) =>
                   g.label ? (
                     <optgroup key={g.label} label={g.label}>
@@ -517,7 +525,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
           {/* 公式の投稿を探す（X の印。公式サイトに載っているグループのアカウントの投稿を x.com で新しい順に探す） */}
           {stepSource === "x" && (
             <div data-x-search="" className="flex flex-col gap-2">
-              <select aria-label="公式アカウントのグループ" value={xGroupKey} onChange={(e) => setXGroupKey(e.target.value)} className={selectClassName} style={{ color: C.ink }}>
+              <select aria-label="公式アカウントのグループ" value={xGroupKey} onChange={(e) => search.remember({ xGroupKey: e.target.value })} className={selectClassName} style={{ color: C.ink }}>
                 {OFFICIAL_ACCOUNT_GROUPS.map((g) => (
                   <option key={g.key} value={g.key}>{g.label}</option>
                 ))}
@@ -535,7 +543,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
               Instagram 自身に期間の指定が無いので、言葉と期間は Google（"アカウント名" 言葉 site:instagram.com）に頼む。Google が拾っている投稿だけが対象（Hop 決定 2026-10-19、探し方は 2026-10-21 案B） */}
           {stepSource === "ig" && (
             <div data-ig-open="" className="flex flex-col gap-2">
-              <select aria-label="公式アカウント" value={igHandle} onChange={(e) => setIgHandle(e.target.value)} className={selectClassName} style={{ color: C.ink }}>
+              <select aria-label="公式アカウント" value={igHandle} onChange={(e) => search.remember({ igHandle: e.target.value })} className={selectClassName} style={{ color: C.ink }}>
                 {OFFICIAL_ACCOUNT_GROUPS.map((g) => (
                   <optgroup key={g.key} label={g.label}>
                     {g.ig.map((h) => (

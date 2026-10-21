@@ -2,6 +2,7 @@
 // X・Instagram のリンクに添える「公式サイトに載っている／載っていないアカウント」の札（作る側・解く側）を確かめる。
 // 作る画面のヒントの窓は 2026-10-21 に4段の流れ（1の段の下線の語を押すと下から出る窓）に合わせて書き直した。「① 探す」「② 見つけた◯◯の URL を貼る」の箱・②の一文・「貼り付け」・
 // 公式ブログの「全部／1つだけ」・探す言葉が出どころ共通・リンクの ① の公式サイト検索を足し、ジャンル「その他」の項目は消した。
+// (5b) は「① 探す」所の選択と言葉を覚える作り（Hop 決定 2026-10-22。グループはブラウザにずっと・言葉と年月は画面を開いている間）を見る。
 // 手元の vite を立ち上げ、棚（/rest/v1）・受付係（/api）はブラウザの中で受け止める（本番にもプレビューにも通信しない）。
 // 差し替えた YouTube が台帳（youtube_videos）に無い時は、問い合わせずに選ばれ、送る中身に outside: true が入る（Hop 決定 2026-10-21）。
 // ブラウザから YouTube の oEmbed（youtube.com/oembed）・googleapis.com・/api/crossword-video-info への通信が無いことも見る。
@@ -381,12 +382,114 @@ try {
   const wide = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   check(wide, '(5) 390px で横にはみ出さない');
   await closeHintSheet(page);
-  // 別の語のヒントを開き直すと、探す言葉は空に戻る（Hop 依頼 2026-10-21）
+  // (5b) 「① 探す」所の選択と言葉を覚える（Hop 決定 2026-10-22「グループはずっと・言葉は問題の間」）。
+  // 2026-10-21 に担当が足した「別の語のヒントを開き直すと探す言葉は空に戻る」の確かめは、この決定で逆になったので書き換えた。
+  // ここまでに人が選んだ物: アメブロ「BEYOOOOONDS（全部）」・X「BEYOOOOONDS」・Instagram「beyooooonds_official」。探す言葉は「武道館」・いつごろは無し
+  const GROUPS_KEY = 'crossword_hint_groups';
+  const DEFAULTS = { blog: 'g:morningmusume', x: 'morningmusume', ig: 'morningmusume_official' };
+  // 開いているヒントの窓（または欄）で、出どころを替えながら選択と言葉を読む
+  const readSearch = async (root, pg) => {
+    const out = {};
+    await root.locator('[data-hint-source="ameblo"]').click();
+    await pg.waitForTimeout(150);
+    out.blog = await root.locator('[data-blog-search]').getByLabel('公式ブログ', { exact: true }).inputValue();
+    out.keyword = await root.locator('[data-blog-search] input').inputValue();
+    const per = root.locator('[data-blog-search] [data-helper-period] select');
+    out.year = await per.nth(0).inputValue();
+    out.month = await per.nth(1).inputValue();
+    await root.locator('[data-hint-source="x"]').click();
+    await pg.waitForTimeout(150);
+    out.x = await root.locator('[data-x-search]').getByLabel('公式アカウントのグループ').inputValue();
+    out.xKeyword = await root.locator('[data-x-search] input').inputValue();
+    await root.locator('[data-hint-source="ig"]').click();
+    await pg.waitForTimeout(150);
+    out.ig = await root.locator('[data-ig-open]').getByLabel('公式アカウント', { exact: true }).inputValue();
+    return out;
+  };
+  const show = (o) => JSON.stringify(o);
   await openHintSheet(page, 'コアラ');
+  let got = await readSearch(sheet, page);
+  check(got.keyword === '武道館' && got.xKeyword === '武道館' && got.blog === 'g:beyooooonds' && got.x === 'beyooooonds' && got.ig === 'beyooooonds_official',
+    `(5b) 別の語のヒントの窓でも、探す言葉とグループの選択が残る（${show(got)}）`);
   await sheet.locator('[data-hint-source="ameblo"]').click();
-  await page.waitForTimeout(200);
-  check((await sheet.locator('[data-blog-search] input').inputValue()) === '', '(5) 別の語のヒントを開き直すと探す言葉は空に戻る');
+  await page.waitForTimeout(150);
+  await sheet.locator('[data-blog-search] input').fill('ハロコン');
+  await sheet.locator('[data-blog-search] [data-helper-period] select').nth(0).selectOption('2020');
+  await sheet.locator('[data-blog-search] [data-helper-period] select').nth(1).selectOption('10');
+  await page.waitForTimeout(100);
   await closeHintSheet(page);
+  await openHintSheet(page, 'コアラ');
+  got = await readSearch(sheet, page);
+  check(got.keyword === 'ハロコン' && got.year === '2020' && got.month === '10' && got.blog === 'g:beyooooonds', `(5b) 窓を閉じて開き直しても、言葉と年月が残る（${show(got)}）`);
+  await closeHintSheet(page);
+  const stored = await page.evaluate((k) => localStorage.getItem(k), GROUPS_KEY);
+  check(stored === JSON.stringify({ blog: 'g:beyooooonds', x: 'beyooooonds', ig: 'beyooooonds_official' }), `(5b) ブラウザに覚えるのはグループの選択の3つだけ（言葉・年月は入らない。${stored}）`);
+  const allStored = await page.evaluate(() => JSON.stringify(Object.entries(localStorage)));
+  check(!allStored.includes('ハロコン'), '(5b) 探す言葉はブラウザのどこにも残さない（作りかけの控えにも入らない）');
+  // 作る画面を開き直す（作りかけがあると離れる前に確かめる窓が出るので、別のページで開く。ブラウザの保存は同じ）
+  const openCreate = async (label, init) => {
+    const p2 = await ctx.newPage();
+    await watchStumbles(p2, pageErrors, label);
+    if (init) await p2.addInitScript(init, GROUPS_KEY);
+    await p2.goto(`${BASE}/crossword/create`);
+    await openHintSheet(p2, 'コアラ');
+    const r = await readSearch(p2.locator('[data-hint-sheet]'), p2);
+    return { p2, r };
+  };
+  let { p2: again, r: re } = await openCreate('開き直した作る画面');
+  check(re.keyword === '' && re.year === '' && re.month === '' && re.blog === 'g:beyooooonds' && re.x === 'beyooooonds' && re.ig === 'beyooooonds_official',
+    `(5b) 作る画面を開き直すと、グループの選択は残り、言葉と年月は空から（${show(re)}）`);
+  await again.locator('[data-hint-sheet]').screenshot({ path: path.join(OUT, '6-remembered-group-390.png') });
+  await again.close();
+  // ヒントを直す画面でも、グループの選択は覚えた物から。言葉と年月は語の欄をまたいで同じ1つ
+  const edit = await ctx.newPage();
+  await watchStumbles(edit, pageErrors, 'ヒントを直す画面');
+  await edit.goto(`${BASE}/crossword/hints/${PUZZLE_ID}`);
+  await edit.locator('[data-hints-row]').first().waitFor({ timeout: 30000 });
+  await edit.waitForTimeout(500);
+  const er1 = edit.locator('[data-hints-row="horizontal:1"]');
+  const er2 = edit.locator('[data-hints-row="vertical:2"]');
+  await er1.getByLabel('ヒントを外す').click();
+  await er1.locator('[data-hint-source="ameblo"]').click();
+  await edit.waitForTimeout(150);
+  const e1Blog = await er1.getByLabel('公式ブログ', { exact: true }).inputValue();
+  check(e1Blog === 'g:beyooooonds' && (await er1.locator('[data-blog-search] input').inputValue()) === '', `(5b) ヒントを直す画面でもアメブロは覚えた選択から・言葉は空から（${e1Blog}）`);
+  await er1.locator('[data-blog-search] input').fill('武道館');
+  await er1.locator('[data-blog-search] [data-helper-period] select').nth(0).selectOption('2024');
+  await er2.getByLabel('ヒントを外す').click();
+  await er2.locator('[data-hint-source="ameblo"]').click();
+  await edit.waitForTimeout(150);
+  const e2 = { kw: await er2.locator('[data-blog-search] input').inputValue(), y: await er2.locator('[data-blog-search] [data-helper-period] select').nth(0).inputValue() };
+  check(e2.kw === '武道館' && e2.y === '2024', `(5b) ヒントを直す画面では、別の語の欄にも言葉と年が残る（${show(e2)}）`);
+  await edit.close();
+  // 覚えた値が今の名簿に無い・壊れている時は先頭から
+  await page.evaluate((k) => localStorage.setItem(k, JSON.stringify({ blog: 'g:nope', x: 'nope', ig: 'nope' })), GROUPS_KEY);
+  ({ p2: again, r: re } = await openCreate('名簿に無い値'));
+  check(re.blog === DEFAULTS.blog && re.x === DEFAULTS.x && re.ig === DEFAULTS.ig, `(5b) 覚えた値が名簿に無い時は先頭から（${show(re)}）`);
+  await again.close();
+  await page.evaluate((k) => localStorage.setItem(k, '{壊れた'), GROUPS_KEY);
+  ({ p2: again, r: re } = await openCreate('壊れた値'));
+  check(re.blog === DEFAULTS.blog && re.x === DEFAULTS.x && re.ig === DEFAULTS.ig, `(5b) 覚えた値が壊れている時も先頭から（${show(re)}）`);
+  await again.close();
+  // localStorage を空にすると先頭から
+  await page.evaluate((k) => localStorage.removeItem(k), GROUPS_KEY);
+  ({ p2: again, r: re } = await openCreate('空にした後'));
+  check(re.blog === DEFAULTS.blog && re.x === DEFAULTS.x && re.ig === DEFAULTS.ig, `(5b) 覚えた物を空にすると先頭から（${show(re)}）`);
+  await again.close();
+  // localStorage が使えない時（この鍵の読み書きが例外になる）も、先頭から始まり、選び直しは画面の中で効き、画面は止まらない
+  ({ p2: again, r: re } = await openCreate('保存が使えない', (k) => {
+    const get = Storage.prototype.getItem;
+    const set = Storage.prototype.setItem;
+    Storage.prototype.getItem = function (key) { if (key === k) throw new Error('blocked'); return get.call(this, key); };
+    Storage.prototype.setItem = function (key, v) { if (key === k) throw new Error('blocked'); return set.call(this, key, v); };
+  }));
+  const bs = again.locator('[data-hint-sheet]');
+  await bs.locator('[data-hint-source="x"]').click();
+  await bs.locator('[data-x-search]').getByLabel('公式アカウントのグループ').selectOption('beyooooonds');
+  await again.waitForTimeout(150);
+  const xNow = await bs.locator('[data-x-search]').getByLabel('公式アカウントのグループ').inputValue();
+  check(re.blog === DEFAULTS.blog && re.x === DEFAULTS.x && xNow === 'beyooooonds', `(5b) ブラウザに保存できない時も先頭から始まり、選び直しは効く（${show(re)} → ${xNow}）`);
+  await again.close();
 
   // (6) 解く側: ハロプロの問題の X のヒントに札、アカウント名の無い Instagram には札なし
   // 作る画面は書きかけがあると離れる前に確かめる窓を出すので、別のページで開く
