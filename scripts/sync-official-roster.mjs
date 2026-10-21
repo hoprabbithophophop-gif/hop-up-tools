@@ -14,7 +14,8 @@
 //   officialBlogs.ts    … グループごとの ids（足すだけ。消さない。下の「ブログは消さない」）
 //   officialSites.ts    … OFFICIAL_SITES（/link/ の住所から、SNS・動画・ブログとショップを外した物。helloproject.com は先頭に残す）
 // ブログの期間（BLOG_PERIODS）・呼び名（BLOG_NAMES）・グループの並びと名前・コメント・関数には触らない。
-// ブログは消さない: 名簿には更新が止まったブログや、今の公式サイトには無い過去のブログ（インターネットの記録庫から拾った物）も入っているため。
+// ただし書き換えたファイルは、頭の「出どころ:」の行の拾った日付だけを書き換えた日に直す（Hop 依頼 2026-10-22）。
+// ブログは消さない（Hop 決定 2026-10-22）: 名簿には更新が止まったブログや、今の公式サイトには無い過去のブログ（インターネットの記録庫から拾った物）も入っているため。
 // 公式サイトで見つからなくなったブログは一覧に出すだけにする。/link/ にだけあってグループが分からない新しいブログも、一覧に出すだけで書かない。
 // どのグループのページにも同じく貼られているリンク（ページの上下の共通の欄）は、そのグループの物とみなさず /link/ と同じ扱いにする。
 // 番組などの名簿に入れないアカウントは EXCLUDED に書く（見つかっても書かず、一覧に出すだけ）。
@@ -59,9 +60,9 @@ const NON_SITE_HOSTS = [
 const SHOP_HOSTS = ['elineupmall.com', 'helloshop.info', 'ody-books.com', 'helloproject.orical.jp'];
 const OWN_HOST = 'helloproject.com';
 
-// 公式サイトに貼られていても名簿に入れないアカウント【仮】。名簿の線引き（officialAccounts.ts の頭の注記・Hop 決定 2026-10-19）
-// 「番組・フェスの公式アカウントは載せない」に当たりそうな物を入れておく。入れるかどうかは Hop が決める
-//   ClipRadioKansai … ロージークロニクルのページに貼られている。名前からラジオ番組の物と見た（中身は確かめていない）
+// 公式サイトに貼られていても名簿に入れないアカウント。名簿の線引き（officialAccounts.ts の頭の注記・Hop 決定 2026-10-19）
+// 「番組・フェスの公式アカウントは載せない」に当たる物。足す時は Hop が決める
+//   ClipRadioKansai … ロージークロニクルのページに貼られている。名前からラジオ番組の物と見て外す（Hop 決定 2026-10-22「外す」。中身は確かめていない）
 const EXCLUDED = { x: ['ClipRadioKansai'], ig: [] };
 
 // X・Instagram の住所のうち、アカウントでない物（共有・検索・投稿など）
@@ -298,7 +299,7 @@ export function compare(current, pages, link) {
     }
   } else diffs.push({ where: '/link/ のページ', skipped: true });
 
-  if (seenExcluded.size) diffs.push({ where: '公式サイトにあったが名簿に入れないアカウント（台本の EXCLUDED【仮】）', added: [...seenExcluded], gone: [], reportOnly: true });
+  if (seenExcluded.size) diffs.push({ where: '公式サイトにあったが名簿に入れないアカウント（台本の EXCLUDED）', added: [...seenExcluded], gone: [], reportOnly: true });
 
   // ブログ: グループのページで見つかった新しい ID を足す。消さない
   const seenBlogs = new Set([...fetchedGroups.flatMap((k) => pages[k].blog), ...(link ? link.blog : [])].map(lower));
@@ -393,9 +394,13 @@ async function main() {
   }
   if (changes === 0) return;
   const out = writeRoster(src, next);
+  const d = new Date();
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   for (const k of Object.keys(FILES)) {
     if (out[k] !== src[k]) {
-      writeFileSync(FILES[k], out[k]);
+      // 頭の「出どころ:」の行の拾った日付だけを今日に直す（ほかのコメントには触らない）
+      const dated = out[k].replace(/^(\/\/ 出どころ:.*?)\d{4}-\d{2}-\d{2}/m, `$1${today}`);
+      writeFileSync(FILES[k], dated);
       console.log(`書き換えた: ${path.relative(ROOT, FILES[k])}`);
     }
   }
