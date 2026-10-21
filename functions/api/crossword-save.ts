@@ -53,14 +53,16 @@ const MAX_CREATOR = 50;
 const MIN_KEY = 32;
 const MAX_KEY = 128;
 const ANSWER_RE = /^[ァ-ヶー]+$/;
-/** 1語の字数の上限【仮】 */
-const MAX_ANSWER_CHARS = 20;
+/** 1語の字数（答えのマス目）の上限（Hop 決定 2026-10-22「答えのマス目は30字まで」。前は20字の【仮】）。
+ *  画面（src/pages/crossword/components/BulkEntry.tsx の MAX_CELLS）と同じ値。画面を通さない送信もここで断る（bad_request）。
+ *  棚を読み直す所（解く・自分の問題・ヒントの差し替え）では確かめないので、前からある問題は字数に関わらず読める */
+const MAX_ANSWER_CHARS = 30;
 /** 語の数の上限【仮】 */
 const MAX_CLUES = 60;
-/** カギ（問題文）1つの字数の上限（Hop 決定 2026-10-21。曲名なども30字以内に収まるため）。見た目の字数（Array.from の長さ）で数える。
+/** カギ（問題文）1つの字数の上限（Hop 決定 2026-10-22。10-21 に入れた30字は取り違えで、正しくは100字）。見た目の字数（Array.from の長さ）で数える。
  *  画面（src/pages/crossword/create/CreatePage.tsx の MAX_CLUE_CHARS）と同じ値。画面を通さない送信もここで断る（bad_request）。
- *  前からある30字を超えるカギ（どれも遊ばれた後で組み直せない）は、棚を読み直す所では確かめないので影響しない */
-const MAX_CLUE_CHARS = 30;
+ *  前からある100字を超えるカギは、棚を読み直す所では確かめないので影響しない */
+const MAX_CLUE_CHARS = 100;
 const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
 // YouTube の動画のことは、どこにも問い合わせない（チャンネル名も「見られるか」も聞かない。Hop 決定 2026-10-21）。

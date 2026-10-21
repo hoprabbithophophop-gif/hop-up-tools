@@ -8,8 +8,9 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import { isUsableCell, toCells, UNUSABLE_KANA } from "../../../lib/crossword/cells";
 import { C } from "../style";
 
-// 答えの字数の上限と、答えの語数の上限（指示書 2026-10-18）
-const MAX_CELLS = 20;
+// 答えの字数の上限と、答えの語数の上限（指示書 2026-10-18）。字数は答えのマス目で30字まで（Hop 決定 2026-10-22。前は20字）。
+// 受付係 crossword-save の MAX_ANSWER_CHARS と同じ値
+const MAX_CELLS = 30;
 const MAX_WORDS = 60;
 
 export interface BulkTexts {

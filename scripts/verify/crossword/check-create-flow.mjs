@@ -10,7 +10,8 @@
 //   (4) 3の段: 盤に入った答えだけが並ぶ・カギの下書き（○・同じ行のほかの答えは□・「問題文→【答え】」は問題文だけ）・○ボタンは無い（1 答えの道具の段へ移した。Hop 決定 2026-10-22）
 //       ・「ヒントが未選択の語が N 語あります」「カギが空の語が N 語あります」・そろうと「全部の答えにカギとヒントが付きました。」
 //       ・3の段から開いたヒントの窓には「囲みを外す」が無い・台帳に無い YouTube は「公式チャンネルの動画か確かめて」の1文付きで選べ、作りかけに outside の印が残る
-//       ・カギは30字まで（Hop 決定 2026-10-21）: 欄の下に「あと◯字」。30字ちょうど（絵文字は1字）は共有できる。31字は「1字多いです。…」が欄の下と共有のボタンの上に出て押せない
+//       ・カギは100字まで（Hop 決定 2026-10-22。10-21 の30字は取り違え）: 欄の下の「あと◯字」は欄を選んでいる間か残り10字以下の時だけ。
+//         100字ちょうど（絵文字は1字）は共有できる。101字は「1字多いです。…」が欄の下（欄を選んでいなくても）と共有のボタンの上に出て押せない
 //       ・ヒントが付いた行は、字が行き先を別のタブで開くリンク（YouTube は開始の秒つき）・右の「変える」でヒントの窓（Hop 決定 2026-10-22）。https でない行き先はリンクにしない（(11) の終わり）
 //   (5) 段の行き来: 3→2→1 と戻っても、盤・書いた行・ヒント・書き直したカギが消えない
 //   (6) 作りかけ: 開き直すと同じ段・同じ盤に戻り、組み直さない（「組み立て中…」が出ない）
@@ -298,20 +299,34 @@ try {
     check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '(4) ヒントの行が 390px で横にはみ出さない');
     await hintAllInClues(page);
     check((await missing.textContent()) === '全部の答えにカギとヒントが付きました。' && (await page.locator('[data-open-share]').isEnabled()), `(4) そろうと「${await missing.textContent()}」で「共有する」が押せる`);
-    // カギは30字まで（Hop 決定 2026-10-21）。数え方は見た目の字数（絵文字も1字）
-    const leftOf = (k) => page.locator(`[data-clue-row="${k}"] [data-clue-left], [data-clue-row="${k}"] [data-clue-over]`).first().textContent();
+    // カギは100字まで（Hop 決定 2026-10-22）。数え方は見た目の字数（絵文字も1字）
+    const leftOf = (k) => page.locator(`[data-clue-row="${k}"] [data-clue-left], [data-clue-row="${k}"] [data-clue-over]`).first().textContent({ timeout: 2000 }).catch(() => null);
+    const leftCount = (k) => page.locator(`[data-clue-row="${k}"] [data-clue-left], [data-clue-row="${k}"] [data-clue-over]`).count();
+    const blurClue = (k) => clueInput(page, k).evaluate((el) => el.blur());
+    // 欄を選んでいない間は、残りが10字より多ければ「あと◯字」は出ない（Hop 決定 2026-10-22）
+    await blurClue(k0);
+    check((await page.locator('[data-clue-left], [data-clue-over]').count()) === 0, `(4) どの欄も選んでいない間は「あと◯字」が出ない（${await page.locator('[data-clue-left], [data-clue-over]').count()}個）`);
     // 欄に入っている文で数える（同じ行のほかの答えは□で隠れるので、書いた下書きとは字数が違うことがある。盤によって先頭の語が変わる）
-    const draftLeft = 30 - Array.from((await clueInput(page, k0).inputValue()).trim()).length;
-    check((await leftOf(k0)) === `あと${draftLeft}字`, `(4) カギの欄の下に残り字数（${await leftOf(k0)}）`);
-    const c30 = 'あ'.repeat(28) + '🐱😀';
-    await clueInput(page, k0).fill(c30);
-    check((await leftOf(k0)) === 'あと0字' && (await missing.textContent()) === '全部の答えにカギとヒントが付きました。' && (await page.locator('[data-open-share]').isEnabled()), `(4) 30字ちょうど（絵文字2つを含む）は「${await leftOf(k0)}」で共有できる`);
-    await clueInput(page, k0).fill(c30 + 'い');
-    const overLine = `${k0}：1字多いです。30字までにしてください。`;
-    check((await leftOf(k0)) === '1字多いです。30字までにしてください。' && (await missing.textContent()) === overLine && (await page.locator('[data-open-share]').isDisabled()), `(4) 31字は欄の下に「${await leftOf(k0)}」、ボタンの上に「${await missing.textContent()}」で共有できない`);
+    const draftLeft = 100 - Array.from((await clueInput(page, k0).inputValue()).trim()).length;
+    await clueInput(page, k0).focus();
+    check((await leftOf(k0)) === `あと${draftLeft}字` && (await page.locator('[data-clue-left], [data-clue-over]').count()) === 1, `(4) 欄を選ぶとその欄の下にだけ残り字数（${await leftOf(k0)}）`);
+    await clueInput(page, k0).fill('あ'.repeat(89));
+    await blurClue(k0);
+    check((await leftCount(k0)) === 0, '(4) 残り11字は、欄を離れると「あと◯字」が消える');
+    await clueInput(page, k0).fill('あ'.repeat(90));
+    await blurClue(k0);
+    check((await leftOf(k0)) === 'あと10字', `(4) 残り10字は、欄を離れても「${await leftOf(k0)}」が出る`);
+    const c100 = 'あ'.repeat(98) + '🐱😀';
+    await clueInput(page, k0).fill(c100);
+    check((await leftOf(k0)) === 'あと0字' && (await missing.textContent()) === '全部の答えにカギとヒントが付きました。' && (await page.locator('[data-open-share]').isEnabled()), `(4) 100字ちょうど（絵文字2つを含む）は「${await leftOf(k0)}」で共有できる`);
+    await clueInput(page, k0).fill(c100 + 'い');
+    await blurClue(k0);
+    const overLine = `${k0}：1字多いです。100字までにしてください。`;
+    check((await leftOf(k0)) === '1字多いです。100字までにしてください。' && (await missing.textContent()) === overLine && (await page.locator('[data-open-share]').isDisabled()), `(4) 101字は欄を離れても欄の下に「${await leftOf(k0)}」、ボタンの上に「${await missing.textContent()}」で共有できない`);
+    check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '(4) 101字のカギでも 390px で横にはみ出さない');
     await page.screenshot({ path: path.join(OUT, '4-clue-over-390.png'), fullPage: true });
     await clueInput(page, k0).fill(DRAFTS[k0]);
-    check((await page.locator('[data-open-share]').isEnabled()), '(4) 30字以内に戻すとまた共有できる');
+    check((await page.locator('[data-open-share]').isEnabled()), '(4) 100字以内に戻すとまた共有できる');
     await page.screenshot({ path: path.join(OUT, '4-clues-390.png'), fullPage: true });
 
     // (5) 段の行き来で消えない

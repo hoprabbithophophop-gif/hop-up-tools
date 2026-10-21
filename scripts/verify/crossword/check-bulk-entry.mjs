@@ -193,14 +193,14 @@ async function startServer() {
 }
 
 
-// 書く行。1行に2語・読み付き・半角の |・読み無しの漢字（武道館・本棚）・21字・重複（ダンス）・使えない字（ヰ）を含める。最後の行の「クマ」は画面でなぞって囲む
+// 書く行。1行に2語・読み付き・半角の |・読み無しの漢字（武道館・本棚）・31字（答えは30字まで。Hop 決定 2026-10-22）・重複（ダンス）・使えない字（ヰ）を含める。最後の行の「クマ」は画面でなぞって囲む
 const LINES = [
   'ステージで【本気｜マジ】の【ダンス】を見せる',
   '【マスク】をつけて【独楽|コマ】を回す',
   '【コアラ】と【ラッコ】と【ネコ】',
   '【武道館】に立つ日',
   '【本棚】を買う',
-  '【アイウエオカキクケコサシスセソタチツテトナ】は長すぎる',
+  '【アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマ】は長すぎる',
   'もう一度【ダンス】',
   '【ヰド】の話',
   '森で クマ に会った',
@@ -304,6 +304,12 @@ try {
   await area.evaluate((el) => el.blur());
   await page.waitForTimeout(450);
   check((await area.inputValue()).includes('【独楽｜コマ】'), '(b) 欄を離れると半角の | は全角の ｜ にそろう');
+  // 答えのマス目は30字まで（Hop 決定 2026-10-22）: 30字ちょうどは答えになる
+  await area.fill('【アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホ】\n【アイ】');
+  check((await searchBtn.textContent()) === '組み合わせを探す（2語）', `(b) 30字ちょうどの答えは通る（${await searchBtn.textContent()}）`);
+  await area.fill(TEXT);
+  await area.evaluate((el) => el.blur());
+  await page.waitForTimeout(450);
 
   // 「ヒントを付ける」側: 書いた行の一覧と凡例だけ
   await page.locator('[data-bulk-mode-button="hint"]').click();
@@ -315,7 +321,7 @@ try {
   check(answers.join(',') === 'マジ,ダンス,マスク,コマ,コアラ,ラツコ,ネコ', `(b) 行の下に答えごとの印（${answers.join(',')}）`);
   const reasons = await page.locator('[data-bulk-reason]').evaluateAll((els) => els.map((e) => `${e.getAttribute('data-bulk-reason')}=${e.textContent}`));
   check(reasons.includes('noReading=武道館：読みが未入力') && reasons.includes('noReading=本棚：読みが未入力'), `(b) 読み無しの漢字は「読みが未入力」（${reasons.join(' / ')}）`);
-  check(reasons.some((r) => r.startsWith('tooLong=') && r.endsWith('20字まで')), '(b) 21字は「20字まで」');
+  check(reasons.includes('tooLong=アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマ：答えは30字までです。'), '(b) 31字の答えは弾かれ、理由「答えは30字までです。」が出る');
   check(reasons.includes('duplicate=ダンス：同じ答えがあります'), '(b) 2回目の「ダンス」は「同じ答えがあります」');
   check(reasons.includes('unusable=ヰド：使えない字（ヰ・ヱ）'), '(b) ヰ の入った答えは「使えない字（ヰ・ヱ）」');
   check(reasons.length === 5, `(b) 弾かれたのは5つだけ: ${reasons.length}`);

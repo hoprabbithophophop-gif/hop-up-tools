@@ -53,8 +53,11 @@ type TipName = keyof typeof TIP_KEYS;
 // なぞる動きを見た印（公開後、初めて作る画面を開いた端末で一度だけ。Hop 決定 2026-10-20）
 const TRACE_KEY = "crossword_seen_trace";
 const MAX_TAGS = 10;
-// カギ1つの字数の上限（Hop 決定 2026-10-21）。数え方は見た目の字数（絵文字なども1字。Array.from の長さ）。受付係 crossword-save の MAX_CLUE_CHARS と同じ値
-const MAX_CLUE_CHARS = 30;
+// カギ（問題文）1つの字数の上限。数え方は見た目の字数（絵文字なども1字。Array.from の長さ）。受付係 crossword-save の MAX_CLUE_CHARS と同じ値。
+// 2026-10-21 に入れた30字は取り違えで、正しくは問題文100字（答えのマス目が30字。Hop 決定 2026-10-22）
+const MAX_CLUE_CHARS = 100;
+// 「あと◯字」を、欄を選んでいなくても出す残りの字数（Hop 決定 2026-10-22「フォーカス中か、残り10字以下の時だけ」）
+const CLUE_LEFT_ALWAYS = 10;
 const clueChars = (s: string) => Array.from(s.trim()).length;
 // 裏の探索を1回の刻みで回す長さ（ミリ秒）。描き変えの100msの合間に収める
 const SEARCH_STEP_MS = 30;
@@ -257,6 +260,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   const [sharedTitle, setSharedTitle] = useState("");
 
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // 今選んでいる（フォーカスがある）カギの欄の答え。「あと◯字」はこの欄か、残りが少ない欄だけに出す（Hop 決定 2026-10-22）
+  const [focusedClue, setFocusedClue] = useState<string | null>(null);
 
   // --- 書いた行から答えを出す ---
   const marks = useMemo(() => parseMarks(bulkText), [bulkText]);
@@ -287,7 +292,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   const clueRowKeys = hasBoard ? placedKeys : pool.map((i) => i.id);
   const missingHints = clueRowKeys.filter((k) => !hints[k]).length;
   const missingClues = clueRowKeys.filter((k) => !clueOf(k).trim()).length;
-  // 30字を超えたカギ（保存する形＝前後の空白を落とした字数で数える）
+  // 100字を超えたカギ（保存する形＝前後の空白を落とした字数で数える）
   const overClues = clueRowKeys.filter((k) => clueChars(clueOf(k)) > MAX_CLUE_CHARS);
   // 共有を押せない理由の並び。盤が無い時はその1行を先頭に（Hop 決定 2026-10-22）。盤がつながっていない時は 2 の段と同じ1行
   const shareBlocks = [
@@ -1091,12 +1096,22 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                         id={`cw-clue-${idx}`}
                         value={clueOf(key)}
                         onChange={(e) => setClues((prev) => ({ ...prev, [key]: e.target.value }))}
+                        onFocus={() => setFocusedClue(key)}
+                        onBlur={() => setFocusedClue((prev) => (prev === key ? null : prev))}
                         placeholder={CT.cluePlaceholder}
                         className={`${inputClass} bg-white`}
                       />
-                      {/* 残り字数。30字を超えたら超えた字数（Hop 決定 2026-10-21） */}
+                      {/* 残り字数は欄を選んでいる間か残り10字以下の時だけ。100字を超えたら超えた字数をいつも出す（Hop 決定 2026-10-21・10-22）。
+                          出さない間も1行ぶんの高さは空けておく（欄を離れた瞬間に下の「ヒントを選ぶ」などが上へずれて、押した所を外さないように） */}
                       {(() => {
                         const left = MAX_CLUE_CHARS - clueChars(clueOf(key));
+                        if (left >= 0 && focusedClue !== key && left > CLUE_LEFT_ALWAYS) {
+                          return (
+                            <p aria-hidden="true" className="text-xs invisible">
+                              {" "}
+                            </p>
+                          );
+                        }
                         return left >= 0 ? (
                           <p data-clue-left={left} className="text-xs" style={{ color: C.secondary }}>
                             {CT.clueLeft(left)}
