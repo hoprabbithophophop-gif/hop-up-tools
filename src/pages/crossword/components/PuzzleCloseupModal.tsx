@@ -36,6 +36,8 @@ interface PuzzleCloseupModalProps {
   onKeyPress: (char: string) => void;
   onBackspace: () => void;
   onClose: () => void;
+  /** 窓が消え終わって画面から外れた時（盤が見えた時に、窓に隠れている間に埋まった語を跳ねさせる） */
+  onExited?: () => void;
   onComplete: () => void;
   onPrevCell: () => void;
   onNextCell: () => void;
@@ -64,6 +66,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
   onKeyPress,
   onBackspace,
   onClose,
+  onExited,
   onComplete,
   onPrevCell,
   onNextCell,
@@ -84,6 +87,11 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
   const drag = useRef<{ id: number; startY: number; dragging: boolean } | null>(null);
   const dragY = useRef(0); // 今の y（px）。ドラッグで動いた後の exit はここから始める
   const snapBack = useRef<MotionHandle | null>(null);
+
+  // 消える動きが終わって外れた時に知らせる（呼ぶのはその時の最新の関数）
+  const onExitedRef = useRef(onExited);
+  onExitedRef.current = onExited;
+  useEffect(() => () => onExitedRef.current?.(), []);
 
   // カギが変わったら入力に戻す
   useEffect(() => {
@@ -239,6 +247,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
       {/* [No.04] ボトムシート化 - 画面下部からスライドイン */}
       <Motion
         ref={sheetRef}
+        data-closeup-sheet=""
         initial={{ y: "100%", opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: "100%", opacity: 0 }}

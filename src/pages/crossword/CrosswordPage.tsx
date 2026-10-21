@@ -393,6 +393,46 @@ export default function CrosswordPage() {
     keys.forEach((k, i) => (press[k] = Math.abs(i - i0) * 25));
     setGridFx({ id: ++fxIdRef.current, press });
   };
+  // 埋まった語の跳ね（1語は語の頭から1字25ms、2語以上は key のマスからの距離1マス30ms）。どのマスを何ms遅らせるか
+  const wordsFxOf = (done: PlacedItem[], key: string): Record<string, number> | undefined => {
+    if (done.length === 1) {
+      const w: Record<string, number> = {};
+      itemCellKeys(done[0]).forEach((k, i) => (w[k] = i * 25));
+      return w;
+    }
+    if (done.length > 1) {
+      const w: Record<string, number> = {};
+      const [x0, y0] = key.split(",").map(Number);
+      done.forEach((it) =>
+        itemCellKeys(it).forEach((k) => {
+          if (k in w) return;
+          const [x, y] = k.split(",").map(Number);
+          w[k] = (Math.abs(x - x0) + Math.abs(y - y0)) * 30;
+        })
+      );
+      return w;
+    }
+    return undefined;
+  };
+  // 入力の窓が盤を隠している間に埋まった語は、その場では跳ねさせずに覚えておき、窓が消えて盤が見えた時にまとめて跳ねさせる
+  // （Hop 決定 2026-10-21「窓を閉じた時に盤で動かす」。iPhone SE では窓が盤を全部隠して跳ねが見えなかった）。
+  // 覚えるのは埋まった語と最後に字を入れたマスだけ（正誤は使わない）
+  const heldWordsRef = useRef<{ ids: Set<string>; lastKey: string | null }>({ ids: new Set(), lastKey: null });
+  // 盤が窓に隠れているか: 盤の白い面のうち画面に入っている所が、全部入力の窓の中に収まっていれば隠れている。
+  // 窓の上や横に盤が少しでも見えていれば、今どおりその場で跳ねる
+  const boardHiddenBySheet = () => {
+    const box = boardBoxRef.current;
+    const sheet = document.querySelector<HTMLElement>("[data-closeup-sheet]");
+    if (!box || !sheet) return false;
+    const b = box.getBoundingClientRect();
+    const s = sheet.getBoundingClientRect();
+    const top = Math.max(b.top, 0);
+    const bottom = Math.min(b.bottom, window.innerHeight);
+    const left = Math.max(b.left, 0);
+    const right = Math.min(b.right, window.innerWidth);
+    if (top >= bottom || left >= right) return false; // 盤が画面の外（窓に隠れているのではない）
+    return s.top <= top && s.bottom >= bottom && s.left <= left && s.right >= right;
+  };
   // 字が入った後: 字をぽんと置き、その字で埋まった語があれば語の字を順に小さく跳ねさせる（1語は語の頭から1字25ms、2語以上は入れたマスからの距離1マス30ms。Hop 2026-10-21 灰の帯から変更）
   useLayoutEffect(() => {
     const prev = prevAnswersRef.current;
@@ -404,24 +444,14 @@ export default function CrosswordPage() {
       const keys = itemCellKeys(it);
       return keys.includes(key) && !keys.every((k) => !!prev[k]) && keys.every((k) => !!userAnswers[k]);
     });
-    let words: Record<string, number> | undefined;
-    if (done.length === 1) {
-      const w: Record<string, number> = {};
-      itemCellKeys(done[0]).forEach((k, i) => (w[k] = i * 25));
-      words = w;
-    } else if (done.length > 1) {
-      const w: Record<string, number> = {};
-      const [x0, y0] = key.split(",").map(Number);
-      done.forEach((it) =>
-        itemCellKeys(it).forEach((k) => {
-          if (k in w) return;
-          const [x, y] = k.split(",").map(Number);
-          w[k] = (Math.abs(x - x0) + Math.abs(y - y0)) * 30;
-        })
-      );
-      words = w;
+    if (boardHiddenBySheet()) {
+      const held = heldWordsRef.current;
+      done.forEach((it) => held.ids.add(it.uuid));
+      if (held.ids.size > 0) held.lastKey = key;
+      setGridFx({ id: ++fxIdRef.current, input: key });
+      return;
     }
-    setGridFx({ id: ++fxIdRef.current, input: key, words });
+    setGridFx({ id: ++fxIdRef.current, input: key, words: wordsFxOf(done, key) });
   }, [userAnswers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 窓のキーボードと読み上げの作法（2026-10-06 アクセシビリティの直し）。
@@ -1166,6 +1196,7 @@ export default function CrosswordPage() {
       // ハンコが見えるよう、入力の窓は閉じる
       setShowClearAnimation(true);
       setGamePhase("cleared");
+      heldWordsRef.current = { ids: new Set(), lastKey: null }; // 窓に隠れている間に埋まった語の跳ねは出さず、ハンコを優先する
       setShowCloseup(false);
       if (!prefersReducedMotion()) {
         window.setTimeout(() => {
@@ -1300,11 +1331,36 @@ export default function CrosswordPage() {
       autoCheckRef.current.holdMs = null;
       // 待った時間は開いていた時間で測る（待ちの間に一時停止していた分は入れない）
       const waitedMs = hold !== null ? Math.max(0, Math.round(activeMsNow() - hold)) : 0;
-      if (loud) setShowCloseup(false); // 結果が盤の上で見えるように、拡大の窓は閉じる
+      if (loud) {
+        heldWordsRef.current = { ids: new Set(), lastKey: null }; // 窓に隠れている間に埋まった語の跳ねは出さず、ハンコか揺れを優先する
+        setShowCloseup(false); // 結果が盤の上で見えるように、拡大の窓は閉じる
+      }
       void handleClearCheck(!loud, waitedMs);
     }, Math.max(0, autoCheckRef.current.dueAt - Date.now()));
     return () => clearTimeout(timer);
   }, [userAnswers, playerPuzzle, isCleared, gamePhase, paused]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 窓に隠れている間に埋まった語を、盤が見えた時にまとめて跳ねさせる（入力の窓が消え終わった時・幕を外した時）。
+  // 1語なら語の頭から1字25ms、2語以上なら最後に字を入れたマスからの距離1マス30ms。閉じるまでに字を消されて埋まっていない語は跳ねさせない。
+  // 自動の答え合わせが待っている・走っている時は、続くハンコ（解けた時）か揺れ（間違いの時）を優先して跳ねは出さない
+  const flushHeldWords = () => {
+    const held = heldWordsRef.current;
+    if (held.ids.size === 0) return;
+    if (pausedRef.current) return; // 幕の間は盤が見えないので覚えたまま。幕を外した時に跳ねさせる
+    const ids = held.ids;
+    const lastKey = held.lastKey;
+    heldWordsRef.current = { ids: new Set(), lastKey: null };
+    if (!playerPuzzle || !lastKey || isCleared || gamePhase !== "playing") return;
+    if (autoCheckRef.current.pending || checkingRef.current) return;
+    const done = playerPuzzle.items.filter((it) => ids.has(it.uuid) && itemCellKeys(it).every((k) => !!userAnswers[k]));
+    const words = wordsFxOf(done, lastKey);
+    if (words) setGridFx({ id: ++fxIdRef.current, words });
+  };
+  const flushHeldRef = useRef(flushHeldWords);
+  flushHeldRef.current = flushHeldWords;
+  useEffect(() => {
+    if (!paused && !showCloseup) flushHeldRef.current();
+  }, [paused]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // もう一度解く: 解き終えた印を外し、新しい回として最初から。開いた時と同じ流れ（遊び方の窓・決まりのクイズの扉）を通る
   const handlePlayAgain = () => {
@@ -1826,6 +1882,7 @@ export default function CrosswordPage() {
               onKeyPress={handleCloseupKeyPress}
               onBackspace={handleCloseupBackspace}
               onClose={() => setShowCloseup(false)}
+              onExited={() => flushHeldRef.current()}
               onComplete={handleCloseupComplete}
               onPrevCell={() => setActiveCloseupIndex((prev) => Math.max(0, prev - 1))}
               onNextCell={() => setActiveCloseupIndex((prev) => Math.min(activeWordItem?.length || 1, prev + 1))}
