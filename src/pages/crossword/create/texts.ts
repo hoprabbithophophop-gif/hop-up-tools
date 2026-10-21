@@ -21,6 +21,9 @@ export const CT = {
   cluesGuide: "カギは、答えを当てるための問題文です。カギには、答えがあった行が下書きとして入っています。答えの所は字数ぶんの ○ です。そのままでも、書き直してもかまいません。",
   missingHints: (n: number) => `ヒントが未選択の語が ${n} 語あります`,
   missingClues: (n: number) => `カギが空の語が ${n} 語あります`, // 【仮】
+  // カギは30字まで（Hop 決定 2026-10-21。曲名なども30字以内に収まるため）。欄の下の残り字数と、超えた時の押せない理由
+  clueLeft: (n: number) => `あと${n}字`, // 【仮】
+  clueOver: (n: number) => `${n}字多いです。30字までにしてください。`, // 【仮】共有のボタンの上の行では、頭に「語：」を付ける（1の段の reasonLine と同じ形）
   allSet: "全部の答えにカギとヒントが付きました。",
   pickHint: "未選択 → ヒントを選ぶ",
   hintState: (source: string, name: string) => `ヒント: ${source} ${name}`,

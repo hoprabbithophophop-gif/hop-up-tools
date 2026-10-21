@@ -57,6 +57,10 @@ const ANSWER_RE = /^[ァ-ヶー]+$/;
 const MAX_ANSWER_CHARS = 20;
 /** 語の数の上限【仮】 */
 const MAX_CLUES = 60;
+/** カギ（問題文）1つの字数の上限（Hop 決定 2026-10-21。曲名なども30字以内に収まるため）。見た目の字数（Array.from の長さ）で数える。
+ *  画面（src/pages/crossword/create/CreatePage.tsx の MAX_CLUE_CHARS）と同じ値。画面を通さない送信もここで断る（bad_request）。
+ *  前からある30字を超えるカギ（どれも遊ばれた後で組み直せない）は、棚を読み直す所では確かめないので影響しない */
+const MAX_CLUE_CHARS = 30;
 const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
 // YouTube の動画のことは、どこにも問い合わせない（チャンネル名も「見られるか」も聞かない。Hop 決定 2026-10-21）。
@@ -134,7 +138,7 @@ function cleanClue(c: unknown): CleanClue | null {
   const o = c as Record<string, unknown>;
   if (o.direction !== "horizontal" && o.direction !== "vertical") return null;
   if (!isInt(o.clueIndex) || !isInt(o.startX) || !isInt(o.startY)) return null;
-  if (!isStr(o.clue)) return null;
+  if (!isStr(o.clue) || charLen(o.clue) > MAX_CLUE_CHARS) return null;
   if (!Array.isArray(o.answer) || o.answer.length === 0 || o.answer.length > MAX_ANSWER_CHARS) return null;
   // 答えは1マス1字の並び。各マスが1字で、つなげたものがカタカナ（と「ー」）だけ
   if (!o.answer.every((a) => isStr(a) && charLen(a) === 1)) return null;

@@ -10,6 +10,7 @@
 //   (4) 3の段: 盤に入った答えだけが並ぶ・カギの下書き（○・同じ行のほかの答えは□・「問題文→【答え】」は問題文だけ）・○ボタン
 //       ・「ヒントが未選択の語が N 語あります」「カギが空の語が N 語あります」・そろうと「全部の答えにカギとヒントが付きました。」
 //       ・3の段から開いたヒントの窓には「囲みを外す」が無い・台帳に無い YouTube は「公式チャンネルの動画か確かめて」の1文付きで選べ、作りかけに outside の印が残る
+//       ・カギは30字まで（Hop 決定 2026-10-21）: 欄の下に「あと◯字」。30字ちょうど（絵文字は1字）は共有できる。31字は「1字多いです。…」が欄の下と共有のボタンの上に出て押せない
 //   (5) 段の行き来: 3→2→1 と戻っても、盤・書いた行・ヒント・書き直したカギが消えない
 //   (6) 作りかけ: 開き直すと同じ段・同じ盤に戻り、組み直さない（「組み立て中…」が出ない）
 //   (7) 4の窓: 題名が空なら「題名を入力してください。」・「カギの段へ戻る」・人間確認を通って保存 → URL が出る・保存の中身のジャンルは hello・
@@ -267,6 +268,19 @@ try {
     }
     await hintAllInClues(page);
     check((await missing.textContent()) === '全部の答えにカギとヒントが付きました。' && (await page.locator('[data-open-share]').isEnabled()), `(4) そろうと「${await missing.textContent()}」で「共有する」が押せる`);
+    // カギは30字まで（Hop 決定 2026-10-21）。数え方は見た目の字数（絵文字も1字）
+    const leftOf = (k) => page.locator(`[data-clue-row="${k}"] [data-clue-left], [data-clue-row="${k}"] [data-clue-over]`).first().textContent();
+    const draftLeft = 30 - Array.from(DRAFTS[k0].trim()).length;
+    check((await leftOf(k0)) === `あと${draftLeft}字`, `(4) カギの欄の下に残り字数（${await leftOf(k0)}）`);
+    const c30 = 'あ'.repeat(28) + '🐱😀';
+    await clueInput(page, k0).fill(c30);
+    check((await leftOf(k0)) === 'あと0字' && (await missing.textContent()) === '全部の答えにカギとヒントが付きました。' && (await page.locator('[data-open-share]').isEnabled()), `(4) 30字ちょうど（絵文字2つを含む）は「${await leftOf(k0)}」で共有できる`);
+    await clueInput(page, k0).fill(c30 + 'い');
+    const overLine = `${k0}：1字多いです。30字までにしてください。`;
+    check((await leftOf(k0)) === '1字多いです。30字までにしてください。' && (await missing.textContent()) === overLine && (await page.locator('[data-open-share]').isDisabled()), `(4) 31字は欄の下に「${await leftOf(k0)}」、ボタンの上に「${await missing.textContent()}」で共有できない`);
+    await page.screenshot({ path: path.join(OUT, '4-clue-over-390.png'), fullPage: true });
+    await clueInput(page, k0).fill(DRAFTS[k0]);
+    check((await page.locator('[data-open-share]').isEnabled()), '(4) 30字以内に戻すとまた共有できる');
     await page.screenshot({ path: path.join(OUT, '4-clues-390.png'), fullPage: true });
 
     // (5) 段の行き来で消えない

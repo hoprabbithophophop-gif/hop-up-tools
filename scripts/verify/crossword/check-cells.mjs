@@ -3,6 +3,8 @@
 //  1. 作る画面の toCells（src/lib/crossword/cells.ts）
 //  2. 保存の受付係の本文の確かめ（functions/api/crossword-save.ts の validateSavePayload）が、小さい字を大きい字にして棚へ渡す形にする
 //  3. 答えからのグループ判定（functions/_shared/crosswordGroups.ts）が、大きい字にそろえた答えでも拾う
+//  4. 保存の受付係（組み直しの crossword-update も同じ validateSavePayload を使う）が、カギ1つ30字までを守る（Hop 決定 2026-10-21）。
+//     見た目の字数で数える（絵文字も1字）。30字ちょうどは受け付け、31字は断る
 // ts は Node の stripTypeScriptTypes で型だけ外し、一時置き場に .mjs として書いて読み込む（論理は写さない。読み込み先の名前だけ書き換える）。
 // 使い方: node scripts/verify/crossword/check-cells.mjs（引数なし。通信しない）
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -85,6 +87,19 @@ check(p && same(p.body.clues.map((c) => c.answer), [['ホ', 'ツ', 'ト'], ['ツ
 const roster = { members: [], groups: ['アンジュルム', 'つばきファクトリー', 'ロージークロニクル'] };
 const g = detectGroups({ title: '', clues: [], answers: [toCells('アンジュルム').join(''), toCells('つばきふぁくとりー').join('')] }, roster);
 check(same(g, ['アンジュルム', 'つばきファクトリー']), `グループ判定: 大きい字にそろえた答え「${toCells('アンジュルム').join('')}」「${toCells('つばきふぁくとりー').join('')}」からも拾う → ${g.join('、')}`);
+
+// 4. カギは30字まで（絵文字は UTF-16 では2つ分だが、見た目の1字に数える）
+const withClue = (clue) => validateSavePayload({
+  title: '確かめ', tags: [], key: 'a'.repeat(64),
+  body: { version: 1, width: 3, height: 3, clues: [
+    { clueIndex: 1, direction: 'horizontal', startX: 0, startY: 0, clue, answer: ['ホ', 'ッ', 'ト'], hint },
+    { clueIndex: 2, direction: 'vertical', startX: 1, startY: 0, clue: 'y', answer: ['ッ', 'ァ'], hint },
+  ] },
+});
+const c30 = 'あ'.repeat(28) + '🐱😀';
+const c31 = 'あ'.repeat(29) + '🐱😀';
+check(Array.from(c30).length === 30 && c30.length === 32 && withClue(c30) !== null, `受付係: 30字ちょうど（絵文字2つを含む・UTF-16 では ${c30.length}）のカギは受け付ける`);
+check(Array.from(c31).length === 31 && withClue(c31) === null, '受付係: 31字のカギは断る（断りの理由は今の形の確かめと同じ bad_request）');
 
 console.log(fail ? `NG ${fail}件` : 'すべてOK');
 process.exit(fail ? 1 : 0);

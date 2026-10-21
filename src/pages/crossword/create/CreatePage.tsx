@@ -51,6 +51,9 @@ type TipName = keyof typeof TIP_KEYS;
 // なぞる動きを見た印（公開後、初めて作る画面を開いた端末で一度だけ。Hop 決定 2026-10-20）
 const TRACE_KEY = "crossword_seen_trace";
 const MAX_TAGS = 10;
+// カギ1つの字数の上限（Hop 決定 2026-10-21）。数え方は見た目の字数（絵文字なども1字。Array.from の長さ）。受付係 crossword-save の MAX_CLUE_CHARS と同じ値
+const MAX_CLUE_CHARS = 30;
+const clueChars = (s: string) => Array.from(s.trim()).length;
 // 裏の探索を1回の刻みで回す長さ（ミリ秒）。描き変えの100msの合間に収める
 const SEARCH_STEP_MS = 30;
 // 組み立ての演出の試行の数（HarmonyPalette と同じ）
@@ -256,6 +259,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   const boardDisconnected = boardReady && !isConnected(generatedPuzzle!.items);
   const missingHints = placedKeys.filter((k) => !hints[k]).length;
   const missingClues = placedKeys.filter((k) => !clueOf(k).trim()).length;
+  // 30字を超えたカギ（保存する形＝前後の空白を落とした字数で数える）
+  const overClues = placedKeys.filter((k) => clueChars(clueOf(k)) > MAX_CLUE_CHARS);
 
   // 型の案内（Hop 決定 2026-10-05・段階2）。組み上がった盤が変わった時だけ計算する
   const shapeGuide = useMemo(
@@ -674,7 +679,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   const handleShare = async () => {
     if (!generatedPuzzle) return;
     if (!isConnected(generatedPuzzle.items)) return;
-    if (generatedPuzzle.items.some((i) => !hints[i.id] || !clueOf(i.id).trim())) return;
+    if (generatedPuzzle.items.some((i) => !hints[i.id] || !clueOf(i.id).trim() || clueChars(clueOf(i.id)) > MAX_CLUE_CHARS)) return;
     const title = puzzleTitle.trim();
     if (!title) {
       setTitleError(true);
@@ -1022,6 +1027,19 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                           ○
                         </button>
                       </div>
+                      {/* 残り字数。30字を超えたら超えた字数（Hop 決定 2026-10-21） */}
+                      {(() => {
+                        const left = MAX_CLUE_CHARS - clueChars(clueOf(key));
+                        return left >= 0 ? (
+                          <p data-clue-left={left} className="text-xs" style={{ color: C.secondary }}>
+                            {CT.clueLeft(left)}
+                          </p>
+                        ) : (
+                          <p data-clue-over={-left} className="text-xs" style={{ color: C.error }}>
+                            {CT.clueOver(-left)}
+                          </p>
+                        );
+                      })()}
                       {h ? (
                         <button type="button" data-hint-state="" onClick={() => openHint(key, a?.mark.surface ?? key, 3)} className="min-h-11 text-left text-xs break-all hover:underline" style={{ color: C.secondary }}>
                           {CT.hintState(sourceLabel(h), hintLabels[key] ?? fallbackName(h))}
@@ -1036,11 +1054,15 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
                 })}
               </div>
               <p data-missing-hints="" aria-live="polite" className="text-xs" style={{ color: C.secondary }}>
-                {missingHints + missingClues > 0
-                  ? [missingHints ? CT.missingHints(missingHints) : "", missingClues ? CT.missingClues(missingClues) : ""].filter(Boolean).join("　")
+                {missingHints + missingClues + overClues.length > 0
+                  ? [
+                      missingHints ? CT.missingHints(missingHints) : "",
+                      missingClues ? CT.missingClues(missingClues) : "",
+                      ...overClues.map((k) => BULK_TEXTS.reasonLine(k, CT.clueOver(clueChars(clueOf(k)) - MAX_CLUE_CHARS))),
+                    ].filter(Boolean).join("　")
                   : CT.allSet}
               </p>
-              <button type="button" data-open-share="" className={btnPrimary} disabled={!boardReady || boardDisconnected || missingHints + missingClues > 0} onClick={() => { setTitleError(false); setStep(4); }}>
+              <button type="button" data-open-share="" className={btnPrimary} disabled={!boardReady || boardDisconnected || missingHints + missingClues + overClues.length > 0} onClick={() => { setTitleError(false); setStep(4); }}>
                 {CT.share}
               </button>
             </>
