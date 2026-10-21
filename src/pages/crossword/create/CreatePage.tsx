@@ -56,8 +56,12 @@ const MAX_CLUE_CHARS = 30;
 const clueChars = (s: string) => Array.from(s.trim()).length;
 // 裏の探索を1回の刻みで回す長さ（ミリ秒）。描き変えの100msの合間に収める
 const SEARCH_STEP_MS = 30;
-// 組み立ての演出の試行の数（HarmonyPalette と同じ）
+// 組み立ての演出の試行の数（HarmonyPalette と同じ）。「再シャッフル」で使う
 const ANIMATION_STEPS = 50;
+// 「組み合わせを探す」で見せる試行の数。1回0.1秒なので約1秒（Hop 決定 2026-10-22「変わった時だけ・短く」。50回・約5秒は毎回だと長すぎた）
+const SEARCH_ANIMATION_STEPS = 10;
+// 答えの並びの見出し。前に探した時と同じなら、探し直さずに今の盤のまま「2 盤」へ進む
+const poolSignature = (items: PuzzleItem[]) => items.map((p) => `${p.id}:${p.answer.join("")}`).sort().join("|");
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -204,6 +208,8 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   const [backgroundPuzzle, setBackgroundPuzzle] = useState<PuzzleData | null>(null);
   const [isLiveGenerating, setIsLiveGenerating] = useState(false);
   const generationIdRef = useRef(0);
+  // 最後に「組み合わせを探す」で探した時の答えの並びの見出し（poolSignature）。作りかけ・組み直しで盤を戻した時は、戻した答えで埋める
+  const searchedSigRef = useRef<string | null>(null);
 
   // ヒントの窓（1の段・3の段から）
   const [hintOpen, setHintOpen] = useState<{ key: string; surface: string; from: 1 | 3; n: number } | null>(null);
@@ -391,6 +397,11 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
   const runSearch = async () => {
     const items = pool;
     if (items.length < 2) return;
+    // 答えが前に探した時と同じで盤があれば、探し直さずにそのまま「2 盤」へ（Hop 決定 2026-10-22。動かした位置もそのまま残る）
+    if (generatedPuzzle && !isLiveGenerating && searchedSigRef.current === poolSignature(items)) {
+      goStep(2);
+      return;
+    }
     const pinned = carryPins(items);
     const base = pinned.length > 0 ? carryBase(items, pinned) : [];
     const run = ++generationIdRef.current;
@@ -403,7 +414,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
     const still = reducedMotion();
     try {
       const search = createBulkSearch(items, { pinned, base });
-      for (const st of generateMonteCarloSteps(items, ANIMATION_STEPS, pinned)) {
+      for (const st of generateMonteCarloSteps(items, SEARCH_ANIMATION_STEPS, pinned)) {
         const tickStart = performance.now();
         search.step(SEARCH_STEP_MS);
         if (generationIdRef.current !== run) return;
@@ -417,6 +428,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
       }
       if (generationIdRef.current !== run) return;
       const list = search.proposals();
+      searchedSigRef.current = poolSignature(items);
       setProposals(list);
       if (list.length > 0) {
         setPicked(0);
@@ -492,6 +504,7 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
         storedHintsRef.current = restoredHints;
         // 盤は保存した時の形のまま（番号も同じ）。組み替えたい時は「再シャッフル」
         setGeneratedPuzzle(buildGrid(placed));
+        searchedSigRef.current = poolSignature(placed);
         setEditTarget({ ...mine, title: rec.title });
         setEditStatus("editing");
         setStep(2);
@@ -563,6 +576,11 @@ export function CreatePage({ draftEnabled }: { draftEnabled: boolean }) {
           const s = d.step === 2 || d.step === 3 || d.step === 4 ? (d.step as Step) : 1;
           if (board) {
             setGeneratedPuzzle(buildGrid(board));
+            searchedSigRef.current = poolSignature(
+              evaluateCandidates(parseMarks(nextText))
+                .filter((c) => !c.reason)
+                .map((c) => ({ id: c.key, question: "", answer: c.cells })),
+            );
             setProposals(goodProps);
             setPicked(goodProps && typeof d.picked === "number" && goodProps[d.picked] ? d.picked : null);
             setStep(s);

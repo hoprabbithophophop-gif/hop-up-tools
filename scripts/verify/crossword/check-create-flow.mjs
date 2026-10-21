@@ -280,7 +280,8 @@ try {
     check((await missing.textContent()) === '全部の答えにカギとヒントが付きました。' && (await page.locator('[data-open-share]').isEnabled()), `(4) そろうと「${await missing.textContent()}」で「共有する」が押せる`);
     // カギは30字まで（Hop 決定 2026-10-21）。数え方は見た目の字数（絵文字も1字）
     const leftOf = (k) => page.locator(`[data-clue-row="${k}"] [data-clue-left], [data-clue-row="${k}"] [data-clue-over]`).first().textContent();
-    const draftLeft = 30 - Array.from(DRAFTS[k0].trim()).length;
+    // 欄に入っている文で数える（同じ行のほかの答えは□で隠れるので、書いた下書きとは字数が違うことがある。盤によって先頭の語が変わる）
+    const draftLeft = 30 - Array.from((await clueInput(page, k0).inputValue()).trim()).length;
     check((await leftOf(k0)) === `あと${draftLeft}字`, `(4) カギの欄の下に残り字数（${await leftOf(k0)}）`);
     const c30 = 'あ'.repeat(28) + '🐱😀';
     await clueInput(page, k0).fill(c30);
