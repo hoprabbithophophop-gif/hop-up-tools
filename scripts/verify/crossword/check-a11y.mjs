@@ -1,20 +1,26 @@
-// アクセシビリティの確かめ（2026-10-06）。手元の開発サーバー（vite）をこの台本が立ち上げ、終わったら止める。
-// 本番の棚は読むだけで、何も書かない（解くのは ?debug=true の見本の問題。受付係を通さない）。
+// アクセシビリティの確かめ（2026-10-06）。手元の開発サーバー（vite）をこの台本が仮の Supabase の住所で立ち上げ、終わったら止める。
+// 本番・プレビュー・Supabase にはつながない。棚は作り物（見本の問題2件）で答え、受付係には何も送らない（解くのは ?debug=true の見本の問題）。
+// 作る画面の部分は 2026-10-22 に案A「作る｜試す」（Hop 決定 2026-10-22）に合わせて書き直した。
 //   (1) axe-core を画面に差し込み、致命的（critical）・重大（serious）の指摘が0件か。場面は
-//       見本の問題（遊び方の窓・解く画面・入力カード）・練習問題・作る画面（1の段・ヒントの窓・2の段・3の段・4の窓）・問い合わせの窓・ギャラリー
+//       見本の問題（遊び方の窓・解く画面・入力カード）・練習問題・作る画面（見本の4行の状態・広げた盤・語の窓・共有の窓・試す）・問い合わせの窓・ギャラリー
 //       色のコントラスト（color-contrast）は色の決まり（DESIGN.md・Hop が決める）なので数に入れず、別に件数だけ出す
 //   (2) キーボードだけで見本の問題を解く: Tab で最初に盤に入ると 1行1列 → 止まっただけでは開かない → Enter でカード
 //       → フォーカスはカードの中 → Tab はカードの中だけで回る → 文字盤で字を入れる → Backspace・矢印が効く
 //       → Esc で閉じて元のマスへ戻る → 全部埋めると「解けました」を知らせの入れ物で知らせる
-//   (2) 作る画面もキーボード（Tab・Enter・矢印・Esc）だけで1の段から4の窓まで行ける（なぞる代わりに欄で選んで「【 】」。段が変わると見出しへフォーカス）
-//   (3) 窓（遊び方・ヒントの窓・4の窓・問い合わせ）は role="dialog"・名前つき・開くとフォーカスが中へ・Esc で閉じて元へ戻る
-//   作る画面の部分は 2026-10-21 に4段の流れに合わせて書き直した（作る画面の「?」と作り方の窓は 2026-10-20 に外れた）
+//   (2) 作る画面もキーボード（Tab・Enter・矢印・Esc）だけで、書く欄（欄で選んで「【 】」）→ 語の行 → 語の窓でカギとヒントを書く → Esc で閉じる
+//       → 「公開の準備」→ 共有の窓の題名 →「共有する」まで行ける（保存は押さない）
+//   (3) 窓（遊び方・広げた盤・語の窓・共有の窓・問い合わせ）は role="dialog"・名前つき・開くとフォーカスが中へ・Tab が中で回る・Esc で閉じて元へ戻る
+// 2026-10-22 に消した確かめ（4段の流れにしか無かった物）:
+//   - 「1の段（ヒントを付ける）」の axe と、下線の語（[data-bulk-mark]）に Enter でヒントの窓: 案A には「ヒントを付ける」の側が無い。ヒントは語の窓で付ける
+//   - 「段が変わるとフォーカスは段の見出しへ」: 段が無くなった
+//   - 「Esc で4の窓が閉じて3の段に戻る」（[data-create-step="3"]）: 段が無くなった。代わりに共有の窓は Esc で「公開の準備」のボタンへ戻るかを見る
+//   - 「組み合わせを探す」「この盤で進む」をキーボードで押す: 案A は書くそばで盤を組むのでボタンが無い
 // 使い方: node scripts/verify/crossword/check-a11y.mjs [サイト（省略すると手元の開発サーバーを立てる）]
 import { chromium } from 'playwright';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { arg, ROOT, watchStumbles } from './_lib.mjs';
-import { writeLines, hintMode, hintAllInAnswers, toBoard, toClues, openShare } from './_create.mjs';
+import { arg, ROOT, watchStumbles, isolatedViteConfig } from './_lib.mjs';
+import { waitBoard } from './_create.mjs';
 
 const PORT = 5195;
 const LOCAL = `http://localhost:${PORT}`;
@@ -45,8 +51,9 @@ function stopServer() {
   if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(server.pid), '/T', '/F'], { stdio: 'ignore' });
   else server.kill('SIGTERM');
 }
+process.on('exit', stopServer);
 async function startServer() {
-  server = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), '--port', String(PORT), '--strictPort'], {
+  server = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), '--config', isolatedViteConfig(PORT), '--port', String(PORT), '--strictPort'], {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, VITE_SUPABASE_URL: MOCK_SUPA, VITE_SUPABASE_ANON_KEY: 'mock-anon-key' },
@@ -150,6 +157,25 @@ const DEBUG_ANSWERS = {
 };
 const DEBUG_CELLS = ['0,0', '1,0', '1,1', '2,1', '1,2', '2,2', '2,3', '3,3'];
 
+// 下ごしらえ（2026-10-22）。手元の vite は画面が初めて読み込んだ部品をその場でまとめ直し、その時ページを読み込み直す。
+// 確かめの途中で読み込み直されると落ちるので、確かめの前に作る画面と「試す」と練習問題を一度開いておく。ここでは何も確かめない
+async function warmUp() {
+  const { ctx, page } = await newPage();
+  try {
+    await page.goto(`${BASE}/crossword/create`);
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await waitBoard(page).catch(() => {});
+    await page.locator('[data-mode-tab="try"]').click();
+    await page.locator('[data-trial] [id^="cell-"]').first().click({ timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+    await page.goto(`${BASE}/crossword/tutorial`);
+    await page.locator('#cell-0-0').waitFor({ timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+  } finally {
+    await ctx.close();
+  }
+}
+
 async function run() {
   // ===== (1) axe =====
   {
@@ -219,46 +245,42 @@ async function run() {
     await ctx.close();
   }
   {
-    // 作る画面（4段の流れ・2026-10-20）。1の段・ヒントの窓・2の段・3の段・4の窓で axe。窓は名前つき・フォーカスが中・Tab が中で回る・Esc で閉じて元へ
-    const { ctx, page } = await newPage({ width: 1280 });
+    // 作る画面（案A・2026-10-22）。見本の4行の状態・広げた盤・語の窓・共有の窓・試すで axe。
+    // 窓は名前つき・開くとフォーカスが中・Tab が中で回る・Esc で閉じて開いたボタンへ戻る（窓はキーボードの Enter で開く）
+    const { ctx, page } = await newPage();
     await page.goto(`${BASE}/crossword/create`);
     await page.locator('[data-bulk-text]').waitFor({ timeout: 20000 });
+    await waitBoard(page);
     await page.waitForTimeout(500);
-    await axeScan(page, '作る画面・1の段（書く）');
-    await writeLines(page, 'ニャーと鳴く動物→【ネコ】\n【コアラ】はユーカリを食べる');
-    await hintMode(page);
-    await axeScan(page, '作る画面・1の段（ヒントを付ける）');
-    // ヒントの窓（下線の語に Enter）
-    await page.locator('[data-bulk-mark="ネコ"]').focus();
-    await page.keyboard.press('Enter');
-    await page.locator('[data-hint-sheet]').waitFor({ timeout: 5000 });
-    await page.waitForTimeout(400);
-    await axeScan(page, '作る画面・ヒントの窓');
-    const a = await active(page);
-    check(a.inDialog && (await dialogName(page)) === '「ネコ」のヒント', `(3) ヒントの窓は名前つき（${await dialogName(page)}）で、開くとフォーカスは窓の中（${a.tag} ${a.text || a.label}）`);
-    check(await tabStays(page, 15), '(3) ヒントの窓の中で Tab が回る（外へ出ない）');
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(400);
-    const b = await active(page);
-    check(!(await dialogOpen(page)) && b.label === 'ネコ を選ぶ', `(3) Esc でヒントの窓が閉じて、押した語へ戻る（${b.tag} ${b.label}）`);
-    await hintAllInAnswers(page, ['ネコ', 'コアラ']);
-    await toBoard(page);
-    await page.waitForTimeout(300);
-    await axeScan(page, '作る画面・2の段');
-    await toClues(page);
-    await page.waitForTimeout(300);
-    const h = await active(page);
-    check(h.tag === 'H2' && h.text === 'カギを書く', `(2) 段が変わるとフォーカスは段の見出しへ（${h.tag} ${h.text}）`);
-    await axeScan(page, '作る画面・3の段');
-    await openShare(page);
-    await page.waitForTimeout(400);
-    await axeScan(page, '作る画面・4の窓（共有する）');
-    const c = await active(page);
-    check(c.inDialog && (await dialogName(page)) === '共有する', `(3) 4の窓は名前つき（${await dialogName(page)}）で、開くとフォーカスは窓の中（${c.tag} ${c.text || c.label}）`);
-    check(await tabStays(page, 15), '(3) 4の窓の中で Tab が回る（外へ出ない）');
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(400);
-    check(!(await dialogOpen(page)) && (await page.locator('[data-create-step="3"]').count()) === 1, '(3) Esc で4の窓が閉じて3の段に戻る');
+    await axeScan(page, '作る画面（見本の4行）');
+    const focusOn = (sel) => page.evaluate((x) => !!document.activeElement?.matches(x), sel);
+    const dialogs = [
+      { label: '広げた盤', opener: '[data-mini-open]', sheet: '[data-board-sheet]', name: '盤' },
+      { label: '語の窓', opener: '[data-word-row="ネコ"]', sheet: '[data-word-sheet="ネコ"]', name: '「ネコ」のカギとヒント' },
+      { label: '共有の窓', opener: '[data-dock-share]', sheet: '[data-share-sheet]', name: '共有する' },
+    ];
+    for (const d of dialogs) {
+      await page.locator(d.opener).scrollIntoViewIfNeeded();
+      await page.locator(d.opener).focus();
+      await page.keyboard.press('Enter');
+      await page.locator(d.sheet).waitFor({ timeout: 5000 });
+      await page.waitForTimeout(500); // 窓が出る動き（0.15秒）とフォーカスの移動を待つ
+      await axeScan(page, `作る画面・${d.label}`);
+      const a = await active(page);
+      const role = await page.locator(d.sheet).evaluate((el) => `${el.getAttribute('role')}/${el.getAttribute('aria-modal')}`);
+      check(role === 'dialog/true' && a.inDialog && (await dialogName(page)) === d.name, `(3) ${d.label}は role="dialog"・名前つき（${await dialogName(page)}）で、開くとフォーカスは窓の中（${a.tag} ${a.text || a.label}）`);
+      check(await tabStays(page, 15), `(3) ${d.label}の中で Tab が回る（外へ出ない）`);
+      await page.keyboard.press('Escape');
+      await page.locator(d.sheet).waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(300);
+      const b = await active(page);
+      check(!(await dialogOpen(page)) && (await focusOn(d.opener)), `(3) Esc で${d.label}が閉じて、開いたボタンへ戻る（${b.tag} ${b.label || b.text}）`);
+    }
+    // 試す（解く画面の部品）
+    await page.locator('[data-mode-tab="try"]').click();
+    await page.locator('[data-trial] [id^="cell-"]').first().waitFor({ timeout: 20000 });
+    await page.waitForTimeout(2500); // 組み上がりの演出
+    await axeScan(page, '作る画面・試す');
     await ctx.close();
   }
   {
@@ -280,16 +302,20 @@ async function run() {
     await ctx.close();
   }
   {
-    // (2) 作る画面もキーボードだけで1の段から4の窓まで行ける（なぞる代わりに、欄で文字を選んで「【 】」ボタン）
+    // (2) 作る画面もキーボードだけで、書く欄 → 語の行 → 語の窓でカギとヒント → Esc → 公開の準備 → 共有の窓の「共有する」まで行ける（保存は押さない）
     const { ctx, page } = await newPage({ width: 1280 });
     await page.goto(`${BASE}/crossword/create`);
     await page.locator('[data-bulk-text]').waitFor({ timeout: 20000 });
     await page.waitForTimeout(500);
     const reached = [];
     const step = async (label, ok) => { reached.push(`${ok ? '○' : '×'}${label}`); if (!ok) throw new Error(`キーボードで ${label} に行けない`); };
+    const WORDS = [{ w: 'ネコ', clue: 'ニャーと鳴く動物' }, { w: 'コアラ', clue: 'ユーカリを食べる動物' }];
     try {
       await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0); });
       await step('書く欄', await tabTo(page, '#cw-bulk-text'));
+      // 見本の4行が入っているので、全部選んで消してから書く
+      await page.keyboard.press('Control+A');
+      await page.keyboard.press('Delete');
       await page.keyboard.insertText('ニャーと鳴く動物→ネコ\nコアラはユーカリを食べる');
       // 1行目の「ネコ」を Shift＋矢印で選び、Tab で「【 】」へ移って Enter
       await page.keyboard.press('Control+Home');
@@ -307,33 +333,31 @@ async function run() {
       await page.waitForTimeout(200);
       const v = await page.locator('[data-bulk-text]').inputValue();
       await step(`【 】で囲めた（${v.replace(/\n/g, ' ／ ')}）`, v === 'ニャーと鳴く動物→【ネコ】\n【コアラ】はユーカリを食べる');
-      await step('「ヒントを付ける」', await tabTo(page, '[data-bulk-mode-button="hint"]'));
-      await page.keyboard.press('Enter');
-      await page.locator('[data-bulk-lines]').waitFor({ timeout: 5000 });
-      for (const w of ['ネコ', 'コアラ']) {
-        await step(`下線の語「${w}」`, await tabTo(page, `[data-bulk-mark="${w}"]`));
+      await waitBoard(page);
+      for (const { w, clue } of WORDS) {
+        await step(`語の行「${w}」`, await tabTo(page, `[data-word-row="${w}"]`));
         await page.keyboard.press('Enter');
-        await page.locator('[data-hint-sheet]').waitFor({ timeout: 5000 });
-        await step(`「${w}」のヒントの欄`, await tabTo(page, '[data-hint-sheet] #cw-hint'));
+        await page.locator(`[data-word-sheet="${w}"]`).waitFor({ timeout: 5000 });
+        await step(`「${w}」のカギの欄`, await tabTo(page, '[data-word-sheet] #cw-clue'));
+        await page.keyboard.press('Control+A');
+        await page.keyboard.insertText(clue);
+        await step(`「${w}」のヒントの欄`, await tabTo(page, '[data-word-sheet] #cw-hint'));
         await page.keyboard.insertText(`https://example.com/${encodeURIComponent(w)}`);
-        await page.locator('[data-hint-sheet] [data-hint-kind]').waitFor({ timeout: 5000 });
+        await page.locator('[data-word-sheet] [data-hint-kind]').waitFor({ timeout: 5000 });
         await page.keyboard.press('Escape');
-        await page.locator('[data-hint-sheet]').waitFor({ state: 'detached', timeout: 5000 });
+        await page.locator('[data-word-sheet]').waitFor({ state: 'detached', timeout: 5000 });
       }
-      await step('「組み合わせを探す」', await tabTo(page, '[data-bulk-search]'));
-      await page.keyboard.press('Enter');
-      await page.locator('[data-bulk-adopt]:enabled').waitFor({ timeout: 45000 });
-      await step('「この盤で進む」', await tabTo(page, '[data-bulk-adopt]'));
-      await page.keyboard.press('Enter');
-      await page.locator('[data-create-step="3"]').waitFor({ timeout: 5000 });
-      await step('「共有する」', await tabTo(page, '[data-open-share]'));
+      await step('「公開の準備」', await tabTo(page, '[data-dock-share]'));
       await page.keyboard.press('Enter');
       await page.locator('[data-share-sheet]').waitFor({ timeout: 5000 });
       await step('題名の欄', await tabTo(page, '#cw-title'));
       await page.keyboard.insertText('キーボードの確かめ');
-      await step('4の窓の「共有する」', await tabTo(page, '[data-share-sheet] [data-save]'));
+      await step('共有の窓の「共有する」', await tabTo(page, '[data-share-sheet] [data-save]'));
     } catch { /* 下で NG にする */ }
-    check(!reached.some((r) => r.startsWith('×')) && reached.length === 14, `(2) キーボード（Tab・Enter・矢印・Esc）だけで1の段から4の窓の「共有する」まで行ける（${reached.join(' → ')}）`);
+    check(!reached.some((r) => r.startsWith('×')) && reached.length === 13, `(2) キーボード（Tab・Enter・矢印・Esc）だけで書く欄から共有の窓の「共有する」まで行ける（${reached.join(' → ')}）`);
+    const blocks = await page.locator('[data-share-blocks]').getAttribute('data-share-blocks').catch(() => null);
+    const why = blocks === 'ok' ? 'なし' : await page.locator('[data-share-blocks]').textContent().catch(() => '-');
+    check(blocks === 'ok' && (await page.locator('[data-share-sheet] [data-save]').isEnabled().catch(() => false)), `(2) キーボードで書いたカギとヒントで、共有の窓の「共有する」が押せる状態になる（押せない理由: ${why}）`);
     await ctx.close();
   }
   {
@@ -479,6 +503,7 @@ async function run() {
 try {
   if (BASE === LOCAL) await startServer();
   browser = await chromium.launch();
+  if (BASE === LOCAL) await warmUp();
   await run();
 } catch (e) {
   console.log(`NG 台本が途中で止まった: ${e.stack || e.message}`);

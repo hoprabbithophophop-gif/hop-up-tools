@@ -1,20 +1,29 @@
-// 作る側と解く側のチュートリアル（Hop 決定 2026-10-05「止めない・読ませない・その場で1行」）を確かめる。
-// 手元の開発サーバー（vite）をこの台本が立ち上げ、終わったら止める。本番の棚は読むだけで、何も書かない
-// （解く側の練習問題は受付係を通さない。作る側の「共有する」は、人間確認と保存の受付係をブラウザの中で受け止めて、外へ出さない）。
+// 作る側と解く側の「初めて」の案内（Hop 決定 2026-10-05「止めない・読ませない・その場で1行」）を確かめる。
+// 作る画面は 2026-10-22 に案A「作る｜試す」に作り直した（Hop 決定 2026-10-22）。(c) の作る画面の札をそれに合わせて書き直した（同日）。
+// 本番にもプレビューにも Supabase にもつながない（2026-10-19 Hop「本番環境から見える形で検収用パズル登録を二度とするな」）。
+// 手元の vite をこの台本が仮の Supabase の住所で立ち上げ、終わったら止める。棚（/rest/v1）と受付係（/api/crossword-play）は
+// ブラウザの中の作り物が台本の中の見本の問題で答える（check-pause・check-review-fixes と同じ作り）。前は本物の棚の問題（targets.json の puzzleId）を読んでいたが、それをやめた（2026-10-22）。
 //   (a) 記録が空の端末で問題を開く → 遊び方の窓は「始める！」だけ → 始めると最初のマスが脈打ち、盤の下に1行
 //       → マスを押すと両方消える → 開き直しても出ない。幕は無い
 //   (b) 「?」→「練習する」→ 案内は2段（×つき）→ 案内なしで解き切る → ハンコ → 「本番へ」。見出しの戻る矢印はいつも出ている
-//   (c) 作る画面（4段の流れ・2026-10-21 に書き直し）: 初めて開いても案内（幕）は出ない → 1の段で答えが1つ → 札1 → × → 2語目 → 2の段で盤 → 札2 → ×
-//       → 3の段 → 4の窓（共有する）に札3 → × → 二度目は出ない（保存は押さない）
+//   (c) 作る画面（案A）: 初めて開いても幕の案内は出ない（見本の4行が入っていて札も出ない）→ 見本を消して答えを1つにすると札 cross（書く欄の下）→ ×
+//       → 2語にして広げた盤を開くと札 move（盤の下）→ × → 「公開の準備」の共有の窓に札 saved（題名の欄より上）→ ×（保存は押さない）
+//       → 開き直しても札 cross・move・saved は二度と出ない
 //   (d) 作る画面に「?」（パズルの作り方）と11段の案内は無い（2026-10-20 Hop 決定で外した）
-//   (e) 受付係・棚への書き込み（保存・更新・記録・通報・削除）は0回。本物の問題を開く時の回の開始は数えない
+//   (e) 受付係・棚への書き込み（保存・更新・記録・通報・削除）は0回。問題を開く時の回の開始（/api/crossword-play）と、読むだけの rpc/crossword_is_hidden は数えない
 // 場面ごとに 390px の写真を残し、吹き出しと「×」が画面に収まっているか・横にはみ出したスクロールが無いかを見る。
-// 使い方: node scripts/verify/crossword/check-tutorial.mjs [サイト（省略すると手元の開発サーバーを立てる）] [問題の番号]
+// 2026-10-22 に消した確かめ:
+//   - 「2の段で盤ができると札2」「3の段から4の窓」: 4段の流れが無くなった。札 move は広げた盤の中、札 saved は「公開の準備」の共有の窓の中で見る
+//   - 4の窓の「3の段へ戻る」（[data-step-back="3"]）での開き直し: 段が無くなったので、共有の窓の「閉じる」で閉じて開き直す
+//   - 「答えが無い間は札も出ない」: 初めて開くと見本の4行が入っているので、答えが無い状態から始まらなくなった。代わりに「見本の4行の間は札が出ない」を見る
+//   - 本物の問題が読めない時（「supabaseUrl is required」）に見本の問題 /crossword/create?debug=true へ切り替える迂回: 手元ではいつも作り物の棚で答えるので要らなくなった
+// 使い方: node scripts/verify/crossword/check-tutorial.mjs [サイト（省略すると手元の開発サーバーを立てる）] [問題の番号（サイトを渡した時だけ使う）]
+//   サイトを渡した時は棚と受付係の作り物を使わず、そのサイトの棚と受付係へ行く（読むだけ。保存は台本が受け止めて外へ出さない）
 import { chromium } from 'playwright';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { arg, outDir, ROOT, ID_DEFAULT, leaveFirstVisitMarks, cellAt, watchStumbles } from './_lib.mjs';
-import { writeLines, toBoard, toClues, hintAllInClues, openShare } from './_create.mjs';
+import { arg, outDir, ROOT, ID_DEFAULT, leaveFirstVisitMarks, cellAt, watchStumbles, isolatedViteConfig } from './_lib.mjs';
+import { SAMPLE, writeLines, waitBoard, openBoard, closeBoard, openShare, closeShare } from './_create.mjs';
 
 // 「初めて」の印を立てずに流す（ほかの台本は _lib.mjs が印を立ててから開く）
 leaveFirstVisitMarks();
@@ -22,7 +31,25 @@ leaveFirstVisitMarks();
 const PORT = 5191;
 const LOCAL = `http://localhost:${PORT}`;
 const BASE = arg(2, LOCAL);
-const ID = arg(3, ID_DEFAULT);
+const IS_LOCAL = BASE === LOCAL;
+const MOCK_SUPA = 'https://mock-supabase.invalid';
+// 見本の問題（check-pause と同じ形）。盤: バキ 横(0,0)・キクラ 縦(1,0)。1番のカギは横で (0,0) から始まる（(a) の脈打ちの確かめに使う）
+const MOCK_ID = 'MOCKTUT1';
+const ID = IS_LOCAL ? MOCK_ID : arg(3, ID_DEFAULT);
+const SOLUTION = { '0,0': 'バ', '1,0': 'キ', '1,1': 'ク', '1,2': 'ラ' };
+const ANSWERS = [['バ', 'キ'], ['キ', 'ク', 'ラ']];
+const ROWS = [{
+  id: MOCK_ID, title: 'チュートリアルの見本', genre: 'hello', tags: [], created_at: '2026-10-22T00:00:00Z', play_count: 0, is_beginner: false, group_tags: [],
+  body: {
+    version: 1, width: 2, height: 3, creatorName: '台本',
+    clues: [
+      { clueIndex: 1, direction: 'horizontal', startX: 0, startY: 0, clue: 'ヨコの見本のカギ', length: 2, hint: { kind: 'link', url: 'https://example.com/' } },
+      { clueIndex: 2, direction: 'vertical', startX: 1, startY: 0, clue: 'タテの見本のカギ', length: 3, hint: { kind: 'link', url: 'https://example.com/' } },
+    ],
+  },
+}];
+// 読むだけの呼び出し（_lib.mjs の READ_ONLY_RPC と同じ）。POST で届くが書き込みではない
+const READ_ONLY_RPC = ['/rest/v1/rpc/crossword_is_hidden'];
 const OUT = outDir('check-tutorial');
 const W = 390;
 
@@ -39,8 +66,14 @@ function stopServer() {
   if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(server.pid), '/T', '/F'], { stdio: 'ignore' });
   else server.kill('SIGTERM');
 }
+process.on('exit', stopServer);
 async function startServer() {
-  server = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), '--port', String(PORT), '--strictPort'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  server = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), '--config', isolatedViteConfig(PORT), '--port', String(PORT), '--strictPort'], {
+    cwd: ROOT,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    // 仮の Supabase の住所で立てる（本物の棚にはつながない。鍵も作り物）
+    env: { ...process.env, VITE_SUPABASE_URL: MOCK_SUPA, VITE_SUPABASE_ANON_KEY: 'mock-anon-key' },
+  });
   let log = '';
   server.stdout.on('data', (d) => (log += d));
   server.stderr.on('data', (d) => (log += d));
@@ -71,8 +104,42 @@ async function newCtx() {
     const m = r.method();
     if (u.includes('/api/crossword-save')) return; // 下の受け止め役が外へ出さずに返す
     if (u.includes('/api/crossword-play')) return; // 本物の問題を開く (a) では回を始める通信が正しく起きる。練習中の0回は (b) で別に見る
-    if (u.includes('/api/crossword-') || (u.includes('/rest/v1/') && m !== 'GET' && m !== 'HEAD')) writes.push(`${m} ${u.replace(/\?.*/, '')}`);
+    const readOnly = READ_ONLY_RPC.some((x) => u.replace(/\?.*/, '').endsWith(x));
+    if (u.includes('/api/crossword-') || (u.includes('/rest/v1/') && m !== 'GET' && m !== 'HEAD' && !readOnly)) writes.push(`${m} ${u.replace(/\?.*/, '')}`);
   });
+  if (IS_LOCAL) {
+    // 棚の作り物（見本の問題1件だけを返す）
+    await ctx.route(`${MOCK_SUPA}/**`, (route) => {
+      const u = new URL(route.request().url());
+      const json = (body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+      if (u.pathname.endsWith('/rpc/crossword_is_hidden')) return json(false);
+      const table = u.pathname.split('/').pop();
+      let rows = table === 'crossword_puzzles' ? ROWS : [];
+      const idEq = u.searchParams.get('id');
+      if (idEq?.startsWith('eq.')) rows = rows.filter((r) => r.id === idEq.slice(3));
+      if ((route.request().headers()['accept'] ?? '').includes('vnd.pgrst.object')) return json(rows[0] ?? null);
+      return json(rows);
+    });
+    // 受付係の作り物（回の始まり・合図・答え合わせ・1文字見る）。ほかの受付係は 503 で断る
+    await ctx.route('**/api/**', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
+    await ctx.route('**/api/crossword-play', (route) => {
+      const body = JSON.parse(route.request().postData() || '{}');
+      const reply = (o) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, ...o }) });
+      switch (body.action) {
+        case 'start': return reply({ token: 'tok-tutorial', startedAt: Date.now() });
+        case 'touch': return reply({ counted: true });
+        case 'resume': case 'pause': case 'ping': return reply({ activeMs: 0, open: body.action !== 'pause' });
+        case 'check': {
+          const correct = Object.keys(SOLUTION).every((k) => body.answers?.[k] === SOLUTION[k]);
+          return reply(correct ? { correct, answers: ANSWERS, timeSeconds: 10, rankable: false } : { correct });
+        }
+        case 'reveal': return reply({ char: SOLUTION[`${body.x},${body.y}`], reveals: 1 });
+        default: return route.fulfill({ status: 400, body: '{}' });
+      }
+    });
+    // 外のサイト（YouTube・広告・計測）へは出さない
+    await ctx.route(/^https:\/\/(i\.ytimg\.com|www\.youtube\.com|www\.youtube-nocookie\.com|[a-z.]*cloudflareinsights\.com|pagead2\.googlesyndication\.com)\//, (r) => r.fulfill({ status: 204, body: '' }));
+  }
   // 保存の直前の人間確認（Turnstile）は、すぐ通ったことにする見本に差し替える（外の確かめには行かない）
   await ctx.route('https://challenges.cloudflare.com/turnstile/**', (r) =>
     r.fulfill({ contentType: 'application/javascript', body: 'window.turnstile={render:function(el,o){setTimeout(function(){o.callback("check-tutorial")},50);return "w"},remove:function(){}};' })
@@ -154,29 +221,43 @@ const closeSheet = async (page) => {
   await page.locator('[data-coach="closeup-head"]').getByRole('button', { name: '閉じる' }).click();
   await page.waitForTimeout(500);
 };
+// 下ごしらえ（2026-10-22）。手元の vite は画面が初めて読み込んだ部品をその場でまとめ直し、その時ページを読み込み直す。
+// 確かめの途中で読み込み直されると落ちるので、確かめの前に解く画面・作る画面・「試す」・練習問題を一度ずつ開いておく。ここでは何も確かめない
+async function warmUp() {
+  const { ctx, page } = await newCtx();
+  try {
+    await page.goto(`${BASE}/crossword/${ID}`);
+    await page.getByRole('button', { name: /始める！/ }).waitFor({ timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(2000);
+    await page.goto(`${BASE}/crossword/create`);
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await waitBoard(page).catch(() => {});
+    await page.locator('[data-mode-tab="try"]').click();
+    await page.locator('[data-trial] [id^="cell-"]').first().click({ timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+    await page.goto(`${BASE}/crossword/tutorial`);
+    await page.locator('#cell-0-0').waitFor({ timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(2000);
+  } finally {
+    await ctx.close();
+  }
+}
+
 async function run() {
   // ===== (a) 解く側: 初めての脈打ちと1行 =====
-  let entryPath = `/crossword/${ID}`;
-  let fromExpected = ID;
+  const entryPath = `/crossword/${ID}`;
+  const fromExpected = ID;
   const playCalls = [];
   {
     const { ctx, page } = await newCtx();
     let counting = false;
     ctx.on('request', (r) => {
-      if (counting && r.url().includes('/api/crossword-play')) playCalls.push(`${r.method()} ${r.url()}`);
+      if (counting && r.url().includes('/api/crossword-play')) playCalls.push(`${r.method()} ${r.url().replace(/^https?:\/\/[^/]+/, '')} ${(() => { try { return JSON.parse(r.postData() || '{}').action; } catch { return '?'; } })()} ${page.url().replace(/^https?:\/\/[^/]+/, '')}`);
     });
     const notes = [];
     page.on('console', (m) => m.type() === 'error' && notes.push(m.text().slice(0, 160)));
     await page.goto(`${BASE}${entryPath}`);
-    const waitStart = () => page.getByRole('button', { name: /始める！/ }).waitFor({ timeout: 30000 }).then(() => true).catch(() => false);
-    let opened = await waitStart();
-    if (!opened && notes.some((n) => n.includes('supabaseUrl is required'))) {
-      console.log(`   手元の開発サーバーは棚の設定を持っていない（「supabaseUrl is required」）。本物の問題 ${ID} の代わりに見本の問題 /crossword/create?debug=true で確かめる`);
-      entryPath = '/crossword/create?debug=true';
-      fromExpected = null;
-      await page.goto(`${BASE}${entryPath}`);
-      opened = await waitStart();
-    }
+    const opened = await page.getByRole('button', { name: /始める！/ }).waitFor({ timeout: 30000 }).then(() => true).catch(() => false);
     check(opened, `(a) 記録が空の端末で解く画面（${entryPath}）を開くと遊び方の窓に「始める！」が出る`);
     if (!opened) throw new Error(`解く画面が開けない: ${notes.join(' ／ ')}`);
     await page.waitForTimeout(2500); // ページ移動の波が引くのを待つ
@@ -216,10 +297,12 @@ async function run() {
     await page.getByTitle('遊び方').first().click();
     await page.getByRole('button', { name: '練習する' }).waitFor();
     await page.screenshot({ path: path.join(OUT, 'b0-help-practice.png') });
-    counting = true; // 練習が終わるまで受付係への通信を数える
     await page.getByRole('button', { name: '練習する' }).click();
     await page.waitForURL((u) => u.pathname === '/crossword/tutorial', { timeout: 15000 });
-    check(new URL(page.url()).searchParams.get('from') === fromExpected, `(b) 練習問題の住所へ移る（from=${fromExpected ?? 'なし（見本の問題には番号が無い）'}）`);
+    // 本物の問題の画面を離れる時の一時停止（pause）は、離れた問題の回の合図で練習の通信ではない。それが出終わってから数え始める（2026-10-22）
+    await page.waitForTimeout(1000);
+    counting = true; // 練習が終わるまで受付係への通信を数える
+    check(new URL(page.url()).searchParams.get('from') === fromExpected, `(b) 練習問題の住所へ移る（from=${fromExpected}）`);
     await waitBubble(page, '左上のマスを押してみましょう', '(b) 段1');
     check((await nextBtn(page).count()) === 0, '(b) 段1 は「次へ」が無く、マスを押して進む');
     check(await page.locator('header').getByRole('button', { name: '本番へ' }).isVisible(), '(b) 練習中も見出しの戻る矢印が出ている');
@@ -253,18 +336,11 @@ async function run() {
     const real = page.locator('[data-coach="tutorial-done"]').getByRole('button', { name: '本番へ' });
     check(await real.isVisible(), '(b) ハンコの後に「本番へ」が出ている');
     await page.screenshot({ path: path.join(OUT, 'b3-done.png') });
-    check(playCalls.length === 0, `(b) 練習中に受付係（/api/crossword-play）への通信が無い（${playCalls.length}回）`);
+    check(playCalls.length === 0, `(b) 練習中に受付係（/api/crossword-play）への通信が無い（${playCalls.length}回${playCalls.length ? ': ' + playCalls.join(' / ') : ''}）`);
     counting = false;
     await real.click();
-    const backPath = fromExpected ? `/crossword/${fromExpected}` : '/crossword';
+    const backPath = `/crossword/${fromExpected}`;
     check(await page.waitForURL((u) => u.pathname === backPath, { timeout: 15000 }).then(() => true).catch(() => false), `(b) 「本番へ」で ${backPath} へ移る`);
-    if (!fromExpected) {
-      await page.goto(`${BASE}/crossword/tutorial?from=${ID}`);
-      await waitBubble(page, '左上のマスを押してみましょう', '(b) 番号つきの練習問題');
-      await page.locator('[data-coach-close]').click();
-      await page.locator('[data-coach="tutorial-done"]').getByRole('button', { name: '本番へ' }).click();
-      check(await page.waitForURL((u) => u.pathname === `/crossword/${ID}`, { timeout: 15000 }).then(() => true).catch(() => false), `(b) /crossword/tutorial?from=${ID} の「本番へ」で元の問題 /crossword/${ID} へ移る`);
-    }
     await ctx.close();
   }
 
@@ -296,71 +372,84 @@ async function run() {
     await ctx.close();
   }
 
-  // ===== (c) 作る側: 場面ごとの札（4段の流れ・2026-10-21 に書き直し） =====
-  // 1の段は「書く」の側だけで進める（「ヒントを付ける」の側は初めての端末でなぞる動きが出る。なぞる動きは check-create-flow が見る）
+  // ===== (c) 作る側: 場面ごとの札（案A・2026-10-22 に書き直し）。札は cross（答えが1つの時・書く欄の下）・move（広げた盤の中）・saved（共有の窓の中）の3つ =====
   {
     const { ctx, page } = await newCtx();
     await page.goto(`${BASE}/crossword/create`);
     await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
     await page.waitForTimeout(2500);
     check((await page.locator('[data-coach-layer]').count()) === 0, '(c) 作る画面を初めて開いても幕つきの案内は出ない');
-    check((await page.locator('[data-tip]').count()) === 0, '(c) 答えが無い間は札も出ない');
+    check((await page.locator('[data-bulk-text]').inputValue()) === SAMPLE, '(c) 初めて開くと書く欄に見本の4行が入っている');
+    check((await page.locator('[data-tip]').count()) === 0, '(c) 見本の4行（答えが4つ）の間は札が出ない');
     await page.screenshot({ path: path.join(OUT, 'c0-create.png') });
+    // 札 cross: 見本を消して答えを1つにする
     await writeLines(page, 'ニャーと鳴く動物→【ネコ】');
     const tip1 = await page.locator('[data-tip="cross"]').waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
-    check(tip1, '(c) 1の段で答えが1つになると札1 が出る');
-    check((await page.locator('[data-tip="cross"]').innerText().catch(() => '')).includes('もう1語足すと、同じ字で交差して組まれます'), '(c) 札1 の文「もう1語足すと、同じ字で交差して組まれます」');
+    check(tip1, '(c) 見本を消して答えを1つにすると札 cross が出る');
+    check((await page.locator('[data-tip="cross"]').innerText().catch(() => '')).includes('もう1語足すと、同じ字で交差して組まれます'), '(c) 札 cross の文「もう1語足すと、同じ字で交差して組まれます」');
     check((await page.locator('[data-tip]').count()) === 1 && (await page.locator('[data-coach-layer]').count()) === 0, '(c) 札は1つだけ・幕は無い');
+    const below1 = await page.evaluate(() => {
+      const a = document.querySelector('[data-bulk-text]')?.getBoundingClientRect();
+      const t = document.querySelector('[data-tip="cross"]')?.getBoundingClientRect();
+      return !!a && !!t && t.top >= a.bottom - 1;
+    });
+    check(below1, '(c) 札 cross は書く欄の下');
     await page.locator('[data-tip="cross"]').scrollIntoViewIfNeeded();
     await shot(page, 'c1-tip-cross');
     await page.locator('[data-tip="cross"]').getByRole('button', { name: '閉じる' }).click();
-    check((await page.locator('[data-tip]').count()) === 0, '(c) 札1 の × で消える');
+    check((await page.locator('[data-tip]').count()) === 0, '(c) 札 cross の × で消える');
+    // 札 move: 2語にして盤ができたら、小さい盤を押して広げた盤を開く
     await writeLines(page, 'ニャーと鳴く動物→【ネコ】\n【コアラ】はユーカリを食べる');
-    await toBoard(page);
-    const tip2 = await page.locator('[data-tip="move"]').waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
-    check(tip2, '(c) 2の段で盤ができると札2 が出る');
-    check((await page.locator('[data-tip="move"]').innerText().catch(() => '')).includes('盤の語は長押しで動かせます'), '(c) 札2 の文「盤の語は長押しで動かせます」');
+    await waitBoard(page);
+    check((await page.locator('[data-tip]').count()) === 0, '(c) 札 move は広げた盤を開くまで出ない（作る画面には出ない）');
+    await openBoard(page);
+    const tip2 = await page.locator('[data-board-sheet] [data-tip="move"]').waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+    check(tip2, '(c) 広げた盤に盤が出ると札 move が出る');
+    check((await page.locator('[data-tip="move"]').innerText().catch(() => '')).includes('盤の語は長押しで動かせます'), '(c) 札 move の文「盤の語は長押しで動かせます」');
     const below2 = await page.evaluate(() => {
       const b = document.querySelector('[data-create-board]')?.getBoundingClientRect();
       const t = document.querySelector('[data-tip="move"]')?.getBoundingClientRect();
       return !!b && !!t && t.top >= b.bottom - 1;
     });
-    check(below2, '(c) 札2 は盤の下');
+    check(below2, '(c) 札 move は盤の下');
     check((await page.locator('[data-tip]').count()) === 1, '(c) 札は1つだけ');
     await page.locator('[data-tip="move"]').scrollIntoViewIfNeeded();
     await shot(page, 'c2-tip-move');
     await page.locator('[data-tip="move"]').getByRole('button', { name: '閉じる' }).click();
-    check((await page.locator('[data-tip]').count()) === 0, '(c) 札2 の × で消える');
-    await toClues(page);
-    await hintAllInClues(page); // ヒントは https のリンク（棚を読まない）
+    check((await page.locator('[data-tip]').count()) === 0, '(c) 札 move の × で消える');
+    await closeBoard(page);
+    // 札 saved: 「公開の準備」で共有の窓（カギとヒントが無くても窓は開く。保存は押さない）
     await openShare(page);
     const tip3 = page.locator('[data-share-sheet] [data-tip="saved"]');
-    check((await tip3.innerText().catch(() => '')).includes('作りかけはこの端末に自動で残ります。作った問題は「自分が作った問題」にあり、遊ばれる前なら組み直せます'), '(c) 4の窓（共有する）の中に札3 が出る');
+    check((await tip3.innerText().catch(() => '')).includes('作りかけはこの端末に自動で残ります。作った問題は「自分が作った問題」にあり、遊ばれる前なら組み直せます'), '(c) 共有の窓の中に札 saved が出る');
     const above = await page.evaluate(() => {
       const t = document.querySelector('[data-share-sheet] [data-tip="saved"]')?.getBoundingClientRect();
       const title = document.querySelector('#cw-title')?.getBoundingClientRect();
       return !!t && !!title && t.bottom <= title.top + 1;
     });
-    check(above, '(c) 札3 は窓の上（題名の欄より上）');
+    check(above, '(c) 札 saved は窓の上（題名の欄より上）');
     await shot(page, 'c3-tip-saved');
     await tip3.getByRole('button', { name: '閉じる' }).click();
-    check((await page.locator('[data-tip]').count()) === 0, '(c) 札3 の × で消える');
-    await page.locator('[data-share-sheet] [data-step-back="3"]').click();
+    check((await page.locator('[data-tip]').count()) === 0, '(c) 札 saved の × で消える');
+    await closeShare(page);
     await openShare(page);
-    check((await page.locator('[data-tip="saved"]').count()) === 0, '(c) 二度目の共有の窓には札3 は出ない');
-    await page.locator('[data-share-sheet] [data-step-back="3"]').click();
-    // 開き直して1語目から作り直しても、札1・札2 はもう出ない
+    check((await page.locator('[data-tip="saved"]').count()) === 0, '(c) 二度目の共有の窓には札 saved は出ない');
+    await closeShare(page);
+    // 作りかけを消して開き直し、1語目から作り直しても、札 cross・move はもう出ない
     await page.evaluate(() => localStorage.removeItem('crossword_draft'));
     await page.reload();
     await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
     await writeLines(page, 'ニャーと鳴く動物→【ネコ】');
     await page.waitForTimeout(1000);
-    check((await page.locator('[data-tip]').count()) === 0, '(c) 二度目は札1 が出ない');
+    check((await page.locator('[data-tip]').count()) === 0, '(c) 二度目は札 cross が出ない');
     await writeLines(page, 'ニャーと鳴く動物→【ネコ】\n【コアラ】はユーカリを食べる');
-    await toBoard(page);
+    await waitBoard(page);
+    await openBoard(page);
     await page.waitForTimeout(1000);
-    check((await page.locator('[data-tip]').count()) === 0, '(c) 二度目は札2 も出ない');
-    const keys = await page.evaluate(() => ['crossword_seen_first_cell', 'crossword_seen_tip_cross', 'crossword_seen_tip_move', 'crossword_seen_tip_saved', 'crossword_seen_trace'].map((k) => `${k}=${localStorage.getItem(k)}`).join(' '));
+    check((await page.locator('[data-tip]').count()) === 0, '(c) 二度目は広げた盤に札 move も出ない');
+    await closeBoard(page);
+    check(mockedSaves === 0, `(c) 保存は一度も押していない（台本が受け止めた保存 ${mockedSaves}回）`);
+    const keys = await page.evaluate(() => ['crossword_seen_first_cell', 'crossword_seen_tip_cross', 'crossword_seen_tip_move', 'crossword_seen_tip_saved'].map((k) => `${k}=${localStorage.getItem(k)}`).join(' '));
     console.log(`   この端末の印: ${keys}`);
     await ctx.close();
   }
@@ -389,6 +478,7 @@ async function run() {
 try {
   if (BASE === LOCAL) await startServer();
   browser.b = await chromium.launch();
+  if (IS_LOCAL) await warmUp();
   await run();
 } catch (e) {
   console.log(`NG 台本が途中で止まった: ${e.stack || e.message}`);
