@@ -1445,6 +1445,9 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                 <label htmlFor="cw-clue" className="text-xs font-bold" style={{ color: C.secondary }}>
                   {CT.clueLabel}
                 </label>
+                <p data-clue-about="" className="text-xs" style={{ color: C.secondary }}>
+                  {CT.clueAbout}
+                </p>
                 {/* カギは複数行で見える欄（改行は入れない。保存する問題文は1行）。100字まで */}
                 <textarea
                   id="cw-clue"
