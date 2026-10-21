@@ -69,8 +69,9 @@ export const BLOG_NAMES: Record<string, string> = {
   "kobushi-factory": "こぶしファクトリー",
   "countrygirls": "カントリー・ガールズ",
   "c-ute-official": "℃-ute",
-  "tsubaki-factory": "tsubaki-factory",
-  "tsubaki-factory-new": "tsubaki-factory-new",
+  // つばきファクトリーの2つ（7人の方・4人の方）の呼び名（Hop 決定 2026-10-21）
+  "tsubaki-factory": "〜リトキャメ",
+  "tsubaki-factory-new": "ひなーず〜",
   "beyooooonds": "SeasoningS",
   "beyooooonds-blog": "BEYOOOOONDS",
   "beyooooonds-chicatetsu": "CHICA#TETSU",
