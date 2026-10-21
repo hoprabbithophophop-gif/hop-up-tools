@@ -1,17 +1,22 @@
-// 「ヒントを直す」画面（/crossword/hints/<番号>。Hop 決定 2026-10-19）と、作る画面のヒント欄の出どころの印・公式を探す補助（アメブロ・X・Instagram）・
-// X・Instagram のリンクに添える「公式サイトに載っている／載っていないアカウント」の札（作る側・解く側）を確かめる。
-// 作る画面のヒントの窓は 2026-10-21 に4段の流れ（1の段の下線の語を押すと下から出る窓）に合わせて書き直した。「① 探す」「② 見つけた◯◯の URL を貼る」の箱・②の一文・「貼り付け」・
-// 公式ブログの「全部／1つだけ」・探す言葉が出どころ共通・リンクの ① の公式サイト検索を足し、ジャンル「その他」の項目は消した。
-// (5b) は「① 探す」所の選択と言葉を覚える作り（Hop 決定 2026-10-22。グループはブラウザにずっと・言葉と年月は画面を開いている間）を見る。
-// 手元の vite を立ち上げ、棚（/rest/v1）・受付係（/api）はブラウザの中で受け止める（本番にもプレビューにも通信しない）。
+// 「ヒントを直す」画面（/crossword/hints/<番号>。Hop 決定 2026-10-19）と、作る画面（/crossword/create・案A「作る｜試す」。Hop 決定 2026-10-22）の語の窓のヒント欄を確かめる。
+// なぜ: ヒントは解く人が答えの出どころを確かめる根拠なので、公式の発信を探す補助と出どころの札が正しく働き、遊ばれた後でもヒントだけは直せるようにするため。
+// 作る画面のヒント欄は、語の一覧の行を押して出る語の窓（[data-word-sheet]）の1か所だけにある（Hop 決定 2026-10-22）。そこで次を見る:
+//   出どころの印・「① 探す」「② 見つけた◯◯の URL を貼る」の箱・②の一文・「貼り付け」・公式を探す補助（アメブロの「全部／1つだけ」とその月の記事一覧・X・Instagram・リンクの公式サイト検索）・
+//   X・Instagram のリンクに添える「公式サイトに載っている／載っていないアカウント」の札（作る側・解く側）。
+// (5b) は「① 探す」所の選択と言葉を覚える作り（Hop 決定 2026-10-22。グループはブラウザにずっと・言葉と年月は画面を開いている間）を、語の窓を語をまたいで開き直して見る。
+// 手元の vite を立ち上げ（口 5199）、棚（/rest/v1）・受付係（/api）はブラウザの中で受け止める（本番にもプレビューにも通信しない）。
 // 差し替えた YouTube が台帳（youtube_videos）に無い時は、問い合わせずに選ばれ、送る中身に outside: true が入る（Hop 決定 2026-10-21）。
 // ブラウザから YouTube の oEmbed（youtube.com/oembed）・googleapis.com・/api/crossword-video-info への通信が無いことも見る。
 // 確かめるのはこの3つの宛先だけ。埋め込みの再生の読み込み（www.youtube.com・i.ytimg.com）と字の形の読み込み（fonts.googleapis.com）は範囲の外
+// 2026-10-22 に案A に合わせて書き直した。消した確かめ: 無し（ヒント欄の確かめは全部、語の窓で同じ意味のまま見られる）。
+// 足した確かめ: (5) の頭で、開いたのが語の窓（その語の窓にカギの欄とヒントの欄が両方ある）こと。途中で止まった時も締めの行を出す。
+// 足した下ごしらえ: 確かめの前に通る画面を一度開き、開発サーバーは口ごとのまとめ置き場で書き換えの見張りを止めて立てる（_lib.mjs の isolatedViteConfig）。
+// どちらも確かめの途中でページが読み込み直されて書いた中身が消えるのを防ぐため（2026-10-22）
 // 使い方: node scripts/verify/crossword/check-hints-edit.mjs
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { outDir, watchStumbles } from './_lib.mjs';
-import { writeLines, openHintSheet, closeHintSheet } from './_create.mjs';
+import { outDir, watchStumbles, isolatedViteConfig } from './_lib.mjs';
+import { writeLines, openWordSheet, closeWordSheet, waitBoard, toMode } from './_create.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const { spawn, spawnSync } = await import('node:child_process');
@@ -31,23 +36,23 @@ const check = (ok, msg) => {
 };
 
 let server = null;
+let serverLog = ''; // 開発サーバーの記録（部品のまとめ直しで読み込み直した回数を最後に出すため）
 function stopServer() {
   if (!server || server.exitCode !== null) return;
   if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(server.pid), '/T', '/F'], { stdio: 'ignore' });
   else server.kill('SIGTERM');
 }
 async function startServer() {
-  server = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), '--port', String(PORT), '--strictPort'], {
+  server = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), '--config', isolatedViteConfig(PORT), '--port', String(PORT), '--strictPort'], {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, VITE_SUPABASE_URL: MOCK_SUPA, VITE_SUPABASE_ANON_KEY: 'mock-anon-key' },
   });
-  let log = '';
-  server.stdout.on('data', (d) => (log += d));
-  server.stderr.on('data', (d) => (log += d));
+  server.stdout.on('data', (d) => (serverLog += d));
+  server.stderr.on('data', (d) => (serverLog += d));
   const t0 = Date.now();
   while (Date.now() - t0 < 60000) {
-    if (server.exitCode !== null) throw new Error(`開発サーバーが止まった: ${log.slice(-500)}`);
+    if (server.exitCode !== null) throw new Error(`開発サーバーが止まった: ${serverLog.slice(-500)}`);
     try {
       if ((await fetch(BASE)).ok) return;
     } catch { /* まだ */ }
@@ -92,6 +97,9 @@ try {
       localStorage.setItem('crossword_my_puzzles', JSON.stringify([{ id, key, title: 'ヒント直しの試験', createdAt: Date.now() }]));
     } catch { /* 無視 */ }
   }, { id: PUZZLE_ID, key: KEY });
+  // 手元の画面のほかへは一切出さない（広告・字の形・解析など、下で個別に受け止めない外の宛先は中身の無い返事で止める）。
+  // 後に登録した route が先に当たるので、いちばん先に置いて最後の受け皿にする
+  await ctx.route((u) => u.hostname !== 'localhost', (r) => r.fulfill({ status: 204, body: '' }));
   await ctx.route(`${MOCK_SUPA}/**`, (route) => {
     const u = new URL(route.request().url());
     let body = [];
@@ -117,6 +125,34 @@ try {
   page.on('request', (req) => {
     if (FORBIDDEN.test(req.url())) asked.push(req.url());
   });
+
+  // 下ごしらえ: 手元の開発サーバーは、画面が初めて読み込んだ部品をその場でまとめ直し、まとめ直すとページを読み込み直す。
+  // 確かめの途中で読み込み直されると書いた中身が消えて落ちるので、この台本が通る画面（自分が作った問題・ヒントを直す・作る画面の語の窓の出どころ全部・試す・解く画面）を
+  // 先に一度開いて部品をまとめ終えてから確かめる（check-create-flow と同じ考え。2026-10-22）。下ごしらえで端末に残った物は消してから始める
+  for (let pass = 0; pass < 2; pass++) { // 1回目で見つけた部品をまとめ直した後、2回目で落ち着いたのを通す
+    const w = await ctx.newPage();
+    await w.goto(`${BASE}/crossword/mine`);
+    await w.getByRole('link', { name: 'ヒントを直す' }).waitFor({ timeout: 30000 });
+    await w.goto(`${BASE}/crossword/hints/${PUZZLE_ID}`);
+    await w.locator('[data-hints-row]').first().waitFor({ timeout: 30000 });
+    await w.goto(`${BASE}/crossword/create`);
+    await waitBoard(w);
+    await openWordSheet(w, 'ネコ');
+    for (const src of ['ameblo', 'x', 'ig', 'link', 'youtube']) {
+      const b = w.locator(`[data-word-sheet] [data-hint-source="${src}"]`);
+      if (await b.count()) await b.click();
+      await w.waitForTimeout(300);
+    }
+    await closeWordSheet(w);
+    await toMode(w, 'try');
+    await w.locator('[data-trial] [id^="cell-"]').first().click({ timeout: 30000 });
+    await w.waitForTimeout(500);
+    await w.goto(`${BASE}/crossword/${PLAY_ID}`);
+    await w.locator('#cell-0-0').waitFor({ timeout: 30000 });
+    await w.waitForTimeout(3000);
+    await w.evaluate(() => { localStorage.removeItem('crossword_draft'); localStorage.removeItem('crossword_hint_groups'); });
+    await w.close();
+  }
 
   // (1) 自分が作った問題: 遊ばれた問題に「ヒントを直す」
   await page.goto(`${BASE}/crossword/mine`);
@@ -162,11 +198,14 @@ try {
   await page.waitForURL(`**/crossword/hints/${PUZZLE_ID}`, { timeout: 30000 }).catch(() => {});
   check(page.url().endsWith(`/crossword/hints/${PUZZLE_ID}`), `(4) 遊ばれた問題の組み直しは「ヒントを直す」へ回る（${page.url()}）`);
 
-  // (5) 作る画面のヒントの窓（1の段で下線の語を押すと下から出る）。出どころの印・「① 探す」「② 見つけた◯◯の URL を貼る」の箱・公式を探す補助・「貼り付け」
+  // (5) 作る画面の語の窓（語の一覧の行を押すと下から出る）。出どころの印・「① 探す」「② 見つけた◯◯の URL を貼る」の箱・公式を探す補助・「貼り付け」
   await page.goto(`${BASE}/crossword/create`);
   await writeLines(page, '【ネコ】\n【コアラ】');
-  await openHintSheet(page, 'ネコ');
-  const sheet = page.locator('[data-hint-sheet]');
+  await openWordSheet(page, 'ネコ');
+  const sheet = page.locator('[data-word-sheet]');
+  const opened = page.locator('[data-word-sheet="ネコ"]');
+  check((await opened.count()) === 1 && (await opened.locator('#cw-clue').count()) === 1 && (await opened.locator('#cw-hint').count()) === 1 && (await opened.locator('h2').first().textContent()) === '「ネコ」のカギとヒント',
+    `(5) 語の一覧の「ネコ」の行を押すと「ネコ」の語の窓が開き、カギの欄とヒントの欄が同じ窓にある（${await opened.locator('h2').first().textContent().catch(() => '窓なし')}）`);
   const urlBox = sheet.locator('#cw-hint');
   const srcBar = sheet.locator('[data-hint-sources]');
   const srcBtns = await srcBar.locator('button').evaluateAll((els) => els.map((e) => ({ w: Math.round(e.getBoundingClientRect().width), h: Math.round(e.getBoundingClientRect().height), label: e.getAttribute('aria-label'), on: e.getAttribute('aria-checked') })));
@@ -381,13 +420,13 @@ try {
   check((await sheet.locator('[data-hint-kind]').textContent().catch(() => null)) === 'X' && (await sheet.locator('[data-hint-account]').textContent().catch(() => null)) === '@beyooooonds_ ハロプロ公式サイトに載っているアカウント', '(5) 「貼り付け」でコピーした X の URL がヒントになり、印も札も合う');
   const wide = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   check(wide, '(5) 390px で横にはみ出さない');
-  await closeHintSheet(page);
-  // (5b) 「① 探す」所の選択と言葉を覚える（Hop 決定 2026-10-22「グループはずっと・言葉は問題の間」）。
+  await closeWordSheet(page);
+  // (5b) 「① 探す」所の選択と言葉を覚える（Hop 決定 2026-10-22「グループはずっと・言葉は問題の間」）。別の語（コアラ）の語の窓で見る。
   // 2026-10-21 に担当が足した「別の語のヒントを開き直すと探す言葉は空に戻る」の確かめは、この決定で逆になったので書き換えた。
   // ここまでに人が選んだ物: アメブロ「BEYOOOOONDS（全部）」・X「BEYOOOOONDS」・Instagram「beyooooonds_official」。探す言葉は「武道館」・いつごろは無し
   const GROUPS_KEY = 'crossword_hint_groups';
   const DEFAULTS = { blog: 'g:morningmusume', x: 'morningmusume', ig: 'morningmusume_official' };
-  // 開いているヒントの窓（または欄）で、出どころを替えながら選択と言葉を読む
+  // 開いている語の窓（またはヒントを直す画面の欄）で、出どころを替えながら選択と言葉を読む
   const readSearch = async (root, pg) => {
     const out = {};
     await root.locator('[data-hint-source="ameblo"]').click();
@@ -407,21 +446,21 @@ try {
     return out;
   };
   const show = (o) => JSON.stringify(o);
-  await openHintSheet(page, 'コアラ');
+  await openWordSheet(page, 'コアラ');
   let got = await readSearch(sheet, page);
   check(got.keyword === '武道館' && got.xKeyword === '武道館' && got.blog === 'g:beyooooonds' && got.x === 'beyooooonds' && got.ig === 'beyooooonds_official',
-    `(5b) 別の語のヒントの窓でも、探す言葉とグループの選択が残る（${show(got)}）`);
+    `(5b) 別の語の語の窓でも、探す言葉とグループの選択が残る（${show(got)}）`);
   await sheet.locator('[data-hint-source="ameblo"]').click();
   await page.waitForTimeout(150);
   await sheet.locator('[data-blog-search] input').fill('ハロコン');
   await sheet.locator('[data-blog-search] [data-helper-period] select').nth(0).selectOption('2020');
   await sheet.locator('[data-blog-search] [data-helper-period] select').nth(1).selectOption('10');
   await page.waitForTimeout(100);
-  await closeHintSheet(page);
-  await openHintSheet(page, 'コアラ');
+  await closeWordSheet(page);
+  await openWordSheet(page, 'コアラ');
   got = await readSearch(sheet, page);
   check(got.keyword === 'ハロコン' && got.year === '2020' && got.month === '10' && got.blog === 'g:beyooooonds', `(5b) 窓を閉じて開き直しても、言葉と年月が残る（${show(got)}）`);
-  await closeHintSheet(page);
+  await closeWordSheet(page);
   const stored = await page.evaluate((k) => localStorage.getItem(k), GROUPS_KEY);
   check(stored === JSON.stringify({ blog: 'g:beyooooonds', x: 'beyooooonds', ig: 'beyooooonds_official' }), `(5b) ブラウザに覚えるのはグループの選択の3つだけ（言葉・年月は入らない。${stored}）`);
   const allStored = await page.evaluate(() => JSON.stringify(Object.entries(localStorage)));
@@ -432,14 +471,14 @@ try {
     await watchStumbles(p2, pageErrors, label);
     if (init) await p2.addInitScript(init, GROUPS_KEY);
     await p2.goto(`${BASE}/crossword/create`);
-    await openHintSheet(p2, 'コアラ');
-    const r = await readSearch(p2.locator('[data-hint-sheet]'), p2);
+    await openWordSheet(p2, 'コアラ');
+    const r = await readSearch(p2.locator('[data-word-sheet]'), p2);
     return { p2, r };
   };
   let { p2: again, r: re } = await openCreate('開き直した作る画面');
   check(re.keyword === '' && re.year === '' && re.month === '' && re.blog === 'g:beyooooonds' && re.x === 'beyooooonds' && re.ig === 'beyooooonds_official',
     `(5b) 作る画面を開き直すと、グループの選択は残り、言葉と年月は空から（${show(re)}）`);
-  await again.locator('[data-hint-sheet]').screenshot({ path: path.join(OUT, '6-remembered-group-390.png') });
+  await again.locator('[data-word-sheet]').screenshot({ path: path.join(OUT, '6-remembered-group-390.png') });
   await again.close();
   // ヒントを直す画面でも、グループの選択は覚えた物から。言葉と年月は語の欄をまたいで同じ1つ
   const edit = await ctx.newPage();
@@ -483,7 +522,7 @@ try {
     Storage.prototype.getItem = function (key) { if (key === k) throw new Error('blocked'); return get.call(this, key); };
     Storage.prototype.setItem = function (key, v) { if (key === k) throw new Error('blocked'); return set.call(this, key, v); };
   }));
-  const bs = again.locator('[data-hint-sheet]');
+  const bs = again.locator('[data-word-sheet]');
   await bs.locator('[data-hint-source="x"]').click();
   await bs.locator('[data-x-search]').getByLabel('公式アカウントのグループ').selectOption('beyooooonds');
   await again.waitForTimeout(150);
@@ -512,9 +551,15 @@ try {
   check(asked.length === 0, `(7) oEmbed・googleapis.com・/api/crossword-video-info への通信が無い${asked.length ? `（${asked[0]}）` : ''}`);
   check(pageErrors.length === 0, `(7) 画面のつまずき（JS の例外・React の描画の誤り・エラー時の画面）が無い${pageErrors.length ? '：' + pageErrors.join(' / ') : ''}`);
   console.log(`写真: ${OUT}`);
+} catch (e) {
+  console.log(`NG 台本が途中で止まった: ${String(e).slice(0, 300)}`);
+  fails++;
 } finally {
   await browser.close();
   stopServer();
 }
+// 落ちた時の見分け用（確かめではない）: 確かめの途中で開発サーバーが部品をまとめ直してページを読み込み直した回数
+console.log(`開発サーバーの部品のまとめ直し: ${(serverLog.match(/optimized dependencies changed/g) || []).length}回`);
+(await import('node:fs')).writeFileSync(path.join(OUT, 'vite.log'), serverLog); // 落ちた時に開発サーバーの記録を見られるように
 console.log(fails === 0 ? 'すべてOK' : `NG ${fails} 件`);
 process.exit(fails === 0 ? 0 : 1);
