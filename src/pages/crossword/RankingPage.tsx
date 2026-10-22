@@ -13,14 +13,14 @@ const T = {
   backToGallery: "ギャラリーへ戻る",
   pageTitle: "ランキング",
   anonymous: "名無し",
-  untitled: "無題のクロスワード",
+  untitled: "無題の問題",
   createdBy: (name: string) => `作った人：${name}`,
-  play: "このクロスワードを遊ぶ",
+  play: "この問題を遊ぶ",
   loading: "読み込み中…",
   // 解く画面と同じ文言
-  loadFailed: "クロスワードの読み込みに失敗しました。",
-  puzzleHidden: "このクロスワードは非表示になっています。",
-  loadError: "このクロスワードを読み込めませんでした。URL をご確認ください。",
+  loadFailed: "問題の読み込みに失敗しました。",
+  puzzleHidden: "この問題は非表示になっています。",
+  loadError: "この問題を読み込めませんでした。URL をご確認ください。",
 };
 
 type State = { status: "loading" } | { status: "done"; title: string; creatorName?: string } | { status: "failed"; message: string };

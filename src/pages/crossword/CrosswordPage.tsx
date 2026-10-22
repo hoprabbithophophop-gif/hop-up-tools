@@ -115,10 +115,10 @@ const T = {
   anonymous: "名無し", // 作成者名が空の時（2026-10-06 Hop 決定）
   errors: {
     noTitle: "題名を入力してください。",
-    loadFailed: "クロスワードの読み込みに失敗しました。",
-    puzzleHidden: "このクロスワードは非表示になっています。",
-    loadError: "このクロスワードを読み込めませんでした。URL をご確認ください。",
-    saveFailed: "クロスワードの保存に失敗しました。",
+    loadFailed: "問題の読み込みに失敗しました。",
+    puzzleHidden: "この問題は非表示になっています。",
+    loadError: "この問題を読み込めませんでした。URL をご確認ください。",
+    saveFailed: "問題の保存に失敗しました。",
   },
   // 答え合わせ・1文字見るを受付係に頼めなかった時（2026-10-04。答えを渡さない作りで足した）
   network: "通信できませんでした。もう一度お試しください。",
@@ -132,7 +132,7 @@ const T = {
   },
   tooMany: "操作が続いています。少し待ってからもう一度お試しください。", // Hop 決定 2026-10-06
   // 解いている途中に問題が隠された・消された時／回を始める人が多すぎる時（Hop 決定 2026-10-04）
-  puzzleGone: "このクロスワードは非表示になったか、消されました。",
+  puzzleGone: "この問題は非表示になったか、消されました。",
   busy: "混み合っています。少し待ってからもう一度お試しください。",
   // 解き終えた画面のヒントの動画の一覧を開くボタン（2026-10-06 任天堂シミュで決定）【仮】
   showHintVideos: (genre: Genre | null) => (genre === "other" ? "ヒントを見る" : "ヒントの動画を見る"),
@@ -146,7 +146,7 @@ const T = {
   },
   playerHelp: {
     title: "遊び方",
-    steps: ["空欄のマスに文字を入力", "カギを参考に正解を推測", "最後のマスを埋めると自動で答え合わせ", "タイムはクロスワードを開いている間だけ進みます。"], // 4つ目は Hop 決定 2026-10-07
+    steps: ["空欄のマスに文字を入力", "カギを参考に正解を推測", "最後のマスを埋めると自動で答え合わせ", "タイムは問題を開いている間だけ進みます。"], // 4つ目は Hop 決定 2026-10-07
     // 項目に添える入力の決まり。390px で語の途中で折れないよう、きりのいい所で改行する（番号は steps の並び。Hop 2026-10-16「入力時のルールを併記」。文字盤に「小」が無いため）
     stepNotes: { 0: ["小さい字（ッ・ャ など）は\n大きい字で入れます", "゛゜は字のあとに押します"] } as Record<number, string[]>,
     start: "始める！",
@@ -1517,7 +1517,7 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
               )}
               {/* [No.02] Title & Author - 縦積み、truncate */}
               <div className="flex flex-col min-w-0 flex-1">
-                <h1 className="text-base font-bold truncate" style={{ color: C.ink }}>{playerPuzzle.title || "無題のクロスワード"}</h1>
+                <h1 className="text-base font-bold truncate" style={{ color: C.ink }}>{playerPuzzle.title || "無題の問題"}</h1>
                 {!isTutorial && <p className="text-xs truncate" style={{ color: C.secondary }}>{playerPuzzle.creatorName || T.anonymous}</p>}
               </div>
             </div>
@@ -1888,7 +1888,7 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
                 {/* 練習問題には作成者がいないので、著作権の注意と通報は出さない（作る画面の「試す」も、まだ公開していないので出さない） */}
                 {!isTutorial && !isTrial && (
                 <div className="text-center mt-8 text-xs" style={{ color: C.secondary }}>
-                  ※作成されたクロスワードの著作権および責任は作成者に帰属します。
+                  ※作成された問題の著作権および責任は作成者に帰属します。
                 </div>
                 )}
 
@@ -1901,7 +1901,7 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
                     style={{ color: C.secondary }}
                   >
                     <Icon size={12} icon="flag" />
-                    不適切なクロスワードを通報する
+                    不適切な問題を通報する
                   </button>
                 </div>
                 )}

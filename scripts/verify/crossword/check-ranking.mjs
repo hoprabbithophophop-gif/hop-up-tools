@@ -38,13 +38,13 @@ await page.getByText('ランキング').first().waitFor({ timeout: 20000 });
 await page.waitForTimeout(2500);
 let t = await text(page);
 check(/\d+:\d{2}/.test(t) || t.includes('まだ記録がありません。'), '1 ランキングの表（または「まだ記録がありません。」）が出る');
-check((await page.getByRole('link', { name: 'このクロスワードを遊ぶ' }).count()) === 1, '1 「このクロスワードを遊ぶ」がある');
+check((await page.getByRole('link', { name: 'この問題を遊ぶ' }).count()) === 1, '1 「この問題を遊ぶ」がある');
 check(calls.length === 0, `1 受付係に回の呼び出しをしない: ${JSON.stringify(calls)}`);
 await page.screenshot({ path: `${OUT}/ranking-page.png`, fullPage: true });
 
-// 2. 指定の問題のランキングの画面。題名と作った人が出る。「このクロスワードを遊ぶ」で解く画面へ
+// 2. 指定の問題のランキングの画面。題名と作った人が出る。「この問題を遊ぶ」で解く画面へ
 await page.goto(`${BASE}/crossword/${ID}/ranking`);
-await page.getByRole('link', { name: 'このクロスワードを遊ぶ' }).waitFor({ timeout: 20000 });
+await page.getByRole('link', { name: 'この問題を遊ぶ' }).waitFor({ timeout: 20000 });
 await page.waitForTimeout(1500);
 t = await text(page);
 check(t.includes('作った人：'), '2 作った人が出る');
@@ -53,15 +53,15 @@ const titleLine = (await page.locator('main p.text-base').first().innerText()).t
 check(titleLine.length > 0 && !titleLine.includes('読み込み中'), `2 題名が h1 の上に出る: ${titleLine}`);
 const sizes = await page.evaluate(() => [document.querySelector('h1'), document.querySelector('main p.text-base')].map((el) => parseFloat(getComputedStyle(el).fontSize)));
 check(sizes[0] > sizes[1] && sizes[1] >= 14, `2 「ランキング」が題名より大きく、題名は14px以上: ${JSON.stringify(sizes)}`);
-await page.getByRole('link', { name: 'このクロスワードを遊ぶ' }).click();
+await page.getByRole('link', { name: 'この問題を遊ぶ' }).click();
 await page.waitForURL(`**/crossword/${ID}`, { timeout: 10000 });
-check(page.url().endsWith(`/crossword/${ID}`), '2 「このクロスワードを遊ぶ」で解く画面へ');
+check(page.url().endsWith(`/crossword/${ID}`), '2 「この問題を遊ぶ」で解く画面へ');
 
 // 3. 無い問題の番号 → 知らせが出て、画面は壊れない
 await page.goto(`${BASE}/crossword/zzzzzzzz/ranking`);
 await page.locator('[role="alert"]').waitFor({ timeout: 20000 });
 t = await text(page);
-check(t.includes('クロスワードの読み込みに失敗しました。') || t.includes('このクロスワードは非表示になっています。'), '3 無い問題は知らせが出る');
+check(t.includes('問題の読み込みに失敗しました。') || t.includes('この問題は非表示になっています。'), '3 無い問題は知らせが出る');
 
 // 4. 解き終えた画面のランキングの見出しが、ランキングの画面へのリンク
 await page.goto(`${BASE}/crossword/mine`);

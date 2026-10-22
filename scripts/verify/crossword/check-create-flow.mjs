@@ -468,8 +468,8 @@ try {
       check((await btn.textContent()) === '更新する', `${T} (5) 保存のボタンは「${await btn.textContent()}」`);
       const upBefore = sent.updates.length;
       await btn.click();
-      await page.getByText('このクロスワードを更新しました。URL は変わりません。').waitFor({ timeout: 20000 }).catch(() => {});
-      check((await bodyText(page)).includes('このクロスワードを更新しました。URL は変わりません。'), `${T} (5) 「このクロスワードを更新しました。URL は変わりません。」`);
+      await page.getByText('この問題を更新しました。URL は変わりません。').waitFor({ timeout: 20000 }).catch(() => {});
+      check((await bodyText(page)).includes('この問題を更新しました。URL は変わりません。'), `${T} (5) 「この問題を更新しました。URL は変わりません。」`);
       check((await page.locator('#cw-share-url').inputValue()).endsWith(`/crossword/${EDIT_ID}`), `${T} (5) 同じ URL のまま`);
       const up = sent.updates[upBefore];
       const clues = up?.puzzle?.body?.clues ?? [];

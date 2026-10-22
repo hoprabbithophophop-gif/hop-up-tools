@@ -182,7 +182,7 @@ async function run(page) {
     await page.evaluate(() => localStorage.removeItem('crossword_my_puzzles'));
     await go(`${BASE}/crossword/mine`);
     await page.getByRole('heading', { name: '自分が作った問題' }).waitFor();
-    check((await page.getByText('この端末で作ったクロスワードはまだありません').count()) === 1, '何も無い時は「この端末で作ったクロスワードはまだありません。」');
+    check((await page.getByText('この端末で作った問題はまだありません').count()) === 1, '何も無い時は「この端末で作った問題はまだありません。」');
     await page.screenshot({ path: path.join(OUT, '4-mine-empty.png') });
   } catch (e) {
     check(false, `台本が途中で止まった: ${e.message.split('\n')[0]}`);

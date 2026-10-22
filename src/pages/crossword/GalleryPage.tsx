@@ -25,7 +25,7 @@ const T = {
   tagPlaceholder: "タグで絞る",
   apply: "絞る",
   // 絞り込んだ結果が空のときの道（2026-10-06 決定）【仮】
-  showAll: "すべてのクロスワードを見る",
+  showAll: "すべての問題を見る",
   create: "作る",
 };
 
@@ -101,7 +101,7 @@ export default function GalleryPage() {
       } catch (err) {
         if (id !== reqId.current) return;
         console.error("Failed to fetch puzzles:", err);
-        setError("クロスワードを読み込めませんでした");
+        setError("問題を読み込めませんでした");
       } finally {
         if (id === reqId.current) {
           setLoading(false);
@@ -320,7 +320,7 @@ export default function GalleryPage() {
             <div className="text-center py-20">
               <Icon icon="extension" size={64} className="block mx-auto mb-4" />
               <p className="mb-2" style={{ color: C.secondary }}>
-                {filterActive ? "条件に合うクロスワードがありません。" : "クロスワードがまだ公開されていません。"}
+                {filterActive ? "条件に合う問題がありません。" : "問題がまだ公開されていません。"}
               </p>
               {appliedSearch && (
                 <button type="button" onClick={clearSearch} className="hover:underline" style={{ color: C.ink }}>

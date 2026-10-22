@@ -421,7 +421,7 @@ async function run() {
     // 札 saved: 「公開の準備」で共有の窓（カギとヒントが無くても窓は開く。保存は押さない）
     await openShare(page);
     const tip3 = page.locator('[data-share-sheet] [data-tip="saved"]');
-    check((await tip3.innerText().catch(() => '')).includes('作りかけはこの端末に自動で残ります。作ったクロスワードは「自分が作った問題」にあり、遊ばれる前なら組み直せます'), '(c) 共有の窓の中に札 saved が出る');
+    check((await tip3.innerText().catch(() => '')).includes('作りかけはこの端末に自動で残ります。作った問題は「自分が作った問題」にあり、遊ばれる前なら組み直せます'), '(c) 共有の窓の中に札 saved が出る');
     const above = await page.evaluate(() => {
       const t = document.querySelector('[data-share-sheet] [data-tip="saved"]')?.getBoundingClientRect();
       const title = document.querySelector('#cw-title')?.getBoundingClientRect();

@@ -329,7 +329,7 @@ try {
       const stamp = [...document.querySelectorAll('h2')].find((h) => h.textContent === 'CLEARED!');
       const x = [...document.querySelectorAll('a')].find((a) => a.textContent.includes('Xに投稿'));
       const rank = [...document.querySelectorAll('h2,h3,p,div,span')].find((e) => e.childElementCount === 0 && /^(ランキング|まだ記録がありません。?)$/.test((e.textContent || '').trim()));
-      const other = [...document.querySelectorAll('h2,h3')].find((h) => h.textContent === 'ほかのクロスワード');
+      const other = [...document.querySelectorAll('h2,h3')].find((h) => h.textContent === 'ほかの問題');
       const hv = [...document.querySelectorAll('button')].find((b) => /^ヒント(の動画)?を見る$/.test(b.textContent));
       const clues = [...document.querySelectorAll('h2,h3')].find((h) => (h.textContent || '').includes('ヨコのカギ'));
       const sb = stamp?.getBoundingClientRect();
@@ -340,12 +340,12 @@ try {
         hintListOpen: [...document.querySelectorAll('h2,h3')].some((h) => /^ヒント(の動画)?$/.test(h.textContent)),
       };
     });
-    console.log(`    並び（ページ上端からの位置）: 盤 ${order.board}〜${order.boardBottom} ／ Xに投稿 ${order.x} ／ ランキング ${order.rank} ／ ほかのクロスワード ${order.other} ／ ヒントの動画を見る ${order.hv} ／ カギの一覧 ${order.clues}`);
+    console.log(`    並び（ページ上端からの位置）: 盤 ${order.board}〜${order.boardBottom} ／ Xに投稿 ${order.x} ／ ランキング ${order.rank} ／ ほかの問題 ${order.other} ／ ヒントの動画を見る ${order.hv} ／ カギの一覧 ${order.clues}`);
     check(order.stampInBoard, '(4) ハンコは盤の上に押される');
     check(order.x !== null && order.x >= order.boardBottom - 1 && order.x - order.boardBottom < 80, '(4) 「Xに投稿」はハンコ（盤）の直下');
     check(order.rank !== null && order.rank > order.x, '(4) ランキングは「Xに投稿」の下');
-    check(order.other !== null && order.other > order.rank, '(4) 「ほかのクロスワード」はランキングの下');
-    check(order.hv !== null && order.hv > order.other && !order.hintListOpen, '(4) ヒントの動画の一覧は畳んであり、「ヒントの動画を見る」がほかのクロスワードの下にある');
+    check(order.other !== null && order.other > order.rank, '(4) 「ほかの問題」はランキングの下');
+    check(order.hv !== null && order.hv > order.other && !order.hintListOpen, '(4) ヒントの動画の一覧は畳んであり、「ヒントの動画を見る」がほかの問題の下にある');
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: path.join(OUT, '4-cleared-390.png'), fullPage: true });
     await page.getByRole('button', { name: /^ヒント(の動画)?を見る$/ }).click();
@@ -476,13 +476,13 @@ try {
     await groupSelect.selectOption('OCHA NORMA');
     await page.waitForTimeout(800);
     const ways = page.locator('[data-empty-ways]');
-    check((await page.getByText('条件に合うクロスワードがありません').count()) > 0 && (await ways.count()) === 1, '(7) 絞った結果が空のとき「条件に合うクロスワードがありません」の下に道が出る');
-    check((await ways.getByRole('button', { name: 'すべてのクロスワードを見る' }).count()) === 1 && (await ways.getByRole('link', { name: '作る' }).getAttribute('href')) === '/crossword/create', '(7) 道は「すべてのクロスワードを見る」と「作る」（/crossword/create）');
+    check((await page.getByText('条件に合う問題がありません').count()) > 0 && (await ways.count()) === 1, '(7) 絞った結果が空のとき「条件に合う問題がありません」の下に道が出る');
+    check((await ways.getByRole('button', { name: 'すべての問題を見る' }).count()) === 1 && (await ways.getByRole('link', { name: '作る' }).getAttribute('href')) === '/crossword/create', '(7) 道は「すべての問題を見る」と「作る」（/crossword/create）');
     await page.screenshot({ path: path.join(OUT, '7-gallery-empty-390.png'), fullPage: true });
-    await ways.getByRole('button', { name: 'すべてのクロスワードを見る' }).click();
+    await ways.getByRole('button', { name: 'すべての問題を見る' }).click();
     await page.waitForTimeout(800);
     const t4 = await titles();
-    check(t4.length === 4 && (await groupSelect.inputValue()) === '', `(7) 「すべてのクロスワードを見る」で絞り込みが外れ、全部の問題が出る（${t4.length}件）`);
+    check(t4.length === 4 && (await groupSelect.inputValue()) === '', `(7) 「すべての問題を見る」で絞り込みが外れ、全部の問題が出る（${t4.length}件）`);
     await ctx.close();
   }
 
