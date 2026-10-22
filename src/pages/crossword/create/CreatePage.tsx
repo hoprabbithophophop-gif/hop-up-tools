@@ -214,6 +214,101 @@ const coarsePointer = () => {
   }
 };
 
+// 作りかけのうち人が書いた所（文・カギ・ヒント・題名など）の見出し。別のタブの中身と比べるのに使う（欄の並び順に左右されないよう、鍵を並べ替えて作る）
+const sortedEntries = <T,>(o: Record<string, T>) => Object.entries(o).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+const authoredSig = (a: { bulkText: string; hints: Record<string, HintRef>; hintLabels: Record<string, string>; clues: Record<string, string>; title: string; creatorName: string; tags: string[]; isBeginner: boolean }) =>
+  JSON.stringify([a.bulkText, sortedEntries(a.hints).map(([k, h]) => [k, draftHint(h)]), sortedEntries(a.hintLabels), sortedEntries(a.clues), a.title, a.creatorName, a.tags, a.isBeginner]);
+
+// 端末に残した作りかけを読み取った形。読めない時は parseDraft が null を返す
+interface ParsedDraft {
+  bulkText: string;
+  hints: Record<string, HintRef>;
+  clues: Record<string, string>;
+  hintLabels: Record<string, string>;
+  title?: string;
+  creatorName?: string;
+  tags?: string[];
+  isBeginner?: boolean;
+  board: { items: PlacedItem[]; proposals: BulkProposal[] | null; picked: number | null; boardSig: string; searchedSig: string } | null;
+}
+
+// 作りかけの文字列を読み取る（開いた時と、別のタブで書き換えられた時の両方で使う）
+const parseDraft = (raw: string): ParsedDraft | null => {
+  try {
+    const d = JSON.parse(raw) as Record<string, unknown>;
+    if (!d || typeof d !== "object") return null;
+    const text = typeof d.bulkText === "string" ? d.bulkText : "";
+    const out: ParsedDraft = { bulkText: text, hints: {}, clues: {}, hintLabels: {}, board: null };
+    if (typeof d.title === "string") out.title = d.title;
+    if (typeof d.creatorName === "string") out.creatorName = d.creatorName;
+    if (Array.isArray(d.tags)) out.tags = (d.tags as unknown[]).filter((t): t is string => typeof t === "string").slice(0, MAX_TAGS);
+    if (typeof d.isBeginner === "boolean") out.isBeginner = d.isBeginner;
+    const rawHints = d.hints && typeof d.hints === "object" ? (d.hints as Record<string, unknown>) : {};
+    let nextText = text;
+    const restoredHints: Record<string, HintRef> = {};
+    const restoredClues: Record<string, string> = {};
+    const restoredLabels: Record<string, string> = {};
+    // version 3（案A）と version 2（4段の版）は同じ持ち方（version 2 の段と畳んだ印は使わない）
+    const boardKind = d.version === 3 || d.version === 2;
+    if (boardKind) {
+      for (const [k, h] of Object.entries(rawHints)) if (isHintRef(h)) restoredHints[k] = draftHint(h);
+      if (d.clues && typeof d.clues === "object") for (const [k, v] of Object.entries(d.clues as Record<string, unknown>)) if (typeof v === "string") restoredClues[k] = v;
+      if (d.hintLabels && typeof d.hintLabels === "object") for (const [k, v] of Object.entries(d.hintLabels as Record<string, unknown>)) if (typeof v === "string") restoredLabels[k] = v;
+    } else {
+      // 古い形（段の無い下書き）: 1語ずつ入れた語は書いた行の最後に【語】の1行として足し、カギとヒントは答えごとに持ち替える
+      const keys = new Set(evaluateCandidates(parseMarks(text)).filter((c) => !c.reason).map((c) => c.key));
+      const extra: string[] = [];
+      for (const rawItem of Array.isArray(d.items) ? (d.items as unknown[]) : []) {
+        const it = rawItem as Partial<PuzzleItem> | null;
+        if (!it || typeof it.id !== "string" || !Array.isArray(it.answer) || !it.answer.every((c) => typeof c === "string")) continue;
+        const cells = toCells(it.answer.join(""));
+        if (cells.length === 0 || !cells.every(isUsableCell)) continue;
+        const key = cells.join("");
+        if (!keys.has(key)) {
+          keys.add(key);
+          extra.push(`【${key}】`);
+        }
+        if (typeof it.question === "string" && it.question.trim()) restoredClues[key] = it.question;
+        const h = rawHints[it.id];
+        if (isHintRef(h)) restoredHints[key] = draftHint(h);
+      }
+      if (extra.length > 0) nextText = [text.replace(/\s+$/, ""), ...extra].filter(Boolean).join("\n");
+    }
+    out.bulkText = nextText;
+    out.hints = restoredHints;
+    out.clues = restoredClues;
+    out.hintLabels = restoredLabels;
+    if (boardKind) {
+      const valid = evaluateCandidates(parseMarks(nextText)).filter((c) => !c.reason);
+      const keys = new Set(valid.map((c) => c.key));
+      // 盤が残っていれば組み直さずにそのまま並べる（2026-10-19 Hop 発見「別のタブを開いて戻ると組み立て中が始まる」の直し）
+      const board = validBoard(d.board, keys);
+      const props = Array.isArray(d.proposals)
+        ? (d.proposals as unknown[]).map((p) => {
+            const pp = p as Partial<BulkProposal> | null;
+            const placedOk = pp ? validBoard(pp.placed, keys) : null;
+            return pp && placedOk ? ({ ...pp, placed: placedOk, leftOut: Array.isArray(pp.leftOut) ? pp.leftOut : [] } as BulkProposal) : null;
+          })
+        : [];
+      const goodProps = props.every(Boolean) && props.length > 0 ? (props as BulkProposal[]) : null;
+      const restoredSig = poolSignature(valid.map((c) => ({ id: c.key, question: "", answer: c.cells })));
+      if (board) {
+        // 残してあった見出しがあればそれを使う（答えを変えた後の古い盤は、開き直すと組み直す）
+        out.board = {
+          items: board,
+          searchedSig: typeof d.searchedSig === "string" ? d.searchedSig : restoredSig,
+          boardSig: typeof d.boardSig === "string" ? d.boardSig : restoredSig,
+          proposals: goodProps,
+          picked: goodProps && typeof d.picked === "number" && goodProps[d.picked] ? d.picked : null,
+        };
+      }
+    }
+    return out;
+  } catch {
+    return null;
+  }
+};
+
 export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolean; renderTrial?: (t: TrialPlay) => React.ReactNode }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -630,6 +725,39 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   }, [editStatus, editParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- 作りかけを戻す（組み直しの間は読まない・書かない【仮】）。作りかけが無い時だけ見本の3行で始める（Hop 決定 2026-10-22） ---
+  // 読み取った作りかけを画面に入れる。replace = 別のタブで書き換えられた中身に入れ替える時（無い欄は空に戻し、盤が無ければ盤も外す）
+  const applyDraft = (d: ParsedDraft, replace: boolean) => {
+    if (d.title !== undefined || replace) setPuzzleTitle(d.title ?? "");
+    if (d.creatorName !== undefined || replace) setCreatorName(d.creatorName ?? "");
+    if (d.tags !== undefined || replace) setTags(d.tags ?? []);
+    if (d.isBeginner !== undefined || replace) setIsBeginner(d.isBeginner ?? false);
+    setBulkText(d.bulkText);
+    setHints(d.hints);
+    setClues(d.clues);
+    setHintLabels(d.hintLabels);
+    if (replace) {
+      // 組み立ての動き・裏の組み合わせ探しは止める（入れ替えた中身で必要なら組み直す）
+      ++generationIdRef.current;
+      setIsLiveGenerating(false);
+      setSearching(false);
+      setBackgroundPuzzle(null);
+      setNoProposal(false);
+      setPlaceFx(null);
+    }
+    if (d.board) {
+      setGeneratedPuzzle(buildGrid(d.board.items));
+      searchedSigRef.current = d.board.searchedSig;
+      setBoardSig(d.board.boardSig);
+      setProposals(d.board.proposals);
+      setPicked(d.board.picked);
+    } else if (replace) {
+      setGeneratedPuzzle(null);
+      setBoardSig(null);
+      setProposals(null);
+      setPicked(null);
+      searchedSigRef.current = null;
+    }
+  };
   useEffect(() => {
     if (editStatus !== "none" || draftReady) return;
     if (!draftEnabled) {
@@ -637,83 +765,10 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
       return;
     }
     const raw = lsGet(DRAFT_KEY);
-    let restored = false;
-    if (raw) {
-      try {
-        const d = JSON.parse(raw) as Record<string, unknown>;
-        const text = typeof d.bulkText === "string" ? d.bulkText : "";
-        if (typeof d.title === "string") setPuzzleTitle(d.title);
-        if (typeof d.creatorName === "string") setCreatorName(d.creatorName);
-        if (Array.isArray(d.tags)) setTags((d.tags as unknown[]).filter((t): t is string => typeof t === "string").slice(0, MAX_TAGS));
-        if (typeof d.isBeginner === "boolean") setIsBeginner(d.isBeginner);
-        const rawHints = d.hints && typeof d.hints === "object" ? (d.hints as Record<string, unknown>) : {};
-        let nextText = text;
-        const restoredHints: Record<string, HintRef> = {};
-        const restoredClues: Record<string, string> = {};
-        const restoredLabels: Record<string, string> = {};
-        // version 3（案A）と version 2（4段の版）は同じ持ち方（version 2 の段と畳んだ印は使わない）
-        const boardKind = d.version === 3 || d.version === 2;
-        if (boardKind) {
-          for (const [k, h] of Object.entries(rawHints)) if (isHintRef(h)) restoredHints[k] = draftHint(h);
-          if (d.clues && typeof d.clues === "object") for (const [k, v] of Object.entries(d.clues as Record<string, unknown>)) if (typeof v === "string") restoredClues[k] = v;
-          if (d.hintLabels && typeof d.hintLabels === "object") for (const [k, v] of Object.entries(d.hintLabels as Record<string, unknown>)) if (typeof v === "string") restoredLabels[k] = v;
-        } else {
-          // 古い形（段の無い下書き）: 1語ずつ入れた語は書いた行の最後に【語】の1行として足し、カギとヒントは答えごとに持ち替える
-          const keys = new Set(evaluateCandidates(parseMarks(text)).filter((c) => !c.reason).map((c) => c.key));
-          const extra: string[] = [];
-          for (const rawItem of Array.isArray(d.items) ? (d.items as unknown[]) : []) {
-            const it = rawItem as Partial<PuzzleItem> | null;
-            if (!it || typeof it.id !== "string" || !Array.isArray(it.answer) || !it.answer.every((c) => typeof c === "string")) continue;
-            const cells = toCells(it.answer.join(""));
-            if (cells.length === 0 || !cells.every(isUsableCell)) continue;
-            const key = cells.join("");
-            if (!keys.has(key)) {
-              keys.add(key);
-              extra.push(`【${key}】`);
-            }
-            if (typeof it.question === "string" && it.question.trim()) restoredClues[key] = it.question;
-            const h = rawHints[it.id];
-            if (isHintRef(h)) restoredHints[key] = draftHint(h);
-          }
-          if (extra.length > 0) nextText = [text.replace(/\s+$/, ""), ...extra].filter(Boolean).join("\n");
-        }
-        setBulkText(nextText);
-        setHints(restoredHints);
-        setClues(restoredClues);
-        setHintLabels(restoredLabels);
-        restored = true;
-        if (boardKind) {
-          const keys = new Set(evaluateCandidates(parseMarks(nextText)).filter((c) => !c.reason).map((c) => c.key));
-          // 盤が残っていれば組み直さずにそのまま並べる（2026-10-19 Hop 発見「別のタブを開いて戻ると組み立て中が始まる」の直し）
-          const board = validBoard(d.board, keys);
-          const props = Array.isArray(d.proposals)
-            ? (d.proposals as unknown[]).map((p) => {
-                const pp = p as Partial<BulkProposal> | null;
-                const placedOk = pp ? validBoard(pp.placed, keys) : null;
-                return pp && placedOk ? ({ ...pp, placed: placedOk, leftOut: Array.isArray(pp.leftOut) ? pp.leftOut : [] } as BulkProposal) : null;
-              })
-            : [];
-          const goodProps = props.every(Boolean) && props.length > 0 ? (props as BulkProposal[]) : null;
-          const restoredSig = poolSignature(
-            evaluateCandidates(parseMarks(nextText))
-              .filter((c) => !c.reason)
-              .map((c) => ({ id: c.key, question: "", answer: c.cells })),
-          );
-          if (board) {
-            setGeneratedPuzzle(buildGrid(board));
-            // 残してあった見出しがあればそれを使う（答えを変えた後の古い盤は、開き直すと組み直す）
-            searchedSigRef.current = typeof d.searchedSig === "string" ? d.searchedSig : restoredSig;
-            setBoardSig(typeof d.boardSig === "string" ? d.boardSig : restoredSig);
-            setProposals(goodProps);
-            setPicked(goodProps && typeof d.picked === "number" && goodProps[d.picked] ? d.picked : null);
-          }
-        }
-      } catch {
-        lsRemove(DRAFT_KEY);
-        restored = false;
-      }
-    }
-    if (!restored) setBulkText(CT.sample);
+    const d = raw ? parseDraft(raw) : null;
+    if (raw && !d) lsRemove(DRAFT_KEY);
+    if (d) applyDraft(d, false);
+    else setBulkText(CT.sample);
     setDraftReady(true);
   }, [draftEnabled, editStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -734,23 +789,109 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     tags,
     isBeginner,
   });
+  // 最後に残した組み上がった盤の分（組み立て中・探している間に書いた物を残す時に使う）
+  const stableBoardRef = useRef<Pick<DraftV3, "board" | "proposals" | "picked" | "boardSig" | "searchedSig"> | null>(null);
+  // 別のタブで書き換えられた作りかけに入れ替えた直後の中身（同じ中身のままの間は書き戻さない。2つのタブで書き合いを続けないため）。
+  // "" = 入れ替えた直後で、まだ中身を控えていない
+  const adoptedSnapRef = useRef<string | null>(null);
+  const [adoptTick, setAdoptTick] = useState(0);
+  // 「別のタブで書いた中身に合わせました。」を出したか（このタブで書くまで出し直さない）
+  const otherTabNoticeRef = useRef(false);
   useEffect(() => {
     if (!draftEnabled || !draftReady || editStatus !== "none") return;
     const empty = !bulkText.trim() && !puzzleTitle && !creatorName && tags.length === 0;
+    const content = draftContent();
+    const snap = JSON.stringify(content);
+    if (adoptedSnapRef.current !== null) {
+      if (adoptedSnapRef.current === "") {
+        adoptedSnapRef.current = snap;
+        if (!isLiveGenerating && !searching) stableBoardRef.current = { board: content.board, proposals: content.proposals, picked: content.picked, boardSig: content.boardSig, searchedSig: content.searchedSig };
+        return;
+      }
+      if (adoptedSnapRef.current === snap) return;
+      adoptedSnapRef.current = null;
+    }
     if (empty) {
       lsRemove(DRAFT_KEY);
       return;
     }
-    const content = draftContent();
-    const snap = JSON.stringify(content);
     if (savedSnapshotRef.current !== null) {
       if (savedSnapshotRef.current === snap) return;
       savedSnapshotRef.current = null;
     }
-    if (isLiveGenerating || searching) return; // 組み立て中・探している間の途中の盤は残さない（組み上がってから残す）
+    otherTabNoticeRef.current = false;
+    // 組み立て中・探している間の途中の盤は残さない（組み上がってから残す）。その間に書いた文・カギ・ヒント・題名などは、
+    // 最後に残した組み上がった盤と一緒に残す（再シャッフルの直後に書いてすぐ閉じても消えないように。Hop 決定 2026-10-23）
+    if (isLiveGenerating || searching) {
+      const d: DraftV3 = { version: 3, ...content, ...(stableBoardRef.current ?? {}) };
+      lsSet(DRAFT_KEY, JSON.stringify(d));
+      return;
+    }
+    stableBoardRef.current = { board: content.board, proposals: content.proposals, picked: content.picked, boardSig: content.boardSig, searchedSig: content.searchedSig };
     const d: DraftV3 = { version: 3, ...content };
     lsSet(DRAFT_KEY, JSON.stringify(d));
-  }, [draftEnabled, draftReady, editStatus, bulkText, hints, hintLabels, clues, generatedPuzzle, isLiveGenerating, searching, proposals, picked, boardSig, puzzleTitle, creatorName, tags, isBeginner]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [draftEnabled, draftReady, editStatus, bulkText, hints, hintLabels, clues, generatedPuzzle, isLiveGenerating, searching, proposals, picked, boardSig, puzzleTitle, creatorName, tags, isBeginner, adoptTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- 別のタブで作りかけが書き換えられたら、このタブの中身もそれに入れ替える（Hop 決定 2026-10-23）。組み直し（?edit=）の間は作りかけを使わないので見ない ---
+  // 人が書いた所（文・カギ・ヒント・題名など）が違う時だけ「別のタブで書いた中身に合わせました。」を出す。盤だけ違う時は黙って合わせる。
+  // 作りかけが消された時（別のタブで公開した・空にした）は、このタブの中身はそのまま残す【仮】
+  const authoredRef = useRef("");
+  authoredRef.current = authoredSig({ bulkText, hints, hintLabels, clues, title: puzzleTitle, creatorName, tags, isBeginner });
+  const boardPartRef = useRef("");
+  boardPartRef.current = JSON.stringify(boardForDraft);
+  const wordSheetRef = useRef(wordSheet);
+  wordSheetRef.current = wordSheet;
+  const hintsRef = useRef(hints);
+  hintsRef.current = hints;
+  useEffect(() => {
+    if (!draftEnabled || !draftReady || editStatus !== "none") return;
+    let noticeLater = false;
+    const notice = () => {
+      if (otherTabNoticeRef.current) return;
+      otherTabNoticeRef.current = true;
+      toast.success(CT.otherTabSynced, { duration: 5000 });
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.storageArea !== localStorage || e.key !== DRAFT_KEY || e.newValue === null) return;
+      const d = parseDraft(e.newValue);
+      if (!d) return;
+      const authoredChanged = authoredSig({ ...d, title: d.title ?? "", creatorName: d.creatorName ?? "", tags: d.tags ?? [], isBeginner: d.isBeginner ?? false }) !== authoredRef.current;
+      const boardChanged = JSON.stringify(d.board ? d.board.items.map(({ id, uuid, answer, direction, startX, startY, length, pinned }) => ({ id, uuid, question: "", answer, direction, startX, startY, length, pinned: !!pinned })) : null) !== boardPartRef.current;
+      if (!authoredChanged && !boardChanged) return;
+      adoptedSnapRef.current = "";
+      savedSnapshotRef.current = null;
+      applyDraft(d, true);
+      setAdoptTick((n) => n + 1);
+      // 開いている語の窓は、その答えが無くなったら閉じ、ヒントが替わったら開き直して新しいヒントを見せる
+      const ws = wordSheetRef.current;
+      if (ws) {
+        const keys = new Set(evaluateCandidates(parseMarks(d.bulkText)).filter((c) => !c.reason).map((c) => c.key));
+        if (!keys.has(ws.key)) setWordSheet(null);
+        else if (JSON.stringify(d.hints[ws.key] ?? null) !== JSON.stringify(hintsRef.current[ws.key] ? draftHint(hintsRef.current[ws.key]) : null)) {
+          wordSheetCount.current += 1;
+          setWordSheet({ key: ws.key, n: wordSheetCount.current });
+        }
+      }
+      if (!authoredChanged) return;
+      // 見ていないタブ（隠れている・ほかの窓を使っている）では、このタブに戻った時に出す
+      if (looking()) notice();
+      else noticeLater = true;
+    };
+    const looking = () => document.visibilityState === "visible" && document.hasFocus();
+    const onBack = () => {
+      if (!noticeLater || !looking()) return;
+      noticeLater = false;
+      notice();
+    };
+    window.addEventListener("storage", onStorage);
+    document.addEventListener("visibilitychange", onBack);
+    window.addEventListener("focus", onBack);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      document.removeEventListener("visibilitychange", onBack);
+      window.removeEventListener("focus", onBack);
+    };
+  }, [draftEnabled, draftReady, editStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- 窓が開いている間は後ろの画面をスクロールさせない（窓の中と外で二重にスクロールしない） ---
   const anySheet = !!wordSheet || shareOpen || showShareModal || expanded;
