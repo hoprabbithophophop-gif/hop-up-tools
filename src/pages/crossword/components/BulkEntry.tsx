@@ -110,10 +110,11 @@ const hiddenOther = (m: Mark): string => {
 };
 
 // カギの下書き: その語の印がある行の、その印だけを答えの字数ぶんの○にし、同じ行のほかの答えは□で隠す。
-// 下書きが○だけになる行（【コアラ】だけの行など）は空にする（欄の例の文と「カギがあと◯語」が働くように。Hop 決定 2026-10-22）
+// 下書きが○だけになる行（【コアラ】だけの行など）は空にする（欄の例の文と「カギがあと◯語」が働くように。Hop 決定 2026-10-22）。
+// ○・□・→ と空白だけの下書き（【ネコ】【コアラ】の行・【ラクダ】→【ダチョウ】の行など）も同じく空にする。カギを書かずに公開できないようにするため（Hop 決定 2026-10-23）
 export const clueDraft = (text: string, marks: Mark[], target: Mark, answerLength: number): string => {
   const draft = clueDraftRaw(text, marks, target, answerLength);
-  return /^[○\s]*$/.test(draft) ? "" : draft;
+  return /^[○□→\s]*$/.test(draft) ? "" : draft;
 };
 
 const clueDraftRaw = (text: string, marks: Mark[], target: Mark, answerLength: number): string => {
