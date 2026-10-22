@@ -43,6 +43,7 @@ import { SaveCheckModal } from "../components/SaveCheckModal";
 import { Footer, Icon } from "../components/ui";
 import { C } from "../style";
 import type { TrialPlay } from "../CrosswordPage";
+import type { EditCarry } from "../HintsEditPage";
 import { BULK_TEXTS, CT, PROPOSAL_TEXTS } from "./texts";
 
 // localStorage の鍵（名前は今までと同じ。消した札は消したまま）
@@ -1123,9 +1124,15 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
       const message = reason === "already_played" ? CT.edit.alreadyPlayed : reason === "not_found" ? CT.edit.notEditable : CT.saveReasons[reason] ?? CT.errors.saveFailed;
       toast.error(message, { duration: 5000 });
       // もう遊ばれていたら、ヒントだけ差し替えられる画面へ回す（紙「遊ばれた後の ?edit= はヒント差し替えの画面へ回す」と同じ。Hop 決定 2026-10-19）。
+      // 組み直しで直した答え・カギ・ヒントは、画面の移動に持たせて渡す（Hop 決定 2026-10-23「直したヒントを引き継ぐ」）。
       // 組み直しの中身は作りかけの控えに書かない（別の作りかけを上書きしないため）
       if (reason === "already_played") {
-        navigate(`/crossword/hints/${editTarget.id}`, { replace: true });
+        const carry: EditCarry = {
+          kind: "edit-carry",
+          id: editTarget.id,
+          items: generatedPuzzle.items.map((i) => ({ answer: i.id, clue: clueOf(i.id).trim(), hint: hints[i.id] ? draftHint(hints[i.id]) : null })),
+        };
+        navigate(`/crossword/hints/${editTarget.id}`, { replace: true, state: carry });
         return;
       }
     } finally {

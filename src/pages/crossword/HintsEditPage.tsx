@@ -3,10 +3,11 @@
 // 本文は送らない。「どのカギのヒントを何に替えるか」だけを受付係（/api/crossword-update-hints）に渡し、受付係が棚の本文のヒント部分だけを入れ替える。
 // 入れるのは、この端末に合言葉が残っている問題だけ（自分が作った問題と同じ）。
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { usePageReady } from "../../lib/pageReady";
 import { fetchOwnedPuzzle, readMyPuzzles, updatePuzzleHints, withOutsideMarks, SaveError, type Genre, type HintRef, type MyPuzzle } from "../../lib/crossword/puzzleStore";
 import { formatTime } from "../../lib/crossword/youtubeUrl";
+import { toCells } from "../../lib/crossword/cells";
 import { HintField, type Selected } from "./components/HintField";
 import { useHintSearch } from "./components/hintSearch";
 import { Toaster, toast } from "./components/Toast";
@@ -26,6 +27,10 @@ const T = {
   noChange: "変えたヒントがありません。", // 【仮】
   missing: (n: number) => `ヒントがあと${n}つ`, // 作る画面の共有ボタンと同じ言い回し
   failed: "更新できませんでした。もう一度お試しください。", // 【仮】
+  // 組み直しの「更新する」の間に遊ばれて、この画面へ回ってきた時（Hop 決定 2026-10-23「直したヒントを引き継ぐ」）
+  carriedLocked: "遊ばれた後は、答えとカギは変えられません。", // Hop 決定 2026-10-23
+  carriedLabel: "組み直しで直した答えとカギ", // コピーの欄の名前【仮】
+  copy: "コピー", // 作る画面の共有リンクの「コピー」と同じ語
   reasons: {
     not_found: "この問題のヒントは差し替えられません。", // この画面は組み直しでなく差し替えなので、作る画面の言葉から変えた（2026-10-21 レビューの指摘）
     too_many: "更新が集中しています。時間をおいてもう一度お試しください。",
@@ -41,6 +46,26 @@ const sameHint = (a: HintRef | undefined, b: HintRef | undefined) => {
   return false;
 };
 
+// 組み直しの画面から渡される、直した中身（画面の移動に持たせる。作りかけの控えとは別。Hop 決定 2026-10-23）
+export interface EditCarry {
+  kind: "edit-carry";
+  id: string;
+  items: { answer: string; clue: string; hint: HintRef | null }[];
+}
+const readCarry = (state: unknown, id: string): EditCarry | null => {
+  const c = state as Partial<EditCarry> | null;
+  if (!c || c.kind !== "edit-carry" || c.id !== id || !Array.isArray(c.items)) return null;
+  const items = c.items.filter(
+    (i): i is EditCarry["items"][number] =>
+      !!i && typeof i.answer === "string" && typeof i.clue === "string" && (i.hint === null || (typeof i.hint === "object" && (i.hint.kind === "youtube" ? typeof i.hint.videoId === "string" && typeof i.hint.startSec === "number" : i.hint.kind === "link" && typeof i.hint.url === "string")))
+  );
+  return { kind: "edit-carry", id, items };
+};
+const NL = "\n"; // コピーの欄の改行
+const answerKey = (s: string) => toCells(s).join("");
+// コピーの欄のヒントの行き先（YouTube は開始の秒つき）
+const hintUrl = (h: HintRef) => (h.kind === "youtube" ? `https://youtu.be/${h.videoId}?t=${Math.max(0, Math.floor(h.startSec))}` : h.url);
+
 interface Row {
   key: string; // "向き:番号"（受付係に渡す鍵）
   clueIndex: number;
@@ -48,6 +73,8 @@ interface Row {
   clue: string;
   answer: string;
   stored?: HintRef;
+  // 組み直しから引き継いだヒント（欄に最初から入れておく物）
+  initial?: HintRef;
 }
 
 // 文字は16px（iPhone は16pxより小さい入力欄を押すと画面を拡大するため。作る画面と同じ）
@@ -56,6 +83,11 @@ const inputClass =
 
 export default function HintsEditPage() {
   const { id = "" } = useParams();
+  const location = useLocation();
+  // 組み直しから回ってきた時に渡された中身（開いた時の1回だけ読む）
+  const [carry] = useState(() => readCarry(location.state, id));
+  // 問題に入れられない直し（答えとカギ）。コピーの欄に出す
+  const [carriedText, setCarriedText] = useState("");
   const mine: MyPuzzle | undefined = useMemo(() => readMyPuzzles().find((m) => m.id === id), [id]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
@@ -100,7 +132,25 @@ export default function HintsEditPage() {
         setTitle(owned.puzzle.title);
         setGenre(owned.puzzle.genre);
         setRows(next);
-        setHints(Object.fromEntries(next.map((r) => [r.key, r.stored ?? null])));
+        // 組み直しで直したヒントは、この画面にある答えの物だけを欄に入れる（保存はまだしない。持ち主が「ヒントを更新する」を押す）。
+        // この画面に無い答え・直したカギは、コピーの欄に回す
+        const carried = new Map((carry?.items ?? []).map((i) => [answerKey(i.answer), i]));
+        setHints(Object.fromEntries(next.map((r) => [r.key, carried.get(answerKey(r.answer))?.hint ?? r.stored ?? null])));
+        if (carry) {
+          const onPage = new Map(next.map((r) => [answerKey(r.answer), r]));
+          const lines: string[] = [];
+          for (const i of carry.items) {
+            const row = onPage.get(answerKey(i.answer));
+            if (row && row.clue === i.clue) continue;
+            lines.push(`${i.clue}→【${i.answer}】`);
+            if (!row && i.hint) lines.push(`ヒント: ${hintUrl(i.hint)}`);
+          }
+          setCarriedText(lines.join(NL));
+          setRows(next.map((r) => {
+            const h = carried.get(answerKey(r.answer))?.hint;
+            return h ? { ...r, initial: h } : r;
+          }));
+        }
         setStatus("ready");
       })
       .catch((err) => {
@@ -161,6 +211,21 @@ export default function HintsEditPage() {
             {status === "ready" && (
               <>
                 <h2 className="text-base font-semibold mb-4" style={{ color: C.ink }}>{title}</h2>
+                {carriedText && (
+                  <div data-hints-carried="" className="mb-6">
+                    <p className="text-sm mb-2" style={{ color: C.ink }}>{T.carriedLocked}</p>
+                    <p id="hints-carried-label" className="text-xs font-semibold mb-1" style={{ color: C.secondary }}>{T.carriedLabel}</p>
+                    <div className="flex items-start gap-1">
+                      {/* 長い行も折り返して全部見せる（欄の中でスクロールさせない）。押すと全部を選ぶ */}
+                      <div id="hints-carried-text" role="textbox" aria-readonly="true" aria-multiline="true" aria-labelledby="hints-carried-label" tabIndex={0} className={`${inputClass} flex-1 min-w-0 whitespace-pre-wrap break-all select-all`} style={{ color: C.ink }}>
+                        {carriedText}
+                      </div>
+                      <button type="button" data-hints-carried-copy="" onClick={() => navigator.clipboard?.writeText(carriedText)} className="w-11 h-11 shrink-0 flex items-center justify-center bg-surface-container-high hover:bg-primary hover:text-white transition-colors" style={{ color: C.ink }} aria-label={T.copy} title={T.copy}>
+                        <Icon size={16} icon="content_copy" />
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <ul className="space-y-6">
                   {rows.map((r) => (
                     <li key={r.key} data-hints-row={r.key}>
@@ -175,7 +240,7 @@ export default function HintsEditPage() {
                         genre={genre}
                         resetKey={0}
                         inputClassName={inputClass}
-                        initial={r.stored ? ({ hint: r.stored, label: hintLabel(r.stored) } as Selected) : null}
+                        initial={(r.initial ?? r.stored) ? ({ hint: (r.initial ?? r.stored)!, label: hintLabel((r.initial ?? r.stored)!) } as Selected) : null}
                         onChange={(h) => setHints((prev) => (prev[r.key] === h ? prev : { ...prev, [r.key]: h }))}
                         search={hintSearch}
                       />
