@@ -223,7 +223,7 @@ const LINES = [
 const TEXT = LINES.join('\n');
 // 通った答え。語の一覧の行の印は答えのマスの字の並び（小さい字は大きい字にそろえた物）なので、ラッコは「ラツコ」
 const TEXT_WORDS = ['マジ', 'ダンス', 'マスク', 'コマ', 'コアラ', 'ラツコ', 'ネコ'];
-const GUIDE = '出す答えを【 】で囲む。読みは｜の後に（例: 【本気｜マジ】）。カタカナだけの答えは読み不要。答えがカギに無い時は、後ろに「→」で区切って書く（例: ニャーと鳴く動物→【ネコ】）。';
+const GUIDE = '出す答えを【 】で囲む。読みは｜の後に（例: 【本気｜マジ】）。カタカナだけの答えは読み不要。答えがカギに無い時は、後ろに「→」で区切って書く（例: ニャーと鳴く動物→【ネコ】）。○は、カギの中で答えを伏せる所に使う（例: ○○○はユーカリを食べる→【コアラ】）。';
 // 見本の4行のカギの下書き
 const SAMPLE_DRAFTS = { ラジオ: '○○○で新曲が初めて流れた', マジ: '○○で応援している', ネコ: 'ニャーと鳴く動物', コアラ: '○○○はユーカリを食べる' };
 // カギの下書きを見る行: →の書き方・読み付き・同じ行のほかの答えは□・○だけになる行（【タヌキ】だけ）は空
@@ -293,6 +293,14 @@ try {
   check((await area.inputValue()) === SAMPLE, '(b) 作りかけが無いブラウザで開くと、書く欄に見本の4行が入っている');
   check(JSON.stringify(await wordKeys(page)) === JSON.stringify(SAMPLE_WORDS), `(b) 語の一覧は見本の答え4つ（${(await wordKeys(page)).join('・')}）`);
   check((await page.locator('#cw-bulk-guide').textContent()) === GUIDE, '(b) 欄の上の説明は本番の文＋「→」の書き方の文');
+  // 見本の行のままの時は欄のすぐ上に「見本」の札。空にすると札が消えて「見本を入れる」が出て、押すと見本の行が戻る（Hop 決定 2026-10-23）
+  check((await page.locator('[data-bulk-sample-tag]').textContent().catch(() => null)) === '見本' && (await page.locator('[data-bulk-insert-sample]').count()) === 0, '(b) 見本の行のままの時は欄のすぐ上に「見本」の札が出て、「見本を入れる」は出ない');
+  await area.fill('');
+  await page.waitForTimeout(100);
+  check((await page.locator('[data-bulk-sample-tag]').count()) === 0 && (await page.locator('[data-bulk-insert-sample]').textContent().catch(() => null)) === '見本を入れる', '(b) 欄を空にすると札が消え、欄の下に「見本を入れる」が出る');
+  await page.locator('[data-bulk-insert-sample]').click();
+  await page.waitForTimeout(100);
+  check((await area.inputValue()) === SAMPLE && (await page.locator('[data-bulk-sample-tag]').count()) === 1, '(b) 「見本を入れる」を押すと見本の行が入り、札が戻る');
   check((await page.locator('[data-bulk-mode], [data-bulk-lines], [data-bulk-search], [data-bulk-legend], [data-bulk-readingbar]').count()) === 0,
     '(b) 案A で外した物（「書く｜ヒントを付ける」の切り替え・書いた行の一覧・凡例・読みの帯・「組み合わせを探す」）は出ない');
   check((await page.locator('[data-bulk-markbar]').count()) === 0, '(b) 何も選んでいない間は画面の下の帯は出ない');

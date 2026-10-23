@@ -1408,6 +1408,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                   t={BULK_TEXTS}
                   textareaClassName={textareaClass}
                   barHidden={anySheet}
+                  sample={CT.sample}
                   below={
                     reasonRows.length > 0 && (
                       // 下の段（と上の貼り付き）に隠れないよう、増えた時は見える所まで送る（scroll-margin で段の高さぶん空ける）

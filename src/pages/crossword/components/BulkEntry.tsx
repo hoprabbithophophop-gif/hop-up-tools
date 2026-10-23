@@ -32,6 +32,10 @@ export interface BulkTexts {
   reasons: Record<ReasonKey, string>;
   /** 答えにならず外れた行の理由（「→」に【 】が無い・中が空・組が合わない） */
   lineReasons: Record<LineProblemKey, string>;
+  /** 書く欄の中身が見本の行のままの時に、欄のすぐ上に出す札 */
+  sampleTag: string;
+  /** 書く欄が空の時に、欄の下に出すボタン（押すと見本の行が入る） */
+  insertSample: string;
 }
 
 export type ReasonKey = "noReading" | "badReading" | "unusable" | "tooLong" | "inList" | "duplicate" | "tooMany";
@@ -224,7 +228,9 @@ export const BulkEntry: React.FC<{
   barHidden?: boolean;
   /** 道具の段のすぐ下に置く物（弾いた理由の行） */
   below?: React.ReactNode;
-}> = ({ text, onText, t, textareaClassName, barHidden, below }) => {
+  /** 見本の行（中身がこれと同じ間は「見本」の札を出す。空の時は「見本を入れる」で入れる） */
+  sample?: string;
+}> = ({ text, onText, t, textareaClassName, barHidden, below, sample }) => {
   const areaRef = useRef<HTMLTextAreaElement>(null);
   // 欄の中で選んでいる範囲（ボタンを押す瞬間に選択が消える端末のため、少し待ってから消す）
   const [areaSel, setAreaSel] = useState<{ start: number; end: number; text: string } | null>(null);
@@ -331,6 +337,14 @@ export const BulkEntry: React.FC<{
       <p id="cw-bulk-guide" className="text-xs leading-relaxed" style={{ color: C.secondary }}>
         {t.guide}
       </p>
+      {/* 中身が見本の行のままの時だけ、欄のすぐ上に小さい面の札（線でなく面。Hop 決定 2026-10-23） */}
+      {sample !== undefined && text === sample && (
+        <p className="flex -mb-1.5">
+          <span data-bulk-sample-tag="" className="inline-block px-2 py-0.5 text-xs font-bold bg-surface-container-high" style={{ color: C.ink }}>
+            {t.sampleTag}
+          </span>
+        </p>
+      )}
       <textarea
         ref={areaRef}
         id="cw-bulk-text"
@@ -373,6 +387,12 @@ export const BulkEntry: React.FC<{
           {t.insertMaru}
         </button>
       </div>
+      {/* 欄が空の時だけ、見本の行を入れるボタン（Hop 決定 2026-10-23） */}
+      {sample !== undefined && text === "" && (
+        <button type="button" data-bulk-insert-sample="" onClick={() => onText(sample)} className="min-h-11 px-4 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.ink }}>
+          {t.insertSample}
+        </button>
+      )}
       {below}
 
       {/* 画面の下の帯（Hop 2026-10-18 案a・2026-10-20）。欄で字を選んでいる間だけ「「語」を出す」。【語】の中にカーソルがある時は「「語」の囲みを外す」 */}

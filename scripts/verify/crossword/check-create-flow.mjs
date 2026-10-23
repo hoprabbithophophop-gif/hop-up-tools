@@ -350,6 +350,7 @@ try {
       const nextText = await page.locator('[data-bulk-text]').inputValue();
       check(nextText === '' && (await page.locator('[data-word-row]').count()) === 0 && (!nextDraft || (Object.keys(nextDraft.clues ?? {}).length === 0 && Object.keys(nextDraft.hints ?? {}).length === 0 && !nextDraft.title && (nextDraft.tags ?? []).length === 0 && !nextDraft.isBeginner)), `${T} (1) 「次の問題を作る」で書く欄（見本でなく空）・カギ・ヒント・題名・タグ・初めての人向けが空になる（欄 ${JSON.stringify(nextText)}・作りかけ ${JSON.stringify(nextDraft && { t: nextDraft.title, tags: nextDraft.tags, c: Object.keys(nextDraft.clues ?? {}).length })}）`);
       check(await page.evaluate(() => !!document.activeElement?.hasAttribute('data-bulk-text')), `${T} (1) 「次の問題を作る」の後は書く欄から始まる`);
+      check((await page.locator('[data-bulk-insert-sample]').count()) === 1, `${T} (1) 空の書く欄の下に「見本を入れる」が出る`);
       await ctx.close();
     }
 

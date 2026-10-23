@@ -120,7 +120,8 @@ export const CT = {
 
 // 書く欄（BulkEntry）の文言。本番の T.bulk に、Hop が承認した文を足した物
 export const BULK_TEXTS: BulkTexts = {
-  guide: "出す答えを【 】で囲む。読みは｜の後に（例: 【本気｜マジ】）。カタカナだけの答えは読み不要。答えがカギに無い時は、後ろに「→」で区切って書く（例: ニャーと鳴く動物→【ネコ】）。",
+  // 最後の1文（○の説明）は Hop 決定 2026-10-23
+  guide: "出す答えを【 】で囲む。読みは｜の後に（例: 【本気｜マジ】）。カタカナだけの答えは読み不要。答えがカギに無い時は、後ろに「→」で区切って書く（例: ニャーと鳴く動物→【ネコ】）。○は、カギの中で答えを伏せる所に使う（例: ○○○はユーカリを食べる→【コアラ】）。",
   textLabel: "まとめて入れる文", // 欄の読み上げ名【仮】
   markSelected: (w: string) => `「${w}」を出す`,
   insertBrackets: "【 】",
@@ -133,6 +134,8 @@ export const BULK_TEXTS: BulkTexts = {
   insertMaru: "○",
   insertMaruLabel: "○を入れる",
   unmarkBar: (w: string) => `「${w}」の囲みを外す`,
+  sampleTag: "見本", // 書く欄の中身が見本の行のままの時の札（Hop 決定 2026-10-23）
+  insertSample: "見本を入れる", // 書く欄が空の時のボタン（Hop 決定 2026-10-23）
   reasonLine: (surface: string, reason: string) => `${surface}：${reason}`,
   reasons: {
     noReading: "読みが未入力",
