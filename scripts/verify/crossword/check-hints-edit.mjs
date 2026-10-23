@@ -462,7 +462,9 @@ try {
   check(got.keyword === 'ハロコン' && got.year === '2020' && got.month === '10' && got.blog === 'g:beyooooonds', `(5b) 窓を閉じて開き直しても、言葉と年月が残る（${show(got)}）`);
   await closeWordSheet(page);
   const stored = await page.evaluate((k) => localStorage.getItem(k), GROUPS_KEY);
-  check(stored === JSON.stringify({ blog: 'g:beyooooonds', x: 'beyooooonds', ig: 'beyooooonds_official' }), `(5b) ブラウザに覚えるのはグループの選択の3つだけ（言葉・年月は入らない。${stored}）`);
+  // 2026-10-23 からヒントの出どころも同じ所に覚える（最後に使った出どころから次の答えでも始める。Hop 決定 2026-10-23）
+  const storedObj = JSON.parse(stored || 'null');
+  check(storedObj && storedObj.blog === 'g:beyooooonds' && storedObj.x === 'beyooooonds' && storedObj.ig === 'beyooooonds_official' && ['yt', 'ameblo', 'x', 'ig', 'link'].includes(storedObj.source) && Object.keys(storedObj).length === 4, `(5b) ブラウザに覚えるのはグループの選択の3つと出どころだけ（言葉・年月は入らない。${stored}）`);
   const allStored = await page.evaluate(() => JSON.stringify(Object.entries(localStorage)));
   check(!allStored.includes('ハロコン'), '(5b) 探す言葉はブラウザのどこにも残さない（作りかけの控えにも入らない）');
   // 作る画面を開き直す（作りかけがあると離れる前に確かめる窓が出るので、別のページで開く。ブラウザの保存は同じ）

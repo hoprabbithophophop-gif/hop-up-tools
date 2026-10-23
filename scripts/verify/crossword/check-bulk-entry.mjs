@@ -413,8 +413,7 @@ try {
   const r30 = await page.locator('[data-bulk-reason]').count();
   check(k30.length === 2 && r30 === 0, `(b) 30字ちょうどの答えは通る（語の一覧 ${k30.length}語・弾いた行 ${r30}）`);
   // 答えにならず黙って外れていた行にも理由が出る（Hop 決定 2026-10-23）。「→」も【 】も無い行はメモとして黙って通す
-  await area.fill(['ニャーと鳴く動物→ネコ', '【】が空', '【 】も空', '【コアラ', 'ラッパ】', 'メモの行', '【ネコ】と【コアラ】'].join('
-'));
+  await area.fill(['ニャーと鳴く動物→ネコ', '【】が空', '【 】も空', '【コアラ', 'ラッパ】', 'メモの行', '【ネコ】と【コアラ】'].join(String.fromCharCode(10)));
   await page.waitForTimeout(150);
   const lineReasons = await page.locator('[data-bulk-reasons] [data-bulk-reason]').evaluateAll((els) => els.map((e) => `${e.getAttribute('data-bulk-reason')}=${e.textContent}`));
   const wantLines = ['needBrackets=ニャーと鳴く動物→ネコ：答えを【 】で囲んでください', 'emptyMark=【】が空：【 】の中が空です', 'emptyMark=【 】も空：【 】の中が空です', 'unpaired=【コアラ：【 と 】の組が合いません', 'unpaired=ラッパ】：【 と 】の組が合いません'];
