@@ -31,6 +31,7 @@ const T = {
   carriedLocked: "遊ばれた後は、答えとカギは変えられません。", // Hop 決定 2026-10-23
   carriedLabel: "組み直しで直した答えとカギ", // コピーの欄の名前【仮】
   copy: "コピー", // 作る画面の共有リンクの「コピー」と同じ語
+  carriedHint: "組み直しで直したヒントを入れてあります。「ヒントを更新する」を押すと反映されます。", // 欄の上に出す（Hop 決定 2026-10-23）
   reasons: {
     not_found: "この問題のヒントは差し替えられません。", // この画面は組み直しでなく差し替えなので、作る画面の言葉から変えた（2026-10-21 レビューの指摘）
     too_many: "更新が集中しています。時間をおいてもう一度お試しください。",
@@ -236,6 +237,10 @@ export default function HintsEditPage() {
                         <span className="font-bold mr-2">{r.answer}</span>
                         <span style={{ color: C.secondary }}>{r.clue}</span>
                       </p>
+                      {/* 組み直しから引き継いだヒントが欄に入っていて、まだ反映していない間だけ（保存してあったヒントと同じなら出さない） */}
+                      {r.initial && !sameHint(r.initial, r.stored) && sameHint(hints[r.key] ?? undefined, r.initial) && (
+                        <p data-hints-carried-hint="" className="text-xs mb-2" style={{ color: C.secondary }}>{T.carriedHint}</p>
+                      )}
                       <HintField
                         inputId={`hint-${r.key}`}
                         genre={genre}

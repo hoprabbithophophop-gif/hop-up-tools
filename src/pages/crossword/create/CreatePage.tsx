@@ -28,6 +28,7 @@ import {
 } from "../../../lib/crossword/puzzleStore";
 import { drawShareImage } from "../../../lib/crossword/shareImage";
 import { detectGroups } from "../../../lib/crossword/groupDetect";
+import { isBlankClue } from "../../../../functions/_shared/crosswordClue";
 import { linkProblem } from "../../../lib/crossword/youtubeUrl";
 import { animateElement, prefersReducedMotion } from "../../../lib/crossword/motion";
 import { BulkEntry, clueDraft, evaluateCandidates, lineProblems, parseMarks, type Candidate } from "../components/BulkEntry";
@@ -449,7 +450,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   const boardDisconnected = boardReady && !isConnected(generatedPuzzle!.items);
   // カギとヒントを数える答え。盤がある時は盤に入った答え、無い時は答え全部（カギとヒントは答えごとに持つので、盤ができた後もそのまま使える）
   const neededKeys = hasBoard ? placedKeys : pool.map((i) => i.id);
-  const hasClue = (k: string) => clueOf(k).trim() !== "";
+  // ○・□・→ と空白だけのカギは書いていない扱い（保存の受付係と同じ物差し。Hop 決定 2026-10-23）
+  const hasClue = (k: string) => !isBlankClue(clueOf(k));
   const missingClues = neededKeys.filter((k) => !hasClue(k)).length;
   const missingHints = neededKeys.filter((k) => !hints[k]).length;
   // 100字を超えたカギ（保存する形＝前後の空白を落とした字数で数える）
@@ -1136,7 +1138,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     // 盤が無い・足りない物がある時は保存しない（押せない理由を出している。Hop 決定 2026-10-22）
     if (!generatedPuzzle || !hasBoard || !canShare) return;
     if (!isConnected(generatedPuzzle.items)) return;
-    if (generatedPuzzle.items.some((i) => !hints[i.id] || !clueOf(i.id).trim() || clueChars(clueOf(i.id)) > MAX_CLUE_CHARS)) return;
+    if (generatedPuzzle.items.some((i) => !hints[i.id] || !hasClue(i.id) || clueChars(clueOf(i.id)) > MAX_CLUE_CHARS)) return;
     const title = puzzleTitle.trim();
     if (!title) {
       setTitleError(true);

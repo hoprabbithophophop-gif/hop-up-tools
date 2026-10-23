@@ -6,6 +6,7 @@
 //  4. 保存の受付係（組み直しの crossword-update も同じ validateSavePayload を使う）が、カギ（問題文）1つ100字までを守る（Hop 決定 2026-10-22。10-21 の30字は取り違え）。
 //     見た目の字数で数える（絵文字も1字）。100字ちょうどは受け付け、101字は断る
 //  5. 同じ受付係が、答え1つ30字（マス目）までを守る（Hop 決定 2026-10-22）。30字ちょうどは受け付け、31字は断る
+//  6. 同じ受付係が、○・□・→ と空白だけのカギ（空も含む）を断る（Hop 決定 2026-10-23。画面の確かめと同じ物差し）
 // ts は Node の stripTypeScriptTypes で型だけ外し、一時置き場に .mjs として書いて読み込む（論理は写さない。読み込み先の名前だけ書き換える）。
 // 使い方: node scripts/verify/crossword/check-cells.mjs（引数なし。通信しない）
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -25,6 +26,7 @@ const files = [
   'functions/_shared/crosswordOgp.ts',
   'functions/_shared/bodyLimit.ts',
   'functions/_shared/background.ts',
+  'functions/_shared/crosswordClue.ts',
   'functions/api/crossword-save.ts',
 ];
 for (const f of files) {
@@ -116,6 +118,10 @@ const withAnswer = (n) => {
 };
 check(withAnswer(30) !== null, '受付係: 30字ちょうどの答えは受け付ける');
 check(withAnswer(31) === null, '受付係: 31字の答えは断る（断りの理由は今の形の確かめと同じ bad_request）');
+
+// 6. ○・□・→ と空白だけのカギは断る（画面と同じ物差し）。○や□が文の中にあるだけのカギは受け付ける
+for (const blank of ['', '　', '○○○', '□□ ○○', '→', ' ○□→ ']) check(withClue(blank) === null, `受付係: カギ「${blank}」（○・□・→ と空白だけ）は断る（bad_request）`);
+check(withClue('○○○はユーカリを食べる') !== null, '受付係: ○を含む普通のカギは受け付ける');
 
 console.log(fail ? `NG ${fail}件` : 'すべてOK');
 process.exit(fail ? 1 : 0);

@@ -9,6 +9,7 @@ import React, { useEffect, useRef, useState } from "react";
 
 import { isUsableCell, toCells, UNUSABLE_KANA } from "../../../lib/crossword/cells";
 import { C } from "../style";
+import { isBlankClue } from "../../../../functions/_shared/crosswordClue";
 
 // 答えの字数の上限と、答えの語数の上限（指示書 2026-10-18）。字数は答えのマス目で30字まで（Hop 決定 2026-10-22。前は20字）。
 // 受付係 crossword-save の MAX_ANSWER_CHARS と同じ値
@@ -173,7 +174,7 @@ const hiddenOther = (m: Mark): string => {
 // ○・□・→ と空白だけの下書き（【ネコ】【コアラ】の行・【ラクダ】→【ダチョウ】の行など）も同じく空にする。カギを書かずに公開できないようにするため（Hop 決定 2026-10-23）
 export const clueDraft = (text: string, marks: Mark[], target: Mark, answerLength: number): string => {
   const draft = clueDraftRaw(text, marks, target, answerLength);
-  return /^[○□→\s]*$/.test(draft) ? "" : draft;
+  return isBlankClue(draft) ? "" : draft;
 };
 
 const clueDraftRaw = (text: string, marks: Mark[], target: Mark, answerLength: number): string => {

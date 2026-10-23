@@ -28,6 +28,7 @@ import { decodeOgpPng, uploadOgpPng } from "../_shared/crosswordOgp";
 import { readJsonLimited } from "../_shared/bodyLimit";
 import { logBackground } from "../_shared/background";
 import { toLargeKana } from "../_shared/crosswordKana";
+import { isBlankClue } from "../_shared/crosswordClue";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -141,6 +142,8 @@ function cleanClue(c: unknown): CleanClue | null {
   if (o.direction !== "horizontal" && o.direction !== "vertical") return null;
   if (!isInt(o.clueIndex) || !isInt(o.startX) || !isInt(o.startY)) return null;
   if (!isStr(o.clue) || charLen(o.clue) > MAX_CLUE_CHARS) return null;
+  // ○・□・→ と空白だけのカギ（空も含む）は断る。画面の確かめと同じ物差し（Hop 決定 2026-10-23）
+  if (isBlankClue(o.clue)) return null;
   if (!Array.isArray(o.answer) || o.answer.length === 0 || o.answer.length > MAX_ANSWER_CHARS) return null;
   // 答えは1マス1字の並び。各マスが1字で、つなげたものがカタカナ（と「ー」）だけ
   if (!o.answer.every((a) => isStr(a) && charLen(a) === 1)) return null;
