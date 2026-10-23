@@ -223,7 +223,7 @@ const LINES = [
 const TEXT = LINES.join('\n');
 // 通った答え。語の一覧の行の印は答えのマスの字の並び（小さい字は大きい字にそろえた物）なので、ラッコは「ラツコ」
 const TEXT_WORDS = ['マジ', 'ダンス', 'マスク', 'コマ', 'コアラ', 'ラツコ', 'ネコ'];
-const GUIDE = '出す答えを【 】で囲む。読みは｜の後に（例: 【本気｜マジ】）。カタカナだけの答えは読み不要。答えがカギに無い時は、後ろに「→」で区切って書く（例: ニャーと鳴く動物→【ネコ】）。○は、カギの中で答えを伏せる所に使う（例: ○○○はユーカリを食べる→【コアラ】）。';
+const GUIDE = '答えにしたい言葉を【 】で囲んでください。読みは｜の後ろに書きます（例: 【本気｜マジ】）。カタカナだけの答えに読みは要りません。答えがカギの中に無い時は、カギの後ろに「→」を付けて書きます（例: ニャーと鳴く動物→【ネコ】）。○は、カギの中で答えを伏せる所に使います（例: ○○○はユーカリを食べる→【コアラ】）。';
 // 見本の4行のカギの下書き
 const SAMPLE_DRAFTS = { ラジオ: '○○○で新曲が初めて流れた', マジ: '○○で応援している', ネコ: 'ニャーと鳴く動物', コアラ: '○○○はユーカリを食べる' };
 // カギの下書きを見る行: →の書き方・読み付き・同じ行のほかの答えは□・○だけになる行（【タヌキ】だけ）は空
@@ -292,7 +292,7 @@ try {
   await page.locator('[data-word-row]').first().waitFor({ timeout: 30000 });
   check((await area.inputValue()) === SAMPLE, '(b) 作りかけが無いブラウザで開くと、書く欄に見本の4行が入っている');
   check(JSON.stringify(await wordKeys(page)) === JSON.stringify(SAMPLE_WORDS), `(b) 語の一覧は見本の答え4つ（${(await wordKeys(page)).join('・')}）`);
-  check((await page.locator('#cw-bulk-guide').textContent()) === GUIDE, '(b) 欄の上の説明は本番の文＋「→」の書き方の文');
+  check((await page.locator('#cw-bulk-guide').textContent()) === GUIDE, '(b) 欄の上の説明は今の文（言い切りの形・2026-10-24）');
   // 見本の行のままの時は欄のすぐ上に「見本」の札。空にすると札が消えて「見本を入れる」が出て、押すと見本の行が戻る（Hop 決定 2026-10-23）
   check((await page.locator('[data-bulk-sample-tag]').textContent().catch(() => null)) === '見本' && (await page.locator('[data-bulk-insert-sample]').count()) === 0, '(b) 見本の行のままの時は欄のすぐ上に「見本」の札が出て、「見本を入れる」は出ない');
   await area.fill('');
@@ -308,7 +308,7 @@ try {
   const miss0 = [];
   for (const k of SAMPLE_WORDS) miss0.push(`${k}:${await missingOf(page, k, 'clue')}${await missingOf(page, k, 'hint')}`);
   check(miss0.every((m) => m.endsWith(':01')), `(b) 見本の語の行は「ヒントがまだ」だけが出る（語:カギ ヒント ＝ ${miss0.join(' ')}）`);
-  check((await page.locator('[data-word-row="ネコ"] [data-word-missing="hint"]').textContent()) === 'ヒントがまだ', '(b) 足りない言葉の文は「ヒントがまだ」');
+  check((await page.locator('[data-word-row="ネコ"] [data-word-missing="hint"]').textContent()) === 'ヒントがまだありません', '(b) 足りない言葉の文は「ヒントがまだ」');
   // 見本のカギの下書き（→ の後ろを消す・答えの所を○にする）
   for (const [k, want] of Object.entries(SAMPLE_DRAFTS)) {
     const { v } = await readClue(page, k);
@@ -374,7 +374,7 @@ try {
   await area.evaluate((el) => { const i = el.value.indexOf('立つ日'); el.focus(); el.setSelectionRange(i, i + 3); });
   await page.waitForTimeout(200);
   const selBar = page.locator('[data-bulk-markbar] button');
-  check((await selBar.textContent().catch(() => null)) === '「立つ日」を出す', `(b) 欄で文字を選ぶと下の帯が「「立つ日」を出す」（${await selBar.textContent().catch(() => '帯なし')}）`);
+  check((await selBar.textContent().catch(() => null)) === '「立つ日」を答えにする', `(b) 欄で文字を選ぶと下の帯が「「立つ日」を出す」（${await selBar.textContent().catch(() => '帯なし')}）`);
   await selBar.click();
   await page.waitForTimeout(200);
   check((await area.inputValue()).includes('【武道館】に【立つ日】'), '(b) 帯を押すと選んだ文字が囲まれる');
@@ -429,7 +429,7 @@ try {
   }
   const clueMissRows = await page.locator('[data-word-row]:has([data-word-missing="clue"])').evaluateAll((els) => els.map((e) => e.getAttribute('data-word-row')));
   check(clueMissRows.join(',') === 'タヌキ', `(b) 「カギがまだ」はカギが空の語（タヌキ）の行だけに出る（${clueMissRows.join(',') || '無し'}）`);
-  check((await page.locator('[data-word-row="タヌキ"] [data-word-missing="clue"]').textContent()) === 'カギがまだ', '(b) 足りない言葉の文は「カギがまだ」');
+  check((await page.locator('[data-word-row="タヌキ"] [data-word-missing="clue"]').textContent()) === 'カギがまだありません', '(b) 足りない言葉の文は「カギがまだ」');
   // 語の窓でカギとヒントを付けると、足りない言葉が消える（0.2 秒かけて消えるので消え終わるのを待つ）
   await openWordSheet(page, 'タヌキ');
   await setClue(page, '森にすむ動物');

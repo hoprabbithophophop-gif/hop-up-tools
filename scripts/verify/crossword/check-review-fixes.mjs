@@ -424,7 +424,7 @@ try {
     const { ctx, page } = await newPage({ marks: SEEN_SOLVE });
     await page.goto(`${BASE}/crossword/tutorial`);
     await cell(page, 0, 0).waitFor({ timeout: 20000 });
-    const skipBtn = page.locator('[data-coach-bubble]').getByRole('button', { name: 'とばす' });
+    const skipBtn = page.locator('[data-coach-bubble]').getByRole('button', { name: 'スキップ' });
     if (await skipBtn.count()) await skipBtn.click();
     // ネコ（横）→ コアラ（縦）の アラ → ラムネ（横）の ムネ
     await cell(page, 0, 0).click();

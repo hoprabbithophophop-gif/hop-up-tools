@@ -1454,8 +1454,9 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                               {CT.unplaced}
                             </span>
                           )}
-                          {/* 足りない物だけを言葉で出す（Hop 決定 2026-10-22）。そろった言葉は消える動きで消える */}
-                          <span className="flex items-center gap-2 text-xs whitespace-nowrap" style={{ color: C.secondary }}>
+                          {/* 足りない物だけを言葉で出す（Hop 決定 2026-10-22）。そろった言葉は消える動きで消える。
+                              2つとも出る時は縦に積む（言い切りの文にして長くなったので、横に並べると 375px で答えが「ア…」まで縮む。2026-10-24） */}
+                          <span className="flex flex-col items-end py-1 text-xs leading-snug whitespace-nowrap" style={{ color: C.secondary }}>
                             <MissingWord kind="clue" show={!clueOn} text={CT.wordNoClue} />
                             <MissingWord kind="hint" show={!hintOn} text={CT.wordNoHint} />
                           </span>

@@ -341,7 +341,7 @@ try {
     await page.goto(url);
     await cell(page, 0, 0).waitFor({ timeout: 20000 });
     // 練習問題の案内（吹き出し）が出ていたら閉じる
-    const skip = page.getByRole('button', { name: 'とばす' });
+    const skip = page.getByRole('button', { name: 'スキップ' });
     if (await skip.count()) await skip.first().click();
     await page.waitForTimeout(1500);
     check((await pauseBtn(page).count()) === 1, `(9) ${name}にも一時停止のボタンがある`);

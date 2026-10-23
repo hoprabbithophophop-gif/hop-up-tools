@@ -264,7 +264,7 @@ try {
       check((await page.locator('[data-bulk-text]').inputValue()) === SAMPLE, `${T} (1) 記録が空のブラウザでは見本の4行が入っている`);
       check(JSON.stringify(await wordKeys(page)) === JSON.stringify(SAMPLE_WORDS), `${T} (1) 語の一覧は見本の答え4つ（${(await wordKeys(page)).join('・')}）`);
       const stats0 = await waitBoard(page);
-      check(/^答え4つ・\d+マス・交差\d+$/.test(stats0), `${T} (1) 見本の4語で盤が組める（${stats0}）`);
+      check(/^答え4つ・\d+マス・交わる所\d+$/.test(stats0), `${T} (1) 見本の4語で盤が組める（${stats0}）`);
       check(await currentMode(page) === 'make', `${T} (1) 「作る」から始まる`);
       for (const [k, want] of Object.entries(SAMPLE_DRAFTS)) {
         await openWordSheet(page, k);
@@ -466,9 +466,9 @@ try {
       await page.goto(`${BASE}/crossword/create?edit=${EDIT_ID}`);
       await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
       await page.waitForTimeout(800);
-      check((await page.locator('h1').first().textContent()) === 'クロスワードパズルの組み直し' && (await currentMode(page)) === 'make', `${T} (5) 組み直しの画面になり「作る」から始まる`);
+      check((await page.locator('h1').first().textContent()) === '問題の組み直し' && (await currentMode(page)) === 'make', `${T} (5) 組み直しの画面になり「作る」から始まる`);
       check((await page.locator('[data-bulk-text]').inputValue()) === '【ネコ】\n【コアラ】', `${T} (5) 語は【語】の行として戻る`);
-      check((await page.locator('[data-mini-stats]').textContent()) === '答え2つ・4マス・交差1', `${T} (5) 保存した時の盤が出る（${await page.locator('[data-mini-stats]').textContent()}）`);
+      check((await page.locator('[data-mini-stats]').textContent()) === '答え2つ・4マス・交わる所1', `${T} (5) 保存した時の盤が出る（${await page.locator('[data-mini-stats]').textContent()}）`);
       await openWordSheet(page, 'コアラ');
       check((await page.locator('#cw-clue').inputValue()) === 'ユーカリの葉を食べる動物', `${T} (5) カギが戻る`);
       await setClue(page, 'ユーカリを食べる動物（直した）');

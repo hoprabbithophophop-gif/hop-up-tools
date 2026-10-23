@@ -271,7 +271,7 @@ export interface BoardGuide {
   placeableNow: string[]; // 新しい語が無くても今の盤にそのまま置ける、置けなかった語（組み立てが見落とした物）
 }
 
-export const NO_ENTER_TEXT = '今のマス目に交差できる字が無く、入る型がありません';
+export const NO_ENTER_TEXT = '今のマス目には同じ字で交わる所が無いため、入る型がありません。';
 
 const other = (d: 'horizontal' | 'vertical') => (d === 'horizontal' ? 'vertical' : 'horizontal');
 

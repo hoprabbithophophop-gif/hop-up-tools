@@ -13,7 +13,7 @@ import {
   type CatalogVideo,
 } from "../../../lib/crossword/puzzleStore";
 import { formatTime, parseTimeInput, parseYouTubeUrl, linkProblem, isYouTubeHost } from "../../../lib/crossword/youtubeUrl";
-import { OFFICIAL_BLOGS, blogChoiceTarget, blogMonthArchiveUrl, blogOptions, officialBlogSearchQuery, officialBlogSearchUrl } from "../../../data/officialBlogs";
+import { BLOG_PERIODS, OFFICIAL_BLOGS, blogChoiceTarget, blogMonthArchiveUrl, blogOptions, officialBlogSearchQuery, officialBlogSearchUrl } from "../../../data/officialBlogs";
 import { OFFICIAL_ACCOUNT_GROUPS, officialXSearchQuery, officialXSearchUrl, officialIgSearchQuery, officialIgSearchUrl, igAccountUrl } from "../../../data/officialAccounts";
 import { officialSiteSearchQuery, officialSiteSearchUrl } from "../../../data/officialSites";
 import { periodYears, type SearchPeriod } from "../../../lib/crossword/searchPeriod";
@@ -48,9 +48,13 @@ const STEP_TEXT = {
   },
   siteSearch: "公式サイトを探す",
   blogArchive: "その月の記事一覧を開く", // 【仮】アメブロでブログが1つに決まり、年と月を選んだ時だけ（Hop 決定 2026-10-22）
+  // 選んだ時期に記事のあるブログが1つも無い時（2026-10-24。前は何も出ずに、前のグループの検索が開いていた）
+  blogNone: (from: string) => `この時期に記事のある公式ブログはありません。${Number(from.slice(0, 4))}年${Number(from.slice(5, 7))}月以降を選んでください。`,
   pasteButton: "貼り付け", // 欄の横のボタン（Hop 決定 2026-10-20 案C・言葉は 2026-10-21 承認）
 } as const;
 type StepSource = keyof typeof STEP_TEXT.find;
+// 一番古いブログの始まり（"YYYY-MM"）
+const BLOG_OLDEST = Object.values(BLOG_PERIODS).reduce((a, p) => (p.from < a ? p.from : a), "9999-99");
 
 export interface Selected {
   hint: HintRef;
@@ -514,6 +518,9 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
           {/* 公式ブログを探す（アメブロの印。Hop 依頼 2026-10-19。棚は触らず Google を新しいタブで開くだけ） */}
           {stepSource === "ameblo" && (
             <div data-blog-search="" className="flex flex-col gap-2">
+              {blogOptionGroups.length === 0 ? (
+                <p data-blog-none="" className="text-xs" style={{ color: C.secondary }}>{STEP_TEXT.blogNone(BLOG_OLDEST)}</p>
+              ) : (
               <select aria-label="公式ブログ" value={blogChoiceNow} onChange={(e) => search.remember({ blogChoice: e.target.value })} className={selectClassName} style={{ color: C.ink }}>
                 {blogOptionGroups.map((g, i) =>
                   g.label ? (
@@ -527,13 +534,16 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
                   )
                 )}
               </select>
+              )}
               {keywordInput("公式ブログを探す言葉", blogKeyword, setBlogKeyword, "探す言葉（例: 武道館）")}
               {periodPicker}
-              <div className="flex gap-2">
-                {helperLink(blogSearchHref, "公式ブログを探す", "blog")}
-                {copyButton(blogSearchText, "blog")}
-              </div>
-              {blogArchiveHref && <div className="flex">{helperLink(blogArchiveHref, STEP_TEXT.blogArchive, "blog-archive")}</div>}
+              {blogOptionGroups.length > 0 && (
+                <div className="flex gap-2">
+                  {helperLink(blogSearchHref, "公式ブログを探す", "blog")}
+                  {copyButton(blogSearchText, "blog")}
+                </div>
+              )}
+              {blogOptionGroups.length > 0 && blogArchiveHref && <div className="flex">{helperLink(blogArchiveHref, STEP_TEXT.blogArchive, "blog-archive")}</div>}
               {copiedNote}
             </div>
           )}

@@ -185,7 +185,7 @@ async function shot(page, name) {
     const x = document.querySelector('[data-coach-close]');
     const xr = box(x);
     const hit = xr ? x.contains(document.elementFromPoint((xr.left + xr.right) / 2, (xr.top + xr.bottom) / 2)) : false;
-    const skip = !!b && [...b.querySelectorAll('button')].some((e) => e.textContent === 'とばす');
+    const skip = !!b && [...b.querySelectorAll('button')].some((e) => e.textContent === 'スキップ');
     const tip = document.querySelector('[data-tip]');
     const tx = tip?.querySelector('button');
     return { r: box(b), xr, hit, skip, tr: box(tip), txr: box(tx), sw: d.scrollWidth, vw: d.clientWidth, vh: d.clientHeight };
@@ -279,7 +279,7 @@ async function run() {
     check(!!pulse && /^rgba\(0, 0, 0, 0\.\d+\)$/.test(pulse.bg), `(a) 脈打ちは色を使わず濃淡だけ（${pulse?.bg}）`);
     check(pulse?.num === '1', `(a) 脈打つのは1番のカギの先頭のマス（番号 ${pulse?.num}）`);
     const line = page.locator('[data-first-cell-hint]');
-    check((await line.innerText().catch(() => '')) === 'マスを押すと字が入ります', '(a) 盤のすぐ下に1行「マスを押すと字が入ります」');
+    check((await line.innerText().catch(() => '')) === 'マスを押すと、字を入れられます。', '(a) 盤のすぐ下に1行「マスを押すと字が入ります」');
     check((await page.locator('[data-coach-layer]').count()) === 0, '(a) 幕は無い');
     check(await page.getByRole('button', { name: 'ズームイン' }).isEnabled(), '(a) ほかの部品はそのまま押せる（操作を奪わない）');
     await page.screenshot({ path: path.join(OUT, 'a2-pulse.png') });
@@ -386,7 +386,7 @@ async function run() {
     await writeLines(page, 'ニャーと鳴く動物→【ネコ】');
     const tip1 = await page.locator('[data-tip="cross"]').waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
     check(tip1, '(c) 見本を消して答えを1つにすると札 cross が出る');
-    check((await page.locator('[data-tip="cross"]').innerText().catch(() => '')).includes('答えをもう1つ足すと、同じ字で交差して組まれます'), '(c) 札 cross の文「答えをもう1つ足すと、同じ字で交差して組まれます」');
+    check((await page.locator('[data-tip="cross"]').innerText().catch(() => '')).includes('答えをもう1つ足すと、同じ字のマスで交わるように組まれます'), '(c) 札 cross の文「答えをもう1つ足すと、同じ字で交差して組まれます」');
     check((await page.locator('[data-tip]').count()) === 1 && (await page.locator('[data-coach-layer]').count()) === 0, '(c) 札は1つだけ・幕は無い');
     const below1 = await page.evaluate(() => {
       const a = document.querySelector('[data-bulk-text]')?.getBoundingClientRect();

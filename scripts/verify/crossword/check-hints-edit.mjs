@@ -170,8 +170,8 @@ try {
   const txt = await page.evaluate(() => document.body.innerText);
   check(/1\s*ヨコ\s*アイウ\s*一番目のカギ/.test(txt) && /2\s*タテ\s*アエ\s*二番目のカギ/.test(txt), '(2) 各行に 番号・向き・答え・カギの文');
   check(/YouTube 1:23/.test(txt) && /youtu\.be\/6Y2X6RxYnY/.test(txt), '(2) 今のヒントが選ばれた状態で出る');
-  const btn = page.getByRole('button', { name: 'ヒントを更新する' });
-  check(await btn.isDisabled() && /変えたヒントがありません/.test(txt), '(2) 変える前はボタンが押せず理由が出る');
+  const btn = page.getByRole('button', { name: 'ヒントを保存する' });
+  check(await btn.isDisabled() && /直したヒントがありません/.test(txt), '(2) 変える前はボタンが押せず理由が出る');
   await page.screenshot({ path: path.join(OUT, '1-hints-edit-390.png'), fullPage: true });
 
   // (3) 2番のヒントを外して公式の動画に替える → 送るのは 2番だけ
@@ -190,7 +190,7 @@ try {
   check(updateCalls.length === 1 && updateCalls[0].hints['vertical:2'].outside === true, `(3) 台帳に無い動画には outside: true を付けて送る（${JSON.stringify(updateCalls[0]?.hints['vertical:2'])}）`);
   check(updateCalls.length === 1 && !('channel' in (updateCalls[0].hints['vertical:2'] ?? {})), '(3) チャンネル名は送らない');
   await page.waitForTimeout(300);
-  check(/ヒントを更新しました/.test(await page.evaluate(() => document.body.innerText)), '(3) 「ヒントを更新しました」');
+  check(/ヒントを保存しました/.test(await page.evaluate(() => document.body.innerText)), '(3) 「ヒントを更新しました」');
   check(await btn.isDisabled(), '(3) 更新後はまた「変えたヒントがありません」で押せない');
 
   // (4) 組み直し（?edit=）に遊ばれた問題で入ると、この画面へ回る

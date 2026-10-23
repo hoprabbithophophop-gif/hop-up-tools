@@ -82,13 +82,13 @@ await page.waitForTimeout(3500);
 const heading = page.locator(`a[href="/crossword/${ID}/ranking"]`);
 check((await heading.count()) === 1, '4 解き終えた画面のランキングの見出しがリンク');
 // 縦に並ぶボタンの幅が揃っている（ヒントの動画を見る・もう一度解く・新規作成）
-const widths = await page.evaluate(() => ['パズルギャラリーへ', 'ヒントの動画を見る', 'もう一度解く', '新規作成'].map((label) => {
+const widths = await page.evaluate(() => ['パズルギャラリーへ', 'ヒントを見る', 'もう一度解く', '新規作成'].map((label) => {
   const el = Array.from(document.querySelectorAll('button, a')).find((e) => e.textContent.includes(label));
   return el ? Math.round(el.getBoundingClientRect().width) : null;
 }));
 check(widths.every((w) => w !== null) && new Set(widths).size === 1, `4 縦に並ぶボタンの幅が同じ: ${JSON.stringify(widths)}`);
 // 間隔は16px（紙31行目）。4つの入口の、上の下端と次の上端の差
-const STACK_LABELS = ['パズルギャラリーへ', 'ヒントの動画を見る', 'もう一度解く', '新規作成'];
+const STACK_LABELS = ['パズルギャラリーへ', 'ヒントを見る', 'もう一度解く', '新規作成'];
 const stackBoxes = (p, labels) => p.evaluate((labels) => labels.map((label) => {
   const el = Array.from(document.querySelectorAll('button, a')).find((e) => e.textContent.includes(label));
   if (!el) return null;
