@@ -142,6 +142,7 @@ export default function HintsEditPage() {
           for (const i of carry.items) {
             const row = onPage.get(answerKey(i.answer));
             if (row && row.clue === i.clue) continue;
+            // 1行の形は作る画面の書く欄と同じ「カギ→【答え】」、ヒントは次の行に「ヒント: 行き先」【仮】
             lines.push(`${i.clue}→【${i.answer}】`);
             if (!row && i.hint) lines.push(`ヒント: ${hintUrl(i.hint)}`);
           }
