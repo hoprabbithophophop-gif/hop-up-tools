@@ -257,7 +257,7 @@ async function run() {
     const dialogs = [
       { label: '広げた盤', opener: '[data-mini-open]', sheet: '[data-board-sheet]', name: 'マス目をいじる' },
       { label: '語の窓', opener: '[data-word-row="ネコ"]', sheet: '[data-word-sheet="ネコ"]', name: '「ネコ」のカギとヒント' },
-      { label: '共有の窓', opener: '[data-dock-share]', sheet: '[data-share-sheet]', name: '共有する' },
+      { label: '公開の窓', opener: '[data-dock-share]', sheet: '[data-share-sheet]', name: '公開する' },
     ];
     for (const d of dialogs) {
       await page.locator(d.opener).scrollIntoViewIfNeeded();

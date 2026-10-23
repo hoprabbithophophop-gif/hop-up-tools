@@ -340,6 +340,16 @@ try {
       check(saved?.puzzle?.genre === 'hello' && saved?.puzzle?.body?.clues?.length === after.board.length, `${T} (1) 保存の中身のジャンルは hello・盤の語の数だけカギがある（${saved?.puzzle?.genre}・${saved?.puzzle?.body?.clues?.length}）`);
       check((await readDraft(page)) === null, `${T} (1) 保存できたら作りかけが消える`);
       await page.screenshot({ path: path.join(OUT, `${T}-1-saved.png`) });
+      // 公開の呼び方（Hop 決定 2026-10-23）: 窓の見出しとボタンは「公開する」、保存できた後の見出しは「公開しました」・「次の問題を作る」がある
+      check((await page.locator('#cw-share-title').textContent()) === '公開しました' && (await page.locator('[data-next-puzzle]').textContent()) === '次の問題を作る', `${T} (1) 保存できた後の窓の見出しは「${await page.locator('#cw-share-title').textContent()}」・「次の問題を作る」がある`);
+      // 「次の問題を作る」: 書いた文・カギ・ヒント・題名・タグ・初めての人向けが空になり、作った人の名前だけ残る。書く欄は見本でなく空（Hop 決定 2026-10-23）
+      await page.locator('[data-next-puzzle]').click();
+      await page.locator('#cw-share-title').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(400);
+      const nextDraft = await readDraft(page);
+      const nextText = await page.locator('[data-bulk-text]').inputValue();
+      check(nextText === '' && (await page.locator('[data-word-row]').count()) === 0 && (!nextDraft || (Object.keys(nextDraft.clues ?? {}).length === 0 && Object.keys(nextDraft.hints ?? {}).length === 0 && !nextDraft.title && (nextDraft.tags ?? []).length === 0 && !nextDraft.isBeginner)), `${T} (1) 「次の問題を作る」で書く欄（見本でなく空）・カギ・ヒント・題名・タグ・初めての人向けが空になる（欄 ${JSON.stringify(nextText)}・作りかけ ${JSON.stringify(nextDraft && { t: nextDraft.title, tags: nextDraft.tags, c: Object.keys(nextDraft.clues ?? {}).length })}）`);
+      check(await page.evaluate(() => !!document.activeElement?.hasAttribute('data-bulk-text')), `${T} (1) 「次の問題を作る」の後は書く欄から始まる`);
       await ctx.close();
     }
 

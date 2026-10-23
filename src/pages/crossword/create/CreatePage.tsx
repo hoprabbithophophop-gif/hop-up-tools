@@ -952,7 +952,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   const wordDialog = useDialog({ active: !!wordSheet, onClose: closeWordSheet });
   const boardDialog = useDialog({ active: expanded, onClose: () => setExpanded(false) });
   const shareSheetDialog = useDialog({ active: shareOpen && !showSaveCheck, onClose: closeShare });
-  const shareDialog = useDialog({ active: showShareModal, onClose: () => setShowShareModal(false) });
+  const shareDialog = useDialog({ active: showShareModal, onClose: () => closeSaved() });
 
   const openWordSheet = (key: string) => {
     wordSheetCount.current += 1;
@@ -1212,6 +1212,44 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
       setIsSaving(false);
     }
   };
+
+  // 公開できた後の窓を閉じる。「次の問題を作る」を押さずに閉じた時は、題名とタグだけを空にする（書いた文・カギ・ヒントは残す。Hop 決定 2026-10-23）。
+  // 組み直しの更新の後は何も空にしない
+  const closeSaved = () => {
+    setShowShareModal(false);
+    if (editTarget) return;
+    setPuzzleTitle("");
+    setTags([]);
+    setTagInput("");
+  };
+  // 次の問題を作る: 作りかけの書いた文・カギ・ヒント・題名・タグ・初めての人向けを空にする。作った人の名前だけ残す。書く欄は見本でなく空（Hop 決定 2026-10-23）
+  const bulkAreaFocusRef = useRef(false);
+  const startNextPuzzle = () => {
+    setShowShareModal(false);
+    setBulkText("");
+    setClues({});
+    setHints({});
+    setHintLabels({});
+    setPuzzleTitle("");
+    setTags([]);
+    setTagInput("");
+    setIsBeginner(false);
+    setTitleError(false);
+    trialRef.current = null;
+    savedSnapshotRef.current = null;
+    setMode("make");
+    setExpanded(false);
+    setWordSheet(null);
+    window.scrollTo(0, 0);
+    // 窓を閉じた後に書く欄から始める（窓の作法がフォーカスを戻した後で、書く欄へ移す）
+    bulkAreaFocusRef.current = true;
+  };
+  useEffect(() => {
+    if (showShareModal || !bulkAreaFocusRef.current) return;
+    bulkAreaFocusRef.current = false;
+    const t = window.setTimeout(() => document.querySelector<HTMLTextAreaElement>("[data-bulk-text]")?.focus({ preventScroll: true }), 50);
+    return () => window.clearTimeout(t);
+  }, [showShareModal]);
 
   const cancelSaveCheck = () => {
     setShowSaveCheck(false);
@@ -1868,6 +1906,12 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                 )}
                 {/* 著作権の2行・押せない理由・「共有する」は窓の下に貼り付ける（iPhone SE の高さでも、足りない物と押す所がいつも見えるように） */}
                 <div data-share-foot="" className="sticky bottom-0 -mx-4 -mb-6 px-4 pt-2 pb-4 bg-white flex flex-col gap-1" style={{ boxShadow: `0 -1px 0 ${C.mid}` }}>
+                  {/* 公開するとどうなるか（組み直しはもう公開している問題なので出さない。Hop 決定 2026-10-23） */}
+                  {!editTarget && (
+                    <p data-publish-note="" className="text-xs" style={{ color: C.ink }}>
+                      {CT.publishNote}
+                    </p>
+                  )}
                   {/* 著作権の2行は「共有する」のボタンの上（Hop 決定 2026-10-22） */}
                   <p data-copyright="" className="text-xs" style={{ color: C.secondary }}>
                     {CT.copyright[0]}
@@ -1902,7 +1946,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
           {/* 窓が出る動きは弱い組（Hop 決定 2026-10-22。前は名前を入れる窓と同じ 0.9倍） */}
           <Motion initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={WEAK} className="bg-white p-6 max-w-md w-full space-y-6" style={{ boxShadow: C.modalShadow }}>
             <h2 id="cw-share-title" className="text-2xl font-black text-center pb-3" style={{ color: C.ink }}>
-              {CT.shareModal.modalTitle}
+              {editTarget ? CT.shareModal.updatedTitle : CT.shareModal.modalTitle}
             </h2>
             <div className="space-y-4">
               <div className="space-y-2">
@@ -1928,8 +1972,14 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
             <div className="text-xs text-center leading-relaxed pt-4" style={{ color: C.secondary }}>
               {editTarget ? CT.shareModal.updatedNotice : CT.shareModal.publicNotice}
             </div>
-            <div className="flex justify-center">
-              <button type="button" onClick={() => setShowShareModal(false)} className={btnGray} style={{ color: C.ink }}>
+            <div className="flex flex-col items-center gap-2">
+              {/* 次の問題を作る（公開の後だけ。組み直しの更新の後は出さない。Hop 決定 2026-10-23） */}
+              {!editTarget && (
+                <button type="button" data-next-puzzle="" onClick={startNextPuzzle} className={`${btnGray} w-full`} style={{ color: C.ink }}>
+                  {CT.shareModal.nextPuzzle}
+                </button>
+              )}
+              <button type="button" data-saved-close="" onClick={closeSaved} className={btnGray} style={{ color: C.ink }}>
                 {CT.close}
               </button>
             </div>

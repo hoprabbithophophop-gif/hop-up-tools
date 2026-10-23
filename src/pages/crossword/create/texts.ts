@@ -59,8 +59,9 @@ export const CT = {
     release: "固定を外す", // 【仮】
     notConnected: "固定した答えがつながっていません。固定を外すか、答えを足してください。", // 【仮】
   },
-  // 共有の窓（本番の文）
-  shareTitle: "共有する",
+  // 公開の窓（下の段の「公開の準備」で開く。見出しとボタンは「公開する」にそろえた。Hop 決定 2026-10-23）
+  shareTitle: "公開する", // Hop 決定 2026-10-23
+  publishNote: "公開すると、パズルギャラリーに載り、誰でも遊べます。", // 「公開する」のボタンの上。Hop 決定 2026-10-23
   puzzleTitle: "題名",
   titlePlaceholder: "例：音楽なぞなぞチャレンジ！",
   creatorName: "作った人の名前（任意）",
@@ -73,7 +74,7 @@ export const CT = {
   // 公開の窓に出す、この問題が載るグループ（保存の時と同じ判定。Hop 決定 2026-10-23）
   groups: (names: string[]) => `載るグループ: ${names.join("・")}`,
   noGroup: "どのグループにも載りません。グループで絞った時には出ません。",
-  share: "共有する",
+  share: "公開する", // Hop 決定 2026-10-23
   saving: "保存中…",
   toList: "パズルギャラリー",
   myPuzzles: "自分が作った問題",
@@ -97,7 +98,9 @@ export const CT = {
     alreadyPlayed: "もう遊ばれているので組み直せません。", // 【仮】
   },
   shareModal: {
-    modalTitle: "問題を共有",
+    modalTitle: "公開しました", // Hop 決定 2026-10-23
+    updatedTitle: "更新しました", // 組み直しの更新の後の見出し【仮】（「問題を共有」から、公開と同じ形にそろえた）
+    nextPuzzle: "次の問題を作る", // Hop 決定 2026-10-23
     shareLink: "共有リンク",
     postToX: "Xに投稿",
     publicNotice: "この問題を公開しました。誰でも遊べます。",

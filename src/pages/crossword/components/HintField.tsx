@@ -114,7 +114,13 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
   // 最初から initial で始める（「選択なし」で一度描くと、親と下書きへ「ヒント無し」が一瞬送られるため）
   const [selected, setSelected] = useState<Selected | null>(initial ?? null);
   // 出どころの印（Hop 決定 2026-10-19 案A-2）。初期は YouTube。URL を貼ると行き先に合わせて切り替わる
-  const [source, setSource] = useState<HintSource>(() => (!initial ? "yt" : initial.hint.kind === "youtube" ? "yt" : sourceOfUrl(initial.hint.url)));
+  // ヒントが無い時は、最後に使った出どころから始める（グループと同じ覚え方。Hop 決定 2026-10-23）
+  const [source, setSourceState] = useState<HintSource>(() => (!initial ? search.value.source : initial.hint.kind === "youtube" ? "yt" : sourceOfUrl(initial.hint.url)));
+  // 人が選んだ・貼って切り替わった出どころは覚える
+  const setSource = (s: HintSource) => {
+    setSourceState(s);
+    if (search.value.source !== s) search.remember({ source: s });
+  };
   // 公式ブログを探す（アメブロの印の時だけ。Google の site: 検索を新しいタブで開くだけ）
   // 公式ブログの選択（"g:グループ"＝そのグループのブログ全部／"b:ブログ"＝1つだけ。Hop 依頼 2026-10-21）。選び直すとブラウザに覚える（Hop 決定 2026-10-22）
   const blogChoice = search.value.blogChoice;
@@ -157,7 +163,7 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
     setBusy(false);
     setText("");
     setSelected(initial ?? null);
-    setSource(!initial ? "yt" : initial.hint.kind === "youtube" ? "yt" : sourceOfUrl(initial.hint.url));
+    setSourceState(!initial ? search.value.source : initial.hint.kind === "youtube" ? "yt" : sourceOfUrl(initial.hint.url));
     // 探す言葉といつごろは持ち主の画面が持つので、ここでは空にしない（窓を開くたびに消えないように。Hop 決定 2026-10-22）。この欄だけで持つ時は今までどおり空にする
     if (!searchProp) ownSearch.set({ keyword: "", year: "", month: "" });
     setCopied("");
