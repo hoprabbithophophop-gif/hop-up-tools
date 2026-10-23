@@ -602,6 +602,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     const base = pinned.length > 0 ? carryBase(items, pinned) : [];
     const run = ++generationIdRef.current;
     const sig = poolSignature(items);
+    adoptedUnsettledRef.current = false;
     setIsLiveGenerating(false);
     setBackgroundPuzzle(null);
     setSearching(true);
@@ -726,6 +727,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   }, [editStatus, editParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- 作りかけを戻す（組み直しの間は読まない・書かない【仮】）。作りかけが無い時だけ見本の3行で始める（Hop 決定 2026-10-22） ---
+  // 別のタブの組んでいる途中の中身に入れ替えて、このタブでは組まずに待っている間
+  const adoptedUnsettledRef = useRef(false);
   // 読み取った作りかけを画面に入れる。replace = 別のタブで書き換えられた中身に入れ替える時（無い欄は空に戻し、盤が無ければ盤も外す）
   const applyDraft = (d: ParsedDraft, replace: boolean) => {
     if (d.title !== undefined || replace) setPuzzleTitle(d.title ?? "");
@@ -757,6 +760,14 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
       setProposals(null);
       setPicked(null);
       searchedSigRef.current = null;
+    }
+    if (replace) {
+      // 別のタブがまだ盤を組んでいる途中の中身なら、このタブでは組み始めない（両方で組むと、組んだ盤を互いに書き合う）。
+      // 別のタブの組み上がった盤が届けばそれに合わせる。届かないままこのタブに戻った時は、このタブで組む
+      const sig = poolSignature(evaluateCandidates(parseMarks(d.bulkText)).filter((c) => !c.reason).map((c) => ({ id: c.key, question: "", answer: c.cells })));
+      const settled = !!d.board && d.board.boardSig === sig;
+      adoptedUnsettledRef.current = !settled && sig !== poolSignature([]);
+      if (!settled) searchedSigRef.current = sig;
     }
   };
   useEffect(() => {
@@ -796,7 +807,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   // "" = 入れ替えた直後で、まだ中身を控えていない
   const adoptedSnapRef = useRef<string | null>(null);
   const [adoptTick, setAdoptTick] = useState(0);
-  // 「別のタブで書いた中身に合わせました。」を出したか（このタブで書くまで出し直さない）
+  // 「別のタブで書いた中身に合わせました。」を出したか（このタブを見ている間は1回だけ。このタブで書くか、離れて戻ると出し直せる）
   const otherTabNoticeRef = useRef(false);
   useEffect(() => {
     if (!draftEnabled || !draftReady || editStatus !== "none") return;
@@ -836,6 +847,12 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   // --- 別のタブで作りかけが書き換えられたら、このタブの中身もそれに入れ替える（Hop 決定 2026-10-23）。組み直し（?edit=）の間は作りかけを使わないので見ない ---
   // 人が書いた所（文・カギ・ヒント・題名など）が違う時だけ「別のタブで書いた中身に合わせました。」を出す。盤だけ違う時は黙って合わせる。
   // 作りかけが消された時（別のタブで公開した・空にした）は、このタブの中身はそのまま残す【仮】
+  // このタブに戻った時に、組まずに待っていた盤を組む（最新の答えで）
+  const resumeSearchRef = useRef(() => {});
+  resumeSearchRef.current = () => {
+    if (pool.length === 0 || poolSig === boardSig) return;
+    void autoSearch(pool);
+  };
   const authoredRef = useRef("");
   authoredRef.current = authoredSig({ bulkText, hints, hintLabels, clues, title: puzzleTitle, creatorName, tags, isBeginner });
   const boardPartRef = useRef("");
@@ -880,17 +897,30 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     };
     const looking = () => document.visibilityState === "visible" && document.hasFocus();
     const onBack = () => {
-      if (!noticeLater || !looking()) return;
+      if (!looking()) return;
+      if (adoptedUnsettledRef.current) {
+        adoptedUnsettledRef.current = false;
+        resumeSearchRef.current();
+      }
+      if (!noticeLater) return;
       noticeLater = false;
       notice();
     };
+    // このタブを離れたら、次に戻った時にはまた知らせを出せるようにする
+    const onAway = () => {
+      if (!looking()) otherTabNoticeRef.current = false;
+    };
     window.addEventListener("storage", onStorage);
     document.addEventListener("visibilitychange", onBack);
+    document.addEventListener("visibilitychange", onAway);
     window.addEventListener("focus", onBack);
+    window.addEventListener("blur", onAway);
     return () => {
       window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onBack);
+      document.removeEventListener("visibilitychange", onAway);
       window.removeEventListener("focus", onBack);
+      window.removeEventListener("blur", onAway);
     };
   }, [draftEnabled, draftReady, editStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
