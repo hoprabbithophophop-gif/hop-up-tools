@@ -99,6 +99,8 @@ interface PuzzleKeypadProps {
   disabled?: boolean;
   currentChar?: string;
   onModifyCurrentChar?: (char: string) => void;
+  /** 窓が画面の高さに収まらない時だけ、かなのキーの高さを 44 から 40 に下げる（Hop 決定 2026-10-23） */
+  compact?: boolean;
 }
 
 const keyBase = "transition-colors";
@@ -113,6 +115,7 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
   disabled = false,
   currentChar,
   onModifyCurrentChar,
+  compact = false,
 }) => {
   const [isAlphabetOrder, setIsAlphabetOrder] = useState(false);
   const [hiraganaMode, setHiraganaMode] = useState<HiraganaMode>("normal");
@@ -170,7 +173,7 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
                   key={`${baseChar}-${charIndex}`}
                   onClick={() => handleKeyClick(baseChar)}
                   disabled={disabled || !baseChar}
-                  className={`flex-1 min-w-0 max-w-11 h-11 ${!baseChar ? "invisible" : ""} font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${keyBase} text-sm`}
+                  className={`flex-1 min-w-0 max-w-11 ${compact ? "h-10" : "h-11"} ${!baseChar ? "invisible" : ""} font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${keyBase} text-sm`}
                   style={{ background: hasTransform ? C.highest : C.low, color: C.ink, boxShadow: hasTransform ? `inset 0 0 0 1px ${C.black}` : undefined }}
                 >
                   {displayChar || baseChar}

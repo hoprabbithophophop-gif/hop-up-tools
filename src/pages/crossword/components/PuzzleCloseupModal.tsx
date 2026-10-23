@@ -84,6 +84,18 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
   // 文字が200%でカードが画面に収まらない時だけ、カードの中を縦にスクロールできるようにする
   // （収まる時は今まで通り、指で下へ引いて閉じる動きを優先する）
   const [scrollable, setScrollable] = useState(false);
+  // 窓が画面の高さに収まらない時の詰め方（Hop 決定 2026-10-23）。1段目: かなのキーの高さを 44 から 40 に下げる。
+  // 2段目: それでも収まらない長いカギは、カギの所に高さの上限を付けて窓の中で送れるようにする（「決定」の段がいつも画面の中にあるように）
+  const [compactKeys, setCompactKeys] = useState(false);
+  const [questionMax, setQuestionMax] = useState<number | null>(null);
+  const [fitStep, setFitStep] = useState(1);
+  const [resizeTick, setResizeTick] = useState(0);
+  const questionRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    const onResize = () => setResizeTick((n) => n + 1);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const drag = useRef<{ id: number; startY: number; dragging: boolean } | null>(null);
   const dragY = useRef(0); // 今の y（px）。ドラッグで動いた後の exit はここから始める
   const snapBack = useRef<MotionHandle | null>(null);
@@ -105,6 +117,28 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
     window.addEventListener(PAUSE_PLAYERS_EVENT, stop);
     return () => window.removeEventListener(PAUSE_PLAYERS_EVENT, stop);
   }, []);
+
+  // 答え・ヒントの開け閉め・1文字見るの確かめ・画面の大きさが変わったら、詰め方を外してから測り直す
+  useLayoutEffect(() => {
+    setCompactKeys(false);
+    setQuestionMax(null);
+    setFitStep(1);
+  }, [wordItem.uuid, showHint, confirmReveal, resizeTick]);
+  useLayoutEffect(() => {
+    if (fitStep === 0) return;
+    const el = sheetRef.current;
+    if (!el) return;
+    const over = el.scrollHeight - el.clientHeight;
+    if (fitStep === 1) {
+      if (over > 1) {
+        setCompactKeys(true);
+        setFitStep(2);
+      } else setFitStep(0);
+      return;
+    }
+    if (over > 1 && questionRef.current) setQuestionMax(Math.max(40, Math.floor(questionRef.current.offsetHeight - over)));
+    setFitStep(0);
+  }, [fitStep, compactKeys, questionMax, sheetRef]);
 
   // 収まっているかを見る
   useEffect(() => {
@@ -302,7 +336,19 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
               </span>
               <span className="sr-only">{wordItem.direction === "horizontal" ? "ヨコ" : "タテ"}</span>
             </div>
-            <p id="closeup-question" data-closeup-question="" className="flex-1 min-w-0 text-sm leading-snug whitespace-pre-wrap break-words" style={{ color: C.ink }}>{wordItem.question}</p>
+            <p
+              ref={questionRef}
+              id="closeup-question"
+              data-closeup-question=""
+              data-clamped={questionMax !== null ? "" : undefined}
+              // 上限を付けたカギを指で送る時は、窓を下へ引いて閉じる動きにしない
+              onPointerDown={(e) => questionMax !== null && e.stopPropagation()}
+              tabIndex={questionMax !== null ? 0 : undefined}
+              className="flex-1 min-w-0 text-sm leading-snug whitespace-pre-wrap break-words"
+              style={{ color: C.ink, ...(questionMax !== null ? { maxHeight: questionMax, overflowY: "auto", touchAction: "pan-y", overscrollBehavior: "contain" } : {}) }}
+            >
+              {wordItem.question}
+            </p>
             <button onClick={onClose} className="w-11 h-11 -mt-2.5 -mr-3 shrink-0 flex items-center justify-center hover:bg-surface-container-high transition-colors" aria-label="閉じる">
               <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "20px", color: C.secondary }}>close</span>
             </button>
@@ -423,6 +469,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
               disabled={false}
               currentChar={modTargetChar}
               onModifyCurrentChar={modifyChar}
+              compact={compactKeys}
             />
           )}
         </div>
