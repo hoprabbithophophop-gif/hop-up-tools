@@ -190,6 +190,21 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
     box.querySelectorAll<HTMLElement>("[data-closeup-cell]")[activeIndex]?.focus({ preventScroll: true });
   }, [activeIndex]);
 
+  // 答えの箱の並びが画面の幅を超える時（8字以上）は、左端から並べて横に送れる。今のマスの箱が見える所まで自動で送る（Hop 決定 2026-10-23）。
+  // 縦線が最後のマスの右にある時は、最後のマスを見せる
+  useLayoutEffect(() => {
+    const box = cellsRef.current;
+    if (!box || box.scrollWidth <= box.clientWidth) return;
+    const cells = box.querySelectorAll<HTMLElement>("[data-closeup-cell]");
+    const cell = cells[Math.min(activeIndex, cells.length - 1)];
+    if (!cell) return;
+    const pad = 16;
+    const br = box.getBoundingClientRect();
+    const cr = cell.getBoundingClientRect();
+    if (cr.left < br.left + pad) box.scrollLeft -= br.left + pad - cr.left;
+    else if (cr.right > br.right - pad) box.scrollLeft += cr.right - (br.right - pad);
+  }, [activeIndex, wordItem.uuid]);
+
   const handleBackgroundClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) onClose();
   };
@@ -278,7 +293,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
 
         {/* Header: カギ + ヒント + 閉じるボタン（data-coach は練習問題の案内の印の目印） */}
         {/* カギの文は切り詰めずに全文を折り返して出す（Hop 2026-10-06「全文出ないのストレス」）。ボタンは下の段 */}
-        <div data-coach="closeup-head" className="p-4 flex flex-col gap-2" style={{ background: C.low }}>
+        <div data-coach="closeup-head" className="px-4 pt-3 pb-3 flex flex-col gap-2" style={{ background: C.low }}>
           <div className="flex items-start gap-3">
             <div id="closeup-num" className="flex items-center gap-2 text-sm font-semibold shrink-0 pt-0.5">
               <span className="px-2 py-0.5 text-xs font-bold bg-primary text-white">{wordItem.clueIndex}</span>
@@ -288,7 +303,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
               <span className="sr-only">{wordItem.direction === "horizontal" ? "ヨコ" : "タテ"}</span>
             </div>
             <p id="closeup-question" data-closeup-question="" className="flex-1 min-w-0 text-sm leading-snug whitespace-pre-wrap break-words" style={{ color: C.ink }}>{wordItem.question}</p>
-            <button onClick={onClose} className="p-1.5 -mt-1 -mr-1 shrink-0 hover:bg-surface-container-high transition-colors" aria-label="閉じる">
+            <button onClick={onClose} className="w-11 h-11 -mt-2.5 -mr-3 shrink-0 flex items-center justify-center hover:bg-surface-container-high transition-colors" aria-label="閉じる">
               <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "20px", color: C.secondary }}>close</span>
             </button>
           </div>
@@ -296,7 +311,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
           {(hint || hintText) && (
             <button
               onClick={() => setShowHint((v) => !v)}
-              className={`px-2 py-1 text-xs font-bold transition-colors ${showHint ? "bg-primary text-white" : "bg-surface-container-high text-on-surface hover:bg-surface-container-highest"}`}
+              className={`min-w-11 min-h-11 px-3 text-xs font-bold transition-colors ${showHint ? "bg-primary text-white" : "bg-surface-container-high text-on-surface hover:bg-surface-container-highest"}`}
               aria-pressed={showHint}
             >
               ヒント
@@ -306,7 +321,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
             <button
               data-coach="reveal"
               onClick={() => (revealUsed ? reveal() : setConfirmReveal(true))}
-              className="px-2 py-1 text-xs font-bold bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors shrink-0"
+              className="min-w-11 min-h-11 px-3 text-xs font-bold bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-colors shrink-0"
             >
               1文字見る
             </button>
@@ -326,19 +341,20 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
                 setConfirmReveal(false);
                 reveal();
               }}
-              className="px-3 py-1.5 text-sm font-bold bg-primary text-white hover:bg-secondary transition-colors"
+              className="min-h-11 px-3 text-sm font-bold bg-primary text-white hover:bg-secondary transition-colors"
             >
               見る
             </button>
-            <button onClick={() => setConfirmReveal(false)} className="px-3 py-1.5 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.ink }}>
+            <button onClick={() => setConfirmReveal(false)} className="min-h-11 px-3 text-sm font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors" style={{ color: C.ink }}>
               やめる
             </button>
           </div>
         )}
 
         {/* Cells: 拡大セル表示 */}
-        <div ref={cellsRef} data-coach="closeup-cells" className="p-4 flex justify-center overflow-x-auto">
-          <div className="flex">
+        {/* 収まる時は真ん中、はみ出す時は左端から並べて横に送る（justify-center だと左の箱へ送れないため mx-auto で寄せる） */}
+        <div ref={cellsRef} data-coach="closeup-cells" className="px-4 py-2 flex overflow-x-auto">
+          <div className="flex mx-auto">
             {Array.from({ length: wordItem.length + 1 }, (_, slot) => {
               // マスの間（と両端）に幅4pxの場所を置き、縦線のある場所だけ線を見せる（線の有る無しで幅が変わらないように）
               const caret = (
@@ -387,7 +403,7 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
               {/* 動画を閉じる印。動画の上には重ねず、枠のすぐ上の行に置く（Hop 2026-10-18 案b） */}
               {hint.kind === "youtube" && (
                 <div className="flex justify-end px-3 pt-2">
-                  <button type="button" onClick={() => setShowHint(false)} className="p-1.5 hover:bg-surface-container-high transition-colors" aria-label="動画を閉じる">
+                  <button type="button" onClick={() => setShowHint(false)} className="w-11 h-11 flex items-center justify-center hover:bg-surface-container-high transition-colors" aria-label="動画を閉じる">
                     <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "20px", color: C.secondary }}>close</span>
                   </button>
                 </div>

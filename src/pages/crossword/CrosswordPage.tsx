@@ -403,6 +403,15 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
   const prevAnswersRef = useRef(userAnswers);
   // 盤の白い面（間違いの時に揺れ、解けた時にハンコを受け止めて沈む）
   const boardBoxRef = useRef<HTMLDivElement>(null);
+  // 下の「マスを押すと、ここにカギが出ます」の帯が、開いた時（一番上まで送った時）にズームのボタンとヨコのカギの見出しに重ならないようにする（2026-10-23）。
+  //   盤の高さの上限: 盤の下からズームのボタンまでを足しても帯の上に収まる高さ（縮めすぎる時は付けない）
+  //   帯の分の余白: カギの一覧の見出しが帯の下に入る時だけ、一覧の上に帯の下端までの余白を足す
+  const zoomRef = useRef<HTMLDivElement>(null);
+  const clueListRef = useRef<HTMLDivElement>(null);
+  const [boardMaxH, setBoardMaxH] = useState<number | null>(null);
+  const [barSpacer, setBarSpacer] = useState(0);
+  const barSpacerRef = useRef(0);
+  barSpacerRef.current = barSpacer;
   // 押したマスから語の並びの濃淡を1マス25msずつ遅らせて付ける
   const emitPress = (word: PlacedItem, x: number, y: number) => {
     const keys = itemCellKeys(word);
@@ -436,6 +445,62 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
   // （Hop 決定 2026-10-21「窓を閉じた時に盤で動かす」。iPhone SE では窓が盤を全部隠して跳ねが見えなかった）。
   // 覚えるのは埋まった語と最後に字を入れたマスだけ（正誤は使わない）
   const heldWordsRef = useRef<{ ids: Set<string>; lastKey: string | null }>({ ids: new Set(), lastKey: null });
+  // 帯と重ならない並びを測って決める（帯が出ている時だけ測る。窓が開いて帯が消えている間は前の値のまま）
+  const layoutBarRef = useRef(() => {});
+  layoutBarRef.current = () => {
+    const bar = document.querySelector<HTMLElement>("[data-sticky-bar]");
+    const board = boardBoxRef.current;
+    const zoom = zoomRef.current;
+    const list = clueListRef.current;
+    if (!bar || !board || !zoom || !list) return;
+    const y = window.scrollY;
+    const b = bar.getBoundingClientRect();
+    // 帯は画面に貼り付いているので、画面の中の位置がそのまま「一番上まで送った時」の位置
+    const barTop0 = b.top;
+    const barBottom0 = b.bottom;
+    const pad = 24; // 盤の白い面の p-6
+    const boxR = board.getBoundingClientRect();
+    const boardTop = boxR.top + y + pad;
+    const boardBottom = boxR.bottom + y - pad;
+    const zoomBottom = zoom.getBoundingClientRect().bottom + y;
+    const below = zoomBottom - boardBottom;
+    const maxH = Math.floor(barTop0 - 8 - below - boardTop);
+    // 盤が小さくなりすぎる時（160px 未満）は上限を付けない
+    const nextMax = maxH >= 160 ? maxH : null;
+    setBoardMaxH((prev) => (prev === nextMax ? prev : nextMax));
+    const head = list.querySelector("h2");
+    if (!head) return;
+    const hr = head.getBoundingClientRect();
+    const headTop = hr.top + y - barSpacerRef.current;
+    const headBottom = hr.bottom + y - barSpacerRef.current;
+    const need = headBottom > barTop0 && headTop < barBottom0 + 8 ? Math.ceil(barBottom0 + 8 - headTop) : 0;
+    setBarSpacer((prev) => (Math.abs(prev - need) <= 1 ? prev : need));
+  };
+  // 盤・中身の大きさ・画面の大きさが変わった時に測り直す。解けた後は帯が無いので余白を外す（盤の大きさはそのまま）
+  useEffect(() => {
+    if (!playerPuzzle) return;
+    if (isCleared) {
+      setBarSpacer(0);
+      return;
+    }
+    let raf = 0;
+    const run = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => layoutBarRef.current());
+    };
+    run();
+    // 出てくる動き（拡大・ずれ）の間は帯の位置が動きの途中なので、動きが終わった後にも測り直す
+    const timers = [450, 1200].map((ms) => window.setTimeout(run, ms));
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(run) : null;
+    ro?.observe(document.body);
+    window.addEventListener("resize", run);
+    return () => {
+      cancelAnimationFrame(raf);
+      timers.forEach((t) => window.clearTimeout(t));
+      ro?.disconnect();
+      window.removeEventListener("resize", run);
+    };
+  }, [playerPuzzle, isCleared, showCloseup, paused]);
   // 盤が窓に隠れているか: 盤の白い面のうち画面に入っている所が、全部入力の窓の中に収まっていれば隠れている。
   // 窓の上や横に盤が少しでも見えていれば、今どおりその場で跳ねる
   const boardHiddenBySheet = () => {
@@ -1687,7 +1752,7 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
                   {/* 幕の間は盤を見えなくし、押せなくする */}
                   <div inert={paused} style={paused ? { visibility: "hidden" } : undefined}>
                   <div ref={boardBoxRef} data-board-box="" className="w-full bg-white p-6 overflow-x-auto">
-                    <FitGrid width={playerPuzzle.width} height={playerPuzzle.height} userScale={scale}>
+                    <FitGrid width={playerPuzzle.width} height={playerPuzzle.height} userScale={scale} maxHeight={boardMaxH}>
                       <PuzzleGridRetro
                         data={playerPuzzle}
                         showSolution={isCleared}
@@ -1709,11 +1774,11 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
                   )}
 
                   {/* Zoom Controls - 中央下に配置 */}
-                  <div className="flex justify-center gap-2 mt-4">
+                  <div ref={zoomRef} data-zoom="" className="flex justify-center gap-2 mt-4">
                     <button
                       onClick={() => setScale((prev) => Math.min(2.0, prev + 0.1))}
                       disabled={scale >= 2.0}
-                      className="p-2 bg-surface-container-high hover:bg-surface-container-highest disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="w-11 h-11 flex items-center justify-center bg-surface-container-high hover:bg-surface-container-highest disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       aria-label="ズームイン"
                       title="拡大"
                       style={{ color: C.ink }}
@@ -1723,7 +1788,7 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
                     <button
                       onClick={() => setScale((prev) => Math.max(0.5, prev - 0.1))}
                       disabled={scale <= 0.5}
-                      className="p-2 bg-surface-container-high hover:bg-surface-container-highest disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="w-11 h-11 flex items-center justify-center bg-surface-container-high hover:bg-surface-container-highest disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       aria-label="ズームアウト"
                       title="縮小"
                       style={{ color: C.ink }}
@@ -1733,7 +1798,7 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
                     {scale !== 1 && (
                       <button
                         onClick={() => setScale(1)}
-                        className="px-2 py-1 bg-surface-container-high hover:bg-surface-container-highest transition-colors text-xs font-bold"
+                        className="min-w-11 h-11 px-2 bg-surface-container-high hover:bg-surface-container-highest transition-colors text-xs font-bold"
                         title="大きさを戻す"
                         aria-label="大きさを戻す"
                         style={{ color: C.ink }}
@@ -1861,8 +1926,8 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
                 </div>
 
                 {/* Clue List */}
-                {/* 幕の間はカギの一覧も見えなくする（考えられないように） */}
-                <div inert={paused} className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8 bg-surface-container-low p-6" style={paused ? { visibility: "hidden" } : undefined}>
+                {/* 幕の間はカギの一覧も見えなくする（考えられないように）。下の帯が開いた時にヨコのカギの見出しに重なる時だけ、一覧の上に帯の分の余白を足す */}
+                <div ref={clueListRef} data-bar-spacer={barSpacer || undefined} inert={paused} className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8 bg-surface-container-low p-6" style={{ ...(paused ? { visibility: "hidden" as const } : {}), ...(barSpacer > 0 ? { paddingTop: 24 + barSpacer } : {}) }}>
                   {(["horizontal", "vertical"] as const).map((dir) => (
                     <div key={dir}>
                       <h2 className="font-bold mb-4 pb-2" style={{ color: C.ink }}>

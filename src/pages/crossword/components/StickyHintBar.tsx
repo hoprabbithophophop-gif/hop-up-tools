@@ -27,7 +27,7 @@ export const StickyHintBar: React.FC<StickyHintBarProps> = ({ currentHint, onPre
   const style = bottom ? { ...barStyle, bottom } : barStyle;
   if (!currentHint) {
     return (
-      <div className="fixed bottom-0 left-0 right-0 z-40 w-full p-3" style={style}>
+      <div data-sticky-bar="" className="fixed bottom-0 left-0 right-0 z-40 w-full p-3" style={style}>
         <p className="text-center text-sm font-medium" style={{ color: C.secondary }}>
           マスを押すと、ここにカギが出ます
         </p>
@@ -36,7 +36,7 @@ export const StickyHintBar: React.FC<StickyHintBarProps> = ({ currentHint, onPre
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 w-full p-3" style={style}>
+    <div data-sticky-bar="" className="fixed bottom-0 left-0 right-0 z-40 w-full p-3" style={style}>
       <div className="flex items-center gap-2">
         {onPrevHint && (
           <button onClick={onPrevHint} className="p-2 bg-surface-container-low hover:bg-surface-container-high transition-colors" aria-label="前のカギ">

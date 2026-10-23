@@ -157,8 +157,9 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
         : { background: C.low, color: C.secondary };
 
   return (
-    <div className="w-full p-3">
-      <div className="space-y-1">
+    // かなのキーは幅いっぱいに等分（1つ44pxまで）・高さ44px（Hop 決定 2026-10-23「できるだけ 44px に近づける」）。375 幅では1行10個で幅は約34px まで
+    <div className="w-full px-1.5 pt-2 pb-3">
+      <div className="space-y-0.5">
         {keys.map((row, rowIndex) => (
           <div key={rowIndex} className="flex justify-center gap-0.5">
             {row.map((baseChar, charIndex) => {
@@ -169,7 +170,7 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
                   key={`${baseChar}-${charIndex}`}
                   onClick={() => handleKeyClick(baseChar)}
                   disabled={disabled || !baseChar}
-                  className={`w-8 h-9 ${!baseChar ? "invisible" : ""} font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${keyBase} text-sm`}
+                  className={`flex-1 min-w-0 max-w-11 h-11 ${!baseChar ? "invisible" : ""} font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${keyBase} text-sm`}
                   style={{ background: hasTransform ? C.highest : C.low, color: C.ink, boxShadow: hasTransform ? `inset 0 0 0 1px ${C.black}` : undefined }}
                 >
                   {displayChar || baseChar}
@@ -180,16 +181,17 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
         ))}
       </div>
 
-      <div className="flex justify-center gap-2 mt-3 flex-wrap">
+      {/* 下の段は 44px の高さのまま1行に収める（375 幅で折り返さないよう、間は 4px） */}
+      <div className="flex justify-center gap-1 mt-2 flex-wrap">
         {(onArrowLeft || onArrowRight) && (
           <div className="flex gap-1">
             {onArrowLeft && (
-              <button onClick={onArrowLeft} disabled={disabled} className={`p-2.5 bg-primary hover:bg-secondary disabled:opacity-50 ${keyBase}`} aria-label="前のマス">
+              <button onClick={onArrowLeft} disabled={disabled} className={`w-11 h-11 flex items-center justify-center bg-primary hover:bg-secondary disabled:opacity-50 ${keyBase}`} aria-label="前のマス">
                 <span aria-hidden="true" className="material-symbols-outlined leading-none text-white" style={{ fontSize: "16px" }}>arrow_back</span>
               </button>
             )}
             {onArrowRight && (
-              <button onClick={onArrowRight} disabled={disabled} className={`p-2.5 bg-primary hover:bg-secondary disabled:opacity-50 ${keyBase}`} aria-label="次のマス">
+              <button onClick={onArrowRight} disabled={disabled} className={`w-11 h-11 flex items-center justify-center bg-primary hover:bg-secondary disabled:opacity-50 ${keyBase}`} aria-label="次のマス">
                 <span aria-hidden="true" className="material-symbols-outlined leading-none text-white" style={{ fontSize: "16px" }}>arrow_forward</span>
               </button>
             )}
@@ -202,7 +204,7 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
             <button
               onClick={() => handleModifierClick("dakuten")}
               disabled={disabled || (currentChar ? !modifiedChar("dakuten", currentChar) : false)}
-              className={`px-3 py-2 font-bold text-sm ${keyBase}`}
+              className={`w-11 h-11 font-bold text-sm ${keyBase}`}
               style={modifierStyle("dakuten")}
             >
               ゛
@@ -210,7 +212,7 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
             <button
               onClick={() => handleModifierClick("handakuten")}
               disabled={disabled || (currentChar ? !modifiedChar("handakuten", currentChar) : false)}
-              className={`px-3 py-2 font-bold text-sm ${keyBase}`}
+              className={`w-11 h-11 font-bold text-sm ${keyBase}`}
               style={modifierStyle("handakuten")}
             >
               ゜
@@ -222,7 +224,7 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
           <button
             onClick={() => setIsAlphabetOrder((prev) => !prev)}
             disabled={disabled}
-            className={`px-3 py-2.5 font-semibold text-xs ${keyBase}`}
+            className={`min-h-11 px-3 font-semibold text-xs ${keyBase}`}
             style={{ background: C.highest, color: C.ink }}
           >
             {isAlphabetOrder ? "ABC" : "QWERTY"}
@@ -232,7 +234,7 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
         <button
           onClick={onBackspace}
           disabled={disabled}
-          className={`px-4 py-2.5 font-semibold disabled:opacity-50 flex items-center gap-1.5 ${keyBase}`}
+          className={`h-11 px-3 font-semibold disabled:opacity-50 flex items-center gap-1.5 ${keyBase}`}
           style={{ background: C.highest, color: C.ink }}
         >
           <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "16px" }}>backspace</span>
@@ -243,7 +245,7 @@ export const PuzzleKeypad: React.FC<PuzzleKeypadProps> = ({
           <button
             onClick={onEnter}
             disabled={disabled}
-            className={`px-4 py-2.5 font-semibold disabled:opacity-50 flex items-center gap-1.5 bg-primary hover:bg-secondary text-white ${keyBase}`}
+            className={`h-11 px-3 font-semibold disabled:opacity-50 flex items-center gap-1.5 bg-primary hover:bg-secondary text-white ${keyBase}`}
           >
             <span aria-hidden="true" className="material-symbols-outlined leading-none" style={{ fontSize: "16px" }}>keyboard_return</span>
             <span className="text-sm">決定</span>
