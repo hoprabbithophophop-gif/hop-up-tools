@@ -30,6 +30,8 @@ export interface BulkTexts {
   insertMaruLabel: string;
   reasonLine: (surface: string, reason: string) => string;
   reasons: Record<ReasonKey, string>;
+  /** 答えにならず外れた行の理由（「→」に【 】が無い・中が空・組が合わない） */
+  lineReasons: Record<LineProblemKey, string>;
 }
 
 export type ReasonKey = "noReading" | "badReading" | "unusable" | "tooLong" | "inList" | "duplicate" | "tooMany";
@@ -48,6 +50,59 @@ export interface Candidate {
   key: string; // 答えの字を並べた物。重なりの見分けと、ヒント・カギの持ち主の印に使う
   reason: ReasonKey | null; // null なら通った
 }
+
+// 書いた行のうち、答えにならず黙って外れていた形（Hop 決定 2026-10-23「書いた行が黙って消える」の直し）。
+//   needBrackets: 「→」があるのに【 】が無い行／emptyMark: 【】【 】【｜】のように中が空／unpaired: 【 の閉じ忘れ・】だけ・【 の中の 【
+// 「→」も【 】も無い行はメモとして黙って通す
+export type LineProblemKey = "needBrackets" | "emptyMark" | "unpaired";
+export interface LineProblem {
+  reason: LineProblemKey;
+  start: number; // 文字列の中の位置（理由の行を書いた順に並べるのに使う）
+  line: number;
+  head: string; // 理由の行の頭に出す、行の文の頭
+}
+
+// 理由の行の頭に出す行の文の頭（長い行は12字で切る。欄の帯の語の切り方と同じ）
+const lineHead = (s: string) => {
+  const t = s.trim();
+  return Array.from(t).length > 12 ? `${Array.from(t).slice(0, 12).join("")}…` : t;
+};
+
+export const lineProblems = (text: string): LineProblem[] => {
+  const out: LineProblem[] = [];
+  const marks = parseMarks(text);
+  let pos = 0;
+  text.split("\n").forEach((line, lineNo) => {
+    const lineStart = pos;
+    pos += line.length + 1;
+    if (!line.includes("【") && !line.includes("】")) {
+      if (line.includes("→")) out.push({ reason: "needBrackets", start: lineStart, line: lineNo, head: lineHead(line) });
+      return;
+    }
+    let open: number | null = null;
+    let unpaired = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === "【") {
+        if (open !== null) unpaired = true;
+        open = i;
+      } else if (ch === "】") {
+        if (open === null) {
+          unpaired = true;
+          continue;
+        }
+        const at = lineStart + open;
+        const m = marks.find((x) => x.start === at);
+        const src = m ? (m.reading?.trim() || m.surface.trim()) : "";
+        if (!src) out.push({ reason: "emptyMark", start: at, line: lineNo, head: lineHead(line) });
+        open = null;
+      }
+    }
+    if (open !== null) unpaired = true;
+    if (unpaired) out.push({ reason: "unpaired", start: lineStart, line: lineNo, head: lineHead(line) });
+  });
+  return out;
+};
 
 // 半角の | も受け付ける（書き戻す時だけ全角にそろえる。打っている途中に書き換えると変換中の字が崩れるため）
 const MARK_RE = /【([^【】｜|\n]+)(?:[｜|]([^【】\n]*))?】/g;
@@ -167,7 +222,9 @@ export const BulkEntry: React.FC<{
   textareaClassName: string;
   /** 窓が開いている間は画面の下の帯を出さない */
   barHidden?: boolean;
-}> = ({ text, onText, t, textareaClassName, barHidden }) => {
+  /** 道具の段のすぐ下に置く物（弾いた理由の行） */
+  below?: React.ReactNode;
+}> = ({ text, onText, t, textareaClassName, barHidden, below }) => {
   const areaRef = useRef<HTMLTextAreaElement>(null);
   // 欄の中で選んでいる範囲（ボタンを押す瞬間に選択が消える端末のため、少し待ってから消す）
   const [areaSel, setAreaSel] = useState<{ start: number; end: number; text: string } | null>(null);
@@ -316,6 +373,7 @@ export const BulkEntry: React.FC<{
           {t.insertMaru}
         </button>
       </div>
+      {below}
 
       {/* 画面の下の帯（Hop 2026-10-18 案a・2026-10-20）。欄で字を選んでいる間だけ「「語」を出す」。【語】の中にカーソルがある時は「「語」の囲みを外す」 */}
       {!barHidden &&

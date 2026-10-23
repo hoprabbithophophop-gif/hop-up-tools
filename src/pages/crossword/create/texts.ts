@@ -70,6 +70,9 @@ export const CT = {
   tagAdd: "追加",
   tagRemove: (t: string) => `${t} を外す`,
   beginner: BEGINNER_LABEL,
+  // 公開の窓に出す、この問題が載るグループ（保存の時と同じ判定。Hop 決定 2026-10-23）
+  groups: (names: string[]) => `載るグループ: ${names.join("・")}`,
+  noGroup: "どのグループにも載りません。グループで絞った時には出ません。",
   share: "共有する",
   saving: "保存中…",
   toList: "パズルギャラリー",
@@ -136,6 +139,12 @@ export const BULK_TEXTS: BulkTexts = {
     inList: "一覧に入っています", // 【仮】
     duplicate: "同じ答えがあります",
     tooMany: "答えは60個まで",
+  },
+  // 答えにならず黙って外れていた行の理由（Hop 決定 2026-10-23。頭には行の文の頭を出す）
+  lineReasons: {
+    needBrackets: "答えを【 】で囲んでください", // Hop 決定 2026-10-23
+    emptyMark: "【 】の中が空です", // Hop 決定 2026-10-23
+    unpaired: "【 と 】の組が合いません", // Hop 決定 2026-10-23
   },
 };
 

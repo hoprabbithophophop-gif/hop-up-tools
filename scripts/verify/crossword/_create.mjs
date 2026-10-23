@@ -7,7 +7,8 @@
 //             ・[data-reshuffle]・[data-unplaced]・[data-pins-release]・[data-not-connected]・[data-shape-guide]
 //   書く欄:   [data-bulk-text]・[data-bulk-insert="brackets"|"bar"|"arrow"|"maru"]・[data-bulk-markbar]（下の帯）・[data-bulk-unmarkbar]
 //   語の一覧: [data-word-list]・[data-word-row="答え"]（押すと語の窓）・[data-word-missing="clue"|"hint"]（足りない言葉。済むと消える）
-//             ・[data-word-unplaced]（盤に置けなかった語）・[data-bulk-reason="理由"]（弾いた語の行）
+//             ・[data-word-unplaced]（盤に置けなかった語）
+//   理由の行: [data-bulk-reasons]（書く欄の道具の段のすぐ下。2026-10-23 に語の一覧から移した）・[data-bulk-reason="理由"]（弾いた語の行・外れた行）
 //   語の窓:   [data-word-sheet="答え"]（role=dialog。[data-hint-sheet] も付いている）・#cw-clue（カギの欄）・[data-clue-left]・[data-clue-over]
 //             ・[data-hint-guide]・[data-hint-state]（ヒントの行き先を開くリンク）・#cw-hint（ヒントの欄）・[data-hint-kind]（選んだヒントの札）・[data-word-close]
 //   下の段:   [data-dock]（60px）・[data-dock-try]（試しに解く）・[data-dock-share]（公開の準備。そろうと [data-strong]）

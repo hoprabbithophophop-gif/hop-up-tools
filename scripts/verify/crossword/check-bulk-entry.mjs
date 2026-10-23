@@ -386,9 +386,9 @@ try {
   check((await area.inputValue()).includes('【独楽｜コマ】'), '(b) 欄を離れると半角の | は全角の ｜ にそろう');
   check((await page.locator('[data-bulk-markbar]').count()) === 0, '(b) 欄を離れると画面の下の帯は消える');
 
-  // ---- 弾く理由の行が語の一覧に出る ----
+  // ---- 弾く理由の行が、書く欄の道具の段のすぐ下に出る（2026-10-23 に語の一覧から移した。下の段に隠れないように） ----
   check(JSON.stringify(await wordKeys(page)) === JSON.stringify(TEXT_WORDS), `(b) 語の一覧は通った答え7語（${(await wordKeys(page)).join('・')}）`);
-  const reasons = await page.locator('[data-word-list] [data-bulk-reason]').evaluateAll((els) => els.map((e) => `${e.getAttribute('data-bulk-reason')}=${e.textContent}`));
+  const reasons = await page.locator('[data-bulk-reasons] [data-bulk-reason]').evaluateAll((els) => els.map((e) => `${e.getAttribute('data-bulk-reason')}=${e.textContent}`));
   check(reasons.includes('noReading=武道館：読みが未入力') && reasons.includes('noReading=本棚：読みが未入力'), `(b) 読み無しの漢字は語の一覧に「読みが未入力」の行（${reasons.join(' / ')}）`);
   check(reasons.includes('tooLong=アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマ：答えは30字までです。'), '(b) 31字の答えは弾かれ、語の一覧に「答えは30字までです。」の行');
   check(reasons.includes('duplicate=ダンス：同じ答えがあります'), '(b) 2回目の「ダンス」は「同じ答えがあります」の行');
@@ -404,6 +404,14 @@ try {
   const k30 = await wordKeys(page);
   const r30 = await page.locator('[data-bulk-reason]').count();
   check(k30.length === 2 && r30 === 0, `(b) 30字ちょうどの答えは通る（語の一覧 ${k30.length}語・弾いた行 ${r30}）`);
+  // 答えにならず黙って外れていた行にも理由が出る（Hop 決定 2026-10-23）。「→」も【 】も無い行はメモとして黙って通す
+  await area.fill(['ニャーと鳴く動物→ネコ', '【】が空', '【 】も空', '【コアラ', 'ラッパ】', 'メモの行', '【ネコ】と【コアラ】'].join('
+'));
+  await page.waitForTimeout(150);
+  const lineReasons = await page.locator('[data-bulk-reasons] [data-bulk-reason]').evaluateAll((els) => els.map((e) => `${e.getAttribute('data-bulk-reason')}=${e.textContent}`));
+  const wantLines = ['needBrackets=ニャーと鳴く動物→ネコ：答えを【 】で囲んでください', 'emptyMark=【】が空：【 】の中が空です', 'emptyMark=【 】も空：【 】の中が空です', 'unpaired=【コアラ：【 と 】の組が合いません', 'unpaired=ラッパ】：【 と 】の組が合いません'];
+  check(JSON.stringify(lineReasons) === JSON.stringify(wantLines), `(b) 「→」に【 】が無い行・中が空・閉じ忘れ・】だけの行に、書いた順に理由の行が出て、メモの行には出ない（${lineReasons.join(' / ')}）`);
+  check(JSON.stringify(await wordKeys(page)) === JSON.stringify(['ネコ', 'コアラ']), `(b) 理由の行が出ても、通った答えはそのまま（${(await wordKeys(page)).join('・')}）`);
 
   // ---- カギの下書き ----
   await writeLines(page, DRAFT_TEXT);

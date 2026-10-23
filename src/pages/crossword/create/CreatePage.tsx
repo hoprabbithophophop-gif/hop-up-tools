@@ -27,9 +27,10 @@ import {
   type MyPuzzle,
 } from "../../../lib/crossword/puzzleStore";
 import { drawShareImage } from "../../../lib/crossword/shareImage";
+import { detectGroups } from "../../../lib/crossword/groupDetect";
 import { linkProblem } from "../../../lib/crossword/youtubeUrl";
 import { animateElement, prefersReducedMotion } from "../../../lib/crossword/motion";
-import { BulkEntry, clueDraft, evaluateCandidates, parseMarks, type Candidate } from "../components/BulkEntry";
+import { BulkEntry, clueDraft, evaluateCandidates, lineProblems, parseMarks, type Candidate } from "../components/BulkEntry";
 import { HintField } from "../components/HintField";
 import { useHintSearch } from "../components/hintSearch";
 import { HINT_SOURCES, sourceOfUrl } from "../components/HintSourceBar";
@@ -416,6 +417,15 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   const candidates: Candidate[] = useMemo(() => evaluateCandidates(marks), [marks]);
   const answers: Candidate[] = useMemo(() => candidates.filter((c) => !c.reason), [candidates]);
   const answerByKey = useMemo(() => new Map(answers.map((a) => [a.key, a])), [answers]);
+  // 弾いた理由の行（答えにならない印と、答えにならず外れた行）。書いた順に並べ、書く欄の道具の段のすぐ下に出す（Hop 決定 2026-10-23）
+  const reasonRows = useMemo(
+    () =>
+      [
+        ...candidates.filter((c) => c.reason).map((c) => ({ key: `m${c.mark.start}`, start: c.mark.start, kind: c.reason as string, text: BULK_TEXTS.reasonLine(c.mark.surface, BULK_TEXTS.reasons[c.reason!]) })),
+        ...lineProblems(bulkText).map((p) => ({ key: `l${p.reason}${p.start}`, start: p.start, kind: p.reason as string, text: BULK_TEXTS.reasonLine(p.head, BULK_TEXTS.lineReasons[p.reason]) })),
+      ].sort((a, b) => a.start - b.start),
+    [candidates, bulkText]
+  );
   const pool: PuzzleItem[] = useMemo(() => answers.map((a) => ({ id: a.key, question: "", answer: a.cells })), [answers]);
   const poolSig = useMemo(() => poolSignature(pool), [pool]);
   const clueOf = (key: string): string => {
@@ -1012,6 +1022,39 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   // 語の一覧（下線の動きで行を探す）
   const listRef = useRef<HTMLDivElement>(null);
 
+  // 弾いた理由の行が増えた時: 下の段に隠れていたら見える所まで送る（Hop 決定 2026-10-23「理由の行が下の段に隠れる」の直し）。
+  // 打つたびには送らず、理由の行の並びが変わった時だけ。窓が開いている間・「試す」の間は送らない
+  const reasonsRef = useRef<HTMLDivElement>(null);
+  const reasonSig = reasonRows.map((r) => r.kind + r.text).join("|");
+  // 開いた時（作りかけ・組み直しを読み終えた時）にある理由の行では送らない
+  const prevReasonKeys = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!loaded) return;
+    const prev = prevReasonKeys.current;
+    const now = new Set(reasonRows.map((r) => r.kind + r.text));
+    prevReasonKeys.current = now;
+    if (prev === null || ![...now].some((k) => !prev.has(k)) || mode !== "make" || anySheet) return;
+    const el = reasonsRef.current;
+    if (!el) return;
+    // 小さい盤と下の段が隠れる・戻る動き（120ms）の後で測る
+    const t = window.setTimeout(() => el.scrollIntoView({ block: "nearest" }), HIDE_MS + 30);
+    return () => window.clearTimeout(t);
+  }, [reasonSig, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 文字盤を閉じて小さい盤と下の段が戻った時も、理由の行が下の段に隠れたら見える所まで送る（小さい盤の 110px ぶん下へずれるため）
+  const prevKeyboardUp = useRef(keyboardUp);
+  useEffect(() => {
+    const was = prevKeyboardUp.current;
+    prevKeyboardUp.current = keyboardUp;
+    if (!was || keyboardUp || reasonRows.length === 0 || mode !== "make" || anySheet) return;
+    const t = window.setTimeout(() => {
+      const el = reasonsRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      if (r.top > window.innerHeight - DOCK_H - 8 || r.bottom > window.innerHeight - DOCK_H) el.scrollIntoView({ block: "nearest" });
+    }, HIDE_MS + 30);
+    return () => window.clearTimeout(t);
+  }, [keyboardUp]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 【 】で囲んだ瞬間: 語の一覧に増えた語の答えの下に、下線が左から引かれる（400ms・cubic-bezier(0.4,0,0.2,1)。モーションの枝の作り・Hop が見本で選んだ案 B）。
   // 案A では書く欄に下線が無いので、語の一覧の行で引く。引き終えたら 180ms で消す（一覧の行に下線は残さない）。
   // 打っている途中の答え（【ライ】→【ライブ】）で何度も引かないよう、答えが落ち着いてから（盤を組み始めるのと同じ待ちの後に）増えた語だけ。
@@ -1321,20 +1364,32 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
           {mode === "make" ? (
             <Motion key="make" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={WEAK}>
               <main className="px-4 pt-4 pb-7 flex flex-col gap-3.5" data-create-mode="make">
-                <BulkEntry text={bulkText} onText={setBulkText} t={BULK_TEXTS} textareaClassName={textareaClass} barHidden={anySheet} />
+                <BulkEntry
+                  text={bulkText}
+                  onText={setBulkText}
+                  t={BULK_TEXTS}
+                  textareaClassName={textareaClass}
+                  barHidden={anySheet}
+                  below={
+                    reasonRows.length > 0 && (
+                      // 下の段（と上の貼り付き）に隠れないよう、増えた時は見える所まで送る（scroll-margin で段の高さぶん空ける）
+                      <div ref={reasonsRef} data-bulk-reasons="" className="flex flex-col gap-0.5" style={{ scrollMarginTop: HEAD_H + (keyboardUp ? 0 : MINI_H) + 8, scrollMarginBottom: keyboardUp ? 8 : DOCK_H + 8 }}>
+                        {reasonRows.map((r) => (
+                          <div key={r.key} data-bulk-reason={r.kind} className="min-h-8 flex items-center px-3 text-xs bg-surface-container-low break-all" style={{ color: C.secondary }}>
+                            {r.text}
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  }
+                />
                 {answers.length === 1 && !tipsSeen.cross && <Tip name="cross" />}
 
                 {/* 語の一覧（1語1行・44px 以上）。行を押すと語の窓（Hop 決定 2026-10-22「好きな語を好きな順に」） */}
-                {candidates.length > 0 && (
+                {answers.length > 0 && (
                   <div ref={listRef} data-word-list="" role="group" aria-label={CT.wordsLabel} className="flex flex-col gap-0.5">
                     {candidates.map((c) => {
-                      if (c.reason) {
-                        return (
-                          <div key={`r${c.mark.start}`} data-bulk-reason={c.reason} className="min-h-8 flex items-center px-3 text-xs bg-surface-container-low" style={{ color: C.secondary }}>
-                            {BULK_TEXTS.reasonLine(c.mark.surface, BULK_TEXTS.reasons[c.reason])}
-                          </div>
-                        );
-                      }
+                      if (c.reason) return null;
                       if (answerByKey.get(c.key)?.mark.start !== c.mark.start) return null;
                       const clueOn = hasClue(c.key);
                       const hintOn = !!hints[c.key];
@@ -1792,6 +1847,16 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                   <input type="checkbox" checked={isBeginner} onChange={(e) => setIsBeginner(e.target.checked)} className="w-5 h-5 accent-black" />
                   {CT.beginner}
                 </label>
+                {/* この問題が載るグループ（保存の時と同じ判定で、題名・盤に入った答えのカギ・答えから。選び直しはできない。Hop 決定 2026-10-23） */}
+                {(() => {
+                  const items = generatedPuzzle && hasBoard ? generatedPuzzle.items : [];
+                  const found = detectGroups({ title: puzzleTitle.trim(), clues: items.map((i) => clueOf(i.id).trim()), answers: items.map((i) => i.answer.join("")) });
+                  return (
+                    <p data-share-groups={found.join("・")} className="text-sm" style={{ color: C.ink }}>
+                      {found.length > 0 ? CT.groups(found) : CT.noGroup}
+                    </p>
+                  );
+                })()}
                 {/* 盤に置けなかった語（見本の案A の共有の窓。この語は問題に入らない） */}
                 {unplaced.length > 0 && (
                   <p data-share-unplaced="" className="text-sm bg-surface-container-low px-3 py-2" style={{ color: C.ink }}>

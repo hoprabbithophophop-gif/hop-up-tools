@@ -512,7 +512,7 @@ try {
     await page.locator('[data-bulk-text]').waitFor({ timeout: 20000 });
     // ヰ・ヱ は使えない字として断る。半角カナは NFKC でそろう（どちらも書く欄の下の語の一覧に出る）
     await writeLines(page, '【ヰド】の話\n【ｶﾞｸ】\n【コアラ】\n【ネコ】');
-    check((await page.locator('[data-word-list] [data-bulk-reason="unusable"]').textContent().catch(() => null)) === 'ヰド：使えない字（ヰ・ヱ）', '(8) 答えに ヰ が入っていると語の一覧で「使えない字（ヰ・ヱ）」と断る');
+    check((await page.locator('[data-bulk-reasons] [data-bulk-reason="unusable"]').textContent().catch(() => null)) === 'ヰド：使えない字（ヰ・ヱ）', '(8) 答えに ヰ が入っていると書く欄の下の理由の行で「使えない字（ヰ・ヱ）」と断る');
     check((await page.locator('[data-word-row="ガク"]').count()) === 1, '(8) 半角カナ「ｶﾞｸ」は語の一覧で「ガク」の2マスにそろう');
     await page.screenshot({ path: path.join(OUT, '8-reasons-390.png'), fullPage: true });
 

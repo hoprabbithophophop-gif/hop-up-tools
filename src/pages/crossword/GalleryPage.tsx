@@ -26,6 +26,8 @@ const T = {
   apply: "絞る",
   // 絞り込んだ結果が空のときの道（2026-10-06 決定）【仮】
   showAll: "すべての問題を見る",
+  // 名前で探して0件の時に、何で探しているかを出す（Hop 決定 2026-10-23）
+  searchScope: "作った人の名前で探しています。題名やタグでは探せません。",
   create: "作る",
 };
 
@@ -322,6 +324,11 @@ export default function GalleryPage() {
               <p className="mb-2" style={{ color: C.secondary }}>
                 {filterActive ? "条件に合う問題がありません。" : "問題がまだ公開されていません。"}
               </p>
+              {appliedSearch && (
+                <p data-search-scope="" className="mb-2 text-sm" style={{ color: C.secondary }}>
+                  {T.searchScope}
+                </p>
+              )}
               {appliedSearch && (
                 <button type="button" onClick={clearSearch} className="hover:underline" style={{ color: C.ink }}>
                   検索を外す

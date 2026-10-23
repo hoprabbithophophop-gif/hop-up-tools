@@ -18,6 +18,7 @@ import { OFFICIAL_ACCOUNT_GROUPS, officialXSearchQuery, officialXSearchUrl, offi
 import { officialSiteSearchQuery, officialSiteSearchUrl } from "../../../data/officialSites";
 import { periodYears, type SearchPeriod } from "../../../lib/crossword/searchPeriod";
 import { AccountTag } from "./HintView";
+import { isOfficialSiteUrl } from "../../../lib/crossword/socialUrl";
 import { HINT_SOURCES, HintSourceBar, sourceOfUrl, type HintSource } from "./HintSourceBar";
 import { C } from "../style";
 import { HintPlayer, type HintPlayerApi } from "./HintPlayer";
@@ -32,6 +33,8 @@ const LINK_RULE = "リンクは https から始まる URL だけ使えます。"
 const YT_FORM = "YouTube の URL の形が違います。動画のページの URL をそのまま貼ってください。";
 // 台帳に無い動画を選んだ時に添える一言（ハロプロだけ。Hop 決定 2026-10-21「公式のものを使ってくれよなってお願いはしよう」）
 const CHECK_OFFICIAL_CHANNEL = "ハロプロのグループや事務所の公式チャンネルの動画か、確かめてください。";
+// リンクの行き先がハロプロの公式の住所の一覧に無い時に添える1行（Hop 決定 2026-10-23）
+const NOT_OFFICIAL = "ハロプロの公式の住所ではありません。";
 // アメブロ・X・Instagram・リンクの「① 探す」「② 貼る」の箱の言葉（Hop 決定・承認 2026-10-20）。差し替えはここだけ
 const STEP_TEXT = {
   find: { ameblo: "公式ブログを探す", x: "公式の投稿を探す", ig: "公式の投稿を探す", link: "公式サイトを探す" },
@@ -281,6 +284,12 @@ export const HintField: React.FC<HintFieldProps> = ({ genre, onChange, resetKey,
             )}
             {/* X・Instagram は URL のアカウント名を公式サイトの名簿と照らして札を添える（ハロプロだけ。止めはしない） */}
             {picked.kind === "link" && genre === "hello" && <AccountTag url={picked.url} className="block text-xs pt-1" />}
+            {/* X・Instagram 以外のリンクは、ハロプロの公式の住所の一覧に無ければ同じ見た目で1行（止めはしない。Hop 決定 2026-10-23） */}
+            {picked.kind === "link" && genre === "hello" && isOfficialSiteUrl(picked.url) === false && (
+              <span data-hint-unofficial="" className="block text-xs pt-1" style={{ color: C.secondary }}>
+                {NOT_OFFICIAL}
+              </span>
+            )}
           </span>
           <button
             type="button"
