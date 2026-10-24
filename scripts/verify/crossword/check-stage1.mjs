@@ -333,7 +333,7 @@ else for (const size of SIZES) await runFlow(size);
   r['5 台帳に無い YouTube は問い合わせずに通り、1文が出る'] =
     (await pa.locator('[data-hint-sheet] [data-hint-outside]').textContent().catch(() => null)) === 'ハロプロのグループや事務所の公式チャンネルの動画か、確かめてください。';
   r['5 チャンネル名は出ない'] = !/チャンネル:/.test(helloText);
-  r['5 語の窓に公式の発信の案内'] = /ヒントはハロプロの公式の発信/.test(helloText);
+  r['5 語の窓に公式の発信の案内'] = /ハロプロの公式の発信/.test(helloText);
   r['5 URL の時刻が開始時刻の欄に入る'] = (await pa.locator('#cw-hint-time').inputValue().catch(() => null)) === '1:23';
   await pa.getByLabel('ヒントを外す').click(); // 選ばれた札を外して欄に戻す
   await pa.waitForTimeout(300);

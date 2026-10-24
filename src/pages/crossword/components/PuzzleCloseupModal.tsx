@@ -240,7 +240,14 @@ export const PuzzleCloseupModal: React.FC<PuzzleCloseupModalProps> = ({
   }, [activeIndex, wordItem.uuid]);
 
   const handleBackgroundClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) onClose();
+    if (e.target !== e.currentTarget) return;
+    // 幕の下が「押したらそのまま効かせる」所（data-modal-pass の中のボタン。作る画面の「作る｜試す」）なら、窓を閉じてそのボタンも押す
+    const { clientX: x, clientY: y } = e;
+    const under = document
+      .elementsFromPoint(x, y)
+      .find((el): el is HTMLButtonElement => el instanceof HTMLButtonElement && !!el.closest("[data-modal-pass]"));
+    onClose();
+    if (under) requestAnimationFrame(() => under.click());
   };
 
   // [No.06] ドラッグジェスチャーで閉じる

@@ -11,7 +11,7 @@
 //   理由の行: [data-bulk-reasons]（書く欄の道具の段のすぐ下。2026-10-23 に語の一覧から移した）・[data-bulk-reason="理由"]（弾いた語の行・外れた行）
 //   語の窓:   [data-word-sheet="答え"]（role=dialog。[data-hint-sheet] も付いている）・#cw-clue（カギの欄）・[data-clue-left]・[data-clue-over]
 //             ・[data-hint-guide]・[data-hint-state]（ヒントの行き先を開くリンク）・#cw-hint（ヒントの欄）・[data-hint-kind]（選んだヒントの札）・[data-word-close]
-//   下の段:   [data-dock]（60px）・[data-dock-try]（試しに解く）・[data-dock-share]（公開の準備。そろうと [data-strong]）
+//   下の段:   [data-dock]（60px）・[data-dock-share]（公開の準備。そろうと [data-strong]）
 //   共有の窓: [data-share-sheet]・#cw-title・#cw-creator・#cw-tag・[data-share-blocks]（押せない理由。そろうと ="ok"）・[data-save]・[data-copyright]・[data-share-close]
 //   試す:     [data-create-mode="try"]・[data-trial]（解く画面の部品）・[data-trial-empty]（盤が無い時）
 // どれも棚・受付係には書かない（保存を押す台本は、保存の受付係をそれぞれの台本の中で受け止める）

@@ -223,7 +223,7 @@ const LINES = [
 const TEXT = LINES.join('\n');
 // 通った答え。語の一覧の行の印は答えのマスの字の並び（小さい字は大きい字にそろえた物）なので、ラッコは「ラツコ」
 const TEXT_WORDS = ['マジ', 'ダンス', 'マスク', 'コマ', 'コアラ', 'ラツコ', 'ネコ'];
-const GUIDE = '答えにしたい言葉を【 】で囲んでください。読みは｜の後ろに書きます（例: 【本気｜マジ】）。カタカナだけの答えに読みは要りません。答えがカギの中に無い時は、カギの後ろに「→」を付けて書きます（例: ニャーと鳴く動物→【ネコ】）。○は、カギの中で答えを伏せる所に使います（例: ○○○はユーカリを食べる→【コアラ】）。';
+const GUIDE = '1行に1問、答えにしたい言葉を【 】で囲みます。';
 // 見本の4行のカギの下書き
 const SAMPLE_DRAFTS = { ラジオ: '○○○で新曲が初めて流れた', マジ: '○○で応援している', ネコ: 'ニャーと鳴く動物', コアラ: '○○○はユーカリを食べる' };
 // カギの下書きを見る行: →の書き方・読み付き・同じ行のほかの答えは□・○だけになる行（【タヌキ】だけ）は空
@@ -292,7 +292,7 @@ try {
   await page.locator('[data-word-row]').first().waitFor({ timeout: 30000 });
   check((await area.inputValue()) === SAMPLE, '(b) 作りかけが無いブラウザで開くと、書く欄に見本の4行が入っている');
   check(JSON.stringify(await wordKeys(page)) === JSON.stringify(SAMPLE_WORDS), `(b) 語の一覧は見本の答え4つ（${(await wordKeys(page)).join('・')}）`);
-  check((await page.locator('#cw-bulk-guide').textContent()) === GUIDE, '(b) 欄の上の説明は今の文（言い切りの形・2026-10-24）');
+  check((await page.locator('#cw-bulk-guide').textContent()) === GUIDE, '(b) 欄の上のいつも見せる1文（2026-10-24）');
   // 見本の行のままの時は欄のすぐ上に「見本」の札。空にすると札が消えて「見本を入れる」が出て、押すと見本の行が戻る（Hop 決定 2026-10-23）
   check((await page.locator('[data-bulk-sample-tag]').textContent().catch(() => null)) === '見本' && (await page.locator('[data-bulk-insert-sample]').count()) === 0, '(b) 見本の行のままの時は欄のすぐ上に「見本」の札が出て、「見本を入れる」は出ない');
   await area.fill('');
@@ -320,8 +320,8 @@ try {
   await openWordSheet(page, 'ネコ');
   const sheet = page.locator('[data-word-sheet="ネコ"]');
   check((await sheet.getAttribute('role')) === 'dialog' && (await sheet.locator('h2').first().textContent()) === '「ネコ」のカギとヒント', `(b) 語の一覧の「ネコ」の行を押すと「「ネコ」のカギとヒント」の窓が出る（${await sheet.locator('h2').first().textContent()}）`);
-  check((await sheet.locator('#cw-clue').count()) === 1 && (await sheet.locator('#cw-hint').count()) === 1 && (await sheet.locator('[data-hint-guide]').count()) === 1 && (await sheet.innerText()).includes('ヒントは答えの根拠です。'),
-    '(b) 語の窓にカギの欄・「ヒントは答えの根拠です。」・公式の発信の案内・ヒントの欄がある');
+  check((await sheet.locator('#cw-clue').count()) === 1 && (await sheet.locator('#cw-hint').count()) === 1 && (await sheet.locator('[data-hint-guide]').count()) === 1 && (await sheet.locator('[data-hint-label]').textContent()) === 'ヒント',
+    '(b) 語の窓にカギの欄・ヒントの見出し・公式の発信の案内・ヒントの欄がある');
   check((await sheet.locator('[data-hint-state]').count()) === 0, '(b) ヒントがまだの語の窓には、ヒントの行き先のリンクは出ない');
   check((await sheet.locator('[data-unmark-sheet]').count()) === 0 && (await sheet.getByText(/の囲みを外す$/).count()) === 0, '(b) 語の窓に「囲みを外す」ボタンは無い');
   check((await page.locator('[data-bulk-markbar]').count()) === 0, '(b) 窓が出ている間は画面の下の帯を出さない');
@@ -401,7 +401,7 @@ try {
   check(reasons.includes('tooLong=アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマ：答えは30字までです。'), '(b) 31字の答えは弾かれ、語の一覧に「答えは30字までです。」の行');
   check(reasons.includes('duplicate=ダンス：同じ答えがあります'), '(b) 2回目の「ダンス」は「同じ答えがあります」の行');
   check(reasons.includes('unusable=ヰド：使えない字（ヰ・ヱ）'), '(b) ヰ の入った答えは「使えない字（ヰ・ヱ）」の行');
-  check(reasons.length === 5, `(b) 弾かれたのは5つだけ: ${reasons.length}`);
+  check(reasons.filter((r) => !r.startsWith('twoInLine=')).length === 5, `(b) 弾かれたのは5つだけ（1行に答えが2つの知らせは別に数える）: ${reasons.length}`);
   const hintMiss = await page.locator('[data-word-missing="hint"]').count();
   const clueMiss = await page.locator('[data-word-missing="clue"]').count();
   check(hintMiss === 7 && clueMiss === 0, `(b) 7語とも「ヒントがまだ」・カギは下書きがあるので「カギがまだ」は無い（ヒント ${hintMiss}・カギ ${clueMiss}）`);
@@ -416,7 +416,7 @@ try {
   await area.fill(['ニャーと鳴く動物→ネコ', '【】が空', '【 】も空', '【コアラ', 'ラッパ】', 'メモの行', '【ネコ】と【コアラ】'].join(String.fromCharCode(10)));
   await page.waitForTimeout(150);
   const lineReasons = await page.locator('[data-bulk-reasons] [data-bulk-reason]').evaluateAll((els) => els.map((e) => `${e.getAttribute('data-bulk-reason')}=${e.textContent}`));
-  const wantLines = ['needBrackets=ニャーと鳴く動物→ネコ：答えを【 】で囲んでください', 'emptyMark=【】が空：【 】の中が空です', 'emptyMark=【 】も空：【 】の中が空です', 'unpaired=【コアラ：【 と 】の組が合いません', 'unpaired=ラッパ】：【 と 】の組が合いません'];
+  const wantLines = ['needBrackets=ニャーと鳴く動物→ネコ：答えを【 】で囲んでください', 'emptyMark=【】が空：【 】の中が空です', 'emptyMark=【 】も空：【 】の中が空です', 'unpaired=【コアラ：【 と 】の組が合いません', 'unpaired=ラッパ】：【 と 】の組が合いません', 'twoInLine=【ネコ】と【コアラ】：1行に答えは1つにしてください。'];
   check(JSON.stringify(lineReasons) === JSON.stringify(wantLines), `(b) 「→」に【 】が無い行・中が空・閉じ忘れ・】だけの行に、書いた順に理由の行が出て、メモの行には出ない（${lineReasons.join(' / ')}）`);
   check(JSON.stringify(await wordKeys(page)) === JSON.stringify(['ネコ', 'コアラ']), `(b) 理由の行が出ても、通った答えはそのまま（${(await wordKeys(page)).join('・')}）`);
 

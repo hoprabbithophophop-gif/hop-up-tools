@@ -234,6 +234,11 @@ try {
   check((await blog.count()) === 1 && (await urlBox.getAttribute('placeholder')) === '記事の URL を貼る', '(5) アメブロの印を押すと「公式ブログを探す」と記事の URL の欄');
   await checkBoxes('ameblo');
   const link = blog.locator('[data-helper-link="blog"]');
+  // 探す言葉は、空かほかの答えの字のままなら、開いた答えの字が入る（2026-10-24）。消すと押せない
+  const kwNow = await blog.locator('input').inputValue();
+  check(kwNow !== '', `(5) 探す言葉に開いた答えの字が入る（${kwNow}）`);
+  await blog.locator('input').fill('');
+  await page.waitForTimeout(100);
   check((await link.getAttribute('aria-disabled')) === 'true', '(5) 言葉が空の間は押せない');
   // 公式ブログ: グループ全部（g:）と1つだけ（b:）を選べる（2026-10-21 Hop 依頼「全部からも細かくも選べると嬉しい」）
   const blogSel = blog.getByLabel('公式ブログ', { exact: true });
@@ -478,8 +483,8 @@ try {
     return { p2, r };
   };
   let { p2: again, r: re } = await openCreate('開き直した作る画面');
-  check(re.keyword === '' && re.year === '' && re.month === '' && re.blog === 'g:beyooooonds' && re.x === 'beyooooonds' && re.ig === 'beyooooonds_official',
-    `(5b) 作る画面を開き直すと、グループの選択は残り、言葉と年月は空から（${show(re)}）`);
+  check(re.keyword === 'コアラ' && re.year === '' && re.month === '' && re.blog === 'g:beyooooonds' && re.x === 'beyooooonds' && re.ig === 'beyooooonds_official',
+    `(5b) 作る画面を開き直すと、グループの選択は残り、年月は空・言葉は開いた答えの字から（${show(re)}）`);
   await again.locator('[data-word-sheet]').screenshot({ path: path.join(OUT, '6-remembered-group-390.png') });
   await again.close();
   // ヒントを直す画面でも、グループの選択は覚えた物から。言葉と年月は語の欄をまたいで同じ1つ

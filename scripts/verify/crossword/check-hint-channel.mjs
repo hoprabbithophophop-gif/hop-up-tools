@@ -4,7 +4,7 @@
 // 台本の名前は前の作り（チャンネル名を出す）の名残。今はチャンネル名を出さず、動画のことを YouTube にもどこにも問い合わせない。
 // 台帳の確かめと検索は本番の棚を読まず、作り物の返事に差し替える（棚に送る住所だけを見る）。
 // 手元の vite を立ち上げ（口 5198）、棚（/rest/v1）・受付係（/api）・人間確認（Turnstile）はブラウザの中で受け止める（本番にもプレビューにも通信しない）。
-//   (1) 語の窓に「ヒントは答えの根拠です。」と公式の発信の案内
+//   (1) 語の窓にヒントの見出しと公式の発信の案内
 //   (2) 台帳に無い動画を貼ると選ばれ、「ハロプロのグループや事務所の公式チャンネルの動画か、確かめてください。」が出る。チャンネル名は出ない
 //   (3) 台帳を確かめられなかった時も同じ（outside の側に倒す）
 //   (4) 台帳にある動画を貼ると、その1文は出ない
@@ -161,10 +161,10 @@ try {
   const sheet = page.locator('[data-word-sheet]');
   const hint = sheet.locator('#cw-hint');
 
-  // (1) 語の窓に「ヒントは答えの根拠です。」と公式の発信の案内
+  // (1) 語の窓にヒントの見出しと公式の発信の案内
   const guide = await sheet.locator('[data-hint-guide]').textContent().catch(() => null);
-  check(guide && guide.startsWith('ヒントはハロプロの公式の発信'), `(1) 語の窓に案内（${guide && guide.slice(0, 20)}…）`);
-  check((await sheet.innerText()).includes('ヒントは答えの根拠です。'), '(1) 語の窓に「ヒントは答えの根拠です。」');
+  check(guide && guide.startsWith('ヒントは、答えが正しいと確かめられるハロプロの公式の発信'), `(1) 語の窓に案内（${guide && guide.slice(0, 20)}…）`);
+  check((await sheet.locator('[data-hint-label]').textContent()) === 'ヒント', '(1) 語の窓にヒントの見出し');
 
   // (2) 台帳に無い YouTube → 問い合わせずに選ばれ、1文が出る
   await hint.fill('https://youtu.be/dQw4w9WgXcQ?t=83');

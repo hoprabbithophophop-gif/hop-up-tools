@@ -18,6 +18,8 @@ const MAX_WORDS = 60;
 
 export interface BulkTexts {
   guide: string;
+  /** 記号ごとの短い行（記号・何をするか・欄が空の時に添える例） */
+  guideRules: { mark: string; text: string; example: string }[];
   textLabel: string;
   markSelected: (word: string) => string;
   insertBrackets: string;
@@ -59,7 +61,8 @@ export interface Candidate {
 // 書いた行のうち、答えにならず黙って外れていた形（Hop 決定 2026-10-23「書いた行が黙って消える」の直し）。
 //   needBrackets: 「→」があるのに【 】が無い行／emptyMark: 【】【 】【｜】のように中が空／unpaired: 【 の閉じ忘れ・】だけ・【 の中の 【
 // 「→」も【 】も無い行はメモとして黙って通す
-export type LineProblemKey = "needBrackets" | "emptyMark" | "unpaired";
+// twoInLine: カギの文の中（→ より前）に答えが2つ以上ある行（2026-10-24。カギが「○○○と□□□」の下書きのまま公開できていた）
+export type LineProblemKey = "needBrackets" | "emptyMark" | "unpaired" | "twoInLine";
 export interface LineProblem {
   reason: LineProblemKey;
   start: number; // 文字列の中の位置（理由の行を書いた順に並べるのに使う）
@@ -71,6 +74,14 @@ export interface LineProblem {
 const lineHead = (s: string) => {
   const t = s.trim();
   return Array.from(t).length > 12 ? `${Array.from(t).slice(0, 12).join("")}…` : t;
+};
+
+// カギの文の中（その行の → より前。→ が無ければ行全体）にある答えの印の数。
+// 「問題文→【ネコ】【イヌ】」のように → の後ろに並べるのは、どちらも同じカギになる書き方なので数えない（Hop 決定 2026-10-20）
+const marksInClue = (marks: Mark[], lineNo: number, lineStart: number, line: string): number => {
+  const arrow = line.lastIndexOf("→");
+  const limit = arrow >= 0 ? lineStart + arrow : Infinity;
+  return marks.filter((m) => m.line === lineNo && m.start < limit).length;
 };
 
 export const lineProblems = (text: string): LineProblem[] => {
@@ -105,6 +116,7 @@ export const lineProblems = (text: string): LineProblem[] => {
     }
     if (open !== null) unpaired = true;
     if (unpaired) out.push({ reason: "unpaired", start: lineStart, line: lineNo, head: lineHead(line) });
+    else if (marksInClue(marks, lineNo, lineStart, line) >= 2) out.push({ reason: "twoInLine", start: lineStart, line: lineNo, head: lineHead(line) });
   });
   return out;
 };
@@ -129,6 +141,18 @@ export const parseMarks = (text: string): Mark[] => {
 };
 
 const fullWidthBars = (text: string) => text.replace(/【[^【】\n]*】/g, (m) => m.replace(/\|/g, "｜"));
+
+// 「->」「ー>」「－＞」など、矢印の代わりに打った2文字を → にそろえる（2026-10-24。「->」は欄の字の形で → と同じに見えるのに、区切りにならなかった）。
+// caret は書き換えた後のカーソルの位置（前にある2文字が1文字になるぶん詰める）
+const ARROW_RE = /[-ー－−‐][>＞]/g;
+export const arrowsNormalized = (text: string, caret: number): { text: string; caret: number } => {
+  let shift = 0;
+  const next = text.replace(ARROW_RE, (m, at: number) => {
+    if (at + m.length <= caret) shift += m.length - 1;
+    return "→";
+  });
+  return { text: next, caret: caret - shift };
+};
 
 // 各候補を「リストに追加」と同じ道具（toCells・UNUSABLE_KANA・isUsableCell）で確かめる。
 // listKeys はもう一覧に入っている答え（今の作る画面では一覧は無いので空で呼ぶ）
@@ -334,13 +358,30 @@ export const BulkEntry: React.FC<{
   const toolBtn = "min-w-11 px-3 min-h-11 font-bold bg-surface-container-high hover:bg-surface-container-highest transition-colors";
 
   return (
-    <section data-bulk="" className="space-y-3">
-      <p id="cw-bulk-guide" className="text-xs leading-relaxed" style={{ color: C.secondary }}>
-        {t.guide}
-      </p>
-      {/* 中身が見本の行のままの時だけ、欄のすぐ上に小さい面の札（線でなく面。Hop 決定 2026-10-23） */}
+    <section data-bulk="" className="space-y-2.5">
+      {/* 書き方は、いつも見せる1文と、記号ごとの短い行（2026-10-24。1段落の長い説明をやめた）。例は見本の行に任せ、欄が空の時だけ添える。
+          読み上げで書く欄につなぐのは1文目だけ */}
+      <div data-bulk-guide="" className="space-y-0.5">
+        <p id="cw-bulk-guide" className="text-xs leading-relaxed" style={{ color: C.ink }}>
+          {t.guide}
+        </p>
+        <ul className="text-xs leading-relaxed" style={{ color: C.secondary }}>
+          {t.guideRules.map((r) => (
+            <li key={r.mark} className="flex gap-2">
+              <span aria-hidden="true" className="w-4 shrink-0 text-center font-bold" style={{ color: C.ink }}>
+                {r.mark}
+              </span>
+              <span>
+                {r.text}
+                {!text.trim() && <span className="whitespace-nowrap">（例: {r.example}）</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {/* 中身が見本の行のままの時だけ、欄のすぐ上に小さい面の札（線でなく面。Hop 決定 2026-10-23）。欄に重ねると下が欠けるので重ねない（2026-10-24） */}
       {sample !== undefined && text === sample && (
-        <p className="flex -mb-1.5">
+        <p className="flex">
           <span data-bulk-sample-tag="" className="inline-block px-2 py-0.5 text-xs font-bold bg-surface-container-high" style={{ color: C.ink }}>
             {t.sampleTag}
           </span>
@@ -357,7 +398,23 @@ export const BulkEntry: React.FC<{
         onChange={(e) => {
           setAreaSel(null);
           setAreaMark(null);
-          onText(e.target.value);
+          // 変換中は書き換えない（変換中の字が崩れるため）。確定した時に → へそろえる
+          const composing = (e.nativeEvent as InputEvent).isComposing;
+          const el = e.target;
+          const fixed = composing ? null : arrowsNormalized(el.value, el.selectionStart ?? el.value.length);
+          if (fixed && fixed.text !== el.value) {
+            onText(fixed.text);
+            requestAnimationFrame(() => areaRef.current?.setSelectionRange(fixed.caret, fixed.caret));
+            return;
+          }
+          onText(el.value);
+        }}
+        onCompositionEnd={(e) => {
+          const el = e.currentTarget;
+          const fixed = arrowsNormalized(el.value, el.selectionStart ?? el.value.length);
+          if (fixed.text === el.value) return;
+          onText(fixed.text);
+          requestAnimationFrame(() => areaRef.current?.setSelectionRange(fixed.caret, fixed.caret));
         }}
         // 半角の | は欄を離れた時に全角へそろえる（打っている途中に書き換えると変換中の字が崩れるため）
         onBlur={() => {
@@ -367,14 +424,14 @@ export const BulkEntry: React.FC<{
             setAreaSel(null);
             setAreaMark(null);
           }, 400);
-          const next = fullWidthBars(text);
+          const next = fullWidthBars(arrowsNormalized(text, 0).text);
           if (next !== text) onText(next);
         }}
-        rows={5}
-        className={`${textareaClassName} resize-y min-h-[8rem] leading-relaxed`}
+        rows={4}
+        className={`${textareaClassName} resize-y min-h-[7rem] leading-relaxed`}
       />
       {/* 印を入れるボタン（Hop 2026-10-18。○は 2026-10-22） */}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button type="button" data-bulk-insert="brackets" {...keepFocus} onClick={() => insert("brackets")} aria-label={t.insertBracketsLabel} className={toolBtn} style={{ color: C.ink }}>
           {t.insertBrackets}
         </button>

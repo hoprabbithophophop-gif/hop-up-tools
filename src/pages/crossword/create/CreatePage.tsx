@@ -334,6 +334,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   const [bulkText, setBulkText] = useState("");
   // ヒント・カギは答え（答えの字を並べた物）ごとに持つ（盤を組み直しても消えないように）
   const [hints, setHints] = useState<Record<string, HintRef>>({});
+  // 書く欄を一度空にした時に付いていたヒント（前の問題のヒントが、同じ答えにそのまま付いて出てくる。カギと合っているか確かめてもらう。2026-10-24）
+  const [carriedHints, setCarriedHints] = useState<ReadonlySet<string>>(() => new Set());
   const [hintLabels, setHintLabels] = useState<Record<string, string>>({});
   const [clues, setClues] = useState<Record<string, string>>({});
   const [puzzleTitle, setPuzzleTitle] = useState("");
@@ -377,6 +379,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   // 保存
   const [draftReady, setDraftReady] = useState(false);
   const savedSnapshotRef = useRef<string | null>(null);
+  // 公開した問題の中身（書いた文・カギ・ヒント・マス目）。同じ中身のまま2回公開できないようにする（2026-10-24。窓を閉じてもう一度押すと2つ目ができていた）
+  const publishedSigRef = useRef<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   // 共有を押した時に outside の印を付け直したヒント（保存の送信はこれを使う）
   const saveHintsRef = useRef<Record<string, HintRef> | null>(null);
@@ -416,6 +420,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   // --- 書いた行から答えを出す ---
   const marks = useMemo(() => parseMarks(bulkText), [bulkText]);
   const candidates: Candidate[] = useMemo(() => evaluateCandidates(marks), [marks]);
+  // 答えの、書いたとおりの字（【禁断少女｜…】なら「禁断少女」）。一覧の行・窓の見出し・足りない答えのボタンに出す（2026-10-24。マスに入る字のカタカナだと、どれがどの答えか拾いにくかった）
+  const surfaceOf = (key: string) => candidates.find((c) => c.key === key && !c.reason)?.mark.surface.trim() || key;
   const answers: Candidate[] = useMemo(() => candidates.filter((c) => !c.reason), [candidates]);
   const answerByKey = useMemo(() => new Map(answers.map((a) => [a.key, a])), [answers]);
   // 弾いた理由の行（答えにならない印と、答えにならず外れた行）。書いた順に並べ、書く欄の道具の段のすぐ下に出す（Hop 決定 2026-10-23）
@@ -454,6 +460,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   const hasClue = (k: string) => !isBlankClue(clueOf(k));
   const missingClues = neededKeys.filter((k) => !hasClue(k)).length;
   const missingHints = neededKeys.filter((k) => !hints[k]).length;
+  // カギかヒントが足りない答え（公開の窓に並べ、押すとその答えの窓を開く。2026-10-24）
+  const missingKeys = neededKeys.filter((k) => !hasClue(k) || !hints[k]);
   // 100字を超えたカギ（保存する形＝前後の空白を落とした字数で数える）
   const overClues = neededKeys.filter((k) => clueChars(clueOf(k)) > MAX_CLUE_CHARS);
   // 盤が無い・足りない時の理由。語が2つ未満・組み合わせを探している間・見つからなかった時・交差が無い時（どれも前からある文）
@@ -470,7 +478,9 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
             ? CT.errors.noCrossing
             : "";
   // 共有を押せない理由の並び。足りない物を先頭に（Hop 決定 2026-10-22）
+  const contentSig = JSON.stringify({ bulkText, clues, hints, boardSig });
   const shareBlocks = [
+    !editTarget && publishedSigRef.current === contentSig ? CT.alreadyPublished : "",
     missingClues || missingHints ? CT.missing(missingClues, missingHints) : "",
     boardBlock,
     hasBoard && boardDisconnected ? CT.pins.notConnected : "",
@@ -957,11 +967,18 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   const shareDialog = useDialog({ active: showShareModal, onClose: () => closeSaved() });
 
   const openWordSheet = (key: string) => {
+    // 探す言葉が空か、ほかの答えの字のままなら、この答えの字に入れ替える。自分で打った別の言葉は残す
+    // （言葉は問題の間残す: Hop 決定 2026-10-22。前の答えの字を毎回消して打ち直していた: 2026-10-24 レビュー）
+    const kw = hintSearch.value.keyword.trim();
+    const others = pool.flatMap((i) => (i.id === key ? [] : [i.id, surfaceOf(i.id)]));
+    if (!kw || others.includes(kw)) hintSearch.set({ keyword: surfaceOf(key) });
     wordSheetCount.current += 1;
     setClueFocused(false);
     setWordSheet({ key, n: wordSheetCount.current });
   };
   const setHintFor = (key: string, h: HintRef | null, label?: string) => {
+    // 窓を開いた時に欄が今のヒントを知らせ直すことがあるので、ヒントが替わった時だけ「前に付けたヒント」の印を外す
+    if (carriedHints.has(key) && JSON.stringify(h) !== JSON.stringify(hints[key] ?? null)) setCarriedHints((prev) => new Set([...prev].filter((k) => k !== key)));
     setHints((prev) => {
       if (!h) {
         if (!(key in prev)) return prev;
@@ -974,13 +991,19 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     if (h && label) setHintLabels((prev) => (prev[key] === label ? prev : { ...prev, [key]: label }));
   };
 
+  // 作るの画面で見ていた位置。試すから戻った時にそこへ戻す（2026-10-24。いつも一番上に戻され、直したい答えを探し直していた）
+  const makeScrollRef = useRef(0);
   const switchMode = (m: "make" | "try") => {
     if (m === mode) return;
+    if (mode === "make") makeScrollRef.current = window.scrollY;
     setExpanded(false);
     setWordSheet(null);
     setShareOpen(false);
     setMode(m);
+    const y = m === "make" ? makeScrollRef.current : 0;
     window.scrollTo(0, 0);
+    // 作るの画面が描かれてから戻す
+    if (y > 0) requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
   };
 
   const addTag = () => {
@@ -1239,6 +1262,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     setTitleError(false);
     trialRef.current = null;
     savedSnapshotRef.current = null;
+    publishedSigRef.current = null;
+    setCarriedHints(new Set());
     setMode("make");
     setExpanded(false);
     setWordSheet(null);
@@ -1283,6 +1308,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
       // 保存できたので作りかけの控えは消す（このあと中身を変えたら、また新しく残り始める）
       lsRemove(DRAFT_KEY);
       savedSnapshotRef.current = JSON.stringify(draftContent());
+      publishedSigRef.current = contentSig;
       setShareOpen(false);
       setShowShareModal(true);
     } catch (error) {
@@ -1330,6 +1356,10 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
       hints: trialHints,
       answers: prev && prev.sig === sig && !prev.cleared ? prev.answers : undefined,
       onAnswers: (a, cleared) => {
+        // 解き切った瞬間に、次にすることを1回だけ知らせる（2026-10-24。ハンコだけで公開へつながらなかった）
+        if (cleared && !(prev && prev.sig === sig && prev.cleared) && !trialRef.current?.cleared) {
+          toast.success(missingClues || missingHints ? CT.trialClearedMissing(missingClues, missingHints) : CT.trialClearedReady, { duration: 6000 });
+        }
         trialRef.current = { sig, answers: a, cleared };
       },
       stickyTop: HEAD_H,
@@ -1357,7 +1387,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
             <h1 className="text-sm font-black whitespace-nowrap overflow-hidden text-ellipsis min-w-0" style={{ color: C.ink }}>
               {editTarget ? CT.edit.pageTitle : CT.pageTitle}
             </h1>
-            <div role="group" aria-label={CT.modesLabel} className="flex gap-0.5 shrink-0" style={{ height: HEAD_H }}>
+            {/* data-modal-pass: 文字盤の窓が開いている時にここを押すと、窓を閉じてそのまま切り替える（PuzzleCloseupModal。2026-10-24 前は1回目が窓を閉じるだけだった） */}
+            <div role="group" aria-label={CT.modesLabel} data-modal-pass="" className="flex gap-0.5 shrink-0" style={{ height: HEAD_H }}>
               {(["make", "try"] as const).map((m) => (
                 <button
                   key={m}
@@ -1384,10 +1415,11 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
               <div className="px-4 py-2" style={{ height: MINI_H }}>
                 {/* 盤のマスはボタンなので、押す所は盤の上に重ねた透明のボタン（ボタンの中にボタンを入れない） */}
                 <div className="relative w-full h-full bg-surface-container-low hover:bg-surface-container-high transition-colors flex items-center gap-3 px-2.5 py-1.5">
-                  <span data-mini-board="" className="flex-1 min-w-0 h-full flex items-center justify-center overflow-hidden">
+                  <span data-mini-board="" className="flex-1 min-w-[30%] h-full flex items-center justify-center overflow-hidden">
                     {!expanded && miniBoard}
                   </span>
-                  <span className="shrink-0 flex flex-col items-end gap-0.5 text-xs" style={{ color: C.secondary }}>
+                  {/* 字を大きくしている時は数の行が折り返す（2026-10-24。前は縮まずに横へはみ出し、画面ごと横にずれた） */}
+                  <span className="min-w-0 max-w-[65%] flex flex-col items-end gap-0.5 text-xs text-right" style={{ color: C.secondary }}>
                     <span data-mini-stats="">{stats}</span>
                     <span className="font-bold" style={{ color: C.ink }}>
                       {CT.expand}
@@ -1406,7 +1438,11 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
               <main className="px-4 pt-4 pb-7 flex flex-col gap-3.5" data-create-mode="make">
                 <BulkEntry
                   text={bulkText}
-                  onText={setBulkText}
+                  onText={(t) => {
+                    // 書く欄を空にした時に付いていたヒントは、次に同じ答えを書いた時に「前に付けたヒント」と知らせる
+                    if (!t.trim() && bulkText.trim()) setCarriedHints(new Set(Object.keys(hints)));
+                    setBulkText(t);
+                  }}
                   t={BULK_TEXTS}
                   textareaClassName={textareaClass}
                   barHidden={anySheet}
@@ -1442,11 +1478,12 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                           data-word-row={c.key}
                           onClick={() => openWordSheet(c.key)}
                           aria-haspopup="dialog"
-                          className="w-full min-h-11 flex items-center gap-2 px-3 text-left bg-surface-container-low hover:bg-surface-container-high transition-colors"
+                          // 字を大きくしている時は、足りない言葉が答えの下の行へ回る（2026-10-24。前は答えの名前が0まで縮んで消えた）
+                          className="w-full min-h-11 flex flex-wrap items-center gap-x-2 px-3 text-left bg-surface-container-low hover:bg-surface-container-high transition-colors"
                           style={{ color: C.ink }}
                         >
-                          <span className="relative flex-1 min-w-0">
-                            <span className="block text-[15px] font-black tracking-[0.12em] whitespace-nowrap overflow-hidden text-ellipsis">{c.key}</span>
+                          <span className="relative flex-1 min-w-[4em]">
+                            <span className="block text-[15px] font-black tracking-[0.12em] whitespace-nowrap overflow-hidden text-ellipsis">{surfaceOf(c.key)}</span>
                             <span data-word-line="" aria-hidden="true" className="absolute left-0 right-0 pointer-events-none" style={{ bottom: -1, height: 2, background: C.ink, transform: "scaleX(0)", transformOrigin: "left center" }} />
                           </span>
                           {off && (
@@ -1456,7 +1493,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                           )}
                           {/* 足りない物だけを言葉で出す（Hop 決定 2026-10-22）。そろった言葉は消える動きで消える。
                               2つとも出る時は縦に積む（言い切りの文にして長くなったので、横に並べると 375px で答えが「ア…」まで縮む。2026-10-24） */}
-                          <span className="flex flex-col items-end py-1 text-xs leading-snug whitespace-nowrap" style={{ color: C.secondary }}>
+                          <span className="ml-auto flex flex-col items-end py-1 text-xs leading-snug whitespace-nowrap" style={{ color: C.secondary }}>
                             <MissingWord kind="clue" show={!clueOn} text={CT.wordNoClue} />
                             <MissingWord kind="hint" show={!hintOn} text={CT.wordNoHint} />
                           </span>
@@ -1494,7 +1531,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
         </Presence>
       </div>
 
-      {/* 下の貼り付けの段（60px）「試しに解く」「共有へ」（見本の案A）。文字盤が出ている間は下へ隠す */}
+      {/* 下の貼り付けの段（60px）「公開の準備」だけ。文字盤が出ている間は下へ隠す。
+          前は「試しに解く」も並べていたが、見出しの右の「作る｜試す」と同じ働きで、試す画面でも名前が変わらず押すと作るへ戻っていたので外した（Hop 決定 2026-10-24） */}
       <div
         data-dock=""
         aria-hidden={keyboardUp ? true : undefined}
@@ -1508,16 +1546,6 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
         }}
       >
         <div className="max-w-[640px] mx-auto px-4 py-1.5 flex gap-2" style={{ height: DOCK_H }}>
-          <button
-            type="button"
-            data-dock-try=""
-            aria-pressed={mode === "try"}
-            onClick={() => switchMode(mode === "try" ? "make" : "try")}
-            className="flex-1 min-h-12 font-bold text-[15px] bg-surface-container-high hover:bg-surface-container-highest transition-colors"
-            style={{ color: C.ink, boxShadow: mode === "try" ? "inset 0 -2px 0 #000" : undefined }}
-          >
-            {CT.tryIt}
-          </button>
           <button
             type="button"
             data-dock-share=""
@@ -1647,7 +1675,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                         <span className="text-xs font-bold tracking-[0.1em] mr-2" style={{ color: C.error }}>
                           {CT.unplaced}
                         </span>
-                        {unplaced.map((i) => i.answer.join("")).join("、")}
+                        {unplaced.map((i) => surfaceOf(i.id)).join("、")}
                       </div>
                     )}
                     {shapeGuide.length > 0 && (
@@ -1710,7 +1738,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
             >
               <div className="sticky top-0 z-10 bg-white flex items-center justify-between gap-2 px-4 pt-3 pb-1">
                 <h2 id="cw-word-sheet-title" className="text-lg font-black min-w-0 break-all" style={{ color: C.ink }}>
-                  {CT.wordSheetTitle(sheetEntry)}
+                  {CT.wordSheetTitle(surfaceOf(sheetEntry))}
                 </h2>
                 <button type="button" data-word-close="" onClick={closeWordSheet} className={`${btnGray} shrink-0 text-sm`} style={{ color: C.ink }}>
                   {CT.close}
@@ -1763,8 +1791,9 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                     </p>
                   );
                 })()}
-                <p className="text-sm pt-1" style={{ color: C.ink }}>
-                  {CT.hintRoot}
+                {/* カギと同じ形の見出しと灰色の説明（2026-10-24。前は見出しが無く、どこからヒントか分かりにくかった） */}
+                <p data-hint-label="" className="text-xs font-bold pt-1" style={{ color: C.secondary }}>
+                  {CT.hintLabel}
                 </p>
                 <p data-hint-guide="" className="text-xs leading-relaxed" style={{ color: C.secondary }}>
                   {CT.hintOfficial}
@@ -1774,14 +1803,24 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                   (() => {
                     const href = hintHref(sheetHint);
                     const text = CT.hintState(sourceLabel(sheetHint), hintLabels[sheetEntry] ?? fallbackName(sheetHint));
-                    return href ? (
-                      <a data-hint-state="" href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 flex items-center text-xs break-all hover:underline" style={{ color: C.secondary }}>
-                        {text}
-                      </a>
-                    ) : (
-                      <span data-hint-state="" className="min-h-11 flex items-center text-xs break-all" style={{ color: C.secondary }}>
-                        {text}
-                      </span>
+                    const carried = carriedHints.has(sheetEntry) && (
+                      <p data-hint-carried="" className="text-xs" style={{ color: C.secondary }}>
+                        {CT.hintCarried}
+                      </p>
+                    );
+                    return (
+                      <>
+                        {href ? (
+                          <a data-hint-state="" href={href} target="_blank" rel="noopener noreferrer" className="min-h-11 flex items-center text-xs break-all hover:underline" style={{ color: C.secondary }}>
+                            {text}
+                          </a>
+                        ) : (
+                          <span data-hint-state="" className="min-h-11 flex items-center text-xs break-all" style={{ color: C.secondary }}>
+                            {text}
+                          </span>
+                        )}
+                        {carried}
+                      </>
                     );
                   })()}
                 <HintField
@@ -1892,7 +1931,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                 {/* この問題が載るグループ（保存の時と同じ判定で、題名・盤に入った答えのカギ・答えから。選び直しはできない。Hop 決定 2026-10-23） */}
                 {(() => {
                   const items = generatedPuzzle && hasBoard ? generatedPuzzle.items : [];
-                  const found = detectGroups({ title: puzzleTitle.trim(), clues: items.map((i) => clueOf(i.id).trim()), answers: items.map((i) => i.answer.join("")) });
+                  // タグも見る（一覧のグループで絞る時はタグも拾う作りなので、ここもそろえる。2026-10-24）
+                  const found = detectGroups({ title: puzzleTitle.trim(), clues: [...items.map((i) => clueOf(i.id).trim()), ...tags], answers: items.map((i) => i.answer.join("")) });
                   return (
                     <p data-share-groups={found.join("・")} className="text-sm" style={{ color: C.ink }}>
                       {found.length > 0 ? CT.groups(found) : CT.noGroup}
@@ -1905,7 +1945,10 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                     <span className="text-xs font-bold tracking-[0.1em] mr-2" style={{ color: C.error }}>
                       {CT.unplaced}
                     </span>
-                    {unplaced.map((i) => i.answer.join("")).join("、")}
+                    {unplaced.map((i) => surfaceOf(i.id)).join("、")}
+                    <span className="block text-xs mt-1" style={{ color: C.secondary }}>
+                      {CT.unplacedNote}
+                    </span>
                   </p>
                 )}
                 {/* 著作権の2行・押せない理由・「共有する」は窓の下に貼り付ける（iPhone SE の高さでも、足りない物と押す所がいつも見えるように） */}
@@ -1924,8 +1967,28 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                   </p>
                   {/* 押せない理由（足りない物が先頭）。そろったら「全部の答えにカギとヒントが付きました。」に替わる */}
                   <p ref={blocksRef} data-share-blocks={canShare ? "ok" : ""} aria-live="polite" className="text-xs" style={{ color: canShare ? C.secondary : C.error }}>
-                    {canShare ? CT.allSet : shareBlocks.join("　")}
+                    {canShare ? (unplaced.length > 0 ? CT.allSetPlaced : CT.allSet) : shareBlocks.join("　")}
                   </p>
+                  {/* カギかヒントが足りない答え。押すと公開の窓を閉じてその答えの窓を開く（2026-10-24。どれが足りないか分からなかった） */}
+                  {missingKeys.length > 0 && (
+                    <div data-share-missing="" className="flex gap-1.5 overflow-x-auto -mx-4 px-4 pb-0.5" aria-label={CT.missingListLabel} role="group">
+                      {missingKeys.map((k) => (
+                        <button
+                          key={k}
+                          type="button"
+                          data-share-missing-word={k}
+                          onClick={() => {
+                            setShareOpen(false);
+                            openWordSheet(k);
+                          }}
+                          className="shrink-0 min-h-11 px-3 text-sm font-bold whitespace-nowrap bg-surface-container-high hover:bg-surface-container-highest transition-colors"
+                          style={{ color: C.ink }}
+                        >
+                          {surfaceOf(k)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <button type="button" data-save="" className={btnPrimary} disabled={isSaving || !canShare} onClick={handleShare}>
                     {isSaving ? CT.saving : editTarget ? CT.edit.update : CT.share}
                   </button>
