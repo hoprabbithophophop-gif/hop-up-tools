@@ -346,8 +346,25 @@ export const BulkEntry: React.FC<{
     const e = area.selectionEnd ?? s;
     let next: string;
     let caret: number;
-    if (kind === "bar" || kind === "arrow" || kind === "maru") {
-      next = text.slice(0, s) + (kind === "bar" ? "｜" : kind === "arrow" ? "→" : "○") + text.slice(e);
+    if (kind === "arrow") {
+      // →ボタンは「→【】」を入れてカーソルを【】の中に置く（Hop 決定 2026-10-24。打った「カギ→答え」も答えになるが、ボタンでは【 】までそろえる）。
+      // 押した所から行の終わりまでに字があり【 】が無ければ、その字を【 】で囲む（「ネコ」の前で押すと「→【ネコ】」）
+      const lineEnd = text.indexOf("\n", e) < 0 ? text.length : text.indexOf("\n", e);
+      const after = text.slice(e, lineEnd);
+      // すでにある【 】の中で押した時は → だけを入れる（【 】の中に【 】を作らない）
+      const inMark = marks.some((m) => !m.implicit && s > m.start && s < m.end) || /^[^【]*】/.test(after);
+      if (inMark) {
+        next = text.slice(0, s) + "→" + text.slice(e);
+        caret = s + 1;
+      } else if (after.trim() && !/[【】]/.test(after)) {
+        next = text.slice(0, s) + `→【${after.trim()}】` + text.slice(lineEnd);
+        caret = s + after.trim().length + 3;
+      } else {
+        next = text.slice(0, s) + "→【】" + text.slice(e);
+        caret = s + 2;
+      }
+    } else if (kind === "bar" || kind === "maru") {
+      next = text.slice(0, s) + (kind === "bar" ? "｜" : "○") + text.slice(e);
       caret = s + 1;
     } else {
       if (s < e) {

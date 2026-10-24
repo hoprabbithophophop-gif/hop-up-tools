@@ -349,7 +349,7 @@ try {
   check(afterBr.v.endsWith('｜【】') && afterBr.s === afterBr.v.length - 1 && afterBr.s === afterBr.e && afterBr.focused, `(b) 「【 】」ボタンで【】が入りカーソルは間・欄は選ばれたまま（位置 ${afterBr.s} / ${afterBr.v.length}）`);
   await page.locator('[data-bulk-insert="arrow"]').click();
   await page.waitForTimeout(100);
-  check((await area.inputValue()).endsWith('｜【→】'), '(b) 「→」ボタンでカーソルの位置に → が入る');
+  check((await area.inputValue()).endsWith('｜【→】'), '(b) 【 】の中で「→」ボタンを押すと → だけが入る');
   await page.locator('[data-bulk-insert="maru"]').click();
   await page.waitForTimeout(100);
   const afterMaru = await area.evaluate((el) => ({ v: el.value, s: el.selectionStart, focused: document.activeElement === el }));
@@ -424,6 +424,18 @@ try {
   await page.waitForTimeout(150);
   check(JSON.stringify(await wordKeys(page)) === JSON.stringify(['ネコ', 'マジ']) && (await page.locator('[data-bulk-reasons] [data-bulk-reason]').count()) === 0,
     `(b) 「カギ→答え」は【 】なしで答えになり、読みも付けられる（${(await wordKeys(page)).join('・')}）`);
+  // 「→」ボタン: 行の終わりで押すと「→【】」が入りカーソルは【】の中。後ろに字がある所で押すと、その字を【 】で囲む（Hop 決定 2026-10-24）
+  await area.fill('ニャーと鳴く動物');
+  await area.evaluate((el) => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); });
+  await page.locator('[data-bulk-insert="arrow"]').click();
+  await page.waitForTimeout(100);
+  const ar1 = await area.evaluate((el) => ({ v: el.value, s: el.selectionStart }));
+  check(ar1.v === 'ニャーと鳴く動物→【】' && ar1.s === ar1.v.length - 1, `(b) 行の終わりで「→」ボタンを押すと「→【】」が入りカーソルは【】の中（${ar1.v}・${ar1.s}）`);
+  await area.fill('子猫の鳴き声ネコ');
+  await area.evaluate((el) => { el.focus(); el.setSelectionRange(6, 6); });
+  await page.locator('[data-bulk-insert="arrow"]').click();
+  await page.waitForTimeout(100);
+  check((await area.inputValue()) === '子猫の鳴き声→【ネコ】', `(b) 後ろに字がある所で「→」ボタンを押すと、その字を【 】で囲む（${await area.inputValue()}）`);
 
   // ---- カギの下書き ----
   await writeLines(page, DRAFT_TEXT);
