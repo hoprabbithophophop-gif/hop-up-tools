@@ -223,7 +223,7 @@ const LINES = [
 const TEXT = LINES.join('\n');
 // 通った答え。語の一覧の行の印は答えのマスの字の並び（小さい字は大きい字にそろえた物）なので、ラッコは「ラツコ」
 const TEXT_WORDS = ['マジ', 'ダンス', 'マスク', 'コマ', 'コアラ', 'ラツコ', 'ネコ'];
-const GUIDE = '1行に1問、答えにしたい言葉を【 】で囲みます。';
+const GUIDE = '1行に答えを1つ、【 】で囲んで書きます。';
 // 見本の4行のカギの下書き
 const SAMPLE_DRAFTS = { ラジオ: '○○○で新曲が初めて流れた', マジ: '○○で応援している', ネコ: 'ニャーと鳴く動物', コアラ: '○○○はユーカリを食べる' };
 // カギの下書きを見る行: →の書き方・読み付き・同じ行のほかの答えは□・○だけになる行（【タヌキ】だけ）は空
@@ -397,7 +397,7 @@ try {
   // ---- 弾く理由の行が、書く欄の道具の段のすぐ下に出る（2026-10-23 に語の一覧から移した。下の段に隠れないように） ----
   check(JSON.stringify(await wordKeys(page)) === JSON.stringify(TEXT_WORDS), `(b) 語の一覧は通った答え7語（${(await wordKeys(page)).join('・')}）`);
   const reasons = await page.locator('[data-bulk-reasons] [data-bulk-reason]').evaluateAll((els) => els.map((e) => `${e.getAttribute('data-bulk-reason')}=${e.textContent}`));
-  check(reasons.includes('noReading=武道館：読みが未入力') && reasons.includes('noReading=本棚：読みが未入力'), `(b) 読み無しの漢字は語の一覧に「読みが未入力」の行（${reasons.join(' / ')}）`);
+  check(reasons.includes('noReading=武道館：読みは｜の後ろに書いてください。') && reasons.includes('noReading=本棚：読みは｜の後ろに書いてください。'), `(b) 読み無しの漢字は語の一覧に「読みが未入力」の行（${reasons.join(' / ')}）`);
   check(reasons.includes('tooLong=アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマ：答えは30字までです。'), '(b) 31字の答えは弾かれ、語の一覧に「答えは30字までです。」の行');
   check(reasons.includes('duplicate=ダンス：同じ答えがあります'), '(b) 2回目の「ダンス」は「同じ答えがあります」の行');
   check(reasons.includes('unusable=ヰド：使えない字（ヰ・ヱ）'), '(b) ヰ の入った答えは「使えない字（ヰ・ヱ）」の行');
@@ -436,6 +436,14 @@ try {
   await page.locator('[data-bulk-insert="arrow"]').click();
   await page.waitForTimeout(100);
   check((await area.inputValue()) === '子猫の鳴き声→【ネコ】', `(b) 後ろに字がある所で「→」ボタンを押すと、その字を【 】で囲む（${await area.inputValue()}）`);
+  // → より前の答えのカギに、→ と後ろの答えが漏れない（2026-10-25。前は「○○が鳴く→□□」になっていた）
+  await area.fill('【ネコ】が鳴く→イヌ');
+  await page.waitForTimeout(300);
+  await openWordSheet(page, 'ネコ');
+  const leak = await page.locator('[data-word-sheet] #cw-clue').inputValue();
+  check(leak === '○○が鳴く', `(b) → より前の答えのカギに → と後ろの答えが入らない（${leak}）`);
+  await page.locator('[data-word-close]').click();
+  await page.waitForTimeout(300);
 
   // ---- カギの下書き ----
   await writeLines(page, DRAFT_TEXT);

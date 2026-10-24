@@ -247,15 +247,28 @@ const clueDraftRaw = (text: string, marks: Mark[], target: Mark, answerLength: n
       return (head + text.slice(pos, arrowAt)).trim();
     }
   }
+  // → より前の答えのカギは、→ から後ろ（ほかの答えだけの所）を入れない（2026-10-25。「【ネコ】が鳴く→イヌ」のネコのカギが「○○が鳴く→□□」になり、→ と伏せたほかの答えが解く人に見えていた）
+  let end = lineEnd;
+  if (arrowAt >= lineStart && target.start < arrowAt) {
+    let rest = "";
+    let at = arrowAt + 1;
+    for (const m of lineMarks) {
+      if (m.start < arrowAt + 1) continue;
+      rest += text.slice(at, m.start);
+      at = m.end;
+    }
+    rest += text.slice(at, lineEnd);
+    if (!rest.trim()) end = arrowAt;
+  }
   let out = "";
   let pos = lineStart;
   for (const m of marks) {
-    if (m.line !== target.line) continue;
+    if (m.line !== target.line || m.start >= end) continue;
     out += text.slice(pos, m.start);
     out += m === target || (m.start === target.start && m.end === target.end) ? "○".repeat(answerLength) : hiddenOther(m);
     pos = m.end;
   }
-  out += text.slice(pos, lineEnd);
+  out += text.slice(pos, end);
   return out.trim();
 };
 

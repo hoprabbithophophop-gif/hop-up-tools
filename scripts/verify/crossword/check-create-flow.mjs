@@ -390,7 +390,7 @@ try {
         const status = await page.locator('[data-mini-status]').textContent().catch(() => '');
         await openShare(page);
         const b = await page.locator('[data-share-blocks]').textContent();
-        check(b.includes('保存するには、答えを2つ以上追加してください。') && (await page.locator('[data-save]').isDisabled()) && (await page.locator('[data-dock-share][data-strong]').count()) === 0,
+        check(b.includes('答えを2つ以上書くと、マス目ができます。') && (await page.locator('[data-save]').isDisabled()) && (await page.locator('[data-dock-share][data-strong]').count()) === 0,
           `${T} (3) ${label}の時は盤が無く共有できない（小さい盤「${status}」・理由「${b}」）`);
         await closeShare(page);
       }
