@@ -49,6 +49,7 @@ export interface Mark {
   start: number; // 文字列の中の【の位置
   end: number; // 】の次の位置
   line: number; // 何行目か（0から）
+  implicit?: boolean; // 【 】で囲まず「カギ→答え」と書いた答え（囲みを外す帯は出さない）
 }
 
 export interface Candidate {
@@ -92,7 +93,8 @@ export const lineProblems = (text: string): LineProblem[] => {
     const lineStart = pos;
     pos += line.length + 1;
     if (!line.includes("【") && !line.includes("】")) {
-      if (line.includes("→")) out.push({ reason: "needBrackets", start: lineStart, line: lineNo, head: lineHead(line) });
+      // → の後ろが空の時だけ（→ の後ろに字があれば、それが答えになる。2026-10-24）
+      if (line.includes("→") && !line.slice(line.lastIndexOf("→") + 1).trim()) out.push({ reason: "needBrackets", start: lineStart, line: lineNo, head: lineHead(line) });
       return;
     }
     let open: number | null = null;
@@ -137,7 +139,22 @@ export const parseMarks = (text: string): Mark[] => {
     const start = m.index ?? 0;
     marks.push({ surface: m[1], reading: m[2] ?? null, start, end: start + m[0].length, line: lineOf(start) });
   }
-  return marks;
+  // 「カギ→答え」の書き方: → の後ろに【 】が無ければ、→ の後ろ全部を答えにする（Hop 決定 2026-10-24。前は → の後ろも【 】で囲む二度手間だった）。
+  // 読みは｜の後ろ（「→本気｜マジ」）。→ の後ろに【 】がある行は今までどおり（「問題文→【ネコ】【イヌ】」など）
+  text.split("\n").forEach((line, lineNo) => {
+    const arrow = line.lastIndexOf("→");
+    if (arrow < 0) return;
+    const rest = line.slice(arrow + 1);
+    if (/[【】]/.test(rest) || !rest.trim()) return;
+    const lead = rest.length - rest.trimStart().length;
+    const body = rest.trim();
+    const bar = body.search(/[｜|]/);
+    const surface = (bar >= 0 ? body.slice(0, bar) : body).trim();
+    if (!surface) return;
+    const start = lineStarts[lineNo] + arrow + 1 + lead;
+    marks.push({ surface, reading: bar >= 0 ? body.slice(bar + 1).trim() : null, start, end: start + body.length, line: lineNo, implicit: true });
+  });
+  return marks.sort((a, b) => a.start - b.start);
 };
 
 const fullWidthBars = (text: string) => text.replace(/【[^【】\n]*】/g, (m) => m.replace(/\|/g, "｜"));
@@ -275,7 +292,7 @@ export const BulkEntry: React.FC<{
         setAreaMark(null);
       } else {
         const pos = area.selectionStart;
-        const inside = parseMarks(text).find((m) => pos > m.start && pos < m.end);
+        const inside = parseMarks(text).find((m) => !m.implicit && pos > m.start && pos < m.end);
         if (inside) setAreaMark(inside.start);
         areaSelTimer.current = window.setTimeout(() => {
           setAreaSel(null);
@@ -300,7 +317,7 @@ export const BulkEntry: React.FC<{
     while (end > start && /\s/.test(text[end - 1])) end--;
     const picked = text.slice(start, end);
     if (!picked || /[【】｜|\n]/.test(picked)) return null;
-    if (marks.some((m) => start < m.end && end > m.start)) return null;
+    if (marks.some((m) => !m.implicit && start < m.end && end > m.start)) return null; // 「カギ→答え」の答えは囲み直してよい
     return { start, end, picked };
   };
   // 欄で字を選んでいる範囲で帯を出す（Hop 決定 2026-10-20 案C）。控えは同じ文字列の時だけ使う

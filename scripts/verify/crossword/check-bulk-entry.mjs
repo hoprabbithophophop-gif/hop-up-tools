@@ -413,12 +413,17 @@ try {
   const r30 = await page.locator('[data-bulk-reason]').count();
   check(k30.length === 2 && r30 === 0, `(b) 30字ちょうどの答えは通る（語の一覧 ${k30.length}語・弾いた行 ${r30}）`);
   // 答えにならず黙って外れていた行にも理由が出る（Hop 決定 2026-10-23）。「→」も【 】も無い行はメモとして黙って通す
-  await area.fill(['ニャーと鳴く動物→ネコ', '【】が空', '【 】も空', '【コアラ', 'ラッパ】', 'メモの行', '【ネコ】と【コアラ】'].join(String.fromCharCode(10)));
+  await area.fill(['ニャーと鳴く動物→', '【】が空', '【 】も空', '【コアラ', 'ラッパ】', 'メモの行', '【ネコ】と【コアラ】'].join(String.fromCharCode(10)));
   await page.waitForTimeout(150);
   const lineReasons = await page.locator('[data-bulk-reasons] [data-bulk-reason]').evaluateAll((els) => els.map((e) => `${e.getAttribute('data-bulk-reason')}=${e.textContent}`));
-  const wantLines = ['needBrackets=ニャーと鳴く動物→ネコ：答えを【 】で囲んでください', 'emptyMark=【】が空：【 】の中が空です', 'emptyMark=【 】も空：【 】の中が空です', 'unpaired=【コアラ：【 と 】の組が合いません', 'unpaired=ラッパ】：【 と 】の組が合いません', 'twoInLine=【ネコ】と【コアラ】：1行に答えは1つにしてください。'];
+  const wantLines = ['needBrackets=ニャーと鳴く動物→：→ の後ろに答えを書いてください。', 'emptyMark=【】が空：【 】の中が空です', 'emptyMark=【 】も空：【 】の中が空です', 'unpaired=【コアラ：【 と 】の組が合いません', 'unpaired=ラッパ】：【 と 】の組が合いません', 'twoInLine=【ネコ】と【コアラ】：1行に答えは1つにしてください。'];
   check(JSON.stringify(lineReasons) === JSON.stringify(wantLines), `(b) 「→」に【 】が無い行・中が空・閉じ忘れ・】だけの行に、書いた順に理由の行が出て、メモの行には出ない（${lineReasons.join(' / ')}）`);
   check(JSON.stringify(await wordKeys(page)) === JSON.stringify(['ネコ', 'コアラ']), `(b) 理由の行が出ても、通った答えはそのまま（${(await wordKeys(page)).join('・')}）`);
+  // → の後ろは【 】なしでも答えになる（Hop 決定 2026-10-24）。読みは｜の後ろ。理由の行は出ない
+  await area.fill(['ニャーと鳴く動物→ネコ', '気持ちが入っている様子→本気｜マジ'].join(String.fromCharCode(10)));
+  await page.waitForTimeout(150);
+  check(JSON.stringify(await wordKeys(page)) === JSON.stringify(['ネコ', 'マジ']) && (await page.locator('[data-bulk-reasons] [data-bulk-reason]').count()) === 0,
+    `(b) 「カギ→答え」は【 】なしで答えになり、読みも付けられる（${(await wordKeys(page)).join('・')}）`);
 
   // ---- カギの下書き ----
   await writeLines(page, DRAFT_TEXT);
