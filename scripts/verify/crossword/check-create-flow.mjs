@@ -3,14 +3,15 @@
 // 手元の vite をこの台本が立ち上げ（口 5194・Supabase の住所は使わない仮の住所）、棚（/rest/v1）・受付係（/api）・人間確認（Turnstile）・
 // 埋め込みの読み込みはブラウザの中で受け止める。保存と組み直しの更新は作り物が受けて、送られた中身を台本が読む。
 // ②1〜5 は 375×548 と 390×844 の両方で流す（完成基準の決まり）。
-//   (1) ②1 初めて作って配る: 記録が空のブラウザで見本の4行・見本の答え4つとカギの下書き（○・→ の書き方・○○○ の行）→ 1行を書き換えて1語足す
+//   (1) ②1 初めて作って配る: 記録が空のブラウザで見本の3行・見本の答え3つとカギの下書き（○・→ の書き方）→ 1行を書き換えて1語足す
 //       → 小さい盤が育つ（足した語が盤か「置けなかった語」に出る）→ 語の窓で盤に入った全部の語にカギとヒント → 足りない言葉が消え「公開の準備」が黒くなる
 //       → 公開の準備 → 題名が空なら「題名を入力してください。」→ 人間確認を通して保存（作り物）→ URL が出る・保存のジャンルは hello・作りかけが消える
 //       （その URL で解けるかは check-stage1 が作り物の棚で見る）
 //   (2) ②2 試してから直す: 広げた盤で語を長押しで動かして固定 →「試す」→ 盤を最後まで解いてハンコ →「作る」に戻ると書いた文・カギ・ヒント・盤（動かした位置と固定）がそのまま。
 //       「試す」の間、棚（/rest/v1）と受付係（/api）への通信が0本（行き先を問わず数える）
-//   (3) ②3 足りないまま共有しようとして止まる: 見本のまま公開の準備 → 押せない理由の先頭が「ヒントがあと4語」・共有するが押せない・「公開の準備」は灰
-//       → 1語ずつ埋めると数が減り、全部埋めると「全部の答えにカギとヒントが付きました。」で押せる。カギを空にすると「カギがあと1語」。
+//   (3) ②3 足りないまま共有しようとして止まる: 見本のまま公開の準備 → 押せない理由が「見本の行のままです。…」だけ・共有するが押せない【仮】
+//       → 1行を書き換えてヒントの無い答えを2つ入れると「ヒントがあと2つ」で押せない → 1語ずつ埋めると数が減り、全部埋めると「全部の答えにカギとヒントが付きました。」で押せる。
+//       カギを空にすると「カギがあと1つ」。（見本には 2026-10-25 から最初からヒントが付くので、足りない物は自分で書いた行で作る）
 //       語が1つ・0の時は盤が無く「保存するには、語を2つ以上追加してください。」で押せない
 //   (4) ②4 途中で閉じて続きから: 書き換え・カギ・ヒント・盤（固定）が開き直すと戻り、見本で上書きされず組み直さない。前の版（4段の版 version 2）の作りかけも開ける
 //   (5) ②5 自分の問題を直す: ?edit= で「作る」から始まり、保存した盤・【語】の行・カギ・ヒント・題名が戻る → カギを1つ直して「更新する」→ 送る中身のジャンルは hello・直したカギ・
@@ -32,7 +33,7 @@ import path from 'node:path';
 import { chromium } from 'playwright';
 import { outDir, ROOT, leaveFirstVisitMarks, watchStumbles, isolatedViteConfig } from './_lib.mjs';
 import {
-  CREATE_MARKS, SAMPLE, SAMPLE_WORDS, writeLines, waitBoard, openWordSheet, closeWordSheet, setLinkHint, setClue, fillWords, openShare, closeShare,
+  CREATE_MARKS, SAMPLE, SAMPLE_WORDS, SAMPLE_HINT_HREFS, writeLines, waitBoard, openWordSheet, closeWordSheet, setLinkHint, setClue, fillWords, openShare, closeShare,
   openBoard, closeBoard, toMode, currentMode, readDraft, draftCells, solveTrial, wordKeys, exampleUrl,
 } from './_create.mjs';
 
@@ -164,15 +165,17 @@ const bodyText = (page) => page.evaluate(() => document.body.innerText);
 const tag = (size) => `${size[0]}x${size[1]}`;
 const missingOf = (page, key) => page.locator(`[data-word-row="${key}"] [data-word-missing]:not([data-leaving])`).evaluateAll((els) => els.map((e) => e.getAttribute('data-word-missing')));
 
-// 見本の答えのカギの下書き（○は答えの字数ぶん。→ の書き方は問題文だけ。○○○ で答えの位置を書いた行はそのまま）
+// 見本の答えのカギの下書き（○は答えの字数ぶん。→ の書き方は問題文だけ）。見本は 2026-10-25 に3行（キララ・アニマルランド・ドイフウカ）に替わった
 const SAMPLE_DRAFTS = {
-  ラジオ: '○○○で新曲が初めて流れた',
-  マジ: '○○で応援している',
-  ネコ: 'ニャーと鳴く動物',
-  コアラ: '○○○はユーカリを食べる',
+  キララ: '米村○○○はOCHA NORMA兼DECA☆BEATのリーダー',
+  アニマルランド: '「生きるってマジMy Life」の歌詞が印象的な研修生曲',
+  ドイフウカ: 'つばきファクトリーの大阪出身でトマトが好きなメンバーは？',
 };
-// ②1 の書き換え: 1行目を書き換え、ジオラマ（ジ・オ・ラで交差できる）の行を足す
-const EDITED = SAMPLE.replace('【ラジオ】で新曲が初めて流れた', '【ラジオ】で新しい曲が流れた') + '\n【ジオラマ】を作った';
+// ②1 の書き換え: 1行目を書き換え、ランドセル（ラ・ン・ドで交差できる）の行を足す
+const ADDED = 'ランドセル';
+const LINE1 = '米村【キララ】はOCHA NORMA兼DECA☆BEATのリーダー';
+const LINE1_EDITED = '米村【キララ】はOCHA NORMAのリーダー';
+const EDITED = SAMPLE.replace(LINE1, LINE1_EDITED) + `\n【${ADDED}】を背負った`;
 
 // 広げた盤で、語を長押しで持ち上げて (dx, dy) マスずらして離す。置ける印（data-placeable="yes"）を見てから離す
 const cellsOfItem = (it) => Array.from({ length: it.length }, (_, i) => (it.direction === 'horizontal' ? [it.startX + i, it.startY] : [it.startX, it.startY + i]));
@@ -261,25 +264,31 @@ try {
       const { ctx, page } = await newPage({ size });
       await page.goto(`${BASE}/crossword/create`);
       await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
-      check((await page.locator('[data-bulk-text]').inputValue()) === SAMPLE, `${T} (1) 記録が空のブラウザでは見本の4行が入っている`);
-      check(JSON.stringify(await wordKeys(page)) === JSON.stringify(SAMPLE_WORDS), `${T} (1) 語の一覧は見本の答え4つ（${(await wordKeys(page)).join('・')}）`);
+      check((await page.locator('[data-bulk-text]').inputValue()) === SAMPLE, `${T} (1) 記録が空のブラウザでは見本の3行が入っている`);
+      check(JSON.stringify(await wordKeys(page)) === JSON.stringify(SAMPLE_WORDS), `${T} (1) 語の一覧は見本の答え3つ（${(await wordKeys(page)).join('・')}）`);
       const stats0 = await waitBoard(page);
-      check(/^答え4つ・\d+マス・交わる所\d+$/.test(stats0), `${T} (1) 見本の4語で盤が組める（${stats0}）`);
+      check(/^答え3つ・\d+マス・交わる所\d+$/.test(stats0), `${T} (1) 見本の3語で盤が組める（${stats0}）`);
       check(await currentMode(page) === 'make', `${T} (1) 「作る」から始まる`);
       for (const [k, want] of Object.entries(SAMPLE_DRAFTS)) {
         await openWordSheet(page, k);
         const got = await page.locator('#cw-clue').inputValue();
         check(got === want, `${T} (1) 「${k}」のカギの下書きは「${got}」`);
+        // 見本の答えには最初からヒントが付いている（2026-10-25）。ヒントの欄は出ず、付いたヒントの行き先が出る
+        const href = await page.locator('[data-word-sheet] a[data-hint-state]').getAttribute('href').catch(() => null);
+        check(href === SAMPLE_HINT_HREFS[k] && (await page.locator('[data-word-sheet] #cw-hint').count()) === 0, `${T} (1) 見本の「${k}」には最初からヒントが付いていて、ヒントの欄は出ない（${href}）`);
         await closeWordSheet(page);
       }
+      const sampleMissing = [];
+      for (const k of SAMPLE_WORDS) sampleMissing.push(...(await missingOf(page, k)).map((m) => `${k}:${m}`));
+      check(sampleMissing.length === 0, `${T} (1) 見本の答えには足りない言葉（カギがまだ・ヒントがまだ）が出ない（${sampleMissing.join(' ') || 'なし'}）`);
       await page.screenshot({ path: path.join(OUT, `${T}-1-start.png`) });
 
       await writeLines(page, EDITED);
       const stats1 = await waitBoard(page);
       const d1 = await readDraft(page);
-      const inBoard = d1.board.some((i) => i.id === 'ジオラマ');
-      const unplacedTag = await page.locator('[data-word-row="ジオラマ"] [data-word-unplaced]').count();
-      check(inBoard || unplacedTag === 1, `${T} (1) 足した語「ジオラマ」は盤に入るか「置けなかった語」に出る（盤 ${inBoard}・札 ${unplacedTag}・${stats1}）`);
+      const inBoard = d1.board.some((i) => i.id === ADDED);
+      const unplacedTag = await page.locator(`[data-word-row="${ADDED}"] [data-word-unplaced]`).count();
+      check(inBoard || unplacedTag === 1, `${T} (1) 足した語「${ADDED}」は盤に入るか「置けなかった語」に出る（盤 ${inBoard}・札 ${unplacedTag}・${stats1}）`);
       check(await page.locator('[data-dock-share][data-strong]').count() === 0, `${T} (1) 足りない物がある間は「公開の準備」が灰`);
       await page.screenshot({ path: path.join(OUT, `${T}-1-grown.png`) });
 
@@ -289,9 +298,12 @@ try {
       const left = [];
       for (const k of placed) left.push(...(await missingOf(page, k)).map((m) => `${k}:${m}`));
       check(left.length === 0, `${T} (1) 盤に入った語の足りない言葉が全部消える（残り ${left.join(' ') || 'なし'}）`);
-      await openWordSheet(page, placed[0]);
+      // 台本がヒントを付けた語（見本の答えでない語）があればそれ、無ければ見本の答えで見る
+      const linkKey = placed.find((k) => !SAMPLE_WORDS.includes(k)) ?? placed[0];
+      const linkWant = SAMPLE_WORDS.includes(linkKey) ? SAMPLE_HINT_HREFS[linkKey] : exampleUrl(linkKey);
+      await openWordSheet(page, linkKey);
       const link = page.locator('[data-word-sheet] a[data-hint-state]');
-      check((await link.getAttribute('href')) === exampleUrl(placed[0]) && (await link.getAttribute('target')) === '_blank', `${T} (1) 語の窓でヒントの行き先を別のタブで開ける（${await link.getAttribute('href')}）`);
+      check((await link.getAttribute('href')) === linkWant && (await link.getAttribute('target')) === '_blank', `${T} (1) 語の窓でヒントの行き先を別のタブで開ける（${linkKey}・${await link.getAttribute('href')}）`);
       check((await page.locator('[data-word-sheet] button', { hasText: '次の語' }).count()) === 0, `${T} (1) 語の窓に「次の語 →」は無い`);
       await page.screenshot({ path: path.join(OUT, `${T}-1-sheet.png`) });
       await closeWordSheet(page);
@@ -362,18 +374,34 @@ try {
       await waitBoard(page);
       await openShare(page);
       const blocks = await page.locator('[data-share-blocks]').textContent();
-      check(blocks.startsWith('ヒントがあと4つ') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 見本のままだと押せない理由の先頭が「${blocks}」で、共有するが押せない`);
+      // 見本の行のままでは公開できない【仮】（2026-10-25）。見本はカギもヒントもそろっているので、理由はこれ1つだけ
+      check(blocks === '見本の行のままです。1行でも書き換えると公開できます。' && (await page.locator('[data-save]').isDisabled()), `${T} (3) 見本のままだと押せない理由は「${blocks}」だけで、共有するが押せない`);
+      check((await page.locator('[data-dock-share][data-strong]').count()) === 0, `${T} (3) 見本のままの間は「公開の準備」が灰`);
       const foot = await page.locator('[data-save]').boundingBox();
       check(foot && foot.y + foot.height <= size[1] + 0.5, `${T} (3) 共有の窓の「共有する」と押せない理由が窓の下に見えている（下端 ${foot && Math.round(foot.y + foot.height)}）`);
       await page.screenshot({ path: path.join(OUT, `${T}-3-missing.png`) });
       await closeShare(page);
-      const d = await readDraft(page);
-      const keys = d.board.map((i) => i.id);
-      await fillWords(page, keys.slice(0, -1));
+      // 1行目を書き換え（キララ → ランドセル）、1行足す（ドラマ）。どちらも見本のヒントが無い答え。ラ・ン・ド・マをアニマルランドと分け合うので、たいてい盤に入る
+      const SCEN3 = ['【ランドセル】を背負った', ...SAMPLE.split('\n').slice(1), '【ドラマ】を見た'].join('\n');
+      await writeLines(page, SCEN3);
+      await waitBoard(page);
+      let keys = [];
+      for (let i = 0; i < 20; i++) {
+        keys = (await readDraft(page))?.board?.map((x) => x.id) ?? [];
+        if (keys.includes('ランドセル') && keys.includes('ドラマ')) break;
+        await page.waitForTimeout(250);
+      }
+      const noHint = keys.filter((k) => !SAMPLE_WORDS.includes(k));
+      check(noHint.length === 2, `${T} (3) 下ごしらえ: ヒントの無い答え2つ（ランドセル・ドラマ）が盤に入った（盤 ${keys.join('・')}）`);
+      await openShare(page);
+      const b2 = await page.locator('[data-share-blocks]').textContent();
+      check(b2.startsWith(`ヒントがあと${noHint.length}つ`) && !b2.includes('見本の行のまま') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 1行を書き換えた後、ヒントの無い答えが残っていると「${b2}」で押せない（見本の理由は消える）`);
+      await closeShare(page);
+      await fillWords(page, noHint.slice(0, -1));
       await openShare(page);
       check((await page.locator('[data-share-blocks]').textContent()).startsWith('ヒントがあと1つ') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 1語残すと「ヒントがあと1つ」で押せない`);
       await closeShare(page);
-      await fillWords(page, keys.slice(-1));
+      await fillWords(page, noHint.slice(-1));
       await openShare(page);
       check((await page.locator('[data-share-blocks]').textContent()) === '全部の答えにカギとヒントが付きました。' && (await page.locator('[data-save]').isEnabled()), `${T} (3) 全部埋めると「全部の答えにカギとヒントが付きました。」で押せる`);
       await closeShare(page);
@@ -406,10 +434,14 @@ try {
       await writeLines(page, EDITED);
       await waitBoard(page);
       const d0 = await readDraft(page);
-      await openWordSheet(page, 'ネコ');
+      // 窓でカギを直すと、書く欄のその行も「直したカギ→【答え】」に書き換わる（Hop 決定 2026-10-25）
+      await openWordSheet(page, 'キララ');
+      // ヒントを先に付け替えてからカギを直す。見本のヒントが付いた答えは、窓でカギを直した後だと「ヒントを外す」が効かない（画面の側の不具合と見て報告した。2026-10-25）
+      await setLinkHint(page, exampleUrl('キララ'));
       await setClue(page, '台本で書き直したカギ');
-      await setLinkHint(page, exampleUrl('ネコ'));
       await closeWordSheet(page);
+      const textFixed = EDITED.replace(LINE1_EDITED, '台本で書き直したカギ→【キララ】');
+      check((await page.locator('[data-bulk-text]').inputValue()) === textFixed, `${T} (4) 窓でカギを直すと書く欄の行が「台本で書き直したカギ→【キララ】」になる`);
       const pinned = await pinOne(page, d0.board.map((i) => i.id));
       check(!!pinned, `${T} (6) 広げた盤で1語を固定できた`);
       const saved = await readDraft(page);
@@ -420,13 +452,16 @@ try {
       await page2.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
       await page2.waitForTimeout(1500);
       const back = await readDraft(page2);
-      check((await page2.locator('[data-bulk-text]').inputValue()) === EDITED, `${T} (4) 開き直すと書いた文が戻り、見本の4行で上書きされない`);
-      check(back.clues['ネコ'] === '台本で書き直したカギ' && back.hints['ネコ']?.url === exampleUrl('ネコ'), `${T} (4) カギとヒントが戻る`);
+      check((await page2.locator('[data-bulk-text]').inputValue()) === textFixed, `${T} (4) 開き直すと書いた文（窓で直したカギの行を含む）が戻り、見本の3行で上書きされない`);
+      await openWordSheet(page2, 'キララ');
+      const clueBack = await page2.locator('#cw-clue').inputValue();
+      await closeWordSheet(page2);
+      check(clueBack === '台本で書き直したカギ' && back.hints['キララ']?.url === exampleUrl('キララ'), `${T} (4) カギとヒントが戻る（カギ「${clueBack}」）`);
       check(JSON.stringify(back.board) === JSON.stringify(saved.board), `${T} (4) 盤（固定した位置）が戻り、組み直さない`);
       check((await page2.locator('[data-mini-stats]').textContent()) !== '', `${T} (4) 開いてすぐ小さい盤に盤が出る`);
       await page2.screenshot({ path: path.join(OUT, `${T}-4-resumed.png`) });
       // (6) 語を足して盤が育っても固定の印と向きが残る
-      await writeLines(page2, `${EDITED}\n【ライオン】がいる`);
+      await writeLines(page2, `${textFixed}\n【ライオン】がいる`);
       await waitBoard(page2);
       const grown = await readDraft(page2);
       const p = grown.board.find((i) => i.id === pinned?.id);
@@ -452,7 +487,10 @@ try {
       await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
       await page.waitForTimeout(1500);
       const d = await readDraft(page);
-      check((await page.locator('[data-bulk-text]').inputValue()) === text, `${T} (4) 前の版の作りかけの文が戻る`);
+      // 窓の側だけに持っていたカギは、書く欄の行に移る（Hop 決定 2026-10-25）
+      const textMoved = 'ニャーと鳴く動物→【ネコ】\n【コアラ】はユーカリを食べる';
+      const textNow = await page.locator('[data-bulk-text]').inputValue();
+      check(textNow === textMoved, `${T} (4) 前の版の作りかけの文が戻り、窓の側のカギは書く欄の行に移る（${textNow.split('\n').join(' ／ ')}）`);
       check(JSON.stringify(d.board) === JSON.stringify(v2.board) && d.version === 3, `${T} (4) 前の版の盤がそのまま戻り、新しい版で残し直す（版 ${d.version}）`);
       check(JSON.stringify(await missingOf(page, 'ネコ')) === '[]' && JSON.stringify(await missingOf(page, 'コアラ')) === '[]', `${T} (4) 前の版のカギとヒントが戻る（コアラは○だけの下書きでなく「○○○はユーカリを食べる」）`);
       await ctx.close();
@@ -467,7 +505,9 @@ try {
       await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
       await page.waitForTimeout(800);
       check((await page.locator('h1').first().textContent()) === '問題の組み直し' && (await currentMode(page)) === 'make', `${T} (5) 組み直しの画面になり「作る」から始まる`);
-      check((await page.locator('[data-bulk-text]').inputValue()) === '【ネコ】\n【コアラ】', `${T} (5) 語は【語】の行として戻る`);
+      // 組み直しで開くと、書く欄の行は「カギ→【答え】」の形で入る（Hop 決定 2026-10-25。前は【答え】だけ）
+      const editText = await page.locator('[data-bulk-text]').inputValue();
+      check(editText === 'ニャーと鳴く動物→【ネコ】\nユーカリの葉を食べる動物→【コアラ】', `${T} (5) 語は「カギ→【答え】」の行として戻る（${editText.split('\n').join(' ／ ')}）`);
       check((await page.locator('[data-mini-stats]').textContent()) === '答え2つ・4マス・交わる所1', `${T} (5) 保存した時の盤が出る（${await page.locator('[data-mini-stats]').textContent()}）`);
       await openWordSheet(page, 'コアラ');
       check((await page.locator('#cw-clue').inputValue()) === 'ユーカリの葉を食べる動物', `${T} (5) カギが戻る`);
@@ -522,7 +562,7 @@ try {
     await page.waitForTimeout(400);
     const down = await page.evaluate(() => ({ mini: document.querySelector('[data-mini]').getBoundingClientRect().height, dock: getComputedStyle(document.querySelector('[data-dock]')).transform }));
     check(down.mini === 110 && down.dock === 'none', `(7) 離れると戻る（${JSON.stringify(down)}）`);
-    await openWordSheet(page, 'ネコ');
+    await openWordSheet(page, 'キララ');
     await page.locator('#cw-clue').focus();
     await page.waitForTimeout(400);
     const clueUp = await page.evaluate(() => document.querySelector('[data-mini]').getBoundingClientRect().height);
@@ -553,25 +593,25 @@ try {
         if (moving.length && !window.__fx) window.__fx = { moving: moving.length, total: cells.length };
       }).observe(host, { subtree: true, childList: true, attributes: true });
     });
-    await page.locator('[data-bulk-text]').fill(`${SAMPLE}\n【ジオラマ】を作った`);
+    await page.locator('[data-bulk-text]').fill(`${SAMPLE}\n【${ADDED}】を背負った`);
     await page.waitForFunction(() => !!window.__fx, null, { timeout: 15000 }).catch(() => {});
     const fx = await page.evaluate(() => window.__fx);
     check(!!fx && fx.moving > 0 && fx.moving < fx.total, `(8) 盤が育つ時は新しく増えたマスだけに動きが付く（${JSON.stringify(fx)}）`);
     // 下線（増えた語の行）
-    const line = await page.evaluate(async () => {
+    const line = await page.evaluate(async (added) => {
       for (let i = 0; i < 40; i++) {
-        const el = document.querySelector('[data-word-row="ジオラマ"] [data-word-line]');
+        const el = document.querySelector(`[data-word-row="${added}"] [data-word-line]`);
         if (el && el.getAnimations().length) return 'moving';
         await new Promise((r) => setTimeout(r, 50));
       }
       return 'none';
-    });
+    }, ADDED);
     check(line === 'moving', `(8) 【 】で囲んで増えた語の行に下線が引かれる（${line}）`);
-    const others = await page.evaluate(() => [...document.querySelectorAll('[data-word-row]:not([data-word-row="ジオラマ"]) [data-word-line]')].filter((e) => e.getAnimations().length).length);
+    const others = await page.evaluate((added) => [...document.querySelectorAll(`[data-word-row]:not([data-word-row="${added}"]) [data-word-line]`)].filter((e) => e.getAnimations().length).length, ADDED);
     check(others === 0, `(8) ほかの語の行には下線を引かない（${others}）`);
     // 足りない言葉が消える時に動く
-    await openWordSheet(page, 'ネコ');
-    await setLinkHint(page, exampleUrl('ネコ'));
+    await openWordSheet(page, ADDED);
+    await setLinkHint(page, exampleUrl(ADDED));
     await closeWordSheet(page);
     await page.waitForTimeout(150);
     await page.evaluate(() => 0);
@@ -579,20 +619,23 @@ try {
     const rm = await newPage({ size: [390, 844] });
     await rm.page.goto(`${BASE}/crossword/create`);
     await waitBoard(rm.page);
-    await openWordSheet(rm.page, 'ネコ');
-    await setLinkHint(rm.page, exampleUrl('ネコ'));
+    // 見本の答えには最初からヒントが付いているので（2026-10-25）、ヒントの無い語を足して、その語で見る
+    await writeLines(rm.page, `${SAMPLE}\n【${ADDED}】を背負った`);
+    await waitBoard(rm.page);
+    await openWordSheet(rm.page, ADDED);
+    await setLinkHint(rm.page, exampleUrl(ADDED));
     await rm.page.locator('[data-word-close]').click();
-    const leaving = await rm.page.evaluate(async () => {
+    const leaving = await rm.page.evaluate(async (added) => {
       for (let i = 0; i < 30; i++) {
-        const el = document.querySelector('[data-word-row="ネコ"] [data-word-missing="hint"][data-leaving]');
+        const el = document.querySelector(`[data-word-row="${added}"] [data-word-missing="hint"][data-leaving]`);
         if (el && el.getAnimations().length) return 'moving';
         await new Promise((r) => setTimeout(r, 20));
       }
       return 'none';
-    });
+    }, ADDED);
     check(leaving === 'moving', `(8) 足りない言葉（ヒントがまだ）が消える時に動く（${leaving}）`);
     await rm.page.waitForTimeout(400);
-    check((await rm.page.locator('[data-word-row="ネコ"] [data-word-missing="hint"]').count()) === 0, '(8) 消える動きの後に言葉が無くなる');
+    check((await rm.page.locator(`[data-word-row="${ADDED}"] [data-word-missing="hint"]`).count()) === 0, '(8) 消える動きの後に言葉が無くなる');
     await rm.ctx.close();
 
     // 動きを減らす設定では作る画面の動きが0本
@@ -612,10 +655,10 @@ try {
       const tick = () => { window.__anims += document.getAnimations().filter(mine).length; requestAnimationFrame(tick); };
       tick();
     });
-    await p.locator('[data-bulk-text]').fill(`${SAMPLE}\n【ジオラマ】を作った`);
+    await p.locator('[data-bulk-text]').fill(`${SAMPLE}\n【${ADDED}】を背負った`);
     await p.waitForTimeout(3000);
-    await openWordSheet(p, 'ネコ');
-    await setLinkHint(p, exampleUrl('ネコ'));
+    await openWordSheet(p, ADDED);
+    await setLinkHint(p, exampleUrl(ADDED));
     await closeWordSheet(p);
     await openBoard(p);
     await closeBoard(p);
@@ -659,7 +702,7 @@ try {
     await page.waitForTimeout(400);
     await page.screenshot({ path: path.join(OUT, '390x548-03-expanded.png') });
     await closeBoard(page);
-    await openWordSheet(page, 'コアラ');
+    await openWordSheet(page, 'アニマルランド');
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(OUT, '390x548-04-sheet.png') });
     await closeWordSheet(page);

@@ -40,6 +40,19 @@ export function kanaGroupNames(groups: readonly string[]): { group: string; kana
     .map((g) => ({ group: g, kana: toLargeKanaText(toKatakana(norm(g))) }));
 }
 
+/** 公式表記がかなでないグループの読み（Hop 確認 2026-10-25。CC の下書きを Hop が見て、雨ノ森 川海だけ直した）。
+ *  名簿の書き方（CROSSWORD_GROUPS・HELLO_GROUPS）をそのまま鍵にする。愛称は入れない（Hop 決定 2026-10-23「愛称での判定は公開の後」） */
+export const GROUP_READINGS: Readonly<Record<string, string>> = {
+  "モーニング娘。'26": "モーニングムスメ",
+  "Juice=Juice": "ジュースジュース",
+  "BEYOOOOONDS": "ビヨーンズ",
+  "CHICA#TETSU": "チカテツ",
+  "雨ノ森 川海": "アメノモリカワウミ",
+  "SeasoningS": "シーズニングス",
+  "OCHA NORMA": "オチャノーマ",
+  "ハロプロ研修生": "ハロプロケンシュウセイ",
+};
+
 /** 見つかったグループを、名簿のグループの並び順で返す（重なりなし） */
 export function detectGroups(input: GroupDetectInput, roster: GroupRoster): string[] {
   const texts = [input.title, ...input.clues].map(norm);
@@ -59,6 +72,13 @@ export function detectGroups(input: GroupDetectInput, roster: GroupRoster): stri
   const answers = input.answers.map((a) => toLargeKanaText(toKatakana(norm(a))));
   for (const { group, kana } of kanaGroupNames(roster.groups)) {
     if (answers.some((a) => a.includes(kana))) hit.add(group);
+  }
+  // 公式表記がかなでないグループは、読みで見る（【Juice=Juice｜ジュースジュース】の答えは「ジユースジユース」で保存されるため）
+  for (const g of roster.groups) {
+    const reading = GROUP_READINGS[g];
+    if (!reading) continue;
+    const kana = toLargeKanaText(reading);
+    if (answers.some((a) => a.includes(kana))) hit.add(g);
   }
 
   return roster.groups.filter((g) => hit.has(g));

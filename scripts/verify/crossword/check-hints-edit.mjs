@@ -137,7 +137,7 @@ try {
     await w.locator('[data-hints-row]').first().waitFor({ timeout: 30000 });
     await w.goto(`${BASE}/crossword/create`);
     await waitBoard(w);
-    await openWordSheet(w, 'ネコ');
+    await openWordSheet(w, 'キララ');
     for (const src of ['ameblo', 'x', 'ig', 'link', 'youtube']) {
       const b = w.locator(`[data-word-sheet] [data-hint-source="${src}"]`);
       if (await b.count()) await b.click();

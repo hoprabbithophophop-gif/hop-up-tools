@@ -2,7 +2,7 @@
 // 本番・プレビュー・Supabase にはつながない。棚は作り物（見本の問題2件）で答え、受付係には何も送らない（解くのは ?debug=true の見本の問題）。
 // 作る画面の部分は 2026-10-22 に案A「作る｜試す」（Hop 決定 2026-10-22）に合わせて書き直した。
 //   (1) axe-core を画面に差し込み、致命的（critical）・重大（serious）の指摘が0件か。場面は
-//       見本の問題（遊び方の窓・解く画面・入力カード）・練習問題・作る画面（見本の4行の状態・広げた盤・語の窓・共有の窓・試す）・問い合わせの窓・ギャラリー
+//       見本の問題（遊び方の窓・解く画面・入力カード）・練習問題・作る画面（見本の3行の状態・広げた盤・語の窓・共有の窓・試す）・問い合わせの窓・ギャラリー
 //       色のコントラスト（color-contrast）は色の決まり（DESIGN.md・Hop が決める）なので数に入れず、別に件数だけ出す
 //   (2) キーボードだけで見本の問題を解く: Tab で最初に盤に入ると 1行1列 → 止まっただけでは開かない → Enter でカード
 //       → フォーカスはカードの中 → Tab はカードの中だけで回る → 文字盤で字を入れる → Backspace・矢印が効く
@@ -245,18 +245,18 @@ async function run() {
     await ctx.close();
   }
   {
-    // 作る画面（案A・2026-10-22）。見本の4行の状態・広げた盤・語の窓・共有の窓・試すで axe。
+    // 作る画面（案A・2026-10-22）。見本の3行の状態・広げた盤・語の窓・共有の窓・試すで axe。
     // 窓は名前つき・開くとフォーカスが中・Tab が中で回る・Esc で閉じて開いたボタンへ戻る（窓はキーボードの Enter で開く）
     const { ctx, page } = await newPage();
     await page.goto(`${BASE}/crossword/create`);
     await page.locator('[data-bulk-text]').waitFor({ timeout: 20000 });
     await waitBoard(page);
     await page.waitForTimeout(500);
-    await axeScan(page, '作る画面（見本の4行）');
+    await axeScan(page, '作る画面（見本の3行）');
     const focusOn = (sel) => page.evaluate((x) => !!document.activeElement?.matches(x), sel);
     const dialogs = [
       { label: '広げた盤', opener: '[data-mini-open]', sheet: '[data-board-sheet]', name: 'マス目をいじる' },
-      { label: '語の窓', opener: '[data-word-row="ネコ"]', sheet: '[data-word-sheet="ネコ"]', name: '「ネコ」のカギとヒント' },
+      { label: '語の窓', opener: '[data-word-row="キララ"]', sheet: '[data-word-sheet="キララ"]', name: '「キララ」のカギとヒント' },
       { label: '公開の窓', opener: '[data-dock-share]', sheet: '[data-share-sheet]', name: '公開する' },
     ];
     for (const d of dialogs) {
@@ -313,7 +313,7 @@ async function run() {
     try {
       await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0); });
       await step('書く欄', await tabTo(page, '#cw-bulk-text'));
-      // 見本の4行が入っているので、全部選んで消してから書く
+      // 見本の3行が入っているので、全部選んで消してから書く
       await page.keyboard.press('Control+A');
       await page.keyboard.press('Delete');
       await page.keyboard.insertText('ニャーと鳴く動物→ネコ\nコアラはユーカリを食べる');

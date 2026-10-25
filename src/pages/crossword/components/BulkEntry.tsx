@@ -29,8 +29,6 @@ export interface BulkTexts {
   insertArrow: string;
   unmarkBar: (word: string) => string;
   insertArrowLabel: string;
-  insertMaru: string;
-  insertMaruLabel: string;
   reasonLine: (surface: string, reason: string) => string;
   reasons: Record<ReasonKey, string>;
   /** 答えにならず外れた行の理由（「→」に【 】が無い・中が空・組が合わない） */
@@ -77,13 +75,9 @@ const lineHead = (s: string) => {
   return Array.from(t).length > 12 ? `${Array.from(t).slice(0, 12).join("")}…` : t;
 };
 
-// カギの文の中（その行の → より前。→ が無ければ行全体）にある答えの印の数。
-// 「問題文→【ネコ】【イヌ】」のように → の後ろに並べるのは、どちらも同じカギになる書き方なので数えない（Hop 決定 2026-10-20）
-const marksInClue = (marks: Mark[], lineNo: number, lineStart: number, line: string): number => {
-  const arrow = line.lastIndexOf("→");
-  const limit = arrow >= 0 ? lineStart + arrow : Infinity;
-  return marks.filter((m) => m.line === lineNo && m.start < limit).length;
-};
+// その行の答えの数。→ の前でも後ろでも、【 】でも「カギ→答え」でも数える（Hop 決定 2026-10-25。
+// 前は「問題文→【ネコ】【イヌ】」を数えず（Hop 決定 2026-10-20）、2つの答えに同じカギが付いて黙って通っていた）。知らせを出すだけで止めない
+const marksInLine = (marks: Mark[], lineNo: number): number => marks.filter((m) => m.line === lineNo).length;
 
 export const lineProblems = (text: string): LineProblem[] => {
   const out: LineProblem[] = [];
@@ -118,7 +112,7 @@ export const lineProblems = (text: string): LineProblem[] => {
     }
     if (open !== null) unpaired = true;
     if (unpaired) out.push({ reason: "unpaired", start: lineStart, line: lineNo, head: lineHead(line) });
-    else if (marksInClue(marks, lineNo, lineStart, line) >= 2) out.push({ reason: "twoInLine", start: lineStart, line: lineNo, head: lineHead(line) });
+    else if (marksInLine(marks, lineNo) >= 2) out.push({ reason: "twoInLine", start: lineStart, line: lineNo, head: lineHead(line) });
   });
   return out;
 };
@@ -173,6 +167,20 @@ export const arrowsNormalized = (text: string, caret: number): { text: string; c
 
 // 各候補を「リストに追加」と同じ道具（toCells・UNUSABLE_KANA・isUsableCell）で確かめる。
 // listKeys はもう一覧に入っている答え（今の作る画面では一覧は無いので空で呼ぶ）
+// 答えの窓で直したカギを、書く欄のその答えの行に書き戻す（Hop 決定 2026-10-25。前はカギを直す場所が2つあり、窓で直すと書く欄の行を書き換えても効かなかった）。
+// 行は「カギ→【答え｜読み】」の形になる。書き戻せない時（その行に答えが2つ以上・カギに → や【 】｜ が入る）は null
+export const withClueInLine = (text: string, key: string, clue: string): string | null => {
+  if (/[→【】｜|\n]/.test(clue)) return null;
+  const marks = parseMarks(text);
+  const c = evaluateCandidates(marks).find((x) => x.key === key && !x.reason);
+  if (!c) return null;
+  const m = c.mark;
+  if (marks.filter((x) => x.line === m.line).length !== 1) return null;
+  const lines = text.split("\n");
+  lines[m.line] = `${clue}→【${m.surface}${m.reading ? `｜${m.reading}` : ""}】`;
+  return lines.join("\n");
+};
+
 export const evaluateCandidates = (marks: Mark[], listKeys: string[] = []): Candidate[] => {
   const inList = new Set(listKeys);
   const seen = new Set<string>();
@@ -352,7 +360,7 @@ export const BulkEntry: React.FC<{
   // 入力欄に印を入れる。欄で文字を選んでいれば【 】で囲み、選んでいなければ【】を入れてその間にカーソルを置く。｜・→・○はカーソルの位置に入れる。
   // ○は「→」の書き方で、問題文の答えの所を○で書く時に使う（Hop 決定 2026-10-22。3 カギの欄ごとの○ボタンから移した）。
   // 欄を選んでいない時に押しても、｜・→ と同じく欄が最後に覚えているカーソルの所（一度も触っていなければ欄の末尾）に入れ、欄を選んだ状態にする
-  const insert = (kind: "brackets" | "bar" | "arrow" | "maru") => {
+  const insert = (kind: "brackets" | "bar" | "arrow") => {
     const area = areaRef.current;
     if (!area) return;
     const s = area.selectionStart ?? text.length;
@@ -376,8 +384,8 @@ export const BulkEntry: React.FC<{
         next = text.slice(0, s) + "→【】" + text.slice(e);
         caret = s + 2;
       }
-    } else if (kind === "bar" || kind === "maru") {
-      next = text.slice(0, s) + (kind === "bar" ? "｜" : "○") + text.slice(e);
+    } else if (kind === "bar") {
+      next = text.slice(0, s) + "｜" + text.slice(e);
       caret = s + 1;
     } else {
       if (s < e) {
@@ -487,9 +495,6 @@ export const BulkEntry: React.FC<{
         </button>
         <button type="button" data-bulk-insert="arrow" {...keepFocus} onClick={() => insert("arrow")} aria-label={t.insertArrowLabel} className={toolBtn} style={{ color: C.ink }}>
           {t.insertArrow}
-        </button>
-        <button type="button" data-bulk-insert="maru" {...keepFocus} onClick={() => insert("maru")} aria-label={t.insertMaruLabel} className={toolBtn} style={{ color: C.ink }}>
-          {t.insertMaru}
         </button>
       </div>
       {/* 欄が空の時だけ、見本の行を入れるボタン（Hop 決定 2026-10-23） */}

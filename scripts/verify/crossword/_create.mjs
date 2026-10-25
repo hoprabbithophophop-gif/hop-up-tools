@@ -23,9 +23,15 @@ export const CREATE_MARKS = {
   crossword_seen_tip_saved: '1',
 };
 
-// 初めて開いた時に入っている見本の4行（Hop 決定 2026-10-22）
-export const SAMPLE = ['【ラジオ】で新曲が初めて流れた', '【本気｜マジ】で応援している', 'ニャーと鳴く動物→ネコ', '○○○はユーカリを食べる→コアラ'].join('\n');
-export const SAMPLE_WORDS = ['ラジオ', 'マジ', 'ネコ', 'コアラ'];
+// 初めて開いた時に入っている見本の3行（Hop 決定 2026-10-25）
+export const SAMPLE = ['米村【キララ】はOCHA NORMA兼DECA☆BEATのリーダー', '「生きるってマジMy Life」の歌詞が印象的な研修生曲→【アニマルランド】', 'つばきファクトリーの大阪出身でトマトが好きなメンバーは？→【土居楓奏｜ドイフウカ】'].join('\n');
+export const SAMPLE_WORDS = ['キララ', 'アニマルランド', 'ドイフウカ'];
+// 見本の答えに最初から付いているヒント（CreatePage.tsx の SAMPLE_HINTS と同じ物。2026-10-25）。語の窓の「ヒントの行き先」のリンクの住所で見る
+export const SAMPLE_HINT_HREFS = {
+  キララ: 'https://youtu.be/acQZk0gb8SA?t=0',
+  アニマルランド: 'https://youtu.be/KWU4Lbsdo5Q?t=0',
+  ドイフウカ: 'https://www.helloproject.com/tsubakifactory/profile/fuka_doi/',
+};
 
 // 今の切り替え（make / try）
 export const currentMode = (page) => page.locator('[data-mode-tab][aria-pressed="true"]').getAttribute('data-mode-tab');
@@ -81,6 +87,12 @@ export const closeHintSheet = closeWordSheet;
 // 開いている語の窓で、https のリンクをヒントにする（棚を読まない。リンクの形の確かめは画面の中だけ）
 export async function setLinkHint(page, url) {
   const sheet = page.locator('[data-word-sheet]');
+  // もうヒントが付いている答え（見本の答えなど。2026-10-25 から見本には最初からヒントが付く）は、欄が出ていないので外してから貼る
+  if ((await sheet.locator('#cw-hint').count()) === 0) {
+    const unhint = sheet.locator('[aria-label="ヒントを外す"]');
+    if (await unhint.count()) await unhint.first().click();
+    await sheet.locator('#cw-hint').waitFor({ timeout: 10000 });
+  }
   const link = sheet.locator('[data-hint-source="link"]');
   if (await link.count()) await link.click();
   await sheet.locator('#cw-hint').fill(url);

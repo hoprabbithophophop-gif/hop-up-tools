@@ -31,7 +31,7 @@ import { detectGroups } from "../../../lib/crossword/groupDetect";
 import { isBlankClue } from "../../../../functions/_shared/crosswordClue";
 import { linkProblem } from "../../../lib/crossword/youtubeUrl";
 import { animateElement, prefersReducedMotion } from "../../../lib/crossword/motion";
-import { BulkEntry, clueDraft, evaluateCandidates, lineProblems, parseMarks, type Candidate } from "../components/BulkEntry";
+import { BulkEntry, clueDraft, evaluateCandidates, lineProblems, parseMarks, withClueInLine, type Candidate } from "../components/BulkEntry";
 import { HintField } from "../components/HintField";
 import { useHintSearch } from "../components/hintSearch";
 import { HINT_SOURCES, sourceOfUrl } from "../components/HintSourceBar";
@@ -84,6 +84,28 @@ const EASE_STANDARD = "cubic-bezier(0.4, 0, 0.2, 1)";
 const poolSignature = (items: PuzzleItem[]) => items.map((p) => `${p.id}:${p.answer.join("")}`).sort().join("|");
 // 盤の形の見出し（「試す」で入れた字を、同じ盤の時だけ戻すのに使う）
 const boardSignature = (p: PuzzleData) => p.items.map((i) => `${i.id}@${i.startX},${i.startY}${i.direction[0]}`).sort().join("|");
+
+// 見本の3行の答えに最初から付けておくヒント（Hop 決定 2026-10-25。Hop が出した物）。鍵は答えのマスの字（小さい字は大きい字）
+const SAMPLE_HINTS: Record<string, HintRef> = {
+  キララ: { kind: "youtube", videoId: "acQZk0gb8SA", startSec: 0 },
+  アニマルランド: { kind: "youtube", videoId: "KWU4Lbsdo5Q", startSec: 0 },
+  ドイフウカ: { kind: "link", url: "https://www.helloproject.com/tsubakifactory/profile/fuka_doi/" },
+};
+
+// 窓の側だけに持っていたカギを、書く欄の行に移す。行の下書きと同じカギは窓の側から外すだけ。移せない物（行に答えが2つ以上など）は窓の側に残す
+const moveCluesIntoText = (text: string, clues: Record<string, string>): { text: string; clues: Record<string, string> } => {
+  let t = text;
+  const kept: Record<string, string> = {};
+  for (const [k, v] of Object.entries(clues)) {
+    const marks = parseMarks(t);
+    const c = evaluateCandidates(marks).find((x) => x.key === k && !x.reason);
+    if (c && clueDraft(t, marks, c.mark, c.cells.length) === v.trim()) continue;
+    const next = c ? withClueInLine(t, k, v.trim()) : null;
+    if (next !== null) t = next;
+    else kept[k] = v;
+  }
+  return { text: t, clues: kept };
+};
 
 const lsGet = (k: string): string | null => {
   try {
@@ -336,8 +358,11 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   const [hints, setHints] = useState<Record<string, HintRef>>({});
   // 書く欄を一度空にした時に付いていたヒント（前の問題のヒントが、同じ答えにそのまま付いて出てくる。カギと合っているか確かめてもらう。2026-10-24）
   const [carriedHints, setCarriedHints] = useState<ReadonlySet<string>>(() => new Set());
+  const [lastHint, setLastHint] = useState<{ key: string; hint: HintRef; label: string } | null>(null);
   const [hintLabels, setHintLabels] = useState<Record<string, string>>({});
   const [clues, setClues] = useState<Record<string, string>>({});
+  // 答えの窓でカギを直した時の、その答えの書く欄の行（書き戻した後の行）。行がこれと違う＝あとで書く欄を書き換えた時は、書く欄の方を使う（Hop 決定 2026-10-25）
+  const clueLineRef = useRef<Record<string, string>>({});
   const [puzzleTitle, setPuzzleTitle] = useState("");
   const [creatorName, setCreatorName] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -436,8 +461,11 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   const pool: PuzzleItem[] = useMemo(() => answers.map((a) => ({ id: a.key, question: "", answer: a.cells })), [answers]);
   const poolSig = useMemo(() => poolSignature(pool), [pool]);
   const clueOf = (key: string): string => {
-    if (clues[key] !== undefined) return clues[key];
     const a = answerByKey.get(key);
+    // 窓で直したカギは、その後に書く欄の行を書き換えていない間だけ使う（書き換えたら書く欄の方が本物）
+    const fixedLine = clueLineRef.current[key];
+    const lineNow = a ? bulkText.split("\n")[a.mark.line] : undefined;
+    if (clues[key] !== undefined && (fixedLine === undefined || fixedLine === lineNow)) return clues[key];
     return a ? clueDraft(bulkText, marks, a.mark, a.cells.length) : "";
   };
 
@@ -481,6 +509,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   const contentSig = JSON.stringify({ bulkText, clues, hints, boardSig });
   const shareBlocks = [
     !editTarget && publishedSigRef.current === contentSig ? CT.alreadyPublished : "",
+    // 見本の行のままでは公開しない【仮】（2026-10-25。見本にカギとヒントが付いたので、そのまま公開するとギャラリーに同じ問題が並ぶ。Hop に聞いている）
+    !editTarget && bulkText.trim() === CT.sample.trim() ? CT.sampleAsIs : "",
     missingClues || missingHints ? CT.missing(missingClues, missingHints) : "",
     boardBlock,
     hasBoard && boardDisconnected ? CT.pins.notConnected : "",
@@ -672,7 +702,16 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
       searchedSigRef.current = poolSig;
       return;
     }
-    if (poolSig === boardSig || poolSig === searchedSigRef.current) return;
+    if (poolSig === boardSig || poolSig === searchedSigRef.current) {
+      // 組み合わせ探しの途中で元の答えに戻った時は、その探しを止める（2026-10-25。止めないと、戻す前の答えで組んだ盤が後から置かれ、
+      // 答えは変わらないので組み直しが二度と始まらず、マス目が組み上がらないまま公開できなかった）
+      if (searching) {
+        ++generationIdRef.current;
+        setSearching(false);
+        setNoProposal(poolSig !== boardSig);
+      }
+      return;
+    }
     const items = pool;
     const t = window.setTimeout(() => void autoSearch(items), AUTO_SEARCH_WAIT_MS);
     return () => window.clearTimeout(t);
@@ -724,8 +763,13 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
           if (placed.some((p) => p.id === key)) return;
           placed.push({ id: key, uuid: key, question: "", answer, direction: c.direction, startX: c.startX, startY: c.startY, length: answer.length, clueIndex: c.clueIndex });
           if (c.hint) restoredHints[key] = c.hint;
-          restoredClues[key] = c.clue;
-          lines.push(`【${key}】`);
+          // カギは書く欄の行に入れる（Hop 決定 2026-10-25。前は窓の側だけに入れていたので、組み直しの時は書く欄にカギを書いても効かなかった）
+          const moved = withClueInLine(`【${key}】`, key, c.clue);
+          if (moved !== null) lines.push(moved);
+          else {
+            restoredClues[key] = c.clue;
+            lines.push(`【${key}】`);
+          }
         });
         setPuzzleTitle(rec.title);
         setCreatorName(rec.body.creatorName ?? "");
@@ -757,9 +801,11 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     if (d.creatorName !== undefined || replace) setCreatorName(d.creatorName ?? "");
     if (d.tags !== undefined || replace) setTags(d.tags ?? []);
     if (d.isBeginner !== undefined || replace) setIsBeginner(d.isBeginner ?? false);
-    setBulkText(d.bulkText);
+    // 窓で直したカギは書く欄の行に移す（Hop 決定 2026-10-25 より前の作りかけは、窓の側だけに持っていた）
+    const moved = moveCluesIntoText(d.bulkText, d.clues);
+    setBulkText(moved.text);
     setHints(d.hints);
-    setClues(d.clues);
+    setClues(moved.clues);
     setHintLabels(d.hintLabels);
     if (replace) {
       // 組み立ての動き・裏の組み合わせ探しは止める（入れ替えた中身で必要なら組み直す）
@@ -796,13 +842,17 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     if (editStatus !== "none" || draftReady) return;
     if (!draftEnabled) {
       setBulkText(CT.sample);
+      setHints(SAMPLE_HINTS);
       return;
     }
     const raw = lsGet(DRAFT_KEY);
     const d = raw ? parseDraft(raw) : null;
     if (raw && !d) lsRemove(DRAFT_KEY);
     if (d) applyDraft(d, false);
-    else setBulkText(CT.sample);
+    else {
+      setBulkText(CT.sample);
+      setHints(SAMPLE_HINTS);
+    }
     setDraftReady(true);
   }, [draftEnabled, editStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -989,6 +1039,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
       return { ...prev, [key]: h };
     });
     if (h && label) setHintLabels((prev) => (prev[key] === label ? prev : { ...prev, [key]: label }));
+    // 直前に付けたヒント（窓の「直前の答えと同じヒントにする」で使う）。開き直しで欄が知らせ直した時は数えない
+    if (h && JSON.stringify(h) !== JSON.stringify(hints[key] ?? null)) setLastHint({ key, hint: h, label: label ?? fallbackName(h) });
   };
 
   // 作るの画面で見ていた位置。試すから戻った時にそこへ戻す（2026-10-24。いつも一番上に戻され、直したい答えを探し直していた）
@@ -1439,6 +1491,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                 <BulkEntry
                   text={bulkText}
                   onText={(t) => {
+                    // 「見本を入れる」で見本の行に戻した時は、見本のヒントも付ける（まだヒントの無い答えだけ）
+                    if (t === CT.sample) setHints((prev) => ({ ...SAMPLE_HINTS, ...prev }));
                     // 書く欄を空にした時に付いていたヒントは、次に同じ答えを書いた時に「前に付けたヒント」と知らせる
                     if (!t.trim() && bulkText.trim()) setCarriedHints(new Set(Object.keys(hints)));
                     setBulkText(t);
@@ -1760,6 +1814,11 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                   rows={3}
                   onChange={(e) => {
                     const v = e.target.value.replace(/\r?\n/g, "");
+                    // 書く欄のその行にも同じカギを書き戻す（Hop 決定 2026-10-25）。窓の欄は打っている途中の字（後ろの空白など）を保つため、窓の側にも持つ
+                    const next = withClueInLine(bulkText, sheetEntry, v);
+                    const line = answerByKey.get(sheetEntry)?.mark.line;
+                    if (next !== null) setBulkText(next);
+                    if (line !== undefined) clueLineRef.current[sheetEntry] = (next ?? bulkText).split("\n")[line];
                     setClues((prev) => ({ ...prev, [sheetEntry]: v }));
                   }}
                   onKeyDown={(e) => {
@@ -1776,8 +1835,10 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                   const left = MAX_CLUE_CHARS - clueChars(sheetClue);
                   if (left >= 0 && !clueFocused && left > CLUE_LEFT_ALWAYS) {
                     return (
+                      // 中身は詰まらない空白（ ）にする。ふつうの空白だと高さが0になり、欄を離れた瞬間に下が16pxずれて、
+                      // カギを打った直後に押した「ヒントを外す」などが押せていなかった（2026-10-25）
                       <p aria-hidden="true" className="text-xs invisible">
-                        {" "}
+                        {" "}
                       </p>
                     );
                   }
@@ -1834,6 +1895,35 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                   search={hintSearch}
                   flatResults
                 />
+                {/* 直前に付けたヒントを、この答えにも付ける（Hop 決定 2026-10-25。1本の動画やお知らせから何問も作る時に貼り直さずに済む） */}
+                {!sheetHint && lastHint && lastHint.key !== sheetEntry && (
+                  <button
+                    type="button"
+                    data-same-hint=""
+                    onClick={() => {
+                      setHintFor(sheetEntry, lastHint.hint, lastHint.label);
+                      openWordSheet(sheetEntry);
+                    }}
+                    className={`${btnGray} text-sm text-left`}
+                    style={{ color: C.ink }}
+                  >
+                    {CT.sameHint(lastHint.label)}
+                  </button>
+                )}
+                {/* カギかヒントが足りない次の答えを開く（Hop 決定 2026-10-25。一覧から好きな順に開く道はそのまま） */}
+                {(() => {
+                  const rest = missingKeys.filter((k) => k !== sheetEntry);
+                  if (rest.length === 0) return null;
+                  const at = missingKeys.indexOf(sheetEntry);
+                  const next = missingKeys.slice(at + 1).find((k) => k !== sheetEntry) ?? rest[0];
+                  return (
+                    <div className="sticky bottom-0 -mx-4 -mb-6 px-4 pt-2 pb-4 bg-white" style={{ boxShadow: `0 -1px 0 ${C.mid}` }}>
+                      <button type="button" data-next-missing={next} onClick={() => openWordSheet(next)} className={`${btnGray} w-full`} style={{ color: C.ink }}>
+                        {CT.nextMissing(rest.length)}
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
             </Motion>
           </Motion>

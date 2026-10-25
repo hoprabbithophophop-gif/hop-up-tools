@@ -1,6 +1,6 @@
 // クロスワードの「初めて作って配る」の通し（完成の線 DONE_CRITERIA.md の②1）を、実際の画面で 375×548 と 390×844 の両方で確かめる。
 // 作る画面は 2026-10-22 に案A「作る｜試す」に作り直した（Hop 決定 2026-10-22）。この台本もそれに合わせて書き直した（同日）。
-// 流れ: 記録が空のブラウザで /crossword/create → 見本の4行が入っている → 1行を書き換え1語足す → 小さい盤が育つ（足した語が盤か「置けなかった語」に出る）
+// 流れ: 記録が空のブラウザで /crossword/create → 見本の3行が入っている → 1行を書き換え1語足す → 小さい盤が育つ（足した語が盤か「置けなかった語」に出る）
 //   → 語の行から語の窓を開き、盤に入った全部の語にカギとヒント → 「公開の準備」→ 題名 → 共有する → 作り物の人間確認（Turnstile）→ 作り物の保存 → URL が出る
 //   → 別の記録の空のブラウザでその URL を開くと、作り物の棚が保存された中身を返し、作り物の受付係が答え合わせする → 最初から解ける
 // 解く側の確かめ（構築中の動き・タイマー・文字盤の濁点と小さい字・ヒントの YouTube が時刻つきで自動再生しない・開き直しても残る）は前のまま残す。
@@ -141,13 +141,14 @@ const T = {
   building: '読み込み中',
 };
 
-// 見本の4行のうち3行目（ネコ）を書き換え、1語足す。どちらもひらがなで囲み、カタカナにそろうかを見る。
-// 書き換えた語は見本の語と「ジ」を、足した語は書き換えた語と「ヤ」（小さい字は大きい字と同じ扱い。Hop 決定 2026-10-05）を分け合うので、たいてい盤に入る。
+// 見本の3行のうち3行目（ドイフウカ）を書き換え、1語足す。どちらもひらがなで囲み、カタカナにそろうかを見る（見本は 2026-10-25 に3行に替わった）。
+// 書き換えた語は見本の語と「ラ」を、足した語は書き換えた語と「ヨ・ウ」（小さい字は大きい字と同じ扱い。Hop 決定 2026-10-05）を分け合うので、たいてい盤に入る。
+// 足した語は ゛ の付く字ともとが小さい字の両方を持つので、解く側の文字盤の確かめに使える。書き換えた語・足した語には見本のヒントが付いていない
 // 行は「問題文→【答え】」の形にして、カギの下書きが問題文だけになるかも見る
-const REWRITE = { a: 'じゃがいも', key: 'ジヤガイモ', clue: 'カレーに入れる芋' };
-const ADD = { a: 'かぼちゃ', key: 'カボチヤ', clue: 'ハロウィンでくり抜かれる野菜' };
+const REWRITE = { a: 'らっきょう', key: 'ラツキヨウ', clue: 'カレーに添える漬物' };
+const ADD = { a: 'ぎょうざ', key: 'ギヨウザ', clue: 'ひだを付けて包む点心' };
 const sampleLines = SAMPLE.split('\n');
-const EDITED = [sampleLines[0], sampleLines[1], `${REWRITE.clue}→【${REWRITE.a}】`, sampleLines[3], `${ADD.clue}→【${ADD.a}】`].join('\n');
+const EDITED = [sampleLines[0], sampleLines[1], `${REWRITE.clue}→【${REWRITE.a}】`, `${ADD.clue}→【${ADD.a}】`].join('\n');
 const YT_HINT = 'https://youtu.be/dQw4w9WgXcQ?t=83'; // 時刻つき（83秒）
 // 字の並びの中に ゛゜ の付く字と、もとが小さい字の両方があると、文字盤の濁点と小さい字の確かめが1語で済む
 const hasVoiced = (w) => w.normalize('NFD') !== w;
@@ -171,10 +172,10 @@ async function runFlow(size) {
   await watchStumbles(pa, errs, `作る画面 ${tag}`);
   await pa.goto(BASE + '/crossword/create', { waitUntil: 'networkidle' });
   await pa.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
-  // ---- 1. 記録が空のブラウザ → 見本の4行 ----
+  // ---- 1. 記録が空のブラウザ → 見本の3行 ----
   // ブラウザの記録は台本ごとに新しく作るので空（_lib.mjs が立てる「札を見た」印だけは入る）
-  put(size, '1 記録が空のブラウザで開くと、書く欄に見本の4行が入っている', (await pa.locator('[data-bulk-text]').inputValue()) === SAMPLE);
-  put(size, '1 見本の4行の答えが語の一覧に並ぶ', JSON.stringify(await wordKeys(pa)) === JSON.stringify(SAMPLE_WORDS));
+  put(size, '1 記録が空のブラウザで開くと、書く欄に見本の3行が入っている', (await pa.locator('[data-bulk-text]').inputValue()) === SAMPLE);
+  put(size, '1 見本の3行の答えが語の一覧に並ぶ', JSON.stringify(await wordKeys(pa)) === JSON.stringify(SAMPLE_WORDS));
   await waitBoard(pa);
   await pa.screenshot({ path: path.join(OUT, `${tag}-1a-sample.png`) });
 
@@ -182,7 +183,7 @@ async function runFlow(size) {
   await writeLines(pa, EDITED);
   const stats = await waitBoard(pa);
   const keys = await wordKeys(pa);
-  put(size, `1 書き換えた語と足した語がカタカナにそろって語の一覧に出る（${keys.join('・')}）`, keys.includes(REWRITE.key) && keys.includes(ADD.key) && !keys.includes('ネコ'));
+  put(size, `1 書き換えた語と足した語がカタカナにそろって語の一覧に出る（${keys.join('・')}）`, keys.includes(REWRITE.key) && keys.includes(ADD.key) && !keys.includes('ドイフウカ'));
   const unplacedKeys = await pa.locator('[data-word-row]:has([data-word-unplaced])').evaluateAll((els) => els.map((e) => e.getAttribute('data-word-row')));
   const draft = await readDraft(pa);
   const boardKeys = (draft?.board ?? []).map((i) => i.id);
@@ -201,6 +202,9 @@ async function runFlow(size) {
   await openWordSheet(pa, target);
   const targetClue = (await pa.locator('[data-word-sheet] #cw-clue').inputValue()).trim() || `${target}の問題`;
   await setClue(pa, targetClue);
+  // 見本の答えには最初からヒントが付いている（2026-10-25）。付いている時は外してから貼る
+  const unhint = pa.locator('[data-word-sheet] [aria-label="ヒントを外す"]');
+  if ((await pa.locator('[data-word-sheet] #cw-hint').count()) === 0 && (await unhint.count())) await unhint.first().click();
   await pa.locator('[data-word-sheet] #cw-hint').fill(YT_HINT);
   await pa.locator('[data-word-sheet] [data-hint-kind]').waitFor({ timeout: 10000 });
   const ytKind = (await pa.locator('[data-word-sheet] [data-hint-kind]').textContent())?.trim();

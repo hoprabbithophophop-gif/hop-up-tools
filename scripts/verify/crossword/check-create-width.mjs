@@ -10,7 +10,7 @@
 // 手元の vite が途中でページを読み込み直さないよう、部品のまとめ置き場は口ごとの一時置き場・書き換えの見張り（HMR）は止めて立て（_lib.mjs の isolatedViteConfig）、
 //   始める前に一度ひと回り開く下ごしらえをする。それでも読み込み直しで落ちた時だけ、その回を流し直す（最大3回。流し直した事は行に出す）
 // 消した確かめ（2026-10-22 案A に書き直した時）:
-//   - 1の段の空の画面: 初めて開くと見本の4行が入っているので、空の画面は無くなった
+//   - 1の段の空の画面: 初めて開くと見本の行が入っているので、空の画面は無くなった
 //   - 1の段の「ヒントを付ける」側（hintMode）: 案A では語の一覧の行から語の窓を開くので、切り替えが無くなった
 //   - 2 盤・3 カギの段: 段が無くなった。盤は「広げた盤」、カギは「語の窓」で測る
 //   - 960px の幅: 案A の面は640pxまでで、960px は 1280px と同じ形になるので、Hop 指定の4つの大きさに替えた
@@ -161,7 +161,7 @@ try {
       await waitBoard(page);
       base = reloads.n;
 
-      // 1. 作る（見本の4行が入った初めの画面）
+      // 1. 作る（見本の3行が入った初めの画面）
       const m1 = await measure(page, ['[data-create-head]', '[data-mini]', '[data-dock]', '[data-bulk-text]', '[data-word-list]', '[data-word-row]']);
       const hh = m1.parts['[data-create-head]']?.h, mh = m1.parts['[data-mini]']?.h, dh = m1.parts['[data-dock]']?.h;
       heights.push(`${tag}: 見出し${hh}px・小さい盤${mh}px・下の段${dh}px`);
@@ -185,8 +185,11 @@ try {
       // 2. 語の窓
       await openWordSheet(page, SAMPLE_WORDS[2]);
       await page.waitForTimeout(300);
-      const m2 = await measure(page, ['[data-word-sheet]', '[data-word-sheet] #cw-clue', '[data-word-sheet] #cw-hint']);
-      for (const s of ['[data-word-sheet]', '[data-word-sheet] #cw-clue', '[data-word-sheet] #cw-hint']) check(inX(m2, s), `${tag}・語の窓: 横にはみ出さない（${box(m2, s)}・画面の幅${m2.cw}）`);
+      // 見本の答えには最初からヒントが付いているので（2026-10-25）、ヒントの欄の代わりに付いたヒントの表示（長いリンク）がはみ出さないかを見る
+      const HINT_BOX = '[data-word-sheet] div:has(> [data-hint-kind])';
+      check((await page.locator('[data-word-sheet] #cw-hint').count()) === 0 && (await page.locator(HINT_BOX).count()) === 1, `${tag}・語の窓: 見本の答えの窓はヒントの欄でなく、付いたヒントの表示になっている`);
+      const m2 = await measure(page, ['[data-word-sheet]', '[data-word-sheet] #cw-clue', HINT_BOX]);
+      for (const s of ['[data-word-sheet]', '[data-word-sheet] #cw-clue', HINT_BOX]) check(inX(m2, s), `${tag}・語の窓: 横にはみ出さない（${box(m2, s)}・画面の幅${m2.cw}）`);
       check(inY(m2, '[data-word-sheet]'), `${tag}・語の窓: 画面の上下からはみ出さない（${box(m2, '[data-word-sheet]')}・見える高さ${m2.ih}）`);
       check(m2.sw <= m2.cw, `${tag}・語の窓: ページが横にスクロールしない（scrollWidth ${m2.sw}）`);
       await shot('2-word-sheet');
@@ -212,7 +215,7 @@ try {
       await shot('4-try');
       await toMode(page, 'make');
 
-      // 5. 共有の窓（見本はヒントが無いので、押せない理由が出て「共有する」は押せない）
+      // 5. 共有の窓（見本の行のままでは公開できない【仮】ので、押せない理由が出て「共有する」は押せない）
       await openShare(page);
       await page.waitForTimeout(400);
       const m5 = await measure(page, ['[data-share-sheet]', '#cw-title', '#cw-tag', '[data-share-blocks]', '[data-save]', '[data-copyright]']);
@@ -220,7 +223,7 @@ try {
       check(inY(m5, '[data-share-sheet]'), `${tag}・共有の窓: 画面の上下からはみ出さない（${box(m5, '[data-share-sheet]')}・見える高さ${m5.ih}）`);
       check(inY(m5, '[data-save]') && inY(m5, '[data-share-blocks]'), `${tag}・共有の窓: 開いたままで「共有する」と押せない理由が画面の中に見える（${box(m5, '[data-share-blocks]')}・${box(m5, '[data-save]')}）`);
       const blocks = (await page.locator('[data-share-blocks]').textContent())?.trim() ?? '';
-      check(blocks.includes('ヒントがあと4つ') && (await page.locator('[data-save]').isDisabled()), `${tag}・共有の窓: 押せない理由「${blocks}」が出て「共有する」は押せない`);
+      check(blocks.startsWith('見本の行のままです。1行でも書き換えると公開できます。') && (await page.locator('[data-save]').isDisabled()), `${tag}・共有の窓: 押せない理由「${blocks}」が出て「共有する」は押せない`);
       check(m5.sw <= m5.cw, `${tag}・共有の窓: ページが横にスクロールしない（scrollWidth ${m5.sw}）`);
       await shot('5-share');
     } catch (e) {

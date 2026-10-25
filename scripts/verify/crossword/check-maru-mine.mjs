@@ -1,8 +1,8 @@
-// 書く欄の○ボタンと、「自分が作った問題」の別画面を確かめる（作る画面は案A「作る｜試す」。Hop 決定 2026-10-22）。
+// 書く欄の道具の段（○ボタンが無いこと）と、「自分が作った問題」の別画面を確かめる（作る画面は案A「作る｜試す」。Hop 決定 2026-10-22）。
 // 何を:
-//   - ○ボタンは書く欄の道具の段（【 】｜ → ○）にある（3 カギの欄ごとのボタンから移した。Hop 決定 2026-10-22）
-//   - 欄を選んだまま○を押すと、欄のカーソルの位置に○が入り、欄は選ばれたまま（文字盤が閉じない）・カーソルは○の後ろ
-//   - 欄を離れた後に○を押すと、欄が最後に覚えていたカーソルの所に入り、欄を選んだ状態になる（BulkEntry の作り。｜・→ と同じ）
+//   - 書く欄の道具の段は【 】・｜・→ の3つで、○ボタンは無い（Hop 決定 2026-10-25 に○ボタンと説明の○の行をやめた）
+//   - 欄を選んだまま｜を押すと、欄のカーソルの位置に｜が入り、欄は選ばれたまま（文字盤が閉じない）・カーソルは｜の後ろ（前は○ボタンで見ていた）
+//   - 欄を離れた後に｜を押すと、欄が最後に覚えていたカーソルの所に入り、欄を選んだ状態になる（BulkEntry の作り）
 //   - 「自分が作った問題」は別の画面（/crossword/mine）。作る画面には入口がいつも出る・一覧は新しい順・棚に無い問題は「非表示になっています」
 //   - 消す前に確かめが出て、「やめる」で戻る（実際には消さない）・作る画面へ戻れる・何も無い時の表示
 // なぜ: ○は答えの所を○で書く書き方に使い、押すたびに文字盤が閉じたり位置がずれたりすると書けないため。
@@ -109,33 +109,33 @@ async function run(page) {
     await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
     check((await page.locator('[data-create-mine]').count()) === 1 && (await page.getByRole('link', { name: /自分が作った問題/ }).count()) === 1, '作った問題が無くても、作る画面に「自分が作った問題」の入口が出る');
 
-    // 2. ○ボタンは書く欄の道具の段にある
+    // 2. ○ボタンは無く、道具の段は【 】・｜・→ の3つ（Hop 決定 2026-10-25）
     const area = page.locator('[data-bulk-text]');
-    const maru = page.locator('[data-bulk] [data-bulk-insert="maru"]');
-    check((await maru.count()) === 1 && (await maru.getAttribute('aria-label')) === '○を入れる', '○ボタンは書く欄の道具の段にある（読み上げ名「○を入れる」）');
+    check((await page.locator('[data-bulk-insert="maru"]').count()) === 0 && (await page.getByRole('button', { name: '○を入れる' }).count()) === 0, '○ボタンは無い（[data-bulk-insert="maru"]・「○を入れる」が0）');
     const tools = await page.locator('[data-bulk] [data-bulk-insert]').evaluateAll((els) => els.map((e) => e.textContent.trim()));
-    check(tools.join(' ') === '【 】 ｜ → ○', `道具の段の並び: ${tools.join(' ')}`);
-    // 欄を選んだまま○を3回 → 欄は選ばれたまま、カーソルの位置に入る
+    check(tools.join(' ') === '【 】 ｜ →', `道具の段は3つ: ${tools.join(' ')}`);
+    // 欄を選んだまま｜を3回 → 欄は選ばれたまま、カーソルの位置に入る（前は○ボタンで見ていた）
+    const bar = page.locator('[data-bulk] [data-bulk-insert="bar"]');
     await area.tap();
     await area.fill('音大卒の伝道師');
     await area.evaluate((el) => el.setSelectionRange(3, 3));
-    await maru.tap();
-    await maru.tap();
-    await maru.tap();
+    await bar.tap();
+    await bar.tap();
+    await bar.tap();
     await page.waitForTimeout(100);
-    check((await area.inputValue()) === '音大卒○○○の伝道師', `欄のカーソルの位置に入る: ${await area.inputValue()}`);
+    check((await area.inputValue()) === '音大卒｜｜｜の伝道師', `欄のカーソルの位置に入る: ${await area.inputValue()}`);
     check(await area.evaluate((el) => document.activeElement === el), '押したあとも欄が選ばれたまま（文字盤が閉じない）');
     const caret = await area.evaluate((el) => [el.selectionStart, el.selectionEnd]);
-    check(caret[0] === 6 && caret[1] === 6, `カーソルは入れた○の後ろ（${caret.join('〜')}）`);
-    await page.screenshot({ path: path.join(OUT, '1-maru-focused.png') });
+    check(caret[0] === 6 && caret[1] === 6, `カーソルは入れた｜の後ろ（${caret.join('〜')}）`);
+    await page.screenshot({ path: path.join(OUT, '1-tools-focused.png') });
 
-    // 3. 欄を離れた後に○ → 覚えていたカーソルの所に入り、欄を選んだ状態になる
+    // 3. 欄を離れた後に｜ → 覚えていたカーソルの所に入り、欄を選んだ状態になる
     await area.evaluate((el) => el.blur());
     await page.waitForTimeout(500);
-    await maru.tap();
+    await bar.tap();
     await page.waitForTimeout(100);
-    check((await area.inputValue()) === '音大卒○○○○の伝道師', `欄を離れた後は、覚えていたカーソルの所に入る: ${await area.inputValue()}`);
-    check(await area.evaluate((el) => document.activeElement === el), '欄を離れた後に押すと、欄を選んだ状態になる（｜・→ と同じ作り）');
+    check((await area.inputValue()) === '音大卒｜｜｜｜の伝道師', `欄を離れた後は、覚えていたカーソルの所に入る: ${await area.inputValue()}`);
+    check(await area.evaluate((el) => document.activeElement === el), '欄を離れた後に押すと、欄を選んだ状態になる');
     await area.evaluate((el) => el.blur());
 
     // 4. 作った問題があっても作る画面に一覧は出ず、入口から別の画面に一覧が出る
