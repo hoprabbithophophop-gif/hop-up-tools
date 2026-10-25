@@ -563,7 +563,7 @@ try {
       ],
       proposals: null, picked: null, boardSig: 'アカ:アカ|アキ:アキ', searchedSig: 'アカ:アカ|アキ:アキ', title: '', creatorName: '', tags: [], isBeginner: false,
     };
-    const { ctx, page } = await newPage({ marks: { ...CREATE_MARKS, crossword_draft: JSON.stringify(draft) } });
+    const { ctx, page } = await newPage({ marks: { ...CREATE_MARKS, crossword_draft_v3: JSON.stringify(draft) } });
     await page.goto(`${BASE}/crossword/create`);
     await page.locator('[data-bulk-text]').waitFor({ timeout: 20000 });
     await page.waitForTimeout(500);

@@ -107,6 +107,9 @@ const lsRemove = (k: string) => {
 };
 
 // 文言（HarmonyPalette の ja.json の puzzle.builder から。問題文の呼び名は「ヒント」→「カギ」）
+// 問題の読み込みを待って「いま読み込めません」を出すまでの長さ（2026-10-26）
+const LOAD_SLOW_MS = 10000;
+
 const T = {
   pageTitle: "クロスワードパズル作成",
   createNew: "新規作成",
@@ -120,6 +123,9 @@ const T = {
     loadError: "この問題を読み込めませんでした。URL をご確認ください。",
     saveFailed: "問題の保存に失敗しました。",
   },
+  // 問題を読み込んでいる間（ギャラリーと同じ文）と、10秒待っても来ない時（2026-10-26）
+  loading: "読み込み中…",
+  loadSlow: "いま読み込めません。少し待って開き直してください。",
   // 答え合わせ・1文字見るを受付係に頼めなかった時（2026-10-04。答えを渡さない作りで足した）
   network: "通信できませんでした。もう一度お試しください。",
   // 前回の続きを開いた時（Hop 決定 2026-10-04）
@@ -310,6 +316,16 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
   const isLocalTiming = isTutorial || isDebugMode || isTrial;
   // Player State
   const [loadState, setLoadState] = useState<"loading" | "done">(isPlayerMode ? "loading" : "done");
+  // 問題を読み込み始めてから長く待っている（棚が返事をしない時。2026-10-26 前は真っ白のまま待ち続けた）。来れば今までどおり問題を出す
+  const [slowLoad, setSlowLoad] = useState(false);
+  useEffect(() => {
+    if (!isPlayerMode || loadState !== "loading") {
+      setSlowLoad(false);
+      return;
+    }
+    const t = window.setTimeout(() => setSlowLoad(true), LOAD_SLOW_MS);
+    return () => window.clearTimeout(t);
+  }, [isPlayerMode, loadState]);
   const [playerPuzzle, setPlayerPuzzle] = useState<PuzzleData | null>(null);
   const [playerHints, setPlayerHints] = useState<Record<string, HintRef>>({});
   const [playerGenre, setPlayerGenre] = useState<Genre | null>(null); // 終わりの画面の「ほかの問題」用
@@ -2046,9 +2062,23 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
     );
   }
 
-  // 問題を読み込んでいる間は何も出さない（作る画面がちらつかないように）
+  // 問題を読み込んでいる間は、ギャラリーと同じ「読み込み中…」を出す（作る画面は出さない。2026-10-26 前は真っ白だった）。
+  // 10秒待っても来なければ、待っている事と次にする事を出す（来れば問題を出す）
   if (isPlayerMode && loadState === "loading") {
-    return <div className="min-h-screen bg-surface" />;
+    return (
+      <div className="min-h-screen bg-surface">
+        <div data-solve-loading={slowLoad ? "slow" : ""} role="status" className="flex items-center justify-center py-20 px-4">
+          {slowLoad ? (
+            <p className="text-sm text-center [text-wrap:balance]" style={{ color: C.secondary }}>{T.loadSlow}</p>
+          ) : (
+            <>
+              <div className="w-6 h-6 border-2 border-black border-t-transparent motion-safe:animate-spin" />
+              <span className="ml-3" style={{ color: C.secondary }}>{T.loading}</span>
+            </>
+          )}
+        </div>
+      </div>
+    );
   }
 
   // 作る画面（案A「作る｜試す」・create/CreatePage.tsx）。問題を読み込めなかった時も今までどおり作る画面を出す（その時は下書きを読まない・書かない）。

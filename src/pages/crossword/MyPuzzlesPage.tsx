@@ -16,11 +16,13 @@ const T = {
   empty: "この端末で作った問題はまだありません。", // 
   plays: "遊ばれた回数",
   unavailable: "非表示になっています。",
+  loadFailed: "いま読み込めません。", // 遊ばれた回数を読めなかった時（2026-10-26。前は全部「非表示になっています。」と出ていた）【仮】
   open: "開く",
   rebuild: "組み直す", // 【仮】まだ遊ばれていない問題だけ（Hop 決定 2026-10-05）
   fixHints: "ヒントを直す", // 【仮】遊ばれた後の問題。ヒントだけ差し替えられる（Hop 決定 2026-10-19）
   delete: "消す",
   confirm: "消す？",
+  confirmNote: "消すと元に戻せません。この URL で遊べなくなります。", // 消す確認に添える（2026-10-26）
   confirmYes: "消す",
   confirmNo: "やめる",
   deleteFailed: "消せませんでした。",
@@ -28,14 +30,15 @@ const T = {
   // 別の端末への引き継ぎ（Hop 決定 2026-10-04）
   transfer: {
     title: "別の端末へ引き継ぐ",
-    lead: "作った問題と、ランキングでの自分の記録を、別の端末へ移せます。",
+    lead: "作った問題と、ランキングでの自分の記録を、別の端末へ移せます。作りかけ（公開前の問題）は移りません。", // 作りかけが移らないことを足した（2026-10-26）
     show: "合言葉を出す",
     copy: "コピー",
     copied: "コピーしました",
-    warn: "この合言葉を知っている人は、あなたの問題を消したり組み直したりできます。人に見せないでください。",
+    warn: "この合言葉を知っている人は、あなたの問題を消したり、組み直したり、ヒントを直したりできます。人に見せないでください。", // ヒントの差し替えを足した（2026-10-26）
     inputLabel: "別の端末で出した合言葉",
     apply: "引き継ぐ",
     done: (n: number) => `引き継ぎました（問題 ${n} 件）`,
+    none: "移せる問題がありませんでした。", // 引き継いだ問題が0件の時（2026-10-26。成功の印にしない）
     bad: "合言葉を読めませんでした。もう一度コピーし直してください。",
   },
 };
@@ -43,6 +46,8 @@ const T = {
 export default function MyPuzzlesPage() {
   const [myPuzzles, setMyPuzzles] = useState<MyPuzzle[]>(() => readMyPuzzles());
   const [playCounts, setPlayCounts] = useState<Record<string, number> | null>(null);
+  // 遊ばれた回数を読めなかった（棚が止まっている等）。非表示と区別する（2026-10-26）
+  const [countsFailed, setCountsFailed] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [goneHints, setGoneHints] = useState<Set<string>>(new Set());
@@ -68,7 +73,8 @@ export default function MyPuzzlesPage() {
     }
     setMyPuzzles(readMyPuzzles());
     setInput("");
-    toast.success(T.transfer.done(r.added));
+    if (r.added === 0) toast.error(T.transfer.none);
+    else toast.success(T.transfer.done(r.added));
   };
 
   usePageReady(true);
@@ -79,13 +85,15 @@ export default function MyPuzzlesPage() {
     if (!myPuzzleIds) return;
     let alive = true;
     setPlayCounts(null); // 読み終わるまでは空欄
+    setCountsFailed(false);
     loadPlayCounts(myPuzzleIds.split(","))
       .then((c) => {
         if (alive) setPlayCounts(c);
       })
       .catch((err) => {
         console.warn("Failed to load play counts:", err);
-        if (alive) setPlayCounts({});
+        // 読めなかった時は回数が分からないので、組み直す・ヒントを直すも出さない
+        if (alive) setCountsFailed(true);
       });
     return () => {
       alive = false;
@@ -146,8 +154,9 @@ export default function MyPuzzlesPage() {
                     <li key={m.id} className="py-3" style={i === 0 ? undefined : { borderTop: `1px solid ${C.ghost}` }}>
                       {confirmDelete === m.id ? (
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="flex-1 min-w-0 text-sm truncate" style={{ color: C.ink }}>
-                            「{m.title}」{T.confirm}
+                          <span className="flex-1 min-w-0 text-sm" style={{ color: C.ink }}>
+                            <span className="block truncate">「{m.title}」{T.confirm}</span>
+                            <span data-delete-note="" className="block text-xs" style={{ color: C.secondary }}>{T.confirmNote}</span>
                           </span>
                           <button
                             onClick={() => handleDelete(m)}
@@ -170,7 +179,7 @@ export default function MyPuzzlesPage() {
                           <div className="flex-1 min-w-0">
                             <div className="text-sm font-bold truncate" style={{ color: C.ink }}>{m.title}</div>
                             <div className="text-xs" style={{ color: C.secondary }}>
-                              {!known ? "" : count === undefined ? T.unavailable : `${T.plays} ${count}`}
+                              {countsFailed ? T.loadFailed : !known ? "" : count === undefined ? T.unavailable : `${T.plays} ${count}`}
                             </div>
                             {goneHints.has(m.id) && (
                               <div className="text-xs" style={{ color: C.secondary }}>{T.goneHints}</div>

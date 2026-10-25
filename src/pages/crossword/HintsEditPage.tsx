@@ -18,7 +18,9 @@ const T = {
   title: "ヒントを直す", // 【仮】
   back: "自分が作った問題へ戻る", // 【仮】
   lead: "答えとカギはそのままで、ヒントだけを直せます。遊ばれた後でも直せます。", // この画面の動きは「直す」「保存する」にそろえる（2026-10-24）
-  notMine: "この端末にはこの問題の合言葉がありません。", // 【仮】
+  // 次にすることを足した（2026-10-26。前は「この端末にはこの問題の合言葉がありません。」で止まり、引き継ぎへの道が無かった）
+  notMine: "この端末には、この問題を直すための合言葉がありません。作った端末の「自分が作った問題」で合言葉を出し、ここで引き継いでください。",
+  toMine: "自分が作った問題", // 合言葉が無い時の、引き継ぐ所へのリンク（作る画面の入口と同じ「自分が作った問題 →」の形）【仮】
   notFound: "この問題は見つからないか、非表示になっています。", // 【仮】
   loadFailed: "読み込めませんでした。時間をおいてもう一度お試しください。", // 【仮】
   save: "ヒントを保存する",
@@ -210,6 +212,13 @@ export default function HintsEditPage() {
           <div className="bg-white p-6" data-hints-edit="">
             {status === "loading" && <p className="text-sm py-8 text-center" style={{ color: C.secondary }}>読み込み中…</p>}
             {status === "error" && <p className="text-sm py-8 text-center" style={{ color: C.secondary }}>{error}</p>}
+            {status === "error" && error === T.notMine && (
+              <p className="text-center -mt-4 pb-4">
+                <Link to="/crossword/mine" data-hints-to-mine="" className="min-h-11 inline-flex items-center gap-1 text-sm font-bold hover:text-black transition-colors" style={{ color: C.secondary }}>
+                  {T.toMine} <span aria-hidden="true">→</span>
+                </Link>
+              </p>
+            )}
             {status === "ready" && (
               <>
                 <h2 className="text-base font-semibold mb-4" style={{ color: C.ink }}>{title}</h2>

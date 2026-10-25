@@ -16,6 +16,7 @@
 import { deleteOgpPng } from "../_shared/crosswordOgp";
 import { readJsonLimited } from "../_shared/bodyLimit";
 import { logBackground } from "../_shared/background";
+import { reporterKey } from "../_shared/reporterKey";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -70,7 +71,8 @@ export async function onRequestPost(context: {
 
   // 接続元ごとの上限。生の IP は残さず、秘密の値を混ぜたハッシュだけを使う。照会に失敗したら通す
   const ip = request.headers.get("CF-Connecting-IP") ?? "";
-  const ipHash = await sha256Hex(`${ENDPOINT}:${ip}:${env.TURNSTILE_SECRET}`);
+  // IPv6 は /64 の帯で丸めて数える（2026-10-26。ほかの受付係とそろえた。生の住所だと1つの家から何度でも数え直せた）
+  const ipHash = await sha256Hex(`${ENDPOINT}:${reporterKey(ip)}:${env.TURNSTILE_SECRET}`);
   const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   try {
     const rl = await fetch(

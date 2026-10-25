@@ -21,6 +21,9 @@
 
 import { readJsonLimited } from "../_shared/bodyLimit";
 import { logBackground } from "../_shared/background";
+import { reporterKey } from "../_shared/reporterKey";
+// 改行・タブを含む制御文字と、見えない字・向きを変える字を落とす（問題の保存 crossword-save と同じ掃除）
+import { stripUnsafe } from "../_shared/crosswordClue";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -62,22 +65,6 @@ interface CleanScore {
   reveals: number;
   /** 答え合わせで「どこかに間違いがあります。」が出た回数 */
   misses: number;
-}
-
-/** 改行・タブを含む制御文字と、見えない文字を落とす（contact.ts の stripUnsafe と同じ範囲）。 */
-function stripUnsafe(input: string): string {
-  let out = "";
-  for (const ch of input) {
-    const c = ch.codePointAt(0) as number;
-    if (c < 0x20 || c === 0x7f) continue; // 制御文字（名前は1行なので改行・タブも落とす）
-    if (c >= 0x200b && c <= 0x200f) continue; // ゼロ幅・方向マーク
-    if (c >= 0x202a && c <= 0x202e) continue; // 埋め込み・上書き
-    if (c >= 0x2060 && c <= 0x2064) continue; // 不可視結合子
-    if (c >= 0x2066 && c <= 0x2069) continue; // 分離
-    if (c === 0xfeff) continue; // BOM
-    out += ch;
-  }
-  return out;
 }
 
 /** 受け取った中身を確かめる。だめなら null。DB には触らない（node で試せるように切り出してある）。 */
@@ -150,7 +137,8 @@ export async function onRequestPost(context: {
 
   // 2. 連投チェック。生の IP は保存せず、秘密の値を混ぜたハッシュだけを残す。
   const ip = request.headers.get("CF-Connecting-IP") ?? "";
-  const ipHash = await sha256Hex(`${ENDPOINT}:${ip}:${env.TURNSTILE_SECRET}`);
+  // IPv6 は /64 の帯で丸めて数える（同じ家の回線でアドレスを変えて数え直せないように。ほかの受付係と同じ）
+  const ipHash = await sha256Hex(`${ENDPOINT}:${reporterKey(ip)}:${env.TURNSTILE_SECRET}`);
   const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   try {
     const res = await fetch(

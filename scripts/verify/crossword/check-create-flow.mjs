@@ -227,7 +227,7 @@ async function pinOne(page, words) {
       if (b.length === words.length && findMove(b)) loose = b;
     }
     const board = loose.map(({ id, uuid, answer, direction, startX, startY, length }) => ({ id, uuid, question: '', answer, direction, startX, startY, length, pinned: false }));
-    await page.evaluate((x) => localStorage.setItem('crossword_draft', JSON.stringify(x)), { ...d, board, proposals: null, picked: null });
+    await page.evaluate((x) => localStorage.setItem('crossword_draft_v3', JSON.stringify(x)), { ...d, board, proposals: null, picked: null });
     await page.reload();
     await waitBoard(page);
     console.log('    探して出た盤では動かせる語が無いので、同じ engine で組んだ盤を作りかけから出した');

@@ -600,7 +600,7 @@ try {
   const emptyDraft = await readDraft(page);
   const OWN = exampleUrl('自分のヒント');
   const ctx2 = await newCtx();
-  await ctx2.addInitScript((d) => { try { if (!sessionStorage.getItem('cw_seeded')) { localStorage.setItem('crossword_draft', JSON.stringify(d)); sessionStorage.setItem('cw_seeded', '1'); } } catch { /* 無視 */ } },
+  await ctx2.addInitScript((d) => { try { if (!sessionStorage.getItem('cw_seeded')) { localStorage.setItem('crossword_draft_v3', JSON.stringify(d)); sessionStorage.setItem('cw_seeded', '1'); } } catch { /* 無視 */ } },
     { ...(emptyDraft ?? {}), version: 3, bulkText: '', hints: { キララ: { kind: 'link', url: OWN } }, hintLabels: {}, clues: {} });
   const p2 = await ctx2.newPage();
   await watchStumbles(p2, pageErrors);

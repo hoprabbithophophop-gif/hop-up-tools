@@ -27,6 +27,7 @@ const files = [
   'functions/_shared/bodyLimit.ts',
   'functions/_shared/background.ts',
   'functions/_shared/crosswordClue.ts',
+  'functions/_shared/reporterKey.ts', // 保存の受付係が IPv6 を /64 の帯で数えるために読む（2026-10-26）
   'functions/api/crossword-save.ts',
 ];
 for (const f of files) {

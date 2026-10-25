@@ -10,6 +10,10 @@
  *
  * 問題は公開用の鍵（anon）で読む。RLS が隠された問題を返さないので、「無い」と「隠された」は同じ扱いになる。
  * 画像の住所は保存の受付係が置く場所。置けていなかった・通報で消された問題は、先に HEAD で確かめて、無ければ絵の無い札にする。
+ *
+ * 棚への問い合わせと画像の確かめは、合わせて LOOKUP_TIMEOUT_MS までしか待たない。超えたら名札なしの素の index.html を返す
+ * （2026-10-26 レビューの直し。前は上限が無く、棚が止まると共有リンクのページそのものが届かなかった）。
+ * 番号と同じ8字の形でも、画面の決まった住所（/crossword/tutorial）は問題ではないので問い合わせない。
  */
 
 import { buildMetaTags } from '../_shared/ogp';
@@ -22,13 +26,17 @@ interface Env {
 }
 
 const ID_RE = /^[A-Za-z0-9_-]{8}$/;
+/** 番号と同じ8字の形をした、画面の決まった住所（src/App.tsx の /crossword/〜。問題の番号ではない） */
+const RESERVED = new Set(['tutorial']);
+/** 棚への問い合わせと画像の確かめを、合わせて待つ上限（ミリ秒） */
+const LOOKUP_TIMEOUT_MS = 1500;
 /** カードの説明文 */
 const DESCRIPTION = 'クロスワード | hop-up-tools';
 
 /** 画像が置かれているか。失敗・例外は「無い」扱い */
-async function imageExists(imageUrl: string): Promise<boolean> {
+async function imageExists(imageUrl: string, signal: AbortSignal): Promise<boolean> {
   try {
-    return (await fetch(imageUrl, { method: 'HEAD' })).ok;
+    return (await fetch(imageUrl, { method: 'HEAD', signal })).ok;
   } catch {
     return false;
   }
@@ -45,9 +53,11 @@ export async function onRequest(context: {
   const indexRes = await env.ASSETS.fetch(new Request(new URL('/index.html', url.origin).toString()));
 
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
-  if (!id || !ID_RE.test(id)) return indexRes;
+  if (!id || !ID_RE.test(id) || RESERVED.has(id)) return indexRes;
   if (!env.VITE_SUPABASE_URL || !env.VITE_SUPABASE_ANON_KEY) return indexRes;
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
   try {
     const res = await fetch(
       `${env.VITE_SUPABASE_URL}/rest/v1/crossword_puzzles?id=eq.${id}&select=title&limit=1`,
@@ -57,6 +67,7 @@ export async function onRequest(context: {
           Authorization: `Bearer ${env.VITE_SUPABASE_ANON_KEY}`,
           Accept: 'application/json',
         },
+        signal: controller.signal,
       },
     );
     if (!res.ok) return indexRes;
@@ -69,8 +80,10 @@ export async function onRequest(context: {
       canonicalUrl: `${url.origin}/crossword/${id}`,
       title,
       description: DESCRIPTION,
-      image: (await imageExists(imageUrl)) ? imageUrl : undefined,
+      image: (await imageExists(imageUrl, controller.signal)) ? imageUrl : undefined,
     });
+    // 画像の確かめの途中で時間切れになったら、名札は付けずに素のページを返す
+    if (controller.signal.aborted) return indexRes;
 
     // @ts-ignore
     return new HTMLRewriter()
@@ -81,7 +94,9 @@ export async function onRequest(context: {
       })
       .transform(indexRes);
   } catch {
-    // カードは諦めて、素の index.html をそのまま返す
+    // カードは諦めて（時間切れも含む）、素の index.html をそのまま返す
     return indexRes;
+  } finally {
+    clearTimeout(timer);
   }
 }

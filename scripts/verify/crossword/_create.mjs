@@ -145,7 +145,8 @@ export async function closeBoard(page) {
 export const boardCells = (page) =>
   page.locator('[data-create-board] [id^="cell-"]').evaluateAll((els) => els.map((e) => `${e.id.slice(5)}:${(e.getAttribute('aria-label') || '').split('・').at(-1)}`).sort());
 // 端末に残った作りかけ（無ければ null）
-export const readDraft = (page) => page.evaluate(() => { try { return JSON.parse(localStorage.getItem('crossword_draft') || 'null'); } catch { return null; } });
+// 作りかけは crossword_draft_v3 にしまう（2026-10-26）。無ければ古い名前 crossword_draft を読む（画面の読み替えと同じ）。空にした印は null
+export const readDraft = (page) => page.evaluate(() => { try { const now = localStorage.getItem('crossword_draft_v3'); const d = JSON.parse((now ?? localStorage.getItem('crossword_draft')) || 'null'); return d && d.cleared === true ? null : d; } catch { return null; } });
 
 // 作りかけの盤から マス→字 を作る（盤の左上を 0,0 にそろえる。試すの盤の #cell-x-y と同じ座標）
 export function draftCells(draft) {

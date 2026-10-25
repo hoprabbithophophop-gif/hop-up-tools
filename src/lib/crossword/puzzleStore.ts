@@ -354,18 +354,20 @@ export function readMyPuzzles(): MyPuzzle[] {
   }
 }
 
-function writeMyPuzzles(list: MyPuzzle[]): void {
+// 置けた時は true。置けなくても保存そのものは済んでいる（置けなかった時は呼ぶ側が知らせる。2026-10-26 前は黙って捨てていた）
+function writeMyPuzzles(list: MyPuzzle[]): boolean {
   try {
     localStorage.setItem(MY_PUZZLES_KEY, JSON.stringify(list));
+    return true;
   } catch {
-    /* 置けなくても保存そのものは済んでいる */
+    return false;
   }
 }
 
-export function addMyPuzzle(m: MyPuzzle): MyPuzzle[] {
+// この端末の「自分が作った問題」に足す。合言葉を端末に残せた時は true
+export function addMyPuzzle(m: MyPuzzle): boolean {
   const list = [...readMyPuzzles().filter((x) => x.id !== m.id), m];
-  writeMyPuzzles(list);
-  return list;
+  return writeMyPuzzles(list);
 }
 
 export function removeMyPuzzle(id: string): MyPuzzle[] {

@@ -20,8 +20,8 @@ export function tooLarge(request: Request, maxBytes: number): Response | null {
   return tooLargeResponse();
 }
 
-/** response が null でなければ、それをそのまま返事にして断る。null なら value が読めた中身 */
-export type JsonRead = { value: unknown; response: Response | null };
+/** response が null でなければ、それをそのまま返事にして断る。null なら value が読めた中身、bytes は読んだ本文のバイト数 */
+export type JsonRead = { value: unknown; response: Response | null; bytes: number };
 
 /**
  * 本文を JSON として読む。Content-Length の申告で先に断り、申告が無い・偽りの送り方でも
@@ -30,8 +30,8 @@ export type JsonRead = { value: unknown; response: Response | null };
  */
 export async function readJsonLimited(request: Request, maxBytes: number): Promise<JsonRead> {
   const early = tooLarge(request, maxBytes);
-  if (early) return { value: undefined, response: early };
-  if (!request.body) return { value: undefined, response: badRequestResponse() };
+  if (early) return { value: undefined, response: early, bytes: 0 };
+  if (!request.body) return { value: undefined, response: badRequestResponse(), bytes: 0 };
 
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -44,12 +44,12 @@ export async function readJsonLimited(request: Request, maxBytes: number): Promi
       total += value.byteLength;
       if (total > maxBytes) {
         await reader.cancel().catch(() => undefined);
-        return { value: undefined, response: tooLargeResponse() };
+        return { value: undefined, response: tooLargeResponse(), bytes: total };
       }
       chunks.push(value);
     }
   } catch {
-    return { value: undefined, response: badRequestResponse() };
+    return { value: undefined, response: badRequestResponse(), bytes: total };
   }
 
   const buf = new Uint8Array(total);
@@ -59,8 +59,8 @@ export async function readJsonLimited(request: Request, maxBytes: number): Promi
     at += c.byteLength;
   }
   try {
-    return { value: JSON.parse(new TextDecoder().decode(buf)), response: null };
+    return { value: JSON.parse(new TextDecoder().decode(buf)), response: null, bytes: total };
   } catch {
-    return { value: undefined, response: badRequestResponse() };
+    return { value: undefined, response: badRequestResponse(), bytes: total };
   }
 }

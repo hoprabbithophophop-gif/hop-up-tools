@@ -31,7 +31,7 @@ import { detectGroups } from "../../../lib/crossword/groupDetect";
 import { isBlankClue } from "../../../../functions/_shared/crosswordClue";
 import { linkProblem } from "../../../lib/crossword/youtubeUrl";
 import { animateElement, prefersReducedMotion } from "../../../lib/crossword/motion";
-import { BulkEntry, clueDraft, evaluateCandidates, lineProblems, parseMarks, withClueInLine, type Candidate } from "../components/BulkEntry";
+import { BulkEntry, clueDraft, clueStuckReason, evaluateCandidates, lineProblems, parseMarks, withClueInLine, type Candidate, type ClueStuck } from "../components/BulkEntry";
 import { HintField } from "../components/HintField";
 import { useHintSearch } from "../components/hintSearch";
 import { HINT_SOURCES, sourceOfUrl } from "../components/HintSourceBar";
@@ -48,8 +48,13 @@ import type { TrialPlay } from "../CrosswordPage";
 import type { EditCarry } from "../HintsEditPage";
 import { BULK_TEXTS, CT, PROPOSAL_TEXTS } from "./texts";
 
-// localStorage の鍵（名前は今までと同じ。消した札は消したまま）
-const DRAFT_KEY = "crossword_draft";
+// localStorage の鍵（札の名前は今までと同じ。消した札は消したまま）。
+// 作りかけは version 3 から別の名前にしまう（2026-10-26。前の版に戻した時に、前の版が新しい形を読めずに作りかけを消していた）。
+// 古い名前（crossword_draft）は、新しい名前が無い時に読み替えに使うだけで、消さない・上書きしない
+const DRAFT_KEY = "crossword_draft_v3";
+const OLD_DRAFT_KEY = "crossword_draft";
+// 作りかけを空にした印（公開した後・書く欄を空にした時）。新しい名前を消すと古い名前の作りかけが読み替えで戻ってくるので、消さずにこの印を置く
+const DRAFT_CLEARED = JSON.stringify({ version: 3, cleared: true });
 const TIP_KEYS = {
   cross: "crossword_seen_tip_cross", // 答えが1つになった時
   move: "crossword_seen_tip_move", // 広げた盤に盤が出た時
@@ -107,6 +112,12 @@ const moveCluesIntoText = (text: string, clues: Record<string, string>): { text:
   return { text: t, clues: kept };
 };
 
+// その答えの、書く欄の行（答えが無ければ undefined）
+const lineOfKey = (text: string, key: string): string | undefined => {
+  const c = evaluateCandidates(parseMarks(text)).find((x) => x.key === key && !x.reason);
+  return c ? text.split("\n")[c.mark.line] : undefined;
+};
+
 const lsGet = (k: string): string | null => {
   try {
     return localStorage.getItem(k);
@@ -114,11 +125,13 @@ const lsGet = (k: string): string | null => {
     return null;
   }
 };
-const lsSet = (k: string, v: string) => {
+// 残せた時は true（残せなくても作れる。作りかけを残せない時は画面が1回だけ知らせる）
+const lsSet = (k: string, v: string): boolean => {
   try {
     localStorage.setItem(k, v);
+    return true;
   } catch {
-    /* 残せなくても作れる */
+    return false;
   }
 };
 const lsRemove = (k: string) => {
@@ -127,6 +140,19 @@ const lsRemove = (k: string) => {
   } catch {
     /* 消せなくても困らない */
   }
+};
+// 端末に残した作りかけを読む。新しい名前が無い時だけ古い名前を読む（読み替え）。空にした印は「作りかけ無し」
+const readDraftRaw = (): string | null => {
+  const now = lsGet(DRAFT_KEY);
+  if (now !== null) return now === DRAFT_CLEARED ? null : now;
+  return lsGet(OLD_DRAFT_KEY);
+};
+// 作りかけを空にする（新しい名前に空の印を置く。古い名前には触らない）
+const clearDraft = () => {
+  if (lsGet(DRAFT_KEY) === DRAFT_CLEARED) return;
+  // 先に消してから置く（置き場がいっぱいでも、消した分で印は置ける）
+  lsRemove(DRAFT_KEY);
+  lsSet(DRAFT_KEY, DRAFT_CLEARED);
 };
 
 // 作りかけ（案A の形・version 3）。ヒント・カギは答え（答えの字を並べた物）ごとに持つ。盤は語の位置と固定のまま残す。
@@ -137,6 +163,8 @@ interface DraftV3 {
   hints: Record<string, HintRef>;
   hintLabels: Record<string, string>;
   clues: Record<string, string>;
+  // 窓で直したカギのうち書く欄に移せなかった物の、その時の書く欄の行（clueLineRef。行が変わったら書く欄の方を使う。2026-10-26）
+  clueLines: Record<string, string>;
   board: PlacedItem[] | null;
   proposals: BulkProposal[] | null;
   picked: number | null;
@@ -228,6 +256,9 @@ const hintHref = (h: HintRef): string | null => {
   return linkProblem(url) ? null : url;
 };
 
+// 1回の保存（返事が来た時に、まだ待っている保存がこれかを見分ける印）
+type SaveJob = { p?: Promise<void> };
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // 指で触る端末か（文字盤が出る端末。小さい盤と下の段を隠すかの見分けに使う）
@@ -249,6 +280,7 @@ interface ParsedDraft {
   bulkText: string;
   hints: Record<string, HintRef>;
   clues: Record<string, string>;
+  clueLines: Record<string, string>;
   hintLabels: Record<string, string>;
   title?: string;
   creatorName?: string;
@@ -262,8 +294,10 @@ const parseDraft = (raw: string): ParsedDraft | null => {
   try {
     const d = JSON.parse(raw) as Record<string, unknown>;
     if (!d || typeof d !== "object") return null;
+    // 空にした印は作りかけ無し
+    if (d.cleared === true) return null;
     const text = typeof d.bulkText === "string" ? d.bulkText : "";
-    const out: ParsedDraft = { bulkText: text, hints: {}, clues: {}, hintLabels: {}, board: null };
+    const out: ParsedDraft = { bulkText: text, hints: {}, clues: {}, clueLines: {}, hintLabels: {}, board: null };
     if (typeof d.title === "string") out.title = d.title;
     if (typeof d.creatorName === "string") out.creatorName = d.creatorName;
     if (Array.isArray(d.tags)) out.tags = (d.tags as unknown[]).filter((t): t is string => typeof t === "string").slice(0, MAX_TAGS);
@@ -279,6 +313,7 @@ const parseDraft = (raw: string): ParsedDraft | null => {
       for (const [k, h] of Object.entries(rawHints)) if (isHintRef(h)) restoredHints[k] = draftHint(h);
       if (d.clues && typeof d.clues === "object") for (const [k, v] of Object.entries(d.clues as Record<string, unknown>)) if (typeof v === "string") restoredClues[k] = v;
       if (d.hintLabels && typeof d.hintLabels === "object") for (const [k, v] of Object.entries(d.hintLabels as Record<string, unknown>)) if (typeof v === "string") restoredLabels[k] = v;
+      if (d.clueLines && typeof d.clueLines === "object") for (const [k, v] of Object.entries(d.clueLines as Record<string, unknown>)) if (typeof v === "string" && k in restoredClues) out.clueLines[k] = v;
     } else {
       // 古い形（段の無い下書き）: 1語ずつ入れた語は書いた行の最後に【語】の1行として足し、カギとヒントは答えごとに持ち替える
       const keys = new Set(evaluateCandidates(parseMarks(text)).filter((c) => !c.reason).map((c) => c.key));
@@ -416,6 +451,13 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
 
   // 語の窓のカギの欄を選んでいるか。「あと◯字」はこの間か、残りが少ない時だけ出す（Hop 決定 2026-10-22）
   const [clueFocused, setClueFocused] = useState(false);
+  // 答えの窓で、カギやヒントの欄（字を打つ欄）を選んでいる間。その間は窓の下の「次の足りない答えへ」の帯を隠す（2026-10-26。
+  // 375×548 で文字盤が出ると、帯がヒントの欄を隠していた）。欄を離れて帯を戻すのは少し待つ（離れた瞬間に戻ると、押した所に帯が来て押し違える）
+  const [sheetTyping, setSheetTyping] = useState(false);
+  const sheetTypingTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(sheetTypingTimer.current), []);
+  const isTypingField = (el: EventTarget | null) =>
+    el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && !["checkbox", "radio", "button", "submit", "reset"].includes(el.type));
 
   // 「試す」で入れた字（同じ盤の時だけ、次に「試す」を開いた時に戻す。解けた後は空から。端末には残さない）
   const trialRef = useRef<{ sig: string; answers: Record<string, string>; cleared: boolean } | null>(null);
@@ -467,6 +509,37 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     const lineNow = a ? bulkText.split("\n")[a.mark.line] : undefined;
     if (clues[key] !== undefined && (fixedLine === undefined || fixedLine === lineNow)) return clues[key];
     return a ? clueDraft(bulkText, marks, a.mark, a.cells.length) : "";
+  };
+  // 窓のカギが効いている答え（窓の側のカギ）で、書く欄に移せない物の理由。窓のカギの欄の下に出す（2026-10-26。前は知らせが無く、片方の直しが黙って消えた）
+  const clueStuckOf = (key: string): ClueStuck | null => {
+    const v = clues[key];
+    if (v === undefined || !v.trim() || clueOf(key) !== v) return null;
+    const a = answerByKey.get(key);
+    if (a && clueDraft(bulkText, marks, a.mark, a.cells.length) === v.trim()) return null;
+    return clueStuckReason(bulkText, key, v);
+  };
+  // 書く欄が prev から next に変わった時、1行に答えが2つあって窓の側に残していたカギを、答えが1つになった行へ書き戻した文を返す（変わらなければ next のまま）。
+  // 書き戻すのは、窓のカギが効いていた答え（行の印が直前の行と同じ）で、新しい行が前の行の一部（行を分けた・ほかの答えを消した）の時だけ
+  const reviveClues = (prev: string, next: string): string => {
+    let out = next;
+    for (const [k, v] of Object.entries(clues)) {
+      const fixed = clueLineRef.current[k];
+      if (fixed === undefined || !v.trim() || lineOfKey(prev, k) !== fixed) continue;
+      const now = lineOfKey(out, k);
+      if (now === undefined || now === fixed || !fixed.includes(now.trim())) continue;
+      // 前の行のほかの答えが、どれも別の行に移っている時だけ（行を分けた時）。ほかの答えを消している途中（】を消したなど）は書き戻さない
+      const others = evaluateCandidates(parseMarks(fixed)).filter((c) => !c.reason && c.key !== k).map((c) => c.key);
+      if (others.length === 0) continue;
+      const nowAnswers = evaluateCandidates(parseMarks(out)).filter((c) => !c.reason);
+      const myLine = nowAnswers.find((c) => c.key === k)?.mark.line;
+      if (!others.every((o) => nowAnswers.some((c) => c.key === o && c.mark.line !== myLine))) continue;
+      const moved = withClueInLine(out, k, v.trim());
+      if (moved === null) continue;
+      out = moved;
+      const line = lineOfKey(out, k);
+      if (line !== undefined) clueLineRef.current[k] = line;
+    }
+    return out;
   };
 
   // 盤（組み上がっていて、今の答えで組んだ物）。無い時は共有を押せなくし、理由を出す（Hop 決定 2026-10-22）
@@ -725,8 +798,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   useEffect(() => {
     if (editStatus !== "checking" || !editParam || editStartedRef.current) return;
     editStartedRef.current = true;
-    const fail = (message: string) => {
-      toast.error(message, { duration: 5000 });
+    const fail = (message: string, duration = 5000) => {
+      toast.error(message, { duration });
       setEditStatus("none");
       setSearchParams(
         (prev) => {
@@ -739,7 +812,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     };
     const mine = readMyPuzzles().find((m) => m.id === editParam);
     if (!mine) {
-      fail(CT.edit.notEditable);
+      // 合言葉の無い端末（2026-10-26。次にすることを足した。「自分が作った問題」へは書く欄の下の入口から行ける）
+      fail(CT.edit.noKey, 10000);
       return;
     }
     fetchOwnedPuzzle(mine.id, mine.key)
@@ -756,6 +830,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
         const placed: PlacedItem[] = [];
         const restoredHints: Record<string, HintRef> = {};
         const restoredClues: Record<string, string> = {};
+        const restoredLines: Record<string, string> = {};
         const lines: string[] = [];
         saved.forEach((c, i) => {
           const answer = toCells(owned.answers[i].join(""));
@@ -767,7 +842,9 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
           const moved = withClueInLine(`【${key}】`, key, c.clue);
           if (moved !== null) lines.push(moved);
           else {
+            // 書く欄に移せないカギ（→・｜・【 】が入る）は窓の側に置き、行の印を付ける（あとで書く欄にカギを書いたら、書く欄の方を使う。2026-10-26）
             restoredClues[key] = c.clue;
+            restoredLines[key] = `【${key}】`;
             lines.push(`【${key}】`);
           }
         });
@@ -777,6 +854,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
         setIsBeginner(rec.is_beginner === true);
         setBulkText(lines.join("\n"));
         setClues(restoredClues);
+        clueLineRef.current = restoredLines;
         setHints(restoredHints);
         storedHintsRef.current = restoredHints;
         // 盤は保存した時の形のまま（番号も同じ）。組み替えたい時は広げた盤の「再シャッフル」
@@ -801,11 +879,22 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     if (d.creatorName !== undefined || replace) setCreatorName(d.creatorName ?? "");
     if (d.tags !== undefined || replace) setTags(d.tags ?? []);
     if (d.isBeginner !== undefined || replace) setIsBeginner(d.isBeginner ?? false);
+    // 窓で直したカギのうち、残した後に書く欄の行を直していた物は、書く欄の方を使う（窓の側のカギは捨てる。2026-10-26）
+    const live: Record<string, string> = {};
+    for (const [k, v] of Object.entries(d.clues)) if (d.clueLines[k] === undefined || d.clueLines[k] === lineOfKey(d.bulkText, k)) live[k] = v;
     // 窓で直したカギは書く欄の行に移す（Hop 決定 2026-10-25 より前の作りかけは、窓の側だけに持っていた）
-    const moved = moveCluesIntoText(d.bulkText, d.clues);
+    const moved = moveCluesIntoText(d.bulkText, live);
     setBulkText(moved.text);
     setHints(d.hints);
     setClues(moved.clues);
+    // 書く欄に移せず窓の側に残したカギには、今の書く欄の行を印に付ける（このあと書く欄の行を直したら、書く欄の方を使う。2026-10-26。
+    // 前は印を作りかけに残さず、開き直すと書く欄を直しても窓のカギが勝ち続けた）
+    const lines: Record<string, string> = {};
+    for (const k of Object.keys(moved.clues)) {
+      const line = d.clueLines[k] ?? lineOfKey(moved.text, k);
+      if (line !== undefined) lines[k] = line;
+    }
+    clueLineRef.current = lines;
     setHintLabels(d.hintLabels);
     if (replace) {
       // 組み立ての動き・裏の組み合わせ探しは止める（入れ替えた中身で必要なら組み直す）
@@ -845,9 +934,10 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
       setHints(SAMPLE_HINTS);
       return;
     }
-    const raw = lsGet(DRAFT_KEY);
+    const raw = readDraftRaw();
     const d = raw ? parseDraft(raw) : null;
-    if (raw && !d) lsRemove(DRAFT_KEY);
+    // 読めない作りかけは空にする（古い名前の物には触らない）
+    if (raw && !d && lsGet(DRAFT_KEY) !== null) clearDraft();
     if (d) applyDraft(d, false);
     else {
       setBulkText(CT.sample);
@@ -863,6 +953,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     hints,
     hintLabels,
     clues,
+    clueLines: Object.fromEntries(Object.entries(clueLineRef.current).filter(([k]) => k in clues)),
     board: boardForDraft,
     proposals,
     picked,
@@ -873,6 +964,13 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     tags,
     isBeginner,
   });
+  // 作りかけを端末に残す。残せなかった時（置き場がいっぱい・使えない設定）は、この画面を開いている間に1回だけ知らせる（2026-10-26。前は黙って捨てていた）
+  const draftFailToldRef = useRef(false);
+  const keepDraft = (v: string) => {
+    if (lsSet(DRAFT_KEY, v) || draftFailToldRef.current) return;
+    draftFailToldRef.current = true;
+    toast.error(CT.draftNotKept, { duration: 8000 });
+  };
   // 最後に残した組み上がった盤の分（組み立て中・探している間に書いた物を残す時に使う）
   const stableBoardRef = useRef<Pick<DraftV3, "board" | "proposals" | "picked" | "boardSig" | "searchedSig"> | null>(null);
   // 別のタブで書き換えられた作りかけに入れ替えた直後の中身（同じ中身のままの間は書き戻さない。2つのタブで書き合いを続けないため）。
@@ -896,7 +994,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
       adoptedSnapRef.current = null;
     }
     if (empty) {
-      lsRemove(DRAFT_KEY);
+      clearDraft();
       return;
     }
     if (savedSnapshotRef.current !== null) {
@@ -908,12 +1006,12 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     // 最後に残した組み上がった盤と一緒に残す（再シャッフルの直後に書いてすぐ閉じても消えないように。Hop 決定 2026-10-23）
     if (isLiveGenerating || searching) {
       const d: DraftV3 = { version: 3, ...content, ...(stableBoardRef.current ?? {}) };
-      lsSet(DRAFT_KEY, JSON.stringify(d));
+      keepDraft(JSON.stringify(d));
       return;
     }
     stableBoardRef.current = { board: content.board, proposals: content.proposals, picked: content.picked, boardSig: content.boardSig, searchedSig: content.searchedSig };
     const d: DraftV3 = { version: 3, ...content };
-    lsSet(DRAFT_KEY, JSON.stringify(d));
+    keepDraft(JSON.stringify(d));
   }, [draftEnabled, draftReady, editStatus, bulkText, hints, hintLabels, clues, generatedPuzzle, isLiveGenerating, searching, proposals, picked, boardSig, puzzleTitle, creatorName, tags, isBeginner, adoptTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- 別のタブで作りかけが書き換えられたら、このタブの中身もそれに入れ替える（Hop 決定 2026-10-23）。組み直し（?edit=）の間は作りかけを使わないので見ない ---
@@ -1024,6 +1122,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     if (!kw || others.includes(kw)) hintSearch.set({ keyword: surfaceOf(key) });
     wordSheetCount.current += 1;
     setClueFocused(false);
+    window.clearTimeout(sheetTypingTimer.current);
+    setSheetTyping(false);
     setWordSheet({ key, n: wordSheetCount.current });
   };
   const setHintFor = (key: string, h: HintRef | null, label?: string) => {
@@ -1166,6 +1266,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     const t = window.setTimeout(() => {
       const prev = settledKeysRef.current;
       settledKeysRef.current = new Set(keys);
+      // 「直前の答えと同じヒントにする」の元の答えが書く欄から消えたら、そのヒントは忘れる（2026-10-26。打っている途中で消さないよう、答えが落ち着いてから）
+      setLastHint((h) => (h && !keys.includes(h.key) ? null : h));
       if (prev === null) return; // 開いた時の語には引かない
       for (const k of keys) if (!prev.has(k)) pendingLinesRef.current.add(k);
       for (const k of [...pendingLinesRef.current]) if (!keys.includes(k)) pendingLinesRef.current.delete(k);
@@ -1209,7 +1311,44 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   // --- 保存（もとの作る画面の handleShare・saveWithToken・updateEdited と同じ。ジャンルは常に hello） ---
   const itemsToSave = (): PlacedItem[] => (generatedPuzzle ? generatedPuzzle.items.map((i) => ({ ...i, question: clueOf(i.id).trim() })) : []);
 
+  // 保存の返事を待つ長さ。過ぎたら「保存中…」をやめて、閉じる・押し直すをできるようにする（2026-10-26。前は返事が来ないと閉じられなかった）。
+  // 送った保存は取り消さない（受付係に届いていれば問題はできるので、取り消して送り直すと同じ問題が2つできる）。
+  // 押し直した時は、まだ返事の来ていない保存の続きを待つだけで、新しく送らない。遅れて返事が来たら、その時に「公開しました」を出す
+  const SAVE_WAIT_MS = 20000;
+  const pendingSaveRef = useRef<SaveJob | null>(null);
+  const saveWaitTimerRef = useRef(0);
+  useEffect(() => () => window.clearTimeout(saveWaitTimerRef.current), []);
+  // 保存の返事を待つ（待つ長さを過ぎたら、ボタンを押せる形に戻して知らせる。保存の続きは裏で待つ）
+  const waitSave = (p: SaveJob) => {
+    // もう返事が来ている保存は待たない
+    if (pendingSaveRef.current !== p) return;
+    setIsSaving(true);
+    window.clearTimeout(saveWaitTimerRef.current);
+    saveWaitTimerRef.current = window.setTimeout(() => {
+      if (pendingSaveRef.current !== p) return;
+      setIsSaving(false);
+      toast.error(CT.saveSlow, { duration: 8000 });
+    }, SAVE_WAIT_MS);
+  };
+  // 保存の返事が来た時（待つ長さを過ぎた後に来た時も）
+  const settleSave = (p: SaveJob) => {
+    if (pendingSaveRef.current !== p) return;
+    pendingSaveRef.current = null;
+    window.clearTimeout(saveWaitTimerRef.current);
+    setIsSaving(false);
+  };
+  // 今の作りかけの中身（遅れて保存できた時に、その後に書き足していなければ作りかけを空にするのに使う）
+  const draftSnapNowRef = useRef("");
+  draftSnapNowRef.current = JSON.stringify(draftContent());
+  // 「公開しました」の窓で、合言葉をこの端末に残せなかった知らせを出すか（2026-10-26）
+  const [keyNotKept, setKeyNotKept] = useState(false);
+
   const handleShare = async () => {
+    // まだ返事の来ていない保存があれば、新しく送らずにその続きを待つ（同じ問題が2つできないように。2026-10-26）
+    if (pendingSaveRef.current) {
+      waitSave(pendingSaveRef.current);
+      return;
+    }
     // 盤が無い・足りない物がある時は保存しない（押せない理由を出している。Hop 決定 2026-10-22）
     if (!generatedPuzzle || !hasBoard || !canShare) return;
     if (!isConnected(generatedPuzzle.items)) return;
@@ -1230,70 +1369,84 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     setIsSaving(true);
     // 保存の直前に、盤に入った答えの YouTube のヒントへ outside の印を台帳で確かめて付け直す（もとの作る画面と同じ。Hop 決定 2026-10-21 チャンネル名を出さない）。
     // 組み直しでは、保存してあった動画と同じ番号なら印を引き継ぐ（台帳から消えた動画の「見られなくなりました」が黙って消えないように）。
-    // 台帳を確かめられなければ保存を止めて知らせる
+    // 台帳を確かめられなければ保存を止めて知らせる。台帳が返事をしない時も、待つ長さで止める（まだ何も送っていないので、押し直してよい）
     let marked: Record<string, HintRef>;
+    let slow = 0;
     try {
       const placedHints = Object.fromEntries(generatedPuzzle.items.map((i) => [i.id, hints[i.id]!]));
-      marked = await withOutsideMarks(placedHints, editTarget ? Object.values(storedHintsRef.current) : []);
+      marked = await Promise.race([
+        withOutsideMarks(placedHints, editTarget ? Object.values(storedHintsRef.current) : []),
+        new Promise<never>((_, reject) => {
+          slow = window.setTimeout(() => reject(new Error("timeout")), SAVE_WAIT_MS);
+        }),
+      ]);
     } catch (error) {
       console.error("Failed to check hint videos:", error);
-      toast.error(CT.errors.saveFailed, { duration: 5000 });
+      toast.error(error instanceof Error && error.message === "timeout" ? CT.saveSlow : CT.errors.saveFailed, { duration: 5000 });
       setIsSaving(false);
       return;
+    } finally {
+      window.clearTimeout(slow);
     }
     saveHintsRef.current = marked;
     // 組み直しは人間確認を挟まない【仮】（合言葉が本人確認を兼ねる）
     if (editTarget) {
-      void updateEdited(marked);
+      updateEdited(marked);
       return;
     }
     setShowSaveCheck(true);
   };
 
-  const updateEdited = async (savedHints: Record<string, HintRef>) => {
+  const updateEdited = (savedHints: Record<string, HintRef>) => {
     if (!generatedPuzzle || !editTarget) {
       setIsSaving(false);
       return;
     }
     const title = puzzleTitle.trim();
-    try {
-      const body = toBody(itemsToSave(), generatedPuzzle.width, generatedPuzzle.height, (id) => savedHints[id]);
-      if (creatorName.trim()) body.creatorName = creatorName.trim();
-      const ogpImage = await drawShareImage(generatedPuzzle, title);
-      await updatePuzzle(editTarget.id, editTarget.key, { title, genre: "hello", tags, body, isBeginner }, { ogpImage });
-      const updated = { ...editTarget, title };
-      addMyPuzzle(updated);
-      setEditTarget(updated);
-      setShareUrl(`${window.location.origin}/crossword/${editTarget.id}`);
-      setSharedTitle(title);
-      setShareOpen(false);
-      setShowShareModal(true);
-    } catch (error) {
-      console.error("Failed to update puzzle:", error);
-      const reason = error instanceof SaveError ? error.reason : "";
-      const message = reason === "already_played" ? CT.edit.alreadyPlayed : reason === "not_found" ? CT.edit.notEditable : CT.saveReasons[reason] ?? CT.errors.saveFailed;
-      toast.error(message, { duration: 5000 });
-      // もう遊ばれていたら、ヒントだけ差し替えられる画面へ回す（紙「遊ばれた後の ?edit= はヒント差し替えの画面へ回す」と同じ。Hop 決定 2026-10-19）。
-      // 組み直しで直した答え・カギ・ヒントは、画面の移動に持たせて渡す（Hop 決定 2026-10-23「直したヒントを引き継ぐ」）。
-      // 組み直しの中身は作りかけの控えに書かない（別の作りかけを上書きしないため）
-      if (reason === "already_played") {
-        const carry: EditCarry = {
-          kind: "edit-carry",
-          id: editTarget.id,
-          items: generatedPuzzle.items.map((i) => ({ answer: i.id, clue: clueOf(i.id).trim(), hint: hints[i.id] ? draftHint(hints[i.id]) : null })),
-        };
-        navigate(`/crossword/hints/${editTarget.id}`, { replace: true, state: carry });
-        return;
+    const board = generatedPuzzle;
+    const target = editTarget;
+    const items = itemsToSave();
+    const carryItems = board.items.map((i) => ({ answer: i.id, clue: clueOf(i.id).trim(), hint: hints[i.id] ? draftHint(hints[i.id]) : null }));
+    // 1回の保存の印（返事が来た時に、まだ待っている保存がこれかを見分ける）
+    const job: SaveJob = {};
+    pendingSaveRef.current = job;
+    job.p = (async () => {
+      try {
+        const body = toBody(items, board.width, board.height, (id) => savedHints[id]);
+        if (creatorName.trim()) body.creatorName = creatorName.trim();
+        const ogpImage = await drawShareImage(board, title);
+        await updatePuzzle(target.id, target.key, { title, genre: "hello", tags, body, isBeginner }, { ogpImage });
+        settleSave(job);
+        const updated = { ...target, title };
+        addMyPuzzle(updated);
+        setEditTarget(updated);
+        setShareUrl(`${window.location.origin}/crossword/${target.id}`);
+        setSharedTitle(title);
+        setShareOpen(false);
+        setShowShareModal(true);
+      } catch (error) {
+        settleSave(job);
+        console.error("Failed to update puzzle:", error);
+        const reason = error instanceof SaveError ? error.reason : "";
+        const message = reason === "already_played" ? CT.edit.alreadyPlayed : reason === "not_found" ? CT.edit.notEditable : CT.saveReasons[reason] ?? CT.errors.saveFailed;
+        toast.error(message, { duration: 5000 });
+        // もう遊ばれていたら、ヒントだけ差し替えられる画面へ回す（紙「遊ばれた後の ?edit= はヒント差し替えの画面へ回す」と同じ。Hop 決定 2026-10-19）。
+        // 組み直しで直した答え・カギ・ヒントは、画面の移動に持たせて渡す（Hop 決定 2026-10-23「直したヒントを引き継ぐ」）。
+        // 組み直しの中身は作りかけの控えに書かない（別の作りかけを上書きしないため）
+        if (reason === "already_played") {
+          const carry: EditCarry = { kind: "edit-carry", id: target.id, items: carryItems };
+          navigate(`/crossword/hints/${target.id}`, { replace: true, state: carry });
+        }
       }
-    } finally {
-      setIsSaving(false);
-    }
+    })();
+    waitSave(job);
   };
 
   // 公開できた後の窓を閉じる。「次の問題を作る」を押さずに閉じた時は、題名とタグだけを空にする（書いた文・カギ・ヒントは残す。Hop 決定 2026-10-23）。
   // 組み直しの更新の後は何も空にしない
   const closeSaved = () => {
     setShowShareModal(false);
+    setKeyNotKept(false);
     if (editTarget) return;
     setPuzzleTitle("");
     setTags([]);
@@ -1303,10 +1456,14 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   const bulkAreaFocusRef = useRef(false);
   const startNextPuzzle = () => {
     setShowShareModal(false);
+    setKeyNotKept(false);
     setBulkText("");
     setClues({});
+    clueLineRef.current = {};
     setHints({});
     setHintLabels({});
+    // 「直前の答えと同じヒントにする」は前の問題のヒントなので忘れる（2026-10-26）
+    setLastHint(null);
     setPuzzleTitle("");
     setTags([]);
     setTagInput("");
@@ -1335,7 +1492,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     setIsSaving(false);
   };
 
-  const saveWithToken = async (token: string, website: string) => {
+  const saveWithToken = (token: string, website: string) => {
     setShowSaveCheck(false);
     if (!generatedPuzzle) {
       setIsSaving(false);
@@ -1347,29 +1504,44 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
       return;
     }
     const title = puzzleTitle.trim();
-    try {
-      const body = toBody(itemsToSave(), generatedPuzzle.width, generatedPuzzle.height, (id) => savedHints[id]);
-      if (creatorName.trim()) body.creatorName = creatorName.trim();
-      const key = makeOwnerKey();
-      const ogpImage = await drawShareImage(generatedPuzzle, title);
-      // ジャンルは「ハロプロ」だけ（Hop 決定 2026-10-20）
-      const id = await savePuzzle({ title, genre: "hello", tags, body, isBeginner }, { key, token, website, ogpImage });
-      addMyPuzzle({ id, title, key, createdAt: Date.now() });
-      setShareUrl(`${window.location.origin}/crossword/${id}`);
-      setSharedTitle(title);
-      // 保存できたので作りかけの控えは消す（このあと中身を変えたら、また新しく残り始める）
-      lsRemove(DRAFT_KEY);
-      savedSnapshotRef.current = JSON.stringify(draftContent());
-      publishedSigRef.current = contentSig;
-      setShareOpen(false);
-      setShowShareModal(true);
-    } catch (error) {
-      console.error("Failed to save puzzle:", error);
-      const reason = error instanceof SaveError ? error.reason : "";
-      toast.error(CT.saveReasons[reason] ?? CT.errors.saveFailed, { duration: 5000 });
-    } finally {
-      setIsSaving(false);
-    }
+    const board = generatedPuzzle;
+    const items = itemsToSave();
+    // 送った時の中身（遅れて返事が来た時も、送った中身で「公開した」の印を付ける）
+    const sentSig = contentSig;
+    const sentSnap = JSON.stringify(draftContent());
+    // 1回の保存の印（返事が来た時に、まだ待っている保存がこれかを見分ける）
+    const job: SaveJob = {};
+    pendingSaveRef.current = job;
+    job.p = (async () => {
+      try {
+        const body = toBody(items, board.width, board.height, (id) => savedHints[id]);
+        if (creatorName.trim()) body.creatorName = creatorName.trim();
+        const key = makeOwnerKey();
+        const ogpImage = await drawShareImage(board, title);
+        // ジャンルは「ハロプロ」だけ（Hop 決定 2026-10-20）
+        const id = await savePuzzle({ title, genre: "hello", tags, body, isBeginner }, { key, token, website, ogpImage });
+        settleSave(job);
+        // 合言葉をこの端末に残せなかった時は、公開しましたの窓で知らせる（2026-10-26）
+        setKeyNotKept(!addMyPuzzle({ id, title, key, createdAt: Date.now() }));
+        setShareUrl(`${window.location.origin}/crossword/${id}`);
+        setSharedTitle(title);
+        // 保存できたので作りかけの控えは空にする（このあと中身を変えたら、また新しく残り始める）。
+        // 返事を待つ間に書き足していた時は、書き足した分を残す（空にしない）
+        if (draftSnapNowRef.current === sentSnap) {
+          clearDraft();
+          savedSnapshotRef.current = sentSnap;
+        }
+        publishedSigRef.current = sentSig;
+        setShareOpen(false);
+        setShowShareModal(true);
+      } catch (error) {
+        settleSave(job);
+        console.error("Failed to save puzzle:", error);
+        const reason = error instanceof SaveError ? error.reason : "";
+        toast.error(CT.saveReasons[reason] ?? CT.errors.saveFailed, { duration: 5000 });
+      }
+    })();
+    waitSave(job);
   };
 
   // --- 札（1行・右端に ×・幕なし） ---
@@ -1495,6 +1667,25 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                     if (t === CT.sample) setHints((prev) => ({ ...SAMPLE_HINTS, ...prev }));
                     // 書く欄を空にした時に付いていたヒントは、次に同じ答えを書いた時に「前に付けたヒント」と知らせる
                     if (!t.trim() && bulkText.trim()) setCarriedHints(new Set(Object.keys(hints)));
+                    // 1行に答えが2つあって書く欄に移せなかった窓のカギは、行を分けて答えが1つの行になった時に、その行へ書き戻す（2026-10-26。前は黙って消えた）
+                    const next = reviveClues(bulkText, t);
+                    if (next !== t) {
+                      const area = document.querySelector<HTMLTextAreaElement>("[data-bulk-text]");
+                      const caret = area && area.value === t ? area.selectionStart : null;
+                      setBulkText(next);
+                      if (caret !== null) {
+                        // カーソルは同じ行に置く（書き戻した行は行の数が変わらない）。その行を書き戻した時は、行の頭にいたら頭、それ以外は行の終わり
+                        const before = t.slice(0, caret).split("\n");
+                        const row = before.length - 1;
+                        const col = before[row].length;
+                        const tLines = t.split("\n");
+                        const nLines = next.split("\n");
+                        const rowStart = nLines.slice(0, row).reduce((n, l) => n + l.length + 1, 0);
+                        const at = rowStart + (tLines[row] === nLines[row] || col === 0 ? col : (nLines[row] ?? "").length);
+                        requestAnimationFrame(() => area?.setSelectionRange(at, at));
+                      }
+                      return;
+                    }
                     setBulkText(t);
                   }}
                   t={BULK_TEXTS}
@@ -1798,7 +1989,21 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                   {CT.close}
                 </button>
               </div>
-              <div className="px-4 pt-1 pb-6 flex flex-col gap-2">
+              <div
+                className="px-4 pt-1 pb-6 flex flex-col gap-2"
+                onFocusCapture={(e) => {
+                  if (!isTypingField(e.target)) return;
+                  window.clearTimeout(sheetTypingTimer.current);
+                  setSheetTyping(true);
+                }}
+                onBlurCapture={() => {
+                  window.clearTimeout(sheetTypingTimer.current);
+                  sheetTypingTimer.current = window.setTimeout(() => {
+                    const a = document.activeElement;
+                    setSheetTyping(isTypingField(a) && !!(a as HTMLElement).closest("[data-word-sheet]"));
+                  }, 400);
+                }}
+              >
                 <label htmlFor="cw-clue" className="text-xs font-bold" style={{ color: C.secondary }}>
                   {CT.clueLabel}
                 </label>
@@ -1852,6 +2057,15 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                     </p>
                   );
                 })()}
+                {/* 窓のカギを書く欄に移せない時の理由（2026-10-26。窓で打つのは今のまま許し、どちらが使われるかを知らせる） */}
+                {(() => {
+                  const stuck = clueStuckOf(sheetEntry);
+                  return stuck ? (
+                    <p data-clue-stuck={stuck} className="text-xs leading-relaxed" style={{ color: C.secondary }}>
+                      {CT.clueStuck[stuck]}
+                    </p>
+                  ) : null;
+                })()}
                 {/* カギと同じ形の見出しと灰色の説明（2026-10-24。前は見出しが無く、どこからヒントか分かりにくかった） */}
                 <p data-hint-label="" className="text-xs font-bold pt-1" style={{ color: C.secondary }}>
                   {CT.hintLabel}
@@ -1904,7 +2118,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                       setHintFor(sheetEntry, lastHint.hint, lastHint.label);
                       openWordSheet(sheetEntry);
                     }}
-                    className={`${btnGray} text-sm text-left`}
+                    // 長い URL も右端で切れずに折り返す（2026-10-26。375 幅で切れていた）
+                    className={`${btnGray} py-2 text-sm text-left break-all`}
                     style={{ color: C.ink }}
                   >
                     {CT.sameHint(lastHint.label)}
@@ -1913,7 +2128,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                 {/* カギかヒントが足りない次の答えを開く（Hop 決定 2026-10-25。一覧から好きな順に開く道はそのまま） */}
                 {(() => {
                   const rest = missingKeys.filter((k) => k !== sheetEntry);
-                  if (rest.length === 0) return null;
+                  if (rest.length === 0 || sheetTyping) return null;
                   const at = missingKeys.indexOf(sheetEntry);
                   const next = missingKeys.slice(at + 1).find((k) => k !== sheetEntry) ?? rest[0];
                   return (
@@ -2129,6 +2344,12 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
             <div className="text-xs text-center leading-relaxed pt-4" style={{ color: C.secondary }}>
               {editTarget ? CT.shareModal.updatedNotice : CT.shareModal.publicNotice}
             </div>
+            {/* 合言葉をこの端末に残せなかった時（置き場がいっぱい・使えない設定。2026-10-26 前は黙って捨てていた） */}
+            {keyNotKept && !editTarget && (
+              <p data-key-not-kept="" role="alert" className="text-xs leading-relaxed" style={{ color: C.error }}>
+                {CT.shareModal.keyNotKept}
+              </p>
+            )}
             <div className="flex flex-col items-center gap-2">
               {/* 次の問題を作る（公開の後だけ。組み直しの更新の後は出さない。Hop 決定 2026-10-23） */}
               {!editTarget && (

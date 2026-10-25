@@ -28,7 +28,8 @@ import { decodeOgpPng, uploadOgpPng } from "../_shared/crosswordOgp";
 import { readJsonLimited } from "../_shared/bodyLimit";
 import { logBackground } from "../_shared/background";
 import { toLargeKana } from "../_shared/crosswordKana";
-import { isBlankClue } from "../_shared/crosswordClue";
+import { isBlankClue, stripUnsafe } from "../_shared/crosswordClue";
+import { reporterKey } from "../_shared/reporterKey";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -41,6 +42,8 @@ interface Env {
 const PER_IP_PER_HOUR = 10;
 /** rate_limit_log 上でこのエンドポイントを識別する名前。 */
 const ENDPOINT = "crossword-save";
+/** 人間確認（Turnstile）の確かめ先を待つ上限（ミリ秒）。超えたら「確認に失敗しました」で断る */
+const TURNSTILE_TIMEOUT_MS = 5000;
 
 const ID_RE = /^[A-Za-z0-9_-]{8}$/;
 const ID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"; // 64字
@@ -141,9 +144,12 @@ function cleanClue(c: unknown): CleanClue | null {
   const o = c as Record<string, unknown>;
   if (o.direction !== "horizontal" && o.direction !== "vertical") return null;
   if (!isInt(o.clueIndex) || !isInt(o.startX) || !isInt(o.startY)) return null;
-  if (!isStr(o.clue) || charLen(o.clue) > MAX_CLUE_CHARS) return null;
+  if (!isStr(o.clue)) return null;
+  // 見えない字・向きを変える字を先に落とす（ランキングの名前と同じ掃除。2026-10-26 レビューの直し）。棚へは落とした後の文を渡す
+  const clue = stripUnsafe(o.clue);
+  if (charLen(clue) > MAX_CLUE_CHARS) return null;
   // ○・□・→ と空白だけのカギ（空も含む）は断る。画面の確かめと同じ物差し（Hop 決定 2026-10-23）
-  if (isBlankClue(o.clue)) return null;
+  if (isBlankClue(clue)) return null;
   if (!Array.isArray(o.answer) || o.answer.length === 0 || o.answer.length > MAX_ANSWER_CHARS) return null;
   // 答えは1マス1字の並び。各マスが1字で、つなげたものがカタカナ（と「ー」）だけ
   if (!o.answer.every((a) => isStr(a) && charLen(a) === 1)) return null;
@@ -157,36 +163,78 @@ function cleanClue(c: unknown): CleanClue | null {
     direction: o.direction,
     startX: o.startX,
     startY: o.startY,
-    clue: o.clue,
+    clue,
     answer,
     hint,
   };
 }
 
 /**
- * 盤の形を確かめる。交わるマスで字が食い違っていたら null。
+ * 座標の上限（この値より小さい 0 以上の整数だけ通す）。2026-10-26 レビューの直し（受付係へ直接送ると100万マス離れた語の問題が作れた）。
+ * 作る画面は盤の左上を 0,0 にそろえて送る（src/lib/crossword/engine.ts の buildGrid）。作る画面の決まり（1マスで交わる・同じ向きで重ねない・語を盤の外へも動かせる）では、
+ * 30字の横と30字の縦を最後の字で交わらせる階段が作れ、60語で盤は 871×871 になる（scripts/verify/crossword/check-server-hardening.mjs で確かめた）。
+ * つながった盤のマスは最大 60×30−59＝1741 なので、左上が 0 なら座標は必ず 1741 未満に収まる。これを上限にする（作れる最大 870 の倍の余裕）
+ */
+export const MAX_COORD = MAX_CLUES * (MAX_ANSWER_CHARS - 1) + 1;
+
+/**
+ * 盤の形を確かめる。次のどれかに当たれば null（2026-10-26 レビューの直しで 2〜5 を足した。作る画面からは作れない形）。
+ *   1. 交わるマスで字が食い違う
+ *   2. 同じ向きの語が同じマスを通る（同じ場所に2回置いた語・端で重なった語。作る画面の validatePlacement と同じ決まり）
+ *   3. 同じ番号・同じ向きのカギが2つある
+ *   4. マスの座標が 0〜MAX_COORD−1 の外
+ *   5. 語どうしが1つにつながっていない（作る画面の isConnected と同じ。マスを共有する語どうしがつながっていると見る）
  * そうでなければ、語の並びから出した盤の大きさ（いちばん左の字からいちばん右の字までのマス数・上下も同じ）を返す。
  */
 export function boardShape(clues: CleanClue[]): { width: number; height: number } | null {
-  const cells = new Map<string, string>();
+  if (clues.length === 0) return null;
+  const cells = new Map<string, { ch: string; horizontal: boolean; vertical: boolean; owners: number[] }>();
+  const numbers = new Set<string>();
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const c of clues) {
+  for (let i = 0; i < clues.length; i++) {
+    const c = clues[i];
+    const num = `${c.clueIndex}:${c.direction}`;
+    if (numbers.has(num)) return null;
+    numbers.add(num);
     for (let k = 0; k < c.answer.length; k++) {
       const x = c.startX + (c.direction === "horizontal" ? k : 0);
       const y = c.startY + (c.direction === "vertical" ? k : 0);
+      if (x >= MAX_COORD || y >= MAX_COORD) return null;
       const at = `${x},${y}`;
       const prev = cells.get(at);
-      if (prev !== undefined && prev !== c.answer[k]) return null;
-      cells.set(at, c.answer[k]);
+      if (prev) {
+        if (prev.ch !== c.answer[k]) return null;
+        if (prev[c.direction]) return null;
+        prev[c.direction] = true;
+        prev.owners.push(i);
+      } else {
+        cells.set(at, { ch: c.answer[k], horizontal: c.direction === "horizontal", vertical: c.direction === "vertical", owners: [i] });
+      }
       if (x < minX) minX = x;
       if (y < minY) minY = y;
       if (x > maxX) maxX = x;
       if (y > maxY) maxY = y;
     }
   }
+  // つながり: マスを共有する語どうしを結んで、最初の語からたどれない語があれば断る
+  const links: number[][] = clues.map(() => []);
+  for (const { owners } of cells.values()) {
+    for (const a of owners) for (const b of owners) if (a !== b) links[a].push(b);
+  }
+  const seen = new Set<number>([0]);
+  const stack = [0];
+  while (stack.length > 0) {
+    for (const next of links[stack.pop() as number]) {
+      if (!seen.has(next)) {
+        seen.add(next);
+        stack.push(next);
+      }
+    }
+  }
+  if (seen.size !== clues.length) return null;
   return { width: maxX - minX + 1, height: maxY - minY + 1 };
 }
 
@@ -199,7 +247,8 @@ export function validateSavePayload(raw: unknown): CleanPuzzle | null {
   const p = raw as Record<string, unknown>;
 
   if (!isStr(p.title)) return null;
-  const title = p.title.trim();
+  // 題名・タグ・作った人の名前も、見えない字・向きを変える字を落としてから空かどうかを見る（2026-10-26 レビューの直し）
+  const title = stripUnsafe(p.title).trim();
   if (charLen(title) < 1 || charLen(title) > MAX_TITLE) return null;
 
   // 送られてきた genre は見ない（常に hello で保存する）
@@ -213,7 +262,7 @@ export function validateSavePayload(raw: unknown): CleanPuzzle | null {
   const tags: string[] = [];
   for (const t of rawTags) {
     if (!isStr(t)) return null;
-    const s = t.trim();
+    const s = stripUnsafe(t).trim();
     if (s === "" || charLen(s) > MAX_TAG) return null;
     tags.push(s);
   }
@@ -237,8 +286,10 @@ export function validateSavePayload(raw: unknown): CleanPuzzle | null {
   if (!board) return null;
   let creatorName: string | undefined;
   if (bo.creatorName !== undefined) {
-    if (!isStr(bo.creatorName) || charLen(bo.creatorName) > MAX_CREATOR) return null;
-    if (bo.creatorName.trim() !== "") creatorName = bo.creatorName.trim();
+    if (!isStr(bo.creatorName)) return null;
+    const name = stripUnsafe(bo.creatorName).trim();
+    if (charLen(name) > MAX_CREATOR) return null;
+    if (name !== "") creatorName = name;
   }
   // 公式の決まりを題材にした問題の印（解く前の扉に免責の文を出す。Hop 決定 2026-10-16）。入れた時だけ残す
   if (bo.rulesNote !== undefined && typeof bo.rulesNote !== "boolean") return null;
@@ -335,7 +386,8 @@ export async function onRequestPost(context: {
   };
 
   // 3. 連投チェック。生の IP は保存せず、秘密の値を混ぜたハッシュだけを残す。
-  const ipHash = await sha256Hex(`${ENDPOINT}:${ip}:${env.TURNSTILE_SECRET}`);
+  // IPv6 は /64 の帯で丸めて数える（同じ家の回線でアドレスを変えて数え直せないように。ほかの受付係と同じ）
+  const ipHash = await sha256Hex(`${ENDPOINT}:${reporterKey(ip)}:${env.TURNSTILE_SECRET}`);
   const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   try {
     const res = await fetch(
@@ -468,15 +520,22 @@ async function verifyTurnstile(secret: string, token: string, ip: string): Promi
   form.append("secret", secret);
   form.append("response", token);
   if (ip) form.append("remoteip", ip);
+  // 確かめ先が返事をしない時に待ち続けない（2026-10-26 レビューの直し。前は上限が無く「保存中…」のままになった）。
+  // 上限を超えたら「確認に失敗しました」と同じ断り方（403 verification）
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TURNSTILE_TIMEOUT_MS);
   try {
     const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
       method: "POST",
       body: form,
+      signal: controller.signal,
     });
     const data = (await res.json()) as { success?: boolean };
     return data.success === true;
   } catch {
-    return false; // 検証できないなら通さない
+    return false; // 検証できない・時間切れなら通さない
+  } finally {
+    clearTimeout(timer);
   }
 }
 

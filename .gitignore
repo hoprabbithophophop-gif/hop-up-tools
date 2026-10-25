@@ -62,3 +62,7 @@ scripts/song-structure/**/__pycache__/
 scripts/crossword-profile/data/
 scripts/crossword-rules/*.puzzle.json
 scripts/crossword-rules/*.insert.sql
+
+# Cloudflare Pages の受付係を手元で動かす時の鍵の置き場（wrangler）。中身は秘密なので入れない
+.dev.vars
+.dev.vars.*

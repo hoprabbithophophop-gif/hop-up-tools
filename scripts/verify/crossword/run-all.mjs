@@ -30,6 +30,9 @@
 // - check-create-flow: 作る画面の案A（Hop 決定 2026-10-22）を完成基準の②1〜5 で通しに（375×548・390×844）: 初めて作って配る・試してから直す（試すの間の通信0本）・足りないまま共有しようとして止まる・途中で閉じて続きから（前の版の作りかけも）・自分の問題を直す（遊ばれた後は差し替えの画面へ）
 // - check-bulk-entry: 作る「書く欄: 見本の4行・【 】｜→○ ボタン・欄で選ぶと帯「「語」を出す」・【語】の中にカーソルで「「語」の囲みを外す」・弾く理由の行・語の一覧の足りない言葉・カギの下書き」
 // - check-tutorial: チュートリアル「解く画面の脈打ちと1行・練習問題」／作る「札 cross（書く欄の下）・札 move（広げた盤）・札 saved（共有の窓）は1回だけ・作る画面に「?」と11段の案内は無い」（口 5191・列C・作り物の棚）
+// - check-review-1026: 2回目のレビュー（2026-10-26）の画面の側の直し。窓のカギを書く欄に移せない時の理由と行の印・作りかけの新しい名前（crossword_draft_v3）・
+//   置き場がいっぱいの知らせ・保存の返事が来ない時（20秒で押し直せる・2つ目を送らない）・解く画面の読み込み中・自分が作った問題の「いま読み込めません」・
+//   合言葉と引き継ぎと消す確認の文・「->」のそろえ方・囲みを外しても読みが残る・同じヒントのボタン・答えの窓の帯・ヒントの住所の小さい行（口 5186・手元）
 // - check-review-fixes: 2026-10-06 の公開前レビューの直し（解く画面の濁点・丸付け・終わりの画面など）／一覧「ギャラリーにジャンルの切り替えが無い」
 //   ／作る「使えない字（ヰ）・半角カナ・置けない所の上の影・固定した語がつながっていません（下書きを置いて確かめる）・作る画面に「?」が無い」（口 5193・列C）
 // - check-play-count: 解く「遊ばれた回数は最初の1文字で1増える・開いただけでは増えない・作った本人の端末では数えない」
@@ -120,7 +123,7 @@ const ORDER = [
   'check-reporter-key', 'check-cells', 'check-suggest', 'check-build', 'check-pin', 'check-entry', 'check-fixtures', 'check-maru-mine', 'check-create-width',
   'check-stage1', 'check-play-count', 'check-resume', 'check-auto-check', 'check-edge', 'check-reveal',
   'check-own-ranking', 'check-replay', 'check-ranking', 'check-name-report', 'check-real-score', 'check-iphone', 'check-owner-edit', 'check-review-fixes',
-  'check-tutorial', 'check-a11y', 'check-bulk-entry', 'check-create-flow', 'check-limits', 'check-limits の (b) 回を始める連投',
+  'check-tutorial', 'check-a11y', 'check-bulk-entry', 'check-create-flow', 'check-review-1026', 'check-limits', 'check-limits の (b) 回を始める連投',
 ];
 
 // 列A・列B: プレビューに対する台本（本番には書かない）。列C: 手元にサーバーを立てる台本（口は 5193・5191・5195・5192・5190）
@@ -142,6 +145,7 @@ await Promise.all([
     ['check-create-flow'], // 作る画面の案A を完成基準の②1〜5 で通しに（口 5194・手元の作り物の受付係）。本番の棚には書かない
     ['check-real-score'], // ランキングの受付係（手元）とランキングの画面（口 5190）。本番のランキングに載せない
     ['check-stage1'], // 作る→保存→その URL で解く・ヒントの選び方（手元の作り物の棚。本番に問題を置かない）
+    ['check-review-1026'], // 2回目のレビュー（2026-10-26）の画面の側の直し（口 5186・手元の作り物の棚と受付係。保存の返事を待つ確かめで約1分半かかる）
   ]),
 ]);
 

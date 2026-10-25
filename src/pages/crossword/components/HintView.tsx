@@ -104,7 +104,9 @@ export const HintView: React.FC<{ hint: HintRef; genre?: Genre | null }> = ({ hi
         <span className="flex-1 min-w-0">
           {/* 行き先が分かるように、ドメインを先に大きく出す（Hop 決定 2026-10-04） */}
           <span className="block font-bold">{(() => { try { return new URL(hint.url).hostname; } catch { return ""; } })()}</span>
-          <span className="block text-xs" style={{ color: C.secondary }}>{hint.url}</span>
+          {/* 小さい行はブラウザが整えた形で出す（2026-10-26。生の文字だと、キリル文字の у を使った住所や右から左の字がまぎらわしかった。
+              整えると、ほかの文字の住所は xn-- の形に、見えない字や向きを変える字は %E2%80%AE などの形になる） */}
+          <span data-hint-url="" className="block text-xs" style={{ color: C.secondary }}>{(() => { try { return new URL(hint.url).href; } catch { return hint.url; } })()}</span>
         </span>
         <span aria-hidden="true" className="material-symbols-outlined leading-none shrink-0" style={{ fontSize: "18px" }}>open_in_new</span>
       </a>

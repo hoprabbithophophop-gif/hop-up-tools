@@ -436,7 +436,7 @@ async function run() {
     check((await page.locator('[data-tip="saved"]').count()) === 0, '(c) 二度目の共有の窓には札 saved は出ない');
     await closeShare(page);
     // 作りかけを消して開き直し、1語目から作り直しても、札 cross・move はもう出ない
-    await page.evaluate(() => localStorage.removeItem('crossword_draft'));
+    await page.evaluate(() => { localStorage.removeItem('crossword_draft'); localStorage.removeItem('crossword_draft_v3'); });
     await page.reload();
     await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
     await writeLines(page, 'ニャーと鳴く動物→【ネコ】');

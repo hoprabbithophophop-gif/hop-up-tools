@@ -28,6 +28,7 @@
 
 import { readJsonLimited } from "../_shared/bodyLimit";
 import { logBackground } from "../_shared/background";
+import { reporterKey } from "../_shared/reporterKey";
 import { toLargeKana, toLargeKanaText } from "../_shared/crosswordKana";
 
 interface Env {
@@ -47,6 +48,14 @@ const MIN_SEC_PER_CELL = 1; // 人間が答えを知っていても1マスにか
 // 画面の申告なので、引くのは1回につき最大2秒まで（Hop 決定 2026-10-21）
 const MAX_WAITED_MS = 2000;
 const COUNT_ENDPOINT = "crossword-count";
+/** 答え合わせ以外の送りの大きさの上限（バイト） */
+const MAX_BODY_BYTES = 8192;
+/**
+ * 答え合わせ（check）の送りの大きさの上限（バイト）。保存できるいちばん大きい問題でも断らない大きさにする（2026-10-26 レビューの直し。前は 8192 で約600マスを超えると誰も解き終われなかった）。
+ * 保存できる最大は60語×30字で、つながった盤なので1741マス（60×30−59）・座標は 0〜1740（crossword-save の MAX_COORD）。
+ * 答案は 1マス "1740,1740":"ア", ＝約20バイト（カタカナは3バイト）→ 1741×20 ≒ 35KB。余裕を見て 64KB
+ */
+const MAX_CHECK_BYTES = 65536;
 const ID_RE = /^[A-Za-z0-9_-]{8}$/;
 const TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -127,11 +136,13 @@ export async function onRequestPost(context: {
     return json({ ok: false, reason: "server" }, 500);
   }
 
-  // 大きさの申告で先に断る。申告が無い送り方でも読みながら数えて断る
-  const read = await readJsonLimited(request, 8192);
+  // 大きさの申告で先に断る。申告が無い送り方でも読みながら数えて断る。
+  // 答え合わせ（check）は盤の全部のマスを送るので大きい上限、それ以外は今までどおり 8192 バイト（2026-10-26 レビューの直し）
+  const read = await readJsonLimited(request, MAX_CHECK_BYTES);
   if (read.response) return read.response;
   const body = read.value as Record<string, unknown>;
   if (!body || typeof body !== "object") return json({ ok: false, reason: "bad_request" }, 400);
+  if (body.action !== "check" && read.bytes > MAX_BODY_BYTES) return json({ ok: false, reason: "bad_request" }, 413);
 
   const rest = `${env.VITE_SUPABASE_URL}/rest/v1`;
   const dbHeaders = {
@@ -180,7 +191,8 @@ export async function onRequestPost(context: {
       if (typeof puzzleId !== "string" || !ID_RE.test(puzzleId)) return json({ ok: false, reason: "bad_request" }, 400);
 
       const ip = request.headers.get("CF-Connecting-IP") ?? "";
-      const ipHash = await sha256Hex(`${ENDPOINT}:${ip}:${env.TURNSTILE_SECRET}`);
+      // IPv6 は /64 の帯で丸めて数える（同じ家の回線でアドレスを変えて数え直せないように。ほかの受付係と同じ）
+      const ipHash = await sha256Hex(`${ENDPOINT}:${reporterKey(ip)}:${env.TURNSTILE_SECRET}`);
       const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       const rl = await fetch(
         `${rest}/rate_limit_log?select=id&endpoint=eq.${ENDPOINT}&ip_hash=eq.${ipHash}` +
@@ -382,7 +394,8 @@ export async function onRequestPost(context: {
       // 同じ回線・同じ問題は24時間に1回だけ数える。印は crossword_play_counts に置く
       // （rate_limit_log はサイト全体の片付けで1時間しかもたないため。Hop 決定 2026-10-04）
       const ip = request.headers.get("CF-Connecting-IP") ?? "";
-      const key = await sha256Hex(`${COUNT_ENDPOINT}:${play.puzzle_id}:${ip}:${env.TURNSTILE_SECRET}`);
+      // IPv6 は /64 の帯で丸めて数える（回の始めと同じ）
+      const key = await sha256Hex(`${COUNT_ENDPOINT}:${play.puzzle_id}:${reporterKey(ip)}:${env.TURNSTILE_SECRET}`);
       const day = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       // 24時間より前の自分の印は消してから入れる（入れられなければ24時間以内に数え済み）
       await fetch(`${rest}/crossword_play_counts?puzzle_id=eq.${play.puzzle_id}&ip_hash=eq.${key}&created_at=lt.${encodeURIComponent(day)}`, {

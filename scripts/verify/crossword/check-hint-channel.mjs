@@ -149,7 +149,7 @@ try {
     await toMode(w, 'try');
     await w.locator('[data-trial] [id^="cell-"]').first().click({ timeout: 30000 });
     await w.waitForTimeout(3000);
-    await w.evaluate(() => localStorage.removeItem('crossword_draft'));
+    await w.evaluate(() => { localStorage.removeItem('crossword_draft'); localStorage.removeItem('crossword_draft_v3'); });
     await w.close();
   }
 

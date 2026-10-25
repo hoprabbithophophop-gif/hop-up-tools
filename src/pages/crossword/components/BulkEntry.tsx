@@ -153,9 +153,11 @@ export const parseMarks = (text: string): Mark[] => {
 
 const fullWidthBars = (text: string) => text.replace(/【[^【】\n]*】/g, (m) => m.replace(/\|/g, "｜"));
 
-// 「->」「ー>」「－＞」など、矢印の代わりに打った2文字を → にそろえる（2026-10-24。「->」は欄の字の形で → と同じに見えるのに、区切りにならなかった）。
+// 「->」「－＞」など、矢印の代わりに打った2文字を → にそろえる（2026-10-24。「->」は欄の字の形で → と同じに見えるのに、区切りにならなかった）。
+// そろえるのは「->」「－＞」「-＞」「－>」だけ（2026-10-26。前は「ー>」「−>」なども → にして、「スーパー>マーケット」が「スーパ→マーケット」になるなど、カギの字が変わっていた）。
 // caret は書き換えた後のカーソルの位置（前にある2文字が1文字になるぶん詰める）
-const ARROW_RE = /[-ー－−‐][>＞]/g;
+const ARROW_RE = /[-－][>＞]/g;
+const HAS_ARROW_PAIR = /[-－][>＞]/;
 export const arrowsNormalized = (text: string, caret: number): { text: string; caret: number } => {
   let shift = 0;
   const next = text.replace(ARROW_RE, (m, at: number) => {
@@ -169,13 +171,23 @@ export const arrowsNormalized = (text: string, caret: number): { text: string; c
 // listKeys はもう一覧に入っている答え（今の作る画面では一覧は無いので空で呼ぶ）
 // 答えの窓で直したカギを、書く欄のその答えの行に書き戻す（Hop 決定 2026-10-25。前はカギを直す場所が2つあり、窓で直すと書く欄の行を書き換えても効かなかった）。
 // 行は「カギ→【答え｜読み】」の形になる。書き戻せない時（その行に答えが2つ以上・カギに → や【 】｜ が入る）は null
+// 書き戻せない理由。marks = カギに → ｜ 【 】（と、書く欄で → にそろえる「->」など）が入る／twoInLine = その答えの行に答えが2つ以上／null = 書き戻せる（答えが無い時も null）
+export type ClueStuck = "marks" | "twoInLine";
+export const clueStuckReason = (text: string, key: string, clue: string): ClueStuck | null => {
+  // 「->」なども入れない（書く欄に移すと、書く欄を触った時に → にそろえられてカギの字が変わるため。2026-10-26）
+  if (/[→【】｜|\n]/.test(clue) || HAS_ARROW_PAIR.test(clue)) return "marks";
+  const marks = parseMarks(text);
+  const c = evaluateCandidates(marks).find((x) => x.key === key && !x.reason);
+  if (!c) return null;
+  if (marks.filter((x) => x.line === c.mark.line).length !== 1) return "twoInLine";
+  return null;
+};
 export const withClueInLine = (text: string, key: string, clue: string): string | null => {
-  if (/[→【】｜|\n]/.test(clue)) return null;
+  if (clueStuckReason(text, key, clue)) return null;
   const marks = parseMarks(text);
   const c = evaluateCandidates(marks).find((x) => x.key === key && !x.reason);
   if (!c) return null;
   const m = c.mark;
-  if (marks.filter((x) => x.line === m.line).length !== 1) return null;
   const lines = text.split("\n");
   lines[m.line] = `${clue}→【${m.surface}${m.reading ? `｜${m.reading}` : ""}】`;
   return lines.join("\n");
@@ -337,7 +349,10 @@ export const BulkEntry: React.FC<{
     while (start < end && /\s/.test(text[start])) start++;
     while (end > start && /\s/.test(text[end - 1])) end--;
     const picked = text.slice(start, end);
-    if (!picked || /[【】｜|\n]/.test(picked)) return null;
+    if (!picked || /[【】\n]/.test(picked)) return null;
+    // ｜は、表記と読みの間に1つだけなら囲める（「囲みを外す」で残した「土居楓奏｜ドイフウカ」を、選び直して囲み直せるように。2026-10-26）
+    const bars = picked.match(/[｜|]/g)?.length ?? 0;
+    if (bars > 1 || (bars === 1 && /^[｜|]|[｜|]$/.test(picked))) return null;
     if (marks.some((m) => !m.implicit && start < m.end && end > m.start)) return null; // 「カギ→答え」の答えは囲み直してよい
     return { start, end, picked };
   };
@@ -406,7 +421,10 @@ export const BulkEntry: React.FC<{
     });
   };
 
-  const unmark = (m: Mark) => write(text.slice(0, m.start) + m.surface + text.slice(m.end));
+  // 囲みを外しても、｜の後ろの読みは残す（2026-10-26。前は【土居楓奏｜ドイフウカ】の読みが消えた）。
+  // 外した後は「土居楓奏｜ドイフウカ」の形で残る（→ の後ろなら「カギ→答え｜読み」の書き方でそのまま答えになる）
+  const unmarkedText = (m: Mark) => (m.reading !== null ? `${m.surface}｜${m.reading}` : m.surface);
+  const unmark = (m: Mark) => write(text.slice(0, m.start) + unmarkedText(m) + text.slice(m.end));
 
   const areaMarkObj = areaMark === null ? null : (marks.find((m) => m.start === areaMark) ?? null);
   const barWord = current ? (current.picked.length > 12 ? `${current.picked.slice(0, 12)}…` : current.picked) : null;
@@ -530,7 +548,7 @@ export const BulkEntry: React.FC<{
                     const area = areaRef.current;
                     if (!area) return;
                     area.focus();
-                    area.setSelectionRange(m.start, m.start + m.surface.length);
+                    area.setSelectionRange(m.start, m.start + unmarkedText(m).length);
                   });
                 }}
                 className="w-full min-h-12 px-4 font-semibold bg-primary text-white hover:bg-secondary transition-colors truncate"

@@ -150,7 +150,7 @@ try {
     await w.goto(`${BASE}/crossword/${PLAY_ID}`);
     await w.locator('#cell-0-0').waitFor({ timeout: 30000 });
     await w.waitForTimeout(3000);
-    await w.evaluate(() => { localStorage.removeItem('crossword_draft'); localStorage.removeItem('crossword_hint_groups'); });
+    await w.evaluate(() => { localStorage.removeItem('crossword_draft'); localStorage.removeItem('crossword_draft_v3'); localStorage.removeItem('crossword_hint_groups'); });
     await w.close();
   }
 
