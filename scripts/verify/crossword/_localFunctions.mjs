@@ -51,7 +51,12 @@ export function fakeShelf() {
   const prefer = (init) => (init.headers?.Prefer ?? '');
 
   const ownerOk = (id, key) => typeof key === 'string' && key.length >= 32 && key.length <= 128 && keys.get(id) === sha256(key);
-  const pick = (row, select) => (select ? Object.fromEntries(select.split(',').map((c) => [c, row[c]])) : { ...row });
+  // 「別名:列->>中の名前」（本文の中の1項目を文字で読む形）も真似る。棚に無い項目は null
+  const pick = (row, select) => (select ? Object.fromEntries(select.split(',').map((c) => {
+    const m = c.match(/^(\w+):(\w+)->>(\w+)$/);
+    if (m) { const v = row[m[2]]?.[m[3]]; return [m[1], v === undefined || v === null ? null : String(v)]; }
+    return [c, row[c]];
+  })) : { ...row });
 
   async function fetchFake(input, init = {}) {
     const url = new URL(typeof input === 'string' ? input : input.url);

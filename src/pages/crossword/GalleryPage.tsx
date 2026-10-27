@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { usePageReady } from "../../lib/pageReady";
-import { getPublicPuzzles, type GalleryPuzzle, type SortOption } from "../../lib/crossword/gallery";
+import { dedupeGallery, getPublicPuzzles, type GalleryPuzzle, type SortOption } from "../../lib/crossword/gallery";
 import { prefersReducedMotion } from "../../lib/crossword/motion";
 import { GROUP_NAMES } from "../../lib/crossword/groupDetect";
 import { PuzzleGalleryCard, BEGINNER_LABEL } from "./components/PuzzleGalleryCard";
@@ -91,7 +91,8 @@ export default function GalleryPage() {
         if (id !== reqId.current) return; // 絞り込みを変えた後に届いた古い答えは捨てる
         if (isLoadMore) {
           const from = shownRef.current.length;
-          setPuzzles((prev) => [...prev, ...response.puzzles]);
+          // 同じ中身の問題は、前に出ている物とも合わせて一番古い1つにまとめる（Hop 決定 2026-10-27）
+          setPuzzles((prev) => dedupeGallery([...prev, ...response.puzzles]));
           setEnter((e) => ({ ...e, mode: "float", from }));
         } else {
           setPuzzles(response.puzzles);

@@ -12,7 +12,9 @@
  *                                    合っていなければ、どこが違うかは返さない（Hop 2026-10-04）
  *                                    waitedMs = 画面が最後の字のあと答え合わせまで待った時間。解けた時だけタイムから引く（0〜MAX_WAITED_MS に切り詰める）
  *   reveal { token, x, y }         → そのマスの字を1つ返す。{ char, reveals }
- *   touch  { token }               → 最初の1文字が入った。遊ばれた回数をこの回で1度だけ足す（同じ接続元・同じ問題は24時間に1度まで）
+ *   touch  { token, deviceId? }    → 最初の1文字が入った。遊ばれた回数をこの回で1度だけ足す
+ *                                    （同じ端末〔deviceId＋家の帯〕・同じ問題は24時間に1度まで。同じ家・同じ問題で数えるのは24時間に5台まで。
+ *                                     deviceId が無い時は家の帯だけで24時間に1度。Hop 決定 2026-10-27）
  *   resume { token }               → 盤を開いた（再開）。{ activeMs, open: true }
  *   pause  { token }               → 盤を閉じた・一時停止。{ activeMs, open: false }
  *   ping   { token }               → 開いている間の生存の合図（60秒ごと）。{ activeMs, open }
@@ -48,6 +50,13 @@ const MIN_SEC_PER_CELL = 1; // 人間が答えを知っていても1マスにか
 // 画面の申告なので、引くのは1回につき最大2秒まで（Hop 決定 2026-10-21）
 const MAX_WAITED_MS = 2000;
 const COUNT_ENDPOINT = "crossword-count";
+/** 端末ごとの印（家の帯＋端末の見分け用の番号）と、家ごとの席の印。crossword_play_counts の ip_hash に入れる値の混ぜ物 */
+const COUNT_DEVICE_ENDPOINT = "crossword-count-device";
+const COUNT_SEAT_ENDPOINT = "crossword-count-seat";
+/** 同じ家・同じ問題で24時間に数える端末の数の上限（Hop 決定 2026-10-27） */
+const DEVICES_PER_HOUSE = 5;
+/** 端末の見分け用の番号（ランキングの playerKey と同じ形。32バイトの乱数の16進） */
+const DEVICE_ID_RE = /^[0-9a-f]{64}$/;
 /** 答え合わせ以外の送りの大きさの上限（バイト） */
 const MAX_BODY_BYTES = 8192;
 /**
@@ -391,17 +400,30 @@ export async function onRequestPost(context: {
       const res = await patchPlay(token, { counted: true }, "&counted=eq.false");
       const claimed = res.ok ? ((await res.json()) as Play[]).length > 0 : false;
       if (!claimed) return json({ ok: true, counted: false });
-      // 同じ回線・同じ問題は24時間に1回だけ数える。印は crossword_play_counts に置く
-      // （rate_limit_log はサイト全体の片付けで1時間しかもたないため。Hop 決定 2026-10-04）
+      // 同じ端末・同じ問題は24時間に1回だけ数える。印は crossword_play_counts に置く
+      // （rate_limit_log はサイト全体の片付けで1時間しかもたないため。Hop 決定 2026-10-04）。
+      // 端末は画面が送る見分け用の番号（deviceId。ランキングの playerKey と同じ値）と家の帯（IPv6 は /64）の組で見分ける。
+      // 家族が別々の端末で遊べばそれぞれ数える（Hop 決定 2026-10-27）。番号を変えて数え直す悪用を止めるため、
+      // 同じ家・同じ問題で24時間に数えるのは DEVICES_PER_HOUSE 台まで（家ごとの「席」を同じ棚に置いて取り合う）。
+      // 番号が送られてこない（古い画面）・形が違う時は、今までどおり家の帯だけで24時間に1回数える（席は使わない）
       const ip = request.headers.get("CF-Connecting-IP") ?? "";
-      // IPv6 は /64 の帯で丸めて数える（回の始めと同じ）
-      const key = await sha256Hex(`${COUNT_ENDPOINT}:${play.puzzle_id}:${reporterKey(ip)}:${env.TURNSTILE_SECRET}`);
+      const house = reporterKey(ip);
+      const deviceId = typeof body.deviceId === "string" && DEVICE_ID_RE.test(body.deviceId) ? body.deviceId : null;
+      const key = deviceId
+        ? await sha256Hex(`${COUNT_DEVICE_ENDPOINT}:${play.puzzle_id}:${house}:${deviceId}:${env.TURNSTILE_SECRET}`)
+        : await sha256Hex(`${COUNT_ENDPOINT}:${play.puzzle_id}:${house}:${env.TURNSTILE_SECRET}`);
+      const seats = deviceId
+        ? await Promise.all(
+            Array.from({ length: DEVICES_PER_HOUSE }, (_, i) => sha256Hex(`${COUNT_SEAT_ENDPOINT}:${play.puzzle_id}:${house}:${i}:${env.TURNSTILE_SECRET}`)),
+          )
+        : [];
       const day = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      // 24時間より前の自分の印は消してから入れる（入れられなければ24時間以内に数え済み）
-      await fetch(`${rest}/crossword_play_counts?puzzle_id=eq.${play.puzzle_id}&ip_hash=eq.${key}&created_at=lt.${encodeURIComponent(day)}`, {
-        method: "DELETE",
-        headers: dbHeaders,
-      }).catch(() => null);
+      // 24時間より前の自分の印（端末の印と家の席）は消してから入れる（入れられなければ24時間以内に数え済み）
+      const mine = [key, ...seats];
+      await fetch(
+        `${rest}/crossword_play_counts?puzzle_id=eq.${play.puzzle_id}&ip_hash=in.(${mine.join(",")})&created_at=lt.${encodeURIComponent(day)}`,
+        { method: "DELETE", headers: dbHeaders },
+      ).catch(() => null);
       const mark = await fetch(`${rest}/crossword_play_counts`, {
         method: "POST",
         headers: { ...dbHeaders, Prefer: "resolution=ignore-duplicates,return=representation" },
@@ -409,6 +431,28 @@ export async function onRequestPost(context: {
       });
       const fresh = mark.ok ? ((await mark.json().catch(() => [])) as unknown[]).length > 0 : false;
       if (!fresh) return json({ ok: true, counted: false });
+      if (deviceId) {
+        // 家の席を1つ取る。空きが無ければ（この家で24時間に DEVICES_PER_HOUSE 台数え済み）数えない。
+        // その時は端末の印を消しておく（数えていないので、席が空いた後に遊べば数える）
+        const taken = await fetch(
+          `${rest}/crossword_play_counts?select=ip_hash&puzzle_id=eq.${play.puzzle_id}&ip_hash=in.(${seats.join(",")})`,
+          { headers: dbHeaders },
+        );
+        const used = new Set(taken.ok ? ((await taken.json().catch(() => [])) as { ip_hash: string }[]).map((r) => r.ip_hash) : seats);
+        const free = seats.find((h) => !used.has(h));
+        const seat = free
+          ? await fetch(`${rest}/crossword_play_counts`, {
+              method: "POST",
+              headers: { ...dbHeaders, Prefer: "resolution=ignore-duplicates,return=representation" },
+              body: JSON.stringify({ puzzle_id: play.puzzle_id, ip_hash: free }),
+            })
+          : null;
+        const sat = seat?.ok ? ((await seat.json().catch(() => [])) as unknown[]).length > 0 : false;
+        if (!sat) {
+          await fetch(`${rest}/crossword_play_counts?puzzle_id=eq.${play.puzzle_id}&ip_hash=eq.${key}`, { method: "DELETE", headers: dbHeaders }).catch(() => null);
+          return json({ ok: true, counted: false });
+        }
+      }
       const add = await fetch(`${rest}/rpc/crossword_add_play`, { method: "POST", headers: dbHeaders, body: JSON.stringify({ p_id: play.puzzle_id }) });
       if (!add.ok) console.error("crossword-play: add_play failed", add.status);
       return json({ ok: true, counted: add.ok });

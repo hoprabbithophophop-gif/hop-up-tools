@@ -13,6 +13,8 @@
 //       置けない所の上の影（F）は広げた盤で見る・固定がつながらない盤（作りかけを置いて確かめる）は広げた盤に知らせが出て共有の窓で「共有する」が押せない・1日5個の知らせが無い
 //       （「リストに追加」が押せない理由の1行（D）は、1語ずつの欄と一緒に無くなったので消した。
 //         「1の段のヒントを付ける側の行」は段の切り替えが無くなったので語の一覧で見る。「この盤で進む」が押せない確かめは、ボタンが無くなったので共有の窓の「共有する」に替えた）
+//   (11) 2026-10-27: ギャラリーは同じ中身（盤の大きさ・カギの文・向き・置き場所・字数）の問題を一番古い1つだけ出す（写しは出さない。新着順・人気順・「もっと見る」の先も）
+//        ・解く回の touch に端末の見分け用の番号（deviceId＝ランキングの playerKey）を付ける・ランキングの score_limit（429）の知らせ
 //   (9) 作る画面は記録の空のブラウザで初めて開いても幕の案内が出ず、「?」も無い（11段の案内は解く画面の「?」からだけ）
 // 手元の vite は口ごとの一時置き場で部品をまとめ、書き換えの見張り（HMR）を止めて立てる（_lib.mjs の isolatedViteConfig。途中でページが読み込み直されないように）
 // 使い方: node scripts/verify/crossword/check-review-fixes.mjs（引数なし）
@@ -91,17 +93,32 @@ const BASE_ROWS = [
   puzzleRow(PUZZLE_ID),
   puzzleRow('MOCKOTH1', { title: 'ほかの見本', created_at: '2026-10-05T00:00:00Z' }),
 ];
+// 中身（カギの文）だけを変えた問題。同じ中身の問題はギャラリーで1つにまとまる（2026-10-27）ので、別の問題として並べたい見本はカギを変える
+const withClue = (row, clue) => ({ ...row, body: { ...row.body, clues: row.body.clues.map((c, i) => (i === 0 ? { ...c, clue } : c)) } });
 // ギャラリーの絞り込み用（B）
-const GALLERY_ROWS = [
+const GALLERY_ROWS_SAME = [
   puzzleRow('GAL1', { title: '印あり アンジュルム', genre: 'hello', group_tags: ['アンジュルム'], created_at: '2026-10-04T00:00:00Z' }),
   puzzleRow('GAL2', { title: 'タグ 全角ビヨ', genre: 'hello', tags: ['ＢＥＹＯＯＯＯＯＮＤＳ'], created_at: '2026-10-03T00:00:00Z' }),
   puzzleRow('GAL3', { title: 'タグ モー娘年なし', genre: 'hello', tags: ['モーニング娘。が好き'], created_at: '2026-10-02T00:00:00Z' }),
   puzzleRow('GAL4', { title: 'タグ 関係なし', genre: 'other', tags: ['ほかの話'], created_at: '2026-10-01T00:00:00Z' }),
 ];
+const GALLERY_ROWS = GALLERY_ROWS_SAME.map((r) => withClue(r, `${r.id}のヨコのカギ`));
+// 同じ中身をまとめる確かめ用（11）: 元の問題（一番古い）と、その写し2つ（新しい・人気が多い）と、中身の違う問題30件（1ページ12件を超えて「もっと見る」の先まで並ぶ数）
+const DUP_ROWS = [
+  puzzleRow('DUPORIG', { title: '元の問題', created_at: '2026-09-01T00:00:00Z', play_count: 1 }),
+  puzzleRow('DUPCPY1', { title: '写しの問題A', created_at: '2026-10-20T00:00:00Z', play_count: 50 }),
+  puzzleRow('DUPCPY2', { title: '写しの問題B', created_at: '2026-10-18T12:30:00Z', play_count: 40 }),
+  ...Array.from({ length: 30 }, (_, i) => withClue(puzzleRow(`DIF${String(i).padStart(2, '0')}`, { title: `別の問題${String(i).padStart(2, '0')}`, created_at: new Date(Date.UTC(2026, 9, 19) - i * 3600e3).toISOString(), play_count: 10 }), `別のカギ${i}`)),
+];
 
 // ---- 棚（PostgREST）の受け止め ----
 const unq = (s) => s.replace(/^"(.*)"$/, '$1');
 const listOf = (s) => s.replace(/^[({]|[)}]$/g, '').split(',').filter(Boolean).map(unq);
+function jsonContains(v, want) {
+  if (Array.isArray(want)) return Array.isArray(v) && want.every((w) => v.some((x) => jsonContains(x, w)));
+  if (want && typeof want === 'object') return !!v && typeof v === 'object' && Object.entries(want).every(([k, w]) => jsonContains(v[k], w));
+  return v === want;
+}
 function matches(row, key, raw) {
   const v = row[key];
   const [op, ...rest] = raw.split('.');
@@ -109,7 +126,13 @@ function matches(row, key, raw) {
   if (op === 'eq') return String(v) === unq(arg);
   if (op === 'neq') return String(v) !== unq(arg);
   if (op === 'in') return listOf(arg).includes(String(v));
-  if (op === 'cs') return listOf(arg).every((x) => (v ?? []).includes(x));
+  if (op === 'cs') {
+    // JSON の列（body）は「中に含む」で比べる（カギの文で同じ中身の候補を探す問い合わせ。2026-10-27）
+    if (arg.startsWith('{"') || arg.startsWith('[')) return jsonContains(v, JSON.parse(arg));
+    return listOf(arg).every((x) => (v ?? []).includes(x));
+  }
+  if (op === 'lte') return String(v) <= unq(arg);
+  if (op === 'lt') return String(v) < unq(arg);
   return true;
 }
 function mockSupabase(ctx, tables, log = []) {
@@ -146,7 +169,7 @@ function mockSupabase(ctx, tables, log = []) {
 
 // ---- 受付係（/api/crossword-play）の受け止め ----
 function mockPlay(ctx, opts = {}) {
-  const st = { starts: 0, checks: [], touches: 0 };
+  const st = { starts: 0, checks: [], touches: 0, touchIds: [], scores: [] };
   ctx.route('**/api/crossword-play', async (route) => {
     const body = JSON.parse(route.request().postData() || '{}');
     const reply = (o) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, ...o }) });
@@ -157,6 +180,7 @@ function mockPlay(ctx, opts = {}) {
     }
     if (body.action === 'touch') {
       st.touches++;
+      st.touchIds.push(body.deviceId);
       return reply({ counted: true });
     }
     if (body.action === 'check') {
@@ -168,7 +192,11 @@ function mockPlay(ctx, opts = {}) {
     if (body.action === 'reveal') return reply({ char: SOLUTION[`${body.x},${body.y}`], reveals: 1 });
     return route.fulfill({ status: 400, body: '{}' });
   });
-  ctx.route('**/api/crossword-score', (r) => r.fulfill({ status: 500, body: '{}' }));
+  ctx.route('**/api/crossword-score', (r) => {
+    st.scores.push(r.request().postDataJSON());
+    if (opts.scoreLimit) return r.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({ ok: false, reason: 'score_limit' }) });
+    return r.fulfill({ status: 500, body: '{}' });
+  });
   return st;
 }
 
@@ -309,6 +337,9 @@ try {
     check(st.checks.length === 1 && st.checks[0]['0,0'] === 'バ', `(2) 答え合わせは1回だけ、゛ の後の盤（バ）で走る（${st.checks.map((c) => c['0,0']).join('・')}）`);
     check(!text.includes('どこかに間違いがあります。'), '(2) 「どこかに間違いがあります。」は出ない');
     check(await stamped(page), '(2) ハンコが出る');
+    const playerKey = await page.evaluate(() => localStorage.getItem('crossword_player_key'));
+    check(st.touchIds.length >= 1 && /^[0-9a-f]{64}$/.test(st.touchIds[0] ?? '') && st.touchIds.every((d) => d === playerKey),
+      `(11) 解く回の touch に端末の見分け用の番号（deviceId）が付き、ランキングの playerKey と同じ（touch ${st.touchIds.length}回・${String(st.touchIds[0]).slice(0, 8)}…）`);
     clearedPage = P;
   }
 
@@ -483,6 +514,48 @@ try {
     await page.waitForTimeout(800);
     const t4 = await titles();
     check(t4.length === 4 && (await groupSelect.inputValue()) === '', `(7) 「すべての問題を見る」で絞り込みが外れ、全部の問題が出る（${t4.length}件）`);
+    await ctx.close();
+  }
+
+  // ---- (11) 同じ中身の問題は一番古い1つだけ（2026-10-27） ----
+  {
+    const { ctx, page } = await newPage({ tables: { crossword_puzzles: DUP_ROWS } });
+    await page.goto(`${BASE}/crossword`);
+    await page.getByText('別の問題00').waitFor({ timeout: 20000 });
+    await page.waitForTimeout(800);
+    // カードの見出し（h2・h3）の題名の並び
+    const shown = () => page.evaluate(() => [...document.querySelectorAll('h2, h3')].map((h) => h.textContent.trim()).filter((t) => /^(元の問題|写しの問題.|別の問題\d\d)$/.test(t)));
+    const s1 = await shown();
+    check(!s1.some((t) => t.startsWith('写しの問題')) && !s1.includes('元の問題') && s1.length >= 12 && (await page.getByRole('button', { name: 'もっと見る' }).count()) === 1,
+      `(11) 新着の1ページ目: 写しの問題は出さず（一番新しい写しも）、元の問題（一番古い）はまだ出ない・続きがある（${s1.length}件・${s1.slice(0, 2).join('・')}…）`);
+    await page.getByRole('button', { name: 'もっと見る' }).click();
+    await page.getByText('元の問題').waitFor({ timeout: 10000 });
+    await page.waitForTimeout(800);
+    const s2 = await shown();
+    check(s2.filter((t) => t === '元の問題').length === 1 && !s2.some((t) => t.startsWith('写しの問題')) && s2[s2.length - 1] === '元の問題' && s2.length === 31,
+      `(11) 「もっと見る」の先で、元の問題が自分の場所（一番古いので最後）に1つだけ出る・写しは出ない（${s2.length}件・最後 ${s2[s2.length - 1]}）`);
+    await page.locator('select[aria-label="並び替え"]').selectOption('popular');
+    await page.waitForTimeout(1200);
+    const s3 = await shown();
+    check(s3.length >= 12 && !s3.some((t) => t.startsWith('写しの問題')),
+      `(11) 人気順でも、写し（遊ばれた回数が一番多い）は先頭に出さず、外す（${s3.length}件・先頭 ${s3[0]}）`);
+    await page.screenshot({ path: path.join(OUT, '11-gallery-dedupe-390.png'), fullPage: true });
+    await ctx.close();
+  }
+  // ---- (11) ランキングの score_limit（2026-10-27） ----
+  {
+    const { ctx, page, st } = await newPage({ marks: { ...SEEN_SOLVE, [`crossword_progress_${PUZZLE_ID}`]: progress({ '1,0': 'キ', '1,1': 'ク', '1,2': 'ラ' }) }, play: { scoreLimit: true } });
+    await openPuzzle(page);
+    await openAcross(page);
+    await key(page, 'ハ').click();
+    await key(page, '゛').click();
+    await page.locator('#cw-name-input').waitFor({ timeout: 15000 });
+    await page.locator('#cw-name-input').fill('台本の人');
+    await page.getByRole('button', { name: '載せる', exact: true }).click();
+    const told = await page.getByText('この問題の記録は、少し時間をおいてから送れます。').first().waitFor({ timeout: 10000 }).then(() => true, () => false);
+    const queued = await page.evaluate(() => localStorage.getItem('crossword_queued_scores'));
+    check(told && st.scores.length === 1 && (!queued || queued === '[]'), `(11) 記録を断られた（score_limit）時は「この問題の記録は、少し時間をおいてから送れます。」と出し、端末に控えない（送った ${st.scores.length}回・控え ${queued ?? '無し'}）`);
+    await page.screenshot({ path: path.join(OUT, '11-score-limit-390.png') });
     await ctx.close();
   }
 

@@ -24,7 +24,7 @@ export const CREATE_MARKS = {
 };
 
 // 初めて開いた時に入っている見本の3行（Hop 決定 2026-10-25）
-export const SAMPLE = ['米村【キララ】はOCHA NORMA兼DECA☆BEATのリーダー', '「生きるってマジMy Life」の歌詞が印象的な研修生曲→【アニマルランド】', 'つばきファクトリーの大阪出身でトマトが好きなメンバーは？→【土居楓奏｜ドイフウカ】'].join('\n');
+export const SAMPLE = ['米村【キララ】はOCHA NORMA兼DECA☆BEATのリーダー', 'パンダ、フラミンゴ、ミーアキャットが登場する研修生曲のタイトルは？→【アニマルランド】', 'つばきファクトリーの大阪出身でトマトが好きなメンバーは？→【土居楓奏｜ドイフウカ】'].join('\n');
 export const SAMPLE_WORDS = ['キララ', 'アニマルランド', 'ドイフウカ'];
 // 見本の答えに最初から付いているヒント（CreatePage.tsx の SAMPLE_HINTS と同じ物。2026-10-25）。語の窓の「ヒントの行き先」のリンクの住所で見る
 export const SAMPLE_HINT_HREFS = {

@@ -6,7 +6,7 @@
  *
  *   1. 番号と合言葉の形を確かめる。同じ接続元からは 1 時間に 10 回まで【仮】（成否に関係なく数える。IPv6 は /64 の帯で数える）
  *   2. 重い検査の前に、rpc crossword_owner_read で合言葉だけを先に照らす。合わない（番号が無い・合言葉が違う）なら 404 not_found
- *   3. 本文の確かめ（validateSavePayload）。YouTube の動画はここでは確かめず、どこにも問い合わせない。台帳に無かった印 outside は画面が付け、cleanHint が true の時だけ残す（Hop 決定 2026-10-21）
+ *   3. 本文の確かめ（validateSavePayload）。作った人の名前が運営・メンバー本人に見える時は 400 bad_name（保存と同じ）。YouTube の動画はここでは確かめず、どこにも問い合わせない。台帳に無かった印 outside は画面が付け、cleanHint が true の時だけ残す（Hop 決定 2026-10-21）
  *   4. rpc crossword_update（合言葉が合い・遊ばれた回数 0・隠されていない時だけ書き換える）
  *      false のときは合言葉と問題の行を照らし直し、合言葉が合わない・問題が無い・隠れているなら 404 not_found
  *      （合言葉の正誤を区別しない）、隠れておらず遊ばれた回数が 0 でないときだけ 409 already_played【仮】
@@ -20,6 +20,8 @@ import { decodeOgpPng, uploadOgpPng } from "../_shared/crosswordOgp";
 import { readJsonLimited } from "../_shared/bodyLimit";
 import { logBackground } from "../_shared/background";
 import { reporterKey } from "../_shared/reporterKey";
+import { BAD_NAME_REASON, puzzleHasReservedCreatorName } from "../_shared/crosswordCreatorName";
+import { stripUnsafe } from "../_shared/crosswordClue";
 import { json, pgCode, sha256Hex, toStoredBody, validateSavePayload } from "./crossword-save";
 
 interface Env {
@@ -117,7 +119,27 @@ export async function onRequestPost(context: {
   // 3. 中身の確かめ（保存と同じ）。合言葉は外側の key を使う
   const raw = body.puzzle;
   if (!raw || typeof raw !== "object") return json({ ok: false, reason: "bad_request" }, 400);
-  const puzzle = validateSavePayload({ ...(raw as Record<string, unknown>), key });
+  // 作った人の名前のなりすましは、保存と同じ決まりで理由を分けて先に断る（Hop 決定 2026-10-27）。
+  // ただし決まりより前に公開した問題が直せなくならないよう、棚の名前から変えていない時は通す
+  let keepName: string | undefined;
+  if (puzzleHasReservedCreatorName(raw)) {
+    const sentName = stripUnsafe(String((raw as { body?: { creatorName?: unknown } }).body?.creatorName ?? "")).trim();
+    let storedName: unknown;
+    try {
+      const res = await fetch(`${rest}/crossword_puzzles?select=name:body->>creatorName&id=eq.${id}`, { headers: dbHeaders });
+      if (!res.ok) {
+        console.error("crossword-update: name read failed", res.status);
+        return json({ ok: false, reason: "server" }, 503);
+      }
+      storedName = ((await res.json()) as { name?: unknown }[])[0]?.name;
+    } catch (e) {
+      console.error("crossword-update: name read threw", String(e));
+      return json({ ok: false, reason: "server" }, 503);
+    }
+    if (storedName !== sentName) return json({ ok: false, reason: BAD_NAME_REASON }, 400);
+    keepName = sentName;
+  }
+  const puzzle = validateSavePayload({ ...(raw as Record<string, unknown>), key }, keepName);
   if (!puzzle) return json({ ok: false, reason: "bad_request" }, 400);
 
   // 4. 書き換え

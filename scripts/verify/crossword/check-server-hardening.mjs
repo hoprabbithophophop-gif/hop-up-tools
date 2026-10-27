@@ -240,6 +240,156 @@ try {
     check(!r.timedOut && r.status === 403 && r.j?.reason === 'verification', `保存: 人間確認の確かめ先が返事をしない時、${ms}ms で 403 verification（確認に失敗しました と同じ断り方）`);
     check(ms < 8000, `保存: 待つのは数秒（8 秒未満）→ ${ms}ms`);
   }
+
+  // 7〜9 で使う、作り物の棚の上乗せ。連投の記録（rate_limit_log）と回数の印（crossword_play_counts）を本当に覚える
+  // （共通の作り物の棚は rate_limit_log をいつも空で返し、crossword_play_counts を真似ていないため、ここだけで真似る）
+  const memoryShelf = (shelf, answersOf = {}) => {
+    const log = []; // { ip_hash, endpoint, created_at }
+    const counts = []; // { puzzle_id, ip_hash, created_at }
+    let added = 0;
+    const inList = (cond) => (cond.startsWith('in.(') ? cond.slice(4, -1).split(',') : cond.startsWith('eq.') ? [cond.slice(3)] : null);
+    const fetch = async (input, init = {}) => {
+      const u = new URL(typeof input === 'string' ? input : input.url);
+      const method = (init.method || 'GET').toUpperCase();
+      const q = u.searchParams;
+      const body = typeof init.body === 'string' && init.body ? JSON.parse(init.body) : undefined;
+      if (u.hostname === 'challenges.cloudflare.com') return new Response(JSON.stringify({ success: true }), { status: 200 });
+      if (u.pathname.endsWith('/rate_limit_log')) {
+        if (method === 'POST') { log.push({ ...body, created_at: new Date().toISOString() }); return new Response(null, { status: 201 }); }
+        if (method === 'GET') {
+          const since = Date.parse(q.get('created_at').slice(3));
+          const rows = log.filter((r) => r.endpoint === q.get('endpoint').slice(3) && r.ip_hash === q.get('ip_hash').slice(3) && Date.parse(r.created_at) > since);
+          return new Response(JSON.stringify(rows.slice(0, Number(q.get('limit') || 1e9)).map(() => ({ id: 1 }))), { status: 200 });
+        }
+        return new Response(null, { status: 204 });
+      }
+      if (u.pathname.endsWith('/crossword_play_counts')) {
+        const hashes = q.get('ip_hash') ? inList(q.get('ip_hash')) : null;
+        const pid = q.get('puzzle_id')?.slice(3);
+        const hit = (r) => (!pid || r.puzzle_id === pid) && (!hashes || hashes.includes(r.ip_hash)) && (!q.get('created_at') || Date.parse(r.created_at) < Date.parse(q.get('created_at').slice(3)));
+        if (method === 'POST') {
+          if (counts.some((r) => r.puzzle_id === body.puzzle_id && r.ip_hash === body.ip_hash)) return new Response('[]', { status: 201 });
+          const row = { ...body, created_at: new Date().toISOString() };
+          counts.push(row);
+          return new Response(JSON.stringify([row]), { status: 201 });
+        }
+        if (method === 'GET') return new Response(JSON.stringify(counts.filter(hit).map((r) => ({ ip_hash: r.ip_hash }))), { status: 200 });
+        if (method === 'DELETE') { for (let i = counts.length - 1; i >= 0; i--) if (hit(counts[i])) counts.splice(i, 1); return new Response(null, { status: 204 }); }
+      }
+      if (u.pathname.endsWith('/rpc/crossword_add_play')) { added++; return new Response('null', { status: 200 }); }
+      if (u.pathname.endsWith('/crossword_plays') && method === 'GET') return new Response(JSON.stringify([shelf.plays.get(q.get('id').slice(3))].filter(Boolean)), { status: 200 });
+      if (u.pathname.endsWith('/crossword_answers')) return new Response(JSON.stringify([{ answers: answersOf[q.get('puzzle_id').slice(3)] }]), { status: 200 });
+      return shelf.fetch(input, init);
+    };
+    return { fetch, log, counts, added: () => added };
+  };
+  let tokenSeq = 0;
+  const newToken = () => `${String(++tokenSeq).padStart(8, '0')}-2222-4333-8444-555555555555`;
+
+  // ---------------------------------------------------------------- 7. ランキング: 同じ家・同じ問題の連投だけを止める
+  {
+    const shelf = fakeShelf();
+    const twoWords = [H(1, 0, 0, 'ネコ'), V(2, 1, 0, 'コイ')];
+    shelf.addPuzzle({ id: 'ScoreAAA', key: KEY, width: 2, height: 2, clues: twoWords });
+    shelf.addPuzzle({ id: 'ScoreBBB', key: KEY, width: 2, height: 2, clues: twoWords });
+    const mem = memoryShelf(shelf);
+    const send = async (puzzle, { ip = '203.0.113.7', ms = 60_000, player = 'a'.repeat(64) } = {}) => {
+      const token = newToken();
+      shelf.addPlay({ id: token, puzzle_id: puzzle, active_ms: ms });
+      const r = await callFunction(score.onRequestPost, mem, { headers: { 'CF-Connecting-IP': ip }, body: { playToken: token, playerKey: player, name: '' } });
+      return { ...r, token };
+    };
+    // 1人が解き直して速くなっていく（練習した人の記録は書き換わる）＋家族が1回ずつ。同じ家・同じ問題で5回まで
+    const first = [];
+    for (let i = 0; i < 5; i++) first.push(await send('ScoreAAA', { ms: 60_000 - i * 5000, player: (i < 3 ? 'a' : String(i)).repeat(64) }));
+    check(first.every((r) => r.status === 200 && r.j?.ok === true), `ランキング: 同じ家・同じ問題から1時間に5回までは載せる → ${first.map((r) => r.status).join(',')}`);
+    const best = shelf.scores.find((s) => s.puzzle_id === 'ScoreAAA' && s.time_seconds === 50);
+    check(!!best, `ランキング: 解き直して速くなった記録は今までどおり書き換わる（3回目の50秒が残る）→ ${shelf.scores.filter((s) => s.puzzle_id === 'ScoreAAA').map((s) => s.time_seconds).join(',')}`);
+    const sixth = await send('ScoreAAA', { ms: 10_000, player: 'f'.repeat(64) });
+    check(sixth.status === 429 && sixth.j?.reason === 'score_limit', `ランキング: 6回目は載せない（429 score_limit）→ ${sixth.status} ${sixth.text.slice(0, 60)}`);
+    check(!shelf.scores.some((s) => s.time_seconds === 10), 'ランキング: 6回目の記録は棚に入っていない');
+    check(shelf.plays.get(sixth.token).scored === false, 'ランキング: 載せなかった回の「記録済み」の印は外す（1時間たてば送り直せる）');
+    const other = await send('ScoreBBB');
+    check(other.status === 200 && other.j?.ok === true, `ランキング: 同じ家でも別の問題は載せる → ${other.status}`);
+    const neighbor = await send('ScoreAAA', { ip: '198.51.100.9', player: 'b'.repeat(64) });
+    check(neighbor.status === 200 && neighbor.j?.ok === true, `ランキング: 別の家からの同じ問題は載せる → ${neighbor.status}`);
+    const v6a = await send('ScoreBBB', { ip: '2001:db8:9:9::1' });
+    for (let i = 0; i < 4; i++) await send('ScoreBBB', { ip: `2001:db8:9:9::${i + 2}` });
+    const v6b = await send('ScoreBBB', { ip: '2001:db8:9:9:ffff::1' });
+    check(v6a.status === 200 && v6b.status === 429 && v6b.j?.reason === 'score_limit', `ランキング: IPv6 は同じ /64 の帯を同じ家として数える → ${v6a.status} / ${v6b.status}`);
+    // 1時間より前の送りは数えない（記録の時刻を1時間より前にずらす）
+    for (const r of mem.log) r.created_at = new Date(Date.now() - 61 * 60 * 1000).toISOString();
+    const later = await send('ScoreAAA', { ms: 9_000, player: 'f'.repeat(64) });
+    check(later.status === 200 && later.j?.ok === true, `ランキング: 1時間たてば同じ家・同じ問題からまた載せる → ${later.status}`);
+  }
+
+  // ---------------------------------------------------------------- 8. 作った人の名前のなりすまし
+  {
+    const update = await fns.load('functions/api/crossword-update.ts');
+    const named = (creatorName, extra = {}) => payload([H(1, 0, 0, 'ネコ'), V(2, 1, 0, 'コイ')], { ...extra, body: { creatorName } });
+    const bad = ['公式', 'ハロプロ公式', '運営', '運営より', 'hop-up-tools', 'HOP-UP TOOLS', 'Hop Up Tools', 'ｈｏｐ－ｕｐ　ｔｏｏｌｓ', 'HOP_UP_TOOLS', 'hopuptools中の人', 'スタッフ', 'ｽﾀｯﾌ', 'スタッフA', '公​式',
+      '牧野真莉愛', '牧野 真莉愛', '牧野　真莉愛', ' 牧野真莉愛 ', '山﨑愛生', '西﨑美空', '松原 ユリヤ'];
+    for (const n of bad) check(validateSavePayload(named(n)) === null, `名前: 「${n}」は保存の確かめで断る`);
+    const good = ['ほっぷ', '牧野', '真莉愛', '牧野真莉愛ファン', 'まりあ推し', 'hop_rabbit', 'つばきファン'];
+    for (const n of good) check(validateSavePayload(named(n))?.body.creatorName === n, `名前: 「${n}」は通す`);
+    check(validateSavePayload(named('ほっぷ', { title: '【公式】ハロプロクイズ' }))?.title === '【公式】ハロプロクイズ', '名前: 題名の【公式】は止めない');
+
+    const shelf = fakeShelf();
+    const mem = memoryShelf(shelf);
+    const r = await callFunction(save.onRequestPost, mem, { body: { token: 't', puzzle: named('HOP-UP TOOLS運営') } });
+    check(r.status === 400 && r.j?.reason === 'bad_name', `名前: 保存の受付係は理由 bad_name で断る → ${r.status} ${r.text.slice(0, 60)}`);
+    const r2 = await callFunction(save.onRequestPost, mem, { body: { token: 't', puzzle: payload([H(1, 0, 0, 'ネコ')], { body: { creatorName: 'ほっぷ' } }) } });
+    check(r2.status === 400 && r2.j?.reason === 'bad_request', `名前: 名前以外の形の誤りは今までどおり bad_request → ${r2.status} ${r2.j?.reason}`);
+
+    shelf.addPuzzle({ id: 'UpdName1', key: KEY, width: 2, height: 2, clues: [H(1, 0, 0, 'ネコ'), V(2, 1, 0, 'コイ')] });
+    const u1 = await callFunction(update.onRequestPost, mem, { body: { id: 'UpdName1', key: KEY, puzzle: named('牧野　真莉愛') } });
+    check(u1.status === 400 && u1.j?.reason === 'bad_name', `名前: 組み直し（crossword-update）も理由 bad_name で断る → ${u1.status} ${u1.text.slice(0, 60)}`);
+    const u2 = await callFunction(update.onRequestPost, mem, { body: { id: 'UpdName1', key: KEY, puzzle: named('ほっぷ') } });
+    check(u2.status === 200 && u2.j?.ok === true, `名前: 組み直しで普通の名前は通る → ${u2.status} ${u2.text.slice(0, 60)}`);
+    // 決まりより前に「公式」を含む名前で公開した人も、名前を変えなければ組み直せる（2026-10-27 時間を大事にする直し）
+    shelf.addPuzzle({ id: 'UpdName2', key: KEY, width: 2, height: 2, clues: [H(1, 0, 0, 'ネコ'), V(2, 1, 0, 'コイ')], creatorName: '非公式ファン' });
+    const u3 = await callFunction(update.onRequestPost, mem, { body: { id: 'UpdName2', key: KEY, puzzle: named('非公式ファン') } });
+    check(u3.status === 200 && u3.j?.ok === true, `名前: 前から公開している名前のままなら組み直せる → ${u3.status} ${u3.text.slice(0, 60)}`);
+    shelf.addPuzzle({ id: 'UpdName3', key: KEY, width: 2, height: 2, clues: [H(1, 0, 0, 'ネコ'), V(2, 1, 0, 'コイ')], creatorName: '非公式ファン' });
+    const u4 = await callFunction(update.onRequestPost, mem, { body: { id: 'UpdName3', key: KEY, puzzle: named('公式') } });
+    check(u4.status === 400 && u4.j?.reason === 'bad_name', `名前: 名前を別のなりすましに変える組み直しは断る → ${u4.status} ${u4.j?.reason}`);
+    const u5 = await callFunction(update.onRequestPost, mem, { body: { id: 'UpdName1', key: 'z'.repeat(64), puzzle: named('ほっぷ') } });
+    check(u5.status === 404, `名前: 合言葉が違えば名前を見る前に断る（他人の問題の名前は確かめられない）→ ${u5.status}`);
+  }
+
+  // ---------------------------------------------------------------- 9. 遊ばれた回数は端末ごとに数える（同じ家・同じ問題で24時間に5台まで）
+  {
+    const shelf = fakeShelf();
+    const answersOf = {};
+    for (const id of ['CountAAA', 'CountBBB', 'CountCCC']) {
+      shelf.addPuzzle({ id, key: KEY, width: 2, height: 2, clues: [H(1, 0, 0, 'ネコ'), V(2, 1, 0, 'コイ')] });
+      answersOf[id] = [['ネ', 'コ'], ['コ', 'イ']];
+    }
+    const mem = memoryShelf(shelf, answersOf);
+    const touch = async (puzzle, deviceId, ip = '203.0.113.7') => {
+      const token = newToken();
+      shelf.plays.set(token, { id: token, puzzle_id: puzzle, started_at: new Date().toISOString(), revealed: [], misses: 0, last_wrong: false, checks: 0, solved_at: null, counted: false, too_fast: false, active_ms: 0, resumed_at: null, seen_at: null });
+      const r = await callFunction(play.onRequestPost, mem, { headers: { 'CF-Connecting-IP': ip }, body: { action: 'touch', token, ...(deviceId === undefined ? {} : { deviceId }) } });
+      return r.j?.counted === true;
+    };
+    const dev = (n) => n.toString(16).padStart(64, '0');
+    const fam = [];
+    for (let i = 1; i <= 5; i++) fam.push(await touch('CountAAA', dev(i)));
+    check(fam.every(Boolean), `回数: 同じ家の別々の端末5台はそれぞれ数える → ${fam.join(',')}（足した回数 ${mem.added()}）`);
+    check((await touch('CountAAA', dev(1))) === false, '回数: 同じ端末・同じ問題は24時間に1回だけ');
+    check((await touch('CountAAA', dev(6))) === false, '回数: 同じ家・同じ問題の6台目（番号を変えた数え直し）は数えない');
+    check((await touch('CountAAA', dev(7), '198.51.100.9')) === true, '回数: 別の家の端末は数える');
+    check((await touch('CountBBB', dev(1))) === true, '回数: 同じ端末でも別の問題は数える');
+    check((await touch('CountAAA', dev(8), '2001:db8:5:5::1')) === true && (await touch('CountAAA', dev(8), '2001:db8:5:5::2')) === false, '回数: IPv6 は同じ /64 の帯の同じ端末を1台として数える');
+    // 番号が無い（古い画面）・形が違う時は、今までどおり家の帯だけで24時間に1回
+    check((await touch('CountCCC')) === true, '回数: 番号が無い時は家の帯で1回数える');
+    check((await touch('CountCCC')) === false, '回数: 番号が無い時、同じ家・同じ問題の2回目は数えない（今までどおり）');
+    check((await touch('CountCCC', 'xyz')) === false, '回数: 形の違う番号は「番号なし」として扱う（家の帯で数え済み）');
+    // 24時間たてば席が空き、6台目も数える（印の時刻を24時間より前にずらす）
+    for (const r of mem.counts) r.created_at = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    check((await touch('CountAAA', dev(6))) === true, '回数: 24時間たてば、前に数えなかった6台目も数える');
+    check((await touch('CountAAA', dev(1))) === true, '回数: 24時間たてば、同じ端末をまた数える');
+  }
 } finally {
   await fns.close();
 }

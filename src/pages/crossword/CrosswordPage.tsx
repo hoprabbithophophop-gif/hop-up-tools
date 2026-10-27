@@ -149,6 +149,7 @@ const T = {
   stage2b: {
     scoreFailed: "記録を保存できませんでした。", // HarmonyPalette と同じ文言
     scoreQueued: "通信できなかったので、記録はこの端末に預かりました。つながったら自動で送ります。", // HarmonyPalette と同じ文言
+    scoreLimit: "この問題の記録は、少し時間をおいてから送れます。", // 受付係が続けての記録を断った時（score_limit。2026-10-27）【仮】
   },
   playerHelp: {
     title: "遊び方",
@@ -1528,7 +1529,8 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
         toast.success(T.stage2b.scoreQueued, { duration: 6000 });
         setShowNameEntry(false);
       } else {
-        toast.error(T.stage2b.scoreFailed);
+        // 続けて送りすぎた時は、控えずに知らせるだけ（時間をおけば送れる。2026-10-27）
+        toast.error(error instanceof ScoreError && error.reason === "score_limit" ? T.stage2b.scoreLimit : T.stage2b.scoreFailed);
       }
     }
   };

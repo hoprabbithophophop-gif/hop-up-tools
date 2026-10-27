@@ -8,6 +8,7 @@
  *
  *   1. ハニーポット（bot が隠しフィールドを埋めたら黙って捨てる）
  *   2. 同一接続元の連投チェック（rate_limit_log、endpoint = crossword-score）
+ *   2b. 同じ家・同じ問題から1時間に PER_HOUSE_PER_PUZZLE_PER_HOUR 回を超えて送る回は載せない（429 score_limit。endpoint = crossword-score-puzzle。Hop 決定 2026-10-27）
  *   3. 中身の確かめ（ブラウザ側の確かめは信用しない）
  *   4. 記録。同じ人（端末の見分け用の番号の sha256）の記録は、速いときだけ書き換える
  *      （HarmonyPalette の saveScore と同じ動き。名前が空なら「名無し」〔Hop 決定 2026-10-03。HarmonyPalette は Anonymous〕、書き換えで名前が空なら前の名前のまま）
@@ -37,6 +38,14 @@ interface Env {
 const PER_IP_PER_HOUR = 30;
 /** rate_limit_log 上でこのエンドポイントを識別する名前。 */
 const ENDPOINT = "crossword-score";
+/**
+ * 同じ家（接続元を reporterKey で丸めた物）・同じ問題からランキングへ送れる回数（1時間あたり。Hop 決定 2026-10-27「機械の連投だけを止める」）。
+ * 記録は今どおり載せ、練習して速くなった人の記録も消さない。家族4〜5人が同じ問題をそれぞれ1回ずつ、
+ * または1人が何回か解き直しても届かない数にして、それを超える回（6回目から）だけ載せない。
+ * crossword_scores には接続元の列が無いので、rate_limit_log に別の名前（PUZZLE_ENDPOINT）で数える。
+ */
+const PER_HOUSE_PER_PUZZLE_PER_HOUR = 5;
+const PUZZLE_ENDPOINT = "crossword-score-puzzle";
 
 const PLAYER_KEY_RE = /^[0-9a-f]{64}$/;
 const MAX_NAME = 20;
@@ -181,6 +190,10 @@ export async function onRequestPost(context: {
     active_ms: number;
   }[])[0];
   if (!play) return json({ ok: false, reason: "bad_request" }, 400);
+
+  // 同じ家・同じ問題から短い間に何度も送る回（機械の連投）は載せない。
+  // 回の「記録済み」の印は外して返す（1時間たてば同じ回をもう一度送れる。印を付けたままだと二度と記録できない）
+  const puzzleHash = await sha256Hex(`${PUZZLE_ENDPOINT}:${play.puzzle_id}:${reporterKey(ip)}:${env.TURNSTILE_SECRET}`);
   // タイムは「盤を開いていた時間」（Hop 決定 2026-10-07）。active_ms が 0 の古い回だけ壁時計で出す
   const timeSeconds = Math.max(1, Math.floor((play.active_ms > 0 ? play.active_ms : Date.parse(play.solved_at) - Date.parse(play.started_at)) / 1000));
   const score: CleanScore = {
@@ -206,6 +219,24 @@ export async function onRequestPost(context: {
       console.error("crossword-score: unclaim threw", String(e));
     }
   };
+
+  try {
+    const res = await fetch(
+      `${rest}/rate_limit_log?select=id&endpoint=eq.${PUZZLE_ENDPOINT}` +
+        `&ip_hash=eq.${puzzleHash}&created_at=gt.${encodeURIComponent(since)}&limit=${PER_HOUSE_PER_PUZZLE_PER_HOUR}`,
+      { headers: dbHeaders },
+    );
+    if (res.ok) {
+      const rows = (await res.json()) as unknown[];
+      if (rows.length >= PER_HOUSE_PER_PUZZLE_PER_HOUR) {
+        await unclaim();
+        return json({ ok: false, reason: "score_limit" }, 429);
+      }
+    }
+    // 照会に失敗した場合は通す（上の接続元ごとの上限が残っている）
+  } catch {
+    /* 同上 */
+  }
 
   // 4. 記録。まず新しく入れてみて、同じ人の記録が既にあれば（23505）速いときだけ書き換える。
   let updated = false;
@@ -280,7 +311,17 @@ export async function onRequestPost(context: {
         headers: { ...dbHeaders, Prefer: "return=minimal" },
         body: JSON.stringify({ ip_hash: ipHash, endpoint: ENDPOINT }),
       }),
+      // 同じ家・同じ問題の回数。記録できた回だけ数える
+      fetch(`${rest}/rate_limit_log`, {
+        method: "POST",
+        headers: { ...dbHeaders, Prefer: "return=minimal" },
+        body: JSON.stringify({ ip_hash: puzzleHash, endpoint: PUZZLE_ENDPOINT }),
+      }),
       fetch(`${rest}/rate_limit_log?endpoint=eq.${ENDPOINT}&created_at=lt.${encodeURIComponent(since)}`, {
+        method: "DELETE",
+        headers: dbHeaders,
+      }),
+      fetch(`${rest}/rate_limit_log?endpoint=eq.${PUZZLE_ENDPOINT}&created_at=lt.${encodeURIComponent(since)}`, {
         method: "DELETE",
         headers: dbHeaders,
       }),

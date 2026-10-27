@@ -9,7 +9,7 @@
  *   1. ハニーポット（bot が隠しフィールドを埋めたら黙って捨てる）
  *   2. Turnstile 検証（Cloudflare に「人間か」を問い合わせる）
  *   3. 同一接続元の連投チェック（rate_limit_log）
- *   4. 中身の確かめ（ブラウザ側の確かめは信用しない）
+ *   4. 中身の確かめ（ブラウザ側の確かめは信用しない）。作った人の名前が運営・メンバー本人に見える時は 400 bad_name
  *   5. 保存（問題 → 削除用の合言葉の sha256）
  *
  * DB の BEFORE INSERT トリガに「1時間に全体100件」のブレーキ（errcode 53400）があり、
@@ -30,6 +30,7 @@ import { logBackground } from "../_shared/background";
 import { toLargeKana } from "../_shared/crosswordKana";
 import { isBlankClue, stripUnsafe } from "../_shared/crosswordClue";
 import { reporterKey } from "../_shared/reporterKey";
+import { BAD_NAME_REASON, isReservedCreatorName, puzzleHasReservedCreatorName } from "../_shared/crosswordCreatorName";
 
 interface Env {
   VITE_SUPABASE_URL?: string;
@@ -242,7 +243,11 @@ export function boardShape(clues: CleanClue[]): { width: number; height: number 
  * 受け取った中身を確かめ、保存してよい形に整える。だめなら null。
  * Turnstile・DB には触らない（node で単体に近い形で試せるように切り出してある）。
  */
-export function validateSavePayload(raw: unknown): CleanPuzzle | null {
+/**
+ * keepName: 組み直しで、棚にすでにある名前（決まりより前に公開した名前）をそのまま使う時だけ渡す。
+ * その名前と同じ時は、なりすましの決まりを当てない（2026-10-27）
+ */
+export function validateSavePayload(raw: unknown, keepName?: string): CleanPuzzle | null {
   if (!raw || typeof raw !== "object") return null;
   const p = raw as Record<string, unknown>;
 
@@ -289,6 +294,8 @@ export function validateSavePayload(raw: unknown): CleanPuzzle | null {
     if (!isStr(bo.creatorName)) return null;
     const name = stripUnsafe(bo.creatorName).trim();
     if (charLen(name) > MAX_CREATOR) return null;
+    // 運営・メンバー本人に見える名前は断る（受付係の入口では理由 bad_name で先に断る。ここは保険）
+    if (name !== keepName && isReservedCreatorName(name)) return null;
     if (name !== "") creatorName = name;
   }
   // 公式の決まりを題材にした問題の印（解く前の扉に免責の文を出す。Hop 決定 2026-10-16）。入れた時だけ残す
@@ -404,7 +411,8 @@ export async function onRequestPost(context: {
     /* 同上 */
   }
 
-  // 4. 中身の確かめ。
+  // 4. 中身の確かめ。作った人の名前のなりすましは、画面が知らせを出せるように理由を分けて先に断る（Hop 決定 2026-10-27）
+  if (puzzleHasReservedCreatorName(body.puzzle)) return json({ ok: false, reason: BAD_NAME_REASON }, 400);
   const puzzle = validateSavePayload(body.puzzle);
   if (!puzzle) return json({ ok: false, reason: "bad_request" }, 400);
 

@@ -12,6 +12,11 @@
 //   9  「直前の答えと同じヒントにする」は、元の答えを消した後と次の問題の後に出ない・375 幅で右端が切れない
 //   10 375×548 で答えの窓のカギ・ヒントの欄を選んでいる間は「次の足りない答えへ」の帯が隠れる・字 200% でも欄が押せる
 //   11 解く画面のヒントのリンクの小さい行は、ブラウザが整えた形（xn-- ・%E2%80%AE）
+// 2026-10-27 の直し（「作った人・解く人の時間を大事にする」直しのうち画面の側。番号は指示の番号に 27- を付けた）:
+//   27-1 見本の2行目が「パンダ、フラミンゴ、ミーアキャットが登場する研修生曲のタイトルは？→【アニマルランド】」
+//   27-3 作った人の名前に「公式」「運営」「hop-up-tools」「HOP-UP TOOLS」「スタッフ」を含む時・メンバーのフルネームとぴったり同じ時は、打っている時点で欄の下に知らせ、押せない理由に並べる。受付係の bad_name の知らせ
+//   27-4 窓で書いた → 入りのカギを、書く欄の行を直した後も取っておき「前に窓で書いたカギに戻す」で戻せる（再読み込みの後も）
+//   27-6 置けなかった答えがある時、公開の窓から「マス目をいじる」を開ける
 // 手元だけで流す: この台本が手元の vite を口 5186 で立ち上げ（Supabase の住所は使わない仮の住所）、棚と受付係はブラウザの中の作り物で答える。
 //   行き先（プレビュー・本番）・本物の棚には何も送らない。
 // 使い方: node scripts/verify/crossword/check-review-1026.mjs [写真の置き場]（省略時は一時置き場）
@@ -19,7 +24,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { outDir, ROOT, watchStumbles, isolatedViteConfig } from './_lib.mjs';
-import { CREATE_MARKS, SAMPLE, waitBoard, openWordSheet, closeWordSheet, setLinkHint, setClue, fillWords, wordKeys, openShare, readDraft, exampleUrl } from './_create.mjs';
+import { CREATE_MARKS, SAMPLE, waitBoard, openWordSheet, closeWordSheet, setLinkHint, setClue, fillWords, wordKeys, openShare, closeShare, readDraft, exampleUrl } from './_create.mjs';
 
 const PORT = 5186;
 const BASE = `http://localhost:${PORT}`;
@@ -87,6 +92,7 @@ const editAnswers = [['ネ', 'コ'], ['コ', 'ア', 'ラ']];
 // opts.shelf: 'ok' | 'hang' | 'error'（crossword_puzzles を読む時の答え方）
 async function mockAll(ctx, sent, opts = {}) {
   const shelf = opts.shelf ?? 'ok';
+  // opts.saveReason: 保存の受付係が断る理由（2026-10-27。bad_name など）
   await ctx.route(`${MOCK_SUPA}/**`, async (route) => {
     const req = route.request();
     const u = new URL(req.url());
@@ -107,6 +113,7 @@ async function mockAll(ctx, sent, opts = {}) {
   await ctx.route('**/api/crossword-save', async (route) => {
     const n = sent.saves.length + 1;
     sent.saves.push(route.request().postDataJSON());
+    if (opts.saveReason) return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ ok: false, reason: opts.saveReason }) });
     const plan = opts.saveDelay?.[n - 1] ?? { ms: 0, ok: true };
     if (plan.ms) await new Promise((r) => setTimeout(r, plan.ms));
     if (!plan.ok) return route.abort('failed').catch(() => {});
@@ -134,14 +141,14 @@ const browser = await chromium.launch();
 const stumbles = [];
 const S375 = { width: 375, height: 548 };
 const S390 = { width: 390, height: 844 };
-async function newPage({ size = S390, marks = CREATE_MARKS, init = null, shelf = 'ok', saveDelay = null } = {}) {
+async function newPage({ size = S390, marks = CREATE_MARKS, init = null, shelf = 'ok', saveDelay = null, saveReason = null } = {}) {
   const sent = { saves: [], updates: [] };
   const ctx = await browser.newContext({ viewport: size });
   await ctx.addInitScript((m) => {
     try { if (!sessionStorage.getItem('rv_marked')) { for (const [k, v] of Object.entries(m)) localStorage.setItem(k, v); sessionStorage.setItem('rv_marked', '1'); } } catch { /* 無視 */ }
   }, marks);
   if (init) await ctx.addInitScript(init);
-  await mockAll(ctx, sent, { shelf, saveDelay });
+  await mockAll(ctx, sent, { shelf, saveDelay, saveReason });
   const page = await ctx.newPage();
   await watchStumbles(page, stumbles);
   return { ctx, page, sent };
@@ -559,8 +566,187 @@ try {
     await shot(page, '6-edit-nokey-375');
     await ctx.close();
   }
+  // ===== 27-1. 見本の2行目 =====
+  {
+    const { ctx, page } = await newPage({ marks: { ...CREATE_MARKS } });
+    await page.goto(`${BASE}/crossword/create`);
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await page.waitForTimeout(500);
+    const line2 = (await areaValue(page)).split('\n')[1];
+    check(line2 === 'パンダ、フラミンゴ、ミーアキャットが登場する研修生曲のタイトルは？→【アニマルランド】', `27-1 見本の2行目が Hop の決めた文（${line2}）`);
+    await ctx.close();
+  }
+
+  // ===== 27-3. 作った人の名前 =====
+  const BAD_NAME = 'この名前は使えません。公式やメンバー本人と間違われる名前は避けてください。';
+  const BAD_NAME_BLOCK = '作った人の名前が使えません。公式やメンバー本人と間違われる名前は避けてください。';
+  {
+    const { ctx, page } = await newPage({ size: S375 });
+    await page.goto(`${BASE}/crossword/create`);
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await fillToPublish(page);
+    const creator = page.locator('#cw-creator');
+    const save = page.locator('[data-share-sheet] [data-save]');
+    const state = async () => ({
+      note: await page.locator('[data-creator-bad]').textContent().catch(() => null),
+      blocks: await page.locator('[data-share-blocks]').textContent(),
+      disabled: await save.isDisabled(),
+    });
+    check(!(await state()).disabled, '27-3 名前が空の時は公開できる（確かめの前提）');
+    const bad = ['ハロプロ公式', 'クロスワード運営', 'hop-up-tools', 'ＨＯＰ－ＵＰ　ＴＯＯＬＳ', 'スタッフA', '山﨑愛生', '櫻井 梨央'];
+    for (const name of bad) {
+      // 1字ずつ打つ（打っている時点で出るかを見る）
+      await creator.fill('');
+      await creator.pressSequentially(name, { delay: 10 });
+      await page.waitForTimeout(150);
+      const st = await state();
+      check(st.note === BAD_NAME && st.blocks.includes(BAD_NAME_BLOCK) && st.disabled, `27-3 「${name}」は打った時点で欄の下に知らせが出て、押せない理由に並び、公開を押せない`);
+    }
+    for (const name of ['山﨑愛生推し', '台本の人', 'りおちゃん']) {
+      await creator.fill(name);
+      await page.waitForTimeout(150);
+      const st = await state();
+      check(st.note === null && !st.blocks.includes(BAD_NAME_BLOCK) && !st.disabled, `27-3 「${name}」は使える（知らせが出ない・公開できる）`);
+    }
+    await creator.fill('ハロプロ公式');
+    await page.waitForTimeout(150);
+    const described = await creator.evaluate((el) => [el.getAttribute('aria-invalid'), el.getAttribute('aria-describedby')]);
+    check(described[0] === 'true' && described[1] === 'cw-creator-bad', `27-3 読み上げでも欄と知らせがつながる（${described.join('・')}）`);
+    await ctx.close();
+  }
+  {
+    // 受付係が bad_name で断った時（画面では通る名前でも、受付係の表が違えば断られうる）
+    const { ctx, page, sent } = await newPage({ size: S390, saveReason: 'bad_name' });
+    await page.goto(`${BASE}/crossword/create`);
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await fillToPublish(page);
+    await page.locator('#cw-creator').fill('台本の人');
+    await page.locator('[data-share-sheet] [data-save]').click();
+    const told = await page.getByText(BAD_NAME_BLOCK).first().waitFor({ timeout: 20000 }).then(() => true, () => false);
+    check(told && sent.saves.length === 1, `27-3 受付係が bad_name を返した時は「${BAD_NAME_BLOCK}」と知らせる（送った ${sent.saves.length}回）`);
+    await ctx.close();
+  }
+
+  // ===== 27-4. 窓で書いたカギを取っておく =====
+  {
+    const { ctx, page } = await newPage({ size: S375 });
+    await page.goto(`${BASE}/crossword/create`);
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await fillArea(page, '鳴く→【ネコ】\n葉を食べる→【コアラ】');
+    await openWordSheet(page, 'ネコ');
+    await setClue(page, 'イヌ→ネコの順に鳴く');
+    await page.waitForTimeout(200);
+    check((await page.locator('[data-word-sheet] [data-clue-restore]').count()) === 0, '27-4 窓のカギが使われている間は「前に窓で書いたカギに戻す」は出ない');
+    await closeWordSheet(page);
+    await fillArea(page, 'ニャーと鳴く→【ネコ】\n葉を食べる→【コアラ】');
+    await openWordSheet(page, 'ネコ');
+    const restore = page.locator('[data-word-sheet] [data-clue-restore]');
+    check((await clueValue(page)) === 'ニャーと鳴く' && (await restore.textContent().catch(() => null)) === '前に窓で書いたカギに戻す',
+      `27-4 書く欄の行を直すと書く欄のカギが使われ、「前に窓で書いたカギに戻す」が出る（${await clueValue(page)}）`);
+    await closeWordSheet(page);
+    await page.waitForTimeout(600);
+    const draft = await readDraft(page);
+    check(draft?.shelvedClues?.['ネコ'] === 'イヌ→ネコの順に鳴く', `27-4 取っておいたカギは作りかけにも残る（${JSON.stringify(draft?.shelvedClues)}）`);
+    await page.reload();
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await page.waitForTimeout(800);
+    await openWordSheet(page, 'ネコ');
+    check((await clueValue(page)) === 'ニャーと鳴く' && (await restore.count()) === 1, '27-4 再読み込みの後も書く欄のカギのままで、戻すボタンが出る');
+    await restore.click();
+    await page.waitForTimeout(300);
+    check((await clueValue(page)) === 'イヌ→ネコの順に鳴く' && (await restore.count()) === 0 && (await page.locator('[data-word-sheet] [data-clue-stuck]').getAttribute('data-clue-stuck').catch(() => null)) === 'marks',
+      `27-4 押すと窓のカギに戻り、ボタンは消え、書く欄に移せない理由がまた出る（${await clueValue(page)}）`);
+    await closeWordSheet(page);
+    await page.waitForTimeout(600);
+    await page.reload();
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await page.waitForTimeout(800);
+    await openWordSheet(page, 'ネコ');
+    check((await clueValue(page)) === 'イヌ→ネコの順に鳴く' && (await restore.count()) === 0, `27-4 戻した後に開き直しても窓のカギのまま（${await clueValue(page)}）`);
+    await closeWordSheet(page);
+    // 窓で書いたカギを書く欄に移せた時（→ などが無い）は、書く欄の行を直しても取っておかない（書く欄にそのカギが入っていたので、直したのは本人）
+    await fillArea(page, '鳴く→【ネコ】\n葉を食べる→【コアラ】');
+    await openWordSheet(page, 'コアラ');
+    await setClue(page, 'ユーカリを食べる');
+    await closeWordSheet(page);
+    await fillArea(page, '鳴く→【ネコ】\nユーカリの葉を食べる→【コアラ】');
+    await openWordSheet(page, 'コアラ');
+    check((await page.locator('[data-word-sheet] [data-clue-restore]').count()) === 0, '27-4 書く欄に移せたカギは、書く欄の行を直しても戻すボタンを出さない');
+    await closeWordSheet(page);
+    await ctx.close();
+  }
+
+  // ===== 27-6. 置けなかった答えがある時の公開の窓 =====
+  const UNPLACED_TEXT = 'ニャーと鳴く→【ネコ】\nユーカリを食べる→【コアラ】\nすっきりした香り→【ミント】';
+  {
+    const { ctx, page } = await newPage({ size: S375 });
+    await page.goto(`${BASE}/crossword/create`);
+    await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+    await fillArea(page, UNPLACED_TEXT);
+    await waitBoard(page).catch(() => {});
+    await page.waitForTimeout(1500);
+    await openShare(page);
+    const entry = page.locator('[data-share-unplaced] [data-share-open-board]');
+    const ok = await entry.waitFor({ timeout: 15000 }).then(() => true, () => false);
+    check(ok && (await entry.textContent()) === 'マス目をいじる' && (await page.locator('[data-share-unplaced]').textContent()).includes('この答えは問題に入りません。'),
+      '27-6 置けなかった答えの知らせの近くに「マス目をいじる」の入口が出る');
+    if (ok) {
+      await entry.click();
+      const opened = await page.locator('[data-board-sheet]').waitFor({ timeout: 10000 }).then(() => true, () => false);
+      const shareGone = await page.locator('[data-share-sheet]').waitFor({ state: 'detached', timeout: 10000 }).then(() => true, () => false);
+      check(opened && shareGone, `27-6 押すと公開の窓が閉じて「マス目をいじる」が開く（開いた ${opened}・公開の窓が閉じた ${shareGone}）`);
+      await shot(page, '27-6-board-opened-375');
+    }
+    await ctx.close();
+  }
+
   // ===== 写真: 直した所を 375×548 と 390×844 の両方で撮る（はみ出し・重なりを目で見るため。確かめの行は出さない） =====
   for (const [size, tag] of [[S375, '375x548'], [S390, '390x844']]) {
+    {
+      // 27-3 名前の知らせ・27-6 置けなかった答えの入口（公開の窓）
+      const { ctx, page } = await newPage({ size });
+      await page.goto(`${BASE}/crossword/create`);
+      await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+      await fillToPublish(page);
+      await page.locator('#cw-creator').fill('ハロプロ公式スタッフの名前をとても長く書いた時');
+      await page.locator('[data-creator-bad]').scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+      await shot(page, `p27-creator-bad-${tag}`);
+      await closeShare(page);
+      await fillArea(page, UNPLACED_TEXT);
+      await waitBoard(page).catch(() => {});
+      await page.waitForTimeout(1500);
+      await openShare(page);
+      await page.locator('#cw-creator').fill('');
+      // 下の貼り付き（押せない理由・公開する）に隠れない所まで、公開の窓を一番下まで送る
+      await page.locator('[data-share-open-board]').evaluate((el) => {
+        let p = el.parentElement;
+        while (p && !(p.scrollHeight > p.clientHeight && /(auto|scroll)/.test(getComputedStyle(p).overflowY))) p = p.parentElement;
+        if (p) p.scrollTop = p.scrollHeight;
+      });
+      await page.waitForTimeout(300);
+      await shot(page, `p27-unplaced-board-${tag}`);
+      await ctx.close();
+    }
+    {
+      // 27-4 戻すボタン（答えの窓）。欄を選んでいない時と、カギの欄を選んでいる時
+      const { ctx, page } = await newPage({ size });
+      await page.goto(`${BASE}/crossword/create`);
+      await page.locator('[data-bulk-text]').waitFor({ timeout: 30000 });
+      await fillArea(page, '鳴く→【ネコ】\n葉を食べる→【コアラ】');
+      await openWordSheet(page, 'ネコ');
+      await setClue(page, 'イヌ→ネコの順に鳴く');
+      await closeWordSheet(page);
+      await fillArea(page, 'ニャーと鳴く→【ネコ】\n葉を食べる→【コアラ】');
+      await openWordSheet(page, 'ネコ');
+      await page.locator('[data-word-sheet] [data-clue-restore]').scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+      await shot(page, `p27-clue-restore-${tag}`);
+      await page.locator('[data-word-sheet] #cw-clue').focus();
+      await page.waitForTimeout(500);
+      await shot(page, `p27-clue-restore-focus-${tag}`);
+      await ctx.close();
+    }
     {
       const { ctx, page } = await newPage({ size });
       await page.goto(`${BASE}/crossword/create`);

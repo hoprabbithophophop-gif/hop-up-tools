@@ -1,4 +1,5 @@
 // 解いている回の受付係（/api/crossword-play）とのやり取り。答えはブラウザに来ないので、丸付けと1文字見るはここを通す。
+import { getPlayerKey } from "./scores";
 export class PlayError extends Error {
   constructor(public reason: string) {
     super(`play failed: ${reason}`);
@@ -40,7 +41,8 @@ export const checkPlay = (token: string, answers: Record<string, string>, waited
   call<CheckResult>({ action: "check", token, answers, waitedMs });
 
 // 最初の1文字が入ったことを知らせる。遊ばれた回数は受付係がこの回で1度だけ数える
-export const touchPlay = (token: string) => call<{ counted: boolean }>({ action: "touch", token });
+// deviceId は端末の見分け用の番号（ランキングで使っている物と同じ）。遊ばれた回数を端末ごとに数えるために送る（Hop 決定 2026-10-27。受付係は touch で受け取る）
+export const touchPlay = (token: string) => call<{ counted: boolean }>({ action: "touch", token, deviceId: getPlayerKey() });
 
 // そのマスの字を1つ教えてもらう。reveals はこの回で見たマスの数
 export const revealCell = (token: string, x: number, y: number) => call<{ char: string; reveals: number }>({ action: "reveal", token, x, y });

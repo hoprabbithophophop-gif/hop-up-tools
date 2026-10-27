@@ -28,6 +28,7 @@ const files = [
   'functions/_shared/background.ts',
   'functions/_shared/crosswordClue.ts',
   'functions/_shared/reporterKey.ts', // 保存の受付係が IPv6 を /64 の帯で数えるために読む（2026-10-26）
+  'functions/_shared/crosswordCreatorName.ts', // 保存の受付係が作った人の名前のなりすましを断るために読む（2026-10-27）
   'functions/api/crossword-save.ts',
 ];
 for (const f of files) {

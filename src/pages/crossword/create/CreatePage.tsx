@@ -47,6 +47,7 @@ import { C } from "../style";
 import type { TrialPlay } from "../CrosswordPage";
 import type { EditCarry } from "../HintsEditPage";
 import { BULK_TEXTS, CT, PROPOSAL_TEXTS } from "./texts";
+import { isBadCreatorName } from "../../../lib/crossword/creatorName";
 
 // localStorage の鍵（札の名前は今までと同じ。消した札は消したまま）。
 // 作りかけは version 3 から別の名前にしまう（2026-10-26。前の版に戻した時に、前の版が新しい形を読めずに作りかけを消していた）。
@@ -165,6 +166,8 @@ interface DraftV3 {
   clues: Record<string, string>;
   // 窓で直したカギのうち書く欄に移せなかった物の、その時の書く欄の行（clueLineRef。行が変わったら書く欄の方を使う。2026-10-26）
   clueLines: Record<string, string>;
+  // 窓で書いたカギのうち、書く欄の行を直したため使われなくなった物（取っておいて、答えの窓のボタンで戻せる。Hop 決定 2026-10-27）
+  shelvedClues?: Record<string, string>;
   board: PlacedItem[] | null;
   proposals: BulkProposal[] | null;
   picked: number | null;
@@ -281,6 +284,7 @@ interface ParsedDraft {
   hints: Record<string, HintRef>;
   clues: Record<string, string>;
   clueLines: Record<string, string>;
+  shelvedClues: Record<string, string>;
   hintLabels: Record<string, string>;
   title?: string;
   creatorName?: string;
@@ -297,7 +301,7 @@ const parseDraft = (raw: string): ParsedDraft | null => {
     // 空にした印は作りかけ無し
     if (d.cleared === true) return null;
     const text = typeof d.bulkText === "string" ? d.bulkText : "";
-    const out: ParsedDraft = { bulkText: text, hints: {}, clues: {}, clueLines: {}, hintLabels: {}, board: null };
+    const out: ParsedDraft = { bulkText: text, hints: {}, clues: {}, clueLines: {}, shelvedClues: {}, hintLabels: {}, board: null };
     if (typeof d.title === "string") out.title = d.title;
     if (typeof d.creatorName === "string") out.creatorName = d.creatorName;
     if (Array.isArray(d.tags)) out.tags = (d.tags as unknown[]).filter((t): t is string => typeof t === "string").slice(0, MAX_TAGS);
@@ -314,6 +318,7 @@ const parseDraft = (raw: string): ParsedDraft | null => {
       if (d.clues && typeof d.clues === "object") for (const [k, v] of Object.entries(d.clues as Record<string, unknown>)) if (typeof v === "string") restoredClues[k] = v;
       if (d.hintLabels && typeof d.hintLabels === "object") for (const [k, v] of Object.entries(d.hintLabels as Record<string, unknown>)) if (typeof v === "string") restoredLabels[k] = v;
       if (d.clueLines && typeof d.clueLines === "object") for (const [k, v] of Object.entries(d.clueLines as Record<string, unknown>)) if (typeof v === "string" && k in restoredClues) out.clueLines[k] = v;
+      if (d.shelvedClues && typeof d.shelvedClues === "object") for (const [k, v] of Object.entries(d.shelvedClues as Record<string, unknown>)) if (typeof v === "string" && v.trim()) out.shelvedClues[k] = v;
     } else {
       // 古い形（段の無い下書き）: 1語ずつ入れた語は書いた行の最後に【語】の1行として足し、カギとヒントは答えごとに持ち替える
       const keys = new Set(evaluateCandidates(parseMarks(text)).filter((c) => !c.reason).map((c) => c.key));
@@ -398,6 +403,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
   const [clues, setClues] = useState<Record<string, string>>({});
   // 答えの窓でカギを直した時の、その答えの書く欄の行（書き戻した後の行）。行がこれと違う＝あとで書く欄を書き換えた時は、書く欄の方を使う（Hop 決定 2026-10-25）
   const clueLineRef = useRef<Record<string, string>>({});
+  // 窓で書いたカギのうち、書く欄の行を直したため使われなくなった物（答えごと。Hop 決定 2026-10-27）
+  const [shelvedClues, setShelvedClues] = useState<Record<string, string>>({});
   const [puzzleTitle, setPuzzleTitle] = useState("");
   const [creatorName, setCreatorName] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -510,6 +517,20 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     if (clues[key] !== undefined && (fixedLine === undefined || fixedLine === lineNow)) return clues[key];
     return a ? clueDraft(bulkText, marks, a.mark, a.cells.length) : "";
   };
+  // 答えの窓でカギを書く（窓の欄に打った時と、取っておいたカギに戻す時）。
+  // 書く欄のその行にも同じカギを書き戻す（Hop 決定 2026-10-25）。窓の欄は打っている途中の字（後ろの空白など）を保つため、窓の側にも持つ
+  const writeWindowClue = (key: string, v: string) => {
+    const next = withClueInLine(bulkText, key, v);
+    const line = answerByKey.get(key)?.mark.line;
+    if (next !== null) setBulkText(next);
+    if (line !== undefined) clueLineRef.current[key] = (next ?? bulkText).split("\n")[line];
+    setClues((prev) => ({ ...prev, [key]: v }));
+  };
+  // 取っておいたカギに戻すボタンを出すか（そのカギが今のカギと違う時だけ）
+  const shelvedFor = (key: string): string | null => {
+    const v = shelvedClues[key];
+    return v !== undefined && v.trim() && v.trim() !== clueOf(key).trim() ? v : null;
+  };
   // 窓のカギが効いている答え（窓の側のカギ）で、書く欄に移せない物の理由。窓のカギの欄の下に出す（2026-10-26。前は知らせが無く、片方の直しが黙って消えた）
   const clueStuckOf = (key: string): ClueStuck | null => {
     const v = clues[key];
@@ -580,6 +601,8 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
             : "";
   // 共有を押せない理由の並び。足りない物を先頭に（Hop 決定 2026-10-22）
   const contentSig = JSON.stringify({ bulkText, clues, hints, boardSig });
+  // 使えない作った人の名前（打っている時点で欄の下に知らせ、公開を止める。Hop 決定 2026-10-27）
+  const badName = isBadCreatorName(creatorName);
   const shareBlocks = [
     !editTarget && publishedSigRef.current === contentSig ? CT.alreadyPublished : "",
     // 見本の行のままでは公開しない【仮】（2026-10-25。見本にカギとヒントが付いたので、そのまま公開するとギャラリーに同じ問題が並ぶ。Hop に聞いている）
@@ -588,6 +611,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     boardBlock,
     hasBoard && boardDisconnected ? CT.pins.notConnected : "",
     ...overClues.map((k) => BULK_TEXTS.reasonLine(k, CT.clueOver(clueChars(clueOf(k)) - MAX_CLUE_CHARS))),
+    badName ? CT.badCreatorNameBlock : "",
   ].filter(Boolean);
   const canShare = shareBlocks.length === 0;
 
@@ -855,6 +879,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
         setBulkText(lines.join("\n"));
         setClues(restoredClues);
         clueLineRef.current = restoredLines;
+        setShelvedClues({});
         setHints(restoredHints);
         storedHintsRef.current = restoredHints;
         // 盤は保存した時の形のまま（番号も同じ）。組み替えたい時は広げた盤の「再シャッフル」
@@ -879,9 +904,15 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     if (d.creatorName !== undefined || replace) setCreatorName(d.creatorName ?? "");
     if (d.tags !== undefined || replace) setTags(d.tags ?? []);
     if (d.isBeginner !== undefined || replace) setIsBeginner(d.isBeginner ?? false);
-    // 窓で直したカギのうち、残した後に書く欄の行を直していた物は、書く欄の方を使う（窓の側のカギは捨てる。2026-10-26）
+    // 窓で直したカギのうち、残した後に書く欄の行を直していた物は、書く欄の方を使う（2026-10-26）。
+    // 窓の側のカギは捨てずに取っておき、答えの窓のボタンで戻せるようにする（Hop 決定 2026-10-27）
     const live: Record<string, string> = {};
-    for (const [k, v] of Object.entries(d.clues)) if (d.clueLines[k] === undefined || d.clueLines[k] === lineOfKey(d.bulkText, k)) live[k] = v;
+    const shelved: Record<string, string> = { ...d.shelvedClues };
+    for (const [k, v] of Object.entries(d.clues)) {
+      if (d.clueLines[k] === undefined || d.clueLines[k] === lineOfKey(d.bulkText, k)) live[k] = v;
+      else if (v.trim()) shelved[k] = v;
+    }
+    setShelvedClues(shelved);
     // 窓で直したカギは書く欄の行に移す（Hop 決定 2026-10-25 より前の作りかけは、窓の側だけに持っていた）
     const moved = moveCluesIntoText(d.bulkText, live);
     setBulkText(moved.text);
@@ -954,6 +985,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     hintLabels,
     clues,
     clueLines: Object.fromEntries(Object.entries(clueLineRef.current).filter(([k]) => k in clues)),
+    shelvedClues,
     board: boardForDraft,
     proposals,
     picked,
@@ -1460,6 +1492,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
     setBulkText("");
     setClues({});
     clueLineRef.current = {};
+    setShelvedClues({});
     setHints({});
     setHintLabels({});
     // 「直前の答えと同じヒントにする」は前の問題のヒントなので忘れる（2026-10-26）
@@ -1668,7 +1701,13 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                     // 書く欄を空にした時に付いていたヒントは、次に同じ答えを書いた時に「前に付けたヒント」と知らせる
                     if (!t.trim() && bulkText.trim()) setCarriedHints(new Set(Object.keys(hints)));
                     // 1行に答えが2つあって書く欄に移せなかった窓のカギは、行を分けて答えが1つの行になった時に、その行へ書き戻す（2026-10-26。前は黙って消えた）
+                    // 書く欄に移せない窓のカギが効いていた答え（このあと行が変わったら、窓のカギは取っておく。Hop 決定 2026-10-27）
+                    const liveStuck = Object.entries(clues).filter(
+                      ([k, v]) => v.trim() && clueLineRef.current[k] !== undefined && lineOfKey(bulkText, k) === clueLineRef.current[k] && clueStuckReason(bulkText, k, v)
+                    );
                     const next = reviveClues(bulkText, t);
+                    const shelve = liveStuck.filter(([k]) => clueLineRef.current[k] !== lineOfKey(next, k));
+                    if (shelve.length > 0) setShelvedClues((prev) => ({ ...prev, ...Object.fromEntries(shelve) }));
                     if (next !== t) {
                       const area = document.querySelector<HTMLTextAreaElement>("[data-bulk-text]");
                       const caret = area && area.value === t ? area.selectionStart : null;
@@ -2017,15 +2056,7 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                   data-kbd-field=""
                   value={sheetClue}
                   rows={3}
-                  onChange={(e) => {
-                    const v = e.target.value.replace(/\r?\n/g, "");
-                    // 書く欄のその行にも同じカギを書き戻す（Hop 決定 2026-10-25）。窓の欄は打っている途中の字（後ろの空白など）を保つため、窓の側にも持つ
-                    const next = withClueInLine(bulkText, sheetEntry, v);
-                    const line = answerByKey.get(sheetEntry)?.mark.line;
-                    if (next !== null) setBulkText(next);
-                    if (line !== undefined) clueLineRef.current[sheetEntry] = (next ?? bulkText).split("\n")[line];
-                    setClues((prev) => ({ ...prev, [sheetEntry]: v }));
-                  }}
+                  onChange={(e) => writeWindowClue(sheetEntry, e.target.value.replace(/\r?\n/g, ""))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.nativeEvent.isComposing) e.preventDefault();
                   }}
@@ -2064,6 +2095,26 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                     <p data-clue-stuck={stuck} className="text-xs leading-relaxed" style={{ color: C.secondary }}>
                       {CT.clueStuck[stuck]}
                     </p>
+                  ) : null;
+                })()}
+                {/* 窓で書いたカギが、書く欄の行を直したため使われなくなった時に、そのカギへ戻すボタン（Hop 決定 2026-10-27） */}
+                {(() => {
+                  const shelved = shelvedFor(sheetEntry);
+                  return shelved !== null ? (
+                    <button
+                      type="button"
+                      data-clue-restore=""
+                      className={`${btnGray} self-start text-sm`}
+                      onClick={() => {
+                        writeWindowClue(sheetEntry, shelved);
+                        setShelvedClues((prev) => {
+                          const { [sheetEntry]: _, ...rest } = prev;
+                          return rest;
+                        });
+                      }}
+                    >
+                      {CT.clueRestore}
+                    </button>
                   ) : null;
                 })()}
                 {/* カギと同じ形の見出しと灰色の説明（2026-10-24。前は見出しが無く、どこからヒントか分かりにくかった） */}
@@ -2191,7 +2242,21 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                   <label htmlFor="cw-creator" className="text-xs font-bold" style={{ color: C.secondary }}>
                     {CT.creatorName}
                   </label>
-                  <input id="cw-creator" value={creatorName} maxLength={50} onChange={(e) => setCreatorName(e.target.value)} placeholder={CT.creatorNamePlaceholder} className={inputClass} />
+                  <input
+                    id="cw-creator"
+                    value={creatorName}
+                    maxLength={50}
+                    onChange={(e) => setCreatorName(e.target.value)}
+                    placeholder={CT.creatorNamePlaceholder}
+                    className={inputClass}
+                    aria-invalid={badName || undefined}
+                    aria-describedby={badName ? "cw-creator-bad" : undefined}
+                  />
+                  {badName && (
+                    <p id="cw-creator-bad" data-creator-bad="" role="status" className="text-xs" style={{ color: C.error }}>
+                      {CT.badCreatorName}
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-col gap-1">
                   <label htmlFor="cw-tag" className="text-xs font-bold" style={{ color: C.secondary }}>
@@ -2246,15 +2311,31 @@ export function CreatePage({ draftEnabled, renderTrial }: { draftEnabled: boolea
                 })()}
                 {/* 盤に置けなかった語（見本の案A の共有の窓。この語は問題に入らない） */}
                 {unplaced.length > 0 && (
-                  <p data-share-unplaced="" className="text-sm bg-surface-container-low px-3 py-2" style={{ color: C.ink }}>
-                    <span className="text-xs font-bold tracking-[0.1em] mr-2" style={{ color: C.error }}>
-                      {CT.unplaced}
-                    </span>
-                    {unplaced.map((i) => surfaceOf(i.id)).join("、")}
-                    <span className="block text-xs mt-1" style={{ color: C.secondary }}>
+                  <div data-share-unplaced="" className="text-sm bg-surface-container-low px-3 py-2" style={{ color: C.ink }}>
+                    <p>
+                      <span className="text-xs font-bold tracking-[0.1em] mr-2" style={{ color: C.error }}>
+                        {CT.unplaced}
+                      </span>
+                      {unplaced.map((i) => surfaceOf(i.id)).join("、")}
+                    </p>
+                    <p className="text-xs mt-1" style={{ color: C.secondary }}>
                       {CT.unplacedNote}
-                    </span>
-                  </p>
+                    </p>
+                    {/* 全部入る組み合わせを探し直すための入口。押すと公開の窓を閉じて「マス目をいじる」を開く（Hop 決定 2026-10-27） */}
+                    <button
+                      type="button"
+                      data-share-open-board=""
+                      disabled={isSaving}
+                      onClick={() => {
+                        setShareOpen(false);
+                        setExpanded(true);
+                      }}
+                      className={`${btnGray} mt-2 text-sm`}
+                      style={{ color: C.ink }}
+                    >
+                      {CT.expand}
+                    </button>
+                  </div>
                 )}
                 {/* 著作権の2行・押せない理由・「共有する」は窓の下に貼り付ける（iPhone SE の高さでも、足りない物と押す所がいつも見えるように） */}
                 <div data-share-foot="" className="sticky bottom-0 -mx-4 -mb-6 px-4 pt-2 pb-4 bg-white flex flex-col gap-1" style={{ boxShadow: `0 -1px 0 ${C.mid}` }}>
