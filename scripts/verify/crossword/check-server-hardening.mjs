@@ -277,7 +277,7 @@ try {
         if (method === 'DELETE') { for (let i = counts.length - 1; i >= 0; i--) if (hit(counts[i])) counts.splice(i, 1); return new Response(null, { status: 204 }); }
       }
       if (u.pathname.endsWith('/rpc/crossword_add_play')) { added++; return new Response('null', { status: 200 }); }
-      if (u.pathname.endsWith('/crossword_plays') && method === 'GET') return new Response(JSON.stringify([shelf.plays.get(q.get('id').slice(3))].filter(Boolean)), { status: 200 });
+      if (u.pathname.endsWith('/crossword_plays') && method === 'GET' && !q.get('puzzle_id')) return new Response(JSON.stringify([shelf.plays.get(q.get('id').slice(3))].filter(Boolean)), { status: 200 });
       if (u.pathname.endsWith('/crossword_answers')) return new Response(JSON.stringify([{ answers: answersOf[q.get('puzzle_id').slice(3)] }]), { status: 200 });
       return shelf.fetch(input, init);
     };
@@ -355,6 +355,22 @@ try {
     check(u4.status === 400 && u4.j?.reason === 'bad_name', `名前: 名前を別のなりすましに変える組み直しは断る → ${u4.status} ${u4.j?.reason}`);
     const u5 = await callFunction(update.onRequestPost, mem, { body: { id: 'UpdName1', key: 'z'.repeat(64), puzzle: named('ほっぷ') } });
     check(u5.status === 404, `名前: 合言葉が違えば名前を見る前に断る（他人の問題の名前は確かめられない）→ ${u5.status}`);
+    // 回数が 0 でも、解いた人・答え合わせをした人・ランキングに載った人がいれば組み直さない（電波切れで回数が数えられなかった人の記録を守る。2026-10-27）
+    const fresh = (id) => shelf.addPuzzle({ id, key: KEY, width: 2, height: 2, clues: [H(1, 0, 0, 'ネコ'), V(2, 1, 0, 'コイ')] });
+    fresh('UpdPlay1'); shelf.addPlay({ id: 'p-open', puzzle_id: 'UpdPlay1', active_ms: 1000, solved: false });
+    const p1 = await callFunction(update.onRequestPost, mem, { body: { id: 'UpdPlay1', key: KEY, puzzle: named('ほっぷ') } });
+    check(p1.status === 200, `組み直し: 開いただけの人しかいなければ組み直せる → ${p1.status}`);
+    fresh('UpdPlay2'); shelf.addPlay({ id: 'p-solved', puzzle_id: 'UpdPlay2', active_ms: 60000, solved: true });
+    const p2 = await callFunction(update.onRequestPost, mem, { body: { id: 'UpdPlay2', key: KEY, puzzle: named('ほっぷ') } });
+    check(p2.status === 409 && p2.j?.reason === 'already_played', `組み直し: 回数 0 でも解いた人がいれば断る → ${p2.status} ${p2.j?.reason}`);
+    fresh('UpdPlay3'); shelf.addPlay({ id: 'p-check', puzzle_id: 'UpdPlay3', active_ms: 9000, solved: false }); shelf.plays.get('p-check').checks = 1;
+    const p3 = await callFunction(update.onRequestPost, mem, { body: { id: 'UpdPlay3', key: KEY, puzzle: named('ほっぷ') } });
+    check(p3.status === 409 && p3.j?.reason === 'already_played', `組み直し: 回数 0 でも答え合わせをした人がいれば断る → ${p3.status} ${p3.j?.reason}`);
+    fresh('UpdPlay4'); shelf.scores.push({ id: 999, puzzle_id: 'UpdPlay4', player_hash: 'x', time_seconds: 30, is_hidden: false });
+    const p4 = await callFunction(update.onRequestPost, mem, { body: { id: 'UpdPlay4', key: KEY, puzzle: named('ほっぷ') } });
+    check(p4.status === 409 && p4.j?.reason === 'already_played', `組み直し: 回数 0 でもランキングに記録があれば断る → ${p4.status} ${p4.j?.reason}`);
+    const answersAfter = shelf.puzzles.get('UpdPlay4').body.clues.map((c) => c.length).join(',');
+    check(answersAfter === '2,2', `組み直し: 断った時は問題の中身を変えない → ${answersAfter}`);
   }
 
   // ---------------------------------------------------------------- 9. 遊ばれた回数は端末ごとに数える（同じ家・同じ問題で24時間に5台まで）

@@ -142,7 +142,26 @@ export async function onRequestPost(context: {
   const puzzle = validateSavePayload({ ...(raw as Record<string, unknown>), key }, keepName);
   if (!puzzle) return json({ ok: false, reason: "bad_request" }, 400);
 
-  // 4. 書き換え
+  // 4. 遊ばれた回数が 0 でも、答え合わせをした・解いた・ランキングに載った人がいれば組み直さない。
+  //    最初の1字の送り（touch）が電波切れで届かず回数が数えられなかった人の記録を、中身の違う問題に残さないため（2026-10-27）
+  try {
+    const [scores, plays] = await Promise.all([
+      fetch(`${rest}/crossword_scores?select=id&puzzle_id=eq.${id}&limit=1`, { headers: dbHeaders }),
+      fetch(`${rest}/crossword_plays?select=id&puzzle_id=eq.${id}&or=(checks.gt.0,solved_at.not.is.null)&limit=1`, { headers: dbHeaders }),
+    ]);
+    if (!scores.ok || !plays.ok) {
+      console.error("crossword-update: played read failed", scores.status, plays.status);
+      return json({ ok: false, reason: "server" }, 503);
+    }
+    if (((await scores.json()) as unknown[]).length > 0 || ((await plays.json()) as unknown[]).length > 0) {
+      return json({ ok: false, reason: "already_played" }, 409);
+    }
+  } catch (e) {
+    console.error("crossword-update: played read threw", String(e));
+    return json({ ok: false, reason: "server" }, 503);
+  }
+
+  // 5. 書き換え
   let updated = false;
   try {
     const res = await fetch(`${rest}/rpc/crossword_update`, {

@@ -41,6 +41,8 @@ export function fakeShelf() {
   // PostgREST の絞り込み（eq.・gt.・not.is.null・is.null）を行に当てる。select・order・limit は絞り込みではない
   const matches = (row, params) => [...params].every(([col, cond]) => {
     if (['select', 'order', 'limit'].includes(col)) return true;
+    // or=(列.条件,列.条件) はどれか1つが合えばよい
+    if (col === 'or') return cond.replace(/^\(|\)$/g, '').split(',').some((part) => { const i = part.indexOf('.'); return matches(row, [[part.slice(0, i), part.slice(i + 1)]]); });
     const v = row[col];
     if (cond === 'not.is.null') return v !== null && v !== undefined;
     if (cond === 'is.null') return v === null || v === undefined;
@@ -98,12 +100,20 @@ export function fakeShelf() {
         return json(rows.map((r) => pick(r, url.searchParams.get('select'))));
       }
       case 'crossword_plays': {
+        if (method === 'GET') {
+          const rows = [...plays.values()].filter((r) => matches(r, url.searchParams));
+          return json(rows.slice(0, Number(url.searchParams.get('limit') ?? rows.length)).map((r) => pick(r, url.searchParams.get('select'))));
+        }
         if (method !== 'PATCH') return json({ message: `作り物の棚は crossword_plays の ${method} を真似ていない` }, 500);
         const hit = [...plays.values()].filter((r) => matches(r, url.searchParams));
         for (const r of hit) Object.assign(r, body);
         return prefer(init).includes('return=representation') ? json(hit.map((r) => ({ ...r }))) : new Response(null, { status: 204 });
       }
       case 'crossword_scores': {
+        if (method === 'GET') {
+          const rows = scores.filter((r) => matches(r, url.searchParams));
+          return json(rows.slice(0, Number(url.searchParams.get('limit') ?? rows.length)).map((r) => pick(r, url.searchParams.get('select'))));
+        }
         if (method === 'POST') {
           // 問題が無ければ 23503、同じ人の行が既にあれば 23505（棚の決まりと同じ）
           if (!puzzles.has(body.puzzle_id)) return json({ code: '23503' }, 409);
