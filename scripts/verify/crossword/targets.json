@@ -1,5 +1,5 @@
 {
-  "base": "https://feature-crossword.hop-up-tools.pages.dev",
+  "base": "https://feature-crossword-a.hop-up-tools.pages.dev",
   "puzzleId": "SJ2cjTJe",
   "hiddenPuzzleId": "COFJd2ZC",
   "_note": "本番にもプレビューにも検収用の問題を作って置かない（2026-10-19 Hop）。hiddenPuzzleId は本番にもとからある隠れた問題で、check-fixtures が開いて読むだけ。隠れた印が外されたら別の隠れた問題の番号に替える。画像の無い問題と組み直しの通しは、受付係を手元で動かして作り物の棚で確かめる（_localFunctions.mjs）ので番号は要らない"

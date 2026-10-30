@@ -206,7 +206,12 @@ async function runDevice(ctx2Factory, dev) {
     await shot('5-try-cleared');
     await toMode(page, 'make');
 
-    // 5. 共有の窓（「共有する」は押さない）
+    // 5. 共有の窓（「共有する」は押さない）。見本の行のままでは公開できない【仮】（2026-10-25）ので、
+    //    答えは変えずに3行目のカギの文だけ書き換えてから開く
+    const text = await page.locator('[data-bulk-text]').inputValue();
+    await page.locator('[data-bulk-text]').fill(text.replace('トマトが好きな', 'トマトが大好きな'));
+    await page.locator('[data-bulk-text]').evaluate((el) => el.blur());
+    await page.waitForTimeout(800);
     await openShare(page);
     await page.waitForTimeout(400);
     const blocks = await page.locator('[data-share-blocks]').getAttribute('data-share-blocks');

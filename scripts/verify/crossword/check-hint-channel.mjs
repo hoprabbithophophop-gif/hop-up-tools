@@ -139,7 +139,8 @@ try {
     const w = await ctx.newPage();
     await w.goto(`${BASE}/crossword/create`);
     await waitBoard(w);
-    await openWordSheet(w, 'ネコ');
+    // 下ごしらえは見本の行のまま開くので、見本の答え（2026-10-25 から キララ・アニマルランド・ドイフウカ）の窓を開く
+    await openWordSheet(w, 'キララ');
     for (const src of ['ameblo', 'x', 'ig', 'link', 'youtube']) {
       const b = w.locator(`[data-word-sheet] [data-hint-source="${src}"]`);
       if (await b.count()) await b.click();
