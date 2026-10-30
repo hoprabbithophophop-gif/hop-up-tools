@@ -547,7 +547,7 @@ try {
   const nextBtn = page.locator('[data-word-sheet] [data-next-missing]');
   const nextKey = await nextBtn.getAttribute('data-next-missing').catch(() => null);
   const nextText = await nextBtn.textContent().catch(() => null);
-  check(!!nextKey && nextKey !== 'ウサギ' && ['サクラ', 'ラクダ'].includes(nextKey) && nextText === '次の足りない答えへ（あと2つ）', `(c) 足りない答えがほかにある時は「次の足りない答えへ（あと2つ）」が出る（${nextKey}・${nextText}）`);
+  check(!!nextKey && nextKey !== 'ウサギ' && ['サクラ', 'ラクダ'].includes(nextKey) && nextText === '次の足りない答えへ（あと2個）', `(c) 足りない答えがほかにある時は「次の足りない答えへ（あと2個）」が出る（${nextKey}・${nextText}）`);
   await nextBtn.click();
   const nextOpened = await page.locator(`[data-word-sheet="${nextKey}"]`).waitFor({ timeout: 5000 }).then(() => true, () => false);
   // 前の答えの窓が消え終わるのを待つ（消える動きの間は窓が2つある）

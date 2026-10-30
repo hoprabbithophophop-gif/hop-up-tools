@@ -85,7 +85,7 @@ export const PuzzleGalleryCard: React.FC<{ puzzle: GalleryPuzzle; headingLevel?:
             </div>
           )}
           <div className="flex items-center gap-1">
-            <span>答え{puzzle.wordCount}つ</span>
+            <span>答え{puzzle.wordCount}個</span>
           </div>
         </div>
       </div>

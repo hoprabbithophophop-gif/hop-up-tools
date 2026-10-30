@@ -267,7 +267,7 @@ try {
       check((await page.locator('[data-bulk-text]').inputValue()) === SAMPLE, `${T} (1) 記録が空のブラウザでは見本の3行が入っている`);
       check(JSON.stringify(await wordKeys(page)) === JSON.stringify(SAMPLE_WORDS), `${T} (1) 語の一覧は見本の答え3つ（${(await wordKeys(page)).join('・')}）`);
       const stats0 = await waitBoard(page);
-      check(/^答え3つ・\d+マス・交わる所\d+$/.test(stats0), `${T} (1) 見本の3語で盤が組める（${stats0}）`);
+      check(/^答え3個・\d+マス・交わる所\d+$/.test(stats0), `${T} (1) 見本の3語で盤が組める（${stats0}）`);
       check(await currentMode(page) === 'make', `${T} (1) 「作る」から始まる`);
       for (const [k, want] of Object.entries(SAMPLE_DRAFTS)) {
         await openWordSheet(page, k);
@@ -395,11 +395,11 @@ try {
       check(noHint.length === 2, `${T} (3) 下ごしらえ: ヒントの無い答え2つ（ランドセル・ドラマ）が盤に入った（盤 ${keys.join('・')}）`);
       await openShare(page);
       const b2 = await page.locator('[data-share-blocks]').textContent();
-      check(b2.startsWith(`ヒントがあと${noHint.length}つ`) && !b2.includes('見本の行のまま') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 1行を書き換えた後、ヒントの無い答えが残っていると「${b2}」で押せない（見本の理由は消える）`);
+      check(b2.startsWith(`ヒントがあと${noHint.length}個`) && !b2.includes('見本の行のまま') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 1行を書き換えた後、ヒントの無い答えが残っていると「${b2}」で押せない（見本の理由は消える）`);
       await closeShare(page);
       await fillWords(page, noHint.slice(0, -1));
       await openShare(page);
-      check((await page.locator('[data-share-blocks]').textContent()).startsWith('ヒントがあと1つ') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 1語残すと「ヒントがあと1つ」で押せない`);
+      check((await page.locator('[data-share-blocks]').textContent()).startsWith('ヒントがあと1個') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 1語残すと「ヒントがあと1個」で押せない`);
       await closeShare(page);
       await fillWords(page, noHint.slice(-1));
       await openShare(page);
@@ -410,7 +410,7 @@ try {
       await closeWordSheet(page);
       check(JSON.stringify(await missingOf(page, keys[0])) === '["clue"]', `${T} (3) カギを空にすると語の行に「カギがまだ」`);
       await openShare(page);
-      check((await page.locator('[data-share-blocks]').textContent()).startsWith('カギがあと1つ') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 共有の窓は「カギがあと1つ」で押せない`);
+      check((await page.locator('[data-share-blocks]').textContent()).startsWith('カギがあと1個') && (await page.locator('[data-save]').isDisabled()), `${T} (3) 共有の窓は「カギがあと1個」で押せない`);
       await closeShare(page);
       for (const [text, label] of [['【ネコ】', '語が1つ'], ['', '語が0']]) {
         await writeLines(page, text);
@@ -508,7 +508,7 @@ try {
       // 組み直しで開くと、書く欄の行は「カギ→【答え】」の形で入る（Hop 決定 2026-10-25。前は【答え】だけ）
       const editText = await page.locator('[data-bulk-text]').inputValue();
       check(editText === 'ニャーと鳴く動物→【ネコ】\nユーカリの葉を食べる動物→【コアラ】', `${T} (5) 語は「カギ→【答え】」の行として戻る（${editText.split('\n').join(' ／ ')}）`);
-      check((await page.locator('[data-mini-stats]').textContent()) === '答え2つ・4マス・交わる所1', `${T} (5) 保存した時の盤が出る（${await page.locator('[data-mini-stats]').textContent()}）`);
+      check((await page.locator('[data-mini-stats]').textContent()) === '答え2個・4マス・交わる所1', `${T} (5) 保存した時の盤が出る（${await page.locator('[data-mini-stats]').textContent()}）`);
       await openWordSheet(page, 'コアラ');
       check((await page.locator('#cw-clue').inputValue()) === 'ユーカリの葉を食べる動物', `${T} (5) カギが戻る`);
       await setClue(page, 'ユーカリを食べる動物（直した）');

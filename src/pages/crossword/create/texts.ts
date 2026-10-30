@@ -48,7 +48,7 @@ export const CT = {
   // 窓で書いたカギが、書く欄の行を直したため使われなくなった時に、そのカギへ戻すボタン（Hop 決定 2026-10-27）
   clueRestore: "前に窓で書いたカギに戻す",
   // 足りない物（共有の窓の押せない理由の先頭。Hop 決定 2026-10-22。途中は止めず、共有の直前にだけ出す）
-  missing: (clue: number, hint: number) => `${[clue ? `カギがあと${clue}つ` : "", hint ? `ヒントがあと${hint}つ` : ""].filter(Boolean).join("、")}足りません。下の答えを押すと付けられます。`,
+  missing: (clue: number, hint: number) => `${[clue ? `カギがあと${clue}個` : "", hint ? `ヒントがあと${hint}個` : ""].filter(Boolean).join("、")}足りません。下の答えを押すと付けられます。`,
   // カギ（問題文）は100字まで（Hop 決定 2026-10-22。10-21 の30字は取り違えだった）。欄の下の残り字数と、超えた時の押せない理由
   clueLeft: (n: number) => `あと${n}字書けます`,
   clueOver: (n: number) => `${n}字多いです。100字までにしてください。`, // 共有のボタンの上の行では、頭に「語：」を付ける（書く欄の reasonLine と同じ形）
@@ -56,11 +56,11 @@ export const CT = {
   // マス目に置けなかった答えがある時（その答えは問題に入らない。2026-10-24 前は「全部の答え」と言っていた）
   // 試すで解き切った時の、次にすることの知らせ（2026-10-24）。「解けました。タイム」の知らせは解く画面が別に出すので、ここでは言わない
   trialClearedMissing: (clue: number, hint: number) =>
-    `あと${[clue ? `カギを${clue}つ` : "", hint ? `ヒントを${hint}つ` : ""].filter(Boolean).join("、")}付けると公開できます。`,
+    `あと${[clue ? `カギを${clue}個` : "", hint ? `ヒントを${hint}個` : ""].filter(Boolean).join("、")}付けると公開できます。`,
   trialClearedReady: "下の「公開の準備」から公開できます。",
   // 答えの窓の下のボタン（Hop 決定 2026-10-25）
   sameHint: (label: string) => `直前の答えと同じヒントにする（${label}）`,
-  nextMissing: (n: number) => `次の足りない答えへ（あと${n}つ）`,
+  nextMissing: (n: number) => `次の足りない答えへ（あと${n}個）`,
   hintCarried: "前に付けたヒントです。今のカギと合っているか確かめてください。", // 書く欄を空にする前に付けたヒントが残っている時（2026-10-24）
   missingListLabel: "カギかヒントが足りない答え", // 公開の窓の、足りない答えのボタンの並びの読み上げ名
   allSetPlaced: "マス目に入った答えには、全部カギとヒントが付きました。",
@@ -199,6 +199,6 @@ export const BULK_TEXTS: BulkTexts = {
 // 広げた盤の案の並び（本番の T.bulk から）
 export const PROPOSAL_TEXTS = {
   proposal: (n: number) => `案${n}`,
-  stats: (n: number, m: number, k: number) => `答え${n}つ・${m}マス・交わる所${k}`,
+  stats: (n: number, m: number, k: number) => `答え${n}個・${m}マス・交わる所${k}`,
   noProposal: "組み合わせが見つかりませんでした。答えを足すか、入れ替えてください。",
 };
