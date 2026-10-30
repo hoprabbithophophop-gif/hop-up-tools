@@ -17,7 +17,7 @@ export default function PrivacyPage() {
     <div style={{ background: "#f8f9fa", minHeight: "100vh" }}><div style={s.wrap}>
       <Link to="/" style={s.back}>← ホームに戻る</Link>
       <div style={s.header}>プライバシーポリシー</div>
-      <div style={s.updated}>最終更新日: 2026年10月21日</div>
+      <div style={s.updated}>最終更新日: 2026年10月31日</div>
 
       <p style={s.p}>
         hop-up-tools（以下「本サービス」）は、hop_rabbit（以下「運営者」）が提供するHello! Project ファン向けWebツール集です。
