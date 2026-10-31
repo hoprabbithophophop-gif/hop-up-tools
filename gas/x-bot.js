@@ -443,6 +443,8 @@ function markAsTweeted(uid) {
 //   （22:00 を過ぎると翌日の分を作ってしまう）。
 // 印の付け方が「書き出し成功後」に変わった今は、XBguard の自動やり直しで
 // 済むはずだが、それでも復旧できなかった日の最後の手段として残す。
+// SHEET_MODE（2日分の書き出し）では印を使わないので、ふつうに XBmain を回すのと同じになる
+// （前の行と照らし合わせて、足りない分を足すだけ）。
 function XBredoToday() {
   _ignoreTweetedMarks = true;
   try {
