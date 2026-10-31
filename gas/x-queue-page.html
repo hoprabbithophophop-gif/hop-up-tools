@@ -144,7 +144,9 @@
   }
 
   function renderRow(item, token) {
-    var isDone = item.status === '予約済み';
+    // 要取り消し・取り消し済みは、X の予約から消す（消した）行。済み／見送りは押させない
+    var isCancelRow = item.status === '要取り消し' || item.status === '取り消し済み';
+    var isDone = item.status === '予約済み' || isCancelRow;
     var isSkipped = item.status === '見送り';
     var row = document.createElement('div');
     row.className = 'row' + (isDone || isSkipped ? ' done' : '');
@@ -155,8 +157,11 @@
     if (isDone || isSkipped) {
       var badge = document.createElement('span');
       badge.className = 'badge' + (isSkipped ? ' skipped' : '');
-      badge.textContent = isSkipped ? '見送り済み' : '予約済み';
+      badge.textContent = isSkipped ? '見送り済み' : item.status;
       meta.appendChild(badge);
+    }
+    if (isCancelRow && item.memo) {
+      meta.appendChild(document.createTextNode(' ' + item.memo));
     }
     row.appendChild(meta);
 

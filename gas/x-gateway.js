@@ -13,12 +13,12 @@
  *   そのまま読み書きする。
  *
  * 行の指し方（id）と時刻:
- *   idは「シート内の行の位置番号（データ1行目=1）」。予約済みで飛ばしても番号は
- *   詰め直さない（＝markScheduled が指す行が毎回ズレない）。
- *   投稿時刻は「予約投稿日ごとに07:00から1分刻み」で決定論的に決まる（同じ日の中で
- *   何番目かで 07:00 +(何番目-1)分）。この計算はゲートウェイ側で行い、getQueue の
- *   各行に scheduledTime（"HH:mm"）として結果をそのまま返す。呼び出し側（エージェント／
- *   ツール）は一切計算せず、返ってきた値をそのまま使う。
+ *   2026-11-01 から x-bot.js が2日分を書き出し、前の晩の行を残すようになった。
+ *   行が残ったり外れたりしても指す行と時刻が動かないよう、x-bot.js が「行ID」「予約時刻」の
+ *   列を書く。id は行IDの値、scheduledTime は予約時刻の値をそのまま返す。
+ *   その列が無い古い行だけは、これまで通り id＝行の位置番号（データ1行目=1）、
+ *   時刻＝予約投稿日ごとに07:00から1分刻み（同じ日の中で何番目か）で計算する。
+ *   呼び出し側（エージェント／ツール）は一切計算せず、返ってきた値をそのまま使う。
  *
  * エンドポイント（すべてGET。ブラウザでURLを開けば動く）:
  *   ?action=getQueue&token=…
@@ -36,6 +36,11 @@
  *     → 指定位置の行のステータスを「見送り」に上書き。markScheduledと同じ仕組みで、
  *       「今日はもう出さない」という記帳だけを行う（投稿はしない）。
  *       getQueueがこのステータスの行を「残り」から除外するのは呼び出し側（台本）の役目。
+ *
+ *   ?action=markCancelled&id=…&token=…
+ *     → 「要取り消し」の行を「取り消し済み」にし、「取り消し履歴」シートに1行残す
+ *       （X の予約から消したあとに呼ぶ。2026-11-01 Hop 決定「消した履歴残しといて」）。
+ *       要取り消し以外の行は not_needs_cancel で断る。冪等（取り消し済みなら already:true）。
  *
  *   ?action=reportRun&token=…&ok=…&scheduled=…&failed=…&note=…
  *     → 実行結果をログシート「実行ログ」に1行追記し、GAS無料メールで通知する。
@@ -90,15 +95,22 @@ function setupGatewayToken() {
   return token;
 }
 
-// ヘッダー名（x-bot.js の flushSheetQueue が書き出す列名と一致させること）
+// ヘッダー名（x-bot.js の QUEUE_HEADER と一致させること）
 var COL = {
   text: 'ツイート本文',
   status: 'ステータス',
   scheduledDate: '予約投稿日',
   writtenAt: '書き出し日時',
+  time: '予約時刻',
+  kind: '種類',
+  rowId: '行ID',
+  memo: 'メモ',
 };
 var STATUS_SCHEDULED = '予約済み';
 var STATUS_SKIPPED = '見送り'; // 台本(xpostassistant.user.js)のSTATUS_SKIPPEDと一致させること
+var STATUS_NEEDS_CANCEL = '要取り消し';
+var STATUS_CANCELLED = '取り消し済み';
+var HISTORY_SHEET_NAME = '取り消し履歴';
 
 function doGet(e) {
   var params = (e && e.parameter) ? e.parameter : {};
@@ -137,6 +149,7 @@ function handleRequest(e) {
     if (action === 'getQueue') return jsonOut(getQueue(params.date));
     if (action === 'markScheduled') return jsonOut(markScheduled(params.id));
     if (action === 'markSkipped') return jsonOut(markSkipped(params.id));
+    if (action === 'markCancelled') return jsonOut(markCancelled(params.id));
     if (action === 'reportRun') return jsonOut(reportRun(params));
     return jsonOut({ ok: false, error: 'unknown_action', action: action });
   } catch (err) {
@@ -199,18 +212,23 @@ function getQueue(dateFilter) {
     var row = values[r];
     // 空行はスキップ（本文が空なら行として扱わない）
     if (String(row[idx.text]).trim() === '') continue;
-    position++;                                             // 全行での位置(1始まり)。markScheduled はこれを使う
+    position++;                                             // 全行での位置(1始まり)。行IDが無い古い行の id に使う
     var scheduledDate = idx.scheduledDate >= 0 ? formatDateCell(row[idx.scheduledDate]) : '';
     rankByDate[scheduledDate] = (rankByDate[scheduledDate] || 0) + 1;
-    var rankInDay = rankByDate[scheduledDate];                // 同じ日の中での順番(1始まり)。時刻計算はこちらを使う
+    var rankInDay = rankByDate[scheduledDate];                // 同じ日の中での順番(1始まり)。古い行の時刻計算に使う
     if (dateFilter && scheduledDate !== dateFilter) continue; // 指定日以外は結果に含めない（位置番号は詰め直さない）
+    var rowId = idx.rowId >= 0 ? String(row[idx.rowId]) : '';
+    var timeCell = idx.time >= 0 ? String(row[idx.time]) : '';
     items.push({
       k: position,
-      id: String(position),                                // markScheduled で使う。位置番号そのもの
+      id: rowId || String(position),                       // markScheduled 等で使う。行IDがあればそれ
       text: String(row[idx.text]),
       status: String(row[idx.status]),
       scheduledDate: scheduledDate,
-      scheduledTime: computeScheduledTime(rankInDay),        // "HH:mm"。予約投稿日 07:00 +(その日の順番-1)分
+      // "HH:mm"。列の値があればそのまま、無い古い行は 07:00 +(その日の順番-1)分
+      scheduledTime: /^\d{2}:\d{2}$/.test(timeCell) ? timeCell : computeScheduledTime(rankInDay),
+      kind: idx.kind >= 0 ? String(row[idx.kind]) : '',
+      memo: idx.memo >= 0 ? String(row[idx.memo]) : '',     // 要取り消しの理由など
     });
   }
 
@@ -236,9 +254,32 @@ function markSkipped(id) {
   return setRowStatus(id, STATUS_SKIPPED, 'markSkipped');
 }
 
-function setRowStatus(id, targetStatus, actionName) {
-  var position = parseInt(id, 10);
-  if (!id || isNaN(position) || position < 1) return { ok: false, error: 'missing_id' };
+// 予約から消したあとの記帳。要取り消しの行だけを取り消し済みにし、取り消し履歴に1行残す
+function markCancelled(id) {
+  return setRowStatus(id, STATUS_CANCELLED, 'markCancelled', {
+    onlyFrom: STATUS_NEEDS_CANCEL,
+    afterSet: appendCancelHistory,
+  });
+}
+
+function appendCancelHistory(ss, rowValues, idx) {
+  var hist = ss.getSheetByName(HISTORY_SHEET_NAME) || ss.insertSheet(HISTORY_SHEET_NAME);
+  if (hist.getLastRow() === 0) {
+    hist.appendRow(['取り消した日時(JST)', '予約投稿日', '予約時刻', '種類', '理由', 'ツイート本文', '行ID']);
+    hist.getRange(1, 1, 1, 7).setFontWeight('bold');
+  }
+  var cell = function (i) { return i >= 0 ? String(rowValues[i]) : ''; };
+  var line = [nowJstStr(), idx.scheduledDate >= 0 ? formatDateCell(rowValues[idx.scheduledDate]) : '',
+    cell(idx.time), cell(idx.kind), cell(idx.memo), cell(idx.text), cell(idx.rowId)];
+  var range = hist.getRange(hist.getLastRow() + 1, 1, 1, line.length);
+  range.setNumberFormat('@');   // 日付・時刻をシート側で日付型に変えさせない
+  range.setValues([line]);
+}
+
+// opts.onlyFrom: この状態の行だけ書き換える（違えば断る）/ opts.afterSet: 書き換えた直後に呼ぶ
+function setRowStatus(id, targetStatus, actionName, opts) {
+  opts = opts || {};
+  if (!id) return { ok: false, error: 'missing_id' };
 
   // 同時アクセスでの二重書き込みを避けるため短時間ロック
   var lock = LockService.getScriptLock();
@@ -260,26 +301,45 @@ function setRowStatus(id, targetStatus, actionName) {
       return { ok: false, error: 'header_mismatch', header: values[0] };
     }
 
-    // getQueue と同じく「本文が空でない行」を1,2,3…と数え、position番目を対象にする
-    var count = 0;
-    for (var r = 1; r < values.length; r++) {
-      if (String(values[r][idx.text]).trim() === '') continue;
-      count++;
-      if (count === position) {
-        var current = String(values[r][idx.status]);
-        if (current === targetStatus) {
-          return { ok: true, action: actionName, id: String(position), status: targetStatus, already: true };
-        }
-        // 追記ではなく上書きセット（「未投稿予約済み」のような誤連結を防ぐ）
-        sheet.getRange(r + 1, idx.status + 1).setValue(targetStatus);
-        SpreadsheetApp.flush();
-        return { ok: true, action: actionName, id: String(position), status: targetStatus, already: false };
-      }
+    var r = findRowIndex(values, idx, String(id));
+    if (r < 0) return { ok: false, error: 'not_found', id: String(id) };
+
+    var current = String(values[r][idx.status]);
+    if (current === targetStatus) {
+      return { ok: true, action: actionName, id: String(id), status: targetStatus, already: true };
     }
-    return { ok: false, error: 'not_found', id: String(position) };
+    if (opts.onlyFrom && current !== opts.onlyFrom) {
+      return { ok: false, error: 'not_needs_cancel', id: String(id), status: current };
+    }
+    // 追記ではなく上書きセット（「未投稿予約済み」のような誤連結を防ぐ）
+    sheet.getRange(r + 1, idx.status + 1).setValue(targetStatus);
+    if (opts.afterSet) opts.afterSet(sheet.getParent(), values[r], idx);
+    SpreadsheetApp.flush();
+    return { ok: true, action: actionName, id: String(id), status: targetStatus, already: false };
   } finally {
     lock.releaseLock();
   }
+}
+
+// id が指すシートの行の番号(values の添字)を返す。見つからなければ -1。
+// 行IDの列に同じ値があればその行。無ければ、getQueue と同じく「本文が空でない行」を
+// 1,2,3…と数えた位置番号として探す（行IDの無い古い行・古い呼び出し側のため）。
+function findRowIndex(values, idx, id) {
+  var r;
+  if (idx.rowId >= 0) {
+    for (r = 1; r < values.length; r++) {
+      if (String(values[r][idx.rowId]) === id && String(values[r][idx.text]).trim() !== '') return r;
+    }
+  }
+  if (!/^\d+$/.test(id)) return -1;
+  var position = parseInt(id, 10);
+  var count = 0;
+  for (r = 1; r < values.length; r++) {
+    if (String(values[r][idx.text]).trim() === '') continue;
+    count++;
+    if (count === position) return r;
+  }
+  return -1;
 }
 
 // ===== 実行結果のログ＋通知 =====
@@ -341,6 +401,10 @@ function resolveColumns(header) {
     text: header.indexOf(COL.text),
     status: header.indexOf(COL.status),
     scheduledDate: header.indexOf(COL.scheduledDate),
+    time: header.indexOf(COL.time),
+    kind: header.indexOf(COL.kind),
+    rowId: header.indexOf(COL.rowId),
+    memo: header.indexOf(COL.memo),
   };
 }
 
