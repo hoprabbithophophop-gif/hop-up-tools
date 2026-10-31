@@ -64,6 +64,7 @@ var CHANNEL_GROUP_MAP = {
   // UCFBY6EJFIwCQCl-DiYYNKlg: OMAKE CHANNEL
   // UC3oHasOAxRUwX0HpEhnWsQg: UFfanclub
   // UCNnIuuP67kGgWngvaPzSdOQ: UF Goods Land
+  // UCxgzAstKPXO06yZvCv6-DjA: どっちっちchannel（2026-10-25）
 };
 
 // ===== グループタグ判定キーワード =====
