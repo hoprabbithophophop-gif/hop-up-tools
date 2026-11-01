@@ -61,7 +61,7 @@ check(page.url().endsWith(`/crossword/${ID}`), '2 「この問題を遊ぶ」で
 await page.goto(`${BASE}/crossword/zzzzzzzz/ranking`);
 await page.locator('[role="alert"]').waitFor({ timeout: 20000 });
 t = await text(page);
-check(t.includes('問題の読み込みに失敗しました。') || t.includes('この問題は非表示になっています。'), '3 無い問題は知らせが出る');
+check(t.includes('この問題は見つかりません') || t.includes('この問題は非表示になりました'), '3 無い問題は「見つかりません」か「非表示になりました」の1枚が出る（表 4番。2026-11-01）');
 
 // 4. 解き終えた画面のランキングの見出しが、ランキングの画面へのリンク
 await page.goto(`${BASE}/crossword/mine`);

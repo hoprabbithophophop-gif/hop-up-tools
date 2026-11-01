@@ -160,9 +160,9 @@ async function run(page) {
     await page.getByRole('heading', { name: '自分が作った問題' }).waitFor();
     const titles = await page.locator('li .font-bold.truncate').allInnerTexts();
     check(titles.join(',') === '試しの問題2,試しの問題1', `新しい順に並ぶ: ${titles.join(',')}`);
-    await page.getByText('非表示になっています').nth(1).waitFor({ timeout: 15000 }).catch(() => {}); // 棚に1件ずつ聞いてから出る
+    await page.getByText('通報により非表示になったか、消されています').nth(1).waitFor({ timeout: 15000 }).catch(() => {}); // 棚に1件ずつ聞いてから出る
     await page.screenshot({ path: path.join(OUT, '3-mine.png'), fullPage: true });
-    check((await page.getByText('非表示になっています').count()) === 2, '棚に無い問題は「非表示になっています」');
+    check((await page.getByText('通報により非表示になったか、消されています').count()) === 2, '棚に無い問題は「通報により非表示になったか、消されています。」');
 
     // 5. 消す？→やめる で戻る（実際には消さない）
     await page.getByRole('button', { name: '消す', exact: true }).first().click();

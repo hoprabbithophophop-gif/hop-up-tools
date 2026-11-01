@@ -97,7 +97,7 @@ async function mockAll(ctx, sent, opts = {}) {
     const req = route.request();
     const u = new URL(req.url());
     const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: { 'content-range': '*/0' }, body: JSON.stringify(body) });
-    if (u.pathname.endsWith('/rpc/crossword_is_hidden')) return json(false);
+    if (u.pathname.endsWith('/rpc/crossword_is_hidden')) return json(opts.hidden === true); // opts.hidden: 通報で隠れた問題として答える（表 4番）
     const table = u.pathname.split('/').pop();
     if (table === 'crossword_puzzles') {
       if (shelf === 'hang') return; // 返事をしない
@@ -141,14 +141,14 @@ const browser = await chromium.launch();
 const stumbles = [];
 const S375 = { width: 375, height: 548 };
 const S390 = { width: 390, height: 844 };
-async function newPage({ size = S390, marks = CREATE_MARKS, init = null, shelf = 'ok', saveDelay = null, saveReason = null } = {}) {
+async function newPage({ size = S390, marks = CREATE_MARKS, init = null, shelf = 'ok', saveDelay = null, saveReason = null, hidden = false } = {}) {
   const sent = { saves: [], updates: [] };
   const ctx = await browser.newContext({ viewport: size });
   await ctx.addInitScript((m) => {
     try { if (!sessionStorage.getItem('rv_marked')) { for (const [k, v] of Object.entries(m)) localStorage.setItem(k, v); sessionStorage.setItem('rv_marked', '1'); } } catch { /* 無視 */ }
   }, marks);
   if (init) await ctx.addInitScript(init);
-  await mockAll(ctx, sent, { shelf, saveDelay, saveReason });
+  await mockAll(ctx, sent, { shelf, saveDelay, saveReason, hidden });
   const page = await ctx.newPage();
   await watchStumbles(page, stumbles);
   return { ctx, page, sent };
@@ -522,6 +522,34 @@ try {
     await page.waitForTimeout(10500);
     check((await page.locator('[data-solve-loading="slow"]').textContent().catch(() => '')).includes('いま読み込めません。少し待って開き直してください。'), '4 10秒待っても来ない時は「いま読み込めません。少し待って開き直してください。」');
     await shot(page, '4-solve-slow-375');
+    await ctx.close();
+  }
+  // 4b. 読めない問題は、作る画面に入れ替えず消えない1枚（表 4番。Hop 決定 2026-11-01）
+  for (const [kind, opts, title] of [
+    ['missing', {}, 'この問題は見つかりません'],
+    ['hidden', { hidden: true }, 'この問題は非表示になりました'],
+    ['error', { shelf: 'error' }, 'いま読み込めません'],
+  ]) {
+    const { ctx, page } = await newPage({ size: S375, ...opts });
+    await page.goto(`${BASE}/crossword/${kind === 'error' ? SOLVE_ID : 'LocalNo1'}`);
+    const card = page.locator('[data-load-fail]');
+    await card.waitFor({ timeout: 30000 });
+    await page.waitForTimeout(6000); // 前の知らせ（数秒で消えた）より長く待っても残るか
+    const got = await card.getAttribute('data-load-fail').catch(() => null);
+    const head = (await card.locator('h1').textContent().catch(() => '')).trim();
+    const reload = await card.getByRole('button', { name: 'もう一度読み込む' }).count();
+    const gallery = await card.getByRole('link', { name: 'パズルギャラリーへ' }).count();
+    const create = await page.locator('[data-bulk-text]').count();
+    check(got === kind && head === title && gallery === 1 && reload === (kind === 'error' ? 1 : 0) && create === 0,
+      `4b ${kind}: 6秒後も「${head}」の1枚が残り、作る画面は出ない（ギャラリーへ ${gallery}・読み込み直す ${reload}・書く欄 ${create}）`);
+    await shot(page, `4b-load-fail-${kind}-375`);
+    if (kind === 'error') {
+      await page.goto(`${BASE}/crossword/${SOLVE_ID}/ranking`);
+      const rc = page.locator('[data-load-fail]');
+      await rc.waitFor({ timeout: 30000 });
+      check((await rc.getAttribute('data-load-fail')) === 'error' && (await rc.locator('h2').count()) === 1,
+        '4b ランキングの画面も、棚が止まった時は同じ1枚（見出しは h2）');
+    }
     await ctx.close();
   }
 

@@ -48,6 +48,7 @@ import { tutorialPuzzle, TUTORIAL_HINTS } from "../../lib/crossword/tutorial";
 import { C } from "./style";
 // 作る画面（/crossword/create）は別のファイル（案A「作る｜試す」。Hop 決定 2026-10-22）
 import { CreatePage } from "./create/CreatePage";
+import { LoadFailCard, type LoadFail } from "./loadFail";
 
 // localStorage の鍵（crossword 専用の名前）
 const HELP_KEY = "crossword_seen_help";
@@ -118,9 +119,6 @@ const T = {
   anonymous: "名無し", // 作成者名が空の時（2026-10-06 Hop 決定）
   errors: {
     noTitle: "題名を入力してください。",
-    loadFailed: "問題の読み込みに失敗しました。",
-    puzzleHidden: "この問題は非表示になっています。",
-    loadError: "この問題を読み込めませんでした。URL をご確認ください。",
     saveFailed: "問題の保存に失敗しました。",
   },
   // 問題を読み込んでいる間（ギャラリーと同じ文）と、10秒待っても来ない時（2026-10-26）
@@ -317,6 +315,8 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
   const isLocalTiming = isTutorial || isDebugMode || isTrial;
   // Player State
   const [loadState, setLoadState] = useState<"loading" | "done">(isPlayerMode ? "loading" : "done");
+  // 問題を読めなかった理由。あれば作る画面ではなく消えない1枚を出す（表 4番。2026-11-01）
+  const [loadFail, setLoadFail] = useState<LoadFail | null>(null);
   // 問題を読み込み始めてから長く待っている（棚が返事をしない時。2026-10-26 前は真っ白のまま待ち続けた）。来れば今までどおり問題を出す
   const [slowLoad, setSlowLoad] = useState(false);
   useEffect(() => {
@@ -596,16 +596,16 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
     let alive = true;
     (async () => {
       let loaded: { puzzle: PuzzleData; hints: Record<string, HintRef> } | null = null;
-      let failMessage = "";
+      let fail: LoadFail | null = null;
       let loadedGenre: Genre | null = null;
       // ヒントの見た目を確かめるため、1 と 2 にだけ見本のヒントを付ける（デバッグ用・HarmonyPalette には無い）
       if (debugSample) loaded = { puzzle: debugSample, hints: { "1": { kind: "youtube", videoId: "dQw4w9WgXcQ", startSec: 83 }, "2": { kind: "link", url: "https://example.com/" } } };
       else try {
         const rec = await loadPuzzle(puzzleId!);
         if (!rec) {
-          // 読めなかったときだけ、運営に隠された問題かを聞く（聞けなければ今まで通りの知らせ）
+          // 読めなかったときだけ、運営に隠された問題かを聞く（聞けなければ「見つかりません」）
           const hidden = await isHiddenPuzzle(puzzleId!).catch(() => false);
-          failMessage = hidden ? T.errors.puzzleHidden : T.errors.loadFailed;
+          fail = hidden ? "hidden" : "missing";
         } else {
           loaded = recordToPuzzle(rec);
           setPlayerGenre(rec.genre);
@@ -614,10 +614,10 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
         }
       } catch (error) {
         console.error("Failed to load puzzle:", error);
-        failMessage = T.errors.loadError;
+        fail = "error";
       }
       if (!alive) return;
-      if (failMessage) toast.error(failMessage);
+      setLoadFail(fail);
       if (loaded) {
         const puzzleToLoad = loaded.puzzle;
         setPlayerPuzzle(puzzleToLoad);
@@ -2083,7 +2083,19 @@ export default function CrosswordPage({ trial }: { trial?: TrialPlay } = {}) {
     );
   }
 
-  // 作る画面（案A「作る｜試す」・create/CreatePage.tsx）。問題を読み込めなかった時も今までどおり作る画面を出す（その時は下書きを読まない・書かない）。
+  // 問題を読めなかった時は、作る画面に入れ替えず消えない1枚を出す（表 4番。2026-11-01。前は数秒の知らせの後に作る画面が出て、解きに来た人が迷った）
+  if (isPlayerMode && loadFail) {
+    return (
+      <div className="min-h-screen bg-surface">
+        <main className="max-w-md mx-auto px-4 py-12">
+          <LoadFailCard kind={loadFail} />
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  // 作る画面（案A「作る｜試す」・create/CreatePage.tsx）。
   // 「試す」はこの画面の部品をそのまま使う（作る画面がこの画面を読み込むと互いに読み込み合うので、描き方だけを渡す）
   return <CreatePage draftEnabled={!isPlayerMode} renderTrial={(t) => <CrosswordPage trial={t} />} />;
 }

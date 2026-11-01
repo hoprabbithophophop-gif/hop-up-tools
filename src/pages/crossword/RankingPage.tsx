@@ -7,6 +7,7 @@ import { usePageReady } from "../../lib/pageReady";
 import { PuzzleRanking } from "./components/PuzzleRanking";
 import { Footer, Icon } from "./components/ui";
 import { C } from "./style";
+import { LoadFailCard, type LoadFail } from "./loadFail";
 
 // 文言（クロスワードの文言は Hop の委任でこちらが決める。2026-10-06）
 const T = {
@@ -17,13 +18,9 @@ const T = {
   createdBy: (name: string) => `作った人：${name}`,
   play: "この問題を遊ぶ",
   loading: "読み込み中…",
-  // 解く画面と同じ文言
-  loadFailed: "問題の読み込みに失敗しました。",
-  puzzleHidden: "この問題は非表示になっています。",
-  loadError: "この問題を読み込めませんでした。URL をご確認ください。",
 };
 
-type State = { status: "loading" } | { status: "done"; title: string; creatorName?: string } | { status: "failed"; message: string };
+type State = { status: "loading" } | { status: "done"; title: string; creatorName?: string } | { status: "failed"; kind: LoadFail };
 
 export default function RankingPage() {
   const { id = "" } = useParams<{ id: string }>();
@@ -39,13 +36,13 @@ export default function RankingPage() {
         if (!alive) return;
         if (!rec) {
           const hidden = await isHiddenPuzzle(id).catch(() => false);
-          if (alive) setState({ status: "failed", message: hidden ? T.puzzleHidden : T.loadFailed });
+          if (alive) setState({ status: "failed", kind: hidden ? "hidden" : "missing" });
           return;
         }
         setState({ status: "done", title: rec.title, creatorName: rec.body?.creatorName });
       } catch (err) {
         console.error("Failed to load puzzle:", err);
-        if (alive) setState({ status: "failed", message: T.loadError });
+        if (alive) setState({ status: "failed", kind: "error" });
       }
     })();
     return () => {
@@ -76,13 +73,8 @@ export default function RankingPage() {
             </div>
           </div>
 
-          {state.status === "failed" && (
-            <div className="bg-white p-6 text-center">
-              <p className="text-sm" role="alert" style={{ color: C.secondary }}>
-                {state.message}
-              </p>
-            </div>
-          )}
+          {/* 読めない時は解く画面と同じ1枚（表 4番。2026-11-01） */}
+          {state.status === "failed" && <LoadFailCard kind={state.kind} level={2} />}
           {state.status === "done" && (
             <>
               <PuzzleRanking puzzleId={id} hideTitle />
