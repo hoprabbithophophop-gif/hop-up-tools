@@ -7,6 +7,8 @@ on:
   schedule:
     - cron: '17 22 * * *'   # 07:17 JST。毎時00分は GitHub が混雑帯と明記しているので外す
   workflow_dispatch:
+  push:
+    branches: [fix/playwright-ubuntu2604]   # 【一時】26.04 での動作確認用。main に入れる前に外す
 
 jobs:
   watch:
