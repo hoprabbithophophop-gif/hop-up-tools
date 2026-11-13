@@ -144,8 +144,8 @@
   }
 
   function renderRow(item, token) {
-    // 要取り消し・取り消し済みは、X の予約から消す（消した）行。済み／見送りは押させない
-    var isCancelRow = item.status === '要取り消し' || item.status === '取り消し済み';
+    // 要取り消し・取り消し済みは、X の予約から消す（消した）行。要時刻変更は X で時刻を直す行。済み／見送りは押させない
+    var isCancelRow = item.status === '要取り消し' || item.status === '取り消し済み' || item.status === '要時刻変更';
     var isDone = item.status === '予約済み' || isCancelRow;
     var isSkipped = item.status === '見送り';
     var row = document.createElement('div');

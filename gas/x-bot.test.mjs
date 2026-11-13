@@ -58,7 +58,11 @@ const promo = { kind: "promo", key: "promo", text: null };
 const none = { kind: "none", key: "none", text: "本日締切のお知らせはありません🐰" };
 
 // 前の晩の結果を「全部予約した」状態にする（毎晩の予約作業の代わり）
-const scheduleAll = (rows) => rows.map((r) => ({ ...r, status: r.status === "未投稿" ? "予約済み" : r.status }));
+const scheduleAll = (rows) => rows.map((r) => {
+  if (r.status === "未投稿") return { ...r, status: "予約済み" };
+  if (r.status === "要時刻変更") return { ...r, status: "予約済み", memo: "" };  // X で時刻を直して markScheduled（窓口がメモも消す）
+  return r;
+});
 
 test("reconcileQueue: 空のシートに2日分を書くと、日ごとに 07:00 から1分刻みで並び、宣伝は最後", () => {
   const { reconcileQueue } = load("x-bot.js");
@@ -106,35 +110,36 @@ test("reconcileQueue: 本文だけ変わっても（同じ内容の記事のど�
   assert.equal(res.needsCancel, 0);
 });
 
-test("reconcileQueue: 予約済みの日にあとから告知が増えたら、告知はいちばん後ろの1分後に足し、宣伝は取り消して告知の後ろへ入れ直す", () => {
+// 2026-11-14 Hop 決定「1分空くの気持ち悪い！詰めれるようにして！」で、空きを残さず詰める動きに変えた。
+// それまでは「宣伝は取り消して後ろへ入れ直す／取り消した行の時刻は使い回さない」で、1分の空きが出ていた。
+test("reconcileQueue: 予約済みの日にあとから告知が増えたら、告知を足して宣伝は取り消さずに時刻だけ後ろへ直す（空きを残さない）", () => {
   const { reconcileQueue } = load("x-bot.js");
   const night1 = scheduleAll(plain(reconcileQueue([], [{ date: "2026-11-03", posts: [notice("a"), promo] }], opts())).rows);
   const o = opts({ newRowId: idMaker() });
-  o.newRowId = ((mk) => () => "x" + mk())(idMaker());
   const res = plain(reconcileQueue(night1, [{ date: "2026-11-03", posts: [notice("a"), notice("b"), promo] }], o));
   assert.deepEqual(res.rows.map((r) => [r.time, r.kind, r.status, r.text]), [
     ["07:00", "notice", "予約済み", "本文a"],
-    ["07:01", "promo", "要取り消し", "宣伝1"],
-    ["07:02", "notice", "未投稿", "本文b"],
-    ["07:03", "promo", "未投稿", "宣伝1"],
+    ["07:01", "notice", "未投稿", "本文b"],
+    ["07:02", "promo", "要時刻変更", "宣伝1"],
   ]);
-  assert.match(res.rows[1].memo, /順番を直す/);
-  assert.equal(o.promoCalls(), 0, "入れ直す宣伝は同じ本文を使い回す");
+  assert.equal(res.rows[2].memo, "時刻を詰めるため（X の予約は 07:01 のまま。07:02 に直す）");
+  assert.deepEqual([res.needsCancel, res.moved, res.added], [0, 1, 1]);
+  assert.equal(o.promoCalls(), 0, "宣伝の順番切替を余計に進めない");
 });
 
-test("reconcileQueue: まだ予約していない宣伝は、取り消さずに告知の後ろへ時刻だけずらす", () => {
+test("reconcileQueue: まだ予約していない宣伝は、告知の後ろへ時刻だけずらし、空きを残さない", () => {
   const { reconcileQueue } = load("x-bot.js");
   const night1 = plain(reconcileQueue([], [{ date: "2026-11-03", posts: [notice("a"), promo] }], opts())).rows;
   const res = plain(reconcileQueue(night1, [{ date: "2026-11-03", posts: [notice("a"), notice("b"), promo] }], opts({ newRowId: () => "rX" })));
   assert.deepEqual(res.rows.map((r) => [r.time, r.kind, r.status]), [
     ["07:00", "notice", "未投稿"],
-    ["07:02", "notice", "未投稿"],
-    ["07:03", "promo", "未投稿"],
+    ["07:01", "notice", "未投稿"],
+    ["07:02", "promo", "未投稿"],
   ]);
-  assert.equal(res.needsCancel, 0);
+  assert.deepEqual([res.needsCancel, res.moved], [0, 0]);
 });
 
-test("reconcileQueue: 要らなくなった行は、予約済みなら「要取り消し」と理由、未投稿なら外す", () => {
+test("reconcileQueue: 要らなくなった行は、予約済みなら「要取り消し」と理由、未投稿なら外し、残りは空きなく前へ詰める", () => {
   const { reconcileQueue } = load("x-bot.js");
   const existing = [
     { text: "A", status: "予約済み", date: "2026-11-03", writtenAt: "", time: "07:00", kind: "notice", key: "a", rowId: "r1", memo: "" },
@@ -143,26 +148,32 @@ test("reconcileQueue: 要らなくなった行は、予約済みなら「要取�
     { text: "宣伝", status: "予約済み", date: "2026-11-03", writtenAt: "", time: "07:03", kind: "promo", key: "promo", rowId: "r4", memo: "" },
   ];
   const res = plain(reconcileQueue(existing, [{ date: "2026-11-03", posts: [notice("c", "C"), promo] }], opts()));
-  assert.deepEqual(res.rows.map((r) => [r.rowId, r.status]), [["r1", "要取り消し"], ["r3", "予約済み"], ["r4", "予約済み"]]);
+  assert.deepEqual(res.rows.map((r) => [r.rowId, r.time, r.status]), [
+    ["r1", "07:00", "要取り消し"],
+    ["r3", "07:00", "要時刻変更"],
+    ["r4", "07:01", "要時刻変更"],
+  ]);
   assert.match(res.rows[0].memo, /締切/);
-  assert.deepEqual([res.needsCancel, res.dropped], [1, 1]);
+  assert.match(res.rows[1].memo, /X の予約は 07:02 のまま。07:00 に直す/);
+  assert.match(res.rows[2].memo, /X の予約は 07:03 のまま。07:01 に直す/);
+  assert.deepEqual([res.needsCancel, res.dropped, res.moved], [1, 1, 2]);
 });
 
-test("reconcileQueue: 「ありません」の日に告知が入ったら、ありませんを取り消し、告知と宣伝を足す", () => {
+test("reconcileQueue: 「ありません」の日に告知が入ったら、ありませんを取り消し、告知と宣伝を 07:00 から足す", () => {
   const { reconcileQueue } = load("x-bot.js");
   const existing = [{ text: "本日締切のお知らせはありません🐰", status: "予約済み", date: "2026-11-03", writtenAt: "", time: "07:00", kind: "none", key: "none", rowId: "r1", memo: "" }];
   const o = opts({ newRowId: idMaker() });
   const res = plain(reconcileQueue(existing, [{ date: "2026-11-03", posts: [notice("a"), promo] }], o));
   assert.deepEqual(res.rows.map((r) => [r.time, r.kind, r.status]), [
     ["07:00", "none", "要取り消し"],
-    ["07:01", "notice", "未投稿"],
-    ["07:02", "promo", "未投稿"],
+    ["07:00", "notice", "未投稿"],
+    ["07:01", "promo", "未投稿"],
   ]);
   assert.match(res.rows[0].memo, /告知が入った/);
   assert.equal(o.promoCalls(), 1);
 });
 
-test("reconcileQueue: 見送りにした行は足し直さない／取り消す前に元へ戻った行は予約済みに戻す／取り消し済みの行と同じ物が戻ったら足し直す", () => {
+test("reconcileQueue: 見送りにした行は足し直さない／取り消す前に元へ戻った行は予約済みに戻す／取り消し済みの行と同じ物が戻ったら足し直す（見送り・取り消しの分は詰める）", () => {
   const { reconcileQueue } = load("x-bot.js");
   const existing = [
     { text: "A", status: "見送り", date: "2026-11-03", writtenAt: "", time: "07:00", kind: "notice", key: "a", rowId: "r1", memo: "" },
@@ -173,12 +184,56 @@ test("reconcileQueue: 見送りにした行は足し直さない／取り消す�
   const res = plain(reconcileQueue(existing, [{ date: "2026-11-03", posts: [notice("a"), notice("b"), notice("c"), promo] }], opts({ newRowId: idMaker() })));
   assert.deepEqual(res.rows.map((r) => [r.time, r.key, r.status, r.memo]), [
     ["07:00", "a", "見送り", ""],
-    ["07:01", "b", "予約済み", ""],
+    ["07:00", "b", "要時刻変更", "時刻を詰めるため（X の予約は 07:01 のまま。07:00 に直す）"],
+    ["07:01", "c", "未投稿", ""],
     ["07:02", "c", "取り消し済み", "理由"],
-    ["07:03", "promo", "要取り消し", "順番を直すため（あとから足した告知の後ろに入れ直す）"],
-    ["07:04", "c", "未投稿", ""],
-    ["07:05", "promo", "未投稿", ""],
+    ["07:02", "promo", "要時刻変更", "時刻を詰めるため（X の予約は 07:03 のまま。07:02 に直す）"],
   ]);
+});
+
+test("reconcileQueue: 11月14日の形（予約済みの 07:00〜07:04 の最後が宣伝、告知が2件増えた）は、告知が 07:04・07:05、宣伝が 07:06 で空きが出ない", () => {
+  const { reconcileQueue } = load("x-bot.js");
+  const night1 = scheduleAll(plain(reconcileQueue([], [{ date: "2026-11-14", posts: [notice("a"), notice("b"), notice("c"), notice("d"), promo] }], opts())).rows);
+  const res = plain(reconcileQueue(night1, [{ date: "2026-11-14", posts: [notice("a"), notice("b"), notice("c"), notice("d"), notice("e"), notice("f"), promo] }], opts({ newRowId: idMaker() })));
+  assert.deepEqual(res.rows.map((r) => [r.time, r.key, r.status]), [
+    ["07:00", "a", "予約済み"],
+    ["07:01", "b", "予約済み"],
+    ["07:02", "c", "予約済み"],
+    ["07:03", "d", "予約済み"],
+    ["07:04", "e", "未投稿"],
+    ["07:05", "f", "未投稿"],
+    ["07:06", "promo", "要時刻変更"],
+  ]);
+  assert.match(res.rows[6].memo, /X の予約は 07:04 のまま。07:06 に直す/);
+  assert.equal(res.needsCancel, 0, "宣伝は取り消さない");
+});
+
+test("reconcileQueue: 要時刻変更のまま次の晩になっても、X 上の時刻はメモから引き継ぎ、X と同じ時刻に戻ったら予約済みに戻す", () => {
+  const { reconcileQueue } = load("x-bot.js");
+  const night1 = scheduleAll(plain(reconcileQueue([], [{ date: "2026-11-03", posts: [notice("a"), promo] }], opts())).rows);
+  // 2晩目: 告知 b が増えて宣伝が 07:01 → 07:02 に。予約作業をしないまま3晩目へ
+  const night2 = plain(reconcileQueue(night1, [{ date: "2026-11-03", posts: [notice("a"), notice("b"), promo] }], opts({ newRowId: () => "rB" }))).rows;
+  // 3晩目: さらに c が増える → 宣伝は 07:03。メモの X 上の時刻は 07:01 のまま
+  const night3 = plain(reconcileQueue(night2, [{ date: "2026-11-03", posts: [notice("a"), notice("b"), notice("c"), promo] }], opts({ newRowId: () => "rC" }))).rows;
+  const p3 = night3.find((r) => r.kind === "promo");
+  assert.deepEqual([p3.time, p3.status, p3.memo], ["07:03", "要時刻変更", "時刻を詰めるため（X の予約は 07:01 のまま。07:03 に直す）"]);
+  // 4晩目: b と c が無くなった（未投稿なので外れる）→ 宣伝は 07:01 = X 上と同じなので直す必要が無い
+  const night4 = plain(reconcileQueue(night3, [{ date: "2026-11-03", posts: [notice("a"), promo] }], opts())).rows;
+  assert.deepEqual(night4.map((r) => [r.time, r.kind, r.status, r.memo]), [
+    ["07:00", "notice", "予約済み", ""],
+    ["07:01", "promo", "予約済み", ""],
+  ]);
+});
+
+test("reconcileQueue: 要時刻変更の行が要らなくなったら、X 上の時刻に戻して「要取り消し」にする（X で探せるように）", () => {
+  const { reconcileQueue } = load("x-bot.js");
+  const existing = [
+    { text: "A", status: "予約済み", date: "2026-11-03", writtenAt: "", time: "07:00", kind: "notice", key: "a", rowId: "r1", memo: "" },
+    { text: "B", status: "要時刻変更", date: "2026-11-03", writtenAt: "", time: "07:01", kind: "notice", key: "b", rowId: "r2", memo: "時刻を詰めるため（X の予約は 07:02 のまま。07:01 に直す）" },
+  ];
+  const res = plain(reconcileQueue(existing, [{ date: "2026-11-03", posts: [notice("a", "A")] }], opts()));
+  assert.deepEqual(res.rows.map((r) => [r.rowId, r.time, r.status]), [["r1", "07:00", "予約済み"], ["r2", "07:02", "要取り消し"]]);
+  assert.match(res.rows[1].memo, /締切/);
 });
 
 test("reconcileQueue: 時刻・行ID・照合キーの無い古い4列の行は、旧来の時刻（その日の順番）と本文から補う", () => {
@@ -308,6 +363,18 @@ test("窓口 getQueue / markScheduled: 古い4列のシートでは今まで通�
   assert.deepEqual(plain(sb.getQueue(null)).items.map((i) => [i.id, i.scheduledTime]), [["1", "07:00"], ["2", "07:01"]]);
   assert.equal(sb.markScheduled("2").ok, true);
   assert.equal(fake.sheets["X投稿キュー"].values[2][1], "予約済み");
+});
+
+test("窓口 markScheduled: 要時刻変更の行は予約済みにし、「X の予約は…」のメモも消す。ほかの状態からはメモを残す", () => {
+  const { sb, fake } = loadGateway([
+    HEADER,
+    ["A", "要時刻変更", "2026-11-03", "", "07:02", "promo", "promo", "r1", "時刻を詰めるため（X の予約は 07:01 のまま。07:02 に直す）"],
+    ["B", "未投稿", "2026-11-03", "", "07:03", "notice", "b", "r2", "残すメモ"],
+  ]);
+  assert.equal(sb.markScheduled("r1").ok, true);
+  assert.deepEqual(plain(fake.sheets["X投稿キュー"].values[1].slice(1, 2).concat(fake.sheets["X投稿キュー"].values[1][8])), ["予約済み", ""]);
+  assert.equal(sb.markScheduled("r2").ok, true);
+  assert.equal(fake.sheets["X投稿キュー"].values[2][8], "残すメモ");
 });
 
 test("窓口 markCancelled: 要取り消しの行だけ取り消し済みにし、取り消し履歴に理由つきで1行残す。2回目は already", () => {

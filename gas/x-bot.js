@@ -71,21 +71,32 @@ function flushEmailNotify() {
 // 2日分の書き出し（2026-11-01 Hop 決定・案A）:
 //   毎晩、翌日と翌々日の2日分を作る。前の晩に書いた行は消さず、照合キーで照らし合わせる。
 //   - 同じ照合キーの行がある → 残す（予約済みの行は本文も時刻もそのまま）
-//   - 無い → 新しい行として「未投稿」で足す。時刻はその日のいちばん遅い行の1分後
+//   - 無い → 新しい行として「未投稿」で足す（並びはその日の後ろ。宣伝はいつも最後）
 //   - 前の晩の行で、今夜は要らなくなった物:
 //       未投稿 → 行ごと外す（まだ X に入っていない）
 //       予約済み → 「要取り消し」にして、メモに理由を書く（X から消すのは毎晩の予約作業）
 //   - 予約投稿日が翌日より前の行は、もう投稿が済んでいるので外す
 //   取り消した記録は、窓口（x-gateway.js）の markCancelled が「取り消し履歴」シートに残す。
 //
+// 時刻を詰める（2026-11-14 Hop 決定「1分空くの気持ち悪い！詰めれるようにして！」）:
+//   照らし合わせのあと、その日に出す行（未投稿・予約済み・要時刻変更）を今の並びのまま
+//   07:00 から1分刻みに振り直す。取り消した行・見送りの行の分は空けない。
+//       未投稿 → 時刻だけ書き換える
+//       予約済み → 「要時刻変更」にして、メモに X 上の今の時刻を書く（X で時刻を直すのは毎晩の予約作業）
+//   宣伝を告知の後ろへ回す時も、取り消さずに時刻を直すだけにする。
+//   要取り消しの行は X から消すまで元の時刻に残るので、同じ時刻に新しい行が入ることがある。
+//   毎晩の予約作業では「消す → 時刻を直す → 新しく入れる」の順に行う。
+//
 // 行ごとの時刻と行IDは列に書いて固定する。これまでは「その日の中で何番目か」から窓口が
 // 時刻を計算していたが、行が残ったり外れたりすると予約済みの行の時刻まで動いてしまうため。
+// （詰める時に動かす行は、上のとおり「要時刻変更」で印を付けてから動かす）
 var QUEUE_HEADER = ['ツイート本文', 'ステータス', '予約投稿日', '書き出し日時', '予約時刻', '種類', '照合キー', '行ID', 'メモ'];
 var Q_STATUS_UNSENT = '未投稿';
 var Q_STATUS_SCHEDULED = '予約済み';
 var Q_STATUS_SKIPPED = '見送り';
 var Q_STATUS_NEEDS_CANCEL = '要取り消し';
 var Q_STATUS_CANCELLED = '取り消し済み';
+var Q_STATUS_NEEDS_MOVE = '要時刻変更';
 var NONE_TWEET_TEXT = '本日締切のお知らせはありません🐰';
 
 var _sheetQueue = []; // postTweet が SHEET_MODE で積む先（今は読む所が無い。誤投稿を防ぐ受け皿）
@@ -138,7 +149,7 @@ function writeSyncedQueue(sheetId, plans) {
     SpreadsheetApp.flush();
 
     Logger.log('[X SHEET] 書き出し: 足した ' + result.added + '件 / 残した ' + result.kept
-      + '件 / 要取り消し ' + result.needsCancel + '件 / 外した ' + result.dropped + '件 （対象日: '
+      + '件 / 要取り消し ' + result.needsCancel + '件 / 要時刻変更 ' + result.moved + '件 / 外した ' + result.dropped + '件 （対象日: '
       + plans.map(function (p) { return p.date; }).join(', ') + '）');
     return result;
   } finally {
@@ -188,7 +199,7 @@ function reconcileQueue(existing, plans, opts) {
   var firstDate = plans.length ? plans[0].date : '';
   var planDates = {};
   plans.forEach(function (p) { planDates[p.date] = true; });
-  var stats = { added: 0, kept: 0, needsCancel: 0, dropped: 0 };
+  var stats = { added: 0, kept: 0, needsCancel: 0, dropped: 0, moved: 0 };
 
   // 古い4列の行（予約時刻・種類・照合キー・行IDが無い）は、本文から推し量って補う。
   // 時刻は窓口の旧計算（その日の中の順番で 07:00 から1分刻み）と同じにする。
@@ -212,7 +223,6 @@ function reconcileQueue(existing, plans, opts) {
   plans.forEach(function (plan) {
     var dayRows = rows.filter(function (r) { return r.date === plan.date; });
     var used = {};
-    var hasNewNotice = false;
 
     // 照合キーが無い古い行は、今夜の本文と同じならそのキーを引き継ぐ
     dayRows.forEach(function (r) {
@@ -233,7 +243,7 @@ function reconcileQueue(existing, plans, opts) {
         used[match.rowId] = true;
         stats.kept++;
         if (match.status === Q_STATUS_NEEDS_CANCEL) {
-          // 取り消す前に元に戻った（X にはまだ入っている）
+          // 取り消す前に元に戻った（X にはまだ入っている。時刻は X 上の時刻のまま）
           match.status = Q_STATUS_SCHEDULED;
           match.memo = '';
         } else if (match.status === Q_STATUS_UNSENT && p.kind === 'notice') {
@@ -242,7 +252,6 @@ function reconcileQueue(existing, plans, opts) {
         }
         return;
       }
-      if (p.kind === 'notice') hasNewNotice = true;
       var row = newQueueRow(plan.date, p, rows, opts);
       rows.push(row);
       dayRows.push(row);
@@ -256,7 +265,9 @@ function reconcileQueue(existing, plans, opts) {
       if (r.status === Q_STATUS_UNSENT) {
         r._drop = true;
         stats.dropped++;
-      } else if (r.status === Q_STATUS_SCHEDULED) {
+      } else if (r.status === Q_STATUS_SCHEDULED || r.status === Q_STATUS_NEEDS_MOVE) {
+        // 時刻を直す前の行は、X 上の時刻（メモに書いた方）で消してもらう
+        if (r.status === Q_STATUS_NEEDS_MOVE) r.time = xTimeOfMoveRow(r);
         r.status = Q_STATUS_NEEDS_CANCEL;
         r.memo = cancelReason(r.kind);
         stats.needsCancel++;
@@ -264,28 +275,7 @@ function reconcileQueue(existing, plans, opts) {
       // 見送り・要取り消し・取り消し済みは、そのまま残す
     });
 
-    // 宣伝はその日のいちばん最後に出す（これまでと同じ並び）。
-    // 宣伝より後ろに告知が足された日は、宣伝を後ろへ付け直す。
-    if (hasNewNotice) {
-      var live = dayRows.filter(function (r) { return !r._drop && isLiveStatus(r.status); });
-      var lastNoticeTime = '';
-      live.forEach(function (r) { if (r.kind === 'notice' && r.time > lastNoticeTime) lastNoticeTime = r.time; });
-      live.forEach(function (r) {
-        if (r.kind !== 'promo' || r.time > lastNoticeTime) return;
-        if (r.status === Q_STATUS_UNSENT) {
-          r.time = nextSlot(plan.date, rows);
-          r.writtenAt = opts.nowStr;
-        } else if (r.status === Q_STATUS_SCHEDULED) {
-          r.status = Q_STATUS_NEEDS_CANCEL;
-          r.memo = '順番を直すため（あとから足した告知の後ろに入れ直す）';
-          stats.needsCancel++;
-          stats.kept--;
-          var again = newQueueRow(plan.date, { kind: 'promo', key: 'promo', text: r.text }, rows, opts);
-          rows.push(again);
-          stats.added++;
-        }
-      });
-    }
+    stats.moved += packDayTimes(dayRows, opts);
   });
 
   rows = rows.filter(function (r) { return !r._drop; });
@@ -294,7 +284,50 @@ function reconcileQueue(existing, plans, opts) {
     return a.time < b.time ? -1 : (a.time > b.time ? 1 : 0);
   });
   rows.forEach(function (r) { delete r._drop; });
-  return { rows: rows, added: stats.added, kept: stats.kept, needsCancel: stats.needsCancel, dropped: stats.dropped };
+  return { rows: rows, added: stats.added, kept: stats.kept, needsCancel: stats.needsCancel, dropped: stats.dropped, moved: stats.moved };
+}
+
+// その日に出す行（未投稿・予約済み・要時刻変更）を、今の並びのまま 07:00 から1分刻みに振り直す。
+// 宣伝はいつも最後。取り消した行・見送りの行の分は空けない。X で時刻を直す必要が出た行の数を返す
+function packDayTimes(dayRows, opts) {
+  var live = dayRows.filter(function (r) {
+    return !r._drop && (isLiveStatus(r.status) || r.status === Q_STATUS_NEEDS_MOVE);
+  });
+  live.sort(function (a, b) {
+    var pa = a.kind === 'promo' ? 1 : 0, pb = b.kind === 'promo' ? 1 : 0;
+    if (pa !== pb) return pa - pb;
+    return a.time < b.time ? -1 : (a.time > b.time ? 1 : 0);
+  });
+  var moved = 0;
+  live.forEach(function (r, i) {
+    var slot = minutesToHHmm(7 * 60 + i);
+    if (r.status === Q_STATUS_UNSENT) {
+      if (r.time !== slot) { r.time = slot; r.writtenAt = opts.nowStr; }
+      return;
+    }
+    var xTime = r.status === Q_STATUS_NEEDS_MOVE ? xTimeOfMoveRow(r) : r.time;
+    r.time = slot;
+    if (slot === xTime) {
+      // X 上の時刻と同じに戻った（直す必要が無くなった）
+      r.status = Q_STATUS_SCHEDULED;
+      r.memo = '';
+    } else {
+      r.status = Q_STATUS_NEEDS_MOVE;
+      r.memo = moveMemo(xTime, slot);
+      moved++;
+    }
+  });
+  return moved;
+}
+
+// 要時刻変更の行のメモ。X 上の今の時刻を「X の予約は HH:mm」の形で必ず入れる（xTimeOfMoveRow が読む）
+function moveMemo(xTime, slot) {
+  return '時刻を詰めるため（X の予約は ' + xTime + ' のまま。' + slot + ' に直す）';
+}
+
+function xTimeOfMoveRow(r) {
+  var m = String(r.memo).match(/X の予約は (\d{2}:\d{2})/);
+  return m ? m[1] : r.time;
 }
 
 function newQueueRow(date, post, rows, opts) {
@@ -317,7 +350,8 @@ function newQueueRow(date, post, rows, opts) {
   };
 }
 
-// その日のいちばん遅い行の1分後（行が無ければ 07:00）。取り消した行の時刻も使い回さない
+// その日のいちばん遅い行の1分後（行が無ければ 07:00）。新しい行を一旦その日の後ろに置くための仮の時刻で、
+// 最後に packDayTimes が空きなく振り直す
 function nextSlot(date, rows) {
   var max = -1;
   rows.forEach(function (r) {

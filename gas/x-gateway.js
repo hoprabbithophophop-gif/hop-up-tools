@@ -110,6 +110,7 @@ var STATUS_SCHEDULED = '予約済み';
 var STATUS_SKIPPED = '見送り'; // 台本(xpostassistant.user.js)のSTATUS_SKIPPEDと一致させること
 var STATUS_NEEDS_CANCEL = '要取り消し';
 var STATUS_CANCELLED = '取り消し済み';
+var STATUS_NEEDS_MOVE = '要時刻変更'; // x-bot.js が時刻を詰めた時に付ける。X で時刻を直したら markScheduled で予約済みへ
 var HISTORY_SHEET_NAME = '取り消し履歴';
 
 function doGet(e) {
@@ -245,7 +246,8 @@ function getQueue(dateFilter) {
 // ===== ステータス更新（冪等）=====
 // id は getQueue が返した位置番号(1始まり)。同じ数え方でシート行を割り出して更新する。
 function markScheduled(id) {
-  return setRowStatus(id, STATUS_SCHEDULED, 'markScheduled');
+  // 要時刻変更（X で時刻を直した）の行は、もう要らない「X の予約は…」のメモも消す
+  return setRowStatus(id, STATUS_SCHEDULED, 'markScheduled', { clearMemoFrom: STATUS_NEEDS_MOVE });
 }
 
 // 「今日はもう出さない」の記帳。markScheduledと同じ位置指定・同じ上書き方式で、
@@ -277,6 +279,7 @@ function appendCancelHistory(ss, rowValues, idx) {
 }
 
 // opts.onlyFrom: この状態の行だけ書き換える（違えば断る）/ opts.afterSet: 書き換えた直後に呼ぶ
+// opts.clearMemoFrom: 書き換える前がこの状態だったら、メモの欄を空にする
 function setRowStatus(id, targetStatus, actionName, opts) {
   opts = opts || {};
   if (!id) return { ok: false, error: 'missing_id' };
@@ -313,6 +316,9 @@ function setRowStatus(id, targetStatus, actionName, opts) {
     }
     // 追記ではなく上書きセット（「未投稿予約済み」のような誤連結を防ぐ）
     sheet.getRange(r + 1, idx.status + 1).setValue(targetStatus);
+    if (opts.clearMemoFrom && current === opts.clearMemoFrom && idx.memo >= 0) {
+      sheet.getRange(r + 1, idx.memo + 1).setValue('');
+    }
     if (opts.afterSet) opts.afterSet(sheet.getParent(), values[r], idx);
     SpreadsheetApp.flush();
     return { ok: true, action: actionName, id: String(id), status: targetStatus, already: false };
