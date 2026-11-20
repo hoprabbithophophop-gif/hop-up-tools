@@ -313,6 +313,7 @@ svg#fx{position:absolute;inset:0;overflow:visible;pointer-events:none}
 @keyframes talk{0%,100%{transform:scaleY(.09)}13%{transform:scaleY(.58)}27%{transform:scaleY(.25)}42%{transform:scaleY(.68)}56%{transform:scaleY(.14)}73%{transform:scaleY(.5)}87%{transform:scaleY(.29)}}
 @keyframes jaw{0%,100%{transform:scaleY(1.04)}13%{transform:scaleY(1.24)}27%{transform:scaleY(1.1)}42%{transform:scaleY(1.29)}56%{transform:scaleY(1.06)}73%{transform:scaleY(1.21)}87%{transform:scaleY(1.12)}}
 .head,.body,.lid,.mo,.jaw,.who,.ir{animation:none!important}
+#clock{position:absolute;left:50%;top:5px;width:min(54px,8.5dvh);transform:translateX(-50%);z-index:1;pointer-events:none;filter:drop-shadow(0 2px 3px rgba(40,30,60,.22))}#clock svg{display:block;width:100%;height:auto}#clock.ring{animation:cring .5s ease-out 2}@keyframes cring{0%,100%{transform:translateX(-50%) rotate(0)}25%{transform:translateX(-50%) rotate(-7deg)}75%{transform:translateX(-50%) rotate(7deg)}}@media (prefers-reduced-motion:reduce){#clock.ring{animation:none}}
 </style></head><body>
 <div id="app">
 <section id="title" class="scr">
@@ -349,7 +350,7 @@ svg#fx{position:absolute;inset:0;overflow:visible;pointer-events:none}
   <div class="dlg" id="sdlg"><span class="who"></span><div class="tx"></div><span class="nx">タップで進む</span></div>
 </section>
 <section id="main" class="scr" hidden>
-  <div id="stage"><div class="bg mall"></div><canvas id="qcv"></canvas><div id="mgr"></div><div id="bubble"></div><div id="guide"><small>推しの声</small><span class="tx"></span></div><div id="stars">✦</div><div id="table"></div><button id="quit" type="button">やめる</button></div>
+  <div id="stage"><div class="bg mall"></div><div id="clock" aria-hidden="true"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#fff" stroke="#4A4460" stroke-width="5"/><g id="cticks"></g><line id="chh" x1="50" y1="54" x2="50" y2="28" stroke="#2B2540" stroke-width="6" stroke-linecap="round"/><line id="cmh" x1="50" y1="56" x2="50" y2="15" stroke="#2B2540" stroke-width="4" stroke-linecap="round"/><line id="csh" x1="50" y1="60" x2="50" y2="11" stroke="#E0353B" stroke-width="2" stroke-linecap="round"/><circle cx="50" cy="50" r="3.5" fill="#E0353B"/></svg></div><canvas id="qcv"></canvas><div id="mgr"></div><div id="bubble"></div><div id="guide"><small>推しの声</small><span class="tx"></span></div><div id="stars">✦</div><div id="table"></div><button id="quit" type="button">やめる</button></div>
   <div id="ctl"><div id="inner"></div><div id="memo"></div>
     <div id="wave"><span class="hint">ここをタップで手を振る</span>
       <div id="cards"><button type="button" data-v="s">笑顔<small>にっこり返す</small></button><button type="button" data-v="k">個別<small>その人だけへの言葉</small></button><button type="button" data-v="n">ノリ<small>明るくノリよく返す</small></button><button type="button" data-v="l">聞く<small>最後までうなずく</small></button></div>
