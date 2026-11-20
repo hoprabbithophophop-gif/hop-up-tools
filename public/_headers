@@ -27,3 +27,13 @@
   #
   # Turnstile（問い合わせフォームの人間確認）: script-src / frame-src / connect-src に
   #   https://challenges.cloudflare.com が必要。無いとウィジェットが描画されない。
+
+# 推し転（/oshiten/）だけ全体の CSP を外して専用の1本に付け替える。
+# 観客の絵をその場で data: の画像にするため img-src に data: が要る。
+# Cloudflare Pages は同じ見出しが2つの決まりに当たると値をつなげるので、「! で外す → 付け直す」の順で書く。
+# この決まりは /* より後ろに置くこと（! は前の決まりが付けた物しか外せない）。
+/oshiten/*
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com
+  ! Cache-Control
+  Cache-Control: no-cache
