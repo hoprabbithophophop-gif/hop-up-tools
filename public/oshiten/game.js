@@ -450,7 +450,7 @@ async function story(lines,o={}){show('story');if(!Q.on||Q.cv!==$('#sq'))$('#sq'
   return id===runId}
 // ---- タイトル
 function prep(){try{const s=(Date.now()^Math.floor(Math.random()*1e9))>>>0,r=buildRun(300,s);Q.ppl.clear();Q.spr.clear();setLine(r,-1);PRE={total:300,run:r,ready:Promise.all(r.seq.map(x=>sprite(x.per)))};$('#scat').innerHTML=r.feat.map((x,k)=>`<i style="--hh:${[16,11,20,13,18][k]}px;animation-duration:${[.58,.71,.52,.66,.61][k]}s;animation-delay:${[-.1,-.45,-.27,-.62,-.38][k]}s"><svg viewBox="37 ${(4+Math.max(0,172-x.p.h)*.95).toFixed(1)} 126 136" aria-hidden="true">${person(x.p)}</svg></i>`).join('');window.__placeScat&&window.__placeScat()}catch(e){PRE=null}}
-function title(){++runId;clkStop();$("#hands").classList.remove("look");Q.cheerOK=false;$("#main").classList.remove("open");show('title');queueOff();$('#sq').hidden=true;prep();awake(false);PAUSED=false;$('#pause').classList.remove('show');$('#scat').classList.remove('show');$('#tbtn').classList.remove('show');$('#skip').hidden=false;
+function title(){++runId;CLIP.tok++;clkStop();$("#hands").classList.remove("look");Q.cheerOK=false;$("#main").classList.remove("open");show('title');queueOff();$('#sq').hidden=true;prep();awake(false);PAUSED=false;$('#pause').classList.remove('show');$('#scat').classList.remove('show');$('#tbtn').classList.remove('show');$('#skip').hidden=false;
   const done=()=>{$('#scat').classList.add('show');$('#tbtn').classList.add('show');$('#skip').hidden=true;store.set('oshiten_seen','1')};
   TM.play(done);if(store.get('oshiten_seen')&&!title.force)TM.skip();title.force=false;$('#skip').onclick=e=>{e.stopPropagation();TM.skip()}}
 // ---- 台本
@@ -621,7 +621,7 @@ function doFlow(g){const el=spawn(g);const mc=!!g.per.mc;G.st.flowTotal++;if(mc)
   f.wave=()=>{aim(el);if(!f.tapped){f.tapped=true;G.st.flowTap++;el.classList.add('waved');const sv=el.querySelector('svg');if(sv)sv.animate([{transform:'translateY(0)'},{transform:'translateY(-9px)'},{transform:'translateY(0)'}],{duration:340,easing:'ease-out'})}};
   el.style.cursor='pointer';
   if(mc&&!G.mcRing){G.mcRing=1;el.classList.add('tapme')}
-  el._mcTap=mc;el._tap=()=>{hands('two');f.wave();if(mc&&!f.seen){f.seen=true;el._mcTap=false;G.st.mcHit++;G.mcSeen=1;stars();el.classList.add('glad');el.querySelector('svg').animate([{transform:'translateY(0)'},{transform:'translateY(-14px)'},{transform:'translateY(0)'},{transform:'translateY(-8px)'},{transform:'translateY(0)'}],{duration:520,easing:'ease-out'});memo('（服を見たのに気づいて その場で小さく跳ねた）')}};
+  el._mcTap=mc;el._tap=()=>{hands('two');f.wave();if(mc&&!f.seen){f.seen=true;el._mcTap=false;G.st.mcHit++;G.mcSeen=1;stars();hlPush('mc',fp(g),'（服を見たのに気づいて その場で小さく跳ねた）');el.classList.add('glad');el.querySelector('svg').animate([{transform:'translateY(0)'},{transform:'translateY(-14px)'},{transform:'translateY(0)'},{transform:'translateY(-8px)'},{transform:'translateY(0)'}],{duration:520,easing:'ease-out'});memo('（服を見たのに気づいて その場で小さく跳ねた）')}};
   if(mc)guide('mc','あ 私の色の服を着てくれてる！ 気づいてあげて！');
   return move(el,112,-42,1900).then(()=>{const k=FLOW.indexOf(f);if(k>=0)FLOW.splice(k,1);if(!f.tapped&&!f.ex)G.st.flowMiss++;el.remove()})}
 // 列の間隔：等間隔にしない。数人が詰まって来る／ふっと空く／ふつう、を混ぜる
@@ -672,6 +672,7 @@ async function engageBody(g,decided){const e=g.eng,el=spawn(g);
     if(g.per.feat&&choice==='k'){if(out==='bad')G.st.mismatch--;else if(out==='neutral')G.st.neutral--;if(out!=='good')G.st.good++;out='good';G.st.omai++;stars();txt='（「えっ 覚えてくれてる…！？」 目を丸くして 何度も振り返りながら出ていった）';if(!G.toldOmai){G.toldOmai=1;setTimeout(()=>inner('（おまいつの人だ 顔を覚えててよかった）'),500)}}
     if(out==='good'&&!unlike){G.streak++;if(G.streak%3===0)addSus(-2,'good-streak')}else G.streak=0;
     if(g.per.tl&&choice==='k'&&!e.repeat){txt='（知らないはずのことまで口にしてしまった 「え なんで知って…」と固まった）'}}
+  if(choice==='mc')hlPush('mc',fp(g),e.say);else if(g.per.feat&&choice==='k')hlPush('omai',fp(g),e.say);else if(e.ann&&choice==='k')hlPush('rep',fp(g),e.say);else if(out==='good')hlPush('good',fp(g),e.say);
   {const b=bestOf(e,g);const miss=out==='bad'||out==='pass'||(e.hasMC&&choice!=='mc')||(e.ann&&choice!=='k'&&choice!=='mc');
    if(miss)G.rev.push({p:g.alt&&g.per.alt&&!g.per.mc?g.per.alt:g.per.p,seq:g.i+1,say:e.say,choice,best:b.best,why:b.why})}
   memo(txt);if(e.first)inner('（…今ので合ってたのか？ 顔を見るしかない）');
@@ -717,16 +718,16 @@ async function doKids(){const o=$('#over');const r=mul(G.seed+77);
   await overSay('','（！？ 列が止まった 休憩か？ あ 子連れだから ゆっくり話させてあげるんだ！ やさしいな〜）');
   await overSay('','（スタッフがすっと一歩さがった）');b.classList.add('on');
   await overSay('こども','「…だ だいすきです！」');b.classList.remove('on');
-  $('#odlg').hidden=true;const c=await choose($('#ochoices'),[{t:'しゃがんで目を合わせる',v:'look'},{t:'「来てくれてありがとう」って言う',v:'thanks'},{t:'いっぱい手を振る',v:'wave'}]);$('#odlg').hidden=false;G.kidsChoice=c;
+  $('#odlg').hidden=true;const c=await choose($('#ochoices'),[{t:'しゃがんで目を合わせる',v:'look'},{t:'「来てくれてありがとう」って言う',v:'thanks'},{t:'いっぱい手を振る',v:'wave'}]);$('#odlg').hidden=false;G.kidsChoice=c;hlPush('kids',kid,'…だ だいすきです！');
   if(c==='wave')hands('two');
   await overSay('',c==='look'?'（しゃがんで目を合わせたら 真っ赤になって ぶんぶん頷いた）':c==='thanks'?'（「来てくれてありがとう」 お母さんの方が泣きそうになってた）':'（両手いっぱいで振り返してくれた ちいさい手だった）');
   await overSay('','（お母さんが深々と頭下げて ふたりゆっくり出てった） 後ろの大人たちが目を細めて見てる');
   o.className='';await Promise.all([move(a,null,-46,2700,'ease-in'),move(b,null,-30,2700,'ease-in')]);a.remove();b.remove()}
 // ---- 1回の流れ
-async function runGame(total,o={}){const id=++runId;SPEED=window.__speed||1;
+async function runGame(total,o={}){const id=++runId;CLIP.tok++;SPEED=window.__speed||1;
   const seed=(Date.now()^Math.floor(Math.random()*1e9))>>>0;
   let run0,ready;if(PRE&&PRE.total===total){run0=PRE.run;ready=PRE.ready;PRE=null}else{run0=buildRun(total,seed);Q.ppl.clear();Q.spr.clear();setLine(run0,-1);ready=Promise.all(run0.seq.map(x=>sprite(x.per)))}
-  G={id,seed,total,guided:o.skipIntro&&G&&G.guided?{...G.guided}:{},rev:[],run:run0,i:0,sus:0,susMax:0,log:[],recent:[],streak:0,mcSeen:0,st:{good:0,neutral:0,mismatch:0,pass:0,pushed:0,omai:0,omaiTotal:0,mcHit:0,mcTotal:0,flowTap:0,flowMiss:0,flowTotal:0,repeatHit:0,repeatTotal:0,engTotal:0}};
+  G={id,seed,total,hl:[],guided:o.skipIntro&&G&&G.guided?{...G.guided}:{},rev:[],run:run0,i:0,sus:0,susMax:0,log:[],recent:[],streak:0,mcSeen:0,st:{good:0,neutral:0,mismatch:0,pass:0,pushed:0,omai:0,omaiTotal:0,mcHit:0,mcTotal:0,flowTap:0,flowMiss:0,flowTotal:0,repeatHit:0,repeatTotal:0,engTotal:0}};
   window.__G=G;FLOW.length=0;awake(true);store.set('oshiten_seen','1');
   setLine(run0,-1);queueOn($('#qcv'));
   show('main');stage().querySelectorAll('.fan').forEach(e=>e.remove());bubbleOff();inner('');memo('');$('#cards').classList.remove('show');$('#over').className='';$("#wave .hint").classList.toggle("show",!!o.skipIntro);clkStart(o.skipIntro?50:0);
@@ -765,7 +766,65 @@ function result(ans){awake(false);show('result');const s=G.st,rows=[['見送っ�
   $('#rlead').textContent=G.busted?'今日は 最後まで隠し通せなかった':'バレずに 最後までやりきった';
   const row=$('#rrow');row.innerHTML='';const mk=(t,f,c)=>{const b=document.createElement('button');b.type='button';b.className=c;b.textContent=t;b.onclick=f;row.appendChild(b)};
   if(ans==='yes')mk('次のお見送り会へ',()=>runGame(G.total,{skipIntro:true}),'big');
-  mk('タイトルへ',()=>title(),ans==='yes'?'sub':'big')}
+  mk('タイトルへ',()=>title(),ans==='yes'?'sub':'big');shareSetup()}
+// ---- 見どころ動画（その回の名場面から描き直す・縦 720x1280）と 共有
+const fp=g=>g.alt&&g.per.alt&&!g.per.mc?g.per.alt:g.per.p;
+function hlPush(k,p,say){if(G&&G.hl&&p&&G.hl.length<60)G.hl.push({k,p,say:String(say||''),seq:G.i+1})}
+const HLN={kids:'子どもが来てくれた',omai:'顔を覚えていた いつもの人',mc:'推しの色の服に気づけた',rep:'また来た人を覚えていた',good:'笑顔で帰ってくれた'};
+function pickHL(list){const ord=['kids','omai','mc','rep','good'],out=[];for(const k of ord){const x=list.find(y=>y.k===k);if(x)out.push(x);if(out.length>=3)break}
+  for(const x of list){if(out.length>=3)break;if(!out.includes(x))out.push(x)}return out.sort((a,b)=>a.seq-b.seq)}
+function faceImg(p){const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="37 4 126 180" width="504" height="720"><style>${$('#pcss').textContent}</style>${person(p)}</svg>`;
+  return new Promise(res=>{const im=new Image();im.onload=()=>{try{const c=document.createElement('canvas');c.width=504;c.height=720;c.getContext('2d').drawImage(im,0,0,504,720);res(c)}catch(e){res(null)}};im.onerror=()=>res(null);im.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg)})}
+function wrapT(c,t,maxW){const out=[];let cur='';for(const w of String(t).split(' ')){const tryS=cur?cur+' '+w:w;if(c.measureText(tryS).width<=maxW){cur=tryS;continue}if(cur)out.push(cur);cur='';for(const ch of w){if(c.measureText(cur+ch).width>maxW){out.push(cur);cur=ch}else cur+=ch}}if(cur)out.push(cur);return out}
+const eo=p=>1-Math.pow(1-Math.max(0,Math.min(1,p)),3);
+function rrect(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
+function drawClock(c,cx,cy,R,sec,wob){c.save();c.translate(cx,cy);c.rotate(wob);c.fillStyle='#fff';c.strokeStyle='#4A4460';c.lineWidth=R*.1;c.beginPath();c.arc(0,0,R,0,7);c.fill();c.stroke();
+  for(let k=0;k<60;k++){const a=k*Math.PI/30,big=k%5===0;c.lineWidth=big?R*.06:R*.02;c.beginPath();c.moveTo(Math.sin(a)*R*(big?.78:.86),-Math.cos(a)*R*(big?.78:.86));c.lineTo(Math.sin(a)*R*.93,-Math.cos(a)*R*.93);c.stroke()}
+  const m=44+sec/60,hr=2+m/60,hand=(ang,len,w,col)=>{c.save();c.rotate(ang);c.strokeStyle=col;c.lineWidth=w;c.lineCap='round';c.beginPath();c.moveTo(0,R*.12);c.lineTo(0,-len);c.stroke();c.restore()};
+  hand(hr*Math.PI/6,R*.5,R*.12,'#2B2540');hand(m*Math.PI/30,R*.75,R*.08,'#2B2540');hand(Math.floor(sec)*Math.PI/30,R*.85,R*.04,'#E0353B');c.fillStyle='#E0353B';c.beginPath();c.arc(0,0,R*.07,0,7);c.fill();c.restore()}
+function clipPlan(){const hl=pickHL(G.hl||[]);const T0=3,SC=3.6,TE=3.4;return{hl,T0,SC,TE,T:T0+SC*hl.length+TE,score:score(),lead:G.busted?'今日は 最後まで隠し通せなかった':'バレずに 最後までやりきった',N:G.run.N}}
+function drawClip(c,P,faces,t){const W=720,H=1280,mc=getComputedStyle(document.documentElement).getPropertyValue('--mc').trim()||'#E84C7A';
+  const g=c.createLinearGradient(0,0,0,H);g.addColorStop(0,'#DCEBF7');g.addColorStop(.46,'#F4EEE6');g.addColorStop(.46,'#E9DFD2');g.addColorStop(1,'#F6F0E8');c.fillStyle=g;c.fillRect(0,0,W,H);
+  c.textAlign='center';c.textBaseline='middle';const F1='"Dela Gothic One","Zen Kaku Gothic New",sans-serif',F2='"Zen Kaku Gothic New","Hiragino Sans",sans-serif';
+  if(t<P.T0){// 題名と時計
+    c.fillStyle='#2B2540';c.font=`54px ${F1}`;['推しに転生（一時的）','したので、ヲタク知識で','お見送り会300枚を','乗り切る'].forEach((l,k)=>c.fillText(l,W/2,250+k*80));
+    const sec=57+Math.min(3,t*1.25),wob=sec>=60?Math.sin((t-2.4)*28)*.12*Math.max(0,1-(t-2.4)/.6):0;drawClock(c,W/2,800,190,sec,wob);return}
+  const k=Math.floor((t-P.T0)/P.SC);if(k<P.hl.length){const x=P.hl[k],lt=t-P.T0-k*P.SC,fc=faces[k];
+    const inP=eo(lt/.45),hop=lt>.5&&lt<.9?Math.sin((lt-.5)/.4*Math.PI)*40:0;
+    if(fc){const fw=560,fh=800,fx=W/2-fw/2+(1-inP)*W*.8,fy=H-fh+20-hop;c.drawImage(fc,fx,fy,fw,fh)}
+    c.font=`700 30px ${F2}`;c.fillStyle='#4A4460';c.fillText(`${x.seq}人目`,W/2,120);
+    c.font=`800 46px ${F2}`;const sl=wrapT(c,x.say||'',560);const bh=sl.length*60+56,by=170,ba=eo((lt-.35)/.3);c.globalAlpha=ba;c.fillStyle='#fff';rrect(c,W/2-320,by,640,bh,36);c.fill();c.fillStyle='#2B2540';sl.forEach((l,i)=>c.fillText(l,W/2,by+58+i*60));c.globalAlpha=1;
+    const la=eo((lt-.9)/.3);c.globalAlpha=la;c.font=`800 38px ${F2}`;const lw=c.measureText(HLN[x.k]).width+70;c.fillStyle=mc;rrect(c,W/2-lw/2,by+bh+40,lw,72,36);c.fill();c.fillStyle='#fff';c.fillText(HLN[x.k],W/2,by+bh+77);c.globalAlpha=1;return}
+  const lt=t-P.T0-P.SC*P.hl.length,cnt=Math.round(P.score*eo(lt/1.4));
+  c.fillStyle='#2B2540';c.font=`800 40px ${F2}`;c.fillText(P.lead,W/2,430);c.fillStyle=mc;c.font=`200px ${F1}`;c.fillText(String(cnt),W/2,640);c.fillStyle='#2B2540';c.font=`800 44px ${F2}`;c.fillText('点',W/2,790);c.font=`700 34px ${F2}`;c.fillText(`見送った人数 ${P.N}`,W/2,900)}
+const CLIP={blob:null,type:'',busy:false,tok:0};
+async function makeClip(){const tok=++CLIP.tok,cv=$('#shcv'),st=$('#shst');CLIP.blob=null;shBtns();
+  const types=['video/mp4;codecs=avc1.42E01E','video/mp4','video/webm;codecs=vp9','video/webm'];
+  const mt=window.MediaRecorder&&cv.captureStream?types.find(x=>MediaRecorder.isTypeSupported(x)):null;
+  const P=clipPlan();const c=cv.getContext('2d');
+  try{await Promise.all([document.fonts.load('54px "Dela Gothic One"'),document.fonts.load('800 40px "Zen Kaku Gothic New"')])}catch(e){}
+  const faces=await Promise.all(P.hl.map(x=>faceImg(x.p)));if(tok!==CLIP.tok)return;CLIP.P=P;CLIP.faces=faces;
+  const loop=t0=>new Promise(res=>{const f=now=>{if(tok!==CLIP.tok)return res(false);if(document.hidden)return res(false);const t=(now-t0)/1000;drawClip(c,P,faces,Math.min(t,P.T));if(t<P.T)requestAnimationFrame(f);else res(true)};requestAnimationFrame(f)});
+  if(!mt){st.textContent='この端末では動画をつくれません';st.hidden=false;for(;;){if(!await loop(performance.now()))return}}
+  st.textContent='動画をつくっています';st.hidden=false;
+  let rec,chunks=[],stream;try{stream=cv.captureStream(30);rec=new MediaRecorder(stream,{mimeType:mt,videoBitsPerSecond:5e6})}catch(e){st.textContent='この端末では動画をつくれません';return}
+  rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};const stopped=new Promise(r=>rec.onstop=r);
+  rec.start(250);const ok=await loop(performance.now());rec.stop();await stopped;stream.getTracks().forEach(x=>x.stop());
+  if(tok!==CLIP.tok)return;if(!ok){st.hidden=true;CLIP.retry=true;return}
+  CLIP.type=mt.split(';')[0];CLIP.blob=new Blob(chunks,{type:CLIP.type});st.hidden=true;shBtns();
+  for(;;){if(!await loop(performance.now()))return}}
+function clipFile(){return new File([CLIP.blob],'oshiten.'+(CLIP.type.includes('mp4')?'mp4':'webm'),{type:CLIP.type})}
+function shareText(){return `${document.title}\n${G.busted?'今日は 最後まで隠し通せなかった':'バレずに 最後までやりきった'} ${score()}点`}
+const shareURL=()=>location.origin+'/oshiten/';
+function shBtns(){const has=!!CLIP.blob;$('#shshare').disabled=!has;$('#shsave').disabled=!has;
+  if(has){let can=false;try{can=!!(navigator.canShare&&navigator.canShare({files:[clipFile()]}))}catch(e){}$('#shshare').hidden=!can}}
+function shareSetup(){$('#shshare').hidden=false;$('#shshare').onclick=async()=>{if(!CLIP.blob)return;try{await navigator.share({files:[clipFile()],text:shareText()+'\n'+shareURL()})}catch(e){}};
+  $('#shsave').onclick=()=>{if(!CLIP.blob)return;const u=URL.createObjectURL(CLIP.blob),a=document.createElement('a');a.href=u;a.download=clipFile().name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000)};
+  $('#shx').onclick=()=>window.open('https://x.com/intent/post?text='+encodeURIComponent(shareText())+'&url='+encodeURIComponent(shareURL()),'_blank','noopener');
+  $('#shth').onclick=()=>window.open('https://www.threads.com/intent/post?text='+encodeURIComponent(shareText())+'&url='+encodeURIComponent(shareURL()),'_blank','noopener');
+  CLIP.retry=false;makeClip()}
+function previewLoop(){const tok=++CLIP.tok,c=$('#shcv').getContext('2d');let t0=performance.now();const f=now=>{if(tok!==CLIP.tok||document.hidden)return;let t=(now-t0)/1000;if(t>CLIP.P.T){t0=now;t=0}drawClip(c,CLIP.P,CLIP.faces,t);requestAnimationFrame(f)};requestAnimationFrame(f)}
+document.addEventListener('visibilitychange',()=>{if(document.hidden||$('#result').hidden)return;if(CLIP.retry){CLIP.retry=false;makeClip()}else if(CLIP.blob&&CLIP.P)previewLoop()});
 // ---- 起動
 bindTap($('#story'));bindTap($('#over'));
 $('#wave').addEventListener('pointerdown',e=>{if(e.target.closest('#cards'))return;if(PAUSED)return;{const w=e.currentTarget,b=w.getBoundingClientRect(),s=document.createElement('i');s.className='rip';s.style.left=(e.clientX-b.left)+'px';s.style.top=(e.clientY-b.top)+'px';w.appendChild(s);setTimeout(()=>s.remove(),520);try{navigator.vibrate&&navigator.vibrate(8)}catch(_){}}if(G&&!$('#main').hidden&&!$('#cards').classList.contains('show'))waveTap()});
