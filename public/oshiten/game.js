@@ -450,7 +450,7 @@ async function story(lines,o={}){show('story');if(!Q.on||Q.cv!==$('#sq'))$('#sq'
   return id===runId}
 // ---- タイトル
 function prep(){try{const s=(Date.now()^Math.floor(Math.random()*1e9))>>>0,r=buildRun(300,s);Q.ppl.clear();Q.spr.clear();setLine(r,-1);PRE={total:300,run:r,ready:Promise.all(r.seq.map(x=>sprite(x.per)))};$('#scat').innerHTML=r.feat.map((x,k)=>`<i style="--hh:${[16,11,20,13,18][k]}px;animation-duration:${[.58,.71,.52,.66,.61][k]}s;animation-delay:${[-.1,-.45,-.27,-.62,-.38][k]}s"><svg viewBox="37 ${(4+Math.max(0,172-x.p.h)*.95).toFixed(1)} 126 136" aria-hidden="true">${person(x.p)}</svg></i>`).join('');window.__placeScat&&window.__placeScat()}catch(e){PRE=null}}
-function title(){++runId;clkStop();show('title');queueOff();$('#sq').hidden=true;prep();awake(false);PAUSED=false;$('#pause').classList.remove('show');$('#scat').classList.remove('show');$('#tbtn').classList.remove('show');$('#skip').hidden=false;
+function title(){++runId;clkStop();Q.cheerOK=false;$("#main").classList.remove("open");show('title');queueOff();$('#sq').hidden=true;prep();awake(false);PAUSED=false;$('#pause').classList.remove('show');$('#scat').classList.remove('show');$('#tbtn').classList.remove('show');$('#skip').hidden=false;
   const done=()=>{$('#scat').classList.add('show');$('#tbtn').classList.add('show');$('#skip').hidden=true;store.set('oshiten_seen','1')};
   TM.play(done);if(store.get('oshiten_seen')&&!title.force)TM.skip();title.force=false;$('#skip').onclick=e=>{e.stopPropagation();TM.skip()}}
 // ---- 台本
@@ -558,6 +558,7 @@ function slot(R,k,W){let row=R[R.length-1];for(const x of R){if(k<x.from+x.cap){
 function setLine(run,i){const order=lineAt(run,i);Q.order=order;const keep=new Set(order);
   for(const [p,o] of Q.ppl){if(!keep.has(p))Q.ppl.delete(p)}
   order.forEach((p,k)=>{let o=Q.ppl.get(p);if(!o){o={k,x:null,y:0,h:0,ph:(p.p.seed||k)*1.7%6.28,jx:((k*7919)%13-6)/100};Q.ppl.set(p,o)}o.k=k;sprite(p)})}
+function cheerY(now,r,ph,h){if(!Q.cheer||(ph*7.3)%1>.7)return 0;const e=(now-Q.cheer)/1000-r*.05-(ph*3.1)%1*.08;return e>0&&e<.42?Math.sin(e/.42*Math.PI)*h*.09:0}
 function drawQ(now){if(!Q.on)return;requestAnimationFrame(drawQ);const cv=Q.cv;if(!cv||!cv.offsetParent)return;
   const dpr=Math.min(2,window.devicePixelRatio||1),W=cv.clientWidth,H=cv.clientHeight;if(!W)return;
   if(cv.width!==Math.round(W*dpr)){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr)}
@@ -573,7 +574,7 @@ function drawQ(now){if(!Q.on)return;requestAnimationFrame(drawQ);const cv=Q.cv;i
   Q.fresh=false;
   for(let r=R.length-1;r>=0;r--){const row=R[r],list=byRow[r];if(!list.length&&r>0&&!byRow.slice(0,r).some(x=>x.length))continue;
     list.sort((A,B)=>A[1].x-B[1].x);
-    for(const [p,o] of list){const im=Q.spr.get(p)&&Q.spr.get(p).img;if(!im)continue;const h=o.h,w=h*200/286,bob=Math.sin(t*1.1+o.ph)*h*.006,look=p.layer==='new'&&!p.passed&&!p.tl&&o.ph%1<.55;if(look){const a=Math.sin(t*2.4+o.ph*3)*.06;c.save();c.translate(o.x+Math.sin(t*2.4+o.ph*3)*h*.03,o.y+bob);c.rotate(a);c.drawImage(im,-w/2,-h,w,h);c.restore()}else c.drawImage(im,o.x-w/2,o.y-h+bob,w,h)}
+    for(const [p,o] of list){const im=Q.spr.get(p)&&Q.spr.get(p).img;if(!im)continue;const h=o.h,w=h*200/286,bob=Math.sin(t*1.1+o.ph)*h*.006-cheerY(now,r,o.ph,h),look=p.layer==='new'&&!p.passed&&!p.tl&&o.ph%1<.55;if(look){const a=Math.sin(t*2.4+o.ph*3)*.06;c.save();c.translate(o.x+Math.sin(t*2.4+o.ph*3)*h*.03,o.y+bob);c.rotate(a);c.drawImage(im,-w/2,-h,w,h);c.restore()}else c.drawImage(im,o.x-w/2,o.y-h+bob,w,h)}
     if(list.length){const by=row.y-row.h*.3,th=Math.max(1.6,row.h*.042);c.fillStyle='rgba(44,40,66,.92)';c.fillRect(0,by,W,th);
       const step=row.w*1.9;for(let x=(r%2?step*.3:step*.8);x<W;x+=step){c.fillStyle='#8E8AA0';c.fillRect(x-th*.7,by-th*1.4,th*1.4,row.h*.34);c.fillStyle='#C9C6D6';c.fillRect(x-th*.9,by-th*1.9,th*1.8,th*.9)}}
     c.globalCompositeOperation='source-atop';c.fillStyle='rgba(236,238,244,.075)';c.fillRect(0,0,W,row.y);c.globalCompositeOperation='source-over'}
@@ -612,7 +613,7 @@ function guide(key,t,card){if(!G||G.guided[key])return;const el=$('#guide'),id=G
   const cb=card&&document.querySelector(`#cards button[data-v="${card}"]`);if(cb)cb.classList.add('tip');if(card==='all')$('#cards').classList.add('tipall');
   sleep(Math.max(2600,t.length*150)/SPEED).then(()=>{if(tok!==gTok)return;el.classList.remove('show');if(cb)cb.classList.remove('tip');$('#cards').classList.remove('tipall');gCur=null})}
 window.__wave=()=>waveTap();
-function waveTap(){const f=FLOW.find(x=>!x.tapped);hands('two');if(f)f.wave()}
+function waveTap(){if(Q.cheerOK){const n=performance.now();if(!Q.cheer||n-Q.cheer>450)Q.cheer=n}const f=FLOW.find(x=>!x.tapped);hands('two');if(f)f.wave()}
 function doFlow(g){const el=spawn(g);const mc=!!g.per.mc;G.st.flowTotal++;if(mc)G.st.mcTotal++;
   const f={el,tapped:false,seen:false};FLOW.push(f);
   if(G.st.flowTotal===1){guide('wave','とりあえず みんなに手を振ってあげて！')}else if(FLOW.length>=3)guide('one','続けて来ても 一人ずつ ちゃんと振ってあげてね');
@@ -685,13 +686,15 @@ function clkStart(at){CLK.acc=at;CLK.w=[];CLK.last=performance.now();clkDraw();i
 function clkStop(){CLK.on=false;CLK.w=[]}
 const clkAt=t=>new Promise(r=>{if(CLK.acc>=t)r();else CLK.w.push({t,r})});
 const OPEN=[{t:"（拍手 鳴り止まない …え 目線が高い）"},{t:"（手が細い 衣装の袖 …これ 推しのあの子の手だ）"},{who:"スタッフ",t:"「このあとお見送り会を行います 参加券をお持ちの方はこちらにお並びくださーい！」"},{t:"（何が起きてるのか分からないけど ここで騒いで中止にでもなったら 売上に影響が出てしまう！？）"},{t:"（………やるしかない）"},{who:"スタッフ",t:"「お客様 止まらず歩きながらでお願いしまーす！」"},{t:"（あの子のお見送り 行った人はみんな「一人一人にまっすぐありがとうって言ってくれる」って言ってた）"},{t:"（だったら 笑顔で返す ちゃんと言葉で返す 話に乗る あとは手を振る このへんか）"},{t:"（自分の色の服の人がいたら 気づいてあげよう）"},{t:"（…とりあえず これで乗り切ろう）"}];
+const OSHI=[[3,"これからお見送り会だよ 券を持ってきてくれた人を 一人ずつ見送るの"],[12,"とりあえず みんなに手を振ってあげて！"],[21,"話しかけてくれたら ちゃんと返してあげて！"],[30,"気持ちを伝えてくれる人の話は 最後まで聞いてあげて"],[39,"初めての人には にっこりね 知ってる風に話すと びっくりしちゃうから"],[48,"立ち止まっちゃう人は スタッフさんに任せて大丈夫"]];
+function oshiTalk(id){OSHI.forEach(([t,x],k)=>clkAt(t).then(()=>{if(id===runId&&CLK.acc<60)guide("o"+k,x)}))}
 // 14:45:00 になったら 読んでいる途中でも打ち切って始める。読み終えたら 14:45 まで待つ
 async function doOpen(id){const o=$("#over"),dlg=$("#odlg"),at=clkAt(60);let cut=false;at.then(()=>{cut=true});
-  o.className="show soft";$("#ochoices").innerHTML="";dlg.hidden=false;inner("");memo("");
+  o.className="show soft";$("#ochoices").innerHTML="";dlg.hidden=false;inner("");memo("");$("#main").classList.add("open");oshiTalk(id);
   for(const L of OPEN){if(cut||id!==runId)break;dlg.querySelector(".who").textContent=L.who||"";const tx=dlg.querySelector(".tx");phr(tx,L.t);tx.classList.remove("pop");void tx.offsetWidth;tx.classList.add("pop");
     await Promise.race([sleep(180),at]);if(cut)break;await Promise.race([nextTap(o),at]);taps.delete(o)}
-  taps.delete(o);o.className="";if(!cut&&id===runId)inner(OPEN[OPEN.length-1].t);
-  await at;if(id!==runId)return;inner("");const c=$("#clock");if(c){c.classList.remove("ring");void c.offsetWidth;c.classList.add("ring")}}
+  taps.delete(o);o.className="";if(!cut&&id===runId){inner(OPEN[OPEN.length-1].t);$("#wave .hint").classList.add("show");Q.cheerOK=true}
+  await at;Q.cheerOK=false;$("#main").classList.remove("open");if(id!==runId)return;inner("");const c=$("#clock");if(c){c.classList.remove("ring");void c.offsetWidth;c.classList.add("ring")}}
 async function overSay(who,t){const o=$('#over');await say(o,$('#odlg'),who,t)}
 async function doBreak(){const o=$('#over');o.className='show';$('#ochoices').innerHTML='';inner('');memo('');
   await overSay('スタッフ','「一度止めまーす！」');
@@ -726,7 +729,7 @@ async function runGame(total,o={}){const id=++runId;SPEED=window.__speed||1;
   setLine(run0,-1);queueOn($('#qcv'));
   show('main');stage().querySelectorAll('.fan').forEach(e=>e.remove());bubbleOff();inner('');memo('');$('#cards').classList.remove('show');$('#over').className='';$("#wave .hint").classList.toggle("show",!!o.skipIntro);clkStart(o.skipIntro?60:0);
   // 開いたらすぐ列。事情は最初の数人のあいだ、心の声として流す【仮：どの行を残すか】
-    if(!o.skipIntro){await doOpen(id);if(id!==runId)return;$('#wave .hint').classList.add('show');guide('intro','これからお見送り会だよ 券を持ってきてくれた人を 一人ずつ見送るの');await Promise.race([ready,sleep(2500)]);await sleep(2600/SPEED)}
+    if(!o.skipIntro){await doOpen(id);if(id!==runId)return;$('#wave .hint').classList.add('show');await Promise.race([ready,sleep(2500)]);await sleep(1200/SPEED)}
   else await Promise.race([ready,sleep(2500)]);
   if(id!==runId)return;
   const run=G.run;let lateSaid=false;const gap=gapMaker(seed),pend=new Set();const clear=()=>Promise.all([...pend]);
