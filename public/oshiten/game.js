@@ -683,7 +683,8 @@ function clkDraw(){const s=CLK.acc,f=s-Math.floor(s),sec=Math.floor(s)+Math.min(
   const R=(id,d)=>{const e=$(id);if(e)e.setAttribute("transform",`rotate(${d.toFixed(2)} 50 50)`)};R("#csh",sec*6);R("#cmh",m*6);R("#chh",hr*30)}
 function clkLoop(now){if(!CLK.on)return;if(!PAUSED)CLK.acc+=Math.min(.25,(now-CLK.last)/1000);CLK.last=now;clkDraw();
   CLK.w=CLK.w.filter(x=>{if(CLK.acc>=x.t){x.r();return false}return true});requestAnimationFrame(clkLoop)}
-function clkStart(at){CLK.acc=at;CLK.w=[];CLK.last=performance.now();clkDraw();if(!CLK.on){CLK.on=true;requestAnimationFrame(clkLoop)}}
+function clkStart(at){CLK.acc=at;{const c=$("#clock");if(c)c.classList.remove("ring","gone")}CLK.w=[];CLK.last=performance.now();clkDraw();if(!CLK.on){CLK.on=true;requestAnimationFrame(clkLoop)}}
+function goSignal(){const c=$("#clock");if(!c)return;c.classList.remove("ring");void c.offsetWidth;c.classList.add("ring");sleep(1000).then(()=>c.classList.add("gone"))}
 function clkStop(){CLK.on=false;CLK.w=[]}
 const clkAt=t=>new Promise(r=>{if(CLK.acc>=t)r();else CLK.w.push({t,r})});
 const OPEN=[{t:"（拍手 鳴り止まない …え 目線が高い）"},{t:"（手が細い 衣装の袖 …これ 推しのあの子の手だ）",look:1},{who:"スタッフ",t:"「このあとお見送り会を行います 参加券をお持ちの方はこちらにお並びくださーい！」"},{t:"（何が起きてるのか分からないけど ここで騒いで中止にでもなったら 売上に影響が出てしまう！？）"},{t:"（………やるしかない）"},{who:"スタッフ",t:"「お客様 止まらず歩きながらでお願いしまーす！」"},{t:"（あの子のお見送り 行った人はみんな「一人一人にまっすぐありがとうって言ってくれる」って言ってた）"},{t:"（だったら 笑顔で返す ちゃんと言葉で返す 話に乗る あとは手を振る このへんか）"},{t:"（自分の色の服の人がいたら 気づいてあげよう）"},{t:"（…とりあえず これで乗り切ろう）"}];
@@ -695,7 +696,7 @@ async function doOpen(id){const o=$("#over"),dlg=$("#odlg"),at=clkAt(60);let cut
   for(const L of OPEN){if(cut||id!==runId)break;$("#hands").classList.toggle("look",!!L.look);dlg.querySelector(".who").textContent=L.who||"";const tx=dlg.querySelector(".tx");phr(tx,L.t);tx.classList.remove("pop");void tx.offsetWidth;tx.classList.add("pop");
     await Promise.race([sleep(180),at]);if(cut)break;await Promise.race([nextTap(o),at]);taps.delete(o)}
   taps.delete(o);o.className="";$("#hands").classList.remove("look");if(!cut&&id===runId){inner(OPEN[OPEN.length-1].t);$("#wave .hint").classList.add("show");Q.cheerOK=true}
-  await at;Q.cheerOK=false;$("#main").classList.remove("open");if(id!==runId)return;inner("");const c=$("#clock");if(c){c.classList.remove("ring");void c.offsetWidth;c.classList.add("ring")}}
+  await at;Q.cheerOK=false;$("#main").classList.remove("open");if(id!==runId)return;inner("");goSignal()}
 async function overSay(who,t){const o=$('#over');await say(o,$('#odlg'),who,t)}
 async function doBreak(){const o=$('#over');o.className='show';$('#ochoices').innerHTML='';inner('');memo('');
   await overSay('スタッフ','「一度止めまーす！」');
@@ -725,13 +726,13 @@ async function doKids(){const o=$('#over');const r=mul(G.seed+77);
 async function runGame(total,o={}){const id=++runId;SPEED=window.__speed||1;
   const seed=(Date.now()^Math.floor(Math.random()*1e9))>>>0;
   let run0,ready;if(PRE&&PRE.total===total){run0=PRE.run;ready=PRE.ready;PRE=null}else{run0=buildRun(total,seed);Q.ppl.clear();Q.spr.clear();setLine(run0,-1);ready=Promise.all(run0.seq.map(x=>sprite(x.per)))}
-  G={id,seed,total,guided:{},rev:[],run:run0,i:0,sus:0,susMax:0,log:[],recent:[],streak:0,mcSeen:0,st:{good:0,neutral:0,mismatch:0,pass:0,pushed:0,omai:0,omaiTotal:0,mcHit:0,mcTotal:0,flowTap:0,flowMiss:0,flowTotal:0,repeatHit:0,repeatTotal:0,engTotal:0}};
+  G={id,seed,total,guided:o.skipIntro&&G&&G.guided?{...G.guided}:{},rev:[],run:run0,i:0,sus:0,susMax:0,log:[],recent:[],streak:0,mcSeen:0,st:{good:0,neutral:0,mismatch:0,pass:0,pushed:0,omai:0,omaiTotal:0,mcHit:0,mcTotal:0,flowTap:0,flowMiss:0,flowTotal:0,repeatHit:0,repeatTotal:0,engTotal:0}};
   window.__G=G;FLOW.length=0;awake(true);store.set('oshiten_seen','1');
   setLine(run0,-1);queueOn($('#qcv'));
-  show('main');stage().querySelectorAll('.fan').forEach(e=>e.remove());bubbleOff();inner('');memo('');$('#cards').classList.remove('show');$('#over').className='';$("#wave .hint").classList.toggle("show",!!o.skipIntro);clkStart(o.skipIntro?60:0);
+  show('main');stage().querySelectorAll('.fan').forEach(e=>e.remove());bubbleOff();inner('');memo('');$('#cards').classList.remove('show');$('#over').className='';$("#wave .hint").classList.toggle("show",!!o.skipIntro);clkStart(o.skipIntro?50:0);
   // 開いたらすぐ列。事情は最初の数人のあいだ、心の声として流す【仮：どの行を残すか】
     if(!o.skipIntro){await doOpen(id);if(id!==runId)return;$('#wave .hint').classList.add('show');await Promise.race([ready,sleep(2500)]);await sleep(1200/SPEED)}
-  else await Promise.race([ready,sleep(2500)]);
+  else{Q.cheerOK=true;await clkAt(60);Q.cheerOK=false;if(id!==runId)return;goSignal();await Promise.race([ready,sleep(2500)]);await sleep(1200/SPEED)}
   if(id!==runId)return;
   const run=G.run;let lateSaid=false;const gap=gapMaker(seed),pend=new Set();const clear=()=>Promise.all([...pend]);
   for(let i=0;i<run.N;i++){if(id!==runId)return;const g=run.seq[i];
