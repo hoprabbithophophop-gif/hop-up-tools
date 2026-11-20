@@ -863,10 +863,11 @@ async function makeClip(){const tok=++CLIP.tok,cv=$('#shcv'),st=$('#shst');CLIP.
   if(!mt){st.textContent='この端末では動画をつくれません';st.hidden=false;for(;;){if(!await loop(performance.now()))return}}
   st.textContent='動画をつくっています';st.hidden=false;
   let rec,chunks=[],stream;try{stream=cv.captureStream(30);rec=new MediaRecorder(stream,{mimeType:mt,videoBitsPerSecond:5e6})}catch(e){st.textContent='この端末では動画をつくれません';return}
-  rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};const stopped=new Promise(r=>rec.onstop=r);
+  rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};let recErr=false;rec.onerror=()=>{recErr=true};const stopped=new Promise(r=>rec.onstop=r);
   rec.start(250);const ok=await loop(performance.now());rec.stop();await stopped;stream.getTracks().forEach(x=>x.stop());
   if(tok!==CLIP.tok)return;if(!ok){st.hidden=true;CLIP.retry=true;return}
-  CLIP.type=mt.split(';')[0];CLIP.blob=new Blob(chunks,{type:CLIP.type});st.hidden=true;shBtns();
+  const bl=new Blob(chunks,{type:mt.split(';')[0]});if(recErr||bl.size<1000){st.textContent='この端末では動画をつくれません';st.hidden=false;for(;;){if(!await loop(performance.now()))return}}
+  CLIP.type=mt.split(';')[0];CLIP.blob=bl;st.hidden=true;shBtns();
   for(;;){if(!await loop(performance.now()))return}}
 function clipFile(){return new File([CLIP.blob],'oshiten.'+(CLIP.type.includes('mp4')?'mp4':'webm'),{type:CLIP.type})}
 function shareText(){return `${document.title}\n${G.busted?'今日は 最後まで隠し通せなかった':'バレずに 最後までやりきった'} ${score()}点`}
@@ -875,7 +876,7 @@ function shBtns(){const has=!!CLIP.blob;$('#shshare').disabled=!has;$('#shsave')
   if(has){let can=false;try{can=!!(navigator.canShare&&navigator.canShare({files:[clipFile()]}))}catch(e){}$('#shshare').hidden=!can}}
 function shareSetup(){$('#shshare').hidden=false;$('#shshare').onclick=async()=>{if(!CLIP.blob)return;try{await navigator.share({files:[clipFile()],text:shareText()+'\n'+shareURL()})}catch(e){}};
   $('#shsave').onclick=()=>{if(!CLIP.blob)return;const u=URL.createObjectURL(CLIP.blob),a=document.createElement('a');a.href=u;a.download=clipFile().name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000)};
-  $('#shx').onclick=()=>window.open('https://x.com/intent/post?text='+encodeURIComponent(shareText())+'&url='+encodeURIComponent(shareURL()),'_blank','noopener');
+  $('#shx').onclick=()=>window.open('https://x.com/intent/tweet?text='+encodeURIComponent(shareText())+'&url='+encodeURIComponent(shareURL()),'_blank','noopener');
   $('#shth').onclick=()=>window.open('https://www.threads.com/intent/post?text='+encodeURIComponent(shareText())+'&url='+encodeURIComponent(shareURL()),'_blank','noopener');
   CLIP.retry=false;makeClip()}
 function previewLoop(){const tok=++CLIP.tok,c=$('#shcv').getContext('2d');let t0=performance.now();const f=now=>{if(tok!==CLIP.tok||document.hidden)return;let t=(now-t0)/1000;if(t>CLIP.P.T){t0=now;t=0}drawClip(c,CLIP.P,CLIP.faces,t);requestAnimationFrame(f)};requestAnimationFrame(f)}
