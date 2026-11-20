@@ -631,8 +631,10 @@ function doFlow(g){const el=spawn(g);const mc=!!g.per.mc;G.st.flowTotal++;if(mc)
   if(G.st.flowTotal===1){guide('wave','とりあえず みんなに手を振ってあげて！')}else if(FLOW.length>=3)guide('one','続けて来ても 一人ずつ ちゃんと振ってあげてね');
   f.wave=()=>{aim(el);if(!f.tapped){f.tapped=true;G.st.flowTap++;el.classList.add('waved');const sv=el.querySelector('svg');if(sv)sv.animate([{transform:'translateY(0)'},{transform:'translateY(-9px)'},{transform:'translateY(0)'}],{duration:340,easing:'ease-out'})}};
   el.style.cursor='pointer';
+  // 客を押す操作を教える：押すまで 最初の3人まで 客の上に指の印を出す
+  if(!G.guided.tapP&&(G.fingN||0)<3&&!mc){G.fingN=(G.fingN||0)+1;el.insertAdjacentHTML('beforeend','<i class="fing" aria-hidden="true"><svg viewBox="0 0 60 72"><path d="M18 8a6 6 0 0 1 12 0v22l2-1a6 6 0 0 1 8 3l2-1a6 6 0 0 1 8 3l1 0a6 6 0 0 1 7 6v12c0 10-8 18-18 18h-6c-6 0-10-3-13-8L9 50a6 6 0 0 1 9-7V8z" fill="#fff" stroke="#2B2540" stroke-width="3" stroke-linejoin="round"/></svg></i>')}
   if(mc&&!G.mcRing){G.mcRing=1;el.classList.add('tapme')}
-  el._mcTap=mc;el._tap=()=>{if(f.tapped&&(!mc||f.seen))stray();hands('two');f.wave();if(mc&&!f.seen){f.seen=true;el._mcTap=false;G.st.mcHit++;G.mcSeen=1;stars();hlPush('mc',fp(g),'（服を見たのに気づいて その場で小さく跳ねた）');el.classList.add('glad');el.querySelector('svg').animate([{transform:'translateY(0)'},{transform:'translateY(-14px)'},{transform:'translateY(0)'},{transform:'translateY(-8px)'},{transform:'translateY(0)'}],{duration:520,easing:'ease-out'});memo('（服を見たのに気づいて その場で小さく跳ねた）')}};
+  el._mcTap=mc;el._tap=()=>{if(!G.guided.tapP){G.guided.tapP=1;document.querySelectorAll('.fan .fing').forEach(x=>x.remove())}if(f.tapped&&(!mc||f.seen))stray();hands('two');f.wave();if(mc&&!f.seen){f.seen=true;el._mcTap=false;G.st.mcHit++;G.mcSeen=1;stars();hlPush('mc',fp(g),'（服を見たのに気づいて その場で小さく跳ねた）');el.classList.add('glad');el.querySelector('svg').animate([{transform:'translateY(0)'},{transform:'translateY(-14px)'},{transform:'translateY(0)'},{transform:'translateY(-8px)'},{transform:'translateY(0)'}],{duration:520,easing:'ease-out'});memo('（服を見たのに気づいて その場で小さく跳ねた）')}};
   if(mc)guide('mc','あ 私の色の服を着てくれてる！ 気づいてあげて！');
   return move(el,112,-42,1900).then(()=>{const k=FLOW.indexOf(f);if(k>=0)FLOW.splice(k,1);if(!f.tapped&&!f.ex)G.st.flowMiss++;el.remove()})}
 // 列の間隔：等間隔にしない。数人が詰まって来る／ふっと空く／ふつう、を混ぜる
