@@ -608,6 +608,10 @@ const inner=t=>{phr($('#inner'),t||'')},memo=t=>{phr($('#memo'),t||'')};
 let bubTok=0;
 async function bubble(t,el){const b=$('#bubble'),tok=++bubTok;phr(b,t);b.classList.remove('pop');void b.offsetWidth;b.classList.add('show','pop');const talk=el&&!t.startsWith('（');if(talk)el.classList.add('on');await sleep(Math.min(1600,300+t.length*70)/SPEED);if(el)el.classList.remove('on')}
 const bubbleOff=()=>{bubTok++;$('#bubble').classList.remove('show')};
+// むやみな連打：誰もいない所・振り終えた人・推し色でない人を続けて叩くと 挙動不審で少し怪しまれる
+const STRAY={t:[],cool:0};
+function stray(){if(!G||PAUSED||Q.cheerOK||$('#main').hidden||$('#over').classList.contains('show')||!$('#story').hidden)return;const n=performance.now();STRAY.t=STRAY.t.filter(x=>n-x<1200);STRAY.t.push(n);
+  if(STRAY.t.length>=3&&n>STRAY.cool){STRAY.cool=n+2000;STRAY.t=[];addSus(3,'flail');if(!G.toldFlail){G.toldFlail=1;inner('（やみくもに手を動かしてたら 変に見られる…ちゃんと相手を見なきゃ）')}}}
 function addSus(d,why){const s=G.sus;G.sus=Math.max(0,Math.min(100,G.sus+d));G.susMax=Math.max(G.susMax,G.sus);G.log.push({seq:G.i+1,delta:d,why});if(G.sus>s){const m=$('#mgr');m.classList.add('glare');clearTimeout(m._t);m._t=setTimeout(()=>m.classList.remove('glare'),1300)}}
 const FLOW=[];
 const faceSvg=p=>`<svg viewBox="37 4 126 180" preserveAspectRatio="xMidYMin slice" aria-hidden="true">${person(p)}</svg>`;
@@ -621,14 +625,14 @@ function guide(key,t,card){if(!G||G.guided[key])return;const el=$('#guide'),id=G
   const cb=card&&document.querySelector(`#cards button[data-v="${card}"]`);if(cb)cb.classList.add('tip');if(card==='all')$('#cards').classList.add('tipall');
   sleep(Math.max(2600,t.length*150)/SPEED).then(()=>{if(tok!==gTok)return;el.classList.remove('show');if(cb)cb.classList.remove('tip');$('#cards').classList.remove('tipall');gCur=null})}
 window.__wave=()=>waveTap();
-function waveTap(){if(Q.cheerOK){const n=performance.now();if(!Q.cheer||n-Q.cheer>450)Q.cheer=n}const f=FLOW.find(x=>!x.tapped);hands('two');if(f)f.wave()}
+function waveTap(){if(Q.cheerOK){const n=performance.now();if(!Q.cheer||n-Q.cheer>450)Q.cheer=n}const f=FLOW.find(x=>!x.tapped);hands('two');if(f)f.wave();else if(!Q.cheerOK)stray()}
 function doFlow(g){const el=spawn(g);const mc=!!g.per.mc;G.st.flowTotal++;if(mc)G.st.mcTotal++;
   const f={el,tapped:false,seen:false};FLOW.push(f);
   if(G.st.flowTotal===1){guide('wave','とりあえず みんなに手を振ってあげて！')}else if(FLOW.length>=3)guide('one','続けて来ても 一人ずつ ちゃんと振ってあげてね');
   f.wave=()=>{aim(el);if(!f.tapped){f.tapped=true;G.st.flowTap++;el.classList.add('waved');const sv=el.querySelector('svg');if(sv)sv.animate([{transform:'translateY(0)'},{transform:'translateY(-9px)'},{transform:'translateY(0)'}],{duration:340,easing:'ease-out'})}};
   el.style.cursor='pointer';
   if(mc&&!G.mcRing){G.mcRing=1;el.classList.add('tapme')}
-  el._mcTap=mc;el._tap=()=>{hands('two');f.wave();if(mc&&!f.seen){f.seen=true;el._mcTap=false;G.st.mcHit++;G.mcSeen=1;stars();hlPush('mc',fp(g),'（服を見たのに気づいて その場で小さく跳ねた）');el.classList.add('glad');el.querySelector('svg').animate([{transform:'translateY(0)'},{transform:'translateY(-14px)'},{transform:'translateY(0)'},{transform:'translateY(-8px)'},{transform:'translateY(0)'}],{duration:520,easing:'ease-out'});memo('（服を見たのに気づいて その場で小さく跳ねた）')}};
+  el._mcTap=mc;el._tap=()=>{if(f.tapped&&(!mc||f.seen))stray();hands('two');f.wave();if(mc&&!f.seen){f.seen=true;el._mcTap=false;G.st.mcHit++;G.mcSeen=1;stars();hlPush('mc',fp(g),'（服を見たのに気づいて その場で小さく跳ねた）');el.classList.add('glad');el.querySelector('svg').animate([{transform:'translateY(0)'},{transform:'translateY(-14px)'},{transform:'translateY(0)'},{transform:'translateY(-8px)'},{transform:'translateY(0)'}],{duration:520,easing:'ease-out'});memo('（服を見たのに気づいて その場で小さく跳ねた）')}};
   if(mc)guide('mc','あ 私の色の服を着てくれてる！ 気づいてあげて！');
   return move(el,112,-42,1900).then(()=>{const k=FLOW.indexOf(f);if(k>=0)FLOW.splice(k,1);if(!f.tapped&&!f.ex)G.st.flowMiss++;el.remove()})}
 // 列の間隔：等間隔にしない。数人が詰まって来る／ふっと空く／ふつう、を混ぜる
@@ -651,7 +655,7 @@ async function engageBody(g,decided){const e=g.eng,el=spawn(g);
   let mv=null;if(e.staller)await move(el,112,62,e.approach,'ease-out');else{mv=move(el,112,-6,e.approach+e.windowMs).then(()=>null);el.classList.add('cling');await sleep(230/SPEED)}
   bubble(e.say,el);inner(e.hasMC&&!G.mcSeen?'（あ 今の色…！）':e.inner);
   $('#wave .hint').classList.remove('show');{const cd=$('#cards');cd.classList.add('show','arm');sleep(300).then(()=>cd.classList.remove('arm'))}FLOW.forEach(f=>f.ex=1);
-  let res;const pickP=new Promise(r=>res=r);G.cardRes=v=>res(v);el.style.cursor='pointer';if(e.hasMC&&!G.mcRing2){G.mcRing2=1;el.classList.add('tapme')}el._mcTap=!!e.hasMC;el._tap=()=>{if(e.hasMC)res('mc')};
+  let res;const pickP=new Promise(r=>res=r);G.cardRes=v=>res(v);el.style.cursor='pointer';if(e.hasMC&&!G.mcRing2){G.mcRing2=1;el.classList.add('tapme')}el._mcTap=!!e.hasMC;el._tap=()=>{if(e.hasMC)res('mc');else stray()};
   let choice=null;
   if(e.staller){const t0=performance.now();let told=false;
     for(let kk=0;kk<Math.round(32/SPEED);kk++){const v=await Promise.race([pickP.then(x=>x),sleep(120).then(()=>null)]);if(v&&!told){told=true;bubble('──それでね 去年の秋のあの現場が最後で──',el)}}
@@ -884,7 +888,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden||$('#result
 // ---- 起動
 bindTap($('#story'));bindTap($('#over'));
 $('#wave').addEventListener('pointerdown',e=>{if(e.target.closest('#cards'))return;if(PAUSED)return;{const w=e.currentTarget,b=w.getBoundingClientRect(),s=document.createElement('i');s.className='rip';s.style.left=(e.clientX-b.left)+'px';s.style.top=(e.clientY-b.top)+'px';w.appendChild(s);setTimeout(()=>s.remove(),520);try{navigator.vibrate&&navigator.vibrate(8)}catch(_){}}if(G&&!$('#main').hidden&&!$('#cards').classList.contains('show'))waveTap()});
-$('#stage').addEventListener('pointerdown',e=>{if(PAUSED||!G||e.target.closest('button'))return;const fs=[...new Set(document.elementsFromPoint(e.clientX,e.clientY).map(x=>x.closest&&x.closest('.fan')).filter(Boolean))];const t=fs.find(x=>x._mcTap)||fs[0];if(t&&t._tap)t._tap()});
+$('#stage').addEventListener('pointerdown',e=>{if(PAUSED||!G||e.target.closest('button'))return;const fs=[...new Set(document.elementsFromPoint(e.clientX,e.clientY).map(x=>x.closest&&x.closest('.fan')).filter(Boolean))];const t=fs[0];if(t&&t._tap)t._tap();else stray()});
 $('#cards').addEventListener('pointerdown',e=>{const b=e.target.closest('button');if(b&&G&&G.cardRes&&!PAUSED&&!$('#cards').classList.contains('arm')){try{navigator.vibrate&&navigator.vibrate(12)}catch(_){}G.cardRes(b.dataset.v)}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)setPause(true)});addEventListener('pagehide',()=>setPause(true));
 $('#pause').onclick=()=>setPause(false);
