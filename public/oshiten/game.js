@@ -434,7 +434,8 @@ function fit(){const app=$('#app'),w=app.clientWidth,h=app.clientHeight,bh=236;c
   [...document.querySelectorAll('#scat i')].forEach((el,k)=>{const p=P[k];if(!p)return;const ww=p[2]/s;el.style.width=ww+'px';el.style.height=ww*136/126+'px';el.style.left=((p[0]-w/2)/s+195-ww/2)+'px';el.style.top=((p[1]-T)/s)+'px'})}
 window.__placeScat=()=>fit();
 addEventListener('resize',fit);
-function loop(now){if(t0===null)t0=now;const t=Math.min(END+60,(now-t0)/1000);render(t);if(t>=12.6&&!ended){ended=true;onEnd&&onEnd()}raf=requestAnimationFrame(loop)}
+const TMS=2;// タイトルムービーの速さ（倍）
+function loop(now){if(t0===null)t0=now;const t=Math.min(END+60,(now-t0)/1000*TMS);render(t);if(t>=12.6&&!ended){ended=true;onEnd&&onEnd()}raf=requestAnimationFrame(loop)}
 return{play(cb){cancelAnimationFrame(raf);fit();t0=null;ended=false;onEnd=cb;if(matchMedia('(prefers-reduced-motion: reduce)').matches){render(END);ended=true;cb&&cb();return}raf=requestAnimationFrame(loop)},
   skip(){cancelAnimationFrame(raf);render(END);if(!ended){ended=true;onEnd&&onEnd()}},stop(){cancelAnimationFrame(raf)},playing:()=>!ended,END}})();
 
