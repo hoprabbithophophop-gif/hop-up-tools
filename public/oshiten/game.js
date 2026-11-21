@@ -1,6 +1,13 @@
 
 
 (()=>{
+// ==== 画面の場所の呼び名（2026-11-22 に決めた。報告・質問・注釈ではこの呼び名を使う）====
+// 観覧エリア      … 画面の上。客が並んで待ち、歩いてくる場所（部品名 #stage。「舞台」と呼ばない）
+// 舞台            … アイドルの体（遊ぶ人）が立っている位置。画面の手前側で、両手（#hands）が見える側
+// 下の枠          … 画面の下。心の声（#inner）・客の様子（#memo）・返し方のボタン（#cards）が出る所（#ctl）
+// 聞き覚えのある声 … 観覧エリアと下の枠の境目に浮かせて出す色つきの吹き出し（#guide。以前の呼び名は「推しの声」）
+// 客の吹き出し    … 話しかけてきた客の言葉。観覧エリアの上に出る（#bubble）
+// スタッフの話の枠 … 始まる前・休憩・子連れの場面で、タップで読み進める枠（#over の中の #odlg）
 const sh=(hex,a)=>{const n=parseInt(hex.slice(1),16);const f=v=>Math.max(0,Math.min(255,Math.round(a<0?v*(1+a):v+(255-v)*a)));return'#'+((f(n>>16)<<16)|(f(n>>8&255)<<8)|f(n&255)).toString(16).padStart(6,'0')};
 const mixc=(a,b,t)=>{const p=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));const A=p(a),B=p(b);return'#'+A.map((v,i)=>Math.round(v+(B[i]-v)*t).toString(16).padStart(2,'0')).join('')};
 let UID=0;
