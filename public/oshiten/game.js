@@ -632,7 +632,7 @@ window.__wave=()=>waveTap();
 function waveTap(){if(Q.cheerOK){const n=performance.now();if(!Q.cheer||n-Q.cheer>450)Q.cheer=n;if(G&&(!G.lastCheer||n-G.lastCheer>180)){G.lastCheer=n;G.cheerN=(G.cheerN||0)+1}}const f=FLOW.find(x=>!x.tapped);hands('two');if(f)f.wave();else if(!Q.cheerOK)stray()}
 function doFlow(g){const el=spawn(g);const mc=!!g.per.mc;G.st.flowTotal++;if(mc)G.st.mcTotal++;
   const f={el,tapped:false,seen:false};FLOW.push(f);
-  if(G.st.flowTotal===1){guide('tapP1','来た人を押して 手を振ってあげて！')}else if(FLOW.length>=3)guide('one','一人ずつ振ってあげてね');
+  if(G.st.flowTotal===1){guide('tapP1','来てくれたよ！ 手を振ってあげて！')}else if(FLOW.length>=3)guide('one','一人ずつ振ってあげてね');
   f.wave=()=>{aim(el);if(!f.tapped){f.tapped=true;G.st.flowTap++;el.classList.add('waved');const sv=el.querySelector('svg');if(sv)sv.animate([{transform:'translateY(0)'},{transform:'translateY(-9px)'},{transform:'translateY(0)'}],{duration:340,easing:'ease-out'})}};
   el.style.cursor='pointer';
   // 客を押す操作を教える：押すまで 最初の3人まで 客の上に指の印を出す
@@ -711,7 +711,7 @@ const clkAt=t=>new Promise(r=>{if(CLK.acc>=t)r();else CLK.w.push({t,r})});
 const OPEN=[{who:"スタッフ",t:"「このあとお見送り会を行います 参加券をお持ちの方はこちらにお並びくださーい！」"},{who:"スタッフ",t:"「お客様 止まらず歩きながらでお願いしまーす！」"}];
 // 始まる前の推しの声は1つだけ。スタッフの2行を読み終えた時か 14:44:50 の早い方で出す
 // 始まる前の声：読み終えたら（遅くても 14:44:40 に）1つ目、そのあと時刻ごとに。読んでいる途中には重ねない【仮：文】
-const OSHI=[[39,"下の枠を押すと 手を振れるよ"],[45,"振ったら みんな返してくれるよ"],[51,"始まったら 来た人を押して 手を振ってね"],[56,"話しかけられたら 下のボタンで返してね"]];
+const OSHI=[[39,"手を振ると みんな喜ぶよ"],[45,"振ったら みんな返してくれるよ"],[51,"来てくれた人の顔 ちゃんと見てあげてね"],[56,"話しかけてくれたら 返してあげてね"]];
 async function oshiTalk(id,early){const ok=()=>id===runId&&CLK.acc<60;await Promise.race([early,clkAt(40)]);if(!ok())return;guide("wave","列のみんなに 手を振ってあげて！");
   for(const[t,x]of OSHI){await Promise.all([clkAt(t),early]);if(!ok())return;guide("o"+t,x)}}
 // 14:45:00 になったら 読んでいる途中でも打ち切って始める。読み終えたら 14:45 まで待つ
