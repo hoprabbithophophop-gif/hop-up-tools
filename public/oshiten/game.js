@@ -6,7 +6,7 @@ const mixc=(a,b,t)=>{const p=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));cons
 let UID=0;
 function person(p){
   const u='q'+(UID++), cx=100, top=40, cw=p.cw, H=60*p.len, ch=top+H, ye=top+H*.5+p.eyeY, yn=ye+(ch-ye)*(p.nY||.5), ym=ye+(ch-ye)*(p.mY||.71), jw=p.jw, cq=p.chin;
-  const nw=cw*p.neck, ys=ch+10, sw=p.sw, S=p.skin, SS=mixc(S,'#A8674E',.3), SD=mixc(S,'#6E3B2C',.5), C=p.cloth, CS=sh(C,-.18), CD=sh(C,-.36), Hc=p.hair, HL=sh(Hc,.22), HD=sh(Hc,-.3);
+  const nw=cw*p.neck, ys=ch+(p.nl||10), sw=p.sw, S=p.skin, SS=mixc(S,'#A8674E',.3), SD=mixc(S,'#6E3B2C',.5), C=p.cloth, CS=sh(C,-.18), CD=sh(C,-.36), Hc=p.hair, HL=sh(Hc,.22), HD=sh(Hc,-.3);
   const dp=p.dp||1, k1=(ch-ye)*(p.k1||.6), k2=jw*(p.k2||.8), sl=p.sl||0, eE=p.ear==null?.5:p.ear;
   const FACE=`M${cx},${top} C${cx+cw*.62},${top} ${cx+cw},${ye-22} ${cx+cw},${ye+1} C${cx+cw},${ye+1+k1} ${cx+k2},${ch} ${cx},${ch} C${cx-k2},${ch} ${cx-cw},${ye+1+k1} ${cx-cw},${ye+1} C${cx-cw},${ye-22} ${cx-cw*.62},${top} ${cx},${top}Z`;
   const CHEST=`M${cx-nw-4},${ys-1} C${cx-nw-13},${ys+1} ${cx-sw+17},${ys+3+p.shL+sl*.6} ${cx-sw+8},${ys+8+p.shL+sl} L${cx-sw+13},232 L${cx+sw-13},232 L${cx+sw-8},${ys+8+sl} C${cx+sw-17},${ys+3+sl*.6} ${cx+nw+13},${ys+1} ${cx+nw+4},${ys-1} Q${cx},${ys+7.5} ${cx-nw-4},${ys-1}Z`;
@@ -116,9 +116,9 @@ function person(p){
   for(const sd of[-1,1]){
     const x=cx+sd*p.ex, y=ye+(sd>0?p.asym:0), a=p.ea*1.12, eo=p.eo*1.2, ti=p.eti, id=u+(sd<0?'l':'r');
     const upper=`M${x-sd*a},${y+.35} Q${x-sd*.7},${y-eo*2} ${x+sd*a},${y+ti}`;
-    const shape=`${upper} Q${x+sd*.5},${y+1.9} ${x-sd*a},${y+.35}Z`;
+    const shape=`${upper} Q${x+sd*.5},${y+(p.lo||1.9)} ${x-sd*a},${y+.35}Z`;
     o.push(`<defs><clipPath id="${id}"><path d="${shape}"/></clipPath></defs><path d="${shape}" fill="#EFE9E3"/>`);
-    o.push(`<g clip-path="url(#${id})"><g class="ir"><circle cx="${x}" cy="${y-.25}" r="${a*.43}" fill="${p.iris}"/><circle cx="${x}" cy="${y-.25}" r="${a*.2}" fill="#140E0C"/><circle cx="${x-.7}" cy="${y-1}" r=".42" fill="#fff" opacity=".85"/></g><path d="${upper}" stroke="#000" stroke-opacity=".28" stroke-width="1.8" fill="none"/></g>`);
+    o.push(`<g clip-path="url(#${id})"><g class="ir"><circle cx="${x}" cy="${y-.25}" r="${a*(p.ir||.43)}" fill="${p.iris}"/><circle cx="${x}" cy="${y-.25}" r="${p.ir?a*p.ir*.47:a*.2}" fill="#140E0C"/><circle cx="${x-.7}" cy="${y-1}" r="${p.ir?.8:.42}" fill="#fff" opacity=".85"/></g><path d="${upper}" stroke="#000" stroke-opacity=".28" stroke-width="1.8" fill="none"/></g>`);
     o.push(`<path d="${upper}" stroke="#2C201C" stroke-width="${p.female?1.2:.95}" fill="none" stroke-linecap="round"/>`);
     o.push(`<path d="M${x-sd*(a-.8)},${y-eo-1} Q${x-sd*.4},${y-eo*2-1.3} ${x+sd*(a-.2)},${y+ti-1.2}" stroke="${SD}" stroke-opacity="${p.dbl===0?0:.62}" stroke-width=".6" fill="none" stroke-linecap="round"/><path d="M${x-sd*a*.8},${y+1.7} Q${x},${y+2.9} ${x+sd*a*.85},${y+1.5}" stroke="${SD}" stroke-opacity=".34" stroke-width=".5" fill="none" stroke-linecap="round"/>`);
     o.push(`<ellipse class="lid" style="--b:${p.d*1.9}s" cx="${x}" cy="${y-.2}" rx="${a+.9}" ry="${eo+1.5}" fill="${mixc(S,SD,.12)}"/>`);
@@ -460,7 +460,7 @@ const VOICE=['（拍手 鳴り止まない …え 目線が高い）','（手が
 const INTRO=[{t:'（拍手 鳴り止まない …え 目線が高い）'},{t:'（手が細い 衣装の袖 …これ あの子の手だ）'},{t:'（さっきまで客席の後ろの方で 叫んでたはずなのに）'},{t:'（夢か？ 夢だよな 昨日ほとんど寝てないし）'},{who:'メンバー',t:'（小声で）「…大丈夫？ ぼーっとしてる」'},{t:'（ウワーッ メンバーの顔がこんな近くに！？）'},{t:'「だ だいじょうぶ」'},{t:'（この声…この衣装…あの子だ！ リアルすぎる 夢じゃなくて 現実！？）'},{t:'（何て言えばいい 「中身ヲタクです」って？ 言えるわけない）'},{who:'スタッフ',t:'「このあとお見送り会を行います 参加券をお持ちの方はこちらにお並びくださーい！」'},{t:'（何が起きてるのか分からないけど ここで騒いで中止にでもなったら 売上に影響が出てしまう！？）'},{t:'（それに中止になったら TLで誕生日って言ってたあの人も 午後休の人も悲しんでしまう！）'},{t:'（………やるしかない）'}];
 const QUEUE=[{t:'（並んだ もう始まる）'},{who:'スタッフ',t:'「お客様 止まらず歩きながらでお願いしまーす！」'},{t:'（止まらないのか 1人あたり何秒だこれ）'},{t:'（あの子のお見送り 行った人はみんな「一人一人にまっすぐありがとうって言ってくれる」って言ってた）'},{demo:1,t:'（だったら 笑顔で返す ちゃんと言葉で返す 話に乗る あとは手を振る このへんか）'},{t:'（他推しの人にも 手くらいは振るよな あの子なら）'},{t:'（そういえばTLで「リリイベでメンカラ気づいてくれた！」「私も！」って流れてたな）'},{t:'（俺もメンカラT着てきたのに …今はあの子の衣装だ）'},{chip:1,t:'（自分の色の服の人がいたら 気づいてあげよう）'},{t:'（…とりあえず これで乗り切ろう）'}];
 const BUSTED=[{bg:'room',who:'マネージャー',t:'（控室のドアを閉めて）「…ねえ 今日 本当にあの子なの？」'},{t:'（え いや その …言えるわけない）'},{who:'マネージャー',t:'「答えて」'},{bg:'dark',t:'──ふっと 視界が揺れた'},{bg:'out',t:'（会場の外 …自分の手だ）'},{t:'数日経っても TLもニュースも 何も変わらなかった'},{t:'（あれは 何だったんだろう）'},{t:'スマホの中のあの子に聞いてみる 答えは返ってこない'}];
-const REQUEST=[{bg:'out',t:'（気がついたら モールの隅のベンチに座ってた 自分の手だ）'},{who:'推しの声',t:'「…おつかれさま 今日 代わってくれて ありがとう」'},{who:'推しの声',t:'「うちの家系 たまにこういうことができる人がいるらしくて 詳しいことは おばあちゃんに聞かないと分かんないんだけど」'},{who:'推しの声',t:'「みんな 笑って帰ってくれてた」'},{who:'推しの声',t:'「あのね 私 人が多いと酔っちゃうの」'},{who:'推しの声',t:'「だから これからも お見送り 代わってくれないかな」'}];
+const REQUEST=[{bg:'out',t:'（気がついたら モールの隅のベンチに座ってた 自分の手だ）'},{who:'推しの声',t:'「…おつかれさま 今日 代わってくれて ありがとう」'},{who:'推しの声',t:'「みんな 笑って帰ってくれてた」'},{who:'推しの声',t:'「あのね 私 人が多いと酔っちゃうの」'},{who:'推しの声',t:'「だから これからも お見送り 代わってくれないかな」'}];
 const SAY={軽:['かわいい〜〜！！','今日も最高でした！','衣装めっちゃ似合ってる','髪型かわいい！','おつかれさま〜！','ダンスきれっきれでした'],ネタ:['今日も顔が天才','結婚してください！','推しが尊くて無理','寿命のびました','視力よくなった気がする'],深:['ずっと支えにしてます','しんどい時 歌に救われました','人生変わりました 本当に','5年間ずっと好きです'],静:['（無言でぺこりと会釈）','（手を振って通る）','（照れて俯く）'],推し:['ずっと推してます','一番好きです！','推しててよかった','一生ついていきます'],CD:['CD10枚買いました！','新曲毎日聴いてます','今日のBメロの表情 最高でした','新曲の振り付け好きです'],感謝:['いつもありがとう！','元気もらってます','笑顔に助けられてます','出会ってくれてありがとう'],遠征:['夜行バスで来ました！','北海道から来ました','始発で来ました！','遠征してきました！'],記念:['今日が初めてです！','今日で10回目です','受験おわって来ました','就職決まりました！']};
 const NEWSAY=['は はじめまして…！','あの 初めて来ました','初めてなんですけど…','え えっと はじめまして'];
 const GRPSAY=['いえーい！','みんなで来ました〜！','うちら全員推しです！','せーの かわいい〜！'];
@@ -507,6 +507,10 @@ function buildRun(total,seed){
   do{breakAt=Math.floor(U(bw[0],bw[1]));kidsAt=Math.floor(U(kw[0],kw[1]))}while((Math.abs(breakAt-kidsAt)<N*.08||slots.has(breakAt)||slots.has(kidsAt))&&g3++<500);
   // おまいつの5人は 必ず1回は話しかけてくる
   feat.forEach(x=>{const mine=seq.map((q,i)=>q.per===x?i:-1).filter(i=>i>4&&i<N-1&&i!==breakAt&&i!==kidsAt);if(mine.length&&!mine.some(i=>slots.has(i)))slots.add(mine[Math.floor(r()*mine.length)])});
+  // 始まる前に手を振りまくった分だけ 前半に話しかけてくる人が増える。その候補（実際に話しかけるかは始まった時に決める）
+  {const nB=Math.max(6,Math.round(20*k)),bonus=[];let g4=0;
+   while(bonus.length<nB&&g4++<3000){const i=4+Math.floor(r()*Math.max(1,Math.floor(N*.35)-4)),q=seq[i]&&seq[i].per;if(q&&!slots.has(i)&&!bonus.includes(i)&&i!==breakAt&&i!==kidsAt&&q.layer!=='cast'&&!q.tl&&!q.pal&&q!==last)bonus.push(i)}
+   bonus.sort((a,b)=>a-b).forEach((i,j)=>{slots.add(i);seq[i].bonus=j+1})}
   // 推し色の人
   const engPer=[...new Set([...slots].map(i=>seq[i].per))].filter(x=>!x.tl&&x!==last);
   {const safe=['#6B7280','#2F3A56','#F4F1EC','#C9B89A','#33383F','#8FA3B8'].filter(c=>!nearMC(c));[...people,last].forEach((x,k)=>{if(nearMC(x.p.cloth))x.p.cloth=safe[k%safe.length];if(nearMC(x.p.inn))x.p.inn='#F4F0EA'})}
@@ -523,10 +527,10 @@ function buildRun(total,seed){
     if(g.lap>=3&&['cardigan','blazer','check'].includes(p.top)&&!per.mc&&!per.tl&&r()<.08){if(!per.alt)per.alt=Object.assign({},p,{top:'tee',cloth:p.inn&&p.inn!=='#F4F0EA'?p.inn:'#D8D4CC',print:0,short:1,collarIn:0});g.alt=1}
     if(!slots.has(i))return;
     const e={};g.eng=e;const isLast=i===N-1,rep=g.lap>=2;
-    e.first=firstE;firstE=false;e.last=isLast;e.repeat=rep;
+    if(g.bonus){e.first=false;e.staller=false}else{e.first=firstE;firstE=false}e.last=isLast;e.repeat=rep;
     e.tone=W([['軽',3],['ネタ',2],['深',1.5],['静',2],['推し',2],['CD',4],['感謝',4],['遠征',1.5],['記念',1.5]]);
     e.pace=W([['normal',80],['fast',15],['slow',5]]);
-    e.staller=!e.first&&!isLast&&per.layer!=='cast'&&!rep&&!per.tl&&r()<.045;
+    e.staller=!g.bonus&&!e.first&&!isLast&&per.layer!=='cast'&&!rep&&!per.tl&&r()<.045;
     if(per.tl==='bd'&&!rep){e.tone='記念';e.say='今日ちょっと特別な日で'}
     else if(per.tl==='pm'&&!rep){e.tone='軽';e.say='ギリ間に合った…'}
     else if(isLast){e.tone='感謝';e.say='今日 来てよかったです'}
@@ -542,9 +546,8 @@ function buildRun(total,seed){
     e.approach=e.pace==='fast'?750:950;
     e.hasMC=!!per.mc;
     if(e.first)e.inner='';
-    else if(per.layer==='cast'&&!seenE.has(per))e.inner='（あっ いつも来てる人だ！ おまいつの人）';
-    else if(e.ann&&r()<.5)e.inner=`（あの${desc(p)}の人 さっきの人だ ${g.lap}周目…！）`;
-    else if(per.layer==='regular'&&!rep&&r()<.3)e.inner='（見たことある気がする）';
+    else if(per.layer==='cast'&&!seenE.has(per))e.inner='（いつもの人だ！）';
+    else if(e.ann&&r()<.5)e.inner=`（さっきの${desc(p)}の人だ ${g.lap}周目…！）`;
     else e.inner='';
     seenE.add(per)});
   return{seq,N,breakAt,kidsAt,nReal,nE,L,feat}}
@@ -596,7 +599,7 @@ const stage=()=>$('#stage');
 function curX(el){return parseFloat(getComputedStyle(el).left)/el.parentElement.clientWidth*100}
 function move(el,from,to,ms,ease){if(from==null)from=curX(el);if(el._a)el._a.cancel();el.style.left=from+'%';const a=el.animate([{left:from+'%'},{left:to+'%'}],{duration:Math.max(1,ms/SPEED),easing:ease||'linear',fill:'forwards'});el._a=a;return a.finished.then(()=>{el.style.left=to+'%'},()=>{})}
 function spawn(g,cls){const el=document.createElement('div');el.className='fan vis '+(cls||'');const p=g.alt&&g.per.alt&&!g.per.mc?g.per.alt:g.per.p;for(const q in p.mvars)el.style.setProperty(q,p.mvars[q]);
-  if(g.per.mc){el.classList.add('mcp');const late=G&&g.i>G.run.N*.8;el.style.setProperty('--pulse',g.eng?(G.mcSeen?(late?.45:.75):1.7):(late?.3:.5))}
+  if(g.per.mc){el.classList.add('mcp');const late=G&&g.i>G.run.N*.8;el.style.setProperty('--pulse',isEng(g)?(G.mcSeen?(late?.45:.75):1.7):(late?.3:.5))}
   el.innerHTML=`<div class="stp" style="--sp:${(.46+Math.random()*.16).toFixed(2)}s;animation-delay:-${Math.random().toFixed(2)}s"><svg viewBox="37 4 126 180" aria-hidden="true">${person(p)}</svg></div>`;if(g.per&&g.per.layer){const per=g.per;
     if(g.grp||g.tight)el.classList.add('pal');
     else if(per.layer==='new'&&g.lap===1&&!per.tl)el.classList.add('shy');
@@ -612,7 +615,7 @@ const bubbleOff=()=>{bubTok++;$('#bubble').classList.remove('show')};
 // むやみな連打：誰もいない所・振り終えた人・推し色でない人を続けて叩くと 挙動不審で少し怪しまれる
 const STRAY={t:[],cool:0};
 function stray(){if(!G||PAUSED||Q.cheerOK||$('#main').hidden||$('#over').classList.contains('show')||!$('#story').hidden)return;const n=performance.now();STRAY.t=STRAY.t.filter(x=>n-x<1200);STRAY.t.push(n);
-  if(STRAY.t.length>=3&&n>STRAY.cool){STRAY.cool=n+2000;STRAY.t=[];addSus(3,'flail');if(!G.toldFlail){G.toldFlail=1;inner('（やみくもに手を動かしてたら 変に見られる…ちゃんと相手を見なきゃ）')}}}
+  if(STRAY.t.length>=3&&n>STRAY.cool){STRAY.cool=n+2000;STRAY.t=[];addSus(3,'flail');if(!G.toldFlail){G.toldFlail=1;inner('（やみくもに振ると 変に見られる）')}}}
 function addSus(d,why){const s=G.sus;G.sus=Math.max(0,Math.min(100,G.sus+d));G.susMax=Math.max(G.susMax,G.sus);G.log.push({seq:G.i+1,delta:d,why});if(G.sus>s){const m=$('#mgr');m.classList.add('glare');clearTimeout(m._t);m._t=setTimeout(()=>m.classList.remove('glare'),1300)}}
 const FLOW=[];
 const faceSvg=p=>`<svg viewBox="37 4 126 180" preserveAspectRatio="xMidYMin slice" aria-hidden="true">${person(p)}</svg>`;
@@ -626,37 +629,40 @@ function guide(key,t,card){if(!G||G.guided[key])return;const el=$('#guide'),id=G
   const cb=card&&document.querySelector(`#cards button[data-v="${card}"]`);if(cb)cb.classList.add('tip');if(card==='all')$('#cards').classList.add('tipall');
   sleep(Math.max(2600,t.length*150)/SPEED).then(()=>{if(tok!==gTok)return;el.classList.remove('show');if(cb)cb.classList.remove('tip');$('#cards').classList.remove('tipall');gCur=null})}
 window.__wave=()=>waveTap();
-function waveTap(){if(Q.cheerOK){const n=performance.now();if(!Q.cheer||n-Q.cheer>450)Q.cheer=n}const f=FLOW.find(x=>!x.tapped);hands('two');if(f)f.wave();else if(!Q.cheerOK)stray()}
+function waveTap(){if(Q.cheerOK){const n=performance.now();if(!Q.cheer||n-Q.cheer>450)Q.cheer=n;if(G&&(!G.lastCheer||n-G.lastCheer>180)){G.lastCheer=n;G.cheerN=(G.cheerN||0)+1}}const f=FLOW.find(x=>!x.tapped);hands('two');if(f)f.wave();else if(!Q.cheerOK)stray()}
 function doFlow(g){const el=spawn(g);const mc=!!g.per.mc;G.st.flowTotal++;if(mc)G.st.mcTotal++;
   const f={el,tapped:false,seen:false};FLOW.push(f);
-  if(G.st.flowTotal===1){guide('wave','とりあえず みんなに手を振ってあげて！')}else if(FLOW.length>=3)guide('one','続けて来ても 一人ずつ ちゃんと振ってあげてね');
+  if(G.st.flowTotal===1){guide('wave','みんなに手を振ってあげて！')}else if(FLOW.length>=3)guide('one','一人ずつ振ってあげてね');
   f.wave=()=>{aim(el);if(!f.tapped){f.tapped=true;G.st.flowTap++;el.classList.add('waved');const sv=el.querySelector('svg');if(sv)sv.animate([{transform:'translateY(0)'},{transform:'translateY(-9px)'},{transform:'translateY(0)'}],{duration:340,easing:'ease-out'})}};
   el.style.cursor='pointer';
   // 客を押す操作を教える：押すまで 最初の3人まで 客の上に指の印を出す
   if(!G.guided.tapP&&(G.fingN||0)<3&&!mc){G.fingN=(G.fingN||0)+1;el.insertAdjacentHTML('beforeend','<i class="fing" aria-hidden="true"><svg viewBox="0 0 60 72"><path d="M18 8a6 6 0 0 1 12 0v22l2-1a6 6 0 0 1 8 3l2-1a6 6 0 0 1 8 3l1 0a6 6 0 0 1 7 6v12c0 10-8 18-18 18h-6c-6 0-10-3-13-8L9 50a6 6 0 0 1 9-7V8z" fill="#fff" stroke="#2B2540" stroke-width="3" stroke-linejoin="round"/></svg></i>')}
   if(mc&&!G.mcRing){G.mcRing=1;el.classList.add('tapme')}
   el._mcTap=mc;el._tap=()=>{if(!G.guided.tapP){G.guided.tapP=1;document.querySelectorAll('.fan .fing').forEach(x=>x.remove())}if(f.tapped&&(!mc||f.seen))stray();hands('two');f.wave();if(mc&&!f.seen){f.seen=true;el._mcTap=false;G.st.mcHit++;G.mcSeen=1;stars();hlPush('mc',fp(g),'（服を見たのに気づいて その場で小さく跳ねた）');el.classList.add('glad');el.querySelector('svg').animate([{transform:'translateY(0)'},{transform:'translateY(-14px)'},{transform:'translateY(0)'},{transform:'translateY(-8px)'},{transform:'translateY(0)'}],{duration:520,easing:'ease-out'});memo('（服を見たのに気づいて その場で小さく跳ねた）')}};
-  if(mc)guide('mc','あ 私の色の服を着てくれてる！ 気づいてあげて！');
+  if(mc)guide('mc','私の色の服を着てくれてる！');
   return move(el,112,-42,1900).then(()=>{const k=FLOW.indexOf(f);if(k>=0)FLOW.splice(k,1);if(!f.tapped&&!f.ex)G.st.flowMiss++;el.remove()})}
 // 列の間隔：等間隔にしない。数人が詰まって来る／ふっと空く／ふつう、を混ぜる
 function gapMaker(seed){const r=mul(seed+991);let left=0,kind='n';return late=>{if(left<=0){const x=r();kind=x<.38?'b':x<.6?'l':'n';left=kind==='b'?2+Math.floor(r()*4):kind==='l'?1:1+Math.floor(r()*3)}left--;
   const v=kind==='b'?560+r()*220:kind==='l'?1700+r()*900:820+r()*420;return v*(late?.85:1)}}
+// 始まる前の手振り：3回までは何も起きず、そこから2回ごとに 前半の話しかけてくる人が1人増える
+function setExtra(){if(G)G.extra=Math.max(0,Math.floor(((G.cheerN||0)-3)/2))}
+const isEng=g=>!!g.eng&&!(g.bonus>((G&&G.extra)||0));
 function doEngage(g){let decided;const dp=new Promise(r=>decided=r);const done=engageBody(g,decided).then(decided,decided);return{dp,done}}
 async function engageBody(g,decided){const e=g.eng,el=spawn(g);
-  if(e.first)guide('eng','話しかけてくれたら ちゃんと返してあげて！','all');
-  else if(e.hasMC)guide('mc','あ 私の色の服を着てくれてる！ 気づいてあげて！');
-  else if(e.staller)guide('stall','立ち止まっちゃう人は スタッフさんに任せて大丈夫');
-  else if(e.ann)guide('rep','さっきも来てくれた人！ 覚えてるよって伝えてあげて','k');
-  else if(e.kind==='grp')guide('grp','連れで来てる子たちは 一緒に盛り上がってあげて！','n');
-  else if(e.kind==='new')guide('new','初めての人には にっこりね 知ってる風に話すと びっくりしちゃうから','s');
-  else if(e.kind==='cast')guide('cast','この人 いつも来てくれるの “おまいつ”さん ノリよく返すと喜ぶよ','n');
-  else if(e.tone==='深')guide('deep','大事な話をしてくれてる ふざけないで 最後まで聞いてあげて','l');
-  else if(e.silent)guide('sil','緊張して何も言えない人には にっこりしてあげて','s');
-  else if(e.tone==='感謝'||e.tone==='推し')guide('listen','気持ちを伝えてくれる人の話は 最後まで聞いてあげて','l');
-  else if(e.tone==='CD'||e.tone==='遠征'||e.tone==='記念')guide('info','「〜しました」って教えてくれた人には その人への言葉で返してあげて','k');G.st.engTotal++;if(e.ann)G.st.repeatTotal++;if(e.hasMC)G.st.mcTotal++;if(g.per.feat)G.st.omaiTotal++;
+  if(e.first)guide('eng','話しかけられたら 返してあげて！','all');
+  else if(e.hasMC)guide('mc','私の色の服を着てくれてる！');
+  else if(e.staller)guide('stall','止まる人は スタッフさんに任せてね');
+  else if(e.ann)guide('rep','また来てくれた人だよ 覚えてるって伝えて','k');
+  else if(e.kind==='grp')guide('grp','連れの子たちとは 一緒に盛り上がって！','n');
+  else if(e.kind==='new')guide('new','初めての人には にっこりしてあげて','s');
+  else if(e.kind==='cast')guide('cast','いつも来てくれる人だよ ノリよく返してね','n');
+  else if(e.tone==='深')guide('deep','大事な話だよ 最後まで聞いてあげて','l');
+  else if(e.silent)guide('sil','緊張してる人には にっこりしてあげて','s');
+  else if(e.tone==='感謝'||e.tone==='推し')guide('listen','気持ちは 最後まで聞いてあげて','l');
+  else if(e.tone==='CD'||e.tone==='遠征'||e.tone==='記念')guide('info','教えてくれたことに 言葉で返してあげて','k');G.st.engTotal++;if(e.ann)G.st.repeatTotal++;if(e.hasMC)G.st.mcTotal++;if(g.per.feat)G.st.omaiTotal++;
   G.waveRes=null;memo('');inner('');
   let mv=null;if(e.staller)await move(el,112,62,e.approach,'ease-out');else{mv=move(el,112,-6,e.approach+e.windowMs).then(()=>null);el.classList.add('cling');await sleep(230/SPEED)}
-  bubble(e.say,el);inner(e.hasMC&&!G.mcSeen?'（あ 今の色…！）':e.inner);
+  bubble(e.say,el);$('#guide').classList.remove('show');inner(e.inner);
   $('#wave .hint').classList.remove('show');{const cd=$('#cards');cd.classList.add('show','arm');sleep(300).then(()=>cd.classList.remove('arm'))}FLOW.forEach(f=>f.ex=1);
   let res;const pickP=new Promise(r=>res=r);G.cardRes=v=>res(v);el.style.cursor='pointer';if(e.hasMC&&!G.mcRing2){G.mcRing2=1;el.classList.add('tapme')}el._mcTap=!!e.hasMC;el._tap=()=>{if(e.hasMC)res('mc');else stray()};
   let choice=null;
@@ -669,27 +675,27 @@ async function engageBody(g,decided){const e=g.eng,el=spawn(g);
   G.cardRes=null;el._tap=null;el._mcTap=false;$('#cards').classList.remove('show');decided();
   const cast=g.per.layer==='cast';let out,txt;
   if(e.hasMC)G.mcSeen=1;
-  if(choice===null){G.st.pass++;txt='（目が合わないまま通り過ぎていった）';out='pass'}
-  else if(choice==='mc'){G.st.mcHit++;G.st.good++;out='good';txt='（服を見た瞬間 目を見開いて 両手で口を覆った）';stars()}
+  if(choice===null){G.st.pass++;txt='（目が合わないまま行っちゃった）';out='pass'}
+  else if(choice==='mc'){G.st.mcHit++;G.st.good++;out='good';txt='（服を見たら 口を覆って喜んだ）';stars()}
   else{const v=e.kind==='cast'?{s:1,k:1,n:2,l:1}[choice]:e.kind==='new'?{s:2,k:0,n:1,l:1}[choice]:e.kind==='grp'?{s:1,k:0,n:2,l:0}[choice]:TBL[e.tone][choice];
     if(choice==='l')stage().animate([{transform:'translateY(0)'},{transform:'translateY(6px)'},{transform:'translateY(0)'},{transform:'translateY(4px)'},{transform:'translateY(0)'}],{duration:560,easing:'ease-in-out'});else if(choice==='n')hands('one');else if(choice==='s')stars();
     const unlike=false;
     if(e.tone==='深'&&choice==='n')addSus(6,'deep-accident');
     if(cast&&e.ann&&choice!=='k'&&!g.per.caught){g.per.caught=1;addSus(12,'cast-contradiction')}
-    if(e.ann&&choice==='k'){out='good';G.st.good++;G.st.repeatHit++;txt='（「え 覚えて…？」って顔のまま口元おさえて出ていった）'}
-    else if(v===2){out='good';G.st.good++;txt=e.last?'（今日いちばんの顔で出ていった気がする）':e.silent?'（嬉しそうに小さく振り返して去っていった）':'（ぱっと顔が明るくなって弾む足取りで出ていった）'}
-    else if(v===1){out='neutral';G.st.neutral++;txt='（にこにこ会釈して流れていった）'}
-    else{out='bad';G.st.mismatch++;txt='（一瞬 間があった気がする …笑ってはくれたけど）';
-      if(e.kind==='new'&&choice==='k'){txt='（「え 誰かと間違えられてる…？」って顔になって 小さく会釈して出ていった）';addSus(5,'new-individual');if(!G.toldNew){G.toldNew=1;setTimeout(()=>inner('（初めての人に 知ってる風に返したら変か…）'),600)}}
-      if(e.kind==='grp'&&choice==='k'){txt='（一人にだけ長く返してたら 連れの子が先に流されて 慌てて追いかけていった）';if(!G.toldGrp){G.toldGrp=1;setTimeout(()=>inner('（連れで来てる子は 軽く返して流してあげた方がいいのか）'),600)}}}
-    if(out==='good'&&e.kind==='grp')txt='（連れの子たちと顔を見合わせて わーっと笑いながら出ていった）';
-    if(g.per.feat&&choice==='k'){if(out==='bad')G.st.mismatch--;else if(out==='neutral')G.st.neutral--;if(out!=='good')G.st.good++;out='good';G.st.omai++;stars();txt='（「えっ 覚えてくれてる…！？」 目を丸くして 何度も振り返りながら出ていった）';if(!G.toldOmai){G.toldOmai=1;setTimeout(()=>inner('（おまいつの人だ 顔を覚えててよかった）'),500)}}
+    if(e.ann&&choice==='k'){out='good';G.st.good++;G.st.repeatHit++;txt='（「覚えて…？」って顔で出ていった）'}
+    else if(v===2){out='good';G.st.good++;txt=e.last?'（今日いちばんの顔だった）':e.silent?'（小さく振り返してくれた）':'（ぱっと明るい顔で出ていった）'}
+    else if(v===1){out='neutral';G.st.neutral++;txt='（にこにこ会釈して行った）'}
+    else{out='bad';G.st.mismatch++;txt='（一瞬 間があった）';
+      if(e.kind==='new'&&choice==='k'){txt='（「誰かと間違えてる…？」って顔をした）';addSus(5,'new-individual');if(!G.toldNew){G.toldNew=1;setTimeout(()=>inner('（初めての人に 知ってる風は変か…）'),600)}}
+      if(e.kind==='grp'&&choice==='k'){txt='（連れの子が先に流されていった）';if(!G.toldGrp){G.toldGrp=1;setTimeout(()=>inner('（連れの子には 軽く返すのがいいのか）'),600)}}}
+    if(out==='good'&&e.kind==='grp')txt='（みんなで笑いながら出ていった）';
+    if(g.per.feat&&choice==='k'){if(out==='bad')G.st.mismatch--;else if(out==='neutral')G.st.neutral--;if(out!=='good')G.st.good++;out='good';G.st.omai++;stars();txt='（「覚えてくれてる…！？」って振り返った）';if(!G.toldOmai){G.toldOmai=1;setTimeout(()=>inner('（顔を覚えててよかった）'),500)}}
     if(out==='good'&&!unlike){G.streak++;if(G.streak%3===0)addSus(-2,'good-streak')}else G.streak=0;
-    if(g.per.tl&&choice==='k'&&!e.repeat){txt='（知らないはずのことまで口にしてしまった 「え なんで知って…」と固まった）'}}
+    if(g.per.tl&&choice==='k'&&!e.repeat){txt='（「え なんで知って…」と固まった）'}}
   if(choice==='mc')hlPush('mc',fp(g),e.say);else if(g.per.feat&&choice==='k')hlPush('omai',fp(g),e.say);else if(e.ann&&choice==='k')hlPush('rep',fp(g),e.say);else if(out==='good')hlPush('good',fp(g),e.say);
   {const b=bestOf(e,g);const miss=out==='bad'||out==='pass'||(e.hasMC&&choice!=='mc')||(e.ann&&choice!=='k'&&choice!=='mc');
    if(miss)G.rev.push({p:g.alt&&g.per.alt&&!g.per.mc?g.per.alt:g.per.p,seq:g.i+1,say:e.say,choice,best:b.best,why:b.why})}
-  memo(txt);if(e.first)inner('（…今ので合ってたのか？ 顔を見るしかない）');
+  memo(txt);if(e.first)inner('（今ので合ってた？ 顔を見るしかない）');
   bubbleOff();await move(el,null,-46,out==='pass'?600:e.pace==='fast'?550:850,'ease-in');el.remove()}
 // ---- 壁の時計：14:44:00 から本物の速さで進む。一時停止の間は止まる
 const CLK={on:false,acc:0,last:0,w:[],tk:0};
@@ -702,39 +708,48 @@ function clkStart(at){CLK.acc=at;{const c=$("#clock");if(c)c.classList.remove("r
 function goSignal(){const c=$("#clock");if(!c)return;c.classList.remove("ring");void c.offsetWidth;c.classList.add("ring");sleep(1000).then(()=>c.classList.add("gone"))}
 function clkStop(){CLK.on=false;CLK.w=[]}
 const clkAt=t=>new Promise(r=>{if(CLK.acc>=t)r();else CLK.w.push({t,r})});
-const OPEN=[{t:"（拍手 鳴り止まない …え 目線が高い）"},{t:"（手が細い 衣装の袖 …これ 推しのあの子の手だ）",look:1},{who:"スタッフ",t:"「このあとお見送り会を行います 参加券をお持ちの方はこちらにお並びくださーい！」"},{t:"（何が起きてるのか分からないけど ここで騒いで中止にでもなったら 売上に影響が出てしまう！？）"},{t:"（………やるしかない）"},{who:"スタッフ",t:"「お客様 止まらず歩きながらでお願いしまーす！」"},{t:"（あの子のお見送り 行った人はみんな「一人一人にまっすぐありがとうって言ってくれる」って言ってた）"},{t:"（だったら 笑顔で返す ちゃんと言葉で返す 話に乗る あとは手を振る このへんか）"},{t:"（自分の色の服の人がいたら 気づいてあげよう）"},{t:"（…とりあえず これで乗り切ろう）"}];
-const OSHI=[[3,"これからお見送り会だよ 券を持ってきてくれた人を 一人ずつ見送るの"],[12,"とりあえず みんなに手を振ってあげて！"],[21,"話しかけてくれたら ちゃんと返してあげて！"],[30,"気持ちを伝えてくれる人の話は 最後まで聞いてあげて"],[39,"初めての人には にっこりね 知ってる風に話すと びっくりしちゃうから"],[48,"立ち止まっちゃう人は スタッフさんに任せて大丈夫"]];
-function oshiTalk(id){OSHI.forEach(([t,x],k)=>clkAt(t).then(()=>{if(id===runId&&CLK.acc<60)guide("o"+k,x)}))}
+const OPEN=[{who:"スタッフ",t:"「このあとお見送り会を行います 参加券をお持ちの方はこちらにお並びくださーい！」"},{who:"スタッフ",t:"「お客様 止まらず歩きながらでお願いしまーす！」"}];
+// 始まる前の推しの声は1つだけ。スタッフの2行を読み終えた時か 14:44:50 の早い方で出す
+function oshiTalk(id,early){const go=()=>{if(id===runId&&CLK.acc<60)guide("wave","みんなに手を振ってあげて！")};clkAt(50).then(go);early.then(go)}
 // 14:45:00 になったら 読んでいる途中でも打ち切って始める。読み終えたら 14:45 まで待つ
 async function doOpen(id){const o=$("#over"),dlg=$("#odlg"),at=clkAt(60);let cut=false;at.then(()=>{cut=true});
-  o.className="show soft";$("#ochoices").innerHTML="";dlg.hidden=false;inner("");memo("");$("#main").classList.add("open");oshiTalk(id);
-  for(const L of OPEN){if(cut||id!==runId)break;$("#hands").classList.toggle("look",!!L.look);dlg.querySelector(".who").textContent=L.who||"";const tx=dlg.querySelector(".tx");phr(tx,L.t);tx.classList.remove("pop");void tx.offsetWidth;tx.classList.add("pop");
+  o.className="show soft";$("#ochoices").innerHTML="";dlg.hidden=false;inner("");memo("");$("#main").classList.add("open");let readDone;oshiTalk(id,new Promise(r=>readDone=r));
+  for(const L of OPEN){if(cut||id!==runId)break;dlg.querySelector(".who").textContent=L.who||"";const tx=dlg.querySelector(".tx");phr(tx,L.t);tx.classList.remove("pop");void tx.offsetWidth;tx.classList.add("pop");
     await Promise.race([sleep(180),at]);if(cut)break;await Promise.race([nextTap(o),at]);taps.delete(o)}
-  taps.delete(o);o.className="";$("#hands").classList.remove("look");if(!cut&&id===runId){inner(OPEN[OPEN.length-1].t);$("#wave .hint").classList.add("show");Q.cheerOK=true}
-  await at;Q.cheerOK=false;$("#main").classList.remove("open");if(id!==runId)return;inner("");goSignal()}
+  taps.delete(o);o.className="";readDone();if(!cut&&id===runId){$("#wave .hint").classList.add("show");Q.cheerOK=true}
+  await at;Q.cheerOK=false;setExtra();$("#main").classList.remove("open");if(id!==runId)return;inner("");goSignal()}
 async function overSay(who,t){const o=$('#over');await say(o,$('#odlg'),who,t)}
 async function doBreak(){const o=$('#over');o.className='show';$('#ochoices').innerHTML='';inner('');memo('');
   await overSay('スタッフ','「一度止めまーす！」');
   const hot=G.sus>=40;$('#mgr').classList.add('glare');
   await overSay('マネージャー',hot?'「…ねえ さっきから何回か いつもと違う 返し してるよね」':'「ねえ …今日なんか変じゃない？」');
   $('#odlg').hidden=true;const c=await choose($('#ochoices'),[{t:'とぼける',v:'dodge'},{t:'ごまかす',v:'excuse'},{t:'黙る',v:'silence'}]);$('#odlg').hidden=false;G.breakChoice=c;
-  if(c==='silence'){addSus(10,'break');await overSay('マネージャー','「…黙るんだ。ふーん」')}else await overSay('マネージャー',hot?'「…ま 水飲みな。あとで話そ」':'「ふーん …ま いっか 水飲みな」');
+  if(c==='silence'){addSus(10,'break');await overSay('マネージャー','「…黙るんだ。ふーん」')}else await overSay('マネージャー',hot?'「…そっか。お水 置いとくね あとで少し話そう」':'「そっか …お水 置いとくね」');
   $('#mgr').classList.remove('glare');
   await overSay('','（冷たい …生き返る） 列は止まったままこっちを見てる');
   hands('two');await overSay('','（列の前の方の人たちが いっせいに手を振り返してくれた）');
   await overSay('スタッフ','「再開しまーす！」');o.className=''}
+// 子ども：未就学の男の子／未就学の女の子／小学校低学年 のどれか。大人を縮めるのでなく 顔の形と部品の大きさから描き分ける
+function child(r,base){const v=r()<.34?'a':r()<.5?'b':'c',girl=v==='b'||(v==='c'&&r()<.5),pre=v!=='c';let kid;
+  for(let k=0;k<400;k++){kid=gen(base+k,'round');if(!!kid.female===girl&&kid.age==='y'&&kid.hairT==='gen'&&!kid.buzz)break}
+  const P=pre?{cw:25.5,len:.8,eyeY:4.8,ea:6.1,eo:3.1,lo:3.8,ir:.6,nw:2.0,mw:4.0,sw:36,nl:4,h:102}:{cw:24.5,len:.86,eyeY:3.4,ea:5.6,eo:2.7,lo:3.2,ir:.55,nw:2.4,mw:4.6,sw:40,nl:6,h:112};
+  Object.assign(kid,P,{jw:P.cw-1.6,chin:5,k1:.68,k2:.97,neck:.42,browTh:.5,browY:-1.6,old:0,bags:0,stubble:0,glasses:0,grin:0,exp:'smile',cA:-1.2,cB:-1.2,dp:.5,sock:.14,mole:0,
+    top:'tee',cloth:['#F2B33D','#6FC3E8','#F28AA8','#8BD17C','#F59A5B'][Math.floor(r()*5)],print:0,short:1,inn:0,collarIn:0},girl?{hl:'chin',fr:'bangs'}:{hl:'ear',fr:'bangs'});
+  return kid}
 async function doKids(){const o=$('#over');const r=mul(G.seed+77);
-  const off=Math.floor(r()*9000);let mom,kid;for(let k=0;k<400;k++){mom=gen(40000+off+k);if(mom.female&&mom.age!=='o'&&mom.hairT!=='wavy')break}for(let k=0;k<400;k++){kid=gen(50000+off+k,'round');if(kid.age==='y'&&kid.hairT==='gen'&&!kid.buzz&&!kid.stubble&&kid.top!=='blazer'&&kid.top!=='shirt')break}Object.assign(kid,{h:118,old:0,bags:0,stubble:0,glasses:0,grin:0,exp:'smile',cA:-1.2,cB:-1.2,dp:.5,sock:.14,mole:0});
+  const off=Math.floor(r()*9000);let mom,kid;for(let k=0;k<400;k++){mom=gen(40000+off+k);if(mom.female&&mom.age!=='o'&&mom.hairT!=='wavy')break}kid=child(r,50000+off);
   const a=spawn({per:{p:mom},i:G.i}),b=spawn({per:{p:kid},i:G.i},'kid');a.style.zIndex=1;
   inner('');memo('');
-  await Promise.all([move(a,112,34,1900,'ease-out'),move(b,125,62,1900,'ease-out')]);
+  await Promise.all([sleep(1100/SPEED).then(()=>move(a,112,72,1700,'ease-out')),move(b,125,40,1900,'ease-out')]);// 子どもが先に来て 保護者はあとから
   o.className='show soft';$('#ochoices').innerHTML='';
-  await overSay('','（！？ 列が止まった 休憩か？ あ 子連れだから ゆっくり話させてあげるんだ！ やさしいな〜）');
+  await overSay('','（列が止まった …子連れだから ゆっくり話させてあげるんだ）');
   await overSay('','（スタッフがすっと一歩さがった）');b.classList.add('on');
   await overSay('こども','「…だ だいすきです！」');b.classList.remove('on');
-  $('#odlg').hidden=true;const c=await choose($('#ochoices'),[{t:'しゃがんで目を合わせる',v:'look'},{t:'「来てくれてありがとう」って言う',v:'thanks'},{t:'いっぱい手を振る',v:'wave'}]);$('#odlg').hidden=false;G.kidsChoice=c;hlPush('kids',kid,'…だ だいすきです！');
-  if(c==='wave')hands('two');
-  await overSay('',c==='look'?'（しゃがんで目を合わせたら 真っ赤になって ぶんぶん頷いた）':c==='thanks'?'（「来てくれてありがとう」 お母さんの方が泣きそうになってた）':'（両手いっぱいで振り返してくれた ちいさい手だった）');
+  // 選ばせずに 3つとも順にやる（実際のお見送りでも全部するため）
+  G.kidsChoice='all';hlPush('kids',kid,'…だ だいすきです！');
+  await overSay('','（しゃがんで目を合わせたら 真っ赤になって ぶんぶん頷いた）');
+  await overSay('','（「来てくれてありがとう」 お母さんの方が泣きそうになってた）');
+  hands('two');await overSay('','（両手いっぱいで振り返してくれた ちいさい手だった）');
   await overSay('','（お母さんが深々と頭下げて ふたりゆっくり出てった） 後ろの大人たちが目を細めて見てる');
   o.className='';await Promise.all([move(a,null,-46,2700,'ease-in'),move(b,null,-30,2700,'ease-in')]);a.remove();b.remove()}
 // ---- 1回の流れ
@@ -744,18 +759,18 @@ async function runGame(total,o={}){const id=++runId;CLIP.tok++;SPEED=window.__sp
   G={id,seed,total,hl:[],guided:o.skipIntro&&G&&G.guided?{...G.guided}:{},rev:[],run:run0,i:0,sus:0,susMax:0,log:[],recent:[],streak:0,mcSeen:0,st:{good:0,neutral:0,mismatch:0,pass:0,pushed:0,omai:0,omaiTotal:0,mcHit:0,mcTotal:0,flowTap:0,flowMiss:0,flowTotal:0,repeatHit:0,repeatTotal:0,engTotal:0}};
   window.__G=G;FLOW.length=0;awake(true);store.set('oshiten_seen','1');
   setLine(run0,-1);queueOn($('#qcv'));
-  show('main');stage().querySelectorAll('.fan').forEach(e=>e.remove());bubbleOff();inner('');memo('');$('#cards').classList.remove('show');$('#over').className='';$("#wave .hint").classList.toggle("show",!!o.skipIntro);clkStart(o.skipIntro?50:0);
+  show('main');stage().querySelectorAll('.fan').forEach(e=>e.remove());bubbleOff();inner('');memo('');$('#cards').classList.remove('show');$('#over').className='';$("#wave .hint").classList.toggle("show",!!o.skipIntro);clkStart(o.skipIntro?50:30);
   // 開いたらすぐ列。事情は最初の数人のあいだ、心の声として流す【仮：どの行を残すか】
     if(!o.skipIntro){await doOpen(id);if(id!==runId)return;$('#wave .hint').classList.add('show');await Promise.race([ready,sleep(2500)]);await sleep(1200/SPEED)}
-  else{Q.cheerOK=true;await clkAt(60);Q.cheerOK=false;if(id!==runId)return;goSignal();await Promise.race([ready,sleep(2500)]);await sleep(1200/SPEED)}
+  else{Q.cheerOK=true;await clkAt(60);Q.cheerOK=false;setExtra();if(id!==runId)return;goSignal();await Promise.race([ready,sleep(2500)]);await sleep(1200/SPEED)}
   if(id!==runId)return;
   const run=G.run;let lateSaid=false;const gap=gapMaker(seed),pend=new Set();const clear=()=>Promise.all([...pend]);
   for(let i=0;i<run.N;i++){if(id!==runId)return;const g=run.seq[i];
     if(i===run.breakAt){await clear();if(id!==runId)return;G.i=i;await doBreak();if(id!==runId)return}
     if(i===run.kidsAt){await clear();if(id!==runId)return;G.i=i;await doKids();if(id!==runId)return}
     $('#mgr').classList.toggle('peek',i%14<3);
-    if(!lateSaid&&i>run.N*.8&&!g.eng){lateSaid=true;inner('（後半 知ってる顔しかいない みんな何周目なんだ）')}
-    if(g.eng){G.i=i;setLine(run,i);g.per.passed=1;const E=doEngage(g);pend.add(E.done);E.done.then(()=>pend.delete(E.done));await E.dp;if(id!==runId)return;await sleep((240+Math.random()*460)/SPEED)}
+    if(!lateSaid&&i>run.N*.8&&!isEng(g)){lateSaid=true;inner('（後半 知ってる顔ばっかりだ）')}
+    if(isEng(g)){G.i=i;setLine(run,i);g.per.passed=1;const E=doEngage(g);pend.add(E.done);E.done.then(()=>pend.delete(E.done));await E.dp;if(id!==runId)return;await sleep((240+Math.random()*460)/SPEED)}
     else{G.i=i;setLine(run,i);g.per.passed=1;if(G.st.flowTotal===6)$('#wave .hint').classList.remove('show');const p=doFlow(g);pend.add(p);p.then(()=>pend.delete(p));const gp=gap(i>run.N*.8);await sleep((g.tight?330:i<3&&!o.skipIntro?1500:gp)/SPEED)}}
   await clear();
   if(id!==runId)return;
