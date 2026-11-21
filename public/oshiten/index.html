@@ -85,6 +85,7 @@ button:focus-visible{outline:3px solid #6B5BD6;outline-offset:2px}
 #over{position:absolute;inset:0;z-index:8;display:none;flex-direction:column;justify-content:flex-end;background:rgba(30,24,44,.28)}
 #over.show{display:flex}
 #over.soft{background:rgba(255,246,236,.24)}
+#main.open #over{pointer-events:none}#main.open #over .dlg{pointer-events:auto}
 /* 結果 */
 #result{background:linear-gradient(#FFF7EF,#F3ECF6);padding:22px 18px;overflow:auto}
 #result h2{margin:6px 0 2px;font-size:22px}

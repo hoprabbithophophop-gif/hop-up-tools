@@ -716,7 +716,8 @@ async function oshiTalk(id,early){const ok=()=>id===runId&&CLK.acc<60;await Prom
   for(const[t,x]of OSHI){await Promise.all([clkAt(t),early]);if(!ok())return;guide("o"+t,x)}}
 // 14:45:00 になったら 読んでいる途中でも打ち切って始める。読み終えたら 14:45 まで待つ
 async function doOpen(id){const o=$("#over"),dlg=$("#odlg"),at=clkAt(60);let cut=false;at.then(()=>{cut=true});
-  o.className="show soft";$("#ochoices").innerHTML="";dlg.hidden=false;inner("");memo("");$("#main").classList.add("open");let readDone;oshiTalk(id,new Promise(r=>readDone=r));
+  o.className="show soft";$("#ochoices").innerHTML="";dlg.hidden=false;inner("");memo("");$("#main").classList.add("open");Q.cheerOK=true;// 始まった時から 並んでいる客の顔を押せば手を振れる。読み進めるのはスタッフの話の枠を押した時だけ
+  let readDone;oshiTalk(id,new Promise(r=>readDone=r));
   for(const L of OPEN){if(cut||id!==runId)break;dlg.querySelector(".who").textContent=L.who||"";const tx=dlg.querySelector(".tx");phr(tx,L.t);tx.classList.remove("pop");void tx.offsetWidth;tx.classList.add("pop");
     await Promise.race([sleep(180),at]);if(cut)break;await Promise.race([nextTap(o),at]);taps.delete(o)}
   taps.delete(o);o.className="";readDone();if(!cut&&id===runId){$("#wave .hint").classList.add("show");Q.cheerOK=true}
