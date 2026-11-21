@@ -64,7 +64,7 @@ button:focus-visible{outline:3px solid #6B5BD6;outline-offset:2px}
 #ctl{position:relative;flex:1;display:flex;flex-direction:column;background:linear-gradient(#FBF7F2,#F1EAF4);border-top:1px solid rgba(40,30,60,.08);min-height:0}
 #inner{padding:8px 14px 2px;font-size:14.5px;font-weight:700;line-height:1.5;min-height:48px;color:#4A4460;text-wrap:pretty}
 #memo{padding:0 14px 4px;font-size:13px;line-height:1.45;min-height:22px;color:#7A7390}
-#wave{position:relative;flex:1;margin:0 10px 10px;border-radius:18px;background:rgba(232,76,122,.07);border:2px dashed rgba(232,76,122,.28);display:flex;align-items:center;justify-content:center;font-weight:800;color:rgba(232,76,122,.75);font-size:15px;overflow:hidden;min-height:110px}
+#wave{position:relative;flex:1;margin:0 10px 10px;border-radius:18px;border:2px solid transparent;display:flex;align-items:center;justify-content:center;font-weight:800;color:rgba(232,76,122,.75);font-size:15px;overflow:hidden;min-height:110px}
 
 #wave .hint{display:none}
 #cards{position:absolute;inset:0;padding:6px;background:#F6EEF4;border-radius:16px;display:none;grid-template-columns:1fr 1fr;gap:8px;z-index:2}
@@ -188,8 +188,7 @@ html,body{-webkit-text-size-adjust:100%;touch-action:manipulation}
 #mcchip i,#quit[data-arm],#guide{background:var(--mc)}
 #quit[data-arm],#guide{color:var(--mct)}
 #rrev .ok{color:var(--mc)}
-#wave{background:color-mix(in srgb,var(--mc) 8%,transparent);border-color:color-mix(in srgb,var(--mc) 32%,transparent);color:color-mix(in srgb,var(--mc) 78%,#2B2540)}
-#wave:active{background:color-mix(in srgb,var(--mc) 15%,transparent)}
+#wave{color:color-mix(in srgb,var(--mc) 78%,#2B2540)}
 #wave .rip{border-color:color-mix(in srgb,var(--mc) 75%,transparent)}
 
 #mcrow{display:flex;flex-direction:column;align-items:center;gap:5px;margin-bottom:8px;background:rgba(255,255,255,.86);border-radius:16px;padding:6px 12px 8px;box-shadow:0 3px 10px rgba(40,30,60,.12)}
