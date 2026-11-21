@@ -909,7 +909,7 @@ function previewLoop(){const tok=++CLIP.tok,c=$('#shcv').getContext('2d');let t0
 document.addEventListener('visibilitychange',()=>{if(document.hidden||$('#result').hidden)return;if(CLIP.retry){CLIP.retry=false;makeClip()}else if(CLIP.blob&&CLIP.P)previewLoop()});
 // ---- 起動
 bindTap($('#story'));bindTap($('#over'));
-$('#wave').addEventListener('pointerdown',e=>{if(e.target.closest('#cards'))return;if(PAUSED)return;{const w=e.currentTarget,b=w.getBoundingClientRect(),s=document.createElement('i');s.className='rip';s.style.left=(e.clientX-b.left)+'px';s.style.top=(e.clientY-b.top)+'px';w.appendChild(s);setTimeout(()=>s.remove(),520);try{navigator.vibrate&&navigator.vibrate(8)}catch(_){}}if(G&&!$('#main').hidden&&!$('#cards').classList.contains('show'))waveTap()});
+// 下の枠は返し方のボタンを出す場所だけにする。手を振るのは客の顔を押した時だけ（下の枠を押しても何も起きない）
 $('#stage').addEventListener('pointerdown',e=>{if(PAUSED||!G||e.target.closest('button'))return;if(Q.cheerOK){waveTap();return}// 始まる前は 並んでいる客を押しても手を振れる
   const fs=[...new Set(document.elementsFromPoint(e.clientX,e.clientY).map(x=>x.closest&&x.closest('.fan')).filter(Boolean))];const t=fs[0];if(t&&t._tap)t._tap();else stray()});
 $('#cards').addEventListener('pointerdown',e=>{const b=e.target.closest('button');if(b&&G&&G.cardRes&&!PAUSED&&!$('#cards').classList.contains('arm')){try{navigator.vibrate&&navigator.vibrate(12)}catch(_){}G.cardRes(b.dataset.v)}});

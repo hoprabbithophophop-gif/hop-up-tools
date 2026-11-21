@@ -65,8 +65,8 @@ button:focus-visible{outline:3px solid #6B5BD6;outline-offset:2px}
 #inner{padding:8px 14px 2px;font-size:14.5px;font-weight:700;line-height:1.5;min-height:48px;color:#4A4460;text-wrap:pretty}
 #memo{padding:0 14px 4px;font-size:13px;line-height:1.45;min-height:22px;color:#7A7390}
 #wave{position:relative;flex:1;margin:0 10px 10px;border-radius:18px;background:rgba(232,76,122,.07);border:2px dashed rgba(232,76,122,.28);display:flex;align-items:center;justify-content:center;font-weight:800;color:rgba(232,76,122,.75);font-size:15px;overflow:hidden;min-height:110px}
-#wave:active{background:rgba(232,76,122,.13)}
-#wave .hint{opacity:0;transition:opacity .3s}#wave .hint.show{opacity:1}
+
+#wave .hint{display:none}
 #cards{position:absolute;inset:0;padding:6px;background:#F6EEF4;border-radius:16px;display:none;grid-template-columns:1fr 1fr;gap:8px;z-index:2}
 #cards.show{display:grid}
 #cards button{color:var(--ink);background:#fff;border-radius:14px;font-weight:800;font-size:17px;box-shadow:0 4px 0 rgba(40,30,60,.16);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:48px}
